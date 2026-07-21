@@ -24,9 +24,12 @@ class CryptoEncryptionTest {
     }
 
     @Test
-    void roundTrips_nonAsciiValue_regardlessOfPlatformCharset() {
-        // The bug this guards: encrypt used the platform-default charset, so a
-        // non-ASCII secret could round-trip incorrectly on a non-UTF-8 JVM.
+    void roundTripsNonAsciiValue() {
+        // Same-JVM round-trip smoke test for non-ASCII secrets. Note: this can't by
+        // itself distinguish the fix from the bug — with a *single* consistent
+        // charset both encrypt and decrypt agree, so it passes either way. The real
+        // value of pinning UTF-8 is deterministic behaviour across JVMs / interop;
+        // this just guards that non-ASCII input survives the round-trip at all.
         CryptoEncryption crypto = crypto();
         String secret = "clé-très-secrète_日本語_🔐";
 
