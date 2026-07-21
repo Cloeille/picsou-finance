@@ -295,6 +295,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   account cards and history. A guarded migration also restores per-position EUR
   values from early connector data only when every stored price reconciles with
   the broker's account total minus cash; ambiguous legacy quotes remain unset.
+- **Opening `/login` after a restart no longer flashes the form when you have a
+  session.** `isAuthenticated` mirrors `sessionStorage`, which is wiped on every
+  tab/browser close — but the HttpOnly cookies can keep a "Remember Me" session
+  alive for 90 days. Only `RequireAuth` probed the cookie-backed session, so
+  navigating straight to `/login` showed the login form even though the session
+  was restorable. `PublicOnly` now runs the same probe (shared query key, so
+  it's a single request) and redirects into the app when the session
+  rehydrates; the mid-login MFA challenge page opts out (`probe={false}`).
 - **Wallet sync and removal failures now say why.** Both buttons reported nothing
   at all when they failed — the row simply re-enabled, and the delete dialog sat
   there — so a `422` from an RPC outage was indistinguishable from success. The
