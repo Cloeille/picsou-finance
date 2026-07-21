@@ -474,6 +474,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   thrown — Clerk auth and the low-level retry path to 200 chars, the Finary
   data-API body to 500 (enough to keep its actionable message, still capped).
   Defense-in-depth against financial PII and third-party secrets landing in logs.
+- **Enable Banking session ids are no longer written to logs in the clear.** The
+  raw session id (stored as `Requisition.requisitionId`) was printed by several
+  sync log statements; it is now replaced with the non-sensitive requisition
+  database id in `SyncService`, and with a short non-reversible SHA-256
+  fingerprint in the low-level connector where only the raw value is available.
+  A new `LogSanitizer.fingerprint(...)` helper keeps the fingerprints stable so
+  log lines can still be correlated during debugging. Defense-in-depth against
+  log aggregators with weaker access control than the primary database (#44).
 
 ## [1.0.13] — 2026-07-07
 
