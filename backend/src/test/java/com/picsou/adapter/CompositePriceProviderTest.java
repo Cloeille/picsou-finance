@@ -94,6 +94,17 @@ class CompositePriceProviderTest {
     }
 
     @Test
+    void intraday_routesCryptoToCoinGecko() {
+        LocalDateTime from = LocalDateTime.of(2026, 1, 1, 0, 0);
+        LocalDateTime to = LocalDateTime.of(2026, 1, 2, 0, 0);
+        when(coinGecko.supports("BTC")).thenReturn(true);
+        when(coinGecko.getIntradayPricesEur("BTC", from, to)).thenReturn(Map.of(from, new BigDecimal("45000")));
+
+        assertThat(composite().getIntradayPricesEur("BTC", from, to)).containsEntry(from, new BigDecimal("45000"));
+        verify(yahoo, org.mockito.Mockito.never()).getIntradayPricesEur(any(), any(), any());
+    }
+
+    @Test
     void supports_isTrueIfEitherProviderSupports() {
         when(coinGecko.supports("BTC")).thenReturn(true);
 

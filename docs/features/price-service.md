@@ -148,9 +148,9 @@ Update cache + upsert today's price_snapshot rows
 
 ## Tests
 
-- `PriceServiceTest` -- resolution chain (fallback to the last recorded price, its 7-day ceiling, the negative cache, one provider call per set, crypto-only never reading a snapshot), plus the backfill guard and its coverage skip
-- `CoinGeckoPriceProviderTest` -- ticker mapping, failure grading, and the post-429 cooldown (including `Retry-After` handling)
-- `AccountServiceTest` -- an unpriced holding leaves the cost basis as well as the value; a recorded price still values the account and is reported as stale
+- `PriceServiceTest` -- unit tests for caching, conversion, backfill guard
+- `CompositePriceProviderTest` -- unit tests for crypto/stock routing and batching
+- `CoinGeckoPriceProviderTest` -- unit tests for ticker mapping
 - `YahooFinancePriceProviderTest` -- unit tests for response parsing
 
 ## Links
