@@ -83,4 +83,13 @@ describe('PublicOnly session probe', () => {
     expect(screen.queryByText('login-form')).not.toBeInTheDocument()
     expect(refresh).not.toHaveBeenCalled()
   })
+
+  it('redirects in demo mode without probing', () => {
+    useAppStore.setState({ demoMode: true })
+
+    renderPublicOnly()
+
+    expect(screen.queryByText('login-form')).not.toBeInTheDocument()
+    expect(refresh).not.toHaveBeenCalled()
+  })
 })
