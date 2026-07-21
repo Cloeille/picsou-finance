@@ -13,8 +13,10 @@ import java.util.Set;
 public interface PriceProviderPort {
 
     /**
-     * Returns prices in EUR for the given tickers.
-     * Tickers not found in this provider return empty (caller tries next provider).
+     * Returns prices in EUR for the given tickers. A ticker this provider cannot
+     * price is omitted from the returned map. {@link com.picsou.adapter.CompositePriceProvider}
+     * routes each ticker to the right concrete provider, so callers depend only
+     * on this port rather than picking a provider themselves.
      */
     Map<String, BigDecimal> getPricesEur(Set<String> tickers);
 

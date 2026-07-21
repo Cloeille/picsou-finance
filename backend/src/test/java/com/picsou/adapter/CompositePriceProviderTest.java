@@ -14,6 +14,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -29,17 +30,28 @@ class CompositePriceProviderTest {
     }
 
     @Test
-    void getPricesEur_splitsCryptoToCoinGecko_restToYahoo_andMerges() {
+    void getPricesEur_splitsCryptoToCoinGecko_restToYahoo_andBatchesEachProviderOnce() {
+        // Two crypto + two stock tickers, so "one batch call per provider" is
+        // distinguishable from a per-ticker regression (the whole point of #35).
         when(coinGecko.supports("BTC")).thenReturn(true);
+        when(coinGecko.supports("ETH")).thenReturn(true);
         when(coinGecko.supports("AAPL")).thenReturn(false);
-        when(coinGecko.getPricesEur(Set.of("BTC"))).thenReturn(Map.of("BTC", new BigDecimal("50000")));
-        when(yahoo.getPricesEur(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new BigDecimal("200")));
+        when(coinGecko.supports("MC.PA")).thenReturn(false);
+        when(coinGecko.getPricesEur(Set.of("BTC", "ETH")))
+            .thenReturn(Map.of("BTC", new BigDecimal("50000"), "ETH", new BigDecimal("3000")));
+        when(yahoo.getPricesEur(Set.of("AAPL", "MC.PA")))
+            .thenReturn(Map.of("AAPL", new BigDecimal("200"), "MC.PA", new BigDecimal("700")));
 
-        Map<String, BigDecimal> prices = composite().getPricesEur(Set.of("BTC", "AAPL"));
+        Map<String, BigDecimal> prices = composite().getPricesEur(Set.of("BTC", "ETH", "AAPL", "MC.PA"));
 
         assertThat(prices)
             .containsEntry("BTC", new BigDecimal("50000"))
-            .containsEntry("AAPL", new BigDecimal("200"));
+            .containsEntry("ETH", new BigDecimal("3000"))
+            .containsEntry("AAPL", new BigDecimal("200"))
+            .containsEntry("MC.PA", new BigDecimal("700"));
+        // Each provider is called exactly once, with the full batch — not per ticker.
+        verify(coinGecko, times(1)).getPricesEur(Set.of("BTC", "ETH"));
+        verify(yahoo, times(1)).getPricesEur(Set.of("AAPL", "MC.PA"));
     }
 
     @Test

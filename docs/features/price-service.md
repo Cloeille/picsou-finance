@@ -57,9 +57,7 @@ Both halves are split by account type before the call: `AccountRepository.findDi
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/service/PriceService.java` -- Resolution chain (cache → batched provider call → last recorded price), `Quote`, conversion
-- `backend/src/main/java/com/picsou/repository/PriceSnapshotRepository.java` -- `findRecentByTickers`, the batched fallback lookup
-- `backend/src/main/java/com/picsou/service/AccountService.java` -- `valuation()`: value and cost basis from one quote map
+- `backend/src/main/java/com/picsou/service/PriceService.java` -- Caching, EUR conversion, snapshot persistence (routing delegated to the port)
 - `backend/src/main/java/com/picsou/service/SchedulerService.java` -- Hourly price refresh cron
 - `backend/src/main/java/com/picsou/adapter/CoinGeckoPriceProvider.java` -- CoinGecko `/simple/price` with ticker-to-ID mapping
 - `backend/src/main/java/com/picsou/adapter/YahooFinancePriceProvider.java` -- Yahoo Finance `/v8/finance/chart/{ticker}`
@@ -89,7 +87,7 @@ PriceService.getQuotes({BTC, SOL, ATOM, ...})
                 |               +-- answered --> cache + Quote(price, today, live=true)
                 |
                 v
-        still missing --> price_snapshot, latest row <= 7 days old (one query)
+        PriceProviderPort.getPricesEur({"BTC"})  (CompositePriceProvider routes: supports("BTC") --> CoinGecko)
                 |
                 +-- found  --> Quote(price, snapshotDate, live=false)   [UI marks it]
                 |
@@ -108,7 +106,7 @@ account tickers UNION holding tickers  (one global set)
 PriceService.refreshPrices(tickers)   --> always hits the providers
         |
         v
-Partition: crypto --> CoinGecko (batched) | stocks --> Yahoo (per ticker)
+PriceProviderPort.getPricesEur(tickers)  (CompositePriceProvider partitions: crypto --> CoinGecko | rest --> Yahoo)
         |
         v
 Update cache + upsert today's price_snapshot rows
