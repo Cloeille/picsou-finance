@@ -302,6 +302,8 @@
     "totalInvested": "Total invested",
     "quantitySyncedHint": "Quantity comes from the on-chain / exchange sync and can't be edited here.",
     "costBasisHint": "Set your real cost basis so gain/loss reflects what you actually invested — editing one field updates the other.",
+    "quantityInvalid": "Enter a quantity greater than zero.",
+    "costBasisInvalid": "Cost basis can't be negative.",
     "editTitle": "Edit {{ticker}}",
     "perShare": "/ share",
     "insight": {

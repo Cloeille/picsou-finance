@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { Label } from '@/components/ui/label'
 import { parseAmount } from '@/lib/utils'
+import { formatApiError } from '@/lib/errors'
 import { totalFromAvg, avgFromTotal } from '@/features/accounts/cost-basis'
 import { Loader2 } from 'lucide-react'
 import type { HoldingResponse } from '@/types/api'
@@ -57,10 +58,15 @@ interface HoldingFormProps {
   quantityReadOnly?: boolean
 }
 
-/** Trims floating-point noise and trailing zeros from a derived value. */
+/**
+ * Formats a derived value in FIXED notation (never scientific, which the numeric
+ * input can't parse back), trimming only fractional trailing zeros. 8 decimals
+ * matches the backend's `average_buy_in` scale, so a small per-unit price for a
+ * micro-cap token isn't underflowed to "0" (which would zero the cost basis).
+ */
 function fmt(n: number | null): string {
-  if (n == null) return ''
-  return String(Number(n.toFixed(8)))
+  if (n == null || !Number.isFinite(n)) return ''
+  return n.toFixed(8).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '')
 }
 
 /** parseAmount but returns null instead of NaN for empty/invalid input. */
@@ -101,15 +107,25 @@ function HoldingForm({ holding, onOpenChange, onSubmit, isLoading, quantityReadO
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+
+    // Validate before hitting the API: parseAmount returns NaN for empty/invalid,
+    // which must never be sent to the backend as a quantity or cost basis.
+    const qty = quantityReadOnly ? holding.quantity : parseFinite(quantity)
+    if (qty == null || qty <= 0) {
+      setError(t('holdings.quantityInvalid'))
+      return
+    }
+    const avg = averageBuyIn ? parseFinite(averageBuyIn) : null
+    if (averageBuyIn && (avg == null || avg < 0)) {
+      setError(t('holdings.costBasisInvalid'))
+      return
+    }
+
     try {
-      await onSubmit(
-        holding.ticker,
-        quantityReadOnly ? holding.quantity : parseAmount(quantity),
-        averageBuyIn ? parseAmount(averageBuyIn) : undefined,
-      )
+      await onSubmit(holding.ticker, qty, avg ?? undefined)
       onOpenChange(false)
-    } catch {
-      setError(t('common.error'))
+    } catch (err) {
+      setError(formatApiError(err, t))
     }
   }
 

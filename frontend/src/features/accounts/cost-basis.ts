@@ -11,12 +11,14 @@
 
 /** Total invested for an average buy-in and quantity, or null if not derivable. */
 export function totalFromAvg(averageBuyIn: number | null, quantity: number | null): number | null {
-  if (averageBuyIn == null || !Number.isFinite(averageBuyIn) || quantity == null || !(quantity > 0)) return null
+  if (averageBuyIn == null || !Number.isFinite(averageBuyIn) || averageBuyIn < 0) return null
+  if (quantity == null || !(quantity > 0)) return null
   return averageBuyIn * quantity
 }
 
 /** Average buy-in for a total invested and quantity, or null if not derivable. */
 export function avgFromTotal(totalInvested: number | null, quantity: number | null): number | null {
-  if (totalInvested == null || !Number.isFinite(totalInvested) || quantity == null || !(quantity > 0)) return null
+  if (totalInvested == null || !Number.isFinite(totalInvested) || totalInvested < 0) return null
+  if (quantity == null || !(quantity > 0)) return null
   return totalInvested / quantity
 }

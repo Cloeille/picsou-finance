@@ -302,6 +302,8 @@
     "totalInvested": "Total invertido",
     "quantitySyncedHint": "La cantidad proviene de la sincronización on-chain / del exchange y no se puede editar aquí.",
     "costBasisHint": "Define tu coste real para que la ganancia/pérdida refleje lo que realmente invertiste — editar un campo actualiza el otro.",
+    "quantityInvalid": "Introduce una cantidad mayor que cero.",
+    "costBasisInvalid": "El coste no puede ser negativo.",
     "editTitle": "Editar {{ticker}}",
     "perShare": "/ participación",
     "insight": {

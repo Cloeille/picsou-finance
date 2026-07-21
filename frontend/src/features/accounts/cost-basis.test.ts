@@ -28,4 +28,10 @@ describe('cost-basis derivation', () => {
     expect(avgFromTotal(null, 2)).toBeNull()
     expect(avgFromTotal(Number.NaN, 2)).toBeNull()
   })
+
+  it('rejects negative values (a negative cost basis is nonsensical)', () => {
+    expect(totalFromAvg(-5000, 2)).toBeNull()
+    expect(avgFromTotal(-5000, 2)).toBeNull()
+    expect(totalFromAvg(0, 2)).toBe(0) // zero is a legitimate cost basis
+  })
 })

@@ -302,6 +302,8 @@
     "totalInvested": "Gesamt investiert",
     "quantitySyncedHint": "Die Menge stammt aus der On-Chain-/Exchange-Synchronisierung und kann hier nicht bearbeitet werden.",
     "costBasisHint": "Legen Sie Ihren tatsächlichen Einstandswert fest, damit Gewinn/Verlust widerspiegelt, was Sie wirklich investiert haben — die Bearbeitung eines Feldes aktualisiert das andere.",
+    "quantityInvalid": "Geben Sie eine Menge größer als null ein.",
+    "costBasisInvalid": "Der Einstandswert darf nicht negativ sein.",
     "editTitle": "{{ticker}} bearbeiten",
     "perShare": "/ Anteil",
     "insight": {
