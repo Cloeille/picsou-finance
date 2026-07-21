@@ -1,5 +1,8 @@
 package com.picsou.util;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -11,6 +14,8 @@ import java.util.HexFormat;
  * the primary database).
  */
 public final class LogSanitizer {
+
+    private static final Logger log = LoggerFactory.getLogger(LogSanitizer.class);
 
     private LogSanitizer() {}
 
@@ -33,7 +38,12 @@ public final class LogSanitizer {
             // 4 bytes -> 8 hex chars: enough to correlate, far too little to reverse.
             return "sha256:" + HexFormat.of().formatHex(digest, 0, 4);
         } catch (NoSuchAlgorithmException e) {
-            // SHA-256 is a mandatory JVM algorithm; fail closed rather than leak.
+            // SHA-256 is a mandatory JVM algorithm (JCA spec), so this is
+            // effectively unreachable. Surface it if the impossible happens, but
+            // NEVER throw: this helper only feeds log statements, and a throwing
+            // logger would turn a benign log call into a broken sync/auth flow.
+            // Fail closed — redact rather than leak the raw value.
+            log.error("SHA-256 unavailable — cannot fingerprint value for logging; redacting", e);
             return "<redacted>";
         }
     }

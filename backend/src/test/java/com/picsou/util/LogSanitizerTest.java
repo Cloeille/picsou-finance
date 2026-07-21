@@ -2,9 +2,26 @@ package com.picsou.util;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class LogSanitizerTest {
+
+    @Test
+    void fingerprint_isTheSha256Prefix_notJustAnyDigest() throws NoSuchAlgorithmException {
+        // Pin the actual computation, not just the shape: a regression that swapped
+        // the algorithm (MD5) or the truncation offset would still satisfy the
+        // format-only assertions, but not this.
+        String input = "eb-session-fixture-2026";
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8));
+        String expected = "sha256:" + HexFormat.of().formatHex(digest, 0, 4);
+
+        assertThat(LogSanitizer.fingerprint(input)).isEqualTo(expected);
+    }
 
     @Test
     void fingerprint_neverContainsTheRawValue() {
