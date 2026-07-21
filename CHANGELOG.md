@@ -366,6 +366,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A new `LogSanitizer.fingerprint(...)` helper keeps the fingerprints stable so
   log lines can still be correlated during debugging. Defense-in-depth against
   log aggregators with weaker access control than the primary database (#44).
+- **At-rest encryption now pins UTF-8 and validates the key length at startup.**
+  `CryptoEncryption` encoded/decoded secrets with the platform-default charset,
+  so a non-ASCII secret (e.g. a passphrase with accented characters) could
+  round-trip incorrectly on a non-UTF-8 JVM; both directions now use
+  `StandardCharsets.UTF_8`. `CRYPTO_ENCRYPTION_KEY` is also validated at bean
+  construction — an invalid-base64 or wrong-length key fails fast with a clear
+  message instead of silently selecting a weaker AES variant or throwing a
+  cryptic `InvalidKeyException` at the first encrypt/decrypt.
 
 ## [1.0.13] — 2026-07-07
 
