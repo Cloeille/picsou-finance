@@ -38,6 +38,14 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
+import static com.picsou.service.SyncValues.clean;
+import static com.picsou.service.SyncValues.errorCode;
+import static com.picsou.service.SyncValues.limit;
+import static com.picsou.service.SyncValues.moneyClose;
+import static com.picsou.service.SyncValues.requireTransactionResult;
+import static com.picsou.service.SyncValues.sumComplete;
+import static com.picsou.service.SyncValues.weightedAverage;
+
 /**
  * Imports Amundi Épargne Salariale plans, one Picsou account per dispositif.
  *
@@ -53,8 +61,6 @@ public class AmundiSyncService {
     static final String PROVIDER = "Amundi Épargne Salariale";
     private static final String EXTERNAL_ID_PREFIX = "amundi_";
     private static final String ACCOUNT_COLOR = "#8b5cf6";
-    private static final BigDecimal ABSOLUTE_RECONCILIATION_TOLERANCE = new BigDecimal("0.05");
-    private static final BigDecimal RELATIVE_RECONCILIATION_TOLERANCE = new BigDecimal("0.001");
     private static final int MAX_TICKER_LENGTH = 30;
 
     private final AmundiPort port;
@@ -344,25 +350,6 @@ public class AmundiSyncService {
         );
     }
 
-    private BigDecimal weightedAverage(
-        BigDecimal left,
-        BigDecimal leftQuantity,
-        BigDecimal right,
-        BigDecimal rightQuantity,
-        BigDecimal totalQuantity
-    ) {
-        if (left == null || right == null || totalQuantity.signum() == 0) {
-            return null;
-        }
-        return left.multiply(leftQuantity)
-            .add(right.multiply(rightQuantity))
-            .divide(totalQuantity, 8, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal sumComplete(BigDecimal left, BigDecimal right) {
-        return left == null || right == null ? null : left.add(right);
-    }
-
     private BigDecimal investedAmount(AmundiPort.PlanData plan, List<PreparedPosition> positions) {
         BigDecimal invested = BigDecimal.ZERO;
         for (PreparedPosition position : positions) {
@@ -566,14 +553,7 @@ public class AmundiSyncService {
     }
 
     private AmundiErrorCode codeOf(SyncException exception) {
-        if (exception.getCode() == null) {
-            return AmundiErrorCode.UPSTREAM_UNAVAILABLE;
-        }
-        try {
-            return AmundiErrorCode.valueOf(exception.getCode());
-        } catch (IllegalArgumentException ignored) {
-            return AmundiErrorCode.UPSTREAM_UNAVAILABLE;
-        }
+        return errorCode(exception, AmundiErrorCode.class, AmundiErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
     private SyncException error(AmundiErrorCode code, String message, Throwable cause) {
@@ -659,32 +639,6 @@ public class AmundiSyncService {
             return null;
         }
         return slug.length() <= MAX_TICKER_LENGTH ? slug : slug.substring(0, MAX_TICKER_LENGTH);
-    }
-
-    private String clean(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
-    }
-
-    private String limit(String value, int maxLength, String fallback) {
-        String cleaned = clean(value);
-        if (cleaned == null) {
-            cleaned = fallback;
-        }
-        return cleaned.length() <= maxLength ? cleaned : cleaned.substring(0, maxLength);
-    }
-
-    private boolean moneyClose(BigDecimal actual, BigDecimal expected) {
-        BigDecimal tolerance = ABSOLUTE_RECONCILIATION_TOLERANCE.max(
-            expected.abs().multiply(RELATIVE_RECONCILIATION_TOLERANCE)
-        );
-        return actual.subtract(expected).abs().compareTo(tolerance) <= 0;
-    }
-
-    private <T> T requireTransactionResult(T value) {
-        return Objects.requireNonNull(value, "Transaction callback returned no result");
     }
 
     public record AuthInitResponse(String processId, boolean mfaRequired, String mfaType) {}
