@@ -84,6 +84,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full borrowed amount. With no start and end date the schedule is empty and the
   "remaining balance" was the whole principal, on the dashboard and in the real
   estate equity.
+- **A Bitcoin wallet whose xpub scan fails no longer shows a balance of zero.** Any
+  error during the scan (an Esplora rate limit or outage, a timeout, an invalid
+  key) was turned into 0 BTC and written into the account and its daily snapshot.
+  The sync now fails and keeps the previous figures.
+- **A coin sold or withdrawn from an exchange disappears from the account.** The
+  exchange sync only ever added or updated holdings, so a sold coin kept its last
+  price in the account's value and cost basis until the exchange was removed.
 
 - **An Amundi account holding two share classes of the same fund now syncs.**
   Amundi does not always put an ISIN in `codeIsin` — on employer funds it holds
