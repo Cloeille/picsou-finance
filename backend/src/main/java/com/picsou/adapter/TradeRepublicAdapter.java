@@ -304,8 +304,12 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
 
                                 } else if (portfolioSubIds.containsKey(wsId)) {
                                     SecAccount account = portfolioSubIds.get(wsId);
-                                    receivedPortfolios.incrementAndGet();
-                                    receivedPortfolioIds.add(account.externalId());
+                                    // Counted once per subscription: a second frame for an account
+                                    // already answered (an error after an answer, a delta) must not
+                                    // complete the wait while another account is still silent.
+                                    if (receivedPortfolioIds.add(account.externalId())) {
+                                        receivedPortfolios.incrementAndGet();
+                                    }
                                     log.info("TR compactPortfolioByType [{}] raw: {}", account.name(),
                                              payload.length() > 2000
                                                      ? payload.substring(0, 2000) + "…" : payload);
