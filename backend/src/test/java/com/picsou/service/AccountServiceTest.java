@@ -469,7 +469,7 @@ class AccountServiceTest {
     @Test
     void liveBalanceEur_loanWithDebt_returnsPositiveRemainingBalance() {
         Account loan = loanAccount();
-        Debt debt = Debt.builder().build();
+        Debt debt = Debt.builder().startDate(LocalDate.of(2024, 1, 1)).endDate(LocalDate.of(2044, 1, 1)).build();
         when(debtRepository.findByAccountId(1L)).thenReturn(Optional.of(debt));
         when(loanAmortizationService.computeRemainingBalance(eq(debt), any(LocalDate.class)))
             .thenReturn(new BigDecimal("8500"));
@@ -491,6 +491,23 @@ class AccountServiceTest {
 
         // No Debt row → plain toEur pass-through of the stored balance, sign untouched.
         assertThat(result).isEqualByComparingTo("12000");
+    }
+
+    /**
+     * A Debt saved without dates has no schedule: computeRemainingBalance would answer the whole
+     * borrowed amount, so the balance the user typed on the account is used instead.
+     */
+    @Test
+    void liveBalanceEur_loanWithDebtWithoutDates_fallsBackToStoredBalance() {
+        Account loan = loanAccount();
+        Debt undated = Debt.builder().borrowedAmount(new BigDecimal("200000")).build();
+        when(debtRepository.findByAccountId(1L)).thenReturn(Optional.of(undated));
+        when(priceService.toEur(new BigDecimal("12000"), "EUR", null)).thenReturn(new BigDecimal("12000"));
+
+        BigDecimal result = accountService.liveBalanceEur(loan);
+
+        assertThat(result).isEqualByComparingTo("12000");
+        verify(loanAmortizationService, never()).computeRemainingBalance(any(), any());
     }
 
     @Test
@@ -859,7 +876,7 @@ class AccountServiceTest {
     @Test
     void signedLiveBalanceEur_loan_returnsNegativeOutstanding() {
         Account loan = loanAccount();
-        Debt debt = Debt.builder().build();
+        Debt debt = Debt.builder().startDate(LocalDate.of(2024, 1, 1)).endDate(LocalDate.of(2044, 1, 1)).build();
         when(debtRepository.findByAccountId(1L)).thenReturn(Optional.of(debt));
         when(loanAmortizationService.computeRemainingBalance(eq(debt), any(LocalDate.class)))
             .thenReturn(new BigDecimal("8500"));
