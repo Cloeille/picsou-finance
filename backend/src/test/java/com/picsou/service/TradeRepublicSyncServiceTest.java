@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -128,11 +129,13 @@ class TradeRepublicSyncServiceTest {
         when(sessionRepository.findByMemberId(memberId)).thenReturn(Optional.of(storedSession));
         when(encryption.decrypt("enc-session")).thenReturn("plain-session");
 
-        TrPosition pos = new TrPosition("IE00ISIN_A", bd("2"), bd("10"), bd("100"));
+        TrPosition posA = new TrPosition("IE00ISIN_A", bd("2"), bd("10"), bd("100"));
+        TrPosition posB = new TrPosition("IE00ISIN_B", bd("1"), bd("50"), bd("100"));
         TrAccountData accountData = new TrAccountData(
-            "tr_pea", "TR PEA", AccountType.PEA, bd("700"), List.of(pos), bd("500"));
+            "tr_pea", "TR PEA", AccountType.PEA, bd("700"), List.of(posA, posB), bd("500"));
         when(trPort.fetchAccounts("plain-session")).thenReturn(List.of(accountData));
         when(isinConverter.resolve("IE00ISIN_A")).thenReturn(new TickerResult("RKLB", "Rocket Lab"));
+        when(isinConverter.resolve("IE00ISIN_B")).thenReturn(new TickerResult("MSFT", "Microsoft"));
 
         when(accountRepository.findByExternalAccountIdAndMemberId("tr_pea", memberId))
             .thenReturn(Optional.empty());
@@ -151,7 +154,9 @@ class TradeRepublicSyncServiceTest {
 
         InOrder inOrder = inOrder(holdingRepository, accountService);
         inOrder.verify(holdingRepository).deleteByAccountId(1L);
-        inOrder.verify(holdingRepository).save(any(AccountHolding.class));
+        // Both positions land before the snapshot: a snapshot taken inside the position loop
+        // would pass a single-position fixture.
+        inOrder.verify(holdingRepository, times(2)).save(any(AccountHolding.class));
         inOrder.verify(accountService).upsertSnapshot(any(Account.class), eq(bd("700")), any());
 
         ArgumentCaptor<Account> captor = ArgumentCaptor.forClass(Account.class);
@@ -280,9 +285,57 @@ class TradeRepublicSyncServiceTest {
 
         service.sync(memberId);
 
-        verify(holdingRepository).deleteByAccountId(42L);
+        // The empty exit snapshots after the deletion too, or the day's point would still be
+        // costed with the positions that were just removed.
+        InOrder inOrder = inOrder(holdingRepository, accountService);
+        inOrder.verify(holdingRepository).deleteByAccountId(42L);
+        inOrder.verify(accountService).upsertSnapshot(any(Account.class), eq(bd("0")), any());
         verify(holdingRepository).flush();
         verify(holdingRepository, never()).save(any(AccountHolding.class));
+    }
+
+    @Test
+    void sync_keepsTheLastKnownPeaCash_whenTheAdapterDoesNotKnowIt() {
+        Long memberId = 7L;
+        FamilyMember member = FamilyMember.builder().id(memberId).displayName("Owner").build();
+
+        TradeRepublicSession storedSession = TradeRepublicSession.builder()
+            .member(member)
+            .sessionToken("enc-session")
+            .expiresAt(java.time.Instant.now().plusSeconds(3600))
+            .build();
+        when(sessionRepository.findByMemberId(memberId)).thenReturn(Optional.of(storedSession));
+        when(encryption.decrypt("enc-session")).thenReturn("plain-session");
+
+        // cashEur null: the cash frame never arrived, or there is no cash account to ask.
+        TrAccountData accountData = new TrAccountData(
+            "tr_pea", "TR PEA", AccountType.PEA, bd("700"), List.of(), null);
+        when(trPort.fetchAccounts("plain-session")).thenReturn(List.of(accountData));
+
+        Account existingAccount = Account.builder()
+            .id(42L)
+            .member(member)
+            .name("TR PEA")
+            .type(AccountType.PEA)
+            .provider("Trade Republic")
+            .currency("EUR")
+            .currentBalance(bd("650"))
+            .cashBalance(bd("500"))
+            .externalAccountId("tr_pea")
+            .isManual(false)
+            .build();
+        when(accountRepository.findByExternalAccountIdAndMemberId("tr_pea", memberId))
+            .thenReturn(Optional.of(existingAccount));
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(accountService.toResponse(any(Account.class)))
+            .thenAnswer(inv -> com.picsou.dto.AccountResponse.from(inv.getArgument(0), bd("700")));
+
+        service.sync(memberId);
+
+        // An unknown pocket is not an empty one: the last known 500 stays, as the holdings
+        // stay when the portfolio answer errors.
+        assertThat(existingAccount.getCashBalance()).isEqualByComparingTo("500");
+        assertThat(existingAccount.getCurrentBalance()).isEqualByComparingTo("700");
     }
 
     // --- Session lifecycle: refresh instead of dying at the 2h heuristic ---

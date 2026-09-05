@@ -341,8 +341,12 @@ public class TradeRepublicSyncService {
             account.setCurrentBalance(data.balanceEur());
             // The PEA's cash pocket is folded into balanceEur; without it on cashBalance the
             // valuation left it out of the live value while the provider-valued total kept it,
-            // so the pocket read as a gain or vanished depending on which path ran.
-            account.setCashBalance(data.cashEur());
+            // so the pocket read as a gain or vanished depending on which path ran. Null means
+            // the adapter does not know the pocket this time (no cash account, or its frame
+            // never came): the last known one stays, as the holdings do on an error frame.
+            if (data.cashEur() != null) {
+                account.setCashBalance(data.cashEur());
+            }
             account.setLastSyncedAt(Instant.now());
         } else {
             FamilyMember member = familyMemberRepository.findById(memberId)
