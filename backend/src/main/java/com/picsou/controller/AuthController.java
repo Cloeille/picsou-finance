@@ -264,7 +264,12 @@ public class AuthController {
             try {
                 var claims = jwtUtil.validateAndParse(refreshToken);
                 if (jwtUtil.isRefreshToken(claims)) {
-                    AppUser user = userRepository.findByUsernameWithMember(claims.getSubject()).orElse(null);
+                    // By the immutable uid, like JwtAuthenticationFilter, never by the username in
+                    // `sub`: a username can be changed (change-username) or freed and given to a new
+                    // member, and resolving by name logged the old token's holder into whoever now
+                    // carried that name, or locked a renamed user out at the next refresh.
+                    Long uid = jwtUtil.getUserId(claims);
+                    AppUser user = uid == null ? null : userRepository.findByIdWithMember(uid).orElse(null);
                     // Reject if the user is gone, the token version was bumped (credential
                     // change / recovery), or the account has since been deactivated.
                     Long tv = jwtUtil.getTokenVersion(claims);
