@@ -122,6 +122,7 @@ position. Holdings that resolve to the same ticker are merged with
 
 ## Known limitations
 
+- **The daily snapshot is taken after the holdings are replaced.** The 3-arg `AccountService.upsertSnapshot` derives the day's `investedAmount` from the holdings in the table; taken before `deleteByAccountId` + re-insert it costed today's snapshot with the previous sync's positions. Same rule in `TradeRepublicSyncService`.
 This integration has had a first live smoke test (login, TOTP, portfolio
 fetch, account/holding upsert all completed successfully), which confirmed the
 overall design but surfaced real DEGIRO API quirks the original

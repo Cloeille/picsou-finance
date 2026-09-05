@@ -339,6 +339,10 @@ public class TradeRepublicSyncService {
         if (existing.isPresent()) {
             account = existing.get();
             account.setCurrentBalance(data.balanceEur());
+            // The PEA's cash pocket is folded into balanceEur; without it on cashBalance the
+            // valuation left it out of the live value while the provider-valued total kept it,
+            // so the pocket read as a gain or vanished depending on which path ran.
+            account.setCashBalance(data.cashEur());
             account.setLastSyncedAt(Instant.now());
         } else {
             FamilyMember member = familyMemberRepository.findById(memberId)
@@ -350,6 +354,7 @@ public class TradeRepublicSyncService {
                 .provider("Trade Republic")
                 .currency("EUR")
                 .currentBalance(data.balanceEur())
+                .cashBalance(data.cashEur())
                 .lastSyncedAt(Instant.now())
                 .externalAccountId(data.externalId())
                 .isManual(false)
@@ -358,13 +363,17 @@ public class TradeRepublicSyncService {
         }
 
         account = accountRepository.save(account);
-        accountService.upsertSnapshot(account, data.balanceEur(), LocalDate.now());
 
+        // The snapshot comes AFTER the holdings are replaced (both exits below): the 3-arg
+        // upsertSnapshot derives the day's investedAmount from the holdings in the table, and
+        // taken here it costed today's snapshot with the previous sync's positions, one sync
+        // late in every daily point.
         if (replaceHoldings) {
             holdingRepository.deleteByAccountId(account.getId());
             holdingRepository.flush();
 
             if (data.positions().isEmpty()) {
+                accountService.upsertSnapshot(account, data.balanceEur(), LocalDate.now());
                 return Optional.of(accountService.toResponse(account));
             }
 
@@ -415,6 +424,7 @@ public class TradeRepublicSyncService {
             }
         }
 
+        accountService.upsertSnapshot(account, data.balanceEur(), LocalDate.now());
         return Optional.of(accountService.toResponse(account));
     }
 

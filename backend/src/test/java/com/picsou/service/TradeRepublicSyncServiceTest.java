@@ -18,6 +18,7 @@ import com.picsou.repository.TradeRepublicSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -29,6 +30,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -103,6 +106,58 @@ class TradeRepublicSyncServiceTest {
         // VWAP: (2*10 + 3*20) / 5 = 16  -- scale-8 representation 16.00000000
         assertThat(saved.getAverageBuyIn()).isEqualByComparingTo("16.00000000");
         assertThat(saved.getProviderValueEur()).isEqualByComparingTo("530");
+    }
+
+    /**
+     * Two things a PEA sync must get right. The daily snapshot comes after the holdings are
+     * replaced: the 3-arg upsertSnapshot derives investedAmount from the holdings in the table,
+     * and taken first it costed today with the previous sync's positions. And the cash pocket,
+     * already inside balanceEur, reaches Account.cashBalance so the valuation can put it on both
+     * sides instead of dropping it from the live value.
+     */
+    @Test
+    void sync_snapshotsAfterTheHoldingsAreReplaced_andStoresThePeaCashPocket() {
+        Long memberId = 7L;
+        FamilyMember member = FamilyMember.builder().id(memberId).displayName("Owner").build();
+
+        TradeRepublicSession storedSession = TradeRepublicSession.builder()
+            .member(member)
+            .sessionToken("enc-session")
+            .expiresAt(java.time.Instant.now().plusSeconds(3600))
+            .build();
+        when(sessionRepository.findByMemberId(memberId)).thenReturn(Optional.of(storedSession));
+        when(encryption.decrypt("enc-session")).thenReturn("plain-session");
+
+        TrPosition pos = new TrPosition("IE00ISIN_A", bd("2"), bd("10"), bd("100"));
+        TrAccountData accountData = new TrAccountData(
+            "tr_pea", "TR PEA", AccountType.PEA, bd("700"), List.of(pos), bd("500"));
+        when(trPort.fetchAccounts("plain-session")).thenReturn(List.of(accountData));
+        when(isinConverter.resolve("IE00ISIN_A")).thenReturn(new TickerResult("RKLB", "Rocket Lab"));
+
+        when(accountRepository.findByExternalAccountIdAndMemberId("tr_pea", memberId))
+            .thenReturn(Optional.empty());
+        lenient().when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId("tr_pea", memberId))
+            .thenReturn(false);
+        when(familyMemberRepository.findById(memberId)).thenReturn(Optional.of(member));
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> {
+            Account a = inv.getArgument(0);
+            a.setId(1L);
+            return a;
+        });
+        lenient().when(accountService.toResponse(any(Account.class)))
+            .thenAnswer(inv -> com.picsou.dto.AccountResponse.from(inv.getArgument(0), bd("700")));
+
+        service.sync(memberId);
+
+        InOrder inOrder = inOrder(holdingRepository, accountService);
+        inOrder.verify(holdingRepository).deleteByAccountId(1L);
+        inOrder.verify(holdingRepository).save(any(AccountHolding.class));
+        inOrder.verify(accountService).upsertSnapshot(any(Account.class), eq(bd("700")), any());
+
+        ArgumentCaptor<Account> captor = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository).save(captor.capture());
+        assertThat(captor.getValue().getCashBalance()).isEqualByComparingTo("500");
+        assertThat(captor.getValue().getCurrentBalance()).isEqualByComparingTo("700");
     }
 
     @Test

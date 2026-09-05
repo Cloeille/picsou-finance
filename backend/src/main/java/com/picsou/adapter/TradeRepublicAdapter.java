@@ -437,9 +437,10 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
             Map<String, JsonNode> positionsByIsin = positionsByAccount.getOrDefault(
                 secAccount.externalId(), new ConcurrentHashMap<>());
 
-            BigDecimal totalPortfolioValue = secAccount.type() == AccountType.PEA
+            BigDecimal peaCash = secAccount.type() == AccountType.PEA
                 ? parseCashValue(scopedCashJsonByAccount.get(secAccount.externalId()))
-                : BigDecimal.ZERO;
+                : null;
+            BigDecimal totalPortfolioValue = peaCash != null ? peaCash : BigDecimal.ZERO;
             int priced = 0;
             for (var entry : positionsByIsin.entrySet()) {
                 String isin = entry.getKey();
@@ -488,7 +489,8 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                     secAccount.name(),
                     secAccount.type(),
                     totalPortfolioValue,
-                    positions));
+                    positions,
+                    peaCash));
             }
         }
 

@@ -180,6 +180,13 @@ class DegiroSyncServiceTest {
         // cash + positions, not cash alone (that under-reported net worth by the whole
         // positions value on a real account).
         verify(accountService).upsertSnapshot(any(), eq(BigDecimal.valueOf(1300)), any());
+        // And after the holdings are replaced: the 3-arg upsertSnapshot derives the day's
+        // investedAmount from the holdings in the table, so taken before the replacement it
+        // costed today's snapshot with the previous sync's positions.
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(holdingRepository, accountService);
+        inOrder.verify(holdingRepository).deleteByAccountId(any());
+        inOrder.verify(holdingRepository).save(any());
+        inOrder.verify(accountService).upsertSnapshot(any(), eq(BigDecimal.valueOf(1300)), any());
         ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
         verify(accountRepository, atLeastOnce()).save(accountCaptor.capture());
         Account savedAccount = accountCaptor.getValue();
