@@ -68,6 +68,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that name next, and a renamed user was logged out at the next refresh. The
   endpoint now resolves the immutable `uid` claim, as the access-token filter
   already did.
+- **A goal month with an objective override shows what was actually saved.** The
+  override was displayed as the amount saved and the computed objective stayed, so
+  lowering December's target to 200 read as "200 of 500" whatever went in that
+  month. The override now adjusts the objective, and the amount saved is the
+  manual contribution or the balance delta.
+- **A goal's average monthly contribution adds up its accounts.** It was a
+  per-account mean compared with the goal-level monthly need, so three accounts
+  saving 100 each reported a 100 contribution and a shortfall.
 
 - **An Amundi account holding two share classes of the same fund now syncs.**
   Amundi does not always put an ISIN in `codeIsin` — on employer funds it holds
