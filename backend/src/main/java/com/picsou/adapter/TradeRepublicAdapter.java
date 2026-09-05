@@ -214,6 +214,11 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         ConcurrentHashMap<Integer, SecAccount> portfolioSubIds = new ConcurrentHashMap<>();
         ConcurrentHashMap<Integer, SecAccount> scopedCashSubIds = new ConcurrentHashMap<>();
         Set<String> receivedPortfolioIds = ConcurrentHashMap.newKeySet();
+        // Portfolio subscriptions that answered with an error frame or an unparsable payload.
+        // They count as answered (the wait must not hang on them) but say nothing about the
+        // portfolio, so the account is left untouched this sync instead of being persisted as
+        // an empty one, which deleted every holding and snapshotted the securities at zero.
+        Set<String> erroredPortfolioIds = ConcurrentHashMap.newKeySet();
         Set<Integer> receivedScopedCashSubs = ConcurrentHashMap.newKeySet();
         AtomicBoolean authExpired = new AtomicBoolean(false);
         AtomicInteger subIdCounter = new AtomicInteger(0);
@@ -304,6 +309,14 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                     log.info("TR compactPortfolioByType [{}] raw: {}", account.name(),
                                              payload.length() > 2000
                                                      ? payload.substring(0, 2000) + "…" : payload);
+                                    if ("E".equals(extractWsType(text))) {
+                                        erroredPortfolioIds.add(account.externalId());
+                                        expectedTickers.compareAndSet(-1, 0);
+                                        log.warn("TR compactPortfolioByType [{}] answered with an error frame: {} "
+                                            + "-- keeping the previous sync's holdings", account.name(),
+                                            payload.length() > 300 ? payload.substring(0, 300) : payload);
+                                        return Mono.just(text);
+                                    }
                                     try {
                                         JsonNode root = objectMapper.readTree(payload);
 
@@ -379,6 +392,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                     } catch (Exception ex) {
                                         log.error("Failed to parse compactPortfolioByType [{}]: {}",
                                             account.name(), payload, ex);
+                                        erroredPortfolioIds.add(account.externalId());
                                         expectedTickers.compareAndSet(-1, 0);
                                     }
 
@@ -485,17 +499,22 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                 positions.add(new TradeRepublicPort.TrPosition(isin, size, averageBuyIn, currentPrice));
             }
 
-            if (totalPortfolioValue.compareTo(BigDecimal.ZERO) > 0
-                    || !positions.isEmpty()
-                    || receivedPortfolioIds.contains(secAccount.externalId())) {
-                accounts.add(new TrAccountData(
-                    secAccount.externalId(),
-                    secAccount.name(),
-                    secAccount.type(),
-                    totalPortfolioValue,
-                    positions,
-                    peaCash));
+            boolean answered = receivedPortfolioIds.contains(secAccount.externalId());
+            boolean errored = erroredPortfolioIds.contains(secAccount.externalId());
+            if (!shouldPersist(totalPortfolioValue, positions.isEmpty(), answered, errored)) {
+                if (errored) {
+                    log.warn("TR portfolio [{}]: no usable portfolio answer this sync -- "
+                        + "the account keeps its previous holdings and balance", secAccount.name());
+                }
+                continue;
             }
+            accounts.add(new TrAccountData(
+                secAccount.externalId(),
+                secAccount.name(),
+                secAccount.type(),
+                totalPortfolioValue,
+                positions,
+                peaCash));
         }
 
         if (cashJson.get() != null
@@ -552,6 +571,29 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         int second = text.indexOf(' ', first + 1);
         if (second < 0) return text.substring(first + 1);
         return text.substring(second + 1);
+    }
+
+    /** The frame type between the id and the payload: A (answer), D (delta), E (error), C (complete). */
+    private String extractWsType(String text) {
+        int first = text.indexOf(' ');
+        if (first < 0) return "";
+        int second = text.indexOf(' ', first + 1);
+        return second < 0 ? text.substring(first + 1) : text.substring(first + 1, second);
+    }
+
+    /**
+     * Whether what came back for a securities account this sync is a portfolio to persist.
+     *
+     * <p>An error frame or an unparsable payload answers the subscription, so the wait does not
+     * hang on it, but it says nothing about the positions. Persisting it as an empty portfolio
+     * made {@code TradeRepublicSyncService} delete every holding of the account and snapshot the
+     * securities at zero; with a PEA it even kept the cash pocket, so the account looked like
+     * cash only. Such an account is skipped and keeps the previous sync's data. A genuinely
+     * emptied portfolio still persists: its answer parsed, it just had no positions.
+     */
+    static boolean shouldPersist(BigDecimal totalValue, boolean noPositions, boolean answered, boolean errored) {
+        if (errored && noPositions) return false;
+        return totalValue.signum() > 0 || !noPositions || answered;
     }
 
     private String buildConnectMessage() {
