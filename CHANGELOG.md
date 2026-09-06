@@ -100,6 +100,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A rebuilt Finary or manual-cash history dates each balance at the end of its
   day.** The rebuilt snapshot for a day held the balance before that day's
   transactions, so every point of the rebuilt history was one day off.
+- The account-deletion dialog scrolls on short screens and wraps long action
+  labels without horizontal overflow.
+- Account deletion preserves the last active administrator even when other
+  administrator logins are inactive. Committed deletion also purges pending
+  Finary and CSV import data, with member binding and expiry checked on execute.
 
 - **BoursoBank's fraud-education interstitial no longer reads as a wrong password.**
   When the bank parks a valid login on its fraud-prevention notice, the sidecar
