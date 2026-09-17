@@ -552,10 +552,13 @@ export type BoursoSessionStatus =
 /**
  * No `INVALID_OTP`: BoursoBank's app validation is the only second factor the
  * connector drives, so there is never a code to reject. An SMS or e-mail prompt
- * surfaces as `MFA_TYPE_UNSUPPORTED` instead.
+ * surfaces as `MFA_TYPE_UNSUPPORTED` instead. `FRAUD_ACK_REQUIRED` means the
+ * login was parked on the bank's fraud-education notice: the credentials work,
+ * the holder must tick the notice on the bank's website and retry.
  */
 export type BoursoErrorCode =
   | 'INVALID_CREDENTIALS'
+  | 'FRAUD_ACK_REQUIRED'
   | 'MFA_TYPE_UNSUPPORTED'
   | 'APP_VALIDATION_TIMEOUT'
   | 'AUTH_ATTEMPT_EXPIRED'

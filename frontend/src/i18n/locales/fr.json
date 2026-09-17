@@ -624,6 +624,7 @@
       "errors": {
         "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
         "invalidCredentials": "Numéro client ou mot de passe BoursoBank invalide.",
+        "fraudAckRequired": "Connectez-vous au site de BoursoBank, validez la notice anti-fraude, puis recommencez la connexion.",
         "mfaTypeUnsupported": "BoursoBank demande un code par SMS ou e-mail, que Picsou ne sait pas traiter. Activez la validation par l'application dans vos paramètres de sécurité BoursoBank.",
         "appValidationTimeout": "La validation dans l'application n'a pas été confirmée à temps. Recommencez la connexion.",
         "authAttemptExpired": "La tentative d’authentification a expiré. Recommencez la connexion.",

@@ -305,6 +305,11 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
   shipped enabled. The migration header says so.
 - **The error-code CHECK constraint must track `BoursoErrorCode`.** A code
   missing from it turns a diagnosable failure into a 500 at write time.
+- **A fraud-education interstitial is not a wrong password.** After a 302 login
+  POST, BoursoBank can park the session on
+  `/infos-profil/pedagogie-fraude/…` until the holder ticks the notice on the
+  real website. The sidecar reports `FRAUD_ACK_REQUIRED`, never auto-ticks the
+  notice, and the frontend tells the user to validate it and retry.
 - **`AccountPayload.type` is `accounts_parser.AccountKind`, not its own list.**
   A kind the parser emits but the contract omits is not a type quibble: pydantic
   rejects that account and `_collect_accounts` fails the *entire* sync, so one

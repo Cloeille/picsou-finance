@@ -22,6 +22,7 @@ from main import (
     _strong_auth_params,
     extract_brs_config,
     extract_form_token,
+    is_fraud_education_page,
     restore_cookies,
     serialize_cookies,
 )
@@ -266,6 +267,26 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(AccountsFormatError) as raised:
                 await _collect_accounts(client)
         self.assertEqual(raised.exception.code, "PORTFOLIO_INCOMPLETE")
+
+
+class FraudEducationPageTest(unittest.TestCase):
+    def test_a_fraud_education_landing_is_not_a_wrong_password(self):
+        home = (
+            '<html><body><a href="/infos-profil/pedagogie-fraude/abc123/1">'
+            "J'ai pris connaissance des consignes</a></body></html>"
+        )
+        self.assertTrue(is_fraud_education_page(home))
+
+    def test_the_dashboard_is_not_a_fraud_landing(self):
+        self.assertFalse(is_fraud_education_page(HOME_HTML))
+
+    def test_the_securisation_page_is_not_a_fraud_landing(self):
+        self.assertFalse(is_fraud_education_page("<html>/securisation/validation</html>"))
+
+    def test_a_wrong_password_page_is_not_a_fraud_landing(self):
+        self.assertFalse(
+            is_fraud_education_page("<html>Identifiant ou mot de passe invalide</html>")
+        )
 
 
 if __name__ == "__main__":
