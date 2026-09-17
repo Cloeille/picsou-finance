@@ -61,7 +61,7 @@ public class GoalTools {
         @ToolParam(description = "Target amount to reach") BigDecimal targetAmount,
         @ToolParam(description = "Deadline, ISO yyyy-MM-dd; must be in the future") LocalDate deadline,
         @ToolParam(description = "Ids of the member's accounts whose balances count toward this goal (at least one)") List<Long> accountIds) {
-        GoalRequest req = new GoalRequest(name, targetAmount, deadline, accountIds);
+        GoalRequest req = GoalRequest.savingsTarget(name, targetAmount, deadline, accountIds);
         return goalService.create(req, userContext.currentMember());
     }
 
@@ -73,8 +73,25 @@ public class GoalTools {
         @ToolParam(description = "Target amount to reach") BigDecimal targetAmount,
         @ToolParam(description = "Deadline, ISO yyyy-MM-dd; must be in the future") LocalDate deadline,
         @ToolParam(description = "Ids of the member's accounts whose balances count toward this goal (at least one)") List<Long> accountIds) {
-        GoalRequest req = new GoalRequest(name, targetAmount, deadline, accountIds);
+        GoalRequest req = GoalRequest.savingsTarget(name, targetAmount, deadline, accountIds);
         return goalService.update(goalId, req, userContext.currentMemberId());
+    }
+
+    @Tool(name = "create_recurring_investment",
+        description = "Create a recurring monthly investment plan for the authenticated member "
+            + "(e.g. 300 EUR into the PEA every month). Unlike a savings goal it has no target "
+            + "amount and no deadline; it feeds the wealth projection.")
+    @RequiresScope(Scopes.GOALS_WRITE)
+    public GoalProgressResponse createRecurringInvestment(
+        @ToolParam(description = "Plan name") String name,
+        @ToolParam(description = "Amount invested every month") BigDecimal monthlyAmount,
+        @ToolParam(description = "Id of the member's account the money goes into") Long accountId,
+        @ToolParam(description = "Expected annual return in percent, optional") BigDecimal expectedReturn,
+        @ToolParam(description = "First month, ISO yyyy-MM-dd; null means already running") LocalDate startDate,
+        @ToolParam(description = "Last month, ISO yyyy-MM-dd; null means open-ended") LocalDate endDate) {
+        GoalRequest req = GoalRequest.recurringInvestment(
+            name, monthlyAmount, expectedReturn, startDate, endDate, accountId);
+        return goalService.create(req, userContext.currentMember());
     }
 
     @Tool(name = "delete_goal", description = "Delete a savings goal of the authenticated member.")

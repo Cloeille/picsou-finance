@@ -9,6 +9,7 @@ import {
   DashboardPage,
   AccountsPage,
   AccountDetailPage,
+  AnalysisPage,
   GoalsPage,
   GoalCalendarPage,
   BudgetLayout,
@@ -138,6 +139,7 @@ export const router = createBrowserRouter([
       { index: true, element: <SuspensePage><DashboardPage /></SuspensePage> },
       { path: 'accounts', element: <SuspensePage><AccountsPage /></SuspensePage> },
       { path: 'accounts/:id', element: <SuspensePage><AccountDetailPage /></SuspensePage> },
+      { path: 'analysis', element: <SuspensePage><AnalysisPage /></SuspensePage> },
       { path: 'goals', element: <SuspensePage><GoalsPage /></SuspensePage> },
       { path: 'goals/:id/calendar', element: <SuspensePage><GoalCalendarPage /></SuspensePage> },
       {

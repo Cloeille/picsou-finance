@@ -50,6 +50,16 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 
     List<Transaction> findByAccountIdAndTxTypeInOrderByDateAscIdAsc(Long accountId, List<TransactionType> types);
 
+    /**
+     * Every transaction on a set of accounts over a date window.
+     *
+     * <p>Member scoping is the caller's: it passes the ids it already resolved through
+     * {@code AccountAccessResolver.readableAccounts}, which is the only place allowed to decide
+     * what a member may see. Ordering by date keeps the counterparty-matching pass linear.
+     */
+    List<Transaction> findByAccountIdInAndDateBetweenOrderByDateAsc(
+        Collection<Long> accountIds, LocalDate from, LocalDate to);
+
     /** Earliest transaction date across all accounts */
     @Query("SELECT MIN(t.date) FROM Transaction t")
     LocalDate findEarliestDate();

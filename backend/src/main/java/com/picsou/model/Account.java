@@ -6,6 +6,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "account")
@@ -98,6 +99,16 @@ public class Account extends AuditableEntity {
      */
     @Column(name = "requisition_id")
     private Long requisitionId;
+
+    /**
+     * When the wrapper was opened, as the member states it — not when Picsou learned of it.
+     *
+     * <p>Load-bearing for anything fiscal: a PEA's exemption turns on its fifth anniversary, an
+     * assurance-vie's on its eighth. {@code createdAt} cannot stand in — a plan opened in 2014
+     * and typed in last month has ten years between the two.
+     */
+    @Column(name = "opened_at")
+    private LocalDate openedAt;
 
     @Column(name = "deleted_at")
     private Instant deletedAt;

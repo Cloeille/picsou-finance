@@ -1,9 +1,17 @@
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import type { GoalProgress } from '@/types/api'
 import { mockAccounts } from './data/accounts'
+import {
+  mockAllocationTargets,
+  mockDiversification,
+  mockExpenseEstimate,
+  mockProjection,
+  mockWealthPyramid,
+} from './data/analysis'
 import { mockDashboard } from './data/dashboard'
 import { mockGoals } from './data/goals'
 import { mockHoldings } from './data/holdings'
+import { ageFromBirthDate, mockMemberProfile, netIncome } from './data/profile'
 import { mockTransactions } from './data/transactions'
 import { mockExchangeStatuses, mockWalletStatuses, mockRequisitions } from './data/sync-status'
 import {
@@ -107,6 +115,81 @@ handlers.set(key('GET', '/family/members'), () => [
 
 // Dashboard
 handlers.set(key('GET', '/dashboard'), () => mockDashboard)
+
+// Analysis
+handlers.set(key('GET', '/analysis/pyramid'), () => mockWealthPyramid)
+handlers.set(key('GET', '/analysis/diversification'), () => mockDiversification)
+// Held in a mutable copy, because saving targets invalidates the whole ['analysis'] namespace:
+// a PUT that only echoed the merge back would be undone by the refetch that follows it, and the
+// demo would show the form silently reverting.
+let demoAllocationTargets = { ...mockAllocationTargets }
+handlers.set(key('GET', '/analysis/allocation-targets'), () => demoAllocationTargets)
+handlers.set(key('PUT', '/analysis/allocation-targets'), (config) => {
+  demoAllocationTargets = {
+    ...demoAllocationTargets,
+    ...(typeof config.data === 'string' ? JSON.parse(config.data) : {}),
+  }
+  return demoAllocationTargets
+})
+handlers.set(key('GET', '/analysis/essential-expenses/estimate'), () => mockExpenseEstimate)
+
+// Member profile. Held in a mutable copy for the same reason as the allocation targets above:
+// saving invalidates ['me','profile'], and a PUT that only echoed its body back would be undone
+// by the refetch that follows -- the form would appear to revert on every save.
+let demoMemberProfile = { ...mockMemberProfile }
+handlers.set(key('GET', '/me/profile'), () => demoMemberProfile)
+handlers.set(key('PUT', '/me/profile'), (config) => {
+  const body = typeof config.data === 'string' ? JSON.parse(config.data) : {}
+  demoMemberProfile = {
+    ...demoMemberProfile,
+    ...body,
+    // Both are derived server-side in production; the demo has to derive them too, or the
+    // savings rate on the Goals page never moves.
+    age: body.birthDate == null ? null : ageFromBirthDate(body.birthDate),
+    monthlyNetIncome: netIncome(body.monthlyNetBeforeTax ?? null, body.withholdingTaxRate ?? null),
+  }
+  return demoMemberProfile
+})
+handlers.set(key('GET', '/analysis/projection'), (config) =>
+  mockProjection(Number(config.params?.years) || 20))
+// Demo mode has no scheduler and no network, so the refresh reports a plausible queue rather
+// than pretending work happened.
+handlers.set(key('POST', '/analysis/security-profiles/refresh'), () => ({
+  queuedTickers: 2,
+  alreadyRunning: false,
+}))
+
+// Classification is keyed on (account, ticker) and the demo lookup is exact-match, so every pair
+// the UI can open has to be registered. The unregistered fallback returns {}, which would render
+// the editor with undefined fields instead of failing visibly.
+const demoClassifiable: [number, string][] = [
+  ...Object.entries(mockHoldings).flatMap(([accountId, lines]) =>
+    (lines as { ticker: string }[]).map(
+      (line): [number, string] => [Number(accountId), line.ticker],
+    ),
+  ),
+  ...mockDiversification.unclassified
+    .filter((line) => line.accountId !== null)
+    .map((line): [number, string] => [line.accountId as number, line.ticker]),
+]
+for (const [accountId, ticker] of demoClassifiable) {
+  const path = `/accounts/${accountId}/holdings/${encodeURIComponent(ticker)}/classification`
+  // Nothing overridden by default: the demo shows the providers' own answer, which is what a
+  // real instance looks like before anyone corrects anything.
+  handlers.set(key('GET', path), () => ({
+    ticker,
+    wealthTier: null,
+    sectorKey: null,
+    countryKey: null,
+    inferredSectorKey: null,
+    inferredCountryKey: null,
+    profileLooked: true,
+  }))
+  handlers.set(key('PUT', path), (config) => ({
+    ticker,
+    ...(typeof config.data === 'string' ? JSON.parse(config.data) : {}),
+  }))
+}
 
 // Accounts
 handlers.set(key('GET', '/accounts'), () => _demoAccounts)
@@ -638,11 +721,24 @@ for (let i = 1; i <= 3; i++) {
   handlers.set(key('POST', `/goals/${i}/history/extend`), () => mockGoals[i - 1])
   handlers.set(key('POST', `/goals/${i}/history/extend/month`), () => mockGoals[i - 1])
 }
+/** The holding name behind a ticker in a demo account, for the split's display. */
+function demoHoldingName(accountId: number | undefined, ticker: string): string | null {
+  if (accountId == null) return null
+  return mockHoldings[accountId]?.find(h => h.ticker === ticker)?.name ?? null
+}
+
 handlers.set(key('POST', '/goals'), (config) => {
   const body = JSON.parse(config.data || '{}')
   return {
     ...mockGoals[0],
     id: Date.now(),
+    allocations: (body.allocations ?? []).map(
+      (line: { ticker: string; monthlyAmount: number }) => ({
+        ticker: line.ticker,
+        name: demoHoldingName(body.accountIds?.[0], line.ticker),
+        monthlyAmount: line.monthlyAmount,
+      }),
+    ),
     name: body.name ?? 'New Goal',
     targetAmount: body.targetAmount ?? 0,
     deadline: body.deadline ?? '2026-01-01',
@@ -656,7 +752,10 @@ handlers.set(key('POST', '/goals'), (config) => {
     surplus: 0,
   }
 })
-for (let i = 1; i <= 3; i++) {
+// Every mock goal, not just the first three: the recurring plan is id 4, and leaving it out
+// meant editing or deleting it in demo mode resolved to {} -- a silent no-op that looked like a
+// broken save.
+for (let i = 1; i <= mockGoals.length; i++) {
   handlers.set(key('PUT', `/goals/${i}`), (config) => {
     const body = JSON.parse(config.data || '{}')
     return {
@@ -664,14 +763,22 @@ for (let i = 1; i <= 3; i++) {
       name: body.name ?? mockGoals[i - 1].name,
       targetAmount: body.targetAmount ?? mockGoals[i - 1].targetAmount,
       deadline: body.deadline ?? mockGoals[i - 1].deadline,
+      monthlyAmount: body.monthlyAmount ?? mockGoals[i - 1].monthlyAmount,
+      // Names come from the account's holdings on the real backend; the demo resolves them
+      // from the same fixture the picker reads.
+      allocations: (body.allocations ?? []).map(
+        (line: { ticker: string; monthlyAmount: number }) => ({
+          ticker: line.ticker,
+          name: demoHoldingName(body.accountIds?.[0], line.ticker),
+          monthlyAmount: line.monthlyAmount,
+        }),
+      ),
       accounts: (body.accountIds ?? mockGoals[i - 1].accounts.map(a => a.id))
         .map((id: number) => mockAccounts.find(a => a.id === id)).filter(Boolean),
     }
   })
+  handlers.set(key('DELETE', `/goals/${i}`), () => null)
 }
-handlers.set(key('DELETE', '/goals/1'), () => null)
-handlers.set(key('DELETE', '/goals/2'), () => null)
-handlers.set(key('DELETE', '/goals/3'), () => null)
 
 // Sync
 const DEMO_INSTITUTIONS = [
@@ -1159,6 +1266,9 @@ for (const s of mockRecurring) {
 handlers.set(key('POST', '/recurring/detect'), () => ({ detected: 2 }))
 
 function generateMockMonths(goal: GoalProgress) {
+  // Mirrors the backend: the monthly calendar belongs to savings targets only.
+  if (goal.deadline === null || goal.monthlyNeeded === null) return []
+  const monthlyNeeded = goal.monthlyNeeded
   const start = new Date('2025-01-01')
   const end = new Date(goal.deadline)
   const months: { yearMonth: string; objective: number; actual: number | null; manualActual: number | null; override: number | null; effective: number | null }[] = []
@@ -1167,10 +1277,10 @@ function generateMockMonths(goal: GoalProgress) {
   while (current <= end) {
     const ym = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`
     const isPast = current <= now
-    const actual = isPast ? Math.round((goal.monthlyNeeded * (0.7 + Math.random() * 0.6)) * 100) / 100 : null
+    const actual = isPast ? Math.round((monthlyNeeded * (0.7 + Math.random() * 0.6)) * 100) / 100 : null
     months.push({
       yearMonth: ym,
-      objective: goal.monthlyNeeded,
+      objective: monthlyNeeded,
       actual,
       manualActual: null,
       override: null,

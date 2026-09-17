@@ -158,6 +158,7 @@ public class AccountService {
             // A hand-entered account has no connector to ask, so the bank it names is looked up
             // in the institution catalog instead — the only logo source open to it.
             .logoUrl(req.isManual() ? bankLogoUrl(req.provider(), req.institutionId()) : null)
+            .openedAt(req.openedAt())
             .build();
 
         account = accountRepository.save(account);
@@ -191,6 +192,13 @@ public class AccountService {
         // "clear it" -- and silently dropping a Ledger back to the generic wallet icon on an
         // unrelated rename would be a surprise.
         account.setLogoKey(normalizeLogoKey(req.logoKey(), account.getLogoKey(), account.getType()));
+        // Kept when absent, like logoKey rather than like ticker, and for the same reason: the
+        // MCP update_account tool has no such parameter and sends null on every call, so
+        // treating null as "clear it" would wipe a PEA's opening date the first time an agent
+        // renamed the account. The cost is that the form can change the date but not blank it.
+        if (req.openedAt() != null) {
+            account.setOpenedAt(req.openedAt());
+        }
 
         // For manual accounts, allow balance update
         if (account.isManual() && req.currentBalance() != null) {

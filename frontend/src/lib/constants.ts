@@ -12,10 +12,25 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
   { value: 'PEA', labelKey: 'accountTypes.pea' },
   { value: 'COMPTE_TITRES', labelKey: 'accountTypes.compteTitres' },
   { value: 'CRYPTO', labelKey: 'accountTypes.crypto' },
+  { value: 'ASSURANCE_VIE', labelKey: 'accountTypes.assuranceVie' },
   { value: 'REAL_ESTATE', labelKey: 'accountTypes.realEstate' },
+  { value: 'SCPI', labelKey: 'accountTypes.scpi' },
   { value: 'EMPLOYEE_SAVINGS', labelKey: 'accountTypes.employeeSavings' },
   { value: 'LOAN', labelKey: 'accountTypes.loan' },
   { value: 'OTHER', labelKey: 'accountTypes.other' },
+]
+
+/**
+ * Account types whose value comes from `account_holding` lines rather than a stored
+ * balance — the client-side mirror of the backend's `AccountType.isInvestment()`, plus
+ * `EMPLOYEE_SAVINGS`, whose FCPE lines arrive from the Amundi sync rather than from
+ * manual BUY/SELL entry.
+ *
+ * Lives here because three pages used to keep their own copy, so adding a type meant
+ * three chances to forget one.
+ */
+export const HOLDING_ACCOUNT_TYPES: AccountType[] = [
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS', 'ASSURANCE_VIE',
 ]
 
 /** Translation key for an account type's display label. */
@@ -51,7 +66,27 @@ export const QUERY_STALE_TIMES = {
   // Property valuations refresh monthly at most -- the underlying open data is published
   // twice a year -- so anything shorter would just re-fetch an identical answer.
   realEstate: 10 * 60 * 1000,
+  // Allocation moves at the pace of the portfolio behind it, and the score is read, not
+  // watched -- the dashboard's cadence is the right one here too.
+  analysis: 5 * 60 * 1000,
 } as const
+
+/**
+ * Households' savings rate in France, as a share of gross disposable income (INSEE).
+ *
+ * The benchmark the goals page compares a member's own rate against.
+ *
+ * **"Gross disposable income" is gross of capital consumption, not of tax.** RDB is measured
+ * after compulsory levies, so its base is a net-of-tax concept -- which is why the member's side
+ * divides by their net income and not by a gross salary. Reading the "brut" the other way once
+ * cost this feature a denominator about a quarter too large.
+ *
+ * The two are still not the same quantity: this one is household-wide national-accounts saving,
+ * the member's is their recurring plans over the net they stated. Close enough to answer "am I
+ * saving more or less than people around me", not close enough to be a statistic -- which is why
+ * the tooltip quotes the definition rather than just the number.
+ */
+export const FRENCH_HOUSEHOLD_SAVINGS_RATE = 17.5
 
 /**
  * Length of the SMS verification code (TAN) Trade Republic sends during device
@@ -97,3 +132,18 @@ const DAY_MS = 24 * HOUR_MS
  */
 export const SYNC_FRESHNESS_BOUNDS_MS = { fresh: DAY_MS, recent: 2 * DAY_MS, stale: 7 * DAY_MS }
 export const VALUATION_FRESHNESS_BOUNDS_MS = { fresh: 35 * DAY_MS, recent: 60 * DAY_MS, stale: 90 * DAY_MS }
+
+/**
+ * The native `<select>` chrome, matching the `Input` primitive.
+ *
+ * Selects are not a shadcn primitive here — the project uses the native element — so this string
+ * is the only thing keeping them on the same scale as inputs, and every copy is a chance for one
+ * to drift off the ladder `docs/features/ui-control-shape-system.md` exists to hold.
+ *
+ * `AddAccountModal` and `FinaryTab` still carry their own copy of the same declarations without
+ * the leading `flex`. They are left alone deliberately: folding them in here would add `flex` to
+ * four controls as a side effect of an unrelated feature, and a visual change belongs in a change
+ * that is about the visuals.
+ */
+export const SELECT_CONTROL_CLASS =
+  'flex h-10 w-full rounded-xl border border-input bg-input/20 px-4 text-sm outline-none dark:bg-input/30'

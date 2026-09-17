@@ -5,6 +5,7 @@ import com.picsou.model.AccountType;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 public record AccountResponse(
     Long id,
@@ -22,6 +23,8 @@ public record AccountResponse(
     String logoUrl,
     String logoKey,
     Instant createdAt,
+    /** When the member says the wrapper was opened; null unless they have stated it. */
+    LocalDate openedAt,
     RealEstateMetadataResponse realEstate,
     DebtResponse debt,
     SavingsConfigDto savingsConfig,
@@ -61,6 +64,7 @@ public record AccountResponse(
             a.getLogoUrl(),
             a.getLogoKey(),
             a.getCreatedAt(),
+            a.getOpenedAt(),
             null,
             null,
             null,
@@ -74,24 +78,31 @@ public record AccountResponse(
     public AccountResponse withRealEstate(RealEstateMetadataResponse realEstate) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, realEstate, debt, savingsConfig, parentAccountId, hidden, sharePercent, isOwner);
+            createdAt, openedAt, realEstate, debt, savingsConfig, parentAccountId, hidden, sharePercent, isOwner);
     }
 
     public AccountResponse withDebt(DebtResponse debt) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, realEstate, debt, savingsConfig, parentAccountId, hidden, sharePercent, isOwner);
+            createdAt, openedAt, realEstate, debt, savingsConfig, parentAccountId, hidden, sharePercent, isOwner);
+    }
+
+    /** Test and adapter seam; the mapping from the entity already carries it. */
+    public AccountResponse withOpenedAt(LocalDate openedAt) {
+        return new AccountResponse(id, name, type, provider, currency, currentBalance,
+            currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
+            createdAt, openedAt, realEstate, debt, savingsConfig, parentAccountId, hidden, sharePercent, isOwner);
     }
 
     public AccountResponse withSavingsConfig(SavingsConfigDto savingsConfig) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, realEstate, debt, savingsConfig, parentAccountId, hidden, sharePercent, isOwner);
+            createdAt, openedAt, realEstate, debt, savingsConfig, parentAccountId, hidden, sharePercent, isOwner);
     }
 
     public AccountResponse withViewer(BigDecimal sharePercent, Boolean isOwner) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, realEstate, debt, savingsConfig, parentAccountId, hidden, sharePercent, isOwner);
+            createdAt, openedAt, realEstate, debt, savingsConfig, parentAccountId, hidden, sharePercent, isOwner);
     }
 }

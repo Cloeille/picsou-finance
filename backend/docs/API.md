@@ -31,7 +31,15 @@
 
 ### AccountType
 
-`LEP` · `PEA` · `COMPTE_TITRES` · `CRYPTO` · `CHECKING` · `SAVINGS` · `REAL_ESTATE` · `LOAN` · `EMPLOYEE_SAVINGS` · `OTHER`
+`LEP` · `LIVRET_A` · `LDDS` · `LIVRET_JEUNE` · `PEL` · `CEL` · `PEA` · `COMPTE_TITRES` · `CRYPTO` · `CHECKING` · `SAVINGS` · `REAL_ESTATE` · `SCPI` · `LOAN` · `EMPLOYEE_SAVINGS` · `ASSURANCE_VIE` · `OTHER`
+
+### WealthTier
+
+`SAFETY_NET` · `REAL_ESTATE` · `EQUITY` · `CRYPTO` · `ALTERNATIVE`
+
+The investment-pyramid layer an account or holding belongs to. Distinct from the Accounts
+page's asset filters: those group accounts the way a user browses them, this one groups them
+by the role they play in a portfolio.
 
 ### Chain
 
@@ -209,7 +217,8 @@ Rotates `access_token`/`refresh_token` (old refresh token is invalidated) whenev
     "ticker": null,
     "logoUrl": null,
     "logoKey": null,
-    "createdAt": "2024-06-01T08:00:00Z"
+    "createdAt": "2024-06-01T08:00:00Z",
+    "openedAt": "2014-03-12"
   }
 ]
 ```
@@ -218,6 +227,10 @@ Rotates `access_token`/`refresh_token` (old refresh token is invalidated) whenev
 Banking only). `logoKey` names a logo bundled with the frontend — set on on-chain wallet
 accounts, whose `provider` is a bare ticker, and settable by a client only on an account
 that already carries one; see [the feature notes](../../docs/features/bank-logos.md).
+
+`openedAt` is when the member says the wrapper was opened — omitted when they never have. It is
+**not** `createdAt`, which dates the Picsou row: a PEA opened in 2014 and typed in last month has
+a decade between the two, and the five-year tax clock runs from the former.
 
 ---
 
@@ -247,6 +260,7 @@ that already carries one; see [the feature notes](../../docs/features/bank-logos
 | `color` | `string` | Hex pattern | Display color, e.g. `"#6366f1"` |
 | `ticker` | `string` | max 20 | Ticker for price lookup (optional) |
 | `logoKey` | `string` | `^[a-z0-9-]{1,32}$` | Bundled frontend logo to show, e.g. `"ledger"` (optional). Honoured only on a `CRYPTO` account that already stores a key, i.e. an on-chain wallet — ignored on `POST` and on any other account, so a key can be swapped but never attached. Omitting it on `PUT` keeps the stored value: it is never cleared by a client that doesn't know about it |
+| `openedAt` | `string` | @PastOrPresent, ISO-8601 date | When the wrapper was opened (optional). Relevant to the types whose taxation turns on the plan's age — a PEA at five years, an assurance-vie at eight. **Omitting it on `PUT` keeps the stored value**, for the same reason as `logoKey`: the MCP `update_account` tool has no such parameter, and treating null as "clear" would erase the date on any unrelated update. It can therefore be changed but not blanked |
 
 **Response `201` — `AccountResponse`.**
 
@@ -379,6 +393,53 @@ priced — a manually entered position, or one whose ticker no provider resolves
 ]
 ```
 
+#### `POST /api/accounts/export`
+
+Builds an `.xlsx` workbook with one sheet per selected account — identity, positions, and property
+or loan detail. Every id is resolved through the member-scoped read path, so an account outside the
+caller's perimeter fails the request rather than appearing in the file.
+
+- **Auth:** Required
+- **Rate limit:** 20 per hour per user (`accountExportBuckets`)
+- **No re-authentication**, unlike `POST /api/me/export` — this is a subset the user picks, not a
+  full personal-data dump.
+
+**Request body — `AccountsExportRequest`:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `accountIds` | `number[]` | @NotEmpty, @Size(max = 200) |
+| `labels` | `object` | optional — column headings keyed by `LabelKey` name |
+
+`labels` carries the localized column and section headings, because the backend has no message
+bundle. Keys match the `LabelKey` enum case- and separator-insensitively (`ACCOUNT_NAME`,
+`accountName` and `account-name` are the same key); unknown keys are ignored, and any key omitted
+falls back to that column's English default. Omitting `labels` entirely yields a complete English
+workbook, which is what makes this endpoint usable from `curl` or the MCP server. See
+[the ADR](../../docs/decisions/2026-08-18-client-supplied-labels-for-xlsx-export.md).
+
+```json
+{
+  "accountIds": [1, 4, 7],
+  "labels": { "quantity": "Quantité", "averageBuyIn": "Prix de revient moyen" }
+}
+```
+
+**Response `200`** — streamed workbook:
+
+```
+Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+Content-Disposition: attachment; filename="picsou-comptes-20260818-143211.xlsx"
+```
+
+**Errors:** 404 (an id the member may not read), 422 (empty or oversized `accountIds`),
+429 (hourly quota spent)
+
+A failure that happens after the response headers are flushed cannot become a `ProblemDetail`; it
+is logged and the client receives a truncated file. See
+[the feature note](../../docs/features/account-xlsx-export.md).
+
+---
+
 #### `POST /api/accounts/{id}/valuation/refresh`
 
 Re-estimates a `REAL_ESTATE` account from open data. **Owner only** — a co-owner may read a
@@ -457,6 +518,47 @@ appears twice, or if the account is not a property or a loan.
 
 ---
 
+#### `GET /api/accounts/{id}/holdings/{ticker}/classification`
+
+What the classification editor opens on. Returns the member's override **and** what the providers
+inferred, as separate fields — merged into one "effective" value the form could not tell you
+whether you are confirming a guess or reading your own earlier decision.
+
+**Response `200`:**
+```json
+{
+  "ticker": "AAPL", "wealthTier": null, "sectorKey": null, "countryKey": null,
+  "inferredSectorKey": "technology", "inferredCountryKey": "US", "profileLooked": true
+}
+```
+
+`profileLooked` is false when no lookup has run for the ticker, so "no sector" reads as "not
+asked yet" rather than "unknowable". Readable-gated, not owner-gated: looking is not a write.
+
+---
+
+#### `PUT /api/accounts/{id}/holdings/{ticker}/classification`
+
+The member's own verdict on what a holding is, overriding whatever was inferred from the account
+type and the price providers. Needed because a wrapper does not determine the asset — a gold ETC
+and a bitcoin ETP both live in an ordinary brokerage account.
+
+**Body** — every field optional; null means "stop overriding this one", and the three are
+independent so correcting a sector does not drop a tier set earlier:
+```json
+{ "wealthTier": "ALTERNATIVE", "sectorKey": "basic_materials", "countryKey": "FR" }
+```
+
+**Response `200`:**
+```json
+{ "ticker": "GLD", "wealthTier": "ALTERNATIVE", "sectorKey": null, "countryKey": null }
+```
+
+Stored per `(member, ticker)` rather than per holding row, so one correction covers the same
+security in every account and survives a sync that drops and recreates the holding. Sending all
+three fields null deletes the override. Requires ownership of the account, not merely read
+access: a co-owner must not rewrite how someone else's holdings are counted.
+
 ### 4. Real estate — `/api/real-estate`
 
 #### `GET /api/real-estate/summary`
@@ -484,7 +586,260 @@ Past estimates, newest first. Readable by co-owners.
 
 ---
 
-### 5. Geocoding — `/api/geocode`
+### 5. Analysis — `/api/analysis`
+
+How the portfolio is built, rather than what it is worth. Every figure is weighted by the
+member's ownership shares, exactly like `/api/dashboard`.
+
+#### `GET /api/analysis/pyramid`
+
+The five tiers, their weight against the member's targets, and the resulting score.
+
+Built from **assets only**, never net worth — property enters net of the mortgage financing it,
+and loans are otherwise excluded.
+
+`tiers` carries the **four investment tiers only**, and their percentages sum to 100 over
+`allocatableEur`. The cushion is not among them: it is measured in euros against an absolute
+target in the `safetyNet` object, and a second line expressing the same money as a share would
+contradict it.
+
+`safetyNet.valueEur` counts **savings passbooks only** — a current account holds money already
+committed to this month, so counting it would report a buffer that is largely spent.
+`dailyCashEur` reports current-account money so it is visible; it is scored nowhere and, like the
+cushion, sits outside `allocatableEur`.
+
+Each tier line carries `targetEur` beside `targetPercent`, because a gap of "−6.36 points" is not
+something a member can act on.
+
+**Response `200`:**
+```json
+{
+  "totalAssetsEur": 341700.00,
+  "allocatableEur": 319200.00,
+  "safetyNet": {
+    "valueEur": 18200.00, "dailyCashEur": 4300.00, "targetEur": 11100.00,
+    "coverage": 1.6396, "excessEur": 7100.00, "known": true, "score": 87
+  },
+  "tiers": [
+    {
+      "tier": "EQUITY", "valueEur": 142400.00, "actualPercent": 44.61,
+      "targetPercent": 50.00, "targetEur": 159600.00, "gapPercent": -5.39,
+      "accounts": [{ "accountId": 2, "name": "PEA", "color": "#6366f1", "valueEur": 96400.00 }]
+    }
+  ],
+  "score": {
+    "global": 91, "allocation": 86, "misplacedPercent": 13.51,
+    "cryptoPenalty": 0.10, "leverageBonus": 4.28,
+    "cryptoTopTenShare": 72.50, "loanToValue": 51.40
+  }
+}
+```
+
+`allocatableEur` is `totalAssetsEur - safetyNet.valueEur - safetyNet.dailyCashEur`; current-account
+cash counts in the total and then leaves the allocation, so the four tiers divide `allocatableEur`
+and their `actualPercent` sum to 100. The figures above are one consistent portfolio — the same one
+`frontend/src/demo/data/analysis.ts` serves.
+
+`safetyNet.known` is `false` when the member has never stated their monthly expenses. The tier
+is then **unrated, not scored zero**: `safetyNet.score` is `null` and `score.global` falls back
+to the allocation score plus the modifiers. `cryptoTopTenShare` is `null` when no crypto holding
+was seen line by line — an exchange tracked as a single balance draws no penalty, because its
+composition is unknown rather than poor.
+
+#### `POST /api/analysis/security-profiles/refresh`
+
+Warms the security profiles the diversification breakdown reads from, now rather than on the
+weekly schedule. Exists because nothing warms the table on first read: a fresh install would show
+a wholly unclassified breakdown until the following Sunday.
+
+**Response `202`:**
+```json
+{ "queuedTickers": 36, "alreadyRunning": false }
+```
+
+`202`, never `200` — the scraping outlives the request by design (one or two HTTP calls per
+ticker, no pacing), so it runs on a background thread. One pass at a time across the whole
+instance: a call made while one is running returns `alreadyRunning: true` and `queuedTickers: 0`
+rather than starting a rival pass. Capped at 40 tickers, like the scheduled pass, and
+rate-limited per IP on the sync bucket since it reaches two unofficial sources.
+
+Profiles are global reference data, so the pass covers every distinct ticker in the instance
+rather than only the caller's.
+
+---
+
+#### `GET /api/analysis/diversification`
+
+How the equity sleeve spreads across sectors and regions. ETFs are looked through to their
+composition; a directly held share contributes its whole value to one sector and one country.
+
+Reads **persisted profiles only** — never the network, so a page render can never block on a
+scrape. `SchedulerService` warms the table weekly.
+
+**Response `200`:**
+```json
+{
+  "totalValueEur": 142400.00,
+  "classifiedValueEur": 131800.00,
+  "unclassifiedValueEur": 10600.00,
+  "coveragePercent": 92.56,
+  "unclassified": [
+    {
+      "ticker": "MC.PA", "name": "LVMH", "accountId": 3, "valueEur": 10600.00,
+      "sectorMissing": false, "countryMissing": true, "profileLooked": true
+    }
+  ],
+  "securities": [
+    { "ticker": "IWDA", "name": "iShares Core MSCI World", "accountId": 2, "valueEur": 84200.00 }
+  ],
+  "sectors": {
+    "score": 78, "effectiveCount": 4.68, "targetCount": 6, "basis": "MIXED",
+    "classifiedValueEur": 118600.00, "coveragePercent": 83.29,
+    "slices": [{
+      "label": "technology", "percent": 31.40, "valueEur": 37240.40, "contributorCount": 3,
+      "contributors": [{ "ticker": "IWDA", "valueEur": 26813.09, "sharePercent": 72.00 }]
+    }]
+  },
+  "countries": {
+    "score": 71, "effectiveCount": 2.14, "targetCount": 3, "basis": "MIXED",
+    "classifiedValueEur": 131800.00, "coveragePercent": 92.56,
+    "slices": [{
+      "label": "US", "percent": 62.80, "valueEur": 82770.40, "contributorCount": 4,
+      "contributors": [{ "ticker": "IWDA", "valueEur": 54628.46, "sharePercent": 66.00 }]
+    }]
+  }
+}
+```
+
+`label` is a stable key — the same vocabulary `/api/securities/{ticker}/insight` uses, translated
+client-side under `holdings.insight.sectorNames.*` / `countryNames.*`, with the raw value as the
+fallback. `score` is `min(100, 100 × N_eff / targetCount)` where `N_eff = 1/Σw²`, the effective
+number of positions: it separates 20/20/20/20/20 from 96/1/1/1/1, which counting buckets cannot.
+
+A fund's published percentages are applied **literally**: a provider that discloses 70 % of a
+fund's sectors places 70 % of the holding, and the rest lands in `unclassifiedValueEur`. Each
+`Breakdown` therefore carries its **own** `coveragePercent`, because the two axes genuinely
+diverge and the top-level figure reports the more generous of them.
+
+Each slice names the holdings behind it, largest first. Contributors are capped at twelve and
+anything under 0.5 % of the slice folds into a single entry with a `null` ticker;
+`contributorCount` reports how many there really are. Names and accounts are not repeated per
+slice — they live once in the top-level `securities` dictionary.
+
+`unclassified` lists the lines a breakdown could not fully place, biggest first, with what the
+editor needs to fix them: `accountId` because the write is account-scoped, and `profileLooked` to
+separate "never looked up" (a refresh may still resolve it) from "looked up and still unknown"
+(only a manual override can). The two axes are reported independently — a share often has a
+sector and no domicile.
+
+Both scores are computed over the **classified** part only. `coveragePercent`,
+`unclassifiedValueEur` and `unclassified` travel with them so a breakdown over part of a
+portfolio cannot be read as one over all of it. A ticker in `pendingTickers` has no profile yet —
+"not looked up", not "unknowable".
+
+`basis` is `EXPOSURE` when every contribution came from a fund look-through, `MIXED` once a
+directly held share contributed its ISIN domicile. The two are different quantities; see the
+[ADR](../../docs/decisions/2026-08-13-equity-domicile-vs-etf-exposure.md).
+
+#### `GET /api/analysis/projection?years={n}`
+
+The investable portfolio projected forward under four return assumptions, fed by the member's
+recurring investment plans. `years` is clamped to 1–40 (default 20).
+
+The base is **investable only** — the `EQUITY`, `CRYPTO` and `SAFETY_NET` tiers. Property, loans
+and alternative assets are excluded from the headline curve: a house does not compound at an
+equity rate, and including it would inflate every scenario. `baseValueEur` is returned so the
+client can state what it is projecting from rather than letting it be mistaken for net worth.
+
+The starting split comes from the **wealth pyramid**, not from account types, so the two panels of
+one screen cannot disagree about the same euro: an account is broken down line by line and manual
+overrides are honoured. Current-account money is excluded, as it is there.
+
+**Response `200`:**
+```json
+{
+  "baseValueEur": 96400.00,
+  "monthlyInflowEur": 300.00,
+  "years": 20,
+  "scenarios": [
+    {
+      "key": "REFERENCE", "annualPercent": 6.40, "riskyDelta": 0.0,
+      "points": [{ "date": "2026-08-31", "valueEur": 96400.00, "contributedEur": 96400.00 }]
+    }
+  ],
+  "allocation": [
+    {
+      "date": "2036-12-31",
+      "tiers": [
+        { "tier": "REAL_ESTATE", "valueEur": 189351.00, "percent": 57.00, "targetPercent": 75.00 },
+        { "tier": "EQUITY", "valueEur": 140000.00, "percent": 37.00, "targetPercent": 18.00 },
+        { "tier": "SAFETY_NET", "valueEur": 16101.00, "percent": 1.00, "targetPercent": null }
+      ]
+    }
+  ]
+}
+```
+
+Scenarios run prudent to optimistic (`PESSIMISTIC`, `CAUTIOUS`, `REFERENCE`, `OPTIMISTIC`) and
+are **spreads on risky assets**, not absolute rates: `riskyDelta` points are added to equity and
+crypto only, because a passbook does not have a good year. `annualPercent` is the **blended rate
+the scenario actually works out to** for this member — the same optimistic curve is 10 % for
+someone fully invested and 6 % for someone half in cash — so a client must report it rather than
+restate an assumption.
+
+Each tier earns its own rate (cash 2 %, equity and crypto 7.5 %, property and alternatives 0 %),
+and a plan is credited to the tier of the account it funds, at its own `expectedReturn` when one
+was given. Contributions are share-weighted like the base. The maths is monthly using the
+**geometric** rate `(1 + r)^(1/12) − 1` with contributions credited at month end; the points are
+yearly.
+
+`allocation[]` answers the other question: where the mix lands against the member's own targets,
+under the reference scenario only. `targetPercent` is null for `SAFETY_NET`, which is measured in
+euros against an absolute target rather than as a share.
+
+#### `GET /api/analysis/allocation-targets`
+
+The member's targets, or the shipped defaults when they have never set any. No row is created
+by reading.
+
+**Response `200`:**
+```json
+{
+  "monthlyEssentialExpenses": 1850.00, "safetyNetMonths": 6,
+  "realEstatePct": 30.00, "equityPct": 50.00, "cryptoPct": 10.00, "alternativePct": 10.00
+}
+```
+
+#### `PUT /api/analysis/allocation-targets`
+
+Replaces the whole profile. `monthlyEssentialExpenses` may be `null` — that is how a member
+clears a figure they no longer stand behind, putting the safety net back to unrated.
+
+**Errors:** `422` when the four percentages do not sum to exactly 100. The `errors` map keys
+that violation under **`summingToOneHundred`** (a derived property), not under a field name —
+cross-field validation on a record has no single field to attach to.
+
+#### `GET /api/analysis/essential-expenses/estimate`
+
+What the member's own transactions suggest they spend monthly, offered as a starting point for
+the field above. **Never stored on their behalf** — accepting it is a `PUT`.
+
+Mean monthly debits on `CHECKING` accounts over the last six *complete* months, with internal
+transfers removed by counterparty matching (a debit whose amount reappears as a credit on
+another readable account within ±3 days), investment legs dropped, and a narrow label heuristic
+as a last resort. Divided by the months actually observed, not by six.
+
+**Response `200`:**
+```json
+{ "estimate": 1912.40, "monthsObserved": 6, "excludedTransferCount": 11 }
+```
+
+`estimate` is `null` when there is no usable history — never `0`, which would be
+indistinguishable from "this member spends nothing" and would set a target of zero.
+
+---
+
+### 6. Geocoding — `/api/geocode`
 
 #### `GET /api/geocode?q={query}&limit={n}`
 
@@ -494,7 +849,47 @@ exceeding it returns `429`.
 
 ---
 
-### 6. Goals — `/api/goals`
+### 7. Goals — `/api/goals`
+
+Goals have a **type**: `SAVINGS_TARGET` (an amount by a deadline — what every goal was before
+2026-08-13, and still is by default) or `RECURRING_INVESTMENT` (an amount every month, no target,
+no deadline; it feeds `/api/analysis/projection`).
+
+`type` may be **omitted** from any request body and defaults to `SAVINGS_TARGET`, so payloads
+written before the field existed keep working unchanged.
+
+| Field | `SAVINGS_TARGET` | `RECURRING_INVESTMENT` |
+|---|---|---|
+| `targetAmount`, `deadline` | required | must be absent |
+| `monthlyAmount` | — | required |
+| `expectedReturn`, `startDate`, `endDate` | — | optional |
+| `allocations` | must be empty | optional |
+| `accountIds` | one or more | exactly one |
+
+`allocations` splits `monthlyAmount` across positions the funded account **already holds**:
+`[{ "ticker": "CW8", "monthlyAmount": 250.00 }, …]`. It may be omitted (read as an empty list),
+it may cover only part of the monthly amount — the remainder is simply unallocated — but it may
+never exceed it, repeat a ticker, or name a ticker the account does not hold (`400`).
+
+In the response each line carries the holding's `name` as well. **`allocations` is always present
+as an array**, empty for a savings target and for an undetailed plan — deliberately unlike every
+other nullable field here, because clients map over it.
+
+In the response, the target machinery (`targetAmount`, `deadline`, `percentComplete`,
+`monthlyNeeded`, `surplus`) is null for a recurring plan and dropped from the JSON. `monthsLeft`
+and `isOnTrack` are primitives so they still appear, as `0` and `true` — **meaningless for that
+type; discriminate on `type`, not on absence.**
+
+**Errors:** `422` for a type/field mismatch. Those rules are cross-field, so the `errors` map keys
+them under derived property names — `savingsTargetComplete`, `recurringComplete`,
+`recurringSingleAccount`, `dateRangeOrdered`, `allocationOnlyOnRecurring`,
+`allocationWithinMonthlyAmount`, `allocationTickersUnique` — not under a field name.
+`400` (not `422`) for an allocation ticker the funded account does not hold: the client picks from
+that account's own holdings, so an unknown one is a malformed request rather than a typo.
+
+The monthly calendar and the history backfill (`/months`, `/history/extend`,
+`/months/{yearMonth}` and their manual-contribution variants) apply to `SAVINGS_TARGET` only and
+answer `400` for a recurring plan: they count towards a deadline it does not have.
 
 #### `GET /api/goals`
 
@@ -515,7 +910,8 @@ exceeding it returns `429`.
     "monthlyNeeded": 200.00,
     "avgMonthlyContribution": 150.00,
     "isOnTrack": true,
-    "surplus": -50.00
+    "surplus": -50.00,
+    "allocations": []
   }
 ]
 ```
@@ -540,8 +936,13 @@ exceeding it returns `429`.
 | Field | Type | Constraints |
 |-------|------|-------------|
 | `name` | `string` | @NotBlank, max 200 |
-| `targetAmount` | `number` | @NotNull, @DecimalMin("0.01") |
-| `deadline` | `string` | @NotNull, @Future, ISO-8601 date |
+| `type` | `string` | Optional; `SAVINGS_TARGET` (default) or `RECURRING_INVESTMENT` |
+| `targetAmount` | `number` | @DecimalMin("0.01"); required for a savings target |
+| `deadline` | `string` | @Future, ISO-8601 date; required for a savings target |
+| `monthlyAmount` | `number` | @DecimalMin("0.01"); required for a recurring plan |
+| `expectedReturn` | `number` | −100 … 100, percent per year |
+| `startDate`, `endDate` | `string` | ISO-8601 dates; `endDate` must follow `startDate` |
+| `allocations` | `object[]` | `{ ticker (max 30), monthlyAmount (≥ 0.01) }`; recurring only |
 | `accountIds` | `number[]` | @NotEmpty, list of account IDs |
 
 **Response `201` — `GoalProgressResponse`.**
@@ -614,7 +1015,7 @@ exceeding it returns `429`.
 
 ---
 
-### 7. Bank Sync (Enable Banking) — `/api/sync`
+### 8. Bank Sync (Enable Banking) — `/api/sync`
 
 #### `GET /api/sync/institutions`
 
@@ -743,7 +1144,7 @@ Countries the active bank-sync provider supports, for the "which country" search
 
 ---
 
-### 8. Trade Republic — `/api/tr`
+### 9. Trade Republic — `/api/tr`
 
 #### `POST /api/tr/auth/initiate`
 
@@ -825,7 +1226,7 @@ Countries the active bank-sync provider supports, for the "which country" search
 
 ---
 
-### 9. Bourse Direct — `/api/bourse-direct`
+### 10. Bourse Direct — `/api/bourse-direct`
 
 The connector is read-only. Authentication persists an encrypted browser
 session, then portfolio import continues asynchronously.
@@ -909,7 +1310,7 @@ rate limiting returns `429`.
 
 ---
 
-### 10. Crypto Wallets — `/api/crypto/wallet`
+### 11. Crypto Wallets — `/api/crypto/wallet`
 
 #### `POST /api/crypto/wallet`
 
@@ -962,7 +1363,7 @@ rate limiting returns `429`.
 
 ---
 
-### 11. Crypto Exchanges — `/api/crypto/exchange`
+### 12. Crypto Exchanges — `/api/crypto/exchange`
 
 #### `POST /api/crypto/exchange`
 
@@ -1061,7 +1462,7 @@ quantity`. The per-line figures therefore still add up to the holding's own cost
 
 ---
 
-### 12. Prices — `/api/prices`
+### 13. Prices — `/api/prices`
 
 #### `GET /api/prices`
 
@@ -1085,7 +1486,7 @@ Prices are in EUR. Results are cached for 15 minutes.
 
 ---
 
-### 13. Finary — `/api/finary`
+### 14. Finary — `/api/finary`
 
 Two import modes: **file-based** (XLSX upload) and **API-based** (direct sync). Both use a two-phase flow: preview then execute with account mappings.
 
@@ -1216,7 +1617,7 @@ Returns whether the Finary API credentials (`FINARY_EMAIL`, `FINARY_PASSWORD`) a
 
 ---
 
-### 12. Amundi Épargne Salariale — `/api/amundi`
+### 15. Amundi Épargne Salariale — `/api/amundi`
 
 Read-only. Amundi gates its login behind a captcha and a mandatory second
 factor, so authentication is always interactive; it persists an encrypted
@@ -1304,7 +1705,7 @@ Domain failures use `422` RFC 7807 responses with a stable `code` property:
 
 ---
 
-### 13. DEGIRO — `/api/degiro`
+### 16. DEGIRO — `/api/degiro`
 
 The connector is read-only and **session-only**: DEGIRO's session cookie expires
 after ~30 minutes of inactivity and Picsou never stores the account's TOTP
@@ -1385,3 +1786,75 @@ Domain failures use `422` RFC 7807 responses. Unlike Bourse Direct and Amundi,
 DEGIRO does not yet set a stable `code` property — clients should treat the
 absence of a code as a generic sync failure rather than parsing `detail`.
 Authentication rate limiting returns `429`.
+
+---
+
+### 17. Member profile — `/api/me/profile`
+
+The authenticated member's personal and fiscal context: age, marginal tax rate, household,
+income, savings capacity, retirement horizon, risk profile. Read by the Goals page's savings
+rate, and intended as context for exported data.
+
+**Every field is optional and nullable.** A member who has never stated anything has no row at
+all, and reading returns an all-null profile without creating one. `PUT` is a **full
+replacement**: an omitted field clears what was stored, which is how a figure is withdrawn.
+
+Two fields are derived and read-only:
+
+- `age`, from `birthDate` — the date is what is stored, since an age is wrong the morning after a
+  birthday.
+- `monthlyNetIncome` = `monthlyNetBeforeTax × (1 − withholdingTaxRate / 100)`, rounded to cents.
+  **Null unless both inputs are stated**: a blank withholding rate means "not said", not zero.
+
+`annualGrossIncome` is fiscal context and feeds nothing — gross cannot reach net without a social
+contribution rate, which this API deliberately does not ask for or assume.
+
+#### `GET /api/me/profile`
+
+- **Auth:** Required
+
+**Response `200` — `MemberProfileResponse`:**
+```json
+{
+  "birthDate": "1990-06-14",
+  "age": 36,
+  "marginalTaxRate": 30.00,
+  "householdStatus": "COUPLE",
+  "taxHouseholdParts": 2.50,
+  "dependents": 1,
+  "annualGrossIncome": 48000.00,
+  "monthlyNetBeforeTax": 2750.00,
+  "withholdingTaxRate": 7.30,
+  "monthlyNetIncome": 2549.25,
+  "monthlySavingsCapacity": 900.00,
+  "targetRetirementAge": 62,
+  "riskProfile": "DYNAMIC"
+}
+```
+
+Null fields are omitted from the JSON, as everywhere else in this API.
+
+---
+
+#### `PUT /api/me/profile`
+
+- **Auth:** Required
+
+**Request body — `MemberProfileRequest`:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `birthDate` | `string` | @Past, ISO-8601 date |
+| `marginalTaxRate` | `number` | 0 … 100, **percent** (30 means 30 %, not 0.30) |
+| `householdStatus` | `string` | `SINGLE` or `COUPLE` |
+| `taxHouseholdParts` | `number` | 1 … 20 |
+| `dependents` | `number` | 0 … 20 |
+| `annualGrossIncome` | `number` | ≥ 0; fiscal context, feeds nothing |
+| `monthlyNetBeforeTax` | `number` | ≥ 0; the payslip's "net à payer avant impôt" |
+| `withholdingTaxRate` | `number` | 0 … 100, percent (taux de prélèvement à la source) |
+| `monthlySavingsCapacity` | `number` | ≥ 0 |
+| `targetRetirementAge` | `number` | 40 … 90 |
+| `riskProfile` | `string` | `PRUDENT`, `BALANCED`, `DYNAMIC` or `AGGRESSIVE` |
+
+**Response `200` — `MemberProfileResponse`** (same shape as above).
+
+**Errors:** 422

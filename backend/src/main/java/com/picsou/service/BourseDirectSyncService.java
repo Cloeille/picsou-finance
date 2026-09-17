@@ -52,6 +52,7 @@ public class BourseDirectSyncService {
     private final FamilyMemberRepository memberRepository;
     private final AccountService accountService;
     private final OpenFigiIsinConverter isinConverter;
+    private final SecurityIdentityService identityService;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
@@ -64,6 +65,7 @@ public class BourseDirectSyncService {
         FamilyMemberRepository memberRepository,
         AccountService accountService,
         OpenFigiIsinConverter isinConverter,
+        SecurityIdentityService identityService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         @Qualifier("bourseDirectSyncExecutor") Executor syncExecutor
@@ -75,6 +77,7 @@ public class BourseDirectSyncService {
         this.memberRepository = memberRepository;
         this.accountService = accountService;
         this.isinConverter = isinConverter;
+        this.identityService = identityService;
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
@@ -276,6 +279,7 @@ public class BourseDirectSyncService {
 
     private List<PreparedPosition> preparePositions(List<BourseDirectPort.Position> rawPositions) {
         Map<String, PreparedPosition> positions = new LinkedHashMap<>();
+        Map<String, String> isinByTicker = new LinkedHashMap<>();
         for (BourseDirectPort.Position position : rawPositions) {
             if (position == null || position.quantity() == null || position.currentValueEur() == null) {
                 throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an incomplete position", null);
@@ -291,7 +295,7 @@ public class BourseDirectSyncService {
                     null
                 );
             }
-            String ticker = resolveTicker(position);
+            String ticker = resolveTicker(position, isinByTicker);
             PreparedPosition resolved = new PreparedPosition(
                 ticker,
                 limit(position.label(), 100, ticker),
@@ -304,12 +308,13 @@ public class BourseDirectSyncService {
             );
             positions.merge(ticker, resolved, this::mergePositions);
         }
+        identityService.record(isinByTicker);
         return positions.values().stream()
             .filter(position -> position.quantity().signum() != 0)
             .toList();
     }
 
-    private String resolveTicker(BourseDirectPort.Position position) {
+    private String resolveTicker(BourseDirectPort.Position position, Map<String, String> isinByTicker) {
         String ticker = clean(position.symbol());
         String isin = normalizeIsin(position.isin());
         if (isin != null) {
@@ -325,6 +330,9 @@ public class BourseDirectSyncService {
         }
         if (ticker == null || ticker.length() > 30) {
             throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an invalid instrument identifier", null);
+        }
+        if (isin != null) {
+            isinByTicker.put(ticker, isin);
         }
         return ticker;
     }

@@ -79,7 +79,7 @@ public class AccountTools {
         @ToolParam(description = "Opening balance; defaults to 0 when omitted", required = false) BigDecimal currentBalance,
         @ToolParam(description = "Optional hex colour like #1a2b3c", required = false) String color,
         @ToolParam(description = "Optional ticker for single-asset accounts", required = false) String ticker) {
-        AccountRequest req = new AccountRequest(name, type, null, currency, currentBalance, true, color, ticker, null, null);
+        AccountRequest req = new AccountRequest(name, type, null, currency, currentBalance, true, color, ticker, null, null, null);
         return accountService.create(req, userContext.currentMember());
     }
 
@@ -94,7 +94,7 @@ public class AccountTools {
         @ToolParam(description = "Balance; omit to leave the service default", required = false) BigDecimal currentBalance,
         @ToolParam(description = "Optional hex colour like #1a2b3c", required = false) String color,
         @ToolParam(description = "Optional ticker for single-asset accounts", required = false) String ticker) {
-        AccountRequest req = new AccountRequest(name, type, null, currency, currentBalance, true, color, ticker, null, null);
+        AccountRequest req = new AccountRequest(name, type, null, currency, currentBalance, true, color, ticker, null, null, null);
         return accountService.update(accountId, req, userContext.currentMemberId());
     }
 

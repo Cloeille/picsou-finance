@@ -1,6 +1,6 @@
 # Feature: Security Insight (asset type + ETF composition)
 
-> Last updated: 2026-06-02
+> Last updated: 2026-08-13
 
 ## Context
 
@@ -167,6 +167,22 @@ HoldingDetailModal (open)
   remainder, country/sector key translation (with verbatim fallback), the **block/line view
   toggle** (both views render the three bars + labels), stock fallback (badge only),
   unavailable ETF note, empty-response no-render, loading spinner.
+
+## What builds on this
+
+The portfolio-wide breakdown ([portfolio-diversification.md](./portfolio-diversification.md), 2026-08-13)
+reuses this pipeline and adds two things it deliberately does not have:
+
+- **Persistence.** The `ConcurrentHashMap` here is right for one user-initiated lookup and wrong
+  for N of them on a page render, so `security_profile` stores what gets resolved and
+  `SchedulerService` warms it weekly. This service keeps its own cache; merging the two is a
+  separate change.
+- **Equity coverage.** A `STOCK` gets no composition here. `EquityProfileProvider` answers its
+  sector (Yahoo search) and country (the ISIN on the Boursorama quote page), merged field by
+  field — deliberately unlike `resolveComposition`, which stops at the first provider with data.
+
+`BoursoramaCompositionProvider` no longer owns its `WebClient`: symbol resolution moved to
+`BoursoramaClient`, shared with the equity provider so a change at Boursorama is one repair.
 
 ## Links
 

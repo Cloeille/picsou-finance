@@ -3,22 +3,18 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.dto.EtfComposition;
+import com.picsou.dto.SecurityRef;
 import com.picsou.dto.WeightedSlice;
 import com.picsou.port.EtfCompositionProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.HtmlUtils;
-import reactor.core.publisher.Mono;
-import reactor.netty.http.client.HttpClient;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DateTimeException;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,12 +40,13 @@ import java.util.regex.Pattern;
  * "composition unavailable" upstream.
  */
 @Component
+// Ahead of justETF: up to ten slices per axis with no residual, against four plus an explicit
+// remainder. Ordering justETF first would lower every sector score without adding truth.
+@Order(100)
 public class BoursoramaCompositionProvider implements EtfCompositionProvider {
 
     private static final Logger log = LoggerFactory.getLogger(BoursoramaCompositionProvider.class);
     private static final String SOURCE = "Boursorama";
-    private static final String HOST = "https://www.boursorama.com";
-    private static final Duration TIMEOUT = Duration.ofSeconds(15);
     private static final int TOP_COMPANIES = 10;
 
     // Composition lives under /trackers for ETFs; /opcvm is a fallback for funds.
@@ -58,7 +55,6 @@ public class BoursoramaCompositionProvider implements EtfCompositionProvider {
         "/bourse/opcvm/cours/composition/{s}/"
     };
 
-    private static final Pattern SYMBOL = Pattern.compile("/cours/([^/?]+)/");
     // NOTE: the [^\]]* capture truncates the array if a label contains a literal ']';
     // readTree() then throws and toSlices() returns empty (fail-soft, acceptable).
     private static final Pattern AMCHART = Pattern.compile(
@@ -71,72 +67,51 @@ public class BoursoramaCompositionProvider implements EtfCompositionProvider {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private final WebClient webClient;
+    private final BoursoramaClient client;
 
-    public BoursoramaCompositionProvider() {
-        this(WebClient.builder()
-            .baseUrl(HOST)
-            // Read the 302 Location ourselves instead of following the redirect.
-            .clientConnector(new ReactorClientHttpConnector(HttpClient.create().followRedirect(false)))
-            .defaultHeader("User-Agent", "Mozilla/5.0")
-            .defaultHeader("Accept-Language", "fr-FR")
-            .codecs(c -> c.defaultCodecs().maxInMemorySize(16 * 1024 * 1024))
-            .build());
-    }
-
-    // Package-private for tests — inject a WebClient backed by an ExchangeFunction.
-    BoursoramaCompositionProvider(WebClient webClient) {
-        this.webClient = webClient;
+    public BoursoramaCompositionProvider(BoursoramaClient client) {
+        this.client = client;
     }
 
     @Override
-    public boolean supports(String ticker, String name) {
-        return ticker != null && !ticker.isBlank();
+    public boolean supports(SecurityRef ref) {
+        return ref != null && ref.preferredIdentifier() != null
+            && !ref.preferredIdentifier().isBlank();
     }
 
     @Override
-    public Optional<EtfComposition> fetch(String ticker, String name) {
-        if (ticker == null || ticker.isBlank()) return Optional.empty();
+    public Optional<EtfComposition> fetch(SecurityRef ref) {
+        if (!supports(ref)) return Optional.empty();
+        // The ISIN when we have one. Boursorama's search resolves it to the same symbol as the
+        // ticker (LU1681043599 and CW8 both redirect to /cours/1rTCW8/), and it is the only one
+        // that works when OpenFIGI picked a US OTC ticker for a European fund -- which it prefers
+        // to do, and which is why so many ETFs resolved to nothing here.
+        String identifier = ref.preferredIdentifier();
         try {
-            Optional<String> symbol = resolveSymbol(bareTicker(ticker));
+            Optional<String> symbol = client.resolveSymbol(identifier);
             if (symbol.isEmpty()) {
-                log.debug("Boursorama: no symbol resolved for {}", ticker);
+                log.debug("Boursorama: no symbol resolved for {}", identifier);
                 return Optional.empty();
             }
             Optional<String> html = fetchCompositionHtml(symbol.get());
             if (html.isEmpty()) {
-                log.debug("Boursorama: no composition page for {} ({})", ticker, symbol.get());
+                log.debug("Boursorama: no composition page for {} ({})", identifier, symbol.get());
                 return Optional.empty();
             }
             return Optional.of(parse(html.get()));
         } catch (Exception ex) {
-            log.warn("Boursorama composition fetch failed for {}: {}", ticker, ex.getMessage());
+            log.warn("Boursorama composition fetch failed for {}: {}", identifier, ex.getMessage());
             return Optional.empty();
         }
     }
 
     // --- network ----------------------------------------------------------
 
-    private Optional<String> resolveSymbol(String query) {
-        String location = webClient.get()
-            .uri(b -> b.path("/recherche/").queryParam("query", query).build())
-            .exchangeToMono(resp -> Mono.justOrEmpty(resp.headers().asHttpHeaders().getFirst(HttpHeaders.LOCATION)))
-            .timeout(TIMEOUT)
-            .onErrorResume(e -> Mono.empty())
-            .block();
-        return symbolFromLocation(location);
-    }
-
     private Optional<String> fetchCompositionHtml(String symbol) {
         for (String template : COMPOSITION_PATHS) {
-            try {
-                String html = webClient.get().uri(template, symbol)
-                    .retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
-                if (html != null && !html.isBlank() && html.contains("amChartData")) {
-                    return Optional.of(html);
-                }
-            } catch (Exception ex) {
-                log.debug("Boursorama composition path {} failed for {}: {}", template, symbol, ex.getMessage());
+            Optional<String> html = client.get(template, symbol);
+            if (html.isPresent() && html.get().contains("amChartData")) {
+                return html;
             }
         }
         return Optional.empty();
@@ -145,15 +120,12 @@ public class BoursoramaCompositionProvider implements EtfCompositionProvider {
     // --- parsing (the testable core) --------------------------------------
 
     static Optional<String> symbolFromLocation(String location) {
-        if (location == null) return Optional.empty();
-        Matcher m = SYMBOL.matcher(location);
-        return m.find() ? Optional.of(m.group(1)) : Optional.empty();
+        return BoursoramaClient.symbolFromLocation(location);
     }
 
     /** Strip the exchange suffix from a ticker ("PUST.PA" → "PUST"). */
     static String bareTicker(String ticker) {
-        int dot = ticker.indexOf('.');
-        return dot > 0 ? ticker.substring(0, dot) : ticker;
+        return BoursoramaClient.bareTicker(ticker);
     }
 
     static EtfComposition parse(String html) {
