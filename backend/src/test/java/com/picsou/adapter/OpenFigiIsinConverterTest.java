@@ -123,7 +123,7 @@ class OpenFigiIsinConverterTest {
     void resolveIsinOrSymbol_fallsBackToBrokerSymbolAndLabelWithoutAnIsin() {
         // No ISIN means no OpenFIGI call at all: the broker's own symbol becomes the
         // ticker (DEGIRO/BoursoBank positions on venues that ship no ISIN).
-        OpenFigiIsinConverter converter = new OpenFigiIsinConverter(new CoinGeckoPriceProvider());
+        OpenFigiIsinConverter converter = converterWith(silentCatalog());
 
         assertThat(converter.resolveIsinOrSymbol(null, "AAPL", "Apple Inc"))
             .isEqualTo(new OpenFigiIsinConverter.TickerResult("AAPL", "Apple Inc"));

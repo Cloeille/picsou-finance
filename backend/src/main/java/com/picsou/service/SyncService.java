@@ -558,7 +558,6 @@ public class SyncService {
                 .date(data.date())
                 .description(data.description())
                 .amount(data.amount())
-                .counterparty(data.counterparty())
                 .externalId(data.externalId())
                 .nativeCurrency(data.currency() != null ? data.currency() : "EUR")
                 .isManual(false)

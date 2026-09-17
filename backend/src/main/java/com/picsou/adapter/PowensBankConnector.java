@@ -197,10 +197,10 @@ public class PowensBankConnector implements BankConnectorPort {
                 return new TransactionData(
                     t.id() != null ? String.valueOf(t.id()) : null,
                     LocalDate.parse(t.date()),
+                    description,
                     BigDecimal.valueOf(t.value()), // Powens already signs the amount
                     "EUR",
-                    counterparty,
-                    description
+                    counterparty // mapped to category slot
                 );
             })
             .toList();

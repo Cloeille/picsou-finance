@@ -259,7 +259,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
      * id. Throwing here turned the legitimate "still linking" case into a 502
      * in production.
      */
-    private List<String> fetchSessionAccountsWithRetry(String sessionId) {
+    List<String> fetchSessionAccountsWithRetry(String sessionId) {
         int maxAttempts = 3;
         int delayMs = 1_500;
 
@@ -600,7 +600,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         }
     }
 
-    private AccountData fetchAccountData(String accountId) {
+    AccountData fetchAccountData(String accountId) {
         BalancesResponse balances = mapToSyncException(
             webClient.get()
                 .uri("/accounts/{id}/balances", accountId)
