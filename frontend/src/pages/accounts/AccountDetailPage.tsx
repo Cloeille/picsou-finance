@@ -33,11 +33,10 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Upload } from 'lucide-react'
 import { formatLocalDate } from '@/lib/utils'
-import { accountTypeLabelKey } from '@/lib/constants'
+import { accountTypeLabelKey, HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { HoldingResponse, Transaction } from '@/types/api'
 
-const HOLDING_ACCOUNT_TYPES = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS']
 
 export function AccountDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -308,7 +307,7 @@ export function AccountDetailPage() {
             )}
             {account.currency !== 'EUR' && (
               <p className="text-xs text-muted-foreground mt-0.5">
-                {account.currentBalance} {account.currency}
+                <CurrencyDisplay value={account.currentBalance} currency={account.currency} />
                 {account.ticker ? ` (${account.ticker})` : ''}
               </p>
             )}
@@ -360,13 +359,18 @@ export function AccountDetailPage() {
       ) : null}
 
       {/* Holdings — grouped by product when the connector reports one (crypto exchanges),
-          otherwise the flat table. */}
+          otherwise the flat table.
+
+          Both are keyed on the account id so their column sort resets when the reader moves to
+          another account. This route keeps the same component across a change of :id, so without
+          the key a sort chosen on one portfolio would silently carry over to the next. */}
       {showHoldings && (
         holdings ? (
           positions && positions.length > 0 ? (
-            <PositionsByProduct positions={positions} />
+            <PositionsByProduct key={accountId} positions={positions} />
           ) : (
             <HoldingsTable
+              key={accountId}
               holdings={holdings}
               onEdit={setEditingHolding}
               onDelete={(h) => deleteHoldingMutation.mutate(h.ticker)}
@@ -382,7 +386,7 @@ export function AccountDetailPage() {
       )}
 
       {/* Realized P&L on closed positions (investment accounts only) */}
-      {showHoldings && <RealizedPnlSection accountId={accountId} enabled={showHoldings} />}
+      {showHoldings && <RealizedPnlSection key={accountId} accountId={accountId} enabled={showHoldings} />}
 
       {/* Savings accounts: split into Overview / Config tabs so the page stays clean. */}
       {isSavings && account ? (

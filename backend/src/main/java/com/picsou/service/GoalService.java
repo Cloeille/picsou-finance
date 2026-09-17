@@ -2,17 +2,23 @@ package com.picsou.service;
 
 import com.picsou.dto.AccountResponse;
 import com.picsou.dto.DashboardResponse;
+import com.picsou.dto.GoalAllocationRequest;
+import com.picsou.dto.GoalAllocationResponse;
 import com.picsou.dto.GoalMonthEntryResponse;
 import com.picsou.dto.GoalProgressResponse;
 import com.picsou.dto.GoalRequest;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.Account;
+import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Goal;
+import com.picsou.model.GoalAllocation;
 import com.picsou.model.GoalManualContribution;
+import com.picsou.model.GoalType;
 import com.picsou.model.GoalMonthOverride;
+import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -29,9 +35,11 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -40,6 +48,7 @@ public class GoalService {
 
     private final GoalRepository goalRepository;
     private final AccountRepository accountRepository;
+    private final AccountHoldingRepository accountHoldingRepository;
     private final BalanceSnapshotRepository snapshotRepository;
     private final AccountService accountService;
     private final GoalMonthOverrideRepository overrideRepository;
@@ -51,6 +60,7 @@ public class GoalService {
     public GoalService(
         GoalRepository goalRepository,
         AccountRepository accountRepository,
+        AccountHoldingRepository accountHoldingRepository,
         BalanceSnapshotRepository snapshotRepository,
         AccountService accountService,
         GoalMonthOverrideRepository overrideRepository,
@@ -61,6 +71,7 @@ public class GoalService {
     ) {
         this.goalRepository = goalRepository;
         this.accountRepository = accountRepository;
+        this.accountHoldingRepository = accountHoldingRepository;
         this.snapshotRepository = snapshotRepository;
         this.accountService = accountService;
         this.overrideRepository = overrideRepository;
@@ -92,11 +103,17 @@ public class GoalService {
 
         Goal goal = Goal.builder()
             .name(req.name())
+            .type(req.type())
             .targetAmount(req.targetAmount())
             .deadline(req.deadline())
+            .monthlyAmount(req.monthlyAmount())
+            .expectedReturn(req.expectedReturn())
+            .startDate(req.startDate())
+            .endDate(req.endDate())
             .member(member)
             .accounts(new ArrayList<>(accounts))
             .build();
+        replaceAllocations(goal, req);
 
         return toProgressResponse(goalRepository.save(goal));
     }
@@ -112,9 +129,15 @@ public class GoalService {
         }
 
         goal.setName(req.name());
+        goal.setType(req.type());
         goal.setTargetAmount(req.targetAmount());
         goal.setDeadline(req.deadline());
+        goal.setMonthlyAmount(req.monthlyAmount());
+        goal.setExpectedReturn(req.expectedReturn());
+        goal.setStartDate(req.startDate());
+        goal.setEndDate(req.endDate());
         goal.setAccounts(new ArrayList<>(accounts));
+        replaceAllocations(goal, req);
 
         return toProgressResponse(goalRepository.save(goal));
     }
@@ -125,9 +148,109 @@ public class GoalService {
         goalRepository.delete(goal);
     }
 
+
+    // ─── Allocations ──────────────────────────────────────────────────────────
+
+    /**
+     * Rewrites a plan's monthly split from the request.
+     *
+     * <p>Mutates the existing list rather than replacing it: {@code Goal.allocations} is mapped
+     * with {@code orphanRemoval}, and handing Hibernate a fresh {@code ArrayList} makes it throw
+     * "a collection with cascade=all-delete-orphan was no longer referenced" instead of deleting
+     * the rows that went away.
+     *
+     * <p>Every ticker must already be held in the funded account. The check lives here rather
+     * than on the DTO because it needs the database, and it answers 400: the client picks from a
+     * list of the account's own holdings, so an unknown ticker is a malformed request, not a
+     * user mistake worth a field-level message.
+     */
+    private void replaceAllocations(Goal goal, GoalRequest req) {
+        List<GoalAllocationRequest> lines = req.allocations();
+        goal.getAllocations().clear();
+        if (lines.isEmpty()) return;
+
+        Long accountId = goal.getAccounts().getFirst().getId();
+        Set<String> held = accountHoldingRepository.findByAccount_Id(accountId).stream()
+            .map(AccountHolding::getTicker)
+            .collect(Collectors.toSet());
+
+        for (GoalAllocationRequest line : lines) {
+            if (!held.contains(line.ticker())) {
+                throw new IllegalArgumentException(
+                    "Position " + line.ticker() + " is not held in the funded account");
+            }
+            goal.getAllocations().add(GoalAllocation.builder()
+                .goal(goal)
+                .ticker(line.ticker())
+                .monthlyAmount(line.monthlyAmount())
+                .build());
+        }
+    }
+
+    /**
+     * The plan's split, with each line's name resolved from the account it is funded into.
+     *
+     * <p>Skips the query entirely for a plan with no split — which is most of them — because this
+     * runs once per goal on the goals page.
+     */
+    private List<GoalAllocationResponse> toAllocationResponses(Goal goal) {
+        if (goal.getAllocations().isEmpty()) return List.of();
+
+        Map<String, String> names = new LinkedHashMap<>();
+        if (!goal.getAccounts().isEmpty()) {
+            for (AccountHolding holding : accountHoldingRepository.findByAccount_Id(
+                goal.getAccounts().getFirst().getId())) {
+                names.put(holding.getTicker(), holding.getName());
+            }
+        }
+
+        return goal.getAllocations().stream()
+            .map(a -> GoalAllocationResponse.of(a, names.get(a.getTicker())))
+            .toList();
+    }
+
+    /**
+     * The monthly calendar, the backfill and the per-month overrides all assume a deadline to
+     * count towards. A recurring plan has none, so they refuse it rather than dividing by a null
+     * somewhere deeper — an unguarded path here is a 500, not a 400.
+     */
+    private static Goal requireSavingsTarget(Goal goal) {
+        if (goal.getType() == GoalType.RECURRING_INVESTMENT) {
+            throw new IllegalArgumentException(
+                "This operation applies to savings goals, not to a recurring investment plan");
+        }
+        return goal;
+    }
+
     // ─── Progress calculation ─────────────────────────────────────────────────
 
+    /**
+     * Called for every goal on the goals page <em>and</em> by {@code DashboardService}, so the
+     * branch has to live here rather than at the call sites: a recurring plan has no target, and
+     * {@code target.subtract(currentTotal)} on a null target is a 500.
+     */
     GoalProgressResponse toProgressResponse(Goal goal) {
+        return goal.getType() == GoalType.RECURRING_INVESTMENT
+            ? toRecurringResponse(goal)
+            : toSavingsTargetResponse(goal);
+    }
+
+    private GoalProgressResponse toRecurringResponse(Goal goal) {
+        List<AccountResponse> accountResponses = goal.getAccounts().stream()
+            .map(accountService::toResponse)
+            .toList();
+        Long goalMemberId = goal.getMember().getId();
+        Map<Long, BigDecimal> shares = accessResolver.sharesFor(goal.getAccounts(), goalMemberId);
+        BigDecimal currentTotal = goal.getAccounts().stream()
+            .map(a -> AccountAccessResolver.weigh(
+                accountService.signedLiveBalanceEur(a), shares.get(a.getId())))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return GoalProgressResponse.recurring(goal, accountResponses, currentTotal,
+            toAllocationResponses(goal));
+    }
+
+    private GoalProgressResponse toSavingsTargetResponse(Goal goal) {
         List<AccountResponse> accountResponses = goal.getAccounts().stream()
             .map(accountService::toResponse)
             .toList();
@@ -288,7 +411,7 @@ public class GoalService {
     // ─── Monthly history ──────────────────────────────────────────────────────
 
     public List<GoalMonthEntryResponse> getMonthlyEntries(Long goalId, Long memberId) {
-        Goal goal = getOrThrow(goalId, memberId);
+        Goal goal = requireSavingsTarget(getOrThrow(goalId, memberId));
         BigDecimal objective = toProgressResponse(goal).monthlyNeeded();
 
         Map<String, BigDecimal> overrideMap = overrideRepository.findByGoalId(goalId).stream()
@@ -336,7 +459,7 @@ public class GoalService {
      */
     @Transactional
     public GoalProgressResponse extendHistory(Long goalId, Long memberId) {
-        Goal goal = getOrThrow(goalId, memberId);
+        Goal goal = requireSavingsTarget(getOrThrow(goalId, memberId));
         YearMonth extended = effectiveStartMonth(goal).minusYears(1);
         goal.setHistoryStartMonth(extended.toString());
         return toProgressResponse(goalRepository.save(goal));
@@ -350,7 +473,7 @@ public class GoalService {
      */
     @Transactional
     public GoalProgressResponse extendHistoryByMonth(Long goalId, Long memberId) {
-        Goal goal = getOrThrow(goalId, memberId);
+        Goal goal = requireSavingsTarget(getOrThrow(goalId, memberId));
         YearMonth extended = effectiveStartMonth(goal).minusMonths(1);
         goal.setHistoryStartMonth(extended.toString());
         return toProgressResponse(goalRepository.save(goal));
@@ -358,7 +481,7 @@ public class GoalService {
 
     @Transactional
     public GoalMonthEntryResponse setMonthOverride(Long goalId, String yearMonth, BigDecimal amount, Long memberId) {
-        Goal goal = getOrThrow(goalId, memberId);
+        Goal goal = requireSavingsTarget(getOrThrow(goalId, memberId));
         GoalMonthOverride entry = overrideRepository
             .findByGoalIdAndYearMonth(goalId, yearMonth)
             .orElseGet(GoalMonthOverride::new);
@@ -376,7 +499,7 @@ public class GoalService {
 
     @Transactional
     public GoalMonthEntryResponse deleteMonthOverride(Long goalId, String yearMonth, Long memberId) {
-        Goal goal = getOrThrow(goalId, memberId);
+        Goal goal = requireSavingsTarget(getOrThrow(goalId, memberId));
         overrideRepository.findByGoalIdAndYearMonth(goal.getId(), yearMonth)
             .ifPresent(overrideRepository::delete);
         BigDecimal objective = toProgressResponse(goal).monthlyNeeded();
@@ -389,7 +512,7 @@ public class GoalService {
 
     @Transactional
     public GoalMonthEntryResponse setManualContribution(Long goalId, String yearMonth, BigDecimal amount, Long memberId) {
-        Goal goal = getOrThrow(goalId, memberId);
+        Goal goal = requireSavingsTarget(getOrThrow(goalId, memberId));
         GoalManualContribution entry = manualContributionRepository
             .findByGoalIdAndYearMonth(goalId, yearMonth)
             .orElseGet(GoalManualContribution::new);
@@ -411,7 +534,7 @@ public class GoalService {
 
     @Transactional
     public GoalMonthEntryResponse deleteManualContribution(Long goalId, String yearMonth, Long memberId) {
-        Goal goal = getOrThrow(goalId, memberId);
+        Goal goal = requireSavingsTarget(getOrThrow(goalId, memberId));
         manualContributionRepository.findByGoalIdAndYearMonth(goal.getId(), yearMonth)
             .ifPresent(manualContributionRepository::delete);
         BigDecimal objective = toProgressResponse(goal).monthlyNeeded();

@@ -105,6 +105,21 @@ spring.jackson:
   deserialization.fail-on-unknown-properties: false
 ```
 
+### A nullable field arrives as `undefined`, never as `null`
+
+`non_null` does not send `"targetPercent": null` — it omits the key. On the TypeScript side that
+is `undefined`, so **`x === null` is false for every null the backend ever produces**. Rules:
+
+- **Compare with `== null`** (or `??`) on any field the backend declares nullable. This is the one
+  place the codebase prefers loose equality, and it is not a style preference.
+- **Write fixtures the way the wire looks.** A test fixture that spells out `targetPercent: null`
+  describes the DTO, not the response — it will pass while the browser throws. Omit the key.
+
+Both halves were learned the hard way: `AllocationTrajectory` called `.toFixed()` on an omitted
+`targetPercent` and took the whole Analyse → Répartition tab down with a `TypeError`, while every
+test stayed green. Quieter cousins in the same payload printed `NaN` in a progress bar and the
+literal string `"undefined"` in a form field.
+
 ## Reference
 
 The complete endpoint reference is in [`backend/docs/API.md`](../../backend/docs/API.md). When adding or changing an endpoint, update that file.

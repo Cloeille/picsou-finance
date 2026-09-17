@@ -57,6 +57,9 @@ export const mockCategories: Category[] = [
   // ── Sub-categories of Logement (id 3) ───────────────────────────────────────
   { id: 10, name: 'Loyer', kind: 'EXPENSE', color: '#818cf8', icon: null, isDefault: false, archived: false, sortOrder: 9, parentId: 3 },
   { id: 11, name: 'Énergie', kind: 'EXPENSE', color: '#a5b4fc', icon: null, isDefault: false, archived: false, sortOrder: 10, parentId: 3 },
+  // Top-level, appended after the sub-categories so the index lookups above keep pointing at
+  // Loyer/Énergie. No demo spend against it — it exists so the review inbox offers the choice.
+  { id: 12, name: 'Impôts & taxes', kind: 'EXPENSE', color: '#a16207', icon: null, isDefault: true, archived: false, sortOrder: 11, parentId: null },
 ]
 
 /** Index lookups for the sub-categories appended above (kept readable for the spend tables). */

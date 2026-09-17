@@ -13,7 +13,8 @@ import es from '@/i18n/locales/es.json'
  */
 const EVERY_TYPE: AccountType[] = [
   'CHECKING', 'SAVINGS', 'LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL',
-  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'REAL_ESTATE', 'EMPLOYEE_SAVINGS', 'LOAN', 'OTHER',
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'REAL_ESTATE', 'SCPI',
+  'EMPLOYEE_SAVINGS', 'LOAN', 'OTHER',
 ]
 
 const LOCALES = { fr, en, de, es } as Record<string, { accountTypes: Record<string, string> }>

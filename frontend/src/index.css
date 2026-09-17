@@ -74,6 +74,20 @@
     --chart-3: oklch(0.596 0.145 163.225);
     --chart-4: oklch(0.508 0.118 165.612);
     --chart-5: oklch(0.432 0.095 166.913);
+
+    /* Categorical slice colours. Distinct hues, unlike --chart-1..5 which is a single-hue ramp
+       for ordered series. Declared here so Tailwind emits them and one definition serves the
+       proportional bar, the donut and the treemap alike. */
+    --slice-1: var(--color-sky-500);
+    --slice-2: var(--color-violet-500);
+    --slice-3: var(--color-emerald-500);
+    --slice-4: var(--color-amber-500);
+    --slice-5: var(--color-rose-500);
+    --slice-6: var(--color-teal-500);
+    --slice-7: var(--color-indigo-500);
+    --slice-8: var(--color-fuchsia-500);
+    --slice-9: var(--color-lime-500);
+    --slice-10: var(--color-orange-500);
     --radius: 0.625rem;
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
@@ -109,6 +123,20 @@
     --chart-3: oklch(0.596 0.145 163.225);
     --chart-4: oklch(0.508 0.118 165.612);
     --chart-5: oklch(0.432 0.095 166.913);
+
+    /* Categorical slice colours. Distinct hues, unlike --chart-1..5 which is a single-hue ramp
+       for ordered series. Declared here so Tailwind emits them and one definition serves the
+       proportional bar, the donut and the treemap alike. */
+    --slice-1: var(--color-sky-500);
+    --slice-2: var(--color-violet-500);
+    --slice-3: var(--color-emerald-500);
+    --slice-4: var(--color-amber-500);
+    --slice-5: var(--color-rose-500);
+    --slice-6: var(--color-teal-500);
+    --slice-7: var(--color-indigo-500);
+    --slice-8: var(--color-fuchsia-500);
+    --slice-9: var(--color-lime-500);
+    --slice-10: var(--color-orange-500);
     --sidebar: oklch(0.16 0 0);
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.623 0.214 259.815);

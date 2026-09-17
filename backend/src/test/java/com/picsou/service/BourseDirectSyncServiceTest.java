@@ -55,6 +55,7 @@ class BourseDirectSyncServiceTest {
     @Mock FamilyMemberRepository memberRepository;
     @Mock AccountService accountService;
     @Mock OpenFigiIsinConverter isinConverter;
+    @Mock SecurityIdentityService identityService;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
@@ -597,6 +598,7 @@ class BourseDirectSyncServiceTest {
             memberRepository,
             accountService,
             isinConverter,
+            identityService,
             encryption,
             txTemplate,
             executor

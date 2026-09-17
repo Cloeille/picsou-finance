@@ -72,6 +72,7 @@ public class TradeRepublicSyncService {
     private final FamilyMemberRepository        familyMemberRepository;
     private final AccountService                accountService;
     private final OpenFigiIsinConverter         isinConverter;
+    private final SecurityIdentityService       identityService;
     private final CryptoEncryption              encryption;
     private final TransactionTemplate           txTemplate;
     private final CategorizationService         categorizationService;
@@ -86,6 +87,7 @@ public class TradeRepublicSyncService {
         FamilyMemberRepository familyMemberRepository,
         AccountService accountService,
         OpenFigiIsinConverter isinConverter,
+        SecurityIdentityService identityService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         CategorizationService categorizationService,
@@ -99,6 +101,7 @@ public class TradeRepublicSyncService {
         this.familyMemberRepository = familyMemberRepository;
         this.accountService    = accountService;
         this.isinConverter     = isinConverter;
+        this.identityService   = identityService;
         this.encryption        = encryption;
         this.txTemplate        = txTemplate;
         this.categorizationService = categorizationService;
@@ -662,9 +665,11 @@ public class TradeRepublicSyncService {
             Map<String, HoldingDedup.HoldingAgg> deduped = new HashMap<>();
             Map<String, BigDecimal> providerValuesEur = new HashMap<>();
             Set<String> incompleteProviderValues = new HashSet<>();
+            Map<String, String> isinByTicker = new HashMap<>();
             for (TrPosition p : data.positions()) {
                 var result = isinConverter.resolve(p.isin());
                 String ticker = result.ticker();
+                isinByTicker.put(ticker, p.isin());
                 String name = result.name();
                 BigDecimal positionValueEur = providerValueEur(p);
                 if (positionValueEur == null) {
@@ -677,6 +682,7 @@ public class TradeRepublicSyncService {
                     new HoldingDedup.HoldingAgg(p.quantity(), p.averageBuyIn(), p.currentPrice(), name),
                     HoldingDedup::vwapMerge);
             }
+            identityService.record(isinByTicker);
             for (Map.Entry<String, HoldingDedup.HoldingAgg> entry : deduped.entrySet()) {
                 HoldingDedup.HoldingAgg agg = entry.getValue();
                 if (agg.quantity().signum() == 0) {

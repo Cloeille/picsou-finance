@@ -39,7 +39,16 @@ public class SchedulerService {
     private final RevolutSyncService revolutSyncService;
     private final BourseDirectSyncService bourseDirectSyncService;
     private final AmundiSyncService amundiSyncService;
+    /**
+     * How many profiles one weekly pass will resolve. Each one is up to three requests against
+     * an unofficial page and a rate-limited free tier, so the pass is bounded rather than
+     * proportional to the portfolio; a household's tickers are covered in a week or two, and
+     * everything unresolved simply reports as unclassified meanwhile.
+     */
+    private static final int SECURITY_PROFILE_BATCH = 40;
+
     private final PriceService priceService;
+    private final SecurityProfileService securityProfileService;
     private final CryptoExchangeSyncService cryptoExchangeSyncService;
     private final WalletSyncService walletSyncService;
     private final FinaryApiSyncService finaryApiSyncService;
@@ -63,8 +72,8 @@ public class SchedulerService {
         WalletSyncService walletSyncService,
         FinaryApiSyncService finaryApiSyncService,
         IbkrSyncService ibkrSyncService,
-        PropertyValuationService propertyValuationService
-    ) {
+        PropertyValuationService propertyValuationService,
+                            SecurityProfileService securityProfileService) {
         this.accountRepository = accountRepository;
         this.holdingRepository = holdingRepository;
         this.snapshotRepository = snapshotRepository;
@@ -82,6 +91,7 @@ public class SchedulerService {
         this.finaryApiSyncService = finaryApiSyncService;
         this.ibkrSyncService = ibkrSyncService;
         this.propertyValuationService = propertyValuationService;
+        this.securityProfileService = securityProfileService;
     }
 
     /**
@@ -295,6 +305,31 @@ public class SchedulerService {
             // ERROR for the same reason as dailySnapshots above: expected outages never
             // reach here, so this is a bug worth surfacing.
             log.error("Price refresh failed -- skipping this cycle", ex);
+        }
+    }
+
+    /**
+     * Every Sunday night: keep the security profiles the diversification breakdown reads from
+     * warm, so nothing is ever scraped while a page is rendering.
+     *
+     * <p>Shaped like {@link #refreshPrices} and for the same reason — a profile is global, so one
+     * pass over the distinct tickers beats one pass per member. It differs in cadence and in
+     * caution: a sector does not change, the sources are unofficial HTML and a rate-limited free
+     * tier, so the batch is capped and one bad ticker only loses itself.
+     *
+     * <p>A ticker nobody has warmed yet is not an error. It reports as unclassified in the
+     * breakdown, with the uncovered share stated, until the next pass picks it up.
+     */
+    @Scheduled(cron = "0 45 3 * * SUN")
+    public void refreshSecurityProfiles() {
+        Set<String> tickers = new TreeSet<>(holdingRepository.findDistinctTickers());
+        if (tickers.isEmpty()) return;
+
+        try {
+            int refreshed = securityProfileService.refreshStale(tickers, SECURITY_PROFILE_BATCH);
+            log.info("Security profiles: refreshed {} of {} known tickers", refreshed, tickers.size());
+        } catch (Exception ex) {
+            log.error("Security profile refresh failed -- skipping this cycle", ex);
         }
     }
 }

@@ -61,6 +61,7 @@ class TradeRepublicSyncServiceTest {
     @Mock FamilyMemberRepository familyMemberRepository;
     @Mock AccountService accountService;
     @Mock OpenFigiIsinConverter isinConverter;
+    @Mock SecurityIdentityService identityService;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock CategorizationService categorizationService;

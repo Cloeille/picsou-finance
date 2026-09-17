@@ -180,6 +180,19 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-user account-spreadsheet rate limiter: 20 workbooks per hour.
+     *
+     * <p>Looser than the GDPR bucket above because this export is a subset the user picks and is
+     * meant to be used iteratively (adjust the selection, export again) rather than once a year,
+     * and it is not gated behind a re-authentication. Still bounded: building a workbook prices
+     * every holding and computes every amortization schedule in the selection.
+     */
+    @Bean("accountExportBuckets")
+    public Map<String, Bucket> accountExportBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP merchant-logo proxy rate limiter: 60 requests per minute.
      * Generous because a single page can render many avatars, but bounded so the
      * opt-in proxy can't be turned into an open relay against the upstream icon
@@ -352,6 +365,15 @@ public class RateLimitConfig {
             .addLimit(Bandwidth.builder()
                 .capacity(5)
                 .refillIntervally(5, Duration.ofMinutes(60))
+                .build())
+            .build();
+    }
+
+    public static Bucket createAccountExportBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(20)
+                .refillIntervally(20, Duration.ofMinutes(60))
                 .build())
             .build();
     }

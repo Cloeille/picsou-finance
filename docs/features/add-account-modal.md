@@ -113,6 +113,14 @@ four locales, and the partial maps are gone.
 | Per-wizard error state (no global overlay) | Global `isPending` unmounts the wizard, losing error state (React no-op on unmounted setter) | Global `onPending` callback |
 | `mutation.isPending` on buttons for loading | Keeps the wizard mounted throughout; spinner is inline on the submit button | Parent-level overlay |
 
+## Account types
+
+`ASSURANCE_VIE` and `SCPI` joined the picker on 2026-08-13 for the investment pyramid
+(see [wealth-pyramid.md](./wealth-pyramid.md)). Both need an entry in `ACCOUNT_TYPES`,
+in `AccountForm`'s zod enum, in `AccountsPage`'s `ASSET_FILTER_MAP`/`TYPE_TO_GROUP`, and
+an `accountTypes.*` label in all four locales — `src/lib/constants.test.ts` fails if
+`ACCOUNT_TYPES` misses one, and the locale parity test fails if a label does.
+
 ## Gotchas / Pitfalls
 
 - **Never replace wizard content with a parent-level overlay during mutations.** When the wizard unmounts and remounts after an error, any `setError(...)` called on the old instance is silently ignored by React 18. Each wizard must stay mounted while its mutation is in flight.

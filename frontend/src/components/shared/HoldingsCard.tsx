@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useMoney } from '@/hooks/use-money'
 import { usePortfolio, type PortfolioLine } from '@/features/accounts/hooks'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import {
@@ -40,6 +41,7 @@ const FILTER_TABS: { value: FilterType; labelKey: string; match: (type: Account[
 ]
 
 function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick: () => void }) {
+  const money = useMoney()
   const { t } = useTranslation()
 
   return (
@@ -53,7 +55,7 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick: () => v
         <ItemTitle>{line.name}</ItemTitle>
         <ItemDescription className="text-sm">
           {line.quantity > 0
-            ? `${line.quantity.toLocaleString()} ${t('dashboard.shares')} · ${line.accountName}`
+            ? `${money.quantity(line.quantity.toLocaleString())} ${t('dashboard.shares')} · ${line.accountName}`
             : line.accountName}
         </ItemDescription>
       </ItemContent>

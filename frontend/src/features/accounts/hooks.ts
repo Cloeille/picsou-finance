@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, realEstateApi } from './api'
 import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, TransactionImportRequest, TransactionRequest } from '@/types/api'
-import { QUERY_STALE_TIMES } from '@/lib/constants'
+import { HOLDING_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
 
 export interface HoldingWithAccount extends HoldingResponse {
   accountName: string
@@ -15,6 +15,11 @@ export interface PortfolioLine {
   name: string
   ticker: string | null
   quantity: number
+  /**
+   * Needed to classify the line: the write is authorised by the account it was reached through.
+   * Null on the aggregated cash row, which spans several accounts and belongs to no one of them.
+   */
+  accountId: number | null
   accountName: string
   accountType: Account['type']
   accountColor: string
@@ -27,7 +32,6 @@ export interface PortfolioLine {
   priceUpdatedAt: string | null
 }
 
-const HOLDING_ACCOUNT_TYPES: Account['type'][] = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS']
 
 // Single source of truth: recompute the (value, cost, pnl, pct) trio from a live price.
 // Keeps all four derived numbers consistent with the same price snapshot.
@@ -67,6 +71,7 @@ export function usePortfolio() {
             name: h.name ?? h.ticker,
             ticker: h.ticker,
             quantity: h.quantity,
+            accountId: account.id,
             accountName: account.name,
             accountType: account.type,
             accountColor: account.color,
@@ -118,6 +123,7 @@ export function usePortfolio() {
           name: 'Euros',
           ticker: 'EUR',
           quantity: 0,
+          accountId: null,
           accountName: cashAccounts.map(a => a.name).join(', '),
           accountType: cashAccounts[0].type,
           accountColor: '#22c55e',

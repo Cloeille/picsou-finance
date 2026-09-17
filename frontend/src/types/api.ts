@@ -1,7 +1,7 @@
 export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'LOAN' | 'EMPLOYEE_SAVINGS' | 'OTHER'
+  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
@@ -211,6 +211,12 @@ export interface Account {
   /** Key of a bundled frontend asset (`lib/provider-logos.ts`); null for accounts with no choice made. */
   logoKey: string | null
   createdAt: string
+  /**
+   * When the member says the wrapper was opened — a PEA's fifth anniversary and an
+   * assurance-vie's eighth turn on it. Distinct from `createdAt`, which dates the Picsou row.
+   * Omitted by the API when never stated.
+   */
+  openedAt?: string | null
   realEstate?: RealEstateMetadata
   debt?: DebtInfo
   /** Set for Revolut pocket sub-accounts: the id of the parent Revolut wallet.
@@ -244,6 +250,12 @@ export interface AccountRequest {
    * resolve the logo (never sent as a URL — see `docs/features/bank-logos.md`) and not stored.
    */
   institutionId?: string
+  /**
+   * ISO date. **Omitting it leaves the stored value alone** — the backend cannot tell an absent
+   * field from a cleared one, and treating null as "clear" would let any client that predates
+   * the field wipe it. The form can change the date but not blank it.
+   */
+  openedAt?: string | null
 }
 
 export interface RealEstateMetadataRequest {
@@ -373,28 +385,114 @@ export interface BalanceSnapshot {
   createdAt?: string
 }
 
+export type GoalType = 'SAVINGS_TARGET' | 'RECURRING_INVESTMENT'
+
+/** One line of a recurring plan's monthly split. */
+export interface GoalAllocation {
+  ticker: string
+  /** The holding's name in the funded account; the ticker is what identifies the line. */
+  name: string | null
+  monthlyAmount: number
+}
+
 export interface GoalProgress {
   id: number
   name: string
-  targetAmount: number
-  deadline: string
+  type: GoalType
   createdAt: string
   historyStartMonth: string | null
   accounts: Account[]
   currentTotal: number
-  percentComplete: number
-  monthsLeft: number
-  monthlyNeeded: number
+
+  /**
+   * The target machinery. All null for a RECURRING_INVESTMENT — discriminate on `type`, which is
+   * always present, rather than on which of these happens to be missing.
+   */
+  targetAmount: number | null
+  deadline: string | null
+  percentComplete: number | null
+  monthlyNeeded: number | null
   avgMonthlyContribution: number | null
+  surplus: number | null
+
+  /**
+   * Primitives on the backend, so they cannot be dropped from the JSON: a recurring plan reports
+   * 0 and true. Meaningless for it — never render them without checking `type` first.
+   */
+  monthsLeft: number
   isOnTrack: boolean
-  surplus: number
+
+  /** RECURRING_INVESTMENT only. */
+  monthlyAmount: number | null
+  expectedReturn: number | null
+  startDate: string | null
+  endDate: string | null
+
+  /**
+   * Where the monthly amount goes. **Always an array** — empty for a savings target and for a
+   * plan nobody has detailed, never omitted. The backend sends `[]` on purpose here, against its
+   * own `non_null` rule, precisely so this can be mapped over without a guard.
+   */
+  allocations: GoalAllocation[]
 }
 
 export interface GoalRequest {
   name: string
-  targetAmount: number
-  deadline: string
+  type: GoalType
+  targetAmount: number | null
+  deadline: string | null
+  monthlyAmount: number | null
+  expectedReturn: number | null
+  startDate: string | null
+  endDate: string | null
+  /** Only tickers the funded account already holds; the backend answers 400 for any other. */
+  allocations: { ticker: string; monthlyAmount: number }[]
   accountIds: number[]
+}
+
+// --- Analysis: wealth projection ---
+
+export interface ProjectionPoint {
+  date: string
+  valueEur: number
+  /** Capital in — the base plus everything paid in since, so the chart can shade the gain. */
+  contributedEur: number
+}
+
+export interface ProjectionScenario {
+  key: 'PESSIMISTIC' | 'CAUTIOUS' | 'REFERENCE' | 'OPTIMISTIC'
+  /**
+   * The effective blended rate this scenario works out to, given where the money sits and where
+   * each plan sends it. Not a headline applied to everything — the same "optimistic" curve is
+   * 10 % for someone fully invested and 3 % for someone whose plans mostly feed a passbook.
+   */
+  annualPercent: number
+  /** Points added to risky assets to obtain this scenario. Cash does not have a good year. */
+  riskyDelta: number
+  points: ProjectionPoint[]
+}
+
+/** The mix at one horizon, under the reference scenario, beside the member's own targets. */
+export interface AllocationPoint {
+  date: string
+  tiers: AllocationTierShare[]
+}
+
+export interface AllocationTierShare {
+  tier: WealthTier
+  valueEur: number
+  percent: number
+  targetPercent: number | null
+}
+
+export interface Projection {
+  /** Investable only: no property, no loans, no alternative assets. */
+  baseValueEur: number
+  monthlyInflowEur: number
+  years: number
+  scenarios: ProjectionScenario[]
+  /** Where the mix is heading — the question the pyramid asks and a total could never answer. */
+  allocation: AllocationPoint[]
 }
 
 export interface GoalMonthEntry {
@@ -1340,3 +1438,239 @@ export interface RealizedPnlResponse {
   byTicker: TickerRealized[]
   lots: RealizedLot[]
 }
+
+// --- Analysis: the investment pyramid ---
+
+export type WealthTier = 'SAFETY_NET' | 'REAL_ESTATE' | 'EQUITY' | 'CRYPTO' | 'ALTERNATIVE'
+
+export interface TierAccount {
+  accountId: number
+  name: string
+  color: string
+  valueEur: number
+}
+
+/** Only the four investment tiers appear; the cushion is measured in euros, not as a share. */
+export interface WealthTierLine {
+  tier: Exclude<WealthTier, 'SAFETY_NET'>
+  valueEur: number
+  actualPercent: number
+  targetPercent: number
+  /** What the target percentage is worth today — a gap in euros is actionable, points are not. */
+  targetEur: number
+  gapPercent: number
+  accounts: TierAccount[]
+}
+
+export interface SafetyNetLine {
+  /** Savings passbooks only — a current account is not an emergency fund. */
+  valueEur: number
+  /** Current-account money: reported so it is visible, scored nowhere. */
+  dailyCashEur: number
+  /** null until the member states their monthly expenses. */
+  targetEur: number | null
+  coverage: number | null
+  excessEur: number
+  known: boolean
+  score: number | null
+}
+
+export interface WealthScore {
+  /** Null when neither sub-score could be computed — nothing to allocate and no stated expenses. */
+  global: number | null
+  /** Null when nothing is allocatable. Having no allocation is not a perfect allocation. */
+  allocation: number | null
+  misplacedPercent: number
+  cryptoPenalty: number
+  leverageBonus: number
+  cryptoTopTenShare: number | null
+  loanToValue: number | null
+}
+
+/**
+ * An observation about the portfolio's shape that holds whatever the member's targets say.
+ *
+ * The score measures conformity to self-chosen targets, so it cannot question the targets. These
+ * come from the portfolio alone and cannot be silenced by editing one.
+ */
+export interface WealthAlert {
+  code: 'SINGLE_ASSET_CONCENTRATION' | 'EMPTY_TIER' | 'CUSHION_OVERFUNDED'
+  label: string | null
+  valueEur: number
+  percent: number
+}
+
+export interface WealthPyramid {
+  totalAssetsEur: number
+  allocatableEur: number
+  safetyNet: SafetyNetLine
+  tiers: WealthTierLine[]
+  score: WealthScore
+  alerts: WealthAlert[]
+}
+
+export interface AllocationTargets {
+  monthlyEssentialExpenses: number | null
+  safetyNetMonths: number
+  realEstatePct: number
+  equityPct: number
+  cryptoPct: number
+  alternativePct: number
+}
+
+export type AllocationTargetsRequest = AllocationTargets
+
+export interface EssentialExpenseEstimate {
+  estimate: number | null
+  monthsObserved: number
+  excludedTransferCount: number
+}
+
+// --- Analysis: sector and geographic diversification ---
+
+/**
+ * What a country breakdown is measuring. An ETF's countries are look-through *exposure*; a
+ * directly held share contributes its *domicile*. Once both are present the bar mixes two
+ * different quantities, and says so.
+ */
+export type DiversificationBasis = 'EXPOSURE' | 'MIXED'
+
+export interface DiversificationBreakdown {
+  score: number
+  effectiveCount: number
+  targetCount: number
+  basis: DiversificationBasis
+  /**
+   * What this axis alone could place. Not the same as the other axis's: a share often has a
+   * known sector and no domicile, and a fund may disclose its countries far more completely than
+   * its sectors. The top-level coveragePercent reports the more generous of the two.
+   */
+  classifiedValueEur: number
+  coveragePercent: number
+  slices: DiversificationSlice[]
+}
+
+/**
+ * One bar of a breakdown, with the holdings behind it.
+ *
+ * Distinct from WeightedSlice, which is shared with the single-security insight modal where a
+ * contributor means nothing.
+ */
+export interface DiversificationSlice {
+  label: string
+  percent: number
+  valueEur: number
+  contributors: SliceContributor[]
+  /** The real number of holdings, which exceeds contributors.length once the tail is folded. */
+  contributorCount: number
+}
+
+/** One holding's share of one slice — why "France" is 8.4 %. */
+export interface SliceContributor {
+  /** Null on the folded tail of small contributors, rendered as "and N others". */
+  ticker: string | null
+  valueEur: number
+  sharePercent: number
+}
+
+/** Every security appearing as a contributor, once, so slices need not repeat its name. */
+export interface DiversificationSecurity {
+  ticker: string
+  name: string | null
+  accountId: number | null
+  valueEur: number
+}
+
+/** A holding a breakdown could not fully place, with what the editor needs to fix it. */
+export interface UnclassifiedLine {
+  ticker: string
+  name: string | null
+  /** An account holding it — the write is account-scoped because ownership authorises it. */
+  accountId: number | null
+  valueEur: number
+  sectorMissing: boolean
+  countryMissing: boolean
+  /** False means no provider lookup has run yet, so a refresh may still fix it on its own. */
+  profileLooked: boolean
+}
+
+export interface Diversification {
+  totalValueEur: number
+  classifiedValueEur: number
+  unclassifiedValueEur: number
+  coveragePercent: number
+  unclassified: UnclassifiedLine[]
+  sectors: DiversificationBreakdown
+  countries: DiversificationBreakdown
+  securities: DiversificationSecurity[]
+}
+
+export interface HoldingClassificationRequest {
+  wealthTier: WealthTier | null
+  sectorKey: string | null
+  countryKey: string | null
+}
+
+export interface HoldingClassificationResponse {
+  ticker: string
+  wealthTier: WealthTier | null
+  sectorKey: string | null
+  countryKey: string | null
+}
+
+/**
+ * What the editor opens on. The member's override and the providers' guess are separate: a form
+ * pre-filled with a guess cannot tell you whether you are confirming it or reading your own
+ * earlier decision, and saving it would freeze the guess in place forever.
+ */
+export interface HoldingClassificationView {
+  ticker: string
+  wealthTier: WealthTier | null
+  sectorKey: string | null
+  countryKey: string | null
+  inferredSectorKey: string | null
+  inferredCountryKey: string | null
+  profileLooked: boolean
+}
+
+export interface SecurityProfileRefresh {
+  queuedTickers: number
+  alreadyRunning: boolean
+}
+
+// --- Member profile (personal + fiscal context) ---
+
+export type HouseholdStatus = 'SINGLE' | 'COUPLE'
+export type RiskProfile = 'PRUDENT' | 'BALANCED' | 'DYNAMIC' | 'AGGRESSIVE'
+
+/**
+ * Every field is nullable and stays that way: null means "never stated", which is not the same
+ * as zero. The API omits nulls, so read these with `== null`, never `=== null`.
+ */
+export interface MemberProfile {
+  birthDate: string | null
+  /** Derived server-side from `birthDate`, so it cannot go stale in a cache. */
+  age: number | null
+  marginalTaxRate: number | null
+  householdStatus: HouseholdStatus | null
+  taxHouseholdParts: number | null
+  dependents: number | null
+  /** Gross: the figure a payslip states. Fiscal context; nothing is computed from it. */
+  annualGrossIncome: number | null
+  /** The payslip's "net à payer avant impôt" — after contributions, before withholding. */
+  monthlyNetBeforeTax: number | null
+  /** Taux de prélèvement à la source, in percent. */
+  withholdingTaxRate: number | null
+  /**
+   * What reaches the account: `monthlyNetBeforeTax × (1 − withholdingTaxRate)`, derived
+   * server-side. **Null unless both inputs are stated** — a blank rate means "not said", not
+   * zero, so the savings rate is withheld rather than built on a guess.
+   */
+  monthlyNetIncome: number | null
+  monthlySavingsCapacity: number | null
+  targetRetirementAge: number | null
+  riskProfile: RiskProfile | null
+}
+
+/** A full replacement: a null field clears what was stored. */
+export type MemberProfileRequest = Omit<MemberProfile, 'age' | 'monthlyNetIncome'>

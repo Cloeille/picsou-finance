@@ -1,14 +1,19 @@
 package com.picsou.service;
 
+import com.picsou.dto.GoalAllocationRequest;
 import com.picsou.dto.GoalProgressResponse;
 import com.picsou.dto.GoalRequest;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.Account;
+import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Goal;
+import com.picsou.model.GoalAllocation;
+import com.picsou.model.GoalType;
 import com.picsou.model.GoalManualContribution;
 import com.picsou.model.GoalMonthOverride;
+import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -42,6 +47,7 @@ class GoalServiceTest {
 
     @Mock GoalRepository goalRepository;
     @Mock AccountRepository accountRepository;
+    @Mock AccountHoldingRepository accountHoldingRepository;
     @Mock BalanceSnapshotRepository snapshotRepository;
     @Mock AccountService accountService;
     @Mock GoalMonthOverrideRepository overrideRepository;
@@ -96,7 +102,7 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "LEP", AccountType.LEP, null, "EUR",
                 new BigDecimal("5000"), new BigDecimal("5000"),
-                null, null, true, "#6366f1", null, null, null, null, null, null, null, null, false, null, null
+                null, null, true, "#6366f1", null, null, null, null, null, null, null, null, null, false, null, null
             )
         );
         when(accountService.signedLiveBalanceEur(account)).thenReturn(new BigDecimal("5000"));
@@ -181,14 +187,14 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "LEP", AccountType.LEP, null, "EUR",
                 new BigDecimal("5000"), new BigDecimal("5000"),
-                null, null, true, "#6366f1", null, null, null, null, null, null, null, null, false, null, null
+                null, null, true, "#6366f1", null, null, null, null, null, null, null, null, null, false, null, null
             )
         );
         when(accountService.toResponse(loan)).thenReturn(
             new com.picsou.dto.AccountResponse(
                 2L, "Prêt", AccountType.LOAN, null, "EUR",
                 new BigDecimal("2000"), new BigDecimal("2000"),
-                null, null, true, "#ef4444", null, null, null, null, null, null, null, null, false, null, null
+                null, null, true, "#ef4444", null, null, null, null, null, null, null, null, null, false, null, null
             )
         );
         when(accountService.signedLiveBalanceEur(asset)).thenReturn(new BigDecimal("5000"));
@@ -215,10 +221,183 @@ class GoalServiceTest {
     // member's account. The account lookup must be member-scoped, never the
     // inherited, unscoped findAllById.
 
+    // ─── Recurring investment plans ───────────────────────────────────────────
+    // The savings-target tests above must all stay green: this type is additive, and the
+    // existing shape is what every goal written before V85 still is.
+
+    private Goal recurringPlan() {
+        return Goal.builder()
+            .id(9L).member(GOAL_OWNER).name("PEA monthly")
+            .type(GoalType.RECURRING_INVESTMENT)
+            .monthlyAmount(new BigDecimal("300"))
+            .accounts(new java.util.ArrayList<>())
+            .build();
+    }
+
+    @Test
+    void recurringPlan_reportsItsPlanWithoutATargetAndWithoutNpe() {
+        // toProgressResponse runs for every goal on the goals page AND from DashboardService,
+        // where target.subtract(currentTotal) on a null target would be a 500.
+        Goal plan = recurringPlan();
+
+        GoalProgressResponse response = goalService.toProgressResponse(plan);
+
+        assertThat(response.type()).isEqualTo(GoalType.RECURRING_INVESTMENT);
+        assertThat(response.monthlyAmount()).isEqualByComparingTo("300");
+        assertThat(response.targetAmount()).isNull();
+        assertThat(response.deadline()).isNull();
+        assertThat(response.percentComplete()).isNull();
+        assertThat(response.monthlyNeeded()).isNull();
+    }
+
+    @Test
+    void recurringPlan_isRefusedByTheMonthlyCalendar() {
+        // The calendar counts towards a deadline the plan does not have. Refusing explicitly is
+        // a 400; letting it through is a 500 somewhere deeper.
+        when(goalRepository.findByIdAndMemberId(9L, 42L)).thenReturn(java.util.Optional.of(recurringPlan()));
+
+        assertThatThrownBy(() -> goalService.getMonthlyEntries(9L, 42L))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void recurringPlan_isRefusedByTheBackfillAndTheOverrides() {
+        when(goalRepository.findByIdAndMemberId(9L, 42L))
+            .thenReturn(java.util.Optional.of(recurringPlan()));
+
+        assertThatThrownBy(() -> goalService.extendHistory(9L, 42L))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> goalService.extendHistoryByMonth(9L, 42L))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> goalService.setMonthOverride(9L, "2026-01", BigDecimal.TEN, 42L))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> goalService.setManualContribution(9L, "2026-01", BigDecimal.TEN, 42L))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void create_persistsTheRecurringFields() {
+        FamilyMember member = FamilyMember.builder().id(42L).build();
+        Account account = Account.builder()
+            .id(1L).name("PEA").type(AccountType.PEA).currency("EUR")
+            .currentBalance(BigDecimal.ZERO).build();
+        when(accountRepository.findByIdInAndMemberId(List.of(1L), 42L)).thenReturn(List.of(account));
+        when(goalRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        GoalProgressResponse response = goalService.create(GoalRequest.recurringInvestment(
+            "PEA monthly", new BigDecimal("300"), new BigDecimal("7.5"), null, null, 1L), member);
+
+        assertThat(response.type()).isEqualTo(GoalType.RECURRING_INVESTMENT);
+        assertThat(response.monthlyAmount()).isEqualByComparingTo("300");
+        assertThat(response.expectedReturn()).isEqualByComparingTo("7.5");
+    }
+
+    // ─── The monthly split ────────────────────────────────────────────────────
+
+    private static Account pea() {
+        return Account.builder()
+            .id(1L).name("PEA").type(AccountType.PEA).currency("EUR")
+            .currentBalance(BigDecimal.ZERO).build();
+    }
+
+    private static AccountHolding holding(String ticker, String name) {
+        return AccountHolding.builder().ticker(ticker).name(name).quantity(BigDecimal.ONE).build();
+    }
+
+    private static GoalRequest planWithSplit(GoalAllocationRequest... lines) {
+        return new GoalRequest("PEA monthly", GoalType.RECURRING_INVESTMENT, null, null,
+            new BigDecimal("400"), null, null, null, List.of(lines), List.of(1L));
+    }
+
+    @Test
+    void create_persistsTheSplitAndNamesItFromTheAccountHoldings() {
+        FamilyMember member = FamilyMember.builder().id(42L).build();
+        when(accountRepository.findByIdInAndMemberId(List.of(1L), 42L)).thenReturn(List.of(pea()));
+        when(accountHoldingRepository.findByAccount_Id(1L))
+            .thenReturn(List.of(holding("CW8", "Amundi MSCI World"), holding("ESE", "BNP S&P 500")));
+        when(goalRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        GoalProgressResponse response = goalService.create(planWithSplit(
+            new GoalAllocationRequest("CW8", new BigDecimal("250")),
+            new GoalAllocationRequest("ESE", new BigDecimal("150"))), member);
+
+        assertThat(response.allocations()).hasSize(2);
+        assertThat(response.allocations().getFirst().ticker()).isEqualTo("CW8");
+        assertThat(response.allocations().getFirst().name()).isEqualTo("Amundi MSCI World");
+        assertThat(response.allocations().getFirst().monthlyAmount()).isEqualByComparingTo("250");
+    }
+
+    @Test
+    void create_refusesASplitOnAPositionTheAccountDoesNotHold() {
+        // The rule the feature exists under: a plan details money going into a position that is
+        // already there, never into one the member has yet to buy.
+        FamilyMember member = FamilyMember.builder().id(42L).build();
+        when(accountRepository.findByIdInAndMemberId(List.of(1L), 42L)).thenReturn(List.of(pea()));
+        when(accountHoldingRepository.findByAccount_Id(1L)).thenReturn(List.of(holding("CW8", "World")));
+
+        assertThatThrownBy(() -> goalService.create(
+            planWithSplit(new GoalAllocationRequest("NVDA", new BigDecimal("100"))), member))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("NVDA");
+
+        verify(goalRepository, never()).save(any());
+    }
+
+    @Test
+    void update_replacesTheSplitInPlaceRatherThanSwappingTheList() {
+        // Goal.allocations is mapped with orphanRemoval: handing Hibernate a fresh ArrayList
+        // makes it throw instead of deleting the rows that went away. The list identity has to
+        // survive the edit, which is what this asserts.
+        Goal plan = recurringPlan();
+        plan.getAllocations().add(GoalAllocation.builder()
+            .goal(plan).ticker("CW8").monthlyAmount(new BigDecimal("300")).build());
+        List<GoalAllocation> original = plan.getAllocations();
+
+        when(goalRepository.findByIdAndMemberId(9L, 42L)).thenReturn(Optional.of(plan));
+        when(accountRepository.findByIdInAndMemberId(List.of(1L), 42L)).thenReturn(List.of(pea()));
+        when(accountHoldingRepository.findByAccount_Id(1L))
+            .thenReturn(List.of(holding("CW8", "World"), holding("ESE", "S&P 500")));
+        when(goalRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        goalService.update(9L, planWithSplit(
+            new GoalAllocationRequest("ESE", new BigDecimal("400"))), 42L);
+
+        assertThat(plan.getAllocations()).isSameAs(original);
+        assertThat(plan.getAllocations()).singleElement()
+            .satisfies(a -> assertThat(a.getTicker()).isEqualTo("ESE"));
+    }
+
+    @Test
+    void update_clearsTheSplitWhenTheRequestCarriesNone() {
+        Goal plan = recurringPlan();
+        plan.getAllocations().add(GoalAllocation.builder()
+            .goal(plan).ticker("CW8").monthlyAmount(new BigDecimal("300")).build());
+
+        when(goalRepository.findByIdAndMemberId(9L, 42L)).thenReturn(Optional.of(plan));
+        when(accountRepository.findByIdInAndMemberId(List.of(1L), 42L)).thenReturn(List.of(pea()));
+        when(goalRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        goalService.update(9L, GoalRequest.recurringInvestment(
+            "PEA monthly", new BigDecimal("400"), null, null, null, 1L), 42L);
+
+        assertThat(plan.getAllocations()).isEmpty();
+        // No split to validate and none to name: the holdings table is never touched. This runs
+        // once per goal on the goals page, so the query has to stay conditional.
+        verify(accountHoldingRepository, never()).findByAccount_Id(any());
+    }
+
+    @Test
+    void recurringPlan_withoutASplitReportsAnEmptyListRatherThanNull() {
+        // Clients map over this array. An omitted key would reach them as undefined.
+        GoalProgressResponse response = goalService.toProgressResponse(recurringPlan());
+
+        assertThat(response.allocations()).isEmpty();
+    }
+
     @Test
     void create_isMemberScoped_andRejectsForeignAccounts() {
         FamilyMember member = FamilyMember.builder().id(42L).build();
-        GoalRequest req = new GoalRequest(
+        GoalRequest req = GoalRequest.savingsTarget(
             "Trip", new BigDecimal("1000"), LocalDate.now().plusMonths(3), List.of(1L, 2L));
         // Account 2 belongs to someone else → the member-scoped finder returns only the owned one.
         Account owned = Account.builder()
@@ -243,7 +422,7 @@ class GoalServiceTest {
             .deadline(LocalDate.now().plusMonths(3))
             .accounts(new java.util.ArrayList<>()).build();
         when(goalRepository.findByIdAndMemberId(5L, 42L)).thenReturn(java.util.Optional.of(goal));
-        GoalRequest req = new GoalRequest(
+        GoalRequest req = GoalRequest.savingsTarget(
             "Trip", new BigDecimal("1000"), LocalDate.now().plusMonths(3), List.of(1L, 2L));
         Account owned = Account.builder()
             .id(1L).name("LEP").type(AccountType.LEP).currency("EUR")
@@ -355,7 +534,7 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "Livret", AccountType.SAVINGS, null, "EUR",
                 BigDecimal.ZERO, BigDecimal.ZERO,
-                null, null, true, "#000", null, null, null, null, null, null, null, null, false, null, null
+                null, null, true, "#000", null, null, null, null, null, null, null, null, null, false, null, null
             )
         );
         when(accountService.signedLiveBalanceEur(account)).thenReturn(BigDecimal.ZERO);
@@ -412,7 +591,7 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "Mortgage", AccountType.LOAN, null, "EUR",
                 new BigDecimal("9000"), new BigDecimal("9000"),
-                null, null, true, "#ef4444", null, null, null, null, null, null, null, null, false, null, null
+                null, null, true, "#ef4444", null, null, null, null, null, null, null, null, null, false, null, null
             )
         );
         when(accountService.signedLiveBalanceEur(loan)).thenReturn(new BigDecimal("-9000"));
@@ -458,7 +637,7 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "Livret", AccountType.SAVINGS, null, "EUR",
                 BigDecimal.ZERO, BigDecimal.ZERO,
-                null, null, true, "#000", null, null, null, null, null, null, null, null, false, null, null
+                null, null, true, "#000", null, null, null, null, null, null, null, null, null, false, null, null
             )
         );
         when(accountService.signedLiveBalanceEur(account)).thenReturn(BigDecimal.ZERO);
@@ -505,7 +684,7 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "LEP", AccountType.LEP, null, "EUR",
                 BigDecimal.ZERO, BigDecimal.ZERO,
-                null, null, true, "#000", null, null, null, null, null, null, null, null, false, null, null
+                null, null, true, "#000", null, null, null, null, null, null, null, null, null, false, null, null
             )
         );
         when(accountService.signedLiveBalanceEur(account)).thenReturn(BigDecimal.ZERO);

@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { ExchangePositionResponse } from '@/types/api'
 
@@ -135,5 +135,24 @@ describe('PositionsByProduct', () => {
     const { container } = render(<PositionsByProduct positions={[]} />)
 
     expect(container).toBeEmptyDOMElement()
+  })
+
+  // One sort criterion for the three sections, applied inside each: the SPOT/STAKING/LENDING
+  // sequence is editorial and must survive any column the reader picks.
+  it('sorts every product section on one criterion without reordering the sections', () => {
+    render(<PositionsByProduct positions={POSITIONS} />)
+
+    const staking = sectionFor('STAKING')
+    // Value descending by default: ATOM (165,77) before BTC (25).
+    expect(staking.getAllByRole('row').slice(1).map(r => r.querySelector('td')!.textContent))
+      .toEqual(['ATOM', 'BTC'])
+
+    fireEvent.click(within(staking.getAllByRole('table')[0]).getByRole('button', { name: 'portfolio.value' }))
+
+    expect(sectionFor('STAKING').getAllByRole('row').slice(1).map(r => r.querySelector('td')!.textContent))
+      .toEqual(['BTC', 'ATOM'])
+    // The headings kept their order, and SPOT is still the first section on screen.
+    const headings = screen.getAllByRole('heading', { level: 3 }).map(h => h.textContent)
+    expect(headings).toEqual(['positions.products.SPOT', 'positions.products.STAKING'])
   })
 })

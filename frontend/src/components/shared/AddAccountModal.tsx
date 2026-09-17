@@ -197,6 +197,7 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
     fileFees?: number
     startDate?: string
     endDate?: string
+    openedAt?: string
   }) {
     const request: AccountRequest = {
       name: data.name,
@@ -209,6 +210,7 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
       ticker: data.ticker || undefined,
       // Set only when a bank was picked from the catalog; the backend resolves its logo from it.
       institutionId: data.institutionId,
+      openedAt: data.openedAt || undefined,
     }
     const created = await createAccount.mutateAsync(request)
 

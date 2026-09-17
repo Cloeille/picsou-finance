@@ -79,6 +79,7 @@ public class BoursoSyncService {
     private final FamilyMemberRepository memberRepository;
     private final AccountService accountService;
     private final OpenFigiIsinConverter isinConverter;
+    private final SecurityIdentityService identityService;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
@@ -91,6 +92,7 @@ public class BoursoSyncService {
         FamilyMemberRepository memberRepository,
         AccountService accountService,
         OpenFigiIsinConverter isinConverter,
+        SecurityIdentityService identityService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         @Qualifier("boursoSyncExecutor") Executor syncExecutor
@@ -102,6 +104,7 @@ public class BoursoSyncService {
         this.memberRepository = memberRepository;
         this.accountService = accountService;
         this.isinConverter = isinConverter;
+        this.identityService = identityService;
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
@@ -322,6 +325,7 @@ public class BoursoSyncService {
 
     private List<PreparedPosition> preparePositions(List<BoursoPort.Position> rawPositions) {
         Map<String, PreparedPosition> positions = new LinkedHashMap<>();
+        Map<String, String> isinByTicker = new LinkedHashMap<>();
         for (BoursoPort.Position position : rawPositions) {
             if (position == null || position.quantity() == null || position.currentValueEur() == null) {
                 throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned an incomplete position", null);
@@ -337,7 +341,7 @@ public class BoursoSyncService {
                     null
                 );
             }
-            String ticker = resolveTicker(position);
+            String ticker = resolveTicker(position, isinByTicker);
             PreparedPosition resolved = new PreparedPosition(
                 ticker,
                 limit(position.label(), 100, ticker),
@@ -350,6 +354,9 @@ public class BoursoSyncService {
             );
             positions.merge(ticker, resolved, this::mergePositions);
         }
+        // The ISIN is the identifier the composition and fund-facts lookups actually resolve;
+        // without this it dies here, converted into a ticker and forgotten.
+        identityService.record(isinByTicker);
         return positions.values().stream()
             .filter(position -> position.quantity().signum() != 0)
             .toList();
@@ -362,7 +369,7 @@ public class BoursoSyncService {
      * by Yahoo, and {@code AccountService.PROVIDER_VALUED} then falls back to
      * BoursoBank's own valuation instead of reading the line as zero.
      */
-    private String resolveTicker(BoursoPort.Position position) {
+    private String resolveTicker(BoursoPort.Position position, Map<String, String> isinByTicker) {
         String ticker = clean(position.symbol());
         String isin = normalizeIsin(position.isin());
         if (isin != null) {
@@ -377,6 +384,9 @@ public class BoursoSyncService {
         }
         if (ticker == null || ticker.length() > MAX_TICKER_LENGTH) {
             throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned an invalid instrument identifier", null);
+        }
+        if (isin != null) {
+            isinByTicker.put(ticker, isin);
         }
         return ticker;
     }

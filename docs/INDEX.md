@@ -65,6 +65,10 @@
 | 2026-08-01 | [Per-member ownership shares on properties and loans](./decisions/2026-08-01-account-ownership-shares.md) | Active |
 | 2026-08-10 | [Verify an ISIN's ticker against Yahoo instead of predicting it](./decisions/2026-08-10-yahoo-verified-isin-tickers.md) | Active |
 | 2026-08-11 | [Deleting an account removes the connection behind it](./decisions/2026-08-11-account-deletion-removes-its-connection.md) | Active |
+| 2026-08-13 | [A country breakdown mixes domicile and exposure, and says so](./decisions/2026-08-13-equity-domicile-vs-etf-exposure.md) | Active |
+| 2026-08-13 | [Persist security profiles and warm them on a schedule](./decisions/2026-08-13-persisted-security-profiles.md) | Active |
+| 2026-08-15 | [Key security lookups on the ISIN, and read fund facts from justETF](./decisions/2026-08-15-isin-keyed-lookups-and-justetf.md) | Active |
+| 2026-08-18 | [Client-supplied labels for the xlsx account export](./decisions/2026-08-18-client-supplied-labels-for-xlsx-export.md) | Active |
 
 ## Feature notes
 
@@ -75,7 +79,7 @@
 | Remote-MCP OAuth (claude.ai connector) | 2026-07-12 | [mcp-oauth-remote.md](./features/mcp-oauth-remote.md) |
 | Internationalization (FR/EN/DE/ES) | 2026-09-02 | [i18n.md](./features/i18n.md) |
 | Frontend utilities (lib/utils.ts) | 2026-08-07 | [frontend-utils.md](./features/frontend-utils.md) |
-| Demo mode | 2026-04-08 | [demo-mode.md](./features/demo-mode.md) |
+| Demo mode | 2026-08-13 | [demo-mode.md](./features/demo-mode.md) |
 | Theme (dark / light / system) + theme-adaptive rendering | 2026-06-02 | [theme-persistence.md](./features/theme-persistence.md) |
 | Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
 | Bank sync | 2026-08-11 | [bank-sync.md](./features/bank-sync.md) |
@@ -93,6 +97,10 @@
 | ISIN → Ticker conversion | 2026-08-10 | [ISIN_TO_TICKER_CONVERSION.md](./features/ISIN_TO_TICKER_CONVERSION.md) |
 | Encryption at rest | 2026-04-08 | [encryption-at-rest.md](./features/encryption-at-rest.md) |
 | Crypto tracking | 2026-08-11 | [crypto-tracking.md](./features/crypto-tracking.md) |
+| Wealth pyramid (Analysis) | 2026-08-16 | [wealth-pyramid.md](./features/wealth-pyramid.md) |
+| Portfolio diversification (sector + geography) | 2026-08-15 | [portfolio-diversification.md](./features/portfolio-diversification.md) |
+| Recurring investment plans + wealth projection | 2026-08-19 | [goal-recurring-investment.md](./features/goal-recurring-investment.md) |
+| Member profile (age, TMI, income) | 2026-08-19 | [member-profile.md](./features/member-profile.md) |
 | Savings goals | 2026-06-02 | [goals.md](./features/goals.md) |
 | Goals — Grid view (donuts) | 2026-06-02 | [goal-calendar-donut.md](./features/goal-calendar-donut.md) |
 | Price service | 2026-08-07 | [price-service.md](./features/price-service.md) |
@@ -104,7 +112,7 @@
 | CSV transaction import (investment accounts) | 2026-07-11 | [csv-transaction-import.md](./features/csv-transaction-import.md) |
 | Realized P&L on closed positions | 2026-07-11 | [realized-pnl.md](./features/realized-pnl.md) |
 | BoursoBank sync | 2026-08-13 | [bourso-bank.md](./features/bourso-bank.md) |
-| Accounts overview (PnL chart + summary card + filters + card anatomy) | 2026-08-13 | [accounts-overview.md](./features/accounts-overview.md) |
+| Accounts overview (PnL chart + summary card + filters + card anatomy + sortable positions) | 2026-08-19 | [accounts-overview.md](./features/accounts-overview.md) |
 | Savings livrets (classification + projected interest) | 2026-06-28 | [savings-livrets.md](./features/savings-livrets.md) |
 | Logos on account cards (catalog-resolved, bundled, wallet picker, property kind) | 2026-08-13 | [bank-logos.md](./features/bank-logos.md) |
 | Add Account modal (unified sync + manual) | 2026-08-13 | [add-account-modal.md](./features/add-account-modal.md) |
@@ -112,6 +120,7 @@
 | Docker deployment | 2026-07-19 | [docker-deployment.md](./features/docker-deployment.md) |
 | Navigation (sidebar + mobile bottom nav) | 2026-07-12 | [sidebar-navigation.md](./features/sidebar-navigation.md) |
 | UI control shape (shadcn theme radius) | 2026-08-10 | [ui-control-shape-system.md](./features/ui-control-shape-system.md) |
+| Privacy mode (hiding amounts for demos) | 2026-08-16 | [privacy-mode.md](./features/privacy-mode.md) |
 | Multi-account family system | 2026-07-07 | [multi-account-family.md](./features/multi-account-family.md) |
 | CORS & cookie security | 2026-06-02 | [security-cors-cookies.md](./features/security-cors-cookies.md) |
 | 24H Intraday net worth chart | 2026-04-18 | [intraday-chart.md](./features/intraday-chart.md) |
@@ -125,6 +134,7 @@
 | 2FA (TOTP) and Remember Me | 2026-06-01 | [mfa-and-remember-me.md](./features/mfa-and-remember-me.md) |
 | Login timing equalization (username-enumeration defense, GHSA-ww5m-pxgq-8qq6) | 2026-06-27 | [login-timing-attack.md](./features/login-timing-attack.md) |
 | GDPR data export (JSON + CSV) | 2026-04-26 | [data-export.md](./features/data-export.md) |
+| Account spreadsheet export (xlsx) | 2026-08-18 | [account-xlsx-export.md](./features/account-xlsx-export.md) |
 | Revolut pockets (reconstruction from PSD2 internal-transfer rows) (removed, 2026-07-14) | 2026-06-28 | [revolut-pockets.md](./features/revolut-pockets.md) |
 | Revolut sidecar (assisted-enrolment login connector) | 2026-07-08 | [revolut-sidecar.md](./features/revolut-sidecar.md) |
 

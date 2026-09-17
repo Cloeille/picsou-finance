@@ -136,6 +136,10 @@ export const SetupStepCrypto = lazy(() =>
   }))
 )
 
+export const AnalysisPage = lazy(() =>
+  import('@/pages/analysis/AnalysisPage').then((m) => ({ default: m.AnalysisPage }))
+)
+
 export const ConsentPage = lazy(() =>
   import('@/pages/oauth/ConsentPage').then((m) => ({ default: m.ConsentPage }))
 )

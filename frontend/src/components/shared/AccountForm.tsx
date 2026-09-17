@@ -3,7 +3,7 @@ import { useForm, useWatch, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useTranslation } from 'react-i18next'
-import type { Account } from '@/types/api'
+import type { Account, AccountType } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NumericInput } from '@/components/shared/NumericInput'
@@ -13,7 +13,7 @@ import { ColorPicker } from '@/components/shared/ColorPicker'
 import { LogoPicker } from '@/components/shared/LogoPicker'
 import { BankPicker } from '@/components/shared/BankPicker'
 import { parseAmount, getLocale } from '@/lib/utils'
-import { ACCOUNT_TYPES, SUPPORTED_CURRENCIES } from '@/lib/constants'
+import { ACCOUNT_TYPES, SELECT_CONTROL_CLASS, SUPPORTED_CURRENCIES } from '@/lib/constants'
 
 /** RHF setValueAs: empty → undefined (optional), else comma-tolerant number. */
 const toOptionalNumber = (v: unknown): number | undefined =>
@@ -32,7 +32,7 @@ const accountSchema = z.object({
   type: z.enum([
     'LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL',
     'PEA', 'COMPTE_TITRES', 'CRYPTO', 'CHECKING', 'SAVINGS',
-    'REAL_ESTATE', 'LOAN', 'EMPLOYEE_SAVINGS', 'OTHER',
+    'ASSURANCE_VIE', 'REAL_ESTATE', 'SCPI', 'LOAN', 'EMPLOYEE_SAVINGS', 'OTHER',
   ]),
   provider: z.string().max(100).optional(),
   currency: z.string().min(1),
@@ -55,7 +55,18 @@ const accountSchema = z.object({
   // Ties a mortgage to the property it finances, which is what makes gross vs net
   // property equity computable.
   linkedAccountId: z.number().optional(),
+  // ISO date. Offered only for the wrappers whose tax treatment is a function of their age.
+  openedAt: z.string().optional(),
 })
+
+/**
+ * Account types that carry an opening date, because their taxation turns on the plan's age: a
+ * PEA's gains escape income tax at five years, an assurance-vie's at eight.
+ *
+ * `createdAt` cannot stand in for it — a PEA opened in 2014 and typed into Picsou last month has
+ * a decade between the two, and the whole point of the field is that decade.
+ */
+const OPENING_DATE_TYPES: AccountType[] = ['PEA', 'ASSURANCE_VIE']
 
 type AccountFormData = z.infer<typeof accountSchema>
 
@@ -97,8 +108,6 @@ const EMPTY_DEFAULTS: AccountFormData = {
   startDate: '',
   endDate: '',
 }
-
-const selectControlClassName = "flex h-10 w-full rounded-xl border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]"
 
 export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title, loading, accounts = [] }: AccountFormProps) {
   const { t } = useTranslation()
@@ -177,7 +186,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
             <select
               id="type"
               {...register('type')}
-              className={selectControlClassName}
+              className={SELECT_CONTROL_CLASS}
             >
               {ACCOUNT_TYPES.map((at) => (
                 <option key={at.value} value={at.value}>
@@ -193,7 +202,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
               <select
                 id="currency"
                 {...register('currency')}
-                className={selectControlClassName}
+                className={SELECT_CONTROL_CLASS}
               >
                 {currencyOptions.map((c) => (
                   <option key={c.code} value={c.code}>
@@ -209,6 +218,20 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
               <NumericInput id="balance" {...register('currentBalance', { setValueAs: toOptionalNumber })} />
             </div>
           </div>
+
+          {OPENING_DATE_TYPES.includes(selectedType) && (
+            <div className="space-y-2">
+              <Label htmlFor="openedAt">{t('accounts.openedAt')}</Label>
+              <Controller
+                name="openedAt"
+                control={control}
+                render={({ field }) => (
+                  <DateInput id="openedAt" value={field.value ?? ''} onChange={field.onChange} />
+                )}
+              />
+              <p className="text-sm text-muted-foreground">{t('accounts.openedAtHint')}</p>
+            </div>
+          )}
 
           {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && (
             <div className="grid grid-cols-2 gap-4">
@@ -244,7 +267,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
                   <Label htmlFor="linkedAccountId">{t('debt.linkedAccount')}</Label>
                   <select
                     id="linkedAccountId"
-                    className={selectControlClassName}
+                    className={SELECT_CONTROL_CLASS}
                     {...register('linkedAccountId', {
                       setValueAs: v => (v === '' || v == null ? undefined : Number(v)),
                     })}

@@ -115,6 +115,11 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
     `WORD | PHRASE`; patterns are stored **pre-normalized** (lower-case, accent/apostrophe-free).
   - `transaction` `+ merchant_brand_id BIGINT` (FK `ON DELETE SET NULL`) + index.
   - **Seeds 137 FR/EU brands** + a large alias set, mapping each to a `default_category_slug`.
+- **`V92__default_category_impots.sql`** — adds `impots` / *Impôts & taxes* (EXPENSE) to
+  `CategoryService.DEFAULTS` and backfills it for every already-seeded member. `ensureSeeded`
+  only fires for a member with **zero** categories, so any later addition to the default set
+  needs its own backfill migration. The row is appended at `MAX(sort_order) + 1` per member
+  rather than slotted into the seed position, so a member's own ordering is left untouched.
 
 ### Cashflow flow diagram (Sankey)
 

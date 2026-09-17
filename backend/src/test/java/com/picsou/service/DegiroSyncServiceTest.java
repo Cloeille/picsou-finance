@@ -52,6 +52,7 @@ class DegiroSyncServiceTest {
     @Mock FamilyMemberRepository memberRepository;
     @Mock AccountService accountService;
     @Mock OpenFigiIsinConverter isinConverter;
+    @Mock SecurityIdentityService identityService;
     @Mock CryptoEncryption encryption;
     @Mock DegiroSessionStatusWriter statusWriter;
     @Captor ArgumentCaptor<AccountHolding> holdingCaptor;
@@ -64,7 +65,7 @@ class DegiroSyncServiceTest {
     void setUp() {
         service = new DegiroSyncService(
             port, sessionRepository, accountRepository, holdingRepository,
-            memberRepository, accountService, isinConverter, encryption, statusWriter);
+            memberRepository, accountService, isinConverter, identityService, encryption, statusWriter);
     }
 
     private FamilyMember member() {
@@ -242,7 +243,7 @@ class DegiroSyncServiceTest {
             1L, "DEGIRO", AccountType.COMPTE_TITRES, "DEGIRO", "EUR",
             BigDecimal.TEN, BigDecimal.TEN, BigDecimal.TEN, Instant.now(),
             false, "#f97316", null, null, null, Instant.now(), null, null,
-            null, null, false,
+            null, null, null, false,
             // Ownership shares (this branch): a wholly-owned account carries a null
             // share and is administered by its member.
             null, true);

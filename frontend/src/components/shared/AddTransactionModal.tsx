@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { DateInput } from '@/components/shared/DateInput'
 import { Label } from '@/components/ui/label'
-import { formatCurrency, localeFromLanguage, parseAmount } from '@/lib/utils'
+import { localeFromLanguage, parseAmount } from '@/lib/utils'
+import { formatCurrencyUnmasked } from '@/lib/money'
 import { extractErrorMessage } from '@/lib/errors'
 import { Loader2 } from 'lucide-react'
 import type { AccountType, TransactionRequest } from '@/types/api'
@@ -213,7 +214,10 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
             <NumericInput value={fees} onChange={e => setFees(e.target.value)} />
           </div>
           <p className="text-sm text-muted-foreground">
-            {t('accounts.total')}: {total != null && Number.isFinite(total) ? formatCurrency(total, 'EUR', locale) : '—'}
+            {/* Deliberately unmasked in privacy mode: this is quantity x price as the member is
+                typing them, so both operands are already on screen and masking the product would
+                protect nothing while making the form unreadable. */}
+            {t('accounts.total')}: {total != null && Number.isFinite(total) ? formatCurrencyUnmasked(total, 'EUR', locale) : '—'}
           </p>
         </>
       ) : (

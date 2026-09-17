@@ -1,26 +1,19 @@
 import { useMemo, useRef, useState } from 'react'
 import { Cell, Pie, PieChart, Label } from 'recharts'
-import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
+import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useTranslation } from 'react-i18next'
+import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
 import { accountTypeLabelKey } from '@/lib/constants'
 import {
   disambiguateDistributionNames,
   type DistributionItem,
 } from './distribution-labels'
+import { squarify, type TreemapRect } from '@/lib/treemap'
 
-interface DistributionPieProps {
-  data: DistributionItem[]
-}
-
-interface Rect {
-  x: number
-  y: number
-  w: number
-  h: number
-  item: DistributionItem
-}
+/** The layout is shared with the diversification treemap; only the item shape differs. */
+type Rect = TreemapRect<DistributionItem>
 
 const chartConfig = {
   balanceEur: {
@@ -28,73 +21,8 @@ const chartConfig = {
   },
 } satisfies ChartConfig
 
-function squarify(items: DistributionItem[]): Rect[] {
-  if (items.length === 0) return []
-
-  const sorted = [...items].sort((a, b) => b.balanceEur - a.balanceEur)
-  const total = sorted.reduce((s, i) => s + i.balanceEur, 0)
-  if (total === 0) return []
-
-  const rects: Rect[] = []
-
-  // Simple slice-and-dice: alternate horizontal/vertical splits
-  function sliceAndDice(items: DistributionItem[], x: number, y: number, w: number, h: number, horizontal: boolean) {
-    if (items.length === 0 || w <= 0 || h <= 0) return
-    if (items.length === 1) {
-      rects.push({ x, y, w, h, item: items[0] })
-      return
-    }
-
-    // Split at the point that gives the best aspect ratio
-    const itemTotal = items.reduce((s, i) => s + i.balanceEur, 0)
-    if (itemTotal === 0) return
-
-    // Binary search for the best split point
-    let bestSplit = 1
-    let bestRatio = Infinity
-
-    let runningSum = 0
-    for (let i = 0; i < items.length - 1; i++) {
-      runningSum += items[i].balanceEur
-      const ratio = runningSum / itemTotal
-      if (horizontal) {
-        const rw = w * ratio
-        const rh = h
-        const r = Math.max(rw / rh, rh / rw)
-        if (r < bestRatio) {
-          bestRatio = r
-          bestSplit = i + 1
-        }
-      } else {
-        const rw = w
-        const rh = h * ratio
-        const r = Math.max(rw / rh, rh / rw)
-        if (r < bestRatio) {
-          bestRatio = r
-          bestSplit = i + 1
-        }
-      }
-    }
-
-    const leftItems = items.slice(0, bestSplit)
-    const rightItems = items.slice(bestSplit)
-    const leftTotal = leftItems.reduce((s, i) => s + i.balanceEur, 0)
-    const leftRatio = leftTotal / itemTotal
-
-    if (horizontal) {
-      const leftW = w * leftRatio
-      sliceAndDice(leftItems, x, y, leftW, h, !horizontal)
-      sliceAndDice(rightItems, x + leftW, y, w - leftW, h, !horizontal)
-    } else {
-      const leftH = h * leftRatio
-      sliceAndDice(leftItems, x, y, w, leftH, !horizontal)
-      sliceAndDice(rightItems, x, y + leftH, w, h - leftH, !horizontal)
-    }
-  }
-
-  sliceAndDice(sorted, 0, 0, 100, 100, true)
-
-  return rects
+interface DistributionPieProps {
+  data: DistributionItem[]
 }
 
 function TooltipAnchor({ rect }: { rect: Rect }) {
@@ -133,7 +61,7 @@ function TooltipAnchor({ rect }: { rect: Rect }) {
 }
 
 function AllocationTreemap({ data }: { data: DistributionItem[] }) {
-  const rects = useMemo(() => squarify(data), [data])
+  const rects = useMemo(() => squarify(data, (i) => i.balanceEur), [data])
   const [hoveredId, setHoveredId] = useState<number | null>(null)
 
   const hoveredRect = hoveredId !== null ? rects.find(r => r.item.accountId === hoveredId) : null
@@ -204,7 +132,7 @@ export function DistributionPie({ data }: DistributionPieProps) {
             <div className="flex h-full min-h-0 flex-col">
               <ChartContainer config={chartConfig} className="mx-auto h-[250px] w-full shrink-0">
                 <PieChart>
-                  <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                  <ChartTooltip content={<MoneyChartTooltip config={chartConfig} hideLabel />} />
                   <Pie
                     data={displayData}
                     dataKey="balanceEur"

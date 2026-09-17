@@ -1,6 +1,12 @@
 # Feature: Goals
 
-> Last updated: 2026-06-02 (month-by-month backfill alongside yearly backfill)
+> Last updated: 2026-08-13 (goals gained a type; see goal-recurring-investment.md)
+
+> **Goals now have a type.** This note describes `SAVINGS_TARGET`, which is what every goal was
+> and still is by default. The second shape — a monthly investment with no target and no deadline
+> — is documented in [goal-recurring-investment.md](./goal-recurring-investment.md), along with
+> the removal of `chk_goal_deadline`, a V2 constraint that had been silently blocking every
+> update to an expired goal.
 
 ## Context
 

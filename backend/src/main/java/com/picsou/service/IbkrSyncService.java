@@ -62,6 +62,7 @@ public class IbkrSyncService {
     private final FamilyMemberRepository familyMemberRepository;
     private final AccountService accountService;
     private final OpenFigiIsinConverter isinConverter;
+    private final SecurityIdentityService identityService;
     private final CryptoEncryption encryption;
     private final IbkrStatusWriter statusWriter;
 
@@ -246,6 +247,7 @@ public class IbkrSyncService {
         // De-dup by resolved ticker (VWAP) exactly like Trade Republic: several IBKR
         // positions (or lot rows across accounts) can map to one ticker.
         Map<String, HoldingDedup.HoldingAgg> deduped = new HashMap<>();
+        Map<String, String> isinByTicker = new HashMap<>();
         for (IbkrPosition p : data.positions()) {
             if (!isReportable(p)) {
                 continue;
@@ -254,6 +256,9 @@ public class IbkrSyncService {
             String ticker = resolved.ticker();
             if (ticker == null || ticker.isBlank()) {
                 continue;
+            }
+            if (p.isin() != null && OpenFigiIsinConverter.isIsin(p.isin())) {
+                isinByTicker.put(ticker, p.isin());
             }
             if (ticker.length() > MAX_TICKER_LEN) {
                 // Options / futures carry long symbols (e.g. "SPY 240119C00470000") that
@@ -268,6 +273,7 @@ public class IbkrSyncService {
                 HoldingDedup::vwapMerge);
         }
         int persisted = 0;
+        identityService.record(isinByTicker);
         for (Map.Entry<String, HoldingDedup.HoldingAgg> entry : deduped.entrySet()) {
             HoldingDedup.HoldingAgg agg = entry.getValue();
             if (agg.quantity().signum() == 0) {

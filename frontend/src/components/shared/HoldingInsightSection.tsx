@@ -11,6 +11,7 @@ import PartitionBar, {
 import { useSecurityInsight } from '@/features/accounts/hooks'
 import type { WeightedSlice } from '@/types/api'
 import { cn, formatDate } from '@/lib/utils'
+import { OTHERS_SLICE_COLOR, SLICE_PALETTE } from '@/lib/chart-palette'
 
 // Two ways to render a composition, switchable via the view toggle:
 //  - "block": labelled segments inside a single proportional bar (rich on a wide screen).
@@ -20,21 +21,9 @@ type CompositionView = 'block' | 'line'
 // Block view: cycle variants so adjacent labelled segments stay visually distinct.
 const SEGMENT_VARIANTS = ['default', 'secondary', 'outline', 'muted'] as const
 
-// Line view: solid, theme-stable palette. The bar is a pure proportional visual;
-// the legend carries the labels, so it works at any slice count without truncation.
-const PALETTE = [
-  'bg-sky-500',
-  'bg-violet-500',
-  'bg-emerald-500',
-  'bg-amber-500',
-  'bg-rose-500',
-  'bg-teal-500',
-  'bg-indigo-500',
-  'bg-fuchsia-500',
-  'bg-lime-500',
-  'bg-orange-500',
-] as const
-const OTHERS_COLOR = 'bg-muted-foreground/30'
+// Line view palette, shared with the portfolio breakdown so the same data reads the same way.
+const PALETTE = SLICE_PALETTE
+const OTHERS_COLOR = OTHERS_SLICE_COLOR
 
 interface HoldingInsightSectionProps {
   ticker: string | null
