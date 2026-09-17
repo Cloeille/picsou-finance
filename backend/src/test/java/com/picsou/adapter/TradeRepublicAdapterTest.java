@@ -1,7 +1,9 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
+import org.springframework.web.reactive.function.client.WebClient;
 import com.picsou.port.TradeRepublicPort.TrTokens;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -26,7 +28,7 @@ class TradeRepublicAdapterTest {
     @Test
     void productionConstructorIsExplicitSpringInjectionPoint() throws NoSuchMethodException {
         assertThat(TradeRepublicAdapter.class
-            .getConstructor(ObjectMapper.class, String.class)
+            .getConstructor(SidecarWebClientFactory.class, ObjectMapper.class, String.class)
             .isAnnotationPresent(Autowired.class))
             .isTrue();
     }
@@ -140,9 +142,10 @@ class TradeRepublicAdapterTest {
     }
 
     private static TradeRepublicAdapter adapterFor(DisposableServer server, Duration timeout) {
+        String baseUrl = "http://127.0.0.1:" + server.port();
         return new TradeRepublicAdapter(
             new ObjectMapper(),
-            "http://127.0.0.1:" + server.port(),
+            WebClient.builder().baseUrl(baseUrl).build(),
             timeout
         );
     }

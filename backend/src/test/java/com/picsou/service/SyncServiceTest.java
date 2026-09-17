@@ -57,7 +57,8 @@ class SyncServiceTest {
             familyMemberRepository,
             accountService,
             requisitionLifecycleWriter,
-            new BankLogoResolver(bankConnector)
+            new BankLogoResolver(bankConnector),
+            bankTransactionImportService
         );
     }
 
