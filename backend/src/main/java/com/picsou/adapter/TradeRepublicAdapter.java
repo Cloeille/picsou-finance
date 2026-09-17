@@ -2,6 +2,7 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
 import com.picsou.port.TradeRepublicPort;
@@ -72,17 +73,16 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
 
     @Autowired
     public TradeRepublicAdapter(
+        SidecarWebClientFactory clients,
         ObjectMapper objectMapper,
         @Value("${app.tr-auth.url:http://tr-auth:8001}") String trAuthUrl
     ) {
-        this(objectMapper, trAuthUrl, DEFAULT_REFRESH_TIMEOUT);
+        this(objectMapper, clients.create("Trade Republic", trAuthUrl), DEFAULT_REFRESH_TIMEOUT);
     }
 
-    TradeRepublicAdapter(ObjectMapper objectMapper, String trAuthUrl, Duration refreshTimeout) {
+    TradeRepublicAdapter(ObjectMapper objectMapper, WebClient sidecarClient, Duration refreshTimeout) {
         this.objectMapper   = objectMapper;
-        this.sidecarClient  = WebClient.builder()
-            .baseUrl(trAuthUrl)
-            .build();
+        this.sidecarClient  = sidecarClient;
         this.refreshTimeout = refreshTimeout;
     }
 

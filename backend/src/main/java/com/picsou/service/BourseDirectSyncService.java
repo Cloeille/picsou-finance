@@ -25,7 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -38,12 +37,18 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
+import static com.picsou.service.SyncValues.clean;
+import static com.picsou.service.SyncValues.errorCode;
+import static com.picsou.service.SyncValues.limit;
+import static com.picsou.service.SyncValues.moneyClose;
+import static com.picsou.service.SyncValues.requireTransactionResult;
+import static com.picsou.service.SyncValues.sumComplete;
+import static com.picsou.service.SyncValues.weightedAverage;
+
 @Service
 public class BourseDirectSyncService {
     private static final Logger log = LoggerFactory.getLogger(BourseDirectSyncService.class);
     static final String PROVIDER = "Bourse Direct";
-    private static final BigDecimal ABSOLUTE_RECONCILIATION_TOLERANCE = new BigDecimal("0.05");
-    private static final BigDecimal RELATIVE_RECONCILIATION_TOLERANCE = new BigDecimal("0.001");
 
     private final BourseDirectPort port;
     private final BourseDirectSessionRepository sessionRepository;
@@ -358,25 +363,6 @@ public class BourseDirectSyncService {
         );
     }
 
-    private BigDecimal weightedAverage(
-        BigDecimal left,
-        BigDecimal leftQuantity,
-        BigDecimal right,
-        BigDecimal rightQuantity,
-        BigDecimal totalQuantity
-    ) {
-        if (left == null || right == null || totalQuantity.signum() == 0) {
-            return null;
-        }
-        return left.multiply(leftQuantity)
-            .add(right.multiply(rightQuantity))
-            .divide(totalQuantity, 8, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal sumComplete(BigDecimal left, BigDecimal right) {
-        return left == null || right == null ? null : left.add(right);
-    }
-
     private BigDecimal investedAmount(
         BourseDirectPort.AccountData account,
         List<PreparedPosition> positions
@@ -588,14 +574,7 @@ public class BourseDirectSyncService {
     }
 
     private BourseDirectErrorCode codeOf(SyncException exception) {
-        if (exception.getCode() == null) {
-            return BourseDirectErrorCode.UPSTREAM_UNAVAILABLE;
-        }
-        try {
-            return BourseDirectErrorCode.valueOf(exception.getCode());
-        } catch (IllegalArgumentException ignored) {
-            return BourseDirectErrorCode.UPSTREAM_UNAVAILABLE;
-        }
+        return errorCode(exception, BourseDirectErrorCode.class, BourseDirectErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
     private SyncException error(BourseDirectErrorCode code, String message, Throwable cause) {
@@ -624,32 +603,6 @@ public class BourseDirectSyncService {
             throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an invalid quote currency", null);
         }
         return currency;
-    }
-
-    private String clean(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
-    }
-
-    private String limit(String value, int maxLength, String fallback) {
-        String cleaned = clean(value);
-        if (cleaned == null) {
-            cleaned = fallback;
-        }
-        return cleaned.length() <= maxLength ? cleaned : cleaned.substring(0, maxLength);
-    }
-
-    private boolean moneyClose(BigDecimal actual, BigDecimal expected) {
-        BigDecimal tolerance = ABSOLUTE_RECONCILIATION_TOLERANCE.max(
-            expected.abs().multiply(RELATIVE_RECONCILIATION_TOLERANCE)
-        );
-        return actual.subtract(expected).abs().compareTo(tolerance) <= 0;
-    }
-
-    private <T> T requireTransactionResult(T value) {
-        return Objects.requireNonNull(value, "Transaction callback returned no result");
     }
 
     public record AuthInitResponse(String processId, boolean mfaRequired, String mfaType) {}

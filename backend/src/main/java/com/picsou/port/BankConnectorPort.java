@@ -1,6 +1,7 @@
 package com.picsou.port;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -26,6 +27,21 @@ public interface BankConnectorPort {
 
     /** Fetch balances for all accounts linked to this session. */
     List<AccountData> fetchBalances(String sessionId);
+
+    /**
+     * Fetch the transactions booked on one account since {@code dateFrom} (inclusive).
+     *
+     * <p>Default: an empty list. Balance-only providers keep working untouched —
+     * {@code SyncService} treats "no transactions" and "cannot serve transactions"
+     * the same way, so a provider only overrides this once it can actually answer.
+     *
+     * @param sessionId         the provider session the account was linked through
+     * @param externalAccountId the provider's own account id, as carried on
+     *                          {@link AccountData#externalId()}
+     */
+    default List<TransactionData> fetchTransactions(String sessionId, String externalAccountId, LocalDate dateFrom) {
+        return List.of();
+    }
 
     /** Search institutions by name/country. */
     List<InstitutionData> searchInstitutions(String query, String country);
@@ -63,6 +79,25 @@ public interface BankConnectorPort {
     record ParsedInstitutionId(String name, String country) {}
 
     record InitiateResult(String requisitionId, String authLink) {}
+
+    /**
+     * One booked account entry, normalized across providers.
+     *
+     * @param externalId  the provider's stable id for this entry, used to avoid re-importing
+     *                    it on the next sync. {@code null} when the provider exposes none —
+     *                    the caller then falls back to a content fingerprint.
+     * @param amount      signed from the account holder's point of view: negative = money out.
+     * @param description free-text label; never blank (adapters substitute a fallback).
+     * @param category    provider-side categorization, if any. {@code null} otherwise.
+     */
+    record TransactionData(
+        String externalId,
+        LocalDate date,
+        String description,
+        BigDecimal amount,
+        String currency,
+        String category
+    ) {}
 
     record AccountData(
         String externalId,

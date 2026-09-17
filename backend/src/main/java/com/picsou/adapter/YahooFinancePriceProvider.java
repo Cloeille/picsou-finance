@@ -17,6 +17,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongFunction;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -46,6 +48,8 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
      */
     private static final Duration VERIFY_TIMEOUT = Duration.ofSeconds(3);
 
+    /** Series (intraday/historical) carry hundreds of points, so they get a longer budget. */
+    private static final Duration SERIES_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration FX_CACHE_TTL = Duration.ofMinutes(15);
     /**
      * A failed FX lookup is remembered too, for a minute: without it, every holdings-less
@@ -150,8 +154,23 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     }
 
     private Meta fetchMeta(String ticker, Duration timeout) {
+        ChartResult result = fetchChart(TIMEOUT, "/v8/finance/chart/{ticker}?range=1d&interval=1d", ticker);
+        if (result == null || result.meta() == null) return null;
+
+        double price = result.meta().regularMarketPrice();
+        if (price <= 0) return null;
+
+        return applyFx(price, result.meta().currency());
+    }
+
+    /**
+     * The single chart series Yahoo returns for a symbol, or null when the payload
+     * carries none — every read here (spot price, FX, intraday, history) goes through
+     * the same `/v8/finance/chart` endpoint and the same "first result or nothing" shape.
+     */
+    private ChartResult fetchChart(Duration timeout, String uri, Object... uriVariables) {
         YahooResponse response = webClient.get()
-            .uri("/v8/finance/chart/{ticker}?range=1d&interval=1d", ticker)
+            .uri(uri, uriVariables)
             .retrieve()
             .bodyToMono(YahooResponse.class)
             .timeout(timeout)
@@ -224,6 +243,54 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             log.debug("Yahoo symbol search failed for {}: {}", query, ex.getMessage());
             return List.of();
         }
+        return response.chart().result().get(0);
+    }
+
+    /**
+     * Converts a chart's close series to EUR, keyed by whatever calendar unit the
+     * caller cares about and filtered by its own range.
+     *
+     * <p>Series use today's FX rate for all historical points; per-day FX would
+     * multiply API calls 250x for marginal accuracy on a personal finance app.
+     * Returns an empty map when the FX rate is unavailable — no series is better
+     * than one silently priced in the wrong currency.
+     */
+    private <K> Map<K, BigDecimal> closeSeriesEur(
+        ChartResult result,
+        String ticker,
+        String seriesName,
+        LongFunction<K> keyOf,
+        Predicate<K> inRange
+    ) {
+        if (result == null
+            || result.timestamp() == null
+            || result.indicators() == null
+            || result.indicators().quote() == null
+            || result.indicators().quote().isEmpty()
+            || result.indicators().quote().get(0).close() == null) return Map.of();
+
+        BigDecimal fx = result.meta() != null
+            ? getFxRateToEur(result.meta().currency())
+            : BigDecimal.ONE;
+        if (fx == null) {
+            log.warn("Skipping {} series for {}: FX rate unavailable for {}",
+                    seriesName, ticker, result.meta() != null ? result.meta().currency() : "null");
+            return Map.of();
+        }
+
+        Map<K, BigDecimal> prices = new LinkedHashMap<>();
+        List<Long> timestamps = result.timestamp();
+        List<Double> closes = result.indicators().quote().get(0).close();
+
+        for (int i = 0; i < timestamps.size() && i < closes.size(); i++) {
+            Double close = closes.get(i);
+            if (close == null || close <= 0) continue;
+            K key = keyOf.apply(timestamps.get(i));
+            if (inRange.test(key)) {
+                prices.put(key, BigDecimal.valueOf(close).multiply(fx).setScale(8, RoundingMode.HALF_UP));
+            }
+        }
+        return prices;
     }
 
     /**
@@ -237,6 +304,9 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             Meta meta = fetchMeta(ticker);
             if (meta == null) return Optional.empty();
             return Optional.ofNullable(meta.instrumentType()).filter(s -> !s.isBlank());
+            ChartResult result = fetchChart(TIMEOUT, "/v8/finance/chart/{ticker}?range=1d&interval=1d", ticker);
+            if (result == null || result.meta() == null) return Optional.empty();
+            return Optional.ofNullable(result.meta().instrumentType()).filter(s -> !s.isBlank());
         } catch (Exception ex) {
             log.debug("Yahoo instrumentType fetch failed for {}: {}", ticker, ex.getMessage());
             return Optional.empty();
@@ -292,19 +362,12 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
 
     BigDecimal fetchFxRate(String currency) {
         try {
-            YahooResponse response = webClient.get()
-                .uri("/v8/finance/chart/{pair}?range=1d&interval=1d", currency + "EUR=X")
-                .retrieve()
-                .bodyToMono(YahooResponse.class)
-                .timeout(TIMEOUT)
-                .block();
-
-            if (response == null || response.chart() == null || response.chart().result() == null
-                || response.chart().result().isEmpty()) {
-                return null;
-            }
-            var result = response.chart().result().get(0);
-            if (result.meta() == null) return null;
+            ChartResult result = fetchChart(
+                TIMEOUT,
+                "/v8/finance/chart/{pair}?range=1d&interval=1d",
+                currency + "EUR=X"
+            );
+            if (result == null || result.meta() == null) return null;
             double rate = result.meta().regularMarketPrice();
             if (rate <= 0) return null;
             return BigDecimal.valueOf(rate);
@@ -351,53 +414,19 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     public Map<LocalDateTime, BigDecimal> getIntradayPricesEur(String ticker, LocalDateTime from, LocalDateTime to) {
         if (!supports(ticker)) return Map.of();
         try {
-            YahooResponse response = webClient.get()
-                .uri("/v8/finance/chart/{ticker}?range=1d&interval=1h", ticker)
-                .retrieve()
-                .bodyToMono(YahooResponse.class)
-                .timeout(Duration.ofSeconds(15))
-                .block();
-
-            if (response == null || response.chart() == null || response.chart().result() == null
-                || response.chart().result().isEmpty()) {
-                return Map.of();
-            }
-
-            var result = response.chart().result().get(0);
-            if (result.timestamp() == null
-                || result.indicators() == null
-                || result.indicators().quote() == null
-                || result.indicators().quote().isEmpty()
-                || result.indicators().quote().get(0).close() == null) return Map.of();
-
-            // Series use today's FX rate for all historical points; per-day FX
-            // would multiply API calls 250× for marginal accuracy on a personal
-            // finance app.
-            BigDecimal fx = result.meta() != null
-                ? getFxRateToEur(result.meta().currency())
-                : BigDecimal.ONE;
-            if (fx == null) {
-                log.warn("Skipping intraday series for {}: FX rate unavailable for {}",
-                        ticker, result.meta() != null ? result.meta().currency() : "null");
-                return Map.of();
-            }
-
-            Map<LocalDateTime, BigDecimal> prices = new LinkedHashMap<>();
-            List<Long> timestamps = result.timestamp();
-            List<Double> closes = result.indicators().quote().get(0).close();
-
-            for (int i = 0; i < timestamps.size() && i < closes.size(); i++) {
-                Double close = closes.get(i);
-                if (close == null) continue;
-                // The application zone, not a literal Europe/Paris: these keys are looked up with
-                // timestamps derived from LocalDateTime.now(), so they have to be expressed in
-                // whatever zone that now() runs in. See com.picsou.config.TimeZoneConfig.
-                LocalDateTime dt = Instant.ofEpochSecond(timestamps.get(i))
-                    .atZone(ZoneId.systemDefault()).toLocalDateTime();
-                if (!dt.isBefore(from) && !dt.isAfter(to) && close > 0) {
-                    prices.put(dt, BigDecimal.valueOf(close).multiply(fx).setScale(8, RoundingMode.HALF_UP));
-                }
-            }
+            ChartResult result = fetchChart(
+                SERIES_TIMEOUT,
+                "/v8/finance/chart/{ticker}?range=1d&interval=1h",
+                ticker
+            );
+            Map<LocalDateTime, BigDecimal> prices = closeSeriesEur(
+                result,
+                ticker,
+                "intraday",
+                epochSeconds -> Instant.ofEpochSecond(epochSeconds)
+                    .atZone(ZoneId.systemDefault()).toLocalDateTime(),
+                dt -> !dt.isBefore(from) && !dt.isAfter(to)
+            );
 
             log.debug("Fetched {} intraday prices for {} from Yahoo", prices.size(), ticker);
             return prices;
@@ -418,50 +447,19 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
         String range = days <= 7 ? "5d" : days <= 30 ? "1mo" : days <= 90 ? "3mo" : days <= 365 ? "1y" : "5y";
 
         try {
-            YahooResponse response = webClient.get()
-                .uri("/v8/finance/chart/{ticker}?range={range}&interval=1d", ticker, range)
-                .retrieve()
-                .bodyToMono(YahooResponse.class)
-                .timeout(Duration.ofSeconds(15))
-                .block();
-
-            if (response == null || response.chart() == null || response.chart().result() == null
-                || response.chart().result().isEmpty()) {
-                return Map.of();
-            }
-
-            var result = response.chart().result().get(0);
-            if (result.timestamp() == null
-                || result.indicators() == null
-                || result.indicators().quote() == null
-                || result.indicators().quote().isEmpty()
-                || result.indicators().quote().get(0).close() == null) return Map.of();
-
-            // Series use today's FX rate for all historical points; per-day FX
-            // would multiply API calls 250× for marginal accuracy on a personal
-            // finance app.
-            BigDecimal fx = result.meta() != null
-                ? getFxRateToEur(result.meta().currency())
-                : BigDecimal.ONE;
-            if (fx == null) {
-                log.warn("Skipping historical series for {}: FX rate unavailable for {}",
-                        ticker, result.meta() != null ? result.meta().currency() : "null");
-                return Map.of();
-            }
-
-            Map<LocalDate, BigDecimal> prices = new HashMap<>();
-            List<Long> timestamps = result.timestamp();
-            List<Double> closes = result.indicators().quote().get(0).close();
-
-            for (int i = 0; i < timestamps.size() && i < closes.size(); i++) {
-                Double close = closes.get(i);
-                if (close == null) continue;
-                LocalDate date = Instant.ofEpochSecond(timestamps.get(i))
-                    .atZone(ZoneId.systemDefault()).toLocalDate();
-                if (!date.isBefore(from) && !date.isAfter(to) && close > 0) {
-                    prices.put(date, BigDecimal.valueOf(close).multiply(fx).setScale(8, RoundingMode.HALF_UP));
-                }
-            }
+            ChartResult result = fetchChart(
+                SERIES_TIMEOUT,
+                "/v8/finance/chart/{ticker}?range={range}&interval=1d",
+                ticker,
+                range
+            );
+            Map<LocalDate, BigDecimal> prices = closeSeriesEur(
+                result,
+                ticker,
+                "historical",
+                epochSeconds -> Instant.ofEpochSecond(epochSeconds).atZone(ZoneId.systemDefault()).toLocalDate(),
+                date -> !date.isBefore(from) && !date.isAfter(to)
+            );
 
             log.debug("Fetched {} historical prices for {} from Yahoo", prices.size(), ticker);
             return prices;

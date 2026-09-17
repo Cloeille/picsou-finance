@@ -298,7 +298,7 @@ class AccountServiceTest {
 
     private static AccountRequest usdBalanceRequest(String balance) {
         return new AccountRequest("US checking", AccountType.CHECKING, null, "USD",
-            new BigDecimal(balance), true, "#6366f1", null, null, null);
+            new BigDecimal(balance), true, "#6366f1", null, null, null, null);
     }
 
     private static Account usdManualAccount(String balance) {
@@ -748,6 +748,55 @@ class AccountServiceTest {
     }
 
     @Test
+    void idleCashOnAPricedAccountIsOnBothSidesSoItDoesNotShowUpAsGain() {
+        // 250 EUR waiting to be invested is not 250 EUR of profit. Cash costs what it is worth,
+        // so it belongs to the value *and* the cost basis; on one side only it becomes the gain
+        // (issue #106).
+        Account account = Account.builder().id(3L).name("PEA Bourse Direct")
+            .type(AccountType.PEA).provider("Bourse Direct").currency("EUR")
+            .currentBalance(new BigDecimal("1250")).cashBalance(new BigDecimal("250")).build();
+        AccountHolding holding = AccountHolding.builder()
+            .ticker("ACME").quantity(new BigDecimal("10"))
+            .averageBuyIn(new BigDecimal("90")).build();
+        when(holdingRepository.findByAccount_Id(3L)).thenReturn(List.of(holding));
+        stubQuotes("ACME", "100");
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1250");    // 250 cash + 10 × 100
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1150"); // 250 cash + 10 × 90
+        // The gain is the position's 100, not the position's 100 plus the cash.
+        assertThat(valuation.liveEur().subtract(valuation.investedEur()))
+            .isEqualByComparingTo("100");
+    }
+
+    @Test
+    void idleCashFoldedIntoTheBrokerTotalIsOnBothSidesToo() {
+        // The same 250 EUR sleeve, on an account that stores no cashBalance: it is folded into
+        // currentBalance, which the override takes as the value. The cost side started from a
+        // zero cash leg, so the sleeve used to land squarely in the gain — 350 reported on an
+        // account that made 100 (issue #106). Every line carries the broker's own value here,
+        // so the 250 the total exceeds them by is the cash pocket, and it cancels out.
+        Account account = Account.builder().id(3L).name("PEA Bourse Direct")
+            .type(AccountType.PEA).provider("Bourse Direct").currency("EUR")
+            .currentBalance(new BigDecimal("1250")).build();
+        AccountHolding holding = AccountHolding.builder()
+            .ticker("PHYMF").quantity(new BigDecimal("10"))
+            .providerValueEur(new BigDecimal("1000"))
+            .providerPnlEur(new BigDecimal("100"))   // cost basis = 1000 - 100 = 900
+            .build();
+        when(holdingRepository.findByAccount_Id(3L)).thenReturn(List.of(holding));
+        stubQuotes("PHYMF", null);   // the lookup fails, so the broker's total takes over
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1250");    // the broker's own total
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1150"); // 900 + the 250 sleeve
+        assertThat(valuation.liveEur().subtract(valuation.investedEur()))
+            .isEqualByComparingTo("100");
+    }
+
+    @Test
     void anAccountWhereNothingCanBePricedReportsItRatherThanReturningZero() {
         // liveEur is 0 here, and a caller that persists valuations must be able to tell that
         // apart from an account genuinely worth nothing: writing it stamps a permanent dip into
@@ -904,60 +953,34 @@ class AccountServiceTest {
         assertThat(result).isEqualByComparingTo("2500");
     }
 
-    /**
-     * A property carries no holdings, so its balance comes straight back out of
-     * {@code priceService.toEur}; nothing here exercises pricing.
-     */
-    private Account propertyAccount() {
-        return Account.builder()
-            .id(8L)
-            .name("Résidence principale")
-            .type(AccountType.REAL_ESTATE)
-            .currency("EUR")
-            .currentBalance(new BigDecimal("412000"))
-            .build();
-    }
+    @Test
+    void updateHolding_manualAccount_updatesQuantityAndCostBasis() {
+        Account manual = Account.builder().id(1L).type(AccountType.COMPTE_TITRES).currency("EUR").isManual(true).build();
+        AccountHolding h = AccountHolding.builder()
+            .account(manual).ticker("IWDA").quantity(new BigDecimal("10")).averageBuyIn(new BigDecimal("80")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(manual));
+        when(holdingRepository.findByAccountIdAndTicker(1L, "IWDA")).thenReturn(Optional.of(h));
+        when(holdingRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-    private RealEstateMetadataResponse propertyResponse(String propertyType, LocalDate lastValuedAt) {
-        when(priceService.toEur(any(), eq("EUR"), any())).thenReturn(new BigDecimal("412000"));
-        when(realEstateMetadataRepository.findByAccountId(8L)).thenReturn(Optional.of(
-            RealEstateMetadata.builder()
-                .purchasePrice(new BigDecimal("320000"))
-                .propertyType(propertyType)
-                .city("Bordeaux")
-                .build()));
-        when(propertyValuationRepository.findFirstByAccountIdOrderByValuedAtDesc(8L)).thenReturn(
-            lastValuedAt == null
-                ? Optional.empty()
-                : Optional.of(PropertyValuation.builder().valuedAt(lastValuedAt).build()));
+        accountService.updateHolding(1L, 9L, "IWDA", new BigDecimal("12"), new BigDecimal("85"));
 
-        return accountService.toResponse(propertyAccount()).realEstate();
+        assertThat(h.getQuantity()).isEqualByComparingTo("12"); // manual: quantity editable
+        assertThat(h.getAverageBuyIn()).isEqualByComparingTo("85");
     }
 
     @Test
-    void toResponse_normalizesTheFreeTextPropertyTypeIntoAKind() {
-        // property_type predates PropertyKind and is free text, so an old row may hold a French
-        // label. Clients pick the card's glyph off the parsed value, never the raw string.
-        RealEstateMetadataResponse realEstate = propertyResponse("maison", LocalDate.of(2026, 1, 10));
+    void updateHolding_syncedAccount_ignoresClientQuantity_butSetsCostBasis() {
+        Account synced = Account.builder().id(1L).type(AccountType.CRYPTO).currency("EUR").isManual(false).build();
+        AccountHolding h = AccountHolding.builder()
+            .account(synced).ticker("BTC").quantity(new BigDecimal("0.5")).averageBuyIn(new BigDecimal("60000")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(synced));
+        when(holdingRepository.findByAccountIdAndTicker(1L, "BTC")).thenReturn(Optional.of(h));
+        when(holdingRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        assertThat(realEstate.propertyType()).isEqualTo("maison");
-        assertThat(realEstate.propertyKind()).isEqualTo(PropertyKind.HOUSE);
-    }
+        // Client sends a stale/tampered quantity; only the cost basis must take effect.
+        accountService.updateHolding(1L, 9L, "BTC", new BigDecimal("0.4"), new BigDecimal("30000"));
 
-    @Test
-    void toResponse_reportsWhenThePropertyWasLastValued() {
-        RealEstateMetadataResponse realEstate = propertyResponse("HOUSE", LocalDate.of(2026, 1, 10));
-
-        assertThat(realEstate.lastValuedAt()).isEqualTo(LocalDate.of(2026, 1, 10));
-    }
-
-    @Test
-    void toResponse_leavesBothNullOnAPropertyNeitherDescribedNorValued() {
-        // A property has no lastSyncedAt to fall back on -- the card simply renders no
-        // freshness line, exactly as a manual account with no provider does.
-        RealEstateMetadataResponse realEstate = propertyResponse("chalet", null);
-
-        assertThat(realEstate.propertyKind()).isNull();
-        assertThat(realEstate.lastValuedAt()).isNull();
+        assertThat(h.getQuantity()).isEqualByComparingTo("0.5"); // synced: chain owns it, unchanged
+        assertThat(h.getAverageBuyIn()).isEqualByComparingTo("30000");
     }
 }

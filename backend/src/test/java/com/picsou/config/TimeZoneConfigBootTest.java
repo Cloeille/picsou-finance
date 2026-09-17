@@ -69,7 +69,7 @@ class TimeZoneConfigBootTest {
 
     @Test
     void anOperatorOverrideWins() {
-        try (ConfigurableApplicationContext context = boot(TimeZoneConfig.PROPERTY + "=America/New_York")) {
+        try (ConfigurableApplicationContext context = boot("--" + TimeZoneConfig.PROPERTY + "=America/New_York")) {
             assertThat(ZoneId.systemDefault()).isEqualTo(ZoneId.of("America/New_York"));
             assertThat(System.getProperty("user.timezone")).isEqualTo("America/New_York");
         }

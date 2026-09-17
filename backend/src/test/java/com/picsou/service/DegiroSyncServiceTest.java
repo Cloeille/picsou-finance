@@ -162,7 +162,7 @@ class DegiroSyncServiceTest {
             BigDecimal.TEN, BigDecimal.valueOf(70), BigDecimal.valueOf(80));
         when(port.fetchPortfolio("plain"))
             .thenReturn(new DegiroPortfolioData(BigDecimal.valueOf(500), List.of(position)));
-        when(isinConverter.resolve("IE00B4L5Y983"))
+        when(isinConverter.resolveIsinOrSymbol("IE00B4L5Y983", "IWDA", "iShares Core MSCI World"))
             .thenReturn(new OpenFigiIsinConverter.TickerResult("IWDA.AS", "iShares Core MSCI World"));
         when(accountRepository.findByExternalAccountIdAndMemberId("degiro-portfolio", MEMBER_ID))
             .thenReturn(Optional.empty());
