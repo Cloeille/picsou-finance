@@ -159,13 +159,9 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     }
 
     private Meta fetchMeta(String ticker, Duration timeout) {
-        ChartResult result = fetchChart(TIMEOUT, "/v8/finance/chart/{ticker}?range=1d&interval=1d", ticker);
+        ChartResult result = fetchChart(timeout, "/v8/finance/chart/{ticker}?range=1d&interval=1d", ticker);
         if (result == null || result.meta() == null) return null;
-
-        double price = result.meta().regularMarketPrice();
-        if (price <= 0) return null;
-
-        return applyFx(price, result.meta().currency());
+        return result.meta();
     }
 
     /**
@@ -185,7 +181,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             || response.chart().result().isEmpty()) {
             return null;
         }
-        return response.chart().result().get(0).meta();
+        return response.chart().result().get(0);
     }
 
     /**
@@ -248,7 +244,6 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             log.debug("Yahoo symbol search failed for {}: {}", query, ex.getMessage());
             return List.of();
         }
-        return response.chart().result().get(0);
     }
 
     /**
@@ -370,9 +365,6 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             Meta meta = fetchMeta(ticker);
             if (meta == null) return Optional.empty();
             return Optional.ofNullable(meta.instrumentType()).filter(s -> !s.isBlank());
-            ChartResult result = fetchChart(TIMEOUT, "/v8/finance/chart/{ticker}?range=1d&interval=1d", ticker);
-            if (result == null || result.meta() == null) return Optional.empty();
-            return Optional.ofNullable(result.meta().instrumentType()).filter(s -> !s.isBlank());
         } catch (Exception ex) {
             log.debug("Yahoo instrumentType fetch failed for {}: {}", ticker, ex.getMessage());
             return Optional.empty();
