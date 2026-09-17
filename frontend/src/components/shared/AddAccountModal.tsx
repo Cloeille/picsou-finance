@@ -21,6 +21,7 @@ import { BourseDirectPanel } from '@/components/sync/BourseDirectPanel'
 import { BoursoPanel } from '@/components/sync/BoursoPanel'
 import { DegiroPanel } from '@/components/sync/DegiroPanel'
 import { AmundiPanel } from '@/components/sync/AmundiPanel'
+import { FortuneoPanel } from '@/components/sync/FortuneoPanel'
 import { IbkrPanel } from '@/components/sync/IbkrPanel'
 import {
   ACCOUNT_COLORS,
@@ -94,6 +95,7 @@ interface AddAccountModalProps {
 
 type WizardStep =
   | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso'
+  | 'bourseDirect' | 'degiro' | 'amundi' | 'fortuneo' | 'finary' | 'property' | 'manual'
   | 'bourseDirect' | 'degiro' | 'amundi' | 'finary' | 'property' | 'manual'
   | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'bourso'
   | 'bourseDirect' | 'degiro' | 'ibkr' | 'amundi' | 'finary' | 'property' | 'manual'
@@ -139,6 +141,7 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'degiro', icon: TrendingUp, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
   { key: 'ibkr', icon: BriefcaseBusiness, labelKey: 'sync.ibkr.title', descKey: 'addAccount.desc.ibkr' },
   { key: 'amundi', icon: PiggyBank, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
+  { key: 'fortuneo', icon: PiggyBank, labelKey: 'sync.fortuneo.title', descKey: 'addAccount.desc.fortuneo' },
   { key: 'finary', icon: FileSpreadsheet, labelKey: 'sync.finary.title', descKey: 'addAccount.desc.finary' },
   { key: 'property', icon: HousePlus, labelKey: 'property.add.source', descKey: 'addAccount.desc.property' },
   { key: 'manual', icon: PenLine, labelKey: 'addAccount.manual', descKey: 'addAccount.desc.manual' },
@@ -243,7 +246,7 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
         {/* sm:max-w-xl, not just max-w-xl: DialogContent's own `sm:max-w-sm` is a different
             Tailwind variant, so tailwind-merge keeps it and an unprefixed max-w-xl silently has
             no effect above 640px — which is what squeezed this wizard into 24rem. */}
-        <DialogContent className="max-w-xl sm:max-w-xl">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-xl overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>
               {step === 'selector' ? t('addAccount.title') : t(`sync.${step === 'tr' ? 'tr' : step}.title`)}
@@ -305,6 +308,12 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
                 <>
                   <BackButton onClick={() => setStep('selector')} />
                   <AmundiPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'fortuneo' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <FortuneoPanel onConnected={handleDone} />
                 </>
               )}
               {step === 'finary' && <FinaryWizard onDone={handleDone} onBack={() => setStep('selector')} />}

@@ -45,6 +45,7 @@ services:
       BOURSO_AUTH_URL: http://bourso-auth:8001
       BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001
       AMUNDI_AUTH_URL: http://amundi-auth:8001
+      FORTUNEO_AUTH_URL: http://fortuneo-auth:8001
     depends_on:
       - db
       - tr-auth
@@ -52,6 +53,10 @@ services:
       - bourso-auth
       - bourse-direct-auth
       - amundi-auth
+      - fortuneo-auth
+    networks:
+      - default
+      - fortuneo-auth-net
 
   # Optional TLS terminator — OFF unless the `tls` profile is requested:
   #   docker compose -f docker/docker-compose.yml --profile tls up -d
@@ -129,6 +134,16 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
 
+  fortuneo-auth:
+    image: ghcr.io/zoeille/picsou-finance/fortuneo-auth:latest
+    build:
+      context: ../services/fortuneo-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - fortuneo-auth-net
+      - fortuneo-egress
+
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -162,3 +177,10 @@ volumes:
   revolut_profiles:
   caddy_data:
   caddy_config:
+
+networks:
+  fortuneo-auth-net:
+    driver: bridge
+    internal: true
+  fortuneo-egress:
+    driver: bridge

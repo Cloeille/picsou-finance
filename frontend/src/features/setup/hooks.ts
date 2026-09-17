@@ -14,10 +14,11 @@ export const SETUP_STATUS_KEY = ['setup', 'status'] as const
  * browser tab that just hit `POST /complete` is reflected in the first tab
  * before the user can re-submit.
  */
-export function useSetupStatus() {
+export function useSetupStatus(enabled = true) {
   return useQuery({
     queryKey: SETUP_STATUS_KEY,
     queryFn: setupApi.getStatus,
+    enabled,
     staleTime: 5_000,
     retry: (failureCount, error) => {
       // Don't retry on 410 Gone (setup already complete) — the UI should
@@ -92,7 +93,7 @@ export function useGenerateCryptoKey() {
 export function useAcknowledgeIntegration() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (key: 'traderepublic' | 'revolut' | 'finary' | 'boursedirect') => setupApi.acknowledgeIntegration(key),
+    mutationFn: (key: 'traderepublic' | 'revolut' | 'finary' | 'boursedirect' | 'fortuneo') => setupApi.acknowledgeIntegration(key),
     onSuccess: () => qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY }),
   })
 }

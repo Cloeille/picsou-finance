@@ -14,6 +14,7 @@ import { AccountsVisibilityTab } from './AccountsVisibilityTab'
 import { DegiroTab } from './DegiroTab'
 import { AmundiTab } from './AmundiTab'
 import { BoursoTab } from './BoursoTab'
+import { FortuneoTab } from './FortuneoTab'
 
 export function SyncPage() {
   const { t } = useTranslation()
@@ -35,6 +36,7 @@ export function SyncPage() {
           <TabsTrigger value="degiro">{t('sync.degiro.title')}</TabsTrigger>
           <TabsTrigger value="ibkr">{t('sync.ibkr.title')}</TabsTrigger>
           <TabsTrigger value="amundi">{t('sync.amundi.title')}</TabsTrigger>
+          <TabsTrigger value="fortuneo">{t('sync.fortuneo.title')}</TabsTrigger>
           <TabsTrigger value="finary">{t('sync.finary.title')}</TabsTrigger>
           <TabsTrigger value="visibility">{t('sync.visibility.title')}</TabsTrigger>
         <TabsList className="w-full justify-start">
@@ -78,6 +80,9 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="amundi" className="mt-6">
           <AmundiTab />
+        </TabsContent>
+        <TabsContent value="fortuneo" className="mt-6">
+          <FortuneoTab />
         </TabsContent>
         <TabsContent value="finary" className="mt-6">
           <FinaryTab />

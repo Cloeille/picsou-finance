@@ -150,7 +150,23 @@ the daily snapshot. One Picsou account per *dispositif*, typed `EMPLOYEE_SAVINGS
 Encrypted session and job status live in `AmundiSession`. See the
 [Amundi ADR](./decisions/2026-08-09-amundi-epargne-salariale-sidecar.md).
 
-### 6. Crypto exchange
+### 6. Fortuneo
+
+```text
+Client -> FortuneoController -> FortuneoSyncService -> FortuneoPort
+       -> FortuneoAdapter -> internal FastAPI/Playwright sidecar -> Fortuneo
+```
+
+The sidecar owns SSO login, six-digit-code completion and normalization of the
+provider API and legacy HTML pages. It returns only complete, reconciled account
+snapshots and follows securities-history pagination to the declared row count.
+The Java service performs upstream I/O before one atomic persistence phase,
+backfills market prices and reconstructs value and invested history from batched
+inputs. Encrypted browser state and observable job status live in
+`FortuneoSession`. See the
+[Fortuneo ADR](./decisions/2026-07-26-fortuneo-isolated-atomic-history-sync.md).
+
+### 7. Crypto exchange
 
 ```
 Client → CryptoExchangeController → CryptoExchangeSyncService → CryptoExchangePort → exchange API
@@ -160,7 +176,7 @@ Client → CryptoExchangeController → CryptoExchangeSyncService → CryptoExch
 
 Exchange API credentials are encrypted at rest with AES-256-GCM (`CryptoEncryption`); `CRYPTO_ENCRYPTION_KEY` env var required. Which credentials an exchange needs is declared by its adapter: Binance signs each request with an HMAC over an API secret, Meria authenticates with a single read-only API key and stores a `NULL` secret (`CryptoExchangePort.requiresApiSecret()`).
 
-### 7. Wallet sync
+### 8. Wallet sync
 
 ```
 Client → WalletController → WalletSyncService → WalletPort → blockchain RPCs
@@ -168,7 +184,7 @@ Client → WalletController → WalletSyncService → WalletPort → blockchain 
 
 Three adapters: Bitcoin (Blockstream Esplora, BIP32 xpub/zpub/descriptors), EVM (keyless PublicNode RPCs — one `0x` address fanned out across Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base, Avalanche; native + curated ERC-20 tokens), Solana (RPC + curated SPL tokens). See the [EVM multichain wallets ADR](./decisions/2026-07-17-evm-multichain-wallets.md).
 
-### 8. Dashboard
+### 9. Dashboard
 
 ```
 Client → DashboardController → DashboardService → Account + Snapshot + PriceService aggregation
@@ -176,7 +192,7 @@ Client → DashboardController → DashboardService → Account + Snapshot + Pri
 
 Aggregates all account balances, applies current prices via `PriceService`, computes net worth and allocation breakdown.
 
-### 9. Goals
+### 10. Goals
 
 ```
 Client → GoalController → GoalService → Goal + GoalMonthOverride repos
@@ -184,7 +200,7 @@ Client → GoalController → GoalService → Goal + GoalMonthOverride repos
 
 Savings goals with deadlines, linked to accounts via M:N join table (`goal_account`). Monthly tracking with optional per-month overrides.
 
-### 10. First-launch setup wizard
+### 11. First-launch setup wizard
 
 ```
 Browser → SetupFilter → /setup → SetupController → SetupService → AppSetting / SetupAudit
@@ -195,7 +211,7 @@ Browser → SetupFilter → /setup → SetupController → SetupService → AppS
 
 `SetupFilter` redirects every request to `/setup` until `SetupState.completed = true`. The wizard collects admin credentials, security settings (CORS, encryption key), and per-integration credentials. Each step is appended to `setup_audit` (actor, IP, timestamp). After completion, the filter becomes a no-op.
 
-### 11. Authentication & MFA
+### 12. Authentication & MFA
 
 ```
 POST /api/auth/login → AuthController → (if 2FA) issue mfa_challenge JWT → 401 + cookie
@@ -207,7 +223,7 @@ Every request → JwtAuthenticationFilter → check tv claim vs AppUser.tokenVer
 
 Password change in `AuthController.changePassword` bumps `AppUser.tokenVersion`, revokes all `PersistentSession`s for the user, clears the persistent cookie, and re-issues fresh access/refresh cookies.
 
-### 12. Family sharing
+### 13. Family sharing
 
 ```
 Member viewing dashboard → DashboardService scopes by UserContext.currentMemberId()
@@ -218,7 +234,7 @@ Family dashboard → FamilyViewController → FamilyViewService
 
 Admins can use `/admin/impersonate/{memberId}` to view another member's data; `UserContext.getMemberIdOverride()` returns the override; audit trail in `setup_audit`.
 
-### 13. GDPR data export
+### 14. GDPR data export
 
 ```
 POST /api/me/export/reauth → ReAuthService verifies password (+ TOTP if enabled)
@@ -228,7 +244,7 @@ GET  /api/me/export        → DataExportService runs each EntityExporter
 
 Wrapped in a read-only Spring transaction; rate-limited via `RateLimitConfig`.
 
-### 14. Loan amortization
+### 15. Loan amortization
 
 ```
 GET /api/accounts/{id}/loan-schedule → AccountController → LoanAmortizationService
@@ -242,12 +258,13 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 | Service | Usage | Config |
 |---------|-------|--------|
 | PostgreSQL 16 | Persistence | `SPRING_DATASOURCE_URL` |
-| Flyway | Schema migrations | `db/migration/` (latest V74) |
+| Flyway | Schema migrations | `db/migration/` (latest V81) |
 | Enable Banking | PSD2 bank sync (optional) | `ENABLEBANKING_*` |
 | Powens / Budget Insight | Scraping bank sync (**experimental, disabled in 1.0.0**) | `POWENS_*` |
 | Trade Republic | Broker sync via Python microservice | `TR_AUTH_URL` |
 | Bourse Direct | PEA/CTO sync via internal Python sidecar | `BOURSE_DIRECT_AUTH_URL` |
 | Amundi Épargne Salariale | PEE/PEG/PERCO/PER sync via internal Python sidecar | `AMUNDI_AUTH_URL` |
+| Fortuneo | Current accounts, PEA/PEA-PME/CTO and transaction history via internal Python sidecar | `FORTUNEO_AUTH_URL` |
 | BoursoBank | Current accounts, livrets and PEA/CTO sync via internal Python sidecar | `BOURSO_AUTH_URL` |
 | DEGIRO | Compte-titres sync via internal Python sidecar (sidecar off by default — uncomment in `docker-compose.yml`) | `DEGIRO_AUTH_URL` |
 | Binance | Crypto exchange balances | Via CryptoExchangePort |
@@ -262,7 +279,7 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 ## Key constraints
 
 - **Ports & adapters:** controllers/services never import adapters directly. All external integrations go through port interfaces.
-- **Flyway owns schema:** never use `ddl-auto: create/update`. Every schema change is a new migration file (latest: V32).
+- **Flyway owns schema:** never use `ddl-auto: create/update`. Every schema change is a new migration file (latest: V81).
 - **Multi-member families:** each authenticated user is an `AppUser` linked to a `FamilyMember`. All financial rows are scoped by `member_id`; cross-member visibility is gated by `SharingSettings` + `SharedResource`. Admin role can impersonate any member.
 - **Auth:** JWT (`access_token` + `refresh_token`) in HttpOnly `SameSite=Lax` cookies. Optional TOTP 2FA, rotating persistent sessions ("Remember Me"), stateless invalidation via `tokenVersion` claim on password change.
 - **First-launch setup wizard:** on a fresh install, `SetupFilter` redirects to a wizard that creates the admin, configures CORS, generates the encryption key, and seeds integration credentials. No env-var editing required.

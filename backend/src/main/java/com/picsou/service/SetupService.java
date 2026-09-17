@@ -40,7 +40,7 @@ public class SetupService {
     public static final String KEY_AI_API_KEY = "ai.api-key";
     public static final String KEY_AI_MAX_CONCURRENCY = "ai.max-concurrency";
     public static final List<String> INTEGRATIONS = List.of(
-        "enablebanking", "boursobank", "boursedirect", "traderepublic", "finary", "crypto"
+        "enablebanking", "boursobank", "boursedirect", "fortuneo", "traderepublic", "finary", "crypto"
     );
 
     private final AppSettingRepository settingRepository;

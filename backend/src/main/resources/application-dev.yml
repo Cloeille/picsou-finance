@@ -6,6 +6,8 @@ app:
     url: ${BOURSE_DIRECT_AUTH_URL:http://127.0.0.1:8002}
   bourso-auth:
     url: ${BOURSO_AUTH_URL:http://127.0.0.1:8004}
+  fortuneo-auth:
+    url: ${FORTUNEO_AUTH_URL:http://127.0.0.1:8005}
   enablebanking:
     private-key-path: ${ENABLEBANKING_PRIVATE_KEY_PATH:.local/keys/enablebanking-private.pem}
 

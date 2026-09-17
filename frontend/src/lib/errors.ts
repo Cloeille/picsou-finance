@@ -160,6 +160,58 @@ export function formatTrAuthError(err: unknown, t: TFunc): string {
   return extractErrorMessage(err, t('sync.tr.errors.unknownError'))
 }
 
+/**
+ * Maps a Fortuneo sync/session error code to a translated message. Shared by
+ * FortuneoPanel (dedicated connect/status card) and SyncAllModal's reconnect
+ * card so a failed background sync shows the same message in both places.
+ */
+export function fortuneoErrorMessage(
+  t: TFunc,
+  code: string | null | undefined
+): string | null {
+  switch (code) {
+    case 'INVALID_CREDENTIALS':
+      return t('sync.fortuneo.errors.invalidCredentials')
+    case 'INVALID_OTP':
+      return t('sync.fortuneo.errors.invalidCode')
+    case 'AUTH_ATTEMPT_EXPIRED':
+      return t('sync.fortuneo.errors.authAttemptExpired')
+    case 'SESSION_EXPIRED':
+      return t('sync.fortuneo.errors.sessionExpired')
+    case 'INVESTOR_PROFILE_REQUIRED':
+      return t('sync.fortuneo.errors.investorProfileRequired')
+    case 'PORTFOLIO_INCOMPLETE':
+      return t('sync.fortuneo.errors.portfolioIncomplete')
+    case 'UPSTREAM_FORMAT_CHANGED':
+      return t('sync.fortuneo.errors.formatChanged')
+    case 'INVALID_DATA':
+      return t('sync.fortuneo.errors.invalidData')
+    case 'UPSTREAM_UNAVAILABLE':
+    case 'INTERNAL_ERROR':
+      return t('sync.fortuneo.errors.serverError')
+    default:
+      return null
+  }
+}
+
+/**
+ * Maps any Fortuneo auth/sync error to a translated message. Shared by
+ * FortuneoPanel and SyncAllModal's reconnect card so the two can't drift.
+ *
+ * The 429 case matters in practice: `/auth/initiate` and `/auth/complete`
+ * draw on the *same* per-IP bucket (5 per 15 min), so a couple of retries
+ * can exhaust it and reject the OTP submission before it ever leaves the
+ * backend. Without this, that surfaces as a button that appears to do
+ * nothing at all.
+ */
+export function formatFortuneoError(err: unknown, t: TFunc): string {
+  if (getErrorStatus(err) === 429) return t('sync.fortuneo.errors.tooManyAttempts')
+  return (
+    fortuneoErrorMessage(t, getErrorCode(err)) ??
+    extractErrorMessage(err, t('sync.fortuneo.errors.serverError'))
+  )
+}
+
 export function formatApiError(err: unknown, t: TFunc, fallbackKey = 'common.error'): string {
   const status = (err as { response?: { status?: number } })?.response?.status
 

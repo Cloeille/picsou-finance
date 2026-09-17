@@ -1,4 +1,5 @@
 import { api } from '@/lib/api-client'
+import { z } from 'zod'
 import type {
   Account,
   ExchangeType,
@@ -22,6 +23,8 @@ import type {
   DegiroAuthInitResponse,
   AmundiSessionStatus,
   AmundiAuthInitResponse,
+  FortuneoSessionStatus,
+  FortuneoAuthInitResponse,
   IbkrConnectionStatus,
 } from '@/types/api'
 
@@ -267,6 +270,93 @@ export const amundiApi = {
       .then(r => r.data),
 
   clearSession: () => api.delete('/amundi/session'),
+}
+
+// --- Fortuneo ---
+
+const fortuneoErrorCodeSchema = z.enum([
+  'INVALID_CREDENTIALS',
+  'INVALID_OTP',
+  'AUTH_ATTEMPT_EXPIRED',
+  'SESSION_EXPIRED',
+  'INVESTOR_PROFILE_REQUIRED',
+  'PORTFOLIO_INCOMPLETE',
+  'UPSTREAM_FORMAT_CHANGED',
+  'UPSTREAM_UNAVAILABLE',
+  'INVALID_DATA',
+  'INTERNAL_ERROR',
+])
+
+const nullableFortuneoInstantSchema = z
+  .string()
+  .datetime({ offset: true })
+  .nullish()
+  .transform(value => value ?? null)
+
+const fortuneoStatusBaseSchema = z.object({
+  isActive: z.boolean(),
+  expiresAt: nullableFortuneoInstantSchema,
+  lastSyncStartedAt: nullableFortuneoInstantSchema,
+  lastSyncCompletedAt: nullableFortuneoInstantSchema,
+})
+
+const fortuneoSessionStatusSchema = z.discriminatedUnion('syncStatus', [
+  fortuneoStatusBaseSchema.extend({
+    syncStatus: z.literal('FAILED'),
+    lastSyncError: fortuneoErrorCodeSchema,
+  }),
+  fortuneoStatusBaseSchema.extend({
+    syncStatus: z.enum(['IDLE', 'QUEUED', 'RUNNING', 'SUCCESS']),
+    lastSyncError: z.null().optional().transform(() => null),
+  }),
+])
+
+const fortuneoAuthInitResponseSchema = z.discriminatedUnion('mfaRequired', [
+  z.object({
+    processId: z.string().min(1),
+    mfaRequired: z.literal(true),
+    mfaType: z.string().min(1),
+  }),
+  z.object({
+    // Spring serializes with `default-property-inclusion: non_null`, so the
+    // backend omits these keys entirely rather than sending them as null.
+    // Requiring a literal null made every no-MFA login surface a validation
+    // error even though the session had been stored and the sync queued.
+    // Same treatment as `lastSyncError` above.
+    processId: z.null().optional().transform(() => null),
+    mfaRequired: z.literal(false),
+    mfaType: z.null().optional().transform(() => null),
+  }),
+])
+
+const parseFortuneoStatus = (data: unknown): FortuneoSessionStatus =>
+  fortuneoSessionStatusSchema.parse(data)
+
+const parseFortuneoAuthInit = (data: unknown): FortuneoAuthInitResponse =>
+  fortuneoAuthInitResponseSchema.parse(data)
+
+export const fortuneoApi = {
+  initiateAuth: (login: string, password: string) =>
+    api
+      .post<unknown>('/fortuneo/auth/initiate', { login, password })
+      .then(r => parseFortuneoAuthInit(r.data)),
+
+  completeAuth: (processId: string, code: string) =>
+    api
+      .post<unknown>('/fortuneo/auth/complete', { processId, code })
+      .then(r => parseFortuneoStatus(r.data)),
+
+  sync: () =>
+    api.post<unknown>('/fortuneo/sync').then(r => parseFortuneoStatus(r.data)),
+
+  getStatus: () =>
+    api
+      .get<unknown>('/fortuneo/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => parseFortuneoStatus(r.data)),
+
+  clearSession: () => api.delete('/fortuneo/session'),
 }
 
 export const ibkrApi = {

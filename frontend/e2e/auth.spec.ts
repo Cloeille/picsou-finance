@@ -9,11 +9,9 @@ test.describe('Demo mode', () => {
     await page.goto('/login')
     await page.waitForURL('/')
 
-    // Dashboard should be visible
-    await expect(page.getByText('Tableau de bord')).toBeVisible()
-
-    // Dashboard should show net worth and chart area
-    await expect(page.getByText('Patrimoine total').first()).toBeVisible()
+    // The sidebar is immediate; this assertion waits for the dashboard query
+    // and avoids mistaking the navigation label for loaded page content.
+    await expect(page.getByText('Patrimoine total').first()).toBeVisible({ timeout: 15_000 })
     // Charts are rendered as SVGs inside a grid
     await expect(page.locator('.grid').first()).toBeVisible()
   })

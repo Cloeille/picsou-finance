@@ -1310,6 +1310,93 @@ rate limiting returns `429`.
 
 ---
 
+### 10. Fortuneo — `/api/fortuneo`
+
+The connector is unofficial and read-only. Browser state is encrypted at rest,
+and a complete portfolio import runs asynchronously only after authentication.
+
+#### `POST /api/fortuneo/auth/initiate`
+
+- **Auth:** Required
+- **Rate limit:** Per IP
+
+**Request body:**
+```json
+{ "login": "client-id", "password": "secret" }
+```
+
+**Response `200` — `FortuneoAuthInitResponse`:**
+```json
+{ "processId": "uuid", "mfaRequired": true, "mfaType": "OTP" }
+```
+
+When `mfaRequired` is false, the encrypted session is already stored and its
+first portfolio import is queued.
+
+---
+
+#### `POST /api/fortuneo/auth/complete`
+
+- **Auth:** Required
+- **Rate limit:** Per IP
+
+**Request body:**
+```json
+{ "processId": "uuid", "code": "123456" }
+```
+
+**Response `200` — `FortuneoSessionStatus`**, normally with
+`syncStatus: "QUEUED"`.
+
+---
+
+#### `POST /api/fortuneo/sync`
+
+- **Auth:** Required
+- **Body:** none
+
+**Response `202` — `FortuneoSessionStatus`.** An already queued or running
+job is not duplicated; its current status is returned. A synchronous executor
+submission failure transitions the persisted job to `FAILED`.
+
+---
+
+#### `GET /api/fortuneo/status`
+
+- **Auth:** Required
+
+**Response `200` — `FortuneoSessionStatus`:**
+```json
+{
+  "isActive": true,
+  "expiresAt": null,
+  "syncStatus": "SUCCESS",
+  "lastSyncStartedAt": "2026-08-24T09:59:40Z",
+  "lastSyncCompletedAt": "2026-08-24T10:00:00Z",
+  "lastSyncError": null
+}
+```
+
+`syncStatus` is one of `IDLE`, `QUEUED`, `RUNNING`, `SUCCESS`, or `FAILED`.
+Only `FAILED` carries a non-null `lastSyncError`.
+
+---
+
+#### `DELETE /api/fortuneo/session`
+
+- **Auth:** Required
+
+**Response `204`.** Imported accounts and history are retained.
+
+Domain failures use `422` RFC 7807 responses with a stable `code` property:
+`INVALID_CREDENTIALS`, `INVALID_OTP`, `AUTH_ATTEMPT_EXPIRED`,
+`SESSION_EXPIRED`, `INVESTOR_PROFILE_REQUIRED`, `PORTFOLIO_INCOMPLETE`,
+`UPSTREAM_FORMAT_CHANGED`,
+`UPSTREAM_UNAVAILABLE`, `INVALID_DATA`, or `INTERNAL_ERROR`. Authentication
+rate limiting returns `429`.
+
+---
+
 ### 11. Crypto Wallets — `/api/crypto/wallet`
 
 #### `POST /api/crypto/wallet`

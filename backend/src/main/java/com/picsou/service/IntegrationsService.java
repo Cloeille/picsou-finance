@@ -6,6 +6,7 @@ import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
+import com.picsou.repository.FortuneoSessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,19 +37,25 @@ public class IntegrationsService {
     private final FinarySessionRepository finarySessions;
     private final BourseDirectSessionRepository bourseDirectSessions;
     private final BoursoSessionRepository boursoSessions;
+    private final FortuneoSessionRepository fortuneoSessions;
+    private final UserContext userContext;
 
     public IntegrationsService(AppSettingRepository settingRepository,
                                EnableBankingConfigProvider enableBankingConfig,
                                TradeRepublicSessionRepository tradeRepublicSessions,
                                FinarySessionRepository finarySessions,
                                BourseDirectSessionRepository bourseDirectSessions,
-                               BoursoSessionRepository boursoSessions) {
+                               BoursoSessionRepository boursoSessions,
+                               FortuneoSessionRepository fortuneoSessions,
+                               UserContext userContext) {
         this.settingRepository = settingRepository;
         this.enableBankingConfig = enableBankingConfig;
         this.tradeRepublicSessions = tradeRepublicSessions;
         this.finarySessions = finarySessions;
         this.bourseDirectSessions = bourseDirectSessions;
         this.boursoSessions = boursoSessions;
+        this.fortuneoSessions = fortuneoSessions;
+        this.userContext = userContext;
     }
 
     @Transactional
@@ -88,7 +95,8 @@ public class IntegrationsService {
      *       ({@link EnableBankingConfigProvider#isConfiguredLenient()}).</li>
      *   <li><strong>traderepublic</strong> / <strong>finary</strong> — a login
      *       session row exists (these have no env config; auth is runtime).</li>
-     *   <li><strong>boursedirect</strong> / <strong>boursobank</strong> — an
+     *   <li><strong>boursedirect</strong> / <strong>boursobank</strong> /
+     *       <strong>fortuneo</strong> — an
      *       active sidecar session row exists.</li>
      *   <li><strong>crypto</strong> (no config to detect) — no cheap signal, so
      *       it falls back to the stored flag.</li>
@@ -113,6 +121,9 @@ public class IntegrationsService {
             case "finary" -> finarySessions.count() > 0;
             case "boursedirect" -> bourseDirectSessions.existsByActiveTrue();
             case "boursobank" -> boursoSessions.existsByActiveTrue();
+            case "fortuneo" -> fortuneoSessions.existsByMemberIdAndActiveTrue(
+                userContext.currentMemberId()
+            );
             default -> false;
         };
     }
