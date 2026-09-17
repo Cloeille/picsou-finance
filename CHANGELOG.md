@@ -61,6 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   follows the holdings. The Trade Republic PEA's cash pocket also reaches
   `cashBalance`, so it counts on both sides of the valuation instead of dropping
   out of the live value.
+- **A refresh token now identifies its account by id, not by username.**
+  `/api/auth/refresh` looked the account up by the username stored in the token's
+  `sub` claim. A username can be changed, or freed and given to a new member, so
+  a refresh token minted for one person could log its holder into whoever carried
+  that name next, and a renamed user was logged out at the next refresh. The
+  endpoint now resolves the immutable `uid` claim, as the access-token filter
+  already did.
 
 - **An Amundi account holding two share classes of the same fund now syncs.**
   Amundi does not always put an ISIN in `codeIsin` — on employer funds it holds
