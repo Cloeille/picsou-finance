@@ -27,8 +27,9 @@ public class DegiroSession extends AuditableEntity {
     /**
      * Serialized {sessionId, intAccount}, encrypted at rest via CryptoEncryption.
      * Never a TOTP secret — see docs/decisions/2026-08-05-degiro-session-only-no-stored-totp.md.
+     * TEXT, not a guessed VARCHAR: same class of failure as GH issue #115 (TR token outgrew its column).
      */
-    @Column(name = "session_blob", nullable = false, length = 4000)
+    @Column(name = "session_blob", nullable = false, columnDefinition = "TEXT")
     private String sessionBlob;
 
     @Enumerated(EnumType.STRING)

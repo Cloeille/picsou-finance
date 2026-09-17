@@ -166,6 +166,134 @@ information architecture.
   page (paste token + query id, then sync/disconnect) drives it, in all four locales. See
   [ADR](docs/decisions/2026-07-19-ibkr-flex-web-service.md) and
   [feature note](docs/features/ibkr-sync.md).
+### Fixed
+
+- **A price the provider could not deliver a minute ago no longer blanks a position
+  in the exchange sync.** `refreshPrices` returned a remembered miss as a `null`
+  price, `refreshCryptoQuotes` wrapped it in a quote, and the last-known-price
+  fallback that exists for exactly this case was skipped: during a CoinGecko rate
+  limit, an exchange account holding BTC and ETH was stored, and snapshotted for
+  the day, at its BTC value alone. A remembered miss now stays out of the result,
+  so the fallback runs, and misses expire after 60 seconds as documented rather
+  than after the 15-minute hit TTL.
+- **The startup price backfill no longer records a listed company's history under
+  a coin's symbol.** Holdings of CRYPTO accounts are backfilled through CoinGecko
+  only, as the hourly refresh already did; a coin CoinGecko cannot map is left
+  without history instead of receiving twelve months of the stock trading under
+  the same ticker (STX: Stacks in the wallet, Seagate on Nasdaq).
+- **A cash account in USD, GBP or any other currency is worth its FX-converted
+  balance again.** `toEur` used the currency code as a Yahoo chart symbol when the
+  account had no ticker, and Yahoo answers `chart/USD` with the ProShares Ultra
+  Semiconductors ETF (~89 USD a share): a 1 000 USD checking account showed as
+  ~76 000 EUR on the dashboard and in every daily snapshot. Cash now converts with
+  the `{CURRENCY}EUR=X` rate, and its cost basis is that same converted figure, so
+  a foreign-currency account no longer reports the FX rate as a gain or a loss.
+  The balances typed on the account form or as a manual snapshot, and the ones
+  Enable Banking reports, are converted the same way before they enter the
+  history, which always read them as EUR. A failed FX lookup is remembered for a
+  minute instead of being retried by every valuation.
+- **A CSV transaction import can no longer run twice on one preview.** The
+  `fileToken` was removed from the cache only after the rows had been saved, so a
+  second execute that arrived during the import (a double click, a request the
+  client retried after a timeout) passed every check and saved the whole file a
+  second time: duplicated transactions, and a cost basis and realized P&L off by
+  exactly one import, with nothing to flag it. The token is now consumed atomically
+  before anything is written, and handed back if the import fails, since its
+  transaction rolled back.
+- **Trade Republic re-authentication persists again.** Trade Republic now issues a
+  session token longer than 1472 bytes, which `CryptoEncryption` inflates past the
+  `VARCHAR(2000)` of `trade_republic_session.session_token`: the 2FA succeeded, then
+  the INSERT that stored the session was refused, and every following sync asked to
+  reconnect, forever. The three encrypted columns whose length a third party controls
+  (the Trade Republic session and refresh tokens, the DEGIRO session blob) are now
+  `TEXT`, as the Amundi, Bourse Direct and BoursoBank session state already was. (#115)
+- **The 24H chart no longer leaves out the cash pocket of an investment account.**
+  The hourly points valued a PEA or a compte-titres from its positions alone, so
+  switching from a daily range to 24H made the total drop by the cash held in the
+  envelope, a drop that never happened. The cash pocket now counts in the hourly
+  value and in the invested amount, as the daily chart's today point already did,
+  so the gain is unchanged and the two charts agree.
+- **Trade Republic and DEGIRO daily snapshots now cost today's positions, not
+  yesterday's.** Both syncs took the day's snapshot before replacing the holdings,
+  and the snapshot derives its invested amount from the holdings in the table, so
+  every daily point carried the cost basis of the previous sync. The snapshot now
+  follows the holdings. The Trade Republic PEA's cash pocket also reaches
+  `cashBalance`, so it counts on both sides of the valuation instead of dropping
+  out of the live value.
+- **A refresh token now identifies its account by id, not by username.**
+  `/api/auth/refresh` looked the account up by the username stored in the token's
+  `sub` claim. A username can be changed, or freed and given to a new member, so
+  a refresh token minted for one person could log its holder into whoever carried
+  that name next, and a renamed user was logged out at the next refresh. The
+  endpoint now resolves the immutable `uid` claim, as the access-token filter
+  already did.
+- **A goal month with an objective override shows what was actually saved.** The
+  override was displayed as the amount saved and the computed objective stayed, so
+  lowering December's target to 200 read as "200 of 500" whatever went in that
+  month. The override now adjusts the objective, and the amount saved is the
+  manual contribution or the balance delta.
+- **A goal's average monthly contribution adds up its accounts.** It was a
+  per-account mean compared with the goal-level monthly need, so three accounts
+  saving 100 each reported a 100 contribution and a shortfall.
+- **A loan whose monthly payment is computed now amortises its capital in full.**
+  The computed annuity excluded the insurance, then the schedule subtracted the
+  insurance from it, so every installment repaid less capital than the payment
+  implied and the last one absorbed the difference.
+- **A loan saved without dates is valued at the balance you entered**, not at the
+  full borrowed amount. With no start and end date the schedule is empty and the
+  "remaining balance" was the whole principal, on the dashboard and in the real
+  estate equity.
+- **A Bitcoin wallet whose xpub scan fails no longer shows a balance of zero.** Any
+  error during the scan (an Esplora rate limit or outage, a timeout, an invalid
+  key) was turned into 0 BTC and written into the account and its daily snapshot.
+  The sync now fails and keeps the previous figures.
+- **A coin sold or withdrawn from an exchange disappears from the account.** The
+  exchange sync only ever added or updated holdings, so a sold coin kept its last
+  price in the account's value and cost basis until the exchange was removed.
+- **The Finary auto-sync runs in one transaction.** It called the import past the
+  Spring proxy, so nothing was transactional on that path and a failure halfway
+  left a half-imported account behind.
+- **Mapping a Finary account onto a bank or broker account no longer steals that
+  account from its connector.** The Finary id replaced the connector's external
+  id, and the connector then created a duplicate at its next sync.
+- **A rebuilt Finary or manual-cash history dates each balance at the end of its
+  day.** The rebuilt snapshot for a day held the balance before that day's
+  transactions, so every point of the rebuilt history was one day off.
+- The account-deletion dialog scrolls on short screens and wraps long action
+  labels without horizontal overflow.
+- Account deletion preserves the last active administrator even when other
+  administrator logins are inactive. Committed deletion also purges pending
+  Finary and CSV import data, with member binding and expiry checked on execute.
+
+- **BoursoBank's fraud-education interstitial no longer reads as a wrong password.**
+  When the bank parks a valid login on its fraud-prevention notice, the sidecar
+  returns `FRAUD_ACK_REQUIRED` and the app tells the user to validate the notice
+  on the bank's website and retry, instead of claiming the credentials are wrong.
+- **A Trade Republic portfolio answer that errors no longer wipes the account.** An
+  error frame, or a payload the adapter could not parse, was counted as an
+  authoritative empty portfolio: every holding was deleted and the day's snapshot
+  recorded the securities at zero, with a PEA reduced to its cash pocket. Such an
+  answer now leaves the account untouched for that sync, with a warning naming it;
+  a genuinely emptied portfolio still persists.
+- **An Amundi account holding two share classes of the same fund now syncs.**
+  Amundi does not always put an ISIN in `codeIsin` — on employer funds it holds
+  the AMF code — so the holding was keyed on a slug of the fund label, capped at
+  30 characters. Two share classes of one fund differ only in their last word, so
+  both truncated to the same key, the collision guard correctly refused to merge
+  two different funds, and the entire sync failed with `INVALID_DATA` on a
+  payload that was perfectly valid. The line's own `codeFonds` is now used
+  between the ISIN and the label, and the guard stays behind it.
+
+### Added
+
+- **Editable cost basis for imported crypto wallets (#59).** A wallet/exchange
+  holding starts with its average buy-in set to the market price at import time,
+  which zeroes out gain/loss on existing holdings. The holding editor now lets
+  you correct it by entering either the average buy-in **or** the total invested
+  — the two stay in sync through the quantity. For synced accounts the quantity
+  is read-only (it's owned by the chain/exchange), so only the cost basis
+  changes, and the corrected value survives future syncs. Dashboard, P&L and KPIs
+  then reflect what you actually invested.
 - **BNB Chain support and EVM multichain wallets.** On-chain wallets gained an
   `EVM` chain that tracks a single `0x` address across every enabled EVM network
   — Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base and Avalanche —
@@ -395,16 +523,14 @@ information architecture.
 
 ### Security
 
-- **Sync logs no longer dump full third-party payloads.** Provider responses
-  were written whole at INFO/WARN/ERROR in production: `EnableBankingBankConnector`
-  logged the full balances object (account amounts) — now an INFO **count-only**
-  line (visibility kept, amounts dropped); `FinaryApiClient` logged the raw Clerk
-  sign-in response (which can carry session tokens) — now a body-free message.
-  Every Finary/Clerk error body that flows into an `IOException` → `SyncException`
-  (and thus into logs *and* the user-facing 422) is now bounded before it is
-  thrown — Clerk auth and the low-level retry path to 200 chars, the Finary
-  data-API body to 500 (enough to keep its actionable message, still capped).
-  Defense-in-depth against financial PII and third-party secrets landing in logs.
+- **Enable Banking session ids are no longer written to logs in the clear.** The
+  raw session id (stored as `Requisition.requisitionId`) was printed by several
+  sync log statements; it is now replaced with the non-sensitive requisition
+  database id in `SyncService`, and with a short non-reversible SHA-256
+  fingerprint in the low-level connector where only the raw value is available.
+  A new `LogSanitizer.fingerprint(...)` helper keeps the fingerprints stable so
+  log lines can still be correlated during debugging. Defense-in-depth against
+  log aggregators with weaker access control than the primary database (#44).
 
 ### Notes
 

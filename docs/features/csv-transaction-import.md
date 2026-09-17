@@ -48,7 +48,7 @@ upload CSV ─► preview() ─► detect dialect + guess mapping ─► cache r
 user adjusts mapping/dialect ◄───────────────────────────────────────┘
         │
         ▼
-execute(token, mapping, dialect) ─► re-parse ─► map rows ─► saveAll(is_manual) ─► recomputeHoldings()
+execute(token, mapping, dialect) ─► consume token (atomic) ─► re-parse ─► map rows ─► saveAll(is_manual) ─► recomputeHoldings()
 ```
 
 ## Technical choices
@@ -59,6 +59,7 @@ execute(token, mapping, dialect) ─► re-parse ─► map rows ─► saveAll(
 | Column-mapping wizard | Works for any broker export without a per-broker parser | Fixed template · per-broker native parsers |
 | Cache the **raw file**, re-parse on execute | The user can change the delimiter after preview; caching parsed rows would be stale | Cache parsed rows |
 | Token bound to the account | A preview cannot be replayed against another account | Bare token |
+| Token consumed atomically **before** the write | Two executes racing on one preview (a double click, a client retry after a timeout) import once; a failed import hands the token back, since its transaction rolled back | Remove the token after `saveAll` (the window was the whole import, and the file went in twice) |
 | Tolerant per-row errors | One bad line shouldn't sink a multi-year import | All-or-nothing transaction |
 
 ## Gotchas / Pitfalls
@@ -83,7 +84,8 @@ execute(token, mapping, dialect) ─► re-parse ─► map rows ─► saveAll(
 - `TransactionRowMapperTest` — sign+fees, ISIN resolution, amount-derived price, bad rows.
 - `TransactionImportServiceTest` — happy path, expired token, **token↔account binding**,
   non-investment or synced investment account rejection (400), foreign account (404), per-row
-  error reporting.
+  error reporting, two executes racing on one preview import once, a failed import hands the
+  preview back.
 - `ImportTransactionsModal.test.tsx` — preview → mapping → import request → result.
 
 ## Links

@@ -322,7 +322,14 @@ public class FinaryApiSyncService {
                 account.setCurrentBalance(BigDecimal.valueOf(finaryAcc.balance() != null ? finaryAcc.balance() : 0));
                 account.setCurrency(finaryAcc.currency() != null ? finaryAcc.currency().code() : "EUR");
                 account.setLastSyncedAt(Instant.now());
-                account.setExternalAccountId(externalId);
+                if (account.isManual() || account.getExternalAccountId() == null) {
+                    account.setExternalAccountId(externalId);
+                } else {
+                    // The account belongs to another connector, which finds it by this id: taking
+                    // it over made that connector create a duplicate at its next sync.
+                    log.warn("Finary mapping onto account {} keeps its external id {} (owned by another connector)",
+                        account.getId(), account.getExternalAccountId());
+                }
                 accountRepository.save(account);
                 accountsMapped++;
                 log.debug("Mapped account: {} -> {} (balance: {})", finaryAcc.name(), account.getName(), finaryAcc.balance());
@@ -413,6 +420,7 @@ public class FinaryApiSyncService {
      * Auto-sync: preview + execute in one step if all accounts are already mapped.
      * Returns NEEDS_MAPPING if new accounts are discovered (user must go through mapping UI).
      */
+    @Transactional
     public FinaryAutoSyncResponse autoSync(Long memberId) {
         Optional<FinarySession> sessionOpt = finarySessionRepository.findByMemberId(memberId);
         if (sessionOpt.isEmpty()) {

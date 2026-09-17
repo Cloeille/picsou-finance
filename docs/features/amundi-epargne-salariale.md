@@ -1,6 +1,6 @@
 # Feature: Amundi Épargne Salariale sync
 
-> Last updated: 2026-08-09
+> Last updated: 2026-08-24
 
 ## Context
 
@@ -42,7 +42,9 @@ listPositionsSalarieDispositifsDto[]          one entry per plan (dispositif)
   ├─ nomEntreprise                            employer
   ├─ mtBrut                                   plan total, EUR
   └─ positionsSalarieFondsDto[]               the plan's FUND CATALOGUE
-       ├─ libelleFonds, codeIsin              (always present)
+       ├─ libelleFonds, codeIsin, codeFonds   (always present -- but codeIsin
+       │                                       holds the AMF code on employer
+       │                                       funds, hence codeFonds)
        ├─ nbParts, vl                         units, unit value  ─┐ null unless
        ├─ mtBrut                              line valuation      ├ the fund is
        └─ mtPMV                               unrealized P&L     ─┘ actually held
@@ -140,9 +142,16 @@ See [the ADR](../decisions/2026-08-09-amundi-epargne-salariale-sidecar.md).
   `(mtBrut − mtPMV) / nbParts`. When Amundi reports no `mtPMV` the average buy-in
   is left null and the invested amount falls back to the plan total, rather than
   inventing a gain out of a missing field.
-- **Employer share funds sometimes have no ISIN.** Those fall back to a ticker
-  derived from the label. Two different funds whose labels collide on that
-  fallback are refused (`INVALID_DATA`) instead of being merged into one.
+- **`codeIsin` is not always an ISIN.** On employer funds Amundi puts the AMF
+  code there (`990000093539`), which fails the `[A-Z]{2}[A-Z0-9]{9}[0-9]` check.
+  The ticker therefore falls to `codeFonds`, and only then to a slug of the
+  label. Keying straight on the label was a real failure, not a theoretical one:
+  the slug is capped at 30 characters and two share classes of one fund differ
+  only in their last word, so `... THALES - A` and `... - B` both truncate to
+  `EPARGNE-SOLIDAIRE-DYNAMIQUE-TH` and the sync refused the whole account.
+  Two different funds still colliding on the label fallback are refused
+  (`INVALID_DATA`) rather than merged — that guard sits behind the cascade, not
+  in front of it.
 - **`positionsSalarieFondsDto` is a catalogue, not a portfolio.** It lists every
   fund the dispositif *offers*; one the employee does not hold carries nulls
   throughout. On the validation account 275 of 283 lines were catalogue entries,

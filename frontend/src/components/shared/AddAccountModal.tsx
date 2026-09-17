@@ -22,6 +22,7 @@ import { BoursoPanel } from '@/components/sync/BoursoPanel'
 import { DegiroPanel } from '@/components/sync/DegiroPanel'
 import { AmundiPanel } from '@/components/sync/AmundiPanel'
 import { FortuneoPanel } from '@/components/sync/FortuneoPanel'
+import { IbkrPanel } from '@/components/sync/IbkrPanel'
 import {
   ACCOUNT_COLORS,
   ACCOUNT_TYPES,
@@ -95,6 +96,9 @@ interface AddAccountModalProps {
 type WizardStep =
   | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso'
   | 'bourseDirect' | 'degiro' | 'amundi' | 'fortuneo' | 'finary' | 'property' | 'manual'
+  | 'bourseDirect' | 'degiro' | 'amundi' | 'finary' | 'property' | 'manual'
+  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'bourso'
+  | 'bourseDirect' | 'degiro' | 'ibkr' | 'amundi' | 'finary' | 'property' | 'manual'
 
 /**
  * Masked variant of InputOTPSlot — replaces the typed character with a bullet
@@ -135,6 +139,7 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'bourso', icon: Landmark, labelKey: 'sync.bourso.title', descKey: 'addAccount.desc.bourso' },
   { key: 'bourseDirect', icon: BriefcaseBusiness, labelKey: 'sync.bourseDirect.title', descKey: 'addAccount.desc.bourseDirect' },
   { key: 'degiro', icon: TrendingUp, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
+  { key: 'ibkr', icon: BriefcaseBusiness, labelKey: 'sync.ibkr.title', descKey: 'addAccount.desc.ibkr' },
   { key: 'amundi', icon: PiggyBank, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
   { key: 'fortuneo', icon: PiggyBank, labelKey: 'sync.fortuneo.title', descKey: 'addAccount.desc.fortuneo' },
   { key: 'finary', icon: FileSpreadsheet, labelKey: 'sync.finary.title', descKey: 'addAccount.desc.finary' },
@@ -289,6 +294,12 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
                 <>
                   <BackButton onClick={() => setStep('selector')} />
                   <DegiroPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'ibkr' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <IbkrPanel onConnected={handleDone} />
                 </>
               )}
               {step === 'amundi' && (

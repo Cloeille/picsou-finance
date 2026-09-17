@@ -116,6 +116,8 @@ GoalService.setMonthOverride(goalId, yearMonth, amount)
 
 ## Gotchas / Pitfalls
 
+- **A `GoalMonthOverride` changes the month's *objective*, never the amount saved.** `getMonthlyEntries` used to put the override into `effective` (the amount saved) while leaving `objective` at the computed value, so a month whose target was lowered to 200 showed "200 saved of 500" whatever the real contribution. `effective` is now `manualActual ?? actual` and `objective` is `override ?? monthlyNeeded`, the semantics `isOnTrackFromPastMonths` always had.
+- **`avgMonthlyContribution` is a sum over the linked accounts**, each averaged over its own months. It is compared with the goal-level `monthlyNeeded` (`surplus`), so a per-account mean (three accounts saving 100 each reported 100) understated progress by the number of accounts.
 - **Accounts can belong to multiple goals**: If an account is linked to two goals, its full balance counts toward both goals' `currentTotal`. There is no "partial allocation."
 - **Monthly actual is computed from snapshots, not transactions**: The actual savings for a month is the delta between end-of-month snapshot balances. If snapshots are missing (e.g. new account, no sync), that month will have `null` actual.
 - **Override does not recalculate monthlyNeeded**: Setting a month override changes the display value for that month but does not affect the computed `monthlyNeeded`. The auto-computed objective is always based on `(target - current) / monthsLeft`.

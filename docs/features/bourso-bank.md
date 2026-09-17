@@ -31,7 +31,7 @@ why.
 
 | Imported | Not imported |
 |---|---|
-| Current accounts → `CHECKING` | Loans (`data-summary-loan`) |
+| Current accounts → `CHECKING` | Loans (`data-summary-loan`), assurance-vie and insurance, `Bourso Protect` (`data-summary-insurance` / `data-summary-assurance`) |
 | Livrets → `LIVRET_A`, `LDDS`, `LEP`, `LIVRET_JEUNE`, `PEL`, `CEL`, else `SAVINGS` | Accounts BoursoBank aggregates from **other banks** |
 | PEA, PEA-PME → `PEA` | Transactions |
 | Compte-titres → `COMPTE_TITRES`, with positions | Orders, statements |
@@ -130,8 +130,11 @@ than falling back to DOM order, which is shuffled.
 
 `GET /dashboard/liste-comptes?rumroute=dashboard.new_accounts&_hinclude=1`
 returns HTML grouped into `data-summary-bank` / `-savings` / `-trading` /
-`-loan`. Balances come out of each card's `aria-label` (`Solde : 11 010,00 €`),
-negatives use U+2212 rather than an ASCII hyphen.
+`-loan` / `-insurance` / `-assurance`. Balances come out of each card's `aria-label` (`Solde : 11 010,00 €`),
+negatives use U+2212 rather than an ASCII hyphen. Insurance sections are
+recognized so their cards can be skipped explicitly, the same way loans are:
+an unparsed card inside a known section still fails the sync, while a card in
+an unknown section keeps failing it too.
 
 Securities accounts then get:
 
@@ -302,6 +305,11 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
   shipped enabled. The migration header says so.
 - **The error-code CHECK constraint must track `BoursoErrorCode`.** A code
   missing from it turns a diagnosable failure into a 500 at write time.
+- **A fraud-education interstitial is not a wrong password.** After a 302 login
+  POST, BoursoBank can park the session on
+  `/infos-profil/pedagogie-fraude/…` until the holder ticks the notice on the
+  real website. The sidecar reports `FRAUD_ACK_REQUIRED`, never auto-ticks the
+  notice, and the frontend tells the user to validate it and retry.
 - **`AccountPayload.type` is `accounts_parser.AccountKind`, not its own list.**
   A kind the parser emits but the contract omits is not a type quibble: pydantic
   rejects that account and `_collect_accounts` fails the *entire* sync, so one

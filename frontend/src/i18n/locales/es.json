@@ -320,6 +320,11 @@
     "evolution": "Evolución",
     "capitalInvested": "Capital invertido",
     "avgBuyIn": "Precio medio de compra",
+    "totalInvested": "Total invertido",
+    "quantitySyncedHint": "La cantidad proviene de la sincronización on-chain / del exchange y no se puede editar aquí.",
+    "costBasisHint": "Define tu coste real para que la ganancia/pérdida refleje lo que realmente invertiste — editar un campo actualiza el otro.",
+    "quantityInvalid": "Introduce una cantidad mayor que cero.",
+    "costBasisInvalid": "El coste no puede ser negativo.",
     "editTitle": "Editar {{ticker}}",
     "perShare": "/ participación",
     "insight": {
@@ -456,6 +461,7 @@
       "bourso": "Cuentas corrientes, ahorro, PEA y cuentas de valores en BoursoBank",
       "bourseDirect": "Sincronizar tus cuentas PEA y de valores",
       "degiro": "Sincronizar tu cuenta de valores DEGIRO",
+      "ibkr": "Sincroniza tu cuenta de Interactive Brokers mediante Flex Query",
       "finary": "Importar desde Finary",
       "manual": "Crear una cuenta manualmente",
       "amundi": "PEE, PEG, PERCO, PER en Amundi",
@@ -654,6 +660,7 @@
       "errors": {
         "tooManyAttempts": "Demasiados intentos. Espere antes de reintentar.",
         "invalidCredentials": "Número de cliente o contraseña de BoursoBank no válidos.",
+        "fraudAckRequired": "Inicie sesión en el sitio web de BoursoBank, valide el aviso antifraude y vuelva a conectarse.",
         "mfaTypeUnsupported": "BoursoBank pide un código por SMS o correo electrónico, que Picsou no puede gestionar. Active la validación por aplicación en sus ajustes de seguridad de BoursoBank.",
         "appValidationTimeout": "La validación en la aplicación no se confirmó a tiempo. Vuelva a empezar.",
         "authAttemptExpired": "El intento de autenticación ha caducado. Vuelva a empezar.",

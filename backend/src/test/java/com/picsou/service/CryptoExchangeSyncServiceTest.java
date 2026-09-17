@@ -224,6 +224,29 @@ class CryptoExchangeSyncServiceTest {
                 org.assertj.core.api.Assertions.tuple(Product.STAKING, "ETH", new BigDecimal("0.1")));
     }
 
+    /**
+     * A coin sold or withdrawn since the last sync is absent from the exchange's answer, and
+     * upsertHolding never removes anything: its row kept its last price and stayed in the account's
+     * value and cost basis. The sync now prunes what the exchange no longer reports.
+     */
+    @Test
+    void sync_prunesHoldingsTheExchangeNoLongerReports() {
+        CryptoExchangePort adapter = singleKeyAdapter();
+        CryptoExchangeSession session = session(ExchangeType.MERIA, "enc:" + KEY, null);
+        when(sessionRepository.findByIdAndMemberId(7L, MEMBER_ID)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("enc:" + KEY)).thenReturn(KEY);
+        when(encryption.decrypt(null)).thenReturn(null);
+        when(adapter.fetchPositions(KEY, null)).thenReturn(List.of(
+            ExchangePosition.spot("ETH", new BigDecimal("0.5"))));
+        arrangeAccountResolution();
+        when(priceService.refreshCryptoQuotes(any())).thenReturn(Map.of(
+            "ETH", new PriceService.Quote(new BigDecimal("100"), LocalDate.now(), true)));
+
+        serviceWith(adapter).sync(7L, MEMBER_ID);
+
+        verify(holdingRepository).deleteByAccountIdAndTickerNotIn(any(), eq(java.util.Set.of("ETH")));
+    }
+
     @Test
     void sync_keepsTheOriginalCauseWhenWrappingAnUnexpectedAdapterFailure() {
         // The user-facing text is deliberately generic, so the cause is the only thing left that

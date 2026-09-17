@@ -204,7 +204,7 @@ public class SyncService {
         Requisition req = requisitionRepository.findByIdAndMemberId(id, memberId)
             .orElseThrow(() -> new ResourceNotFoundException("Requisition not found"));
 
-        log.info("Retrying sync for {} (requisition={})", req.getInstitutionName(), req.getId());
+        log.info("Retrying sync for {} (requisition #{})", req.getInstitutionName(), req.getId());
         ensureLogoUrl(req);
 
         List<BankConnectorPort.AccountData> accountDataList;
@@ -285,7 +285,7 @@ public class SyncService {
             try {
                 retrySync(req.getId(), memberId);
             } catch (Exception ex) {
-                log.warn("Scheduled retry failed for {} (requisition={}): {}",
+                log.warn("Scheduled retry failed for {} (requisition #{}): {}",
                     req.getInstitutionName(), req.getId(), ex.getMessage());
             }
         }
@@ -386,15 +386,15 @@ public class SyncService {
         // transient provider gap than a broken link. Demoting it would make the status
         // flap LINKED → FAILED on every scheduled resync — keep it LINKED and just skip.
         if (requisition.getStatus() == RequisitionStatus.LINKED) {
-            log.warn("Enable Banking requisition {} ({}) returned no accounts during {} — keeping LINKED, skipping update",
-                requisition.getId(), requisition.getInstitutionName(), operation);
+            log.warn("Enable Banking requisition #{} returned no accounts during {} — keeping LINKED, skipping update",
+                requisition.getId(), operation);
             return true;
         }
 
         requisition.setStatus(RequisitionStatus.FAILED);
         requisitionRepository.save(requisition);
-        log.info("Enable Banking requisition {} ({}) returned no accounts during {} — marking retryable",
-            requisition.getId(), requisition.getInstitutionName(), operation);
+        log.info("Enable Banking requisition #{} returned no accounts during {} — marking retryable",
+            requisition.getId(), operation);
         return true;
     }
 
@@ -499,7 +499,7 @@ public class SyncService {
         }
 
         account = accountRepository.save(account);
-        accountService.upsertSnapshot(account, data.balance(), LocalDate.now());
+        accountService.upsertSnapshotFromNative(account, data.balance(), LocalDate.now());
 
         ingestTransactions(account, requisition.getRequisitionId(), member);
 

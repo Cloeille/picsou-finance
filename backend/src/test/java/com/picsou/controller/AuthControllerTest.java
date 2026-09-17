@@ -419,8 +419,8 @@ class AuthControllerTest {
         Claims claims = org.mockito.Mockito.mock(Claims.class);
         when(jwtUtil.validateAndParse("rt")).thenReturn(claims);
         when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
-        when(claims.getSubject()).thenReturn("alice");
-        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.of(deactivated));
+        when(jwtUtil.getUserId(claims)).thenReturn(7L);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(deactivated));
         when(jwtUtil.getTokenVersion(claims)).thenReturn(3L); // matches user.tokenVersion
 
         ResponseEntity<?> res = controller.refresh(null, httpReq, httpRes);
@@ -437,8 +437,8 @@ class AuthControllerTest {
         Claims claims = org.mockito.Mockito.mock(Claims.class);
         when(jwtUtil.validateAndParse("rt")).thenReturn(claims);
         when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
-        when(claims.getSubject()).thenReturn("alice");
-        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.of(active));
+        when(jwtUtil.getUserId(claims)).thenReturn(7L);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(active));
         when(jwtUtil.getTokenVersion(claims)).thenReturn(3L);
         when(jwtUtil.generateAccessToken(active)).thenReturn("acc2");
         when(jwtUtil.generateRefreshToken(active)).thenReturn("ref2");
@@ -451,6 +451,48 @@ class AuthControllerTest {
         verify(cookieWriter).setAccessAndRefresh(httpRes, "acc2", "ref2", false);
     }
 
+    /**
+     * The token names its account by the immutable uid, never by the username in `sub`: a
+     * username can be changed (change-username) or freed and given to a new member, and
+     * resolving by name logged the old token's holder into whoever carried that name next,
+     * or locked a renamed user out at the next refresh.
+     */
+    @Test
+    void refresh_resolvesTheAccountByUid_neverByTheUsernameInTheSubject() {
+        AppUser alice = user(true);
+        httpReq.setCookies(new Cookie("refresh_token", "rt"));
+        Claims claims = org.mockito.Mockito.mock(Claims.class);
+        when(jwtUtil.validateAndParse("rt")).thenReturn(claims);
+        when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
+        when(jwtUtil.getUserId(claims)).thenReturn(7L);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(alice));
+        when(jwtUtil.getTokenVersion(claims)).thenReturn(3L);
+        when(jwtUtil.generateAccessToken(alice)).thenReturn("acc2");
+        when(jwtUtil.generateRefreshToken(alice)).thenReturn("ref2");
+
+        ResponseEntity<?> res = controller.refresh(null, httpReq, httpRes);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(cookieWriter).setAccessAndRefresh(httpRes, "acc2", "ref2", false);
+        verify(userRepository, never()).findByUsernameWithMember(any());
+        verify(claims, never()).getSubject();
+    }
+
+    @Test
+    void refresh_returns401_whenTheTokenCarriesNoUid() {
+        httpReq.setCookies(new Cookie("refresh_token", "rt"));
+        Claims claims = org.mockito.Mockito.mock(Claims.class);
+        when(jwtUtil.validateAndParse("rt")).thenReturn(claims);
+        when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
+        when(jwtUtil.getUserId(claims)).thenReturn(null);
+
+        ResponseEntity<?> res = controller.refresh(null, httpReq, httpRes);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        verify(userRepository, never()).findByIdWithMember(any());
+        verify(userRepository, never()).findByUsernameWithMember(any());
+    }
+
     @Test
     void refresh_rotatesTokens_asPersistentCookies_whenPersistentTokenCookiePresentAndOwned() {
         AppUser active = user(true); // id 7L
@@ -460,8 +502,8 @@ class AuthControllerTest {
         Claims claims = org.mockito.Mockito.mock(Claims.class);
         when(jwtUtil.validateAndParse("rt")).thenReturn(claims);
         when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
-        when(claims.getSubject()).thenReturn("alice");
-        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.of(active));
+        when(jwtUtil.getUserId(claims)).thenReturn(7L);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(active));
         when(jwtUtil.getTokenVersion(claims)).thenReturn(3L);
         when(jwtUtil.generateAccessToken(active)).thenReturn("acc2");
         when(jwtUtil.generateRefreshToken(active)).thenReturn("ref2");
@@ -522,8 +564,8 @@ class AuthControllerTest {
         Claims claims = org.mockito.Mockito.mock(Claims.class);
         when(jwtUtil.validateAndParse("stale-rt")).thenReturn(claims);
         when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
-        when(claims.getSubject()).thenReturn("alice");
-        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.of(active));
+        when(jwtUtil.getUserId(claims)).thenReturn(7L);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(active));
         when(jwtUtil.getTokenVersion(claims)).thenReturn(1L); // stale -- user is now at tv=3
         when(persistentSessionService.ownerUserId("mine")).thenReturn(Optional.of(active.getId()));
         when(jwtUtil.generateAccessToken(active)).thenReturn("acc4");
@@ -547,8 +589,8 @@ class AuthControllerTest {
         Claims claims = org.mockito.Mockito.mock(Claims.class);
         when(jwtUtil.validateAndParse("rt")).thenReturn(claims);
         when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
-        when(claims.getSubject()).thenReturn("alice");
-        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.of(active));
+        when(jwtUtil.getUserId(claims)).thenReturn(7L);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(active));
         when(jwtUtil.getTokenVersion(claims)).thenReturn(3L);
         when(jwtUtil.getSeriesId(claims)).thenReturn(revokedSeries);
         when(persistentSessionService.isSeriesActive(revokedSeries)).thenReturn(false);

@@ -217,7 +217,11 @@ public class GoalService {
         }
 
         if (accountsWithData > 0) {
-            return totalContribution.divide(BigDecimal.valueOf(accountsWithData), 2, RoundingMode.HALF_UP);
+            // The goal's monthly contribution is the sum over its accounts, each already averaged
+            // over its own months. Dividing by the number of accounts gave a per-account mean that
+            // was then compared with the goal-level monthlyNeeded: three accounts saving 100 each
+            // reported 100, a shortfall, instead of 300.
+            return totalContribution;
         }
 
         // Fallback: mean of recorded manual contributions (includes backfilled months).
@@ -307,8 +311,12 @@ public class GoalService {
             BigDecimal actual = calculateActualForMonth(goal, current);
             BigDecimal manualActual = manualMap.get(ym);
             BigDecimal override = overrideMap.get(ym);
-            BigDecimal effective = override != null ? override : (manualActual != null ? manualActual : actual);
-            entries.add(new GoalMonthEntryResponse(ym, objective, actual, manualActual, override, effective));
+            // An override changes the month's objective, not what was saved (goals.md, and what
+            // isOnTrackFromPastMonths already does). Putting it into `effective` showed the new
+            // target as the amount saved and hid the real actual behind it.
+            BigDecimal effective = manualActual != null ? manualActual : actual;
+            BigDecimal monthObjective = override != null ? override : objective;
+            entries.add(new GoalMonthEntryResponse(ym, monthObjective, actual, manualActual, override, effective));
             current = current.plusMonths(1);
         }
         return entries;

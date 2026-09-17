@@ -50,6 +50,18 @@ class FinaryApiSyncServiceTest {
 
     @InjectMocks FinaryApiSyncService service;
 
+    /**
+     * autoSync calls execute() on `this`, past the Spring proxy, so execute's own @Transactional
+     * never applies on that path. Without a transaction of its own, the scheduled and the manual
+     * auto-sync ran the account deletes, snapshot rebuilds and transaction imports as separate
+     * auto-committed statements: a failure halfway left a half-imported account behind.
+     */
+    @Test
+    void autoSync_isTransactional_becauseItSelfInvokesExecute() throws NoSuchMethodException {
+        var method = FinaryApiSyncService.class.getMethod("autoSync", Long.class);
+        assertThat(method.getAnnotation(org.springframework.transaction.annotation.Transactional.class)).isNotNull();
+    }
+
     @Test
     void checkTotp_returnsTrue_whenTotpRequired() {
         FinarySession session = FinarySession.builder()

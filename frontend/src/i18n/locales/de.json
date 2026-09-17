@@ -320,6 +320,11 @@
     "evolution": "Entwicklung",
     "capitalInvested": "Investiertes Kapital",
     "avgBuyIn": "Ø Kaufkurs",
+    "totalInvested": "Gesamt investiert",
+    "quantitySyncedHint": "Die Menge stammt aus der On-Chain-/Exchange-Synchronisierung und kann hier nicht bearbeitet werden.",
+    "costBasisHint": "Legen Sie Ihren tatsächlichen Einstandswert fest, damit Gewinn/Verlust widerspiegelt, was Sie wirklich investiert haben — die Bearbeitung eines Feldes aktualisiert das andere.",
+    "quantityInvalid": "Geben Sie eine Menge größer als null ein.",
+    "costBasisInvalid": "Der Einstandswert darf nicht negativ sein.",
     "editTitle": "{{ticker}} bearbeiten",
     "perShare": "/ Anteil",
     "insight": {
@@ -456,6 +461,7 @@
       "bourso": "Girokonten, Sparkonten, PEA und Wertpapierdepots bei BoursoBank",
       "bourseDirect": "PEA- und Wertpapierkonten synchronisieren",
       "degiro": "DEGIRO-Wertpapierkonto synchronisieren",
+      "ibkr": "Synchronisieren Sie Ihr Interactive-Brokers-Konto per Flex Query",
       "finary": "Aus Finary importieren",
       "manual": "Konto manuell erstellen",
       "amundi": "PEE, PEG, PERCO, PER bei Amundi",
@@ -654,6 +660,7 @@
       "errors": {
         "tooManyAttempts": "Zu viele Versuche. Bitte warten Sie.",
         "invalidCredentials": "Ungültige BoursoBank-Kundennummer oder ungültiges Passwort.",
+        "fraudAckRequired": "Melden Sie sich auf der Website von BoursoBank an, bestätigen Sie den Hinweis zur Betrugsprävention und verbinden Sie sich dann erneut.",
         "mfaTypeUnsupported": "BoursoBank verlangt einen Code per SMS oder E-Mail, den Picsou nicht verarbeiten kann. Stellen Sie in Ihren BoursoBank-Sicherheitseinstellungen auf App-Bestätigung um.",
         "appValidationTimeout": "Die Bestätigung in der App erfolgte nicht rechtzeitig. Bitte erneut beginnen.",
         "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Bitte erneut beginnen.",

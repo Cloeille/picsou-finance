@@ -22,8 +22,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -198,5 +205,117 @@ class TransactionImportServiceTest {
 
         assertThatThrownBy(() -> service.preview(99L, 10L, file("date\n2024-01-01")))
             .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void executeImport_twoExecutesRacingOnOnePreview_importOnce() throws Exception {
+        when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(pea()));
+        when(instrumentFieldResolver.resolve(any(), any()))
+            .thenReturn(new InstrumentFieldResolver.ResolvedInstrument("AAPL", "Apple", "Apple"));
+        String token = service.preview(2L, 10L, file(CSV)).fileToken();
+        TransactionImportRequest req =
+            new TransactionImportRequest(token, mapping(), dialect(), true, false, null);
+
+        // Park the first import inside saveAll, which is where the token used to still sit in the
+        // cache, and fire the second one while it waits there: a double click, or a client that
+        // retried after a timeout, looks exactly like this to the service.
+        CountDownLatch firstIsSaving = new CountDownLatch(1);
+        CountDownLatch letItFinish = new CountDownLatch(1);
+        when(transactionRepository.saveAll(any())).thenAnswer(inv -> {
+            firstIsSaving.countDown();
+            assertThat(letItFinish.await(5, TimeUnit.SECONDS)).as("release latch").isTrue();
+            return inv.getArgument(0);
+        });
+
+        ExecutorService other = Executors.newSingleThreadExecutor();
+        try {
+            Future<TransactionImportResultResponse> first =
+                other.submit(() -> service.executeImport(2L, 10L, req));
+            assertThat(firstIsSaving.await(5, TimeUnit.SECONDS)).as("first import reached saveAll").isTrue();
+
+            assertThatThrownBy(() -> service.executeImport(2L, 10L, req))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("expired");
+
+            letItFinish.countDown();
+            assertThat(first.get(5, TimeUnit.SECONDS).imported()).isEqualTo(2);
+        } finally {
+            other.shutdownNow();
+        }
+
+        verify(transactionRepository, times(1)).saveAll(any());
+        verify(holdingComputeService, times(1)).recomputeHoldings(any());
+    }
+
+    @Test
+    void executeImport_failedImport_handsThePreviewBack() {
+        when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(pea()));
+        when(instrumentFieldResolver.resolve(any(), any()))
+            .thenReturn(new InstrumentFieldResolver.ResolvedInstrument("AAPL", "Apple", "Apple"));
+        String token = service.preview(2L, 10L, file(CSV)).fileToken();
+        TransactionImportRequest req =
+            new TransactionImportRequest(token, mapping(), dialect(), true, false, null);
+        when(transactionRepository.saveAll(any()))
+            .thenThrow(new IllegalStateException("connection reset"))
+            .thenAnswer(inv -> inv.getArgument(0));
+
+        assertThatThrownBy(() -> service.executeImport(2L, 10L, req))
+            .isInstanceOf(IllegalStateException.class);
+
+        // The consumed token went back into the cache: the transaction rolled back, so nothing of
+        // the failed attempt is in the database and the same preview must import on the retry
+        // without a new upload.
+        assertThat(service.executeImport(2L, 10L, req).imported()).isEqualTo(2);
+        verify(transactionRepository, times(2)).saveAll(any());
+    }
+
+    @Test
+    void executeImport_rollbackAfterTheMethodReturned_handsThePreviewBack() {
+        when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(pea()));
+        when(instrumentFieldResolver.resolve(any(), any()))
+            .thenReturn(new InstrumentFieldResolver.ResolvedInstrument("AAPL", "Apple", "Apple"));
+        String token = service.preview(2L, 10L, file(CSV)).fileToken();
+        TransactionImportRequest req =
+            new TransactionImportRequest(token, mapping(), dialect(), true, false, null);
+
+        // Stand in for the @Transactional proxy: saveAll only queued the rows, the INSERT failed
+        // at flush, and Spring reports the rollback through the synchronization after the method
+        // has already returned its result.
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertThat(service.executeImport(2L, 10L, req).imported()).isEqualTo(2);
+            List<TransactionSynchronization> hooks = TransactionSynchronizationManager.getSynchronizations();
+            assertThat(hooks).hasSize(1);
+            hooks.get(0).afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        // Nothing was committed, so the same preview must import again on the retry.
+        assertThat(service.executeImport(2L, 10L, req).imported()).isEqualTo(2);
+    }
+
+    @Test
+    void executeImport_commitAfterTheMethodReturned_keepsTheTokenConsumed() {
+        when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(pea()));
+        when(instrumentFieldResolver.resolve(any(), any()))
+            .thenReturn(new InstrumentFieldResolver.ResolvedInstrument("AAPL", "Apple", "Apple"));
+        String token = service.preview(2L, 10L, file(CSV)).fileToken();
+        TransactionImportRequest req =
+            new TransactionImportRequest(token, mapping(), dialect(), true, false, null);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.executeImport(2L, 10L, req);
+            TransactionSynchronizationManager.getSynchronizations().get(0)
+                .afterCompletion(TransactionSynchronization.STATUS_COMMITTED);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        // The rows are in: the preview is spent, a replay is refused.
+        assertThatThrownBy(() -> service.executeImport(2L, 10L, req))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("expired");
     }
 }

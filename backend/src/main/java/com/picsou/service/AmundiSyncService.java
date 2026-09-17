@@ -612,9 +612,20 @@ public class AmundiSyncService {
 
     /**
      * FCPEs are not in OpenFIGI's universe and Yahoo cannot quote them, so no
-     * conversion is attempted: the ISIN is the ticker. Employer share funds
-     * sometimes carry no ISIN at all, and those fall back to their label --
-     * {@link #mergePositions} refuses to fuse two funds should that collide.
+     * conversion is attempted: the ISIN is the ticker when there is one.
+     *
+     * <p>There often is not. `codeIsin` carries the AMF code on employer funds
+     * (`990000093539`), which is not an ISIN and is rejected here. Falling
+     * straight to the label is what made that expensive: the slug is truncated to
+     * {@value #MAX_TICKER_LENGTH} characters, and two share classes of one fund
+     * differ only in their last word -- "EPARGNE SOLIDAIRE DYNAMIQUE THALES - A"
+     * and "- B" both slug to `EPARGNE-SOLIDAIRE-DYNAMIQUE-TH`. {@link
+     * #mergePositions} then correctly refuses to fuse them, and the whole sync
+     * fails on a payload that is perfectly valid.
+     *
+     * <p>So the fund's own `codeFonds` is tried first: short, stable, and unique
+     * per fund. The label stays as the last resort, and the collision guard in
+     * {@link #mergePositions} stays behind it.
      */
     private String resolveTicker(AmundiPort.Position position) {
         String isin = clean(position.isin());
@@ -624,16 +635,30 @@ public class AmundiSyncService {
                 return isin;
             }
         }
-        String label = clean(position.label());
+        String fundCode = slug(position.fundCode());
+        if (fundCode != null) {
+            return fundCode;
+        }
+        String label = slug(position.label());
         if (label == null) {
             throw error(AmundiErrorCode.INVALID_DATA, "Amundi returned a fund without any identifier", null);
         }
-        String fallback = label.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]+", "-");
-        fallback = fallback.replaceAll("^-+|-+$", "");
-        if (fallback.isEmpty()) {
-            throw error(AmundiErrorCode.INVALID_DATA, "Amundi returned a fund without any identifier", null);
+        return label;
+    }
+
+    /** Uppercase alphanumeric slug, capped at {@value #MAX_TICKER_LENGTH}, or null if nothing is left. */
+    private String slug(String value) {
+        String cleaned = clean(value);
+        if (cleaned == null) {
+            return null;
         }
-        return fallback.length() <= MAX_TICKER_LENGTH ? fallback : fallback.substring(0, MAX_TICKER_LENGTH);
+        String slug = cleaned.toUpperCase(Locale.ROOT)
+            .replaceAll("[^A-Z0-9]+", "-")
+            .replaceAll("^-+|-+$", "");
+        if (slug.isEmpty()) {
+            return null;
+        }
+        return slug.length() <= MAX_TICKER_LENGTH ? slug : slug.substring(0, MAX_TICKER_LENGTH);
     }
 
     private String clean(String value) {

@@ -1,6 +1,6 @@
 # Feature: Interactive Brokers (IBKR) sync
 
-> Last updated: 2026-07-21
+> Last updated: 2026-09-03
 
 ## Context
 
@@ -38,8 +38,9 @@ trusted for EUR valuation.
   shifted to `V59` when merged into `1.1.0`, which already had `V57`/`V58` published)
 - Reuses: `OpenFigiIsinConverter` (ISIN→ticker), `HoldingDedup` (VWAP), `CryptoEncryption`,
   `AccountService.liveBalanceEur` (net-worth valuation), `SchedulerService` (daily auto-sync)
-- `frontend/src/pages/sync/IbkrTab.tsx` — Sync-page connection tab (token + query id form →
-  connect, then sync/disconnect); `sync.ibkr.*` i18n keys in all four locales
+- `frontend/src/components/sync/IbkrPanel.tsx` — **source of truth** for the IBKR connection UI (token + query id form → connect, status card, sync/disconnect, ConfirmDialog); `sync.ibkr.*` i18n keys in all four locales. Accepts optional `onConnected?: () => void` called on successful connect.
+- `frontend/src/pages/sync/IbkrTab.tsx` — one-line re-export: `export { IbkrPanel as IbkrTab }`. `SyncPage` imports unchanged; `onConnected` is left `undefined` on the Sync tab (no-op).
+- `frontend/src/components/shared/AddAccountModal.tsx` — imports `IbkrPanel`, exposes it as an entry in `SOURCES` between DEGIRO and Amundi; `IbkrPanel onConnected={handleDone}` closes the modal on successful connect.
 
 ### Flow
 
@@ -136,9 +137,7 @@ See the [ADR](../decisions/2026-07-19-ibkr-flex-web-service.md) for the full API
 
 - Related ADR: [Flex Web Service for IBKR](../decisions/2026-07-19-ibkr-flex-web-service.md)
 - IBKR Flex attribute reference: [csingley/ibflex](https://github.com/csingley/ibflex)
-- **Frontend:** a tab on the Sync page (`IbkrTab.tsx`) — token + query id form → connect,
-  then sync/disconnect — with `sync.ibkr.*` keys in fr/en/de/es. Verified by typecheck,
-  ESLint and `IbkrTab.test.tsx` (3 render/interaction tests).
+- **Frontend:** `IbkrPanel.tsx` is the single source of truth for the IBKR connection UI — shared between the Sync page tab (`IbkrTab` = one-line re-export) and the Add account modal (step `'ibkr'`). `sync.ibkr.*` keys in fr/en/de/es, `addAccount.desc.ibkr` in all four locales. Verified by typecheck, ESLint, `IbkrTab.test.tsx`, `AddAccountModal.test.tsx` (IBKR wizard flow), and a Playwright spec (`e2e/ibkr-add-account.spec.ts`).
 - **Deliberately skipped:** the `SetupService.INTEGRATIONS` / `IntegrationsService` registry
   entry (`"ibkr"`). The Sync-page tab is not gated on it (like the TR/Finary tabs), and
   adding it would surface an unlabeled toggle in the setup wizard.

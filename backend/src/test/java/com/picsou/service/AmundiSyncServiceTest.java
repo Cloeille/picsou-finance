@@ -268,6 +268,49 @@ class AmundiSyncServiceTest {
     }
 
     @Test
+    void theFundCodeKeysTheHoldingWhenCodeIsinIsNotAnIsin() {
+        // Amundi puts the AMF code in codeIsin on employer funds.
+        arrangeCommittableSync(plan(position(
+            "990000093539", "4256", "Epargne Solidaire Dynamique ACME - A", "10", "100", "1000", "0"
+        )));
+
+        service.queueSync(7L);
+
+        verify(holdingRepository).saveAll(holdingsCaptor.capture());
+        assertThat(holdingsCaptor.getValue().getFirst().getTicker()).isEqualTo("4256");
+    }
+
+    @Test
+    void twoShareClassesSharingATruncatedLabelAreKeptApartByTheirFundCode() {
+        // Regression: both labels slug to the same 30 characters, so keying on the
+        // label refused this payload outright -- the share class is the last word.
+        String sharedPrefix = "Epargne Solidaire Dynamique ACME -";
+        arrangeCommittableSync(plan("2000",
+            position("990000093539", "4256", sharedPrefix + " A", "10", "100", "1000", "0"),
+            position("990000097329", "4286", sharedPrefix + " B", "10", "100", "1000", "0")
+        ));
+
+        service.queueSync(7L);
+
+        verify(holdingRepository).saveAll(holdingsCaptor.capture());
+        assertThat(holdingsCaptor.getValue())
+            .extracting(AccountHolding::getTicker)
+            .containsExactlyInAnyOrder("4256", "4286");
+    }
+
+    @Test
+    void aRealIsinStillWinsOverTheFundCode() {
+        arrangeCommittableSync(plan(position(
+            "FR0010405035", "4256", "Amundi Label Actions Solidaires", "10", "100", "1000", "0"
+        )));
+
+        service.queueSync(7L);
+
+        verify(holdingRepository).saveAll(holdingsCaptor.capture());
+        assertThat(holdingsCaptor.getValue().getFirst().getTicker()).isEqualTo("FR0010405035");
+    }
+
+    @Test
     void theSameFundListedTwiceIsMerged() {
         arrangeCommittableSync(plan("2000",
             position("FR0010405035", "Fonds", "10", "100", "1000", "100"),
@@ -499,8 +542,16 @@ class AmundiSyncServiceTest {
     private AmundiPort.Position position(
         String isin, String label, String quantity, String unitValue, String valueEur, String pnlEur
     ) {
+        return position(isin, null, label, quantity, unitValue, valueEur, pnlEur);
+    }
+
+    private AmundiPort.Position position(
+        String isin, String fundCode, String label,
+        String quantity, String unitValue, String valueEur, String pnlEur
+    ) {
         return new AmundiPort.Position(
             isin,
+            fundCode,
             label,
             new BigDecimal(quantity),
             unitValue == null ? null : new BigDecimal(unitValue),

@@ -435,6 +435,75 @@ class GoalServiceTest {
         assertThat(progress.avgMonthlyContribution()).isEqualByComparingTo("1000");
     }
 
+    /**
+     * The goal's contribution is the sum over its accounts: two accounts each saving 100 a
+     * month contribute 200, not the 100 a per-account mean reported (and then compared with
+     * the goal-level monthlyNeeded).
+     */
+    @Test
+    void avgMonthlyContribution_sumsTheLinkedAccounts() {
+        Account a = Account.builder().id(1L).name("Livret A").type(AccountType.CHECKING)
+            .currency("EUR").currentBalance(new BigDecimal("1300")).color("#22c55e").build();
+        Account b = Account.builder().id(2L).name("LDDS").type(AccountType.CHECKING)
+            .currency("EUR").currentBalance(new BigDecimal("2300")).color("#22c55e").build();
+        Goal goal = Goal.builder()
+            .member(GOAL_OWNER)
+            .id(1L).name("Vacances").targetAmount(new BigDecimal("6000"))
+            .deadline(LocalDate.now().plusMonths(12))
+            .accounts(List.of(a, b))
+            .build();
+        when(accountService.toResponse(any())).thenAnswer(inv -> {
+            Account acc = inv.getArgument(0);
+            return new com.picsou.dto.AccountResponse(
+                acc.getId(), acc.getName(), AccountType.CHECKING, null, "EUR",
+                acc.getCurrentBalance(), acc.getCurrentBalance(),
+                null, null, true, "#22c55e", null, null, null, null, null, null, null, null);
+        });
+        when(accountService.signedLiveBalanceEur(any())).thenAnswer(inv ->
+            ((Account) inv.getArgument(0)).getCurrentBalance());
+        LocalDate threeMonthsAgo = LocalDate.now().minusMonths(3);
+        when(snapshotRepository.findRecentByAccountId(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.any()))
+            .thenReturn(List.of(
+                com.picsou.model.BalanceSnapshot.builder().balance(new BigDecimal("1000")).date(threeMonthsAgo).build(),
+                com.picsou.model.BalanceSnapshot.builder().balance(new BigDecimal("1300")).date(LocalDate.now()).build()));
+        when(snapshotRepository.findRecentByAccountId(org.mockito.ArgumentMatchers.eq(2L), org.mockito.ArgumentMatchers.any()))
+            .thenReturn(List.of(
+                com.picsou.model.BalanceSnapshot.builder().balance(new BigDecimal("2000")).date(threeMonthsAgo).build(),
+                com.picsou.model.BalanceSnapshot.builder().balance(new BigDecimal("2300")).date(LocalDate.now()).build()));
+        lenient().when(overrideRepository.findByGoalId(1L)).thenReturn(List.of());
+        lenient().when(manualContributionRepository.findByGoalId(1L)).thenReturn(List.of());
+
+        GoalProgressResponse progress = goalService.toProgressResponse(goal);
+
+        assertThat(progress.avgMonthlyContribution()).isEqualByComparingTo("200");
+    }
+
+    /**
+     * An override changes the month's objective, never the amount saved. It used to land in
+     * `effective`, so a month whose target was lowered to 200 read as "200 saved of 500"
+     * whatever the real contribution was.
+     */
+    @Test
+    void getMonthlyEntries_anObjectiveOverride_changesTheObjective_notTheAmountSaved() {
+        Goal goal = backfillGoal(null);
+        String thisMonth = java.time.YearMonth.now().toString();
+        com.picsou.model.GoalMonthOverride override = new com.picsou.model.GoalMonthOverride();
+        override.setGoal(goal);
+        override.setYearMonth(thisMonth);
+        override.setAmount(new BigDecimal("200"));
+        when(goalRepository.findByIdAndMemberId(1L, 1L)).thenReturn(java.util.Optional.of(goal));
+        when(overrideRepository.findByGoalId(1L)).thenReturn(List.of(override));
+
+        var entry = goalService.getMonthlyEntries(1L, 1L).stream()
+            .filter(e -> e.yearMonth().equals(thisMonth)).findFirst().orElseThrow();
+
+        assertThat(entry.override()).isEqualByComparingTo("200");
+        assertThat(entry.objective()).isEqualByComparingTo("200");
+        // No linked account and no manual contribution: nothing was saved, and the override
+        // must not pretend otherwise.
+        assertThat(entry.effective()).isNull();
+    }
+
     @Test
     void isOnTrack_true_whenManualContributionCoversShortfall() {
         // Same setup as the "behind" test but user declares 4000€ manual contribution

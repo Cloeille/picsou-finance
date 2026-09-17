@@ -58,6 +58,18 @@ public interface TradeRepublicPort {
         String name,
         AccountType type,
         BigDecimal balanceEur,
-        List<TrPosition> positions
-    ) {}
+        List<TrPosition> positions,
+        /**
+         * Cash held inside the envelope and already counted in {@code balanceEur}: the PEA's
+         * scoped cash. Null for accounts without a pocket (the CTO's cash is the separate
+         * "tr_cash" account). Stored on {@code Account.cashBalance} so the valuation can put
+         * it on both sides, like the Bourse Direct, BoursoBank and DEGIRO connectors do.
+         */
+        BigDecimal cashEur
+    ) {
+        public TrAccountData(String externalId, String name, AccountType type,
+                             BigDecimal balanceEur, List<TrPosition> positions) {
+            this(externalId, name, type, balanceEur, positions, null);
+        }
+    }
 }

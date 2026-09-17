@@ -1,6 +1,6 @@
 # Feature: 24H Intraday Net Worth Chart
 
-> Last updated: 2026-04-18
+> Last updated: 2026-09-05
 
 ## Context
 
@@ -28,7 +28,8 @@ HistoryService.buildIntradayHistory()
         |       PriceService.getIntradayPricesEur(ticker, from, to)
         |         -> CoinGecko.getIntradayPricesEur() for crypto
         |         -> YahooFinance.getIntradayPricesEur() for stocks
-        |       Portfolio value at hour H = qty × price_at_H (forward-filled)
+        |       Portfolio value at hour H = qty × price_at_H (forward-filled) + cash pocket
+        |       Invested = qty × average buy-in + cash pocket (same perimeter as the value)
         |
         v
 List<NetWorthIntradayPoint> — ~24 hourly points
@@ -84,6 +85,7 @@ DashboardPage renders NetWorthChart with intraday prop
 - **Forward-fill behavior**: If a ticker has no price at a given hour (e.g., stock market closed), `floorEntry()` uses the last known price. Crypto prices are available 24/7; stock prices stop after market close.
 - **Bank account balances are constant intraday**: Only the daily `BalanceSnapshot` is used for non-investment accounts. Real-time bank balance changes won't appear until the next sync.
 - **Loans are negated**: Same logic as the daily history — loan balances are subtracted from total net worth.
+- **The cash pocket is on both sides**: for an investment account with holdings, the cash held inside the envelope (`Account.cashBalance`, set by the Bourse Direct, BoursoBank and DEGIRO connectors) is added to the hourly value *and* to the invested amount, as `AccountService.valuation()` does for the daily chart's today point. It is worth what it cost, so it never moves the gain. Leaving it out of both (the case until 2026-09-05) kept the gain right but made the 24H total lower than the daily one by the whole pocket, so switching ranges read as a drop that never happened.
 - **`intraday` prop is optional on NetWorthChart**: Other pages (AccountDetail, GoalDetail) use NetWorthChart without intraday data. When `intraday` is not provided, the 24H range still works but shows empty data.
 - **Yahoo timezone**: Yahoo Finance timestamps are parsed as `Europe/Paris` (not UTC) since the app targets French users. CoinGecko uses UTC.
 
@@ -93,6 +95,7 @@ DashboardPage renders NetWorthChart with intraday prop
 - Manual: select "7D" → chart shows "dd MMM" labels with dots on data points
 - Manual: select "1M"+ → chart shows month abbreviations (unchanged behavior)
 - `GoalServiceTest` — existing backend test still passes
+- `HistoryServiceTest`: `buildIntradayHistory_loanNegated_cashConstant` (loans negated, bank balance constant), `buildIntradayHistory_cashPocketCountsOnBothSides` (cash pocket in both the value and the invested amount)
 
 ## Links
 
