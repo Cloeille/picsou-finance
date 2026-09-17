@@ -286,6 +286,27 @@ public class OpenFigiIsinConverter {
         return figi;
     }
 
+    /**
+     * Resolves a broker position that carries an ISIN <em>or</em> only the broker's own
+     * symbol (BoursoBank, DEGIRO). The ISIN wins because it prices through Yahoo; the
+     * symbol is the fallback. The broker's label is kept unless OpenFIGI knows a name,
+     * which is more descriptive than the abbreviations brokers ship.
+     *
+     * @param isin         the position's ISIN, possibly null/blank
+     * @param symbol       the broker's own symbol, used when there is no ISIN
+     * @param providerName the broker's label for the instrument
+     */
+    public TickerResult resolveIsinOrSymbol(String isin, String symbol, String providerName) {
+        if (isin == null || isin.isBlank()) {
+            return new TickerResult(symbol, providerName);
+        }
+        TickerResult resolved = resolve(isin);
+        return new TickerResult(
+            resolved.ticker(),
+            resolved.name() != null ? resolved.name() : providerName
+        );
+    }
+
     private TickerResult fetchFromOpenFigi(String isin) {
         List<MappingJob> request = List.of(new MappingJob("ID_ISIN", isin));
 

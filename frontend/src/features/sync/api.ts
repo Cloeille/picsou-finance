@@ -199,7 +199,7 @@ export const bourseDirectApi = {
       .post<BourseDirectAuthInitResponse>('/bourse-direct/auth/initiate', { login, password })
       .then(r => r.data),
 
-  completeAuth: (processId: string, code: string) =>
+  completeAuth: (processId: string, code?: string) =>
     api
       .post<BourseDirectSessionStatus>('/bourse-direct/auth/complete', { processId, code })
       .then(r => r.data),

@@ -18,6 +18,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BiConsumer;
+import java.util.function.LongFunction;
+import java.util.function.Predicate;
 
 /**
  * Fetches crypto prices from CoinGecko public API (no API key required for free tier).
@@ -337,7 +340,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
      * {@link ClassCastException} propagating into the daily snapshot batch.
      */
     private static void forEachPricePoint(
-        Map<String, Object> response, String context, java.util.function.BiConsumer<Long, Double> consumer) {
+        Map<String, Object> response, String context, BiConsumer<Long, Double> consumer) {
 
         Object raw = response.getOrDefault("prices", List.of());
         if (!(raw instanceof List<?> rawPrices)) {
@@ -385,14 +388,39 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
      * CoinGecko's market_chart/range returns hourly data for ranges < 90 days.
      */
     public Map<LocalDateTime, BigDecimal> getIntradayPricesEur(String ticker, LocalDateTime from, LocalDateTime to) {
+        return pricesInRange(
+            "intraday prices",
+            ticker,
+            from.atZone(ZoneOffset.UTC).toEpochSecond(),
+            to.atZone(ZoneOffset.UTC).toEpochSecond(),
+            epochMillis -> Instant.ofEpochMilli(epochMillis).atZone(ZoneOffset.UTC).toLocalDateTime(),
+            dt -> !dt.isBefore(from) && !dt.isAfter(to)
+        );
+    }
+
+    /**
+     * One {@code market_chart/range} read, keyed by whatever calendar unit the caller
+     * cares about: the endpoint, the cooldown guard, the empty-body handling and the
+     * failure classification are the same whether the series is hourly or daily. Only
+     * the key type and the range filter differ, so the caller supplies those.
+     *
+     * <p>The range is also re-checked client-side: CoinGecko rounds the window it
+     * serves and may return points just outside the one that was asked for.
+     */
+    private <K> Map<K, BigDecimal> pricesInRange(
+        String operation,
+        String ticker,
+        long fromEpoch,
+        long toEpoch,
+        LongFunction<K> keyOf,
+        Predicate<K> inRange
+    ) {
         String coinId = TICKER_TO_ID.get(ticker.toUpperCase(Locale.ROOT));
         if (coinId == null) return Map.of();
-        if (coolingDown("intraday prices", ticker + " (" + coinId + ")")) return Map.of();
+        String context = ticker + " (" + coinId + ")";
+        if (coolingDown(operation, context)) return Map.of();
 
         try {
-            long fromEpoch = from.atZone(ZoneOffset.UTC).toEpochSecond();
-            long toEpoch = to.atZone(ZoneOffset.UTC).toEpochSecond();
-
             Map<String, Object> response = webClient.get()
                 .uri(uriBuilder -> uriBuilder
                     .path("/coins/{id}/market_chart/range")
@@ -406,22 +434,23 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
                 .block();
 
             if (response == null) {
-                log.warn("CoinGecko returned an empty body for intraday prices of {} ({})", ticker, coinId);
+                log.warn("CoinGecko returned an empty body for {} of {}", operation, context);
                 return Map.of();
             }
 
-            Map<LocalDateTime, BigDecimal> prices = new LinkedHashMap<>();
-            forEachPricePoint(response, ticker + " (" + coinId + ")", (timestamp, price) -> {
-                LocalDateTime dt = Instant.ofEpochMilli(timestamp).atZone(ZoneOffset.UTC).toLocalDateTime();
-                if (!dt.isBefore(from) && !dt.isAfter(to) && price > 0) {
-                    prices.put(dt, BigDecimal.valueOf(price).setScale(8, RoundingMode.HALF_UP));
+            Map<K, BigDecimal> prices = new LinkedHashMap<>();
+            forEachPricePoint(response, context, (timestamp, price) -> {
+                if (price <= 0) return;
+                K key = keyOf.apply(timestamp);
+                if (inRange.test(key)) {
+                    prices.put(key, BigDecimal.valueOf(price).setScale(8, RoundingMode.HALF_UP));
                 }
             });
 
-            log.debug("Fetched {} intraday prices for {} ({}) from CoinGecko", prices.size(), ticker, coinId);
+            log.debug("Fetched {} {} for {} from CoinGecko", prices.size(), operation, context);
             return prices;
         } catch (RuntimeException ex) {
-            handleFetchFailure("intraday prices", ticker + " (" + coinId + ")", HISTORY_TIMEOUT, ex);
+            handleFetchFailure(operation, context, HISTORY_TIMEOUT, ex);
             return Map.of();
         }
     }
@@ -431,45 +460,14 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
      * Returns a map of date -> priceEur.
      */
     public Map<LocalDate, BigDecimal> getHistoricalPricesEur(String ticker, LocalDate from, LocalDate to) {
-        String coinId = TICKER_TO_ID.get(ticker.toUpperCase(Locale.ROOT));
-        if (coinId == null) return Map.of();
-        if (coolingDown("historical prices", ticker + " (" + coinId + ")")) return Map.of();
-
-        try {
-            long fromEpoch = from.atStartOfDay(ZoneOffset.UTC).toEpochSecond();
-            long toEpoch = to.atStartOfDay(ZoneOffset.UTC).toEpochSecond();
-
-            Map<String, Object> response = webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                    .path("/coins/{id}/market_chart/range")
-                    .queryParam("vs_currency", "eur")
-                    .queryParam("from", fromEpoch)
-                    .queryParam("to", toEpoch)
-                    .build(coinId))
-                .retrieve()
-                .bodyToMono(new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {})
-                .timeout(HISTORY_TIMEOUT)
-                .block();
-
-            if (response == null) {
-                log.warn("CoinGecko returned an empty body for historical prices of {} ({})", ticker, coinId);
-                return Map.of();
-            }
-
-            Map<LocalDate, BigDecimal> prices = new HashMap<>();
-            forEachPricePoint(response, ticker + " (" + coinId + ")", (timestamp, price) -> {
-                LocalDate date = Instant.ofEpochMilli(timestamp).atZone(ZoneOffset.UTC).toLocalDate();
-                if (!date.isBefore(from) && !date.isAfter(to) && price > 0) {
-                    prices.put(date, BigDecimal.valueOf(price).setScale(8, RoundingMode.HALF_UP));
-                }
-            });
-
-            log.debug("Fetched {} historical prices for {} ({}) from CoinGecko", prices.size(), ticker, coinId);
-            return prices;
-        } catch (RuntimeException ex) {
-            handleFetchFailure("historical prices", ticker + " (" + coinId + ")", HISTORY_TIMEOUT, ex);
-            return Map.of();
-        }
+        return pricesInRange(
+            "historical prices",
+            ticker,
+            from.atStartOfDay(ZoneOffset.UTC).toEpochSecond(),
+            to.atStartOfDay(ZoneOffset.UTC).toEpochSecond(),
+            epochMillis -> Instant.ofEpochMilli(epochMillis).atZone(ZoneOffset.UTC).toLocalDate(),
+            date -> !date.isBefore(from) && !date.isAfter(to)
+        );
     }
 
     static class PriceData {
