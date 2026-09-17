@@ -22,7 +22,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -488,6 +490,47 @@ class HistoryServiceTest {
             // Every hourly point: total = cash 2000 − loan 10000; loan excluded from invested.
             assertThat(point.total()).isEqualByComparingTo("-8000");
             assertThat(point.invested()).isEqualByComparingTo("2000");
+        }
+    }
+
+    @Test
+    void buildIntradayHistory_cashPocketCountsOnBothSides() {
+        // 10 AAPL bought at 100, quoted 120 all day, plus 500 of idle cash in the envelope.
+        Account pea = brokerage(1L, "PEA");
+        pea.setCashBalance(new BigDecimal("500"));
+        AccountHolding aapl = AccountHolding.builder()
+            .ticker("AAPL").quantity(new BigDecimal("10")).averageBuyIn(new BigDecimal("100")).build();
+
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(pea));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(aapl));
+        when(priceService.toEur(new BigDecimal("100"), "EUR", null)).thenReturn(new BigDecimal("100"));
+        // An hourly series inside the requested window, the shape the providers return: from
+        // 23 hours ago up to now, on the hour, so only the very first bucket (24 hours ago)
+        // predates the first quote.
+        LocalDateTime thisHour = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime firstQuote = thisHour.minusHours(23);
+        Map<LocalDateTime, BigDecimal> quotes = new java.util.HashMap<>();
+        for (LocalDateTime t = firstQuote; !t.isAfter(thisHour); t = t.plusHours(1)) {
+            quotes.put(t, new BigDecimal("120"));
+        }
+        when(priceService.getIntradayPricesEur(eq("AAPL"), any(), any())).thenReturn(quotes);
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty();
+        assertThat(result).anyMatch(p -> !p.timestamp().isBefore(firstQuote));
+        for (NetWorthIntradayPoint point : result) {
+            // invested = 10 x 100 + 500 of cash at every hour: the pocket is worth what it cost.
+            assertThat(point.invested()).isEqualByComparingTo("1500");
+            if (point.timestamp().isBefore(firstQuote)) {
+                // No quote yet: the positions are worth nothing at that hour, the pocket remains.
+                assertThat(point.total()).isEqualByComparingTo("500");
+            } else {
+                // total = 10 x 120 + 500 of cash: the pocket moves both sides by the same 500, so
+                // the gain stays 200, and the total is the one the daily chart's today point
+                // reports through valuation() rather than 500 below it.
+                assertThat(point.total()).isEqualByComparingTo("1700");
+            }
         }
     }
 }

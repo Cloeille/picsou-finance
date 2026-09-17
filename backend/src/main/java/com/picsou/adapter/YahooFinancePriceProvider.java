@@ -48,6 +48,13 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     private static final Duration VERIFY_TIMEOUT = Duration.ofSeconds(3);
 
     private static final Duration FX_CACHE_TTL = Duration.ofMinutes(15);
+    /**
+     * A failed FX lookup is remembered too, for a minute: without it, every holdings-less
+     * valuation of a USD account (dashboard, account cards, history, one after the other) sent
+     * its own synchronous chart request, each able to wait the full timeout, for as long as
+     * Yahoo was down. Shorter than a hit so a rate limit clears quickly.
+     */
+    private static final Duration FX_MISS_CACHE_TTL = Duration.ofSeconds(60);
 
     private static final java.util.regex.Pattern SYMBOL_PATTERN =
         java.util.regex.Pattern.compile("(?:\\^[A-Z0-9][A-Z0-9.=-]{0,18}|[A-Z0-9][A-Z0-9.=-]{0,19})");
@@ -252,12 +259,13 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     }
 
     /**
-     * Resolve the FX rate from `currency` to EUR. Cached for 15 minutes.
+     * Resolve the FX rate from `currency` to EUR. Cached for 15 minutes; a failed
+     * fetch is cached for 60 seconds ({@link #FX_MISS_CACHE_TTL}).
      * Returns BigDecimal.ONE when the price is already in EUR (or currency
      * is unknown — preserves the pre-fix behavior for cassé payloads).
      * Returns null when a real fetch fails — caller must handle.
      */
-    BigDecimal getFxRateToEur(String currency) {
+    public BigDecimal getFxRateToEur(String currency) {
         if (currency == null || currency.isBlank() || "EUR".equalsIgnoreCase(currency)) {
             return BigDecimal.ONE;
         }
@@ -278,9 +286,8 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
         }
 
         BigDecimal rate = fetchFxRate(upper);
-        if (rate != null) {
-            fxCache.put(upper, new CachedFx(rate, Instant.now()));
-        }
+        // A miss is cached as a null rate, with its own shorter TTL (FX_MISS_CACHE_TTL).
+        fxCache.put(upper, new CachedFx(rate, Instant.now()));
         return rate;
     }
 
@@ -333,7 +340,9 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     record SearchQuote(String symbol, String shortname, String longname, Boolean isYahooFinance) {}
 
     private record CachedFx(BigDecimal rate, Instant cachedAt) {
-        boolean isFresh() { return Instant.now().isBefore(cachedAt.plus(FX_CACHE_TTL)); }
+        boolean isFresh() {
+            return Instant.now().isBefore(cachedAt.plus(rate == null ? FX_MISS_CACHE_TTL : FX_CACHE_TTL));
+        }
     }
 
     /**

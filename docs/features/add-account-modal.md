@@ -1,6 +1,6 @@
 # Feature: Add Account Modal
 
-> Last updated: 2026-08-13
+> Last updated: 2026-09-03
 
 ## Context
 
@@ -10,15 +10,16 @@ Creating a new account or connecting a sync provider required two separate entry
 
 The `AddAccountModal` is a state-machine dialog with two levels:
 
-1. **Selector screen** — 6 buttons in a grid (Banks, Exchanges, Wallets, Trade Republic, Finary, Manual). Each sync button enters its wizard; the Manual button opens the existing `AccountForm` in a separate dialog.
+1. **Selector screen** — buttons in a grid (Banks, Exchanges, Wallets, Trade Republic, BoursoBank, Bourse Direct, DEGIRO, Interactive Brokers, Amundi, Finary, Property, Manual). Each sync button enters its wizard or panel; the Manual button opens the existing `AccountForm` in a separate dialog.
 2. **Wizard screens** — Each sync type has its own compact wizard with a back button. Each wizard manages its own loading and error state inline.
 
 ### Key files
 
-- `frontend/src/components/shared/AddAccountModal.tsx` — main component (contains all sub-wizards)
+- `frontend/src/components/shared/AddAccountModal.tsx` — main component (contains all sub-wizards; `SOURCES` array drives the selector grid)
 - `frontend/src/pages/accounts/AccountsPage.tsx` — wires `AddAccountModal` for create, keeps `AccountForm` for edit
 - `frontend/src/features/sync/hooks.ts` — all sync mutation hooks reused by the wizards
 - `frontend/src/components/ui/input-otp.tsx` — shadcn InputOTP component (installed for TR PIN and verification code)
+- `frontend/src/components/sync/IbkrPanel.tsx` — extracted IBKR connection panel (source of truth shared with `IbkrTab`)
 
 ### Flow
 
@@ -31,6 +32,9 @@ AccountsPage → "Add account" button
        │    └─ pick type → API key + secret → add → success
        ├─ Wallets → WalletWizard
        │    └─ pick chain → address + label → add → success
+       ├─ DEGIRO → DegiroPanel (onConnected → handleDone)
+       ├─ Interactive Brokers → IbkrPanel (onConnected → handleDone)
+       ├─ Amundi → AmundiPanel (onConnected → handleDone)
        ├─ Trade Republic → TradeRepublicWizard
        │    └─ phone + PIN (InputOTP 4-digit) → verification code (InputOTP 4-digit) → success
        ├─ Finary → FinaryWizard (3-step)
@@ -131,7 +135,7 @@ four locales, and the partial maps are gone.
 
 - `frontend/src/lib/utils.test.ts` — `formatCurrency` regression case: an invalid code does not throw
   and the raw code appears in the output (issue #9).
-- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases for initiation failure staying on credentials and TAN completion failure staying on the code step.
+- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases; Bourse Direct, Amundi, and IBKR wizard flow tests (mock panel → `onOpenChange(false)`).
 - `backend/src/test/java/com/picsou/validation/CurrencyValidatorTest.java` — accepts valid ISO 4217
   codes, rejects unknown ones, leaves null/blank to `@NotBlank`.
 

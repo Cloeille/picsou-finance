@@ -197,6 +197,27 @@ class YahooFinancePriceProviderTest {
     }
 
     @Test
+    void fxMiss_isRememberedForAMinute_notRefetchedOnEveryLookup() {
+        List<String> fxCalls = new ArrayList<>();
+        ExchangeFunction exchange = request -> {
+            String url = request.url().toString();
+            if (url.contains("USDEUR")) fxCalls.add(url);
+            return Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{}").build());
+        };
+        var provider = new YahooFinancePriceProvider(
+            WebClient.builder().exchangeFunction(exchange).build());
+
+        assertThat(provider.getFxRateToEur("USD")).isNull();
+        assertThat(provider.getFxRateToEur("USD")).isNull();
+
+        // The second lookup inside the miss TTL is answered from the remembered miss: a Yahoo
+        // outage costs one request per currency per minute, not one per cash valuation.
+        assertThat(fxCalls).hasSize(1);
+    }
+
+    @Test
     void getFxRateToEur_shortCircuits_forEur() {
         var provider = providerWith(url -> null, null);
 

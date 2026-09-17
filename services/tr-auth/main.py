@@ -237,7 +237,7 @@ async def refresh_session(req: RefreshRequest):
     log.info("Refreshing TR session via tr_refresh token")
     async with httpx.AsyncClient(timeout=15) as client:
         try:
-            resp = await client.post(
+            resp = await client.get(
                 f"{TR_API}/api/v1/auth/web/refresh",
                 cookies={"tr_refresh": req.refreshToken},
                 headers={

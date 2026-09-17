@@ -37,6 +37,17 @@ export function SyncPage() {
           <TabsTrigger value="amundi">{t('sync.amundi.title')}</TabsTrigger>
           <TabsTrigger value="finary">{t('sync.finary.title')}</TabsTrigger>
           <TabsTrigger value="visibility">{t('sync.visibility.title')}</TabsTrigger>
+        <TabsList className="w-full justify-start">
+          <TabsTrigger value="banks" className="flex-none">{t('sync.banks.title')}</TabsTrigger>
+          <TabsTrigger value="exchanges" className="flex-none">{t('sync.exchanges.title')}</TabsTrigger>
+          <TabsTrigger value="wallets" className="flex-none">{t('sync.wallets.title')}</TabsTrigger>
+          <TabsTrigger value="tr" className="flex-none">{t('sync.tr.title')}</TabsTrigger>
+          <TabsTrigger value="bourso" className="flex-none">{t('sync.bourso.title')}</TabsTrigger>
+          <TabsTrigger value="bourse-direct" className="flex-none">{t('sync.bourseDirect.title')}</TabsTrigger>
+          <TabsTrigger value="degiro" className="flex-none">{t('sync.degiro.title')}</TabsTrigger>
+          <TabsTrigger value="ibkr" className="flex-none">{t('sync.ibkr.title')}</TabsTrigger>
+          <TabsTrigger value="amundi" className="flex-none">{t('sync.amundi.title')}</TabsTrigger>
+          <TabsTrigger value="finary" className="flex-none">{t('sync.finary.title')}</TabsTrigger>
         </TabsList>
         <TabsContent value="banks" className="mt-6">
           <BankSyncTab />

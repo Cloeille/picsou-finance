@@ -80,7 +80,7 @@ class RealEstateSummaryServiceTest {
     void summarize_wholeOwnership_grossMinusDebtIsNet() {
         Account house = property(10L, "400000");
         Account loan = loanAccount(20L, ALICE);
-        Debt debt = Debt.builder().account(loan).linkedAccount(house).member(ALICE)
+        Debt debt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(loan).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("200000")).lenderName("BNP").build();
 
         when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, loan));
@@ -129,7 +129,7 @@ class RealEstateSummaryServiceTest {
     void summarize_propertyAndLoanSplitDifferently_weightsEachOnItsOwnShare() {
         Account house = property(10L, "400000");
         Account loan = loanAccount(20L, ALICE);
-        Debt debt = Debt.builder().account(loan).linkedAccount(house).member(ALICE)
+        Debt debt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(loan).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("200000")).build();
 
         // Alice owns 70% of the house but only half the mortgage. Assuming the two shares
@@ -155,9 +155,9 @@ class RealEstateSummaryServiceTest {
         Account house = property(10L, "400000");
         Account main = loanAccount(20L, ALICE);
         Account works = loanAccount(21L, ALICE);
-        Debt mainDebt = Debt.builder().account(main).linkedAccount(house).member(ALICE)
+        Debt mainDebt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(main).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("200000")).build();
-        Debt worksDebt = Debt.builder().account(works).linkedAccount(house).member(ALICE)
+        Debt worksDebt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(works).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("30000")).build();
 
         when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, main, works));
@@ -182,7 +182,7 @@ class RealEstateSummaryServiceTest {
     void summarize_loanTheViewerHoldsNoShareOf_isExcluded() {
         Account house = property(10L, "400000");
         Account bobsLoan = loanAccount(20L, BOB);
-        Debt debt = Debt.builder().account(bobsLoan).linkedAccount(house).member(BOB)
+        Debt debt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(bobsLoan).linkedAccount(house).member(BOB)
             .borrowedAmount(new BigDecimal("200000")).build();
 
         when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house));
@@ -205,7 +205,7 @@ class RealEstateSummaryServiceTest {
     void summarize_underwaterProperty_reportsNegativeEquity() {
         Account house = property(10L, "150000");
         Account loan = loanAccount(20L, ALICE);
-        Debt debt = Debt.builder().account(loan).linkedAccount(house).member(ALICE)
+        Debt debt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(loan).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("200000")).build();
 
         when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, loan));
@@ -258,9 +258,9 @@ class RealEstateSummaryServiceTest {
         Account house = property(10L, "400000");
         Account main = loanAccount(20L, ALICE);
         Account works = loanAccount(21L, ALICE);
-        Debt mainDebt = Debt.builder().account(main).linkedAccount(house).member(ALICE)
+        Debt mainDebt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(main).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("200000")).build();
-        Debt worksDebt = Debt.builder().account(works).linkedAccount(house).member(ALICE)
+        Debt worksDebt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(works).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("30000")).build();
 
         when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, main, works));

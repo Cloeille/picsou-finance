@@ -486,6 +486,9 @@ export function AccountDetailPage() {
         open={!!editingHolding}
         onOpenChange={(open) => { if (!open) setEditingHolding(null) }}
         holding={editingHolding}
+        // Synced accounts (on-chain wallets, exchanges) own the quantity from
+        // the chain/exchange, so only the cost basis is editable there.
+        quantityReadOnly={account ? !account.isManual : false}
         onSubmit={async (ticker, quantity, averageBuyIn) => {
           await updateHoldingMutation.mutateAsync({ ticker, data: { quantity, averageBuyIn } })
           setEditingHolding(null)

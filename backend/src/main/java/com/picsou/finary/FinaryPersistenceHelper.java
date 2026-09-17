@@ -96,9 +96,12 @@ public class FinaryPersistenceHelper {
 
         // Walk backwards through transactions
         Map<LocalDate, BigDecimal> snapshots = new LinkedHashMap<>();
+        // Newest first: when a day's latest transaction comes up, runningBalance is the balance
+        // at the end of that day. Record it before subtracting, and only once per day, or the
+        // snapshot dated D holds the balance before D's transactions, one day's movements off.
         for (ParsedFinaryTransaction tx : accountTx) {
+            snapshots.putIfAbsent(tx.date(), runningBalance);
             runningBalance = runningBalance.subtract(tx.amount());
-            snapshots.put(tx.date(), runningBalance);
         }
 
         // Remove today to avoid duplicate with the anchor point above
@@ -191,9 +194,11 @@ public class FinaryPersistenceHelper {
 
         // Walk backwards through transactions
         Map<LocalDate, BigDecimal> snapshots = new LinkedHashMap<>();
+        // Same rule as reconstructSnapshots: the end-of-day balance, recorded once per day
+        // before that day's transactions are walked back.
         for (Transaction tx : accountTx) {
+            snapshots.putIfAbsent(tx.getDate(), runningBalance);
             runningBalance = runningBalance.subtract(tx.getAmount());
-            snapshots.put(tx.getDate(), runningBalance);
         }
 
         // Remove today to avoid duplicate with anchor

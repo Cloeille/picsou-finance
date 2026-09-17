@@ -11,6 +11,13 @@ package com.picsou.port;
  */
 public enum BoursoErrorCode {
     INVALID_CREDENTIALS,
+    /**
+     * BoursoBank parked the login on its fraud-education notice
+     * ({@code /infos-profil/pedagogie-fraude/...}). The credentials were
+     * accepted; the holder must tick the notice on the bank's website, then
+     * retry. Never auto-acknowledged: it is a legal notice.
+     */
+    FRAUD_ACK_REQUIRED,
     /** BoursoBank asked for an SMS or e-mail code, which this connector does not drive. */
     MFA_TYPE_UNSUPPORTED,
     APP_VALIDATION_TIMEOUT,

@@ -153,6 +153,39 @@ class OwnAccountTest(unittest.TestCase):
         self.assertFalse(is_own_account("CIC"))
 
 
+def insurance_panel(marker, card_id, name, balance):
+    return f"""<div class="c-panel c-panel--primary">
+    <div class="c-panel__header ">
+        <span class="c-panel__title">
+            Mes assurances
+        </span>
+    </div>
+    <div class="c-panel__body ">
+        <div class="c-panel__no-animation-glitch ">
+            <ul class="c-info-box " role="list" data-brs-list-header {marker}>
+                <li class="c-panel__item c-info-box__item" data-brs-filterable>
+                    <a class="c-info-box__link-wrapper" href="/compte/assurance/{card_id}/"
+                        aria-label="Détails du compte {name} - Solde : {balance} €" title="{name}">
+                        <span class="c-info-box__account">
+                            <span class="c-info-box__account-label"
+                                data-account-label="{card_id}" data-brs-list-item-label>
+                                {name}
+                            </span>
+                            <span class="c-info-box__account-balance c-info-box__account-balance--positive">
+                                {balance} €
+                            </span>
+                        </span>
+                        <span class="c-info-box__account-sub-label" data-brs-list-item-label>
+                            BoursoBank
+                        </span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>"""
+
+
 class DashboardTest(unittest.TestCase):
     def test_parses_a_real_dashboard(self):
         accounts, third_party = parse_dashboard(DASHBOARD_HTML)
@@ -191,6 +224,47 @@ class DashboardTest(unittest.TestCase):
         with self.assertRaises(AccountsFormatError) as raised:
             parse_dashboard(foreign)
         self.assertEqual(raised.exception.code, INCOMPLETE)
+
+    def test_insurance_contracts_are_skipped_without_failing_the_sync(self):
+        # Assurance-vie and Bourso Protect cards are account-shaped links in
+        # their own sections. They are out of scope like loans, so they must
+        # not trip the completeness check that guards real format changes.
+        html = (
+            DASHBOARD_HTML
+            + insurance_panel(
+                "data-summary-insurance",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "Assurance Vie **01",
+                "45 210,30",
+            )
+            + insurance_panel(
+                "data-summary-assurance",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "Bourso Protect",
+                "150,00",
+            )
+        )
+        accounts, third_party = parse_dashboard(html)
+        self.assertEqual(
+            [(account["type"], account["name"]) for account in accounts],
+            [
+                ("CHECKING", "BoursoBank"),
+                ("LDDS", "LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE"),
+                ("PEA", "PEA DOE"),
+            ],
+        )
+        self.assertEqual(third_party, 2)
+
+    def test_a_section_with_an_unknown_marker_still_fails_the_sync(self):
+        html = DASHBOARD_HTML + insurance_panel(
+            "data-summary-foobar",
+            "cccccccccccccccccccccccccccccccc",
+            "Produit Inconnu",
+            "10,00",
+        )
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_dashboard(html)
+        self.assertEqual(raised.exception.code, FORMAT_CHANGED)
 
 
 class TradingSummaryTest(unittest.TestCase):

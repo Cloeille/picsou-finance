@@ -150,6 +150,23 @@ class BoursoAdapterTest {
     }
 
     @Test
+    void initiateAuth_reportsAFraudEducationInterstitialRatherThanBadCredentials() {
+        // BoursoBank parks a valid login on its fraud-education notice until the
+        // holder ticks it on the bank's website; calling it a wrong password
+        // sends the user to reset credentials that already work.
+        BoursoAdapter adapter = adapterReturning(
+            HttpStatus.UNAUTHORIZED,
+            "{\"detail\":\"FRAUD_ACK_REQUIRED\"}"
+        );
+
+        assertThatThrownBy(() -> adapter.initiateAuth("12345678", "123456"))
+            .isInstanceOfSatisfying(SyncException.class, error -> {
+                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.FRAUD_ACK_REQUIRED.name());
+                assertThat(error.getMessage()).contains("fraud-prevention notice");
+            });
+    }
+
+    @Test
     void initiateAuth_reportsAPendingAppPush() {
         BoursoAdapter adapter = adapterReturning(HttpStatus.OK, """
             {"processId":"p-1","mfaRequired":true,"mfaType":"APP_PUSH","sessionState":null}
