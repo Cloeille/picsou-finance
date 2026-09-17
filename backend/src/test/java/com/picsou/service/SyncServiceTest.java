@@ -66,7 +66,8 @@ class SyncServiceTest {
             categorizationService,
             recurringDetectionService,
             requisitionLifecycleWriter,
-            new BankLogoResolver(bankConnector)
+            new BankLogoResolver(bankConnector),
+            bankTransactionImportService
         );
     }
 
