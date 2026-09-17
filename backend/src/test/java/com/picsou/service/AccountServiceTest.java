@@ -301,7 +301,7 @@ class AccountServiceTest {
 
     private static AccountRequest usdBalanceRequest(String balance) {
         return new AccountRequest("US checking", AccountType.CHECKING, null, "USD",
-            new BigDecimal(balance), true, "#6366f1", null, null, null);
+            new BigDecimal(balance), true, "#6366f1", null, null, null, null);
     }
 
     private static Account usdManualAccount(String balance) {
@@ -846,6 +846,55 @@ class AccountServiceTest {
 
         assertThat(valuation.liveEur()).isEqualByComparingTo("5000");   // the broker's own total
         assertThat(valuation.investedEur()).isEqualByComparingTo("4900"); // 900 + 4000, both lines
+    }
+
+    @Test
+    void idleCashOnAPricedAccountIsOnBothSidesSoItDoesNotShowUpAsGain() {
+        // 250 EUR waiting to be invested is not 250 EUR of profit. Cash costs what it is worth,
+        // so it belongs to the value *and* the cost basis; on one side only it becomes the gain
+        // (issue #106).
+        Account account = Account.builder().id(3L).name("PEA Bourse Direct")
+            .type(AccountType.PEA).provider("Bourse Direct").currency("EUR")
+            .currentBalance(new BigDecimal("1250")).cashBalance(new BigDecimal("250")).build();
+        AccountHolding holding = AccountHolding.builder()
+            .ticker("ACME").quantity(new BigDecimal("10"))
+            .averageBuyIn(new BigDecimal("90")).build();
+        when(holdingRepository.findByAccount_Id(3L)).thenReturn(List.of(holding));
+        stubQuotes("ACME", "100");
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1250");    // 250 cash + 10 × 100
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1150"); // 250 cash + 10 × 90
+        // The gain is the position's 100, not the position's 100 plus the cash.
+        assertThat(valuation.liveEur().subtract(valuation.investedEur()))
+            .isEqualByComparingTo("100");
+    }
+
+    @Test
+    void idleCashFoldedIntoTheBrokerTotalIsOnBothSidesToo() {
+        // The same 250 EUR sleeve, on an account that stores no cashBalance: it is folded into
+        // currentBalance, which the override takes as the value. The cost side started from a
+        // zero cash leg, so the sleeve used to land squarely in the gain — 350 reported on an
+        // account that made 100 (issue #106). Every line carries the broker's own value here,
+        // so the 250 the total exceeds them by is the cash pocket, and it cancels out.
+        Account account = Account.builder().id(3L).name("PEA Bourse Direct")
+            .type(AccountType.PEA).provider("Bourse Direct").currency("EUR")
+            .currentBalance(new BigDecimal("1250")).build();
+        AccountHolding holding = AccountHolding.builder()
+            .ticker("PHYMF").quantity(new BigDecimal("10"))
+            .providerValueEur(new BigDecimal("1000"))
+            .providerPnlEur(new BigDecimal("100"))   // cost basis = 1000 - 100 = 900
+            .build();
+        when(holdingRepository.findByAccount_Id(3L)).thenReturn(List.of(holding));
+        stubQuotes("PHYMF", null);   // the lookup fails, so the broker's total takes over
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1250");    // the broker's own total
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1150"); // 900 + the 250 sleeve
+        assertThat(valuation.liveEur().subtract(valuation.investedEur()))
+            .isEqualByComparingTo("100");
     }
 
     @Test

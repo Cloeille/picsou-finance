@@ -636,7 +636,7 @@ class GoalServiceTest {
             return new com.picsou.dto.AccountResponse(
                 acc.getId(), acc.getName(), AccountType.CHECKING, null, "EUR",
                 acc.getCurrentBalance(), acc.getCurrentBalance(),
-                null, null, true, "#22c55e", null, null, null, null, null, null, null, null);
+                null, null, true, "#22c55e", null, null, null, null, null, null, null, null, null, false, null, null);
         });
         when(accountService.signedLiveBalanceEur(any())).thenAnswer(inv ->
             ((Account) inv.getArgument(0)).getCurrentBalance());
