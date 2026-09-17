@@ -117,6 +117,20 @@ class OpenFigiIsinConverterTest {
         assertThat(padded.name()).isEqualTo("Bitcoin");
     }
 
+    // ─── resolveIsinOrSymbol ────────────────────────────────────────────────────
+
+    @Test
+    void resolveIsinOrSymbol_fallsBackToBrokerSymbolAndLabelWithoutAnIsin() {
+        // No ISIN means no OpenFIGI call at all: the broker's own symbol becomes the
+        // ticker (DEGIRO/BoursoBank positions on venues that ship no ISIN).
+        OpenFigiIsinConverter converter = new OpenFigiIsinConverter(new CoinGeckoPriceProvider());
+
+        assertThat(converter.resolveIsinOrSymbol(null, "AAPL", "Apple Inc"))
+            .isEqualTo(new OpenFigiIsinConverter.TickerResult("AAPL", "Apple Inc"));
+        assertThat(converter.resolveIsinOrSymbol("  ", "AAPL", "Apple Inc"))
+            .isEqualTo(new OpenFigiIsinConverter.TickerResult("AAPL", "Apple Inc"));
+    }
+
     // ─── pickBest exchange priority ─────────────────────────────────────────────
     // A 2026-08-05 attempt to prefer EU exchanges over US OTC/ADR for Irish/
     // Luxembourg-domiciled ISINs (no HOME_EXCHANGE entry for either) was tried

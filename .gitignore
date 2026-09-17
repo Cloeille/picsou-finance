@@ -83,3 +83,4 @@ docs_template*.zip
 docs/superpowers/
 .mcp.json
 *.plan.md
+.claude/

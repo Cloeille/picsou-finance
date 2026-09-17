@@ -299,6 +299,11 @@
     "evolution": "Évolution",
     "capitalInvested": "Capital investi",
     "avgBuyIn": "Prix moyen d'achat",
+    "totalInvested": "Montant total investi",
+    "quantitySyncedHint": "La quantité provient de la synchronisation on-chain / de l'exchange et n'est pas modifiable ici.",
+    "costBasisHint": "Définissez votre prix de revient réel pour que la plus/moins-value reflète ce que vous avez réellement investi — modifier un champ met à jour l'autre.",
+    "quantityInvalid": "Saisissez une quantité supérieure à zéro.",
+    "costBasisInvalid": "Le prix de revient ne peut pas être négatif.",
     "editTitle": "Modifier {{ticker}}",
     "perShare": "/ part",
     "insight": {

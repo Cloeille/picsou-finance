@@ -681,7 +681,14 @@ public class AccountService {
         Account account = getOrThrow(accountId, memberId);
         AccountHolding h = holdingRepository.findByAccountIdAndTicker(accountId, ticker)
             .orElseThrow(() -> new ResourceNotFoundException("Holding not found"));
-        h.setQuantity(quantity);
+        // Synced accounts (on-chain wallets, exchanges) own the quantity from the
+        // chain/exchange. Ignore a client-supplied quantity there — the read-only
+        // rule is a UI convenience; enforcing it server-side removes the trust gap
+        // (and the stale-snapshot race) so a cost-basis edit can't clobber the
+        // authoritative balance, which the next sync would overwrite anyway.
+        if (account.isManual() && quantity != null) {
+            h.setQuantity(quantity);
+        }
         if (averageBuyIn != null) h.setAverageBuyIn(averageBuyIn);
         // A user edit invalidates broker-derived valuation/P&L as a coherent
         // pair. A subsequent provider sync will repopulate both fields.
