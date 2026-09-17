@@ -98,13 +98,6 @@ public class Transaction {
     @Builder.Default
     private Instant createdAt = Instant.now();
 
-    /**
-     * Stable provider-side identifier, when the connector exposes one. Unique per account
-     * (partial index, NULL-friendly) so a re-sync updates the same row instead of duplicating it.
-     */
-    @Column(name = "external_id", length = 100)
-    private String externalId;
-
     @Column(name = "is_manual", nullable = false)
     @Builder.Default
     private boolean isManual = false;
