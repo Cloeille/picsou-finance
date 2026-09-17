@@ -31,7 +31,8 @@ export function localeFromLanguage(language: string | null | undefined): string 
   return resolveLocale(language).intlLocale
 }
 
-function normalizeIntlLocale(locale: string): string {
+/** Exported for `lib/money.ts`, the only other place allowed to build an Intl currency format. */
+export function normalizeIntlLocale(locale: string): string {
   try {
     return Intl.NumberFormat.supportedLocalesOf(locale).length > 0 ? locale : DEFAULT_LOCALE.intlLocale
   } catch {
@@ -39,17 +40,9 @@ function normalizeIntlLocale(locale: string): string {
   }
 }
 
-export function formatCurrency(value: number, currency = 'EUR', locale = getLocale()): string {
-  const safeLocale = normalizeIntlLocale(locale)
-  try {
-    return new Intl.NumberFormat(safeLocale, { style: 'currency', currency }).format(value)
-  } catch {
-    // An unknown/invalid ISO 4217 code makes Intl.NumberFormat throw a RangeError.
-    // Degrade to a plain decimal + the raw code instead of crashing the whole app (issue #9).
-    const num = new Intl.NumberFormat(safeLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
-    return `${num} ${currency}`
-  }
-}
+// formatCurrency used to live here. It moved to `lib/money.ts` and became private, so that every
+// amount on screen goes through the formatter that knows whether amounts are hidden. Reaching for
+// a raw currency format is now a compile error rather than a silent leak during a demo.
 
 /** ISO 3166-1 alpha-2 code → localized country name (e.g. "EE" → "Estonia"). Falls back to the raw code for an unknown/invalid one. */
 export function formatCountryName(code: string, locale = getLocale()): string {
@@ -155,6 +148,28 @@ export function todayLabel(locale = getLocale(), date = new Date()): string {
 export function formatLocalDate(dateStr: string | null | undefined, locale = getLocale()): string {
   if (!dateStr) return '—'
   return new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'long', year: 'numeric' }).format(toDate(dateStr))
+}
+
+/**
+ * Completed years between two `yyyy-MM-dd` dates — someone's age on a given day.
+ *
+ * Computed on the string parts rather than through `Date`: the projection asks this about dates
+ * twenty years out, and building two `Date` objects to subtract them would reintroduce exactly
+ * the local-midnight problem `toDate` exists to avoid, for no gain.
+ *
+ * Returns null if either date is malformed, and a negative number is possible (a date before the
+ * birth) — callers decide whether that is meaningful.
+ */
+export function ageAt(birthDate: string, at: string): number | null {
+  const born = birthDate.split('-').map(Number)
+  const on = at.split('-').map(Number)
+  if (born.length !== 3 || on.length !== 3) return null
+  if ([...born, ...on].some((part) => !Number.isFinite(part))) return null
+
+  const [bornYear, bornMonth, bornDay] = born
+  const [year, month, day] = on
+  const hadBirthday = month > bornMonth || (month === bornMonth && day >= bornDay)
+  return year - bornYear - (hadBirthday ? 0 : 1)
 }
 
 export function formatTimeAgo(dateStr: string | null | undefined, locale = getLocale()): string {

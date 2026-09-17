@@ -19,6 +19,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+
+import java.util.Map;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -55,6 +57,7 @@ class BoursoSyncServiceTest {
     @Mock FamilyMemberRepository memberRepository;
     @Mock AccountService accountService;
     @Mock OpenFigiIsinConverter isinConverter;
+    @Mock SecurityIdentityService identityService;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
@@ -123,6 +126,22 @@ class BoursoSyncServiceTest {
         assertThat(holding.getQuoteCurrency()).isEqualTo("EUR");
         assertThat(holding.getProviderValueEur()).isEqualByComparingTo("140000.00");
         assertThat(holding.getProviderPnlEur()).isEqualByComparingTo("12000.00");
+    }
+
+    @Test
+    void queueSync_remembersWhichIsinTheTickerCameFrom() {
+        arrangeCommittableSync(peaAccount());
+        when(isinConverter.resolve("IE00B4L5Y983"))
+            .thenReturn(new OpenFigiIsinConverter.TickerResult("IWDA.AS", "iShares Core MSCI World"));
+
+        service.queueSync(7L);
+
+        // The ISIN is what Boursorama's search actually resolves for a composition, and the only
+        // key a fund-facts lookup has. Converting it to a ticker and dropping it is what left the
+        // ETF look-through unable to find the funds it was asked about.
+        ArgumentCaptor<Map<String, String>> isins = ArgumentCaptor.captor();
+        verify(identityService).record(isins.capture());
+        assertThat(isins.getValue()).containsEntry("IWDA.AS", "IE00B4L5Y983");
     }
 
     /**
@@ -474,6 +493,7 @@ class BoursoSyncServiceTest {
             memberRepository,
             accountService,
             isinConverter,
+            identityService,
             encryption,
             txTemplate,
             executor

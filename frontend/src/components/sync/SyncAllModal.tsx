@@ -426,7 +426,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         // dedicated tab; SyncAll routes there rather than blind-importing everything.
         navigate('/sync?tab=revolut')
         onOpenChange(false)
-        clearSyncing()
+        setSyncingIds(prev => {
+          const next = new Set(prev)
+          next.delete(connection.id)
+          return next
+        })
         break
       case 'finary':
         navigate('/sync?tab=finary')
@@ -542,8 +546,8 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-lg">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{t('sync.all.title')}</DialogTitle>
           <DialogDescription>
             {connections.length > 0
@@ -553,7 +557,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         </DialogHeader>
 
         {isLoading ? (
-          <div className="space-y-3">
+          <div className="-mx-1 min-h-0 flex-1 space-y-3 overflow-y-auto px-1">
             {Array.from({ length: 3 }).map((_, i) => (
               <Card key={i} size="sm">
                 <CardContent className="flex items-center justify-between py-3">
@@ -572,7 +576,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
             icon={<RefreshCw className="size-12" />}
           />
         ) : (
-          <div className="space-y-2">
+          <div className="-mx-1 min-h-0 flex-1 space-y-2 overflow-y-auto px-1">
             {connections.map(connection => {
               const Icon = ProviderIcon[connection.providerType]
               const isSyncing = syncingIds.has(connection.id)
@@ -771,7 +775,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         )}
 
         {connections.length > 0 && (
-          <DialogFooter>
+          <DialogFooter className="shrink-0">
             <Button
               onClick={handleSyncAll}
               disabled={isSyncAll || isLoading || !hasBatchSyncable}

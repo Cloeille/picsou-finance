@@ -1,7 +1,8 @@
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { useTranslation } from 'react-i18next'
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
-import { formatCurrency, localeFromLanguage } from '@/lib/utils'
+import { localeFromLanguage } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 
 interface BalanceHistoryChartProps {
   data: { date: string; balance: number }[]
@@ -15,6 +16,7 @@ const chartConfig = {
 } satisfies ChartConfig
 
 export function BalanceHistoryChart({ data }: BalanceHistoryChartProps) {
+  const money = useMoney()
   const { i18n } = useTranslation()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
 
@@ -40,11 +42,11 @@ export function BalanceHistoryChart({ data }: BalanceHistoryChartProps) {
           tickLine={false}
           axisLine={false}
           tickMargin={8}
-          tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+          tickFormatter={money.tick((value: number) => `${(value / 1000).toFixed(0)}k`)}
           width={45}
         />
         <ChartTooltip
-          content={<ChartTooltipContent formatter={(value) => formatCurrency(value as number, 'EUR', locale)} />}
+          content={<ChartTooltipContent formatter={(value) => money.amount(value as number)} />}
         />
         <Area dataKey="balance" type="monotone" fill="url(#fillBalance)" stroke="var(--color-balance)" strokeWidth={2} />
       </AreaChart>

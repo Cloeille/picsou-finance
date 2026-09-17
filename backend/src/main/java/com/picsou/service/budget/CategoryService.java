@@ -66,6 +66,7 @@ public class CategoryService {
         new DefaultCategory("shopping", "Shopping", CategoryKind.EXPENSE, "#14b8a6", "shopping-bag"),
         new DefaultCategory("abonnements", "Abonnements", CategoryKind.EXPENSE, "#6366f1", "repeat"),
         new DefaultCategory("voyages", "Voyages", CategoryKind.EXPENSE, "#06b6d4", "plane"),
+        new DefaultCategory("impots", "Impôts & taxes", CategoryKind.EXPENSE, "#a16207", "landmark"),
         new DefaultCategory("divers", "Divers", CategoryKind.EXPENSE, "#94a3b8", "ellipsis"),
         // ── Income ────────────────────────────────────────────────────────────
         new DefaultCategory("salaire", "Salaire", CategoryKind.INCOME, "#16a34a", "wallet"),

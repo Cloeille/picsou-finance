@@ -5,6 +5,7 @@ import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.Account;
+import com.picsou.model.AccountType;
 import com.picsou.model.Category;
 import com.picsou.model.Transaction;
 import com.picsou.repository.AccountRepository;

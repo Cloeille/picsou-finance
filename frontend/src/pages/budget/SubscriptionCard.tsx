@@ -9,7 +9,8 @@ import {
   useDeleteRecurring,
   useIgnoreRecurring,
 } from '@/features/budget/hooks'
-import { formatCurrency, formatDate, getLocale } from '@/lib/utils'
+import { formatDate, getLocale } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 import type { RecurringSeries } from '@/types/api'
 import { CADENCE_LABEL_KEY, RUNTIME_STATUS_META, STATUS_LABEL_KEY } from './budget-meta'
 
@@ -20,6 +21,7 @@ import { CADENCE_LABEL_KEY, RUNTIME_STATUS_META, STATUS_LABEL_KEY } from './budg
  * confidence, and a price-change line. The confirm / ignore / delete actions are unchanged.
  */
 export function SubscriptionCard({ series }: { series: RecurringSeries }) {
+  const money = useMoney()
   const { t } = useTranslation()
   const confirm = useConfirmRecurring()
   const ignore = useIgnoreRecurring()
@@ -65,8 +67,8 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
               <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
                 <TrendingUp className="size-3 shrink-0" />
                 {t('budget.recurring.priceFromTo', {
-                  from: formatCurrency(Math.abs(series.previousAmount!)),
-                  to: formatCurrency(Math.abs(series.expectedAmount)),
+                  from: money.amount(Math.abs(series.previousAmount!)),
+                  to: money.amount(Math.abs(series.expectedAmount)),
                 })}
               </span>
             )}

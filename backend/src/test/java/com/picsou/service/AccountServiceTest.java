@@ -128,7 +128,7 @@ class AccountServiceTest {
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         accountService.update(1L, new AccountRequest("Livret", AccountType.SAVINGS, "BTC", "EUR",
-            null, false, "#f59e0b", null, null, null), 7L);
+            null, false, "#f59e0b", null, null, null, null), 7L);
 
         assertThat(account.getLogoKey()).isNull();
     }
@@ -144,7 +144,7 @@ class AccountServiceTest {
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         accountService.update(1L, new AccountRequest("Meria", AccountType.CRYPTO, "MERIA", "EUR",
-            null, false, "#f59e0b", null, "ledger", null), 7L);
+            null, false, "#f59e0b", null, "ledger", null, null), 7L);
 
         assertThat(exchange.getLogoKey()).isNull();
     }
@@ -155,7 +155,7 @@ class AccountServiceTest {
 
         AccountResponse created = accountService.create(
             new AccountRequest("Livret", AccountType.SAVINGS, null, "EUR",
-                null, true, "#f59e0b", null, "ledger", null),
+                null, true, "#f59e0b", null, "ledger", null, null),
             FamilyMember.builder().id(7L).build());
 
         assertThat(created.logoKey()).isNull();
@@ -169,7 +169,7 @@ class AccountServiceTest {
 
         AccountResponse created = accountService.create(
             new AccountRequest("BITCOIN Wallet", AccountType.CRYPTO, "BTC", "EUR",
-                null, false, "#f59e0b", null, "ledger", null),
+                null, false, "#f59e0b", null, "ledger", null, null),
             FamilyMember.builder().id(7L).build());
 
         assertThat(created.logoKey()).isNull();
@@ -286,7 +286,7 @@ class AccountServiceTest {
 
     private static AccountRequest bankRequest(String provider, String institutionId, boolean isManual) {
         return new AccountRequest("Compte", AccountType.CHECKING, provider, "EUR",
-            null, isManual, "#6366f1", null, null, institutionId);
+            null, isManual, "#6366f1", null, null, institutionId, null);
     }
 
     private static Account manualBankAccount(String provider, String logoUrl) {
@@ -296,7 +296,7 @@ class AccountServiceTest {
 
     private static AccountRequest logoRequest(String logoKey) {
         return new AccountRequest("BITCOIN Wallet", AccountType.CRYPTO, "BTC", "EUR",
-            null, false, "#f59e0b", null, logoKey, null);
+            null, false, "#f59e0b", null, logoKey, null, null);
     }
 
     private static AccountRequest usdBalanceRequest(String balance) {

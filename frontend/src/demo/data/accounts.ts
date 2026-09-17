@@ -33,6 +33,9 @@ export const mockAccounts: Account[] = [
     logoUrl: null,
     logoKey: null,
     createdAt: '2024-02-01T08:00:00Z',
+    // Opened years before Picsou heard of it, which is the whole point of the field: the
+    // five-year clock runs from here, not from createdAt.
+    openedAt: '2014-03-12',
     hidden: false,
   },
   {

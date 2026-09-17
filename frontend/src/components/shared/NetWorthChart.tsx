@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, CartesianGrid, Legend, Line, ReferenceLine, XAxis, YAxis } from 'recharts'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
-import { formatDate, formatCurrency, localeFromLanguage } from '@/lib/utils'
+import { formatDate, localeFromLanguage } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 import { EmptyChartState } from '@/components/shared/EmptyChartState'
 import type { IntradayPoint } from '@/features/dashboard/api'
 
@@ -51,6 +52,9 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
   // must not surface a gain/loss row either.
   showGainLoss: boolean
 }) {
+  // Above the early return, as hook order demands. The tooltip subscribes for itself rather than
+  // reading a formatter passed down, so one that is open when the toggle flips redraws with it.
+  const money = useMoney()
   if (!active || !payload?.length) return null
 
   // Prefer the total item for label/date; fall back to any payload entry so the
@@ -89,7 +93,7 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
           />
           <span className="text-muted-foreground">{labels.total}</span>
           <span className="ml-auto font-mono font-medium tabular-nums">
-            {formatCurrency(total, labels.currency, labels.locale)}
+            {money.amount(total, labels.currency)}
           </span>
         </div>
       )}
@@ -101,7 +105,7 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
           />
           <span className="text-muted-foreground">{labels.invested}</span>
           <span className="ml-auto font-mono font-medium tabular-nums">
-            {formatCurrency(invested, labels.currency, labels.locale)}
+            {money.amount(invested, labels.currency)}
           </span>
         </div>
       )}
@@ -113,7 +117,7 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
           />
           <span className="text-muted-foreground">{labels.target}</span>
           <span className="ml-auto font-mono font-medium tabular-nums">
-            {formatCurrency(target, labels.currency, labels.locale)}
+            {money.amount(target, labels.currency)}
           </span>
         </div>
       )}
@@ -125,7 +129,7 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
           />
           <span className="text-muted-foreground">{labels.projection}</span>
           <span className="ml-auto font-mono font-medium tabular-nums">
-            {formatCurrency(projection, labels.currency, labels.locale)}
+            {money.amount(projection, labels.currency)}
           </span>
         </div>
       )}
@@ -134,7 +138,7 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
           <div className="my-1.5 border-t border-border" />
           <div className="flex items-center justify-between gap-3 py-0.5">
             <span className={`font-mono font-medium tabular-nums ${gainLoss >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-              {gainLoss >= 0 ? '+' : ''}{formatCurrency(gainLoss, labels.currency, labels.locale)}
+              {gainLoss >= 0 ? '+' : ''}{money.amount(gainLoss, labels.currency)}
             </span>
             <span className="text-muted-foreground">{labels.gainLoss}</span>
           </div>
@@ -184,6 +188,7 @@ function getXAxisFormatter(range: TimeRange, locale: string, spanMs: number) {
 }
 
 export function NetWorthChart({ data, intraday = [], range, onRangeChange, showInvested = true, target, projection, todayMs, todayLabel }: NetWorthChartProps) {
+  const money = useMoney()
   const { t, i18n } = useTranslation()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const is24H = range === '24H'
@@ -390,7 +395,7 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
           tickLine={false}
           axisLine={false}
           tickMargin={8}
-          tickFormatter={yTickFormatter}
+          tickFormatter={money.tick(yTickFormatter)}
           width={45}
           tickCount={5}
         />

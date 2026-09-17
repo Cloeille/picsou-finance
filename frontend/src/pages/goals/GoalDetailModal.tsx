@@ -54,7 +54,9 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
   // contributing at the trailing 3-month average. Null when we lack the data
   // to draw it honestly.
   const projection = useMemo(() => {
-    if (!goal || goal.avgMonthlyContribution == null) return undefined
+    // Both overlays are drawn towards a deadline. A recurring plan has none, so there is nothing
+    // honest to draw — the four-scenario projection on the Analysis page is its equivalent.
+    if (!goal || goal.avgMonthlyContribution == null || goal.deadline == null) return undefined
     const endValue = goal.currentTotal + goal.avgMonthlyContribution * Math.max(goal.monthsLeft, 0)
     return {
       startDate: new Date(todayMs).toISOString(),
@@ -67,7 +69,7 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
 
   const statusBadge = goal
     ? (() => {
-        if (goal.monthlyNeeded <= 0) {
+        if ((goal.monthlyNeeded ?? 0) <= 0) {
           return (
             <Badge className="gap-1">
               <TrendingUp className="size-3" />
@@ -116,8 +118,13 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
                   <CurrencyDisplay value={goal.currentTotal} className="text-4xl font-semibold tabular-nums" />
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-muted-foreground mb-1">{t('goals.targetAmount')}</p>
-                  <CurrencyDisplay value={goal.targetAmount} className="text-xl font-medium tabular-nums text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground mb-1">
+                    {goal.targetAmount == null ? t('goals.monthlyAmount') : t('goals.targetAmount')}
+                  </p>
+                  <CurrencyDisplay
+                    value={goal.targetAmount ?? goal.monthlyAmount ?? 0}
+                    className="text-xl font-medium tabular-nums text-muted-foreground"
+                  />
                 </div>
               </div>
 
@@ -128,13 +135,17 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
                   range={range}
                   onRangeChange={setRange}
                   showInvested={false}
-                  target={{
-                    startDate: goal.createdAt,
-                    startValue: baseline,
-                    endDate: goal.deadline,
-                    endValue: goal.targetAmount,
-                    label: t('goals.targetAmount'),
-                  }}
+                  target={
+                    goal.deadline != null && goal.targetAmount != null
+                      ? {
+                          startDate: goal.createdAt,
+                          startValue: baseline,
+                          endDate: goal.deadline,
+                          endValue: goal.targetAmount,
+                          label: t('goals.targetAmount'),
+                        }
+                      : undefined
+                  }
                   projection={projection}
                   todayMs={todayMs}
                   todayLabel={t('common.today')}
@@ -145,7 +156,7 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
               <div className="grid grid-cols-4 gap-4 pt-4 border-t">
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">{t('goals.progress')}</p>
-                  <p className="text-sm font-semibold">{Math.round(goal.percentComplete)}%</p>
+                  <p className="text-sm font-semibold">{Math.round(goal.percentComplete ?? 0)}%</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">{t('goals.monthsLeft')}</p>
@@ -153,7 +164,7 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">{t('goals.monthlyNeeded')}</p>
-                  <p className="text-sm font-semibold"><CurrencyDisplay value={goal.monthlyNeeded} /></p>
+                  <p className="text-sm font-semibold"><CurrencyDisplay value={goal.monthlyNeeded ?? 0} /></p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">{t('goals.avgContribution')}</p>

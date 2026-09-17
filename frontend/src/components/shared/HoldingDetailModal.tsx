@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useMoney } from '@/hooks/use-money'
 import { usePriceHistory, type PortfolioLine } from '@/features/accounts/hooks'
 import { NetWorthChart } from '@/components/shared/NetWorthChart'
 import { EmptyChartState } from '@/components/shared/EmptyChartState'
@@ -12,7 +13,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { TrendingUp, TrendingDown, Loader2 } from 'lucide-react'
+import { TrendingUp, TrendingDown, Loader2, Tags } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { HoldingClassificationModal } from '@/pages/analysis/HoldingClassificationModal'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import { formatDate } from '@/lib/utils'
 import { accountTypeLabelKey } from '@/lib/constants'
@@ -25,9 +28,11 @@ interface HoldingDetailModalProps {
 }
 
 export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
+  const money = useMoney()
   const { t } = useTranslation()
   const [range, setRange] = useState<TimeRange>('1Y')
   const [mode, setMode] = useState<ChartMode>('price')
+  const [classifying, setClassifying] = useState(false)
 
   const months = range === 'ALL' ? 1200 : range === '3M' ? 3 : range === '1M' || range === '7D' ? 1 : range === 'YTD' ? new Date().getMonth() + 1 : 12
   const { data: rawHistory, isLoading } = usePriceHistory(line?.ticker ?? null, months, range)
@@ -84,7 +89,8 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
   const pnlPositive = (line?.pnlEur ?? 0) >= 0
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
+    <>
+      <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
       <DialogContent className="sm:max-w-[95vw] max-h-[90vh] overflow-y-auto">
         {isLoading || !line ? (
           <div className="flex items-center justify-center py-12">
@@ -95,7 +101,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
             <DialogHeader>
               <div className="flex items-center gap-3">
                 <DialogTitle className="text-lg">{line.name}</DialogTitle>
-                {line.ticker && (
+                {line.ticker && line.accountId !== null && (
                   <Badge variant="outline" className="font-mono text-xs">
                     {line.ticker}
                   </Badge>
@@ -178,7 +184,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 pt-4 border-t">
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">{t('holdings.quantity')}</p>
-                  <p className="text-sm font-semibold tabular-nums">{line.quantity.toLocaleString()}</p>
+                  <p className="text-sm font-semibold tabular-nums">{money.quantity(line.quantity.toLocaleString())}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">{t('holdings.capitalInvested')}</p>
@@ -215,10 +221,36 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
 
               {/* Asset-type & ETF composition insight */}
               <HoldingInsightSection ticker={line.ticker} name={line.name} open={open} />
+
+              {/* The second way into the editor: correct a security where you are already
+                  looking at it, rather than only from the coverage list on the Analysis page. */}
+              {line.ticker && (
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setClassifying(true)}
+                  >
+                    <Tags className="size-4" aria-hidden="true" />
+                    {t('analysis.classification.action')}
+                  </Button>
+                </div>
+              )}
             </div>
           </>
         )}
       </DialogContent>
-    </Dialog>
+      </Dialog>
+
+      {/* Sibling, not nested: two Dialogs in one subtree fight over the focus trap. */}
+      <HoldingClassificationModal
+        open={classifying}
+        accountId={line?.accountId ?? null}
+        ticker={line?.ticker ?? null}
+        name={line?.name}
+        onClose={() => setClassifying(false)}
+      />
+    </>
   )
 }

@@ -1,10 +1,10 @@
 # Feature: Navigation (Sidebar + Mobile Bottom Nav)
 
-> Last updated: 2026-07-12
+> Last updated: 2026-08-13
 
 ## Context
 
-Navigation adapts to screen size: a vertical sidebar on desktop (>=768px) and a horizontal bottom navbar on mobile (<768px). Desktop shows the primary app navigation, including Family, and exposes settings through the bottom account area. Admin users also get a visible profile switcher there so a managed-member override can never stay hidden. Mobile keeps the compact 4-item bottom bar and active state logic.
+Navigation adapts to screen size: a vertical sidebar on desktop (>=768px) and a horizontal bottom navbar on mobile (<768px). Desktop shows the primary app navigation, including Family, and exposes settings through the bottom account area. Admin users also get a visible profile switcher there so a managed-member override can never stay hidden. Mobile keeps the compact bottom bar — five items since Analysis joined — and active state logic.
 
 ## How it works
 
@@ -25,11 +25,20 @@ The switcher loads family members through `useFamilyMembers({ enabled: canSwitch
 
 ### Mobile: `MobileBottomNav` (hidden on desktop via `md:hidden`)
 
-A fixed bottom bar with the Picsou logo centered and 2 nav items on each side:
+A fixed bottom bar with five evenly spaced nav items:
 
+```text
+[Dashboard] [Accounts] [Analysis] [Goals] [Settings]
 ```
-[Dashboard] [Accounts] [LOGO] [Goals] [Settings]
-```
+
+It used to centre the Picsou logo between two pairs of items and keep its **own** hardcoded copy
+of the route list. Adding Analysis (2026-08-13) left no honest way to keep that symmetry, and a
+private copy was one more place to forget a route, so both went: the bar now maps
+`[...NAV_ITEMS, CLASSIC_SETTINGS_NAV_ITEM]` from the shared registry. Settings stays in the list
+because mobile has no other way to reach it — the desktop sidebar uses its bottom account row.
+
+The bar's height is unchanged (`size-10` items + `py-3` + `bottom-4` = 80 px), so `AppLayout`'s
+`pb-20` still clears it. `frontend/src/assets/picsou_logo_white.svg` is now unused.
 
 - Same icon styling as the sidebar: `size-10 rounded-lg bg-muted text-muted-foreground`
 - Active state: `ring-1 ring-border` + foreground icon color
@@ -46,9 +55,9 @@ Active nav items keep Lucide icons stroke-only. The item gets `ring-1 ring-borde
 - `frontend/src/components/layout/MobileBottomNav.tsx` — mobile bottom navbar
 - `frontend/src/components/layout/AppLayout.tsx` — renders sidebar (desktop) + bottom nav (mobile)
 - `frontend/src/components/ui/item.tsx` — `Item` / `ItemMedia` / `ItemContent` primitives (do not edit)
-- `frontend/src/i18n/locales/{fr,en}.json` — `nav.*` keys for labels
+- `frontend/src/i18n/locales/{fr,en,de,es}.json` — `nav.*` keys for labels
 - `frontend/src/assets/horizontal-white-picsou.svg` — horizontal wordmark logo used at the top of the desktop sidebar
-- `frontend/src/assets/picsou_logo_white.svg` — icon-only logo used in mobile nav
+- `frontend/src/assets/picsou_logo_white.svg` — icon-only logo, **no longer used** since the mobile bar went to five items
 
 ## Technical choices
 

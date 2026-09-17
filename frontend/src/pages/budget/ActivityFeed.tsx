@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { MerchantAvatar } from '@/components/shared/MerchantAvatar'
 import { useRecurringActivity, useUndoRecurring } from '@/features/budget/hooks'
-import { formatCurrency, formatDate, getLocale } from '@/lib/utils'
+import { formatDate, getLocale } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 import type { RecurringActivity } from '@/types/api'
 
 /**
@@ -16,14 +17,15 @@ import type { RecurringActivity } from '@/types/api'
  * single backend `undo` endpoint, which decides the behaviour from the series' own state.
  */
 function ActivityRow({ entry }: { entry: RecurringActivity }) {
+  const money = useMoney()
   const { t } = useTranslation()
   const undo = useUndoRecurring()
 
   const isPriceChange = entry.type === 'PRICE_CHANGE'
   const description = isPriceChange && entry.previousAmount != null
     ? t('budget.recurring.activity.priceChangeDesc', {
-        from: formatCurrency(Math.abs(entry.previousAmount)),
-        to: formatCurrency(Math.abs(entry.expectedAmount)),
+        from: money.amount(Math.abs(entry.previousAmount)),
+        to: money.amount(Math.abs(entry.expectedAmount)),
       })
     : t('budget.recurring.activity.autoConfirmedDesc')
 

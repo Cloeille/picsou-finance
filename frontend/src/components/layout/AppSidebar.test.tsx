@@ -90,6 +90,7 @@ describe('AppSidebar profile switcher', () => {
     listMembers.mockResolvedValue([])
     useAuthStore.getState().logout()
     useAppStore.getState().setDemoMode(false)
+    useAppStore.getState().setHideAmounts(false)
     useProfileStore.getState().reset()
   })
 
@@ -144,6 +145,7 @@ describe('AppSidebar classic style', () => {
     useAuthStore.getState().logout()
     useAppStore.getState().setDemoMode(false)
     useAppStore.getState().setSidebarStyle('classic')
+    useAppStore.getState().setHideAmounts(false)
     useProfileStore.getState().reset()
   })
 
@@ -173,5 +175,45 @@ describe('AppSidebar classic style', () => {
 
     openAccountMenu('nav.switchProfile')
     expect(await screen.findByRole('menuitemradio', { name: /Lou/ })).toBeInTheDocument()
+  })
+})
+
+describe('AppSidebar privacy toggle', () => {
+  beforeEach(() => {
+    listMembers.mockReset()
+    listMembers.mockResolvedValue([])
+    useAuthStore.getState().logout()
+    useAppStore.getState().setDemoMode(false)
+    useAppStore.getState().setSidebarStyle('current')
+    useAppStore.getState().setHideAmounts(false)
+    useProfileStore.getState().reset()
+  })
+
+  it('hides and reveals every amount in the app, and says which action it offers', () => {
+    renderSidebar()
+
+    // The label names the action, not the state -- the icon already carries the state.
+    const button = screen.getByRole('button', { name: 'nav.hideAmounts' })
+    expect(button).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(button)
+
+    expect(useAppStore.getState().hideAmounts).toBe(true)
+    const pressed = screen.getByRole('button', { name: 'nav.showAmounts' })
+    expect(pressed).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(pressed)
+    expect(useAppStore.getState().hideAmounts).toBe(false)
+  })
+
+  it('persists the choice, because a refresh mid-demo must not reveal anything', () => {
+    renderSidebar()
+    fireEvent.click(screen.getByRole('button', { name: 'nav.hideAmounts' }))
+
+    // Written deliberately: `partialize` in app-store is an allowlist, so leaving the field out
+    // fails silently -- no type error, no runtime error, the setting simply does not survive a
+    // reload. Nothing else in the suite would notice.
+    const stored = JSON.parse(localStorage.getItem('picsou-app') ?? '{}')
+    expect(stored.state.hideAmounts).toBe(true)
   })
 })

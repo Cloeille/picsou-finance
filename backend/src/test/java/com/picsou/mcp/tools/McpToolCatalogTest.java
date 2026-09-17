@@ -62,7 +62,7 @@ class McpToolCatalogTest {
         "list_account_transactions", "add_transaction", "update_transaction", "delete_transaction",
         // goals:read / goals:write
         "list_goals", "get_goal", "get_goal_monthly_entries", "create_goal", "update_goal",
-        "delete_goal", "set_goal_month_contribution",
+        "delete_goal", "set_goal_month_contribution", "create_recurring_investment",
         // dashboard:read / family:read / prices:read (read-only insights)
         "get_dashboard", "get_net_worth_history", "get_profit_and_loss", "get_family_dashboard", "get_price",
         // sync:trigger (refresh existing connections only)

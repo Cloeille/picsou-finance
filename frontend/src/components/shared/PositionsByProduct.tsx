@@ -1,14 +1,16 @@
 import { useTranslation } from 'react-i18next'
+import { useMoney } from '@/hooks/use-money'
 import type { ExchangePositionResponse } from '@/types/api'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { PriceFreshnessDot } from '@/components/shared/PriceFreshnessDot'
+import { SortableTableHead } from '@/components/shared/SortableTableHead'
+import { useTableSort, type SortColumns } from '@/hooks/use-table-sort'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
@@ -26,6 +28,23 @@ function pnlColor(value: number | null): string {
 /** Fixed order rather than the API's: spot first, then what is put to work. */
 const PRODUCT_ORDER = ['SPOT', 'STAKING', 'LENDING'] as const
 
+type PositionSortKey =
+  | 'ticker' | 'principal' | 'interest' | 'quantity'
+  | 'avgBuyIn' | 'price' | 'value' | 'pnl' | 'pnlPercent'
+
+/** Module scope keeps the map identity-stable for the sort memo. */
+const POSITION_COLUMNS: SortColumns<ExchangePositionResponse, PositionSortKey> = {
+  ticker: { kind: 'text', value: p => p.ticker },
+  principal: { kind: 'number', value: p => p.principal },
+  interest: { kind: 'number', value: p => p.interest },
+  quantity: { kind: 'number', value: p => p.quantity },
+  avgBuyIn: { kind: 'number', value: p => p.averageBuyIn },
+  price: { kind: 'number', value: p => p.currentPriceEur },
+  value: { kind: 'number', value: p => p.currentValueEur },
+  pnl: { kind: 'number', value: p => p.pnlEur },
+  pnlPercent: { kind: 'number', value: p => p.pnlPercent },
+}
+
 /**
  * A crypto exchange account's positions, grouped by product.
  *
@@ -35,12 +54,21 @@ const PRODUCT_ORDER = ['SPOT', 'STAKING', 'LENDING'] as const
  * something added to it.
  */
 export function PositionsByProduct({ positions }: PositionsByProductProps) {
+  const money = useMoney()
   const { t } = useTranslation()
+  // One sort across the three groups: they are the same table split by product, so letting each
+  // carry its own criterion would make one screen answer a different question per section.
+  // Sorting the flat list before grouping orders every group at once and leaves the fixed
+  // SPOT/STAKING/LENDING sequence below alone -- that order is editorial, not data.
+  const { rows: sortedPositions, sort, toggle } = useTableSort(positions, POSITION_COLUMNS, {
+    key: 'value',
+    direction: 'desc',
+  })
 
   if (positions.length === 0) return null
 
   const groups = PRODUCT_ORDER
-    .map(product => ({ product, rows: positions.filter(p => p.product === product) }))
+    .map(product => ({ product, rows: sortedPositions.filter(p => p.product === product) }))
     .filter(group => group.rows.length > 0)
 
   return (
@@ -73,17 +101,17 @@ export function PositionsByProduct({ positions }: PositionsByProductProps) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t('holdings.ticker')}</TableHead>
-                      {showYield && <TableHead className="text-right">{t('positions.principal')}</TableHead>}
-                      {showYield && <TableHead className="text-right">{t('positions.interest')}</TableHead>}
-                      <TableHead className="text-right">
+                      <SortableTableHead sortKey="ticker" sort={sort} onSort={toggle}>{t('holdings.ticker')}</SortableTableHead>
+                      {showYield && <SortableTableHead sortKey="principal" sort={sort} onSort={toggle} align="right">{t('positions.principal')}</SortableTableHead>}
+                      {showYield && <SortableTableHead sortKey="interest" sort={sort} onSort={toggle} align="right">{t('positions.interest')}</SortableTableHead>}
+                      <SortableTableHead sortKey="quantity" sort={sort} onSort={toggle} align="right">
                         {showYield ? t('positions.total') : t('holdings.quantity')}
-                      </TableHead>
-                      <TableHead className="text-right">{t('holdings.avgBuyIn')}</TableHead>
-                      <TableHead className="text-right">{t('holdings.assetPrice')}</TableHead>
-                      <TableHead className="text-right">{t('portfolio.value')}</TableHead>
-                      <TableHead className="text-right">{t('holdings.pnl')}</TableHead>
-                      <TableHead className="text-right">{t('holdings.pnlPercent')}</TableHead>
+                      </SortableTableHead>
+                      <SortableTableHead sortKey="avgBuyIn" sort={sort} onSort={toggle} align="right">{t('holdings.avgBuyIn')}</SortableTableHead>
+                      <SortableTableHead sortKey="price" sort={sort} onSort={toggle} align="right">{t('holdings.assetPrice')}</SortableTableHead>
+                      <SortableTableHead sortKey="value" sort={sort} onSort={toggle} align="right">{t('portfolio.value')}</SortableTableHead>
+                      <SortableTableHead sortKey="pnl" sort={sort} onSort={toggle} align="right">{t('holdings.pnl')}</SortableTableHead>
+                      <SortableTableHead sortKey="pnlPercent" sort={sort} onSort={toggle} align="right">{t('holdings.pnlPercent')}</SortableTableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -92,18 +120,18 @@ export function PositionsByProduct({ positions }: PositionsByProductProps) {
                         <TableCell className="font-mono font-medium">{row.ticker}</TableCell>
                         {showYield && (
                           <TableCell className="text-right tabular-nums">
-                            {row.principal ?? '—'}
+                            {row.principal != null ? money.quantity(row.principal) : '—'}
                           </TableCell>
                         )}
                         {showYield && (
                           <TableCell className="text-right tabular-nums text-emerald-500">
-                            {row.interest ?? '—'}
+                            {row.interest != null ? money.quantity(row.interest) : '—'}
                           </TableCell>
                         )}
-                        <TableCell className="text-right tabular-nums">{row.quantity}</TableCell>
+                        <TableCell className="text-right tabular-nums">{money.quantity(row.quantity)}</TableCell>
                         <TableCell className="text-right">
                           {row.averageBuyIn != null
-                            ? <CurrencyDisplay value={row.averageBuyIn} className="text-sm" />
+                            ? <CurrencyDisplay value={row.averageBuyIn} publicQuote className="text-sm" />
                             : '—'}
                         </TableCell>
                         <TableCell className="text-right">
