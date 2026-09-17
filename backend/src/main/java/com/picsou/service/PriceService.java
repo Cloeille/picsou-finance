@@ -166,7 +166,7 @@ public class PriceService {
                 resolved.put(upper, new Quote(BigDecimal.ONE, today, true));
                 continue;
             }
-            if (cryptoOnly && !coinGecko.supports(upper)) {
+            if (cryptoOnly && !priceProvider.supports(upper)) {
                 continue;
             }
             CachedPrice cached = priceCache.get(upper);
@@ -235,18 +235,15 @@ public class PriceService {
         return resolved;
     }
 
-    /** One batched provider call, routed the same way {@link #refreshPrices} routes. */
+    /** One batched provider call — the composite routes crypto vs stock internally. */
     private Map<String, BigDecimal> fetchLive(Set<String> tickers, boolean cryptoOnly) {
-        Set<String> crypto = tickers.stream().filter(coinGecko::supports)
-            .collect(Collectors.toCollection(TreeSet::new));
-        Set<String> stocks = cryptoOnly ? Set.of() : tickers.stream()
-            .filter(t -> !coinGecko.supports(t))
-            .collect(Collectors.toCollection(TreeSet::new));
+        Set<String> fetchable = cryptoOnly
+            ? tickers.stream().filter(priceProvider::supports)
+                .collect(Collectors.toCollection(TreeSet::new))
+            : tickers;
 
-        Map<String, BigDecimal> live = new HashMap<>();
-        if (!crypto.isEmpty()) live.putAll(coinGecko.getPricesEur(crypto));
-        if (!stocks.isEmpty()) live.putAll(yahoo.getPricesEur(stocks));
-        return live;
+        if (fetchable.isEmpty()) return Map.of();
+        return new HashMap<>(priceProvider.getPricesEur(fetchable));
     }
 
     /**
@@ -303,7 +300,7 @@ public class PriceService {
 
         Set<String> unresolved = tickers.stream()
             .map(t -> t.toUpperCase(Locale.ROOT))
-            .filter(coinGecko::supports)
+            .filter(priceProvider::supports)
             .filter(t -> !quotes.containsKey(t))
             .collect(Collectors.toCollection(TreeSet::new));
         if (unresolved.isEmpty()) return quotes;
@@ -349,31 +346,32 @@ public class PriceService {
         }
 
         if (!toFetch.isEmpty()) {
+            Map<String, BigDecimal> fetched = new HashMap<>();
             priceProvider.getPricesEur(toFetch).forEach((k, v) -> {
                 priceCache.put(k, new CachedPrice(v, Instant.now()));
                 fetched.put(k, v);
             });
-        }
 
-        result.putAll(fetched);
-        log.debug("Refreshed prices: {} fetched, {} served from cache", fetched.size(), result.size() - fetched.size());
+            result.putAll(fetched);
+            log.debug("Refreshed prices: {} fetched, {} served from cache", fetched.size(), result.size() - fetched.size());
 
-        // Persist daily price snapshots — only for freshly fetched prices;
-        // cache-served values were already persisted when they were fetched.
-        LocalDate today = LocalDate.now();
-        for (var entry : fetched.entrySet()) {
-            if ("EUR".equals(entry.getKey())) continue;
-            if (entry.getValue() == null) continue;
-            Optional<PriceSnapshot> existing = priceSnapshotRepository.findByTickerAndDate(entry.getKey(), today);
-            if (existing.isPresent()) {
-                existing.get().setPriceEur(entry.getValue());
-                priceSnapshotRepository.save(existing.get());
-            } else {
-                priceSnapshotRepository.save(PriceSnapshot.builder()
-                    .ticker(entry.getKey())
-                    .date(today)
-                    .priceEur(entry.getValue())
-                    .build());
+            // Persist daily price snapshots — only for freshly fetched prices;
+            // cache-served values were already persisted when they were fetched.
+            LocalDate today = LocalDate.now();
+            for (var entry : fetched.entrySet()) {
+                if ("EUR".equals(entry.getKey())) continue;
+                if (entry.getValue() == null) continue;
+                Optional<PriceSnapshot> existing = priceSnapshotRepository.findByTickerAndDate(entry.getKey(), today);
+                if (existing.isPresent()) {
+                    existing.get().setPriceEur(entry.getValue());
+                    priceSnapshotRepository.save(existing.get());
+                } else {
+                    priceSnapshotRepository.save(PriceSnapshot.builder()
+                        .ticker(entry.getKey())
+                        .date(today)
+                        .priceEur(entry.getValue())
+                        .build());
+                }
             }
         }
 
@@ -395,7 +393,7 @@ public class PriceService {
         // ~89 USD a share), so sending "USD" down the price path multiplied every USD cash
         // balance by an ETF price and reported it, and its daily snapshots, at ~76x.
         if (ticker == null || ticker.isBlank()) {
-            BigDecimal rate = yahoo.getFxRateToEur(currency);
+            BigDecimal rate = priceProvider.getFxRateToEur(currency);
             if (rate == null) {
                 log.error("No EUR rate for {} -- returning the balance UNCONVERTED, so any total "
                     + "including it is wrong until the rate is available", currency);

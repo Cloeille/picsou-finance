@@ -484,4 +484,10 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
 
         public BigDecimal eur() { return eur; }
     }
+
+    /** CoinGecko does not handle FX rates — always returns {@code null}. */
+    @Override
+    public BigDecimal getFxRateToEur(String currency) {
+        return null;
+    }
 }

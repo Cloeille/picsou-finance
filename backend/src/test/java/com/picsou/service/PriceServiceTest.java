@@ -85,8 +85,7 @@ class PriceServiceTest {
      */
     @Test
     void refreshPrices_servesFreshCacheWithoutUpstreamCall() {
-        lenient().when(coinGecko.supports(any())).thenReturn(false);
-        when(yahoo.getPricesEur(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new BigDecimal("150")));
+        when(priceProvider.getPricesEur(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new BigDecimal("150")));
         lenient().when(priceSnapshotRepository.findByTickerAndDate(any(), any())).thenReturn(Optional.empty());
 
         Map<String, BigDecimal> first = priceService.refreshPrices(Set.of("AAPL"));
@@ -95,18 +94,17 @@ class PriceServiceTest {
         Map<String, BigDecimal> second = priceService.refreshPrices(Set.of("AAPL"));
         assertThat(second).containsEntry("AAPL", new BigDecimal("150"));
 
-        verify(yahoo, times(1)).getPricesEur(anySet());
+        verify(priceProvider, times(1)).getPricesEur(anySet());
         verify(priceSnapshotRepository, times(1)).save(any());
     }
 
     @Test
     void refreshPrices_fetchesOnlyMissingTickers() {
-        lenient().when(coinGecko.supports(any())).thenReturn(false);
-        when(yahoo.getPricesEur(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new BigDecimal("150")));
+        when(priceProvider.getPricesEur(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new BigDecimal("150")));
         lenient().when(priceSnapshotRepository.findByTickerAndDate(any(), any())).thenReturn(Optional.empty());
         priceService.refreshPrices(Set.of("AAPL"));
 
-        when(yahoo.getPricesEur(Set.of("MSFT"))).thenReturn(Map.of("MSFT", new BigDecimal("410")));
+        when(priceProvider.getPricesEur(Set.of("MSFT"))).thenReturn(Map.of("MSFT", new BigDecimal("410")));
 
         Map<String, BigDecimal> result = priceService.refreshPrices(Set.of("AAPL", "MSFT", "EUR"));
 
@@ -114,7 +112,7 @@ class PriceServiceTest {
             .containsEntry("AAPL", new BigDecimal("150"))
             .containsEntry("MSFT", new BigDecimal("410"))
             .containsEntry("EUR", BigDecimal.ONE);
-        verify(yahoo).getPricesEur(Set.of("MSFT"));
+        verify(priceProvider).getPricesEur(Set.of("MSFT"));
     }
 
     private PriceSnapshot snapshot(String ticker, LocalDate date, String price) {
@@ -124,8 +122,8 @@ class PriceServiceTest {
     @Test
     void price_fallsBackToTheLastRecordedOne_whenTheProviderReturnsNothing() {
         LocalDate yesterday = LocalDate.now().minusDays(1);
-        when(coinGecko.supports("BTC")).thenReturn(true);
-        when(coinGecko.getPricesEur(Set.of("BTC"))).thenReturn(Map.of());
+        when(priceProvider.supports("BTC")).thenReturn(true);
+        when(priceProvider.getPricesEur(Set.of("BTC"))).thenReturn(Map.of());
         when(priceSnapshotRepository.findRecentByTickers(eq(Set.of("BTC")), any(), any()))
             .thenReturn(List.of(snapshot("BTC", yesterday, "54619")));
 
@@ -135,8 +133,8 @@ class PriceServiceTest {
     @Test
     void quote_carriesTheRecordedDate_andSaysItIsNotLive() {
         LocalDate yesterday = LocalDate.now().minusDays(1);
-        when(coinGecko.supports("SOL")).thenReturn(true);
-        when(coinGecko.getPricesEur(Set.of("SOL"))).thenReturn(Map.of());
+        when(priceProvider.supports("SOL")).thenReturn(true);
+        when(priceProvider.getPricesEur(Set.of("SOL"))).thenReturn(Map.of());
         when(priceSnapshotRepository.findRecentByTickers(eq(Set.of("SOL")), any(), any()))
             .thenReturn(List.of(snapshot("SOL", yesterday, "63.20")));
 
@@ -151,8 +149,8 @@ class PriceServiceTest {
 
     @Test
     void quote_fromTheProvider_isLiveAndDatedToday() {
-        when(coinGecko.supports("BTC")).thenReturn(true);
-        when(coinGecko.getPricesEur(Set.of("BTC"))).thenReturn(Map.of("BTC", new BigDecimal("54619")));
+        when(priceProvider.supports("BTC")).thenReturn(true);
+        when(priceProvider.getPricesEur(Set.of("BTC"))).thenReturn(Map.of("BTC", new BigDecimal("54619")));
 
         PriceService.Quote quote = priceService.getCryptoQuote("BTC");
 
@@ -163,8 +161,8 @@ class PriceServiceTest {
 
     @Test
     void fallback_onlyLooksBackAWeek() {
-        when(coinGecko.supports("BTC")).thenReturn(true);
-        when(coinGecko.getPricesEur(Set.of("BTC"))).thenReturn(Map.of());
+        when(priceProvider.supports("BTC")).thenReturn(true);
+        when(priceProvider.getPricesEur(Set.of("BTC"))).thenReturn(Map.of());
         when(priceSnapshotRepository.findRecentByTickers(any(), any(), any())).thenReturn(List.of());
 
         assertThat(priceService.getPriceEur("BTC")).isNull();
@@ -178,8 +176,8 @@ class PriceServiceTest {
 
     @Test
     void aFailedLookupIsNotRetriedOnEveryRead() {
-        when(coinGecko.supports("BTC")).thenReturn(true);
-        when(coinGecko.getPricesEur(Set.of("BTC"))).thenReturn(Map.of());
+        when(priceProvider.supports("BTC")).thenReturn(true);
+        when(priceProvider.getPricesEur(Set.of("BTC"))).thenReturn(Map.of());
         when(priceSnapshotRepository.findRecentByTickers(any(), any(), any())).thenReturn(List.of());
 
         priceService.getPriceEur("BTC");
@@ -188,40 +186,40 @@ class PriceServiceTest {
 
         // Three reads, one attempt. The opposite -- a request per read -- is what kept an
         // instance rate-limited for hours after a momentary 429.
-        verify(coinGecko, times(1)).getPricesEur(Set.of("BTC"));
+        verify(priceProvider, times(1)).getPricesEur(Set.of("BTC"));
     }
 
     @Test
     void aSetOfTickersCostsOneProviderCall() {
         Set<String> tickers = Set.of("BTC", "ETH", "SOL");
-        tickers.forEach(t -> when(coinGecko.supports(t)).thenReturn(true));
-        when(coinGecko.getPricesEur(any())).thenReturn(Map.of(
+        tickers.forEach(t -> when(priceProvider.supports(t)).thenReturn(true));
+        when(priceProvider.getPricesEur(any())).thenReturn(Map.of(
             "BTC", new BigDecimal("54619"),
             "ETH", new BigDecimal("1619"),
             "SOL", new BigDecimal("63.20")));
 
         assertThat(priceService.getCryptoQuotes(tickers)).containsOnlyKeys("BTC", "ETH", "SOL");
 
-        verify(coinGecko, times(1)).getPricesEur(any());
+        verify(priceProvider, times(1)).getPricesEur(any());
     }
 
     @Test
     void cryptoLookupOfAnUnmappedTicker_neverReachesTheRecordedPrices() {
-        when(coinGecko.supports("STX")).thenReturn(false);
+        when(priceProvider.supports("STX")).thenReturn(false);
 
         assertThat(priceService.getCryptoQuote("STX")).isNull();
 
         // price_snapshot is keyed by ticker alone, exactly like the cache: reading it here would
         // hand back the share price of the equity trading under the same symbol.
         verifyNoInteractions(priceSnapshotRepository);
-        verify(coinGecko, org.mockito.Mockito.never()).getPricesEur(any());
+        verify(priceProvider, org.mockito.Mockito.never()).getPricesEur(any());
     }
 
     @Test
     void refreshCryptoQuotes_valuesFromTheRecordedPrice_withoutRerecordingItAsToday() {
         LocalDate yesterday = LocalDate.now().minusDays(1);
-        when(coinGecko.supports("ATOM")).thenReturn(true);
-        when(coinGecko.getPricesEur(any())).thenReturn(Map.of());
+        when(priceProvider.supports("ATOM")).thenReturn(true);
+        when(priceProvider.getPricesEur(any())).thenReturn(Map.of());
         when(priceSnapshotRepository.findRecentByTickers(eq(Set.of("ATOM")), any(), any()))
             .thenReturn(List.of(snapshot("ATOM", yesterday, "1.065")));
 
@@ -254,8 +252,7 @@ class PriceServiceTest {
         // This runs at every boot, once per held ticker, against a free tier that counts
         // requests: re-fetching twelve months only to discard every row as a duplicate is what
         // exhausted the rate limit seconds after startup.
-        verifyNoInteractions(coinGecko);
-        verifyNoInteractions(yahoo);
+        verify(priceProvider, org.mockito.Mockito.never()).getHistoricalPricesEur(any(), any(), any());
     }
 
     @Test
@@ -268,7 +265,7 @@ class PriceServiceTest {
 
         assertThat(priceService.backfillHistoricalPrices(Set.of("AAPL"), from)).isZero();
 
-        verifyNoInteractions(yahoo);
+        verify(priceProvider, org.mockito.Mockito.never()).getHistoricalPricesEur(any(), any(), any());
     }
 
     @Test
@@ -282,8 +279,8 @@ class PriceServiceTest {
         withHole.add(snapshot("BTC", LocalDate.now(), "54619"));
         when(priceSnapshotRepository.findByTickerInAndDateBetween(eq(Set.of("BTC")), any(), any()))
             .thenReturn(withHole);
-        when(coinGecko.supports("BTC")).thenReturn(true);
-        when(coinGecko.getHistoricalPricesEur(eq("BTC"), any(), any()))
+        when(priceProvider.supports("BTC")).thenReturn(true);
+        when(priceProvider.getHistoricalPricesEur(eq("BTC"), any(), any()))
             .thenReturn(Map.of(from.plusDays(60), new BigDecimal("51000")));
         when(priceSnapshotRepository.findByTickerAndDate(any(), any())).thenReturn(Optional.empty());
 
@@ -325,25 +322,25 @@ class PriceServiceTest {
 
     @Test
     void getPriceEur_cachesAMiss_soAnUnresolvableTickerIsFetchedOnce() {
-        when(coinGecko.supports("MWRDF")).thenReturn(false);
-        when(yahoo.getPricesEur(Set.of("MWRDF"))).thenReturn(Map.of());
+        when(priceProvider.supports("MWRDF")).thenReturn(false);
+        when(priceProvider.getPricesEur(Set.of("MWRDF"))).thenReturn(Map.of());
 
         assertThat(priceService.getPriceEur("MWRDF")).isNull();
         assertThat(priceService.getPriceEur("MWRDF")).isNull();
         assertThat(priceService.getPriceEur("MWRDF")).isNull();
 
-        verify(yahoo, times(1)).getPricesEur(Set.of("MWRDF"));
+        verify(priceProvider, times(1)).getPricesEur(Set.of("MWRDF"));
     }
 
     @Test
     void getPriceEur_stillCachesAndReturnsHits() {
-        when(coinGecko.supports("AAPL")).thenReturn(false);
-        when(yahoo.getPricesEur(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new BigDecimal("200")));
+        when(priceProvider.supports("AAPL")).thenReturn(false);
+        when(priceProvider.getPricesEur(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new BigDecimal("200")));
 
         assertThat(priceService.getPriceEur("AAPL")).isEqualByComparingTo("200");
         assertThat(priceService.getPriceEur("AAPL")).isEqualByComparingTo("200");
 
-        verify(yahoo, times(1)).getPricesEur(Set.of("AAPL"));
+        verify(priceProvider, times(1)).getPricesEur(Set.of("AAPL"));
     }
 
     /**
@@ -353,17 +350,16 @@ class PriceServiceTest {
      */
     @Test
     void toEur_convertsACashBalanceWithTheFxRate_neverWithAChartSymbol() {
-        when(yahoo.getFxRateToEur("USD")).thenReturn(new BigDecimal("0.86"));
+        when(priceProvider.getFxRateToEur("USD")).thenReturn(new BigDecimal("0.86"));
 
         assertThat(priceService.toEur(new BigDecimal("1000"), "USD", null)).isEqualByComparingTo("860");
 
-        verify(yahoo, times(0)).getPricesEur(anySet());
-        verifyNoInteractions(coinGecko);
+        verify(priceProvider, times(0)).getPricesEur(anySet());
     }
 
     @Test
     void toEur_returnsTheBalanceUnconverted_andLogsAtError_whenNoRateIsAvailable() {
-        when(yahoo.getFxRateToEur("USD")).thenReturn(null);
+        when(priceProvider.getFxRateToEur("USD")).thenReturn(null);
 
         assertThat(priceService.toEur(new BigDecimal("1000"), "USD", null)).isEqualByComparingTo("1000");
 
@@ -373,12 +369,12 @@ class PriceServiceTest {
 
     @Test
     void toEur_stillPricesAnAccountThatIsOneAsset_throughItsTicker() {
-        when(coinGecko.supports("AAPL")).thenReturn(false);
-        when(yahoo.getPricesEur(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new BigDecimal("200")));
+        when(priceProvider.supports("AAPL")).thenReturn(false);
+        when(priceProvider.getPricesEur(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new BigDecimal("200")));
 
         assertThat(priceService.toEur(new BigDecimal("3"), "USD", "AAPL")).isEqualByComparingTo("600");
 
-        verify(yahoo, times(0)).getFxRateToEur(any());
+        verify(priceProvider, times(0)).getFxRateToEur(any());
     }
 
     /** Runs the backfill and fails loudly if it throws — the ApplicationRunner contract. */

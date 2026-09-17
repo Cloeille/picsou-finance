@@ -69,4 +69,9 @@ public class CompositePriceProvider implements PriceProviderPort {
     public Map<LocalDateTime, BigDecimal> getIntradayPricesEur(String ticker, LocalDateTime from, LocalDateTime to) {
         return providerFor(ticker).getIntradayPricesEur(ticker, from, to);
     }
+
+    @Override
+    public BigDecimal getFxRateToEur(String currency) {
+        return yahoo.getFxRateToEur(currency);
+    }
 }

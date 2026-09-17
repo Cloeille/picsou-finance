@@ -32,4 +32,13 @@ public interface PriceProviderPort {
 
     /** Intraday (hourly) prices in EUR for a ticker over {@code [from, to]}. */
     Map<LocalDateTime, BigDecimal> getIntradayPricesEur(String ticker, LocalDateTime from, LocalDateTime to);
+
+    /**
+     * Returns the FX rate to convert one unit of {@code currency} into EUR.
+     * Returns {@code null} if the rate cannot be determined. Pure-cash balances
+     * must go through this method — not through {@link #getPricesEur} — because
+     * a bare currency code can resolve as an unrelated chart symbol (e.g. USD
+     * would hit the ProShares Ultra Semiconductors ETF on Yahoo Finance).
+     */
+    BigDecimal getFxRateToEur(String currency);
 }
