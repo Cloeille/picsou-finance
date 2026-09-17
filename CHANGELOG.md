@@ -460,6 +460,14 @@ information architecture.
   account cards and history. A guarded migration also restores per-position EUR
   values from early connector data only when every stored price reconciles with
   the broker's account total minus cash; ambiguous legacy quotes remain unset.
+- **Opening `/login` after a restart no longer flashes the form when you have a
+  session.** `isAuthenticated` mirrors `sessionStorage`, which is wiped on every
+  tab/browser close — but the HttpOnly cookies can keep a "Remember Me" session
+  alive for 90 days. Only `RequireAuth` probed the cookie-backed session, so
+  navigating straight to `/login` showed the login form even though the session
+  was restorable. `PublicOnly` now runs the same probe (shared query key, so
+  it's a single request) and redirects into the app when the session
+  rehydrates; the mid-login MFA challenge page opts out (`probe={false}`).
 - **Wallet sync and removal failures now say why.** Both buttons reported nothing
   at all when they failed — the row simply re-enabled, and the delete dialog sat
   there — so a `422` from an RPC outage was indistinguishable from success. The
@@ -531,6 +539,20 @@ information architecture.
   A new `LogSanitizer.fingerprint(...)` helper keeps the fingerprints stable so
   log lines can still be correlated during debugging. Defense-in-depth against
   log aggregators with weaker access control than the primary database (#44).
+- **At-rest encryption now pins UTF-8 and validates the key length at startup.**
+  `CryptoEncryption` encoded/decoded secrets with the platform-default charset.
+  A single JVM with a stable charset round-trips fine, but the moment the
+  charset differs across the boundary — a non-UTF-8 JVM writing and a UTF-8 one
+  reading (or vice versa), or interop with any UTF-8 consumer — a non-ASCII
+  secret (e.g. an accented passphrase) decodes to garbage. Both directions now
+  pin `StandardCharsets.UTF_8` for deterministic behaviour. (Migration note:
+  any non-ASCII ciphertext written by a *non*-UTF-8 JVM before this change would
+  now read back mangled — effectively impossible on Java 21, whose default is
+  UTF-8, unless `-Dfile.encoding` was overridden.) `CRYPTO_ENCRYPTION_KEY` is
+  also validated at bean construction — an invalid-base64 or wrong-length key
+  fails fast with a clear message instead of silently selecting a weaker AES
+  variant or throwing a cryptic `InvalidKeyException` at the first
+  encrypt/decrypt.
 
 ### Notes
 

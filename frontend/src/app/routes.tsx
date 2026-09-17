@@ -62,9 +62,11 @@ export const router = createBrowserRouter([
   {
     // /login/mfa is also for unauthenticated visitors — the user is mid-login
     // (mfa_challenge cookie set, access_token NOT yet set), so PublicOnly applies.
+    // No session to restore yet, so skip the probe (a /auth/refresh here would
+    // 401 and just flash a skeleton over the challenge form).
     path: '/login/mfa',
     element: (
-      <PublicOnly>
+      <PublicOnly probe={false}>
         <SuspensePage>
           <MfaChallengePage />
         </SuspensePage>
