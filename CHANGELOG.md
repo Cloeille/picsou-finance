@@ -91,6 +91,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A coin sold or withdrawn from an exchange disappears from the account.** The
   exchange sync only ever added or updated holdings, so a sold coin kept its last
   price in the account's value and cost basis until the exchange was removed.
+- **The Finary auto-sync runs in one transaction.** It called the import past the
+  Spring proxy, so nothing was transactional on that path and a failure halfway
+  left a half-imported account behind.
+- **Mapping a Finary account onto a bank or broker account no longer steals that
+  account from its connector.** The Finary id replaced the connector's external
+  id, and the connector then created a duplicate at its next sync.
+- **A rebuilt Finary or manual-cash history dates each balance at the end of its
+  day.** The rebuilt snapshot for a day held the balance before that day's
+  transactions, so every point of the rebuilt history was one day off.
 
 - **An Amundi account holding two share classes of the same fund now syncs.**
   Amundi does not always put an ISIN in `codeIsin` — on employer funds it holds
