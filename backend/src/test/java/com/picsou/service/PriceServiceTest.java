@@ -3,9 +3,7 @@ package com.picsou.service;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.picsou.adapter.CoinGeckoPriceProvider;
-import com.picsou.adapter.YahooFinancePriceProvider;
-import com.picsou.model.PriceSnapshot;
+import com.picsou.port.PriceProviderPort;
 import com.picsou.repository.PriceSnapshotRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,8 +52,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PriceServiceTest {
 
-    @Mock CoinGeckoPriceProvider coinGecko;
-    @Mock YahooFinancePriceProvider yahoo;
+    @Mock PriceProviderPort priceProvider;
     @Mock PriceSnapshotRepository priceSnapshotRepository;
 
     @InjectMocks PriceService priceService;
@@ -296,11 +293,10 @@ class PriceServiceTest {
     @Test
     void backfill_continuesPastAFailingTicker_andLogsItAtError() {
         LocalDate from = LocalDate.of(2026, 1, 1);
-        when(coinGecko.supports("BTC")).thenReturn(true);
-        when(coinGecko.supports("ETH")).thenReturn(true);
-        when(coinGecko.getHistoricalPricesEur(eq("BTC"), any(), any()))
+        // BTC blows up with a genuine bug; ETH must still be backfilled.
+        when(priceProvider.getHistoricalPricesEur(eq("BTC"), any(), any()))
             .thenThrow(new IllegalStateException("a real bug"));
-        when(coinGecko.getHistoricalPricesEur(eq("ETH"), any(), any()))
+        when(priceProvider.getHistoricalPricesEur(eq("ETH"), any(), any()))
             .thenReturn(Map.of(from, new BigDecimal("3000")));
         when(priceSnapshotRepository.findByTickerAndDate(any(), any())).thenReturn(Optional.empty());
 
@@ -318,10 +314,9 @@ class PriceServiceTest {
     }
 
     @Test
-    void backfill_routesToYahoo_forTickersCoinGeckoDoesNotSupport() {
+    void backfill_savesPricesReturnedByThePort() {
         LocalDate from = LocalDate.of(2026, 1, 1);
-        when(coinGecko.supports("AAPL")).thenReturn(false);
-        when(yahoo.getHistoricalPricesEur(eq("AAPL"), any(), any()))
+        when(priceProvider.getHistoricalPricesEur(eq("AAPL"), any(), any()))
             .thenReturn(Map.of(from, new BigDecimal("200")));
         when(priceSnapshotRepository.findByTickerAndDate(any(), any())).thenReturn(Optional.empty());
 

@@ -12,12 +12,14 @@ Because those providers can and do refuse to answer, the service is built so tha
 
 ### Provider routing
 
-`PriceService.getPriceEur(ticker)` routes each ticker to the appropriate provider:
+`PriceService` depends only on the `PriceProviderPort` abstraction; the crypto-vs-stock routing lives in `CompositePriceProvider` (the `@Primary` port bean), which picks a provider per ticker:
 
 - **CoinGecko** (`CoinGeckoPriceProvider`): Handles crypto tickers (BTC, ETH, SOL, BNB, ADA, XRP, DOGE, DOT, MATIC, AVAX, LINK, UNI, ATOM, LTC, NEAR, ARB, OP, SHIB, PEPE, SUI). Uses the `/simple/price` endpoint with `vs_currencies=eur`. Supports batch queries (all tickers in one request).
 - **Yahoo Finance** (`YahooFinancePriceProvider`): Handles everything CoinGecko does not -- stocks, ETFs, indices. Uses the unofficial `/v8/finance/chart/{ticker}` endpoint. Fetched per-ticker (no batch). Tickers like `IWDA.AS`, `MC.PA` are already EUR-denominated; foreign-currency tickers (USD/JPY/GBp/...) are converted to EUR inside the adapter via Yahoo's own `{CURRENCY}EUR=X` chart endpoint, with a 15-minute FX cache mirroring the price cache TTL. See [ADR 2026-05-19](../decisions/2026-05-19-yahoo-fx-conversion.md).
 
-Both providers implement `PriceProviderPort` with `supports(ticker)` and `getPricesEur(tickers)`.
+Routing is a deliberate `coinGecko.supports(ticker) ? coinGecko : yahoo` fallback (not a "first provider whose `supports()` is true" scan), so a ticker CoinGecko does not recognise — including a plain ISIN that Yahoo itself reports as unsupported — still falls through to Yahoo.
+
+All three providers (`CoinGeckoPriceProvider`, `YahooFinancePriceProvider`, `CompositePriceProvider`) implement `PriceProviderPort`, which exposes `supports(ticker)`, `getPricesEur(tickers)`, `getHistoricalPricesEur(...)` and `getIntradayPricesEur(...)`.
 
 ### Resolution chain
 
@@ -55,13 +57,12 @@ Both halves are split by account type before the call: `AccountRepository.findDi
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/service/PriceService.java` -- Resolution chain (cache → batched provider call → last recorded price), `Quote`, conversion
-- `backend/src/main/java/com/picsou/repository/PriceSnapshotRepository.java` -- `findRecentByTickers`, the batched fallback lookup
-- `backend/src/main/java/com/picsou/service/AccountService.java` -- `valuation()`: value and cost basis from one quote map
+- `backend/src/main/java/com/picsou/service/PriceService.java` -- Caching, EUR conversion, snapshot persistence (routing delegated to the port)
 - `backend/src/main/java/com/picsou/service/SchedulerService.java` -- Hourly price refresh cron
 - `backend/src/main/java/com/picsou/adapter/CoinGeckoPriceProvider.java` -- CoinGecko `/simple/price` with ticker-to-ID mapping
 - `backend/src/main/java/com/picsou/adapter/YahooFinancePriceProvider.java` -- Yahoo Finance `/v8/finance/chart/{ticker}`
-- `backend/src/main/java/com/picsou/port/PriceProviderPort.java` -- Port interface with `supports()` and `getPricesEur()`
+- `backend/src/main/java/com/picsou/adapter/CompositePriceProvider.java` -- `@Primary` port bean; routes crypto to CoinGecko and everything else to Yahoo
+- `backend/src/main/java/com/picsou/port/PriceProviderPort.java` -- Port interface: `supports()`, `getPricesEur()`, `getHistoricalPricesEur()`, `getIntradayPricesEur()`
 
 ### Flow
 
@@ -86,7 +87,7 @@ PriceService.getQuotes({BTC, SOL, ATOM, ...})
                 |               +-- answered --> cache + Quote(price, today, live=true)
                 |
                 v
-        still missing --> price_snapshot, latest row <= 7 days old (one query)
+        PriceProviderPort.getPricesEur({"BTC"})  (CompositePriceProvider routes: supports("BTC") --> CoinGecko)
                 |
                 +-- found  --> Quote(price, snapshotDate, live=false)   [UI marks it]
                 |
@@ -105,7 +106,7 @@ account tickers UNION holding tickers  (one global set)
 PriceService.refreshPrices(tickers)   --> always hits the providers
         |
         v
-Partition: crypto --> CoinGecko (batched) | stocks --> Yahoo (per ticker)
+PriceProviderPort.getPricesEur(tickers)  (CompositePriceProvider partitions: crypto --> CoinGecko | rest --> Yahoo)
         |
         v
 Update cache + upsert today's price_snapshot rows
@@ -147,9 +148,9 @@ Update cache + upsert today's price_snapshot rows
 
 ## Tests
 
-- `PriceServiceTest` -- resolution chain (fallback to the last recorded price, its 7-day ceiling, the negative cache, one provider call per set, crypto-only never reading a snapshot), plus the backfill guard and its coverage skip
-- `CoinGeckoPriceProviderTest` -- ticker mapping, failure grading, and the post-429 cooldown (including `Retry-After` handling)
-- `AccountServiceTest` -- an unpriced holding leaves the cost basis as well as the value; a recorded price still values the account and is reported as stale
+- `PriceServiceTest` -- unit tests for caching, conversion, backfill guard
+- `CompositePriceProviderTest` -- unit tests for crypto/stock routing and batching
+- `CoinGeckoPriceProviderTest` -- unit tests for ticker mapping
 - `YahooFinancePriceProviderTest` -- unit tests for response parsing
 
 ## Links
