@@ -15,7 +15,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -390,8 +389,11 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             for (int i = 0; i < timestamps.size() && i < closes.size(); i++) {
                 Double close = closes.get(i);
                 if (close == null) continue;
+                // The application zone, not a literal Europe/Paris: these keys are looked up with
+                // timestamps derived from LocalDateTime.now(), so they have to be expressed in
+                // whatever zone that now() runs in. See com.picsou.config.TimeZoneConfig.
                 LocalDateTime dt = Instant.ofEpochSecond(timestamps.get(i))
-                    .atZone(ZoneId.of("Europe/Paris")).toLocalDateTime();
+                    .atZone(ZoneId.systemDefault()).toLocalDateTime();
                 if (!dt.isBefore(from) && !dt.isAfter(to) && close > 0) {
                     prices.put(dt, BigDecimal.valueOf(close).multiply(fx).setScale(8, RoundingMode.HALF_UP));
                 }
@@ -455,7 +457,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
                 Double close = closes.get(i);
                 if (close == null) continue;
                 LocalDate date = Instant.ofEpochSecond(timestamps.get(i))
-                    .atZone(ZoneOffset.UTC).toLocalDate();
+                    .atZone(ZoneId.systemDefault()).toLocalDate();
                 if (!date.isBefore(from) && !date.isAfter(to) && close > 0) {
                     prices.put(date, BigDecimal.valueOf(close).multiply(fx).setScale(8, RoundingMode.HALF_UP));
                 }

@@ -15,7 +15,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.TimeoutException;
 
@@ -383,6 +383,12 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
     /**
      * Fetch hourly prices for a crypto ticker from CoinGecko over the last 24H.
      * CoinGecko's market_chart/range returns hourly data for ranges < 90 days.
+     *
+     * <p>{@code from} and {@code to} are wall-clock times in the application zone — the caller
+     * derives them from {@code LocalDateTime.now()} — so the instants they denote, and the keys
+     * the returned map is read by, are resolved in that same zone. Keying in UTC while the caller
+     * compared against a zoned {@code now()} is what made every crypto point on the 24H chart
+     * disagree with the stock points beside it. See {@link com.picsou.config.TimeZoneConfig}.
      */
     public Map<LocalDateTime, BigDecimal> getIntradayPricesEur(String ticker, LocalDateTime from, LocalDateTime to) {
         String coinId = TICKER_TO_ID.get(ticker.toUpperCase(Locale.ROOT));
@@ -390,8 +396,9 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
         if (coolingDown("intraday prices", ticker + " (" + coinId + ")")) return Map.of();
 
         try {
-            long fromEpoch = from.atZone(ZoneOffset.UTC).toEpochSecond();
-            long toEpoch = to.atZone(ZoneOffset.UTC).toEpochSecond();
+            ZoneId zone = ZoneId.systemDefault();
+            long fromEpoch = from.atZone(zone).toEpochSecond();
+            long toEpoch = to.atZone(zone).toEpochSecond();
 
             Map<String, Object> response = webClient.get()
                 .uri(uriBuilder -> uriBuilder
@@ -412,7 +419,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
 
             Map<LocalDateTime, BigDecimal> prices = new LinkedHashMap<>();
             forEachPricePoint(response, ticker + " (" + coinId + ")", (timestamp, price) -> {
-                LocalDateTime dt = Instant.ofEpochMilli(timestamp).atZone(ZoneOffset.UTC).toLocalDateTime();
+                LocalDateTime dt = Instant.ofEpochMilli(timestamp).atZone(zone).toLocalDateTime();
                 if (!dt.isBefore(from) && !dt.isAfter(to) && price > 0) {
                     prices.put(dt, BigDecimal.valueOf(price).setScale(8, RoundingMode.HALF_UP));
                 }
@@ -429,6 +436,9 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
     /**
      * Fetch historical daily prices for a crypto ticker from CoinGecko.
      * Returns a map of date -> priceEur.
+     *
+     * <p>Dated in the application zone, like the intraday series above and like the
+     * {@code LocalDate.now()} the callers compare these dates against.
      */
     public Map<LocalDate, BigDecimal> getHistoricalPricesEur(String ticker, LocalDate from, LocalDate to) {
         String coinId = TICKER_TO_ID.get(ticker.toUpperCase(Locale.ROOT));
@@ -436,8 +446,9 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
         if (coolingDown("historical prices", ticker + " (" + coinId + ")")) return Map.of();
 
         try {
-            long fromEpoch = from.atStartOfDay(ZoneOffset.UTC).toEpochSecond();
-            long toEpoch = to.atStartOfDay(ZoneOffset.UTC).toEpochSecond();
+            ZoneId zone = ZoneId.systemDefault();
+            long fromEpoch = from.atStartOfDay(zone).toEpochSecond();
+            long toEpoch = to.atStartOfDay(zone).toEpochSecond();
 
             Map<String, Object> response = webClient.get()
                 .uri(uriBuilder -> uriBuilder
@@ -458,7 +469,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
 
             Map<LocalDate, BigDecimal> prices = new HashMap<>();
             forEachPricePoint(response, ticker + " (" + coinId + ")", (timestamp, price) -> {
-                LocalDate date = Instant.ofEpochMilli(timestamp).atZone(ZoneOffset.UTC).toLocalDate();
+                LocalDate date = Instant.ofEpochMilli(timestamp).atZone(zone).toLocalDate();
                 if (!date.isBefore(from) && !date.isAfter(to) && price > 0) {
                     prices.put(date, BigDecimal.valueOf(price).setScale(8, RoundingMode.HALF_UP));
                 }
