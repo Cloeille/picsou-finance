@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
+import type { QueryKey } from '@tanstack/react-query'
 import {
   bankSyncApi,
   trApi,
@@ -42,6 +43,40 @@ export const syncKeys = {
   exchanges: () => [...syncKeys.all, 'exchanges'] as const,
   wallets: () => [...syncKeys.all, 'wallets'] as const,
   finary: () => [...syncKeys.all, 'finary'] as const,
+}
+
+// ---------------------------------------------------------------------------
+// Browser-sidecar session status (Bourse Direct, Amundi)
+// ---------------------------------------------------------------------------
+
+/**
+ * Status poll shared by the sidecar providers: their backend only queues the
+ * import, so an in-flight sync is polled every 1.5s (30s otherwise) and a
+ * completed one refreshes the caches the imported accounts feed.
+ */
+function useSidecarSessionStatus<
+  T extends { syncStatus: string; lastSyncCompletedAt: string | null },
+>(queryKey: QueryKey, queryFn: () => Promise<T>) {
+  const queryClient = useQueryClient()
+  const query = useQuery({
+    queryKey,
+    queryFn,
+    staleTime: 0,
+    refetchInterval: currentQuery => {
+      const state = currentQuery.state.data?.syncStatus
+      return state === 'QUEUED' || state === 'RUNNING' ? 1_500 : 30_000
+    },
+  })
+  const completedAt = query.data?.lastSyncCompletedAt
+  const succeeded = query.data?.syncStatus === 'SUCCESS'
+
+  useEffect(() => {
+    if (!succeeded || !completedAt) return
+    queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+  }, [completedAt, queryClient, succeeded])
+
+  return query
 }
 
 // ---------------------------------------------------------------------------
@@ -416,26 +451,7 @@ export function useClearDegiroSession() {
 // ---------------------------------------------------------------------------
 
 export function useBourseDirectStatus() {
-  const queryClient = useQueryClient()
-  const query = useQuery({
-    queryKey: syncKeys.bourseDirect(),
-    queryFn: bourseDirectApi.getStatus,
-    staleTime: 0,
-    refetchInterval: currentQuery => {
-      const state = currentQuery.state.data?.syncStatus
-      return state === 'QUEUED' || state === 'RUNNING' ? 1_500 : 30_000
-    },
-  })
-  const completedAt = query.data?.lastSyncCompletedAt
-  const succeeded = query.data?.syncStatus === 'SUCCESS'
-
-  useEffect(() => {
-    if (!succeeded || !completedAt) return
-    queryClient.invalidateQueries({ queryKey: ['accounts'] })
-    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-  }, [completedAt, queryClient, succeeded])
-
-  return query
+  return useSidecarSessionStatus(syncKeys.bourseDirect(), bourseDirectApi.getStatus)
 }
 
 export function useInitiateBourseDirectAuth() {
@@ -452,7 +468,7 @@ export function useInitiateBourseDirectAuth() {
 export function useCompleteBourseDirectAuth() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ processId, code }: { processId: string; code: string }) =>
+    mutationFn: ({ processId, code }: { processId: string; code?: string }) =>
       bourseDirectApi.completeAuth(processId, code),
     onSuccess: status => {
       queryClient.setQueryData(syncKeys.bourseDirect(), status)
@@ -490,26 +506,7 @@ export function useClearBourseDirectSession() {
 // ---------------------------------------------------------------------------
 
 export function useAmundiStatus() {
-  const queryClient = useQueryClient()
-  const query = useQuery({
-    queryKey: syncKeys.amundi(),
-    queryFn: amundiApi.getStatus,
-    staleTime: 0,
-    refetchInterval: currentQuery => {
-      const state = currentQuery.state.data?.syncStatus
-      return state === 'QUEUED' || state === 'RUNNING' ? 1_500 : 30_000
-    },
-  })
-  const completedAt = query.data?.lastSyncCompletedAt
-  const succeeded = query.data?.syncStatus === 'SUCCESS'
-
-  useEffect(() => {
-    if (!succeeded || !completedAt) return
-    queryClient.invalidateQueries({ queryKey: ['accounts'] })
-    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-  }, [completedAt, queryClient, succeeded])
-
-  return query
+  return useSidecarSessionStatus(syncKeys.amundi(), amundiApi.getStatus)
 }
 
 export function useInitiateAmundiAuth() {

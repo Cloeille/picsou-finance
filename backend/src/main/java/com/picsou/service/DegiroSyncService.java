@@ -67,7 +67,6 @@ public class DegiroSyncService {
     private final FamilyMemberRepository   familyMemberRepository;
     private final AccountService           accountService;
     private final OpenFigiIsinConverter    isinConverter;
-    private final SecurityIdentityService  identityService;
     private final CryptoEncryption         encryption;
     private final DegiroSessionStatusWriter statusWriter;
 
@@ -79,7 +78,6 @@ public class DegiroSyncService {
         FamilyMemberRepository familyMemberRepository,
         AccountService accountService,
         OpenFigiIsinConverter isinConverter,
-        SecurityIdentityService identityService,
         CryptoEncryption encryption,
         DegiroSessionStatusWriter statusWriter
     ) {
@@ -90,7 +88,6 @@ public class DegiroSyncService {
         this.familyMemberRepository = familyMemberRepository;
         this.accountService      = accountService;
         this.isinConverter       = isinConverter;
-        this.identityService     = identityService;
         this.encryption          = encryption;
         this.statusWriter        = statusWriter;
     }
@@ -215,24 +212,13 @@ public class DegiroSyncService {
 
     private AccountResponse upsertAccount(DegiroPortfolioData data, Long memberId) {
         Map<String, HoldingDedup.HoldingAgg> deduped = new HashMap<>();
-        Map<String, String> isinByTicker = new HashMap<>();
         for (DegiroPosition p : data.positions()) {
-            String ticker;
-            String name = p.name();
-            if (p.isin() != null && !p.isin().isBlank()) {
-                var resolved = isinConverter.resolve(p.isin());
-                ticker = resolved.ticker();
-                if (resolved.name() != null) name = resolved.name();
-                isinByTicker.put(ticker, p.isin());
-            } else {
-                ticker = p.symbol();
-            }
+            var resolved = isinConverter.resolveIsinOrSymbol(p.isin(), p.symbol(), p.name());
             deduped.merge(
-                ticker,
-                new HoldingDedup.HoldingAgg(p.quantity(), p.buyingPrice(), p.currentPrice(), name),
+                resolved.ticker(),
+                new HoldingDedup.HoldingAgg(p.quantity(), p.buyingPrice(), p.currentPrice(), resolved.name()),
                 HoldingDedup::vwapMerge);
         }
-        identityService.record(isinByTicker);
 
         // Total account value = cash + positions, mirroring Bourse Direct's
         // balanceEur/cashBalance split — DEGIRO's API gives us cash and per-position

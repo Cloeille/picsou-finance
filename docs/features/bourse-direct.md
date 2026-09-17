@@ -125,6 +125,18 @@ added. Synchronization jobs are fenced by their persisted session IDs, so a
 session cleared or replaced while work is running cannot be overwritten by the
 older job.
 
+## Frontend
+
+`frontend/src/components/sync/BourseDirectPanel.tsx` is a thin wrapper over
+`SidecarSessionPanel`, the generic login / OTP / sync / disconnect panel shared
+with Amundi: it supplies the `sync.bourseDirect.*` i18n prefix, the icon and the
+`useBourseDirect*` hooks. Bourse Direct does not set `appPush`, so its second
+factor is always the six-digit code form.
+
+The reconciliation tolerance the collector uses upstream is also the one the
+backend applies (`SyncValues.moneyClose`), shared with Amundi so the same
+rounding drift cannot be accepted by one integration and rejected by the other.
+
 ## Verification boundaries
 
 CI builds the real sidecar image and runs parser, lifecycle and browser
