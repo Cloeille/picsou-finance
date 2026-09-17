@@ -3,6 +3,7 @@ package com.picsou.service;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.picsou.model.PriceSnapshot;
 import com.picsou.port.PriceProviderPort;
 import com.picsou.repository.PriceSnapshotRepository;
 import org.junit.jupiter.api.AfterEach;
