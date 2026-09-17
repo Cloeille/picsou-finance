@@ -437,9 +437,14 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
             Map<String, JsonNode> positionsByIsin = positionsByAccount.getOrDefault(
                 secAccount.externalId(), new ConcurrentHashMap<>());
 
-            BigDecimal totalPortfolioValue = secAccount.type() == AccountType.PEA
-                ? parseCashValue(scopedCashJsonByAccount.get(secAccount.externalId()))
-                : BigDecimal.ZERO;
+            // Null when the pocket is unknown (no cash account to subscribe to, or its frame
+            // never arrived), not zero: parseCashValue(null) reads as an empty pocket, and the
+            // sync keeps the last known pocket for an unknown one, as it keeps the holdings.
+            String peaCashJson = secAccount.type() == AccountType.PEA
+                ? scopedCashJsonByAccount.get(secAccount.externalId())
+                : null;
+            BigDecimal peaCash = peaCashJson != null ? parseCashValue(peaCashJson) : null;
+            BigDecimal totalPortfolioValue = peaCash != null ? peaCash : BigDecimal.ZERO;
             int priced = 0;
             for (var entry : positionsByIsin.entrySet()) {
                 String isin = entry.getKey();
@@ -488,7 +493,8 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                     secAccount.name(),
                     secAccount.type(),
                     totalPortfolioValue,
-                    positions));
+                    positions,
+                    peaCash));
             }
         }
 
