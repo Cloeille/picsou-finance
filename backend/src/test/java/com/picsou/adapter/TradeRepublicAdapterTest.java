@@ -146,4 +146,31 @@ class TradeRepublicAdapterTest {
             timeout
         );
     }
+
+    // ─── shouldPersist: what an answer must be before it replaces the previous holdings ────
+
+    /**
+     * The case that wiped a PEA: the cash subscription answered (500 EUR), the portfolio
+     * subscription answered with an error frame. Persisting it stored an account worth its
+     * cash with no positions, so the service deleted every holding.
+     */
+    @Test
+    void shouldPersist_anErroredPortfolioWithNoPositions_isSkipped_evenWithCash() {
+        assertThat(TradeRepublicAdapter.shouldPersist(new java.math.BigDecimal("500"), true, true, true)).isFalse();
+    }
+
+    @Test
+    void shouldPersist_aGenuinelyEmptiedPortfolio_isPersisted() {
+        assertThat(TradeRepublicAdapter.shouldPersist(java.math.BigDecimal.ZERO, true, true, false)).isTrue();
+    }
+
+    @Test
+    void shouldPersist_positionsWinOverAnErrorOnALaterFrame() {
+        assertThat(TradeRepublicAdapter.shouldPersist(new java.math.BigDecimal("900"), false, true, true)).isTrue();
+    }
+
+    @Test
+    void shouldPersist_anAccountThatNeverAnsweredAndHasNothing_isSkipped() {
+        assertThat(TradeRepublicAdapter.shouldPersist(java.math.BigDecimal.ZERO, true, false, false)).isFalse();
+    }
 }
