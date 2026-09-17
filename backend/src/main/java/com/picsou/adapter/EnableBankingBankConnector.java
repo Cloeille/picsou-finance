@@ -5,6 +5,7 @@ import com.picsou.config.EnableBankingConfigProvider;
 import com.picsou.exception.SyncException;
 import com.picsou.port.BankConnectorPort;
 import com.picsou.service.EnableBankingCallLogger;
+import com.picsou.util.LogSanitizer;
 import io.jsonwebtoken.Jwts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -201,7 +202,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             throw new SyncException("Empty session response from Enable Banking /sessions");
         }
 
-        log.info("Enable Banking session created");
+        log.info("Enable Banking session created: {}", LogSanitizer.fingerprint(session.sessionId()));
         return session.sessionId();
     }
 
@@ -254,13 +255,13 @@ public class EnableBankingBankConnector implements BankConnectorPort {
                 .block();
 
             if (session != null && session.accounts() != null && !session.accounts().isEmpty()) {
-                log.info("Enable Banking session has {} accounts (attempt {}, status={})",
-                    session.accounts().size(), attempt, session.status());
+                log.info("Session {} has {} accounts (attempt {}, status={})",
+                    LogSanitizer.fingerprint(sessionId), session.accounts().size(), attempt, session.status());
                 return session.accounts();
             }
 
-            log.info("Enable Banking session has no accounts yet (attempt {}/{}, status={})",
-                attempt, maxAttempts,
+            log.info("Session {} has no accounts yet (attempt {}/{}, status={})",
+                LogSanitizer.fingerprint(sessionId), attempt, maxAttempts,
                 session != null ? session.status() : "null");
 
             if (attempt < maxAttempts) {
@@ -268,8 +269,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             }
         }
 
-        log.warn("Enable Banking session still has no accounts after {} attempts — returning empty so the caller can retry asynchronously",
-            maxAttempts);
+        log.warn("Session {} still has no accounts after {} attempts — returning empty so the caller can retry asynchronously",
+            LogSanitizer.fingerprint(sessionId), maxAttempts);
         return List.of();
     }
 

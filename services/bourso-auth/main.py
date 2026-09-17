@@ -59,6 +59,11 @@ LOGIN_PATH = "/connexion/"
 VIRTUAL_PAD_PATH = "/connexion/clavier-virtuel?_hinclude=1"
 PASSWORD_PATH = "/connexion/saisie-mot-de-passe"
 SECURISATION_PATH = "/securisation"
+# BoursoBank periodically parks a successful login on an anti-fraud education
+# page ("/infos-profil/pedagogie-fraude/...") until the account holder ticks the
+# acknowledgment on the real website. The login POST already returned 302, so
+# the credentials are valid -- this must never read as INVALID_CREDENTIALS.
+FRAUD_EDUCATION_PATH = "/infos-profil/pedagogie-fraude"
 VALIDATION_PATH = "/securisation/validation"
 ACCOUNTS_PATH = "/dashboard/liste-comptes?rumroute=dashboard.new_accounts&_hinclude=1"
 
@@ -418,6 +423,16 @@ async def _home(client: httpx.AsyncClient) -> str:
     return (await client.get("/", follow_redirects=True)).text
 
 
+def is_fraud_education_page(home: str) -> bool:
+    """True when BoursoBank parked the login on its fraud-education notice.
+
+    Pure so the initiate() branch ordering stays unit-testable without driving
+    the login flow: a fraud landing is neither the dashboard marker nor the
+    securisation path, and must not fall through to INVALID_CREDENTIALS.
+    """
+    return FRAUD_EDUCATION_PATH in home
+
+
 def _strong_auth_params(page: str) -> tuple[str, str]:
     """Pull `resourceId` and `formState` out of the securisation payload."""
     raw = _first_group(_STRONG_AUTH_RE.search(page), "payload")
@@ -622,6 +637,12 @@ async def initiate(req: InitiateRequest) -> dict:
             }
 
         if SECURISATION_PATH not in home:
+            if is_fraud_education_page(home):
+                # The password was accepted (login POST 302) but BoursoBank
+                # wants the account holder to acknowledge its fraud-prevention
+                # notice on the real website first. Never auto-tick it: it is
+                # a legal notice only the holder can accept.
+                raise HTTPException(status_code=401, detail="FRAUD_ACK_REQUIRED")
             # The login POST redirected somewhere that is neither the dashboard
             # nor a second factor. BoursoBank answers a wrong password this way
             # once the form has already been accepted.

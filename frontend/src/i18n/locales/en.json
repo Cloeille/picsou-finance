@@ -483,6 +483,11 @@
     "evolution": "Evolution",
     "capitalInvested": "Capital invested",
     "avgBuyIn": "Avg buy-in",
+    "totalInvested": "Total invested",
+    "quantitySyncedHint": "Quantity comes from the on-chain / exchange sync and can't be edited here.",
+    "costBasisHint": "Set your real cost basis so gain/loss reflects what you actually invested — editing one field updates the other.",
+    "quantityInvalid": "Enter a quantity greater than zero.",
+    "costBasisInvalid": "Cost basis can't be negative.",
     "editTitle": "Edit {{ticker}}",
     "perShare": "/ share",
     "insight": {
@@ -922,6 +927,7 @@
       "bourso": "Current accounts, savings, PEA and securities accounts held at BoursoBank",
       "bourseDirect": "Sync your PEA and securities accounts",
       "degiro": "Sync your DEGIRO securities account",
+      "ibkr": "Sync your Interactive Brokers account via Flex Query",
       "finary": "Import from Finary",
       "manual": "Create an account manually",
       "amundi": "PEE, PEG, PERCO, PER held at Amundi",
@@ -1147,6 +1153,7 @@
       "errors": {
         "tooManyAttempts": "Too many attempts. Please wait before retrying.",
         "invalidCredentials": "Invalid BoursoBank client number or password.",
+        "fraudAckRequired": "Log in on the BoursoBank website, validate the fraud-prevention notice, then reconnect.",
         "mfaTypeUnsupported": "BoursoBank asked for an SMS or e-mail code, which Picsou cannot handle. Switch to app validation in your BoursoBank security settings.",
         "appValidationTimeout": "The app approval was not confirmed in time. Please start over.",
         "authAttemptExpired": "The authentication attempt expired. Please start over.",

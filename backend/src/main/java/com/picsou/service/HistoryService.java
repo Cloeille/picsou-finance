@@ -236,7 +236,8 @@ public class HistoryService {
     /**
      * Build hourly net worth history for the last 24 hours.
      *
-     * For investment accounts (PEA, CT, Crypto): portfolio value = sum(holding.qty × intraday price at each hour).
+     * For investment accounts (PEA, CT, Crypto): portfolio value = sum(holding.qty × intraday price at each hour)
+     * plus the cash pocket held in the envelope, which also counts as invested (it is worth what it cost).
      * For bank/savings accounts: use today's balance snapshot (constant throughout the day).
      * For loans: negate the balance.
      */
@@ -254,6 +255,7 @@ public class HistoryService {
 
         Map<Long, List<HoldingData>> accountHoldings = new HashMap<>();
         Map<Long, BigDecimal> accountHoldingsInvested = new HashMap<>();
+        Map<Long, BigDecimal> accountCash = new HashMap<>(); // cash pocket of investment accounts, unweighted
         Map<Long, BigDecimal> accountBankBalance = new HashMap<>(); // non-investment account balances
         Set<String> allTickers = new HashSet<>();
         Set<Long> loanIds = new HashSet<>();
@@ -294,8 +296,15 @@ public class HistoryService {
                     if (ticker != null) allTickers.add(ticker);
                 }
 
+                // The cash pocket sits in the envelope next to the positions and is worth exactly
+                // what it cost, so it goes on both sides, as valuation() does for the daily chart's
+                // today point. Leaving it out of both kept the intraday gain right but printed a
+                // total lower than the daily chart's by the whole pocket, so switching to 24H read
+                // as a drop that never happened.
+                BigDecimal cash = account.getCashBalance() != null ? account.getCashBalance() : BigDecimal.ZERO;
+                accountCash.put(accId, cash);
                 accountHoldings.put(accId, holdingDataList);
-                accountHoldingsInvested.put(accId, weigh(invested, shares, accId));
+                accountHoldingsInvested.put(accId, weigh(invested.add(cash), shares, accId));
             }
         }
 
@@ -350,10 +359,14 @@ public class HistoryService {
                     }
 
                     // Weighted on the account total rather than per holding: rounding once
-                    // keeps this consistent with the daily chart's per-account weighting.
-                    marketValue = weigh(marketValue, shares, accId);
+                    // keeps this consistent with the daily chart's per-account weighting. The
+                    // cash pocket goes in before that single rounding, as it does on the
+                    // invested side, so the two sides cannot drift by a rounded cent.
+                    marketValue = weigh(
+                        marketValue.add(accountCash.getOrDefault(accId, BigDecimal.ZERO)), shares, accId);
 
-                    // If no intraday price found, account has zero market value at that hour (skip)
+                    // If no intraday price found, the positions are worth zero at that hour and
+                    // only the cash pocket remains (skip)
                     if (loanIds.contains(accId)) {
                         aggTotal = aggTotal.subtract(marketValue);
                     } else {

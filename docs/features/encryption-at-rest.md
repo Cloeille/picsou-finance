@@ -15,7 +15,7 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 - **Algorithm**: `AES/GCM/NoPadding` -- authenticated encryption (confidentiality + integrity)
 - **IV**: 12-byte random IV generated per encryption call
 - **Tag**: 128-bit GCM authentication tag (tamper detection)
-- **Storage format**: `Base64(IV || ciphertext || tag)` -- single string stored in VARCHAR columns
+- **Storage format**: `Base64(IV || ciphertext || tag)` -- single string, stored in a `TEXT` column when a third party controls the plaintext length and in a sized `VARCHAR` when a known format bounds it (see *Column widths* below)
 - **Key**: 256-bit symmetric key from `CRYPTO_ENCRYPTION_KEY` env var (Base64-encoded)
 - **Startup behavior**: The application **refuses to start** if the key is not set. No plaintext fallback.
 
@@ -25,8 +25,9 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 |------|--------|--------|-----------------|
 | Crypto exchange API key | `CryptoExchangeSession` | `api_key` | V15 (2026-04-08) |
 | Crypto exchange API secret | `CryptoExchangeSession` | `api_secret` | V9 (initial) |
-| Trade Republic session token | `TradeRepublicSession` | `session_token` | V15 (2026-04-08) |
-| Trade Republic refresh token | `TradeRepublicSession` | `refresh_token` | V15 (2026-04-08) |
+| Trade Republic session token | `TradeRepublicSession` | `session_token` | V15 (2026-04-08), `TEXT` since V86 |
+| Trade Republic refresh token | `TradeRepublicSession` | `refresh_token` | V15 (2026-04-08), `TEXT` since V86 |
+| DEGIRO session blob | `DegiroSession` | `session_blob` | V71 (2026-08-10), `TEXT` since V86 |
 
 ### What is NOT encrypted (and why)
 
@@ -55,10 +56,10 @@ Store credential:
                 AES-GCM encrypt with IV + key --> ciphertext + tag
                   |
                   v
-                Base64(IV || ciphertext || tag) --> VARCHAR column
+                Base64(IV || ciphertext || tag) --> TEXT or VARCHAR column
 
 Read credential:
-  VARCHAR column --> CryptoEncryption.decrypt()
+  TEXT or VARCHAR column --> CryptoEncryption.decrypt()
                        |
                        v
                      Base64 decode --> IV || ciphertext || tag
@@ -82,7 +83,7 @@ Read credential:
 - **Key is mandatory**: The app will not start without `CRYPTO_ENCRYPTION_KEY`. Generate with: `openssl rand -base64 32`.
 - **Lost key = re-enter credentials**: If the encryption key is lost, encrypted data cannot be recovered. The user must re-add crypto exchanges and re-authenticate Trade Republic.
 - **V15 truncates existing sessions**: After deploying V15, all crypto exchange sessions and TR sessions are cleared. Users must re-enter API keys and re-authenticate TR. This is a one-time migration cost.
-- **Column widths**: Encrypted values are ~1.4x larger than plaintext (Base64 overhead + 12-byte IV + 16-byte tag). Columns are sized with headroom: `api_key` 500, `api_secret` 500, `session_token` 2000, `refresh_token` 4000.
+- **Column widths**: An encrypted value is `4 * ceil((n + 28) / 3)` characters for `n` plaintext bytes (Base64 of a 12-byte IV + ciphertext + 16-byte tag), so a `VARCHAR(2000)` silently caps the plaintext at 1472 bytes and a `VARCHAR(4000)` at 2972. That cap fails the INSERT *after* a successful login once a third party grows its token (#115), so the columns whose plaintext length a third party controls are `TEXT` since V86: `trade_republic_session.session_token` / `refresh_token` and `degiro_session.session_blob` (Amundi, Bourse Direct and BoursoBank session state already were). Only values bounded by a known format stay sized: `api_key` 500 and `api_secret` 500 (largest known exchange key ~230 chars, ~350 once encrypted). Do not reintroduce a `length` on a third-party token column.
 - **No key rotation**: A single key is used for all encryption. If compromised, all secrets must be re-encrypted. No versioning mechanism exists yet.
 - **Decryption failure on corrupt data**: If a stored value is not valid AES-GCM ciphertext (e.g., legacy plaintext), `decrypt()` throws `RuntimeException`. Callers should handle this gracefully (crypto sync sets status to ERROR; TR treats it as expired session).
 

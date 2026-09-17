@@ -166,7 +166,7 @@ public class AccountService {
         // Create initial snapshot if balance is provided
         if (account.getCurrentBalance().compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal invested = calculateInvestedAmount(account);
-            createSnapshot(account, account.getCurrentBalance(), invested, LocalDate.now());
+            createSnapshot(account, toSnapshotEur(account, account.getCurrentBalance()), invested, LocalDate.now());
         }
 
         return toResponse(account);
@@ -205,7 +205,7 @@ public class AccountService {
             BigDecimal oldBalance = account.getCurrentBalance();
             account.setCurrentBalance(req.currentBalance());
             if (req.currentBalance().compareTo(oldBalance) != 0) {
-                upsertSnapshot(account, req.currentBalance(), LocalDate.now());
+                upsertSnapshotFromNative(account, req.currentBalance(), LocalDate.now());
             }
         }
 
@@ -288,7 +288,7 @@ public class AccountService {
             accountRepository.save(account);
         }
 
-        return upsertSnapshot(account, req.balance(), req.date());
+        return upsertSnapshotFromNative(account, req.balance(), req.date());
     }
 
     public List<BalanceSnapshot> getHistory(Long accountId, Long memberId, LocalDate from, LocalDate to) {
@@ -366,10 +366,27 @@ public class AccountService {
     /**
      * Calculate the invested amount (cost basis) for an account.
      * For accounts with holdings: SUM(quantity × averageBuyIn), excluding assets that could
-     * not be valued at all. For cash accounts: same as the current balance.
+     * not be valued at all. For cash accounts: the balance converted to EUR, the same figure
+     * as its value.
      */
     public BigDecimal calculateInvestedAmount(Account account) {
         return valuation(account).investedEur();
+    }
+
+    /**
+     * Records a balance expressed in the account's own currency. {@code balance_snapshot.balance}
+     * is read as EUR everywhere ({@code HistoryService} sums the rows straight into net worth,
+     * and the daily job writes {@link #valuation} figures next to these), so a hand-typed or
+     * bank-reported USD balance is converted before it is stored, the way {@link #valuation}
+     * converts it for the dashboard. A back-dated manual snapshot converts at today's rate: the
+     * provider has no historical FX, and an approximate EUR figure beats a USD one read as EUR.
+     */
+    BalanceSnapshot upsertSnapshotFromNative(Account account, BigDecimal nativeBalance, LocalDate date) {
+        return upsertSnapshot(account, toSnapshotEur(account, nativeBalance), date);
+    }
+
+    private BigDecimal toSnapshotEur(Account account, BigDecimal nativeBalance) {
+        return priceService.toEur(nativeBalance, account.getCurrency(), account.getTicker());
     }
 
     BalanceSnapshot upsertSnapshot(Account account, BigDecimal balance, LocalDate date) {
@@ -463,7 +480,10 @@ public class AccountService {
      */
     public Valuation valuation(Account account) {
         if (account.getType() == AccountType.LOAN) {
+            // A Debt without dates has no schedule, and its "remaining balance" is the whole
+            // borrowed amount; the balance the user typed on the account is the better figure.
             BigDecimal outstanding = debtRepository.findByAccountId(account.getId())
+                .filter(LoanAmortizationService::hasSchedule)
                 .map(debt -> loanAmortizationService.computeRemainingBalance(debt, LocalDate.now()))
                 .orElseGet(() -> priceService.toEur(
                     account.getCurrentBalance(), account.getCurrency(), account.getTicker()));
@@ -474,7 +494,10 @@ public class AccountService {
         if (holdings.isEmpty()) {
             BigDecimal cash = priceService.toEur(
                 account.getCurrentBalance(), account.getCurrency(), account.getTicker());
-            return new Valuation(cash, account.getCurrentBalance(), true, true, false);
+            // Cash costs what it is worth, in the same currency on both sides: returning the
+            // stored balance as the cost basis paired a converted value with an unconverted
+            // cost, so a USD or GBP account reported the FX rate as a gain or a loss.
+            return new Valuation(cash, cash, true, true, false);
         }
 
         Map<String, PriceService.Quote> quotes = quotesFor(account, holdings);
@@ -692,7 +715,14 @@ public class AccountService {
         Account account = getOrThrow(accountId, memberId);
         AccountHolding h = holdingRepository.findByAccountIdAndTicker(accountId, ticker)
             .orElseThrow(() -> new ResourceNotFoundException("Holding not found"));
-        h.setQuantity(quantity);
+        // Synced accounts (on-chain wallets, exchanges) own the quantity from the
+        // chain/exchange. Ignore a client-supplied quantity there — the read-only
+        // rule is a UI convenience; enforcing it server-side removes the trust gap
+        // (and the stale-snapshot race) so a cost-basis edit can't clobber the
+        // authoritative balance, which the next sync would overwrite anyway.
+        if (account.isManual() && quantity != null) {
+            h.setQuantity(quantity);
+        }
         if (averageBuyIn != null) h.setAverageBuyIn(averageBuyIn);
         // A user edit invalidates broker-derived valuation/P&L as a coherent
         // pair. A subsequent provider sync will repopulate both fields.

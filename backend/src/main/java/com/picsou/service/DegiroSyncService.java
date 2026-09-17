@@ -272,7 +272,6 @@ public class DegiroSyncService {
         }
 
         account = accountRepository.save(account);
-        accountService.upsertSnapshot(account, totalValueEur, LocalDate.now());
 
         holdingRepository.deleteByAccountId(account.getId());
         holdingRepository.flush();
@@ -290,6 +289,11 @@ public class DegiroSyncService {
                 .lastSyncedAt(Instant.now())
                 .build());
         }
+
+        // After the holdings, not before: the 3-arg upsertSnapshot derives the day's
+        // investedAmount from the holdings in the table, and taken before the replacement it
+        // costed today's snapshot with the previous sync's positions.
+        accountService.upsertSnapshot(account, totalValueEur, LocalDate.now());
 
         return accountService.toResponse(account);
     }

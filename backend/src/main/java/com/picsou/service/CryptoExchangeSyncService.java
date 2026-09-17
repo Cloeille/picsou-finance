@@ -214,6 +214,15 @@ public class CryptoExchangeSyncService {
                 }
             }
 
+            // A coin sold or withdrawn since the last sync is absent from `quantities`, and
+            // upsertHolding never removes anything: its row kept its last price and stayed in the
+            // account's value and cost basis for as long as the exchange was connected.
+            if (quantities.isEmpty()) {
+                holdingRepository.deleteByAccountId(account.getId());
+            } else {
+                holdingRepository.deleteByAccountIdAndTickerNotIn(account.getId(), quantities.keySet());
+            }
+
             replacePositions(account, positions);
 
             // Now create snapshot with correct invested amount from holdings — unless nothing
