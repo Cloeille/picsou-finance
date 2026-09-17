@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A price the provider could not deliver a minute ago no longer blanks a position
+  in the exchange sync.** `refreshPrices` returned a remembered miss as a `null`
+  price, `refreshCryptoQuotes` wrapped it in a quote, and the last-known-price
+  fallback that exists for exactly this case was skipped: during a CoinGecko rate
+  limit, an exchange account holding BTC and ETH was stored, and snapshotted for
+  the day, at its BTC value alone. A remembered miss now stays out of the result,
+  so the fallback runs, and misses expire after 60 seconds as documented rather
+  than after the 15-minute hit TTL.
+- **The startup price backfill no longer records a listed company's history under
+  a coin's symbol.** Holdings of CRYPTO accounts are backfilled through CoinGecko
+  only, as the hourly refresh already did; a coin CoinGecko cannot map is left
+  without history instead of receiving twelve months of the stock trading under
+  the same ticker (STX: Stacks in the wallet, Seagate on Nasdaq).
 - **A cash account in USD, GBP or any other currency is worth its FX-converted
   balance again.** `toEur` used the currency code as a Yahoo chart symbol when the
   account had no ticker, and Yahoo answers `chart/USD` with the ProShares Ultra

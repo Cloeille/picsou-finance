@@ -22,6 +22,15 @@ public class PriceService {
 
     private static final Logger log = LoggerFactory.getLogger(PriceService.class);
     private static final long CACHE_TTL_SECONDS = 900; // 15 minutes
+    /**
+     * A remembered miss expires sooner than a hit: a miss is more likely to be transient (a
+     * rate limit) than a hit is to be stale, so recovery stays fast while a storm of retries
+     * still collapses to one call per ticker per minute (docs/features/price-service.md).
+     * Retries, that is: the cache is a plain map with no in-flight de-duplication, so threads
+     * asking for the same uncached ticker at the same instant each reach the provider once
+     * before the first answer lands.
+     */
+    private static final long MISS_CACHE_TTL_SECONDS = 60;
 
     /**
      * How stale a {@code price_snapshot} row may be before it stops being an acceptable answer.
@@ -271,7 +280,9 @@ public class PriceService {
         LocalDate today = LocalDate.now();
 
         Map<String, Quote> quotes = new HashMap<>();
-        live.forEach((ticker, price) -> quotes.put(ticker, new Quote(price, today, true)));
+        live.forEach((ticker, price) -> {
+            if (price != null) quotes.put(ticker, new Quote(price, today, true));
+        });
 
         Set<String> unresolved = tickers.stream()
             .map(t -> t.toUpperCase(Locale.ROOT))
@@ -319,7 +330,13 @@ public class PriceService {
             }
             CachedPrice cached = priceCache.get(upper);
             if (cached != null && !cached.isExpired()) {
-                result.put(upper, cached.price());
+                // A remembered miss skips the network like a hit does, but it is not a price:
+                // leaving the ticker out of the result lets refreshCryptoQuotes reach the last
+                // recorded price. Returning it as a null price wrapped that null in a Quote,
+                // hid the fallback, and let an exchange sync engrave a partial total.
+                if (cached.price() != null) {
+                    result.put(upper, cached.price());
+                }
             } else if (coinGecko.supports(upper)) {
                 cryptoTickers.add(upper);
             } else if (cryptoOnly) {
@@ -423,6 +440,17 @@ public class PriceService {
      * Skips dates that already have a snapshot.
      */
     public int backfillHistoricalPrices(Set<String> tickers, LocalDate from) {
+        return backfillHistoricalPrices(tickers, from, false);
+    }
+
+    /**
+     * {@code cryptoOnly} mirrors {@code refreshPrices(tickers, true)}: a coin CoinGecko cannot map
+     * is left without history rather than sent to Yahoo, where the same symbol may belong to a
+     * listed company (STX is Stacks in a wallet and Seagate on Nasdaq). Twelve months of the
+     * company's closes recorded under the coin's symbol would feed the range P&L and the
+     * last-known-price fallback for as long as the rows exist.
+     */
+    public int backfillHistoricalPrices(Set<String> tickers, LocalDate from, boolean cryptoOnly) {
         LocalDate to = LocalDate.now();
         int saved = 0;
         int failed = 0;
@@ -443,6 +471,11 @@ public class PriceService {
                 Map<LocalDate, BigDecimal> prices;
                 if (coinGecko.supports(upper)) {
                     prices = coinGecko.getHistoricalPricesEur(upper, from, to);
+                } else if (cryptoOnly) {
+                    log.warn("No CoinGecko mapping for crypto ticker {} -- leaving its history empty "
+                        + "rather than recording the stock trading under that symbol", upper);
+                    skipped++;
+                    continue;
                 } else {
                     prices = yahoo.getHistoricalPricesEur(upper, from, to);
                 }
@@ -524,7 +557,8 @@ public class PriceService {
 
     private record CachedPrice(BigDecimal price, Instant cachedAt) {
         boolean isExpired() {
-            return Instant.now().isAfter(cachedAt.plusSeconds(CACHE_TTL_SECONDS));
+            long ttl = price == null ? MISS_CACHE_TTL_SECONDS : CACHE_TTL_SECONDS;
+            return Instant.now().isAfter(cachedAt.plusSeconds(ttl));
         }
     }
 
