@@ -187,6 +187,8 @@ Upsert Account (type=CRYPTO, no ticker)
 
 ## Gotchas / Pitfalls
 
+- **A Bitcoin extended-key scan that fails is a failed sync, not a zero.** `BitcoinWalletAdapter.fetchExtendedKeyBalance` no longer catches every exception into `BTC = 0`: an Esplora 429 or 5xx, a timeout or an invalid xpub propagate to `WalletSyncService`, which reports the sync as failed and leaves the previous balance and snapshot standing. Returning zero used to be written as the wallet's real balance.
+- **The exchange sync prunes holdings the exchange no longer reports.** `upsertHolding` only adds or updates, so a coin sold or withdrawn kept its last price and stayed in the account's value and cost basis; `CryptoExchangeSyncService` now deletes the account's holdings whose ticker is absent from the fetched positions (all of them when the exchange reports nothing).
 - **CRYPTO_ENCRYPTION_KEY required**: The app refuses to start without it. Lost key = cannot decrypt existing secrets = must re-enter exchange credentials.
 - **No ticker on wallet accounts**: Wallet accounts have `ticker = null` and `provider = "BTC"/"ETH"/"SOL"`. The balance is already in EUR. Do not set a ticker on wallet accounts -- it will cause double price conversion.
 - **Bitcoin xpub vs zpub**: Both are supported. `BitcoinKeyUtils.normalizeToXpub()` converts zpub to xpub before derivation. The derivation always produces P2WPKH (native segwit) addresses.
