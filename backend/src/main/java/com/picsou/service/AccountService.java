@@ -512,6 +512,11 @@ public class AccountService {
         // holding too — pairing it with the partial basis would invent a gain the size of the
         // positions Yahoo failed to price.
         BigDecimal investedOverAllHoldings = cashBalance;
+        // The provider's own per-line values, summed over *every* holding. Only the
+        // provider-valued override below reads them, and only to tell how much of the account
+        // total is cash rather than positions -- see the cash reconstruction there.
+        BigDecimal providerValuedHoldings = BigDecimal.ZERO;
+        boolean allHoldingsProviderValued = true;
         boolean allHoldingsPriced = true;
         boolean anyHoldingPriced = false;
         boolean anyStale = false;
@@ -524,6 +529,11 @@ public class AccountService {
                 ? quotes.get(h.getTicker().toUpperCase(Locale.ROOT)) : null;
 
             investedOverAllHoldings = investedOverAllHoldings.add(costBasisOf(h));
+            if (h.getProviderValueEur() != null) {
+                providerValuedHoldings = providerValuedHoldings.add(h.getProviderValueEur());
+            } else {
+                allHoldingsProviderValued = false;
+            }
 
             if (quote != null) {
                 anyHoldingPriced = true;
@@ -599,6 +609,24 @@ public class AccountService {
         // price even one instrument, prefer that last successful provider valuation over a
         // misleading partial total (cash + only the symbols Yahoo happened to resolve).
         if (!allHoldingsPriced && isProviderValued(account)) {
+            if (account.getCashBalance() == null && allHoldingsProviderValued && !anyCostBasisUnknown) {
+                // currentBalance is a *total*: the cash pocket sitting on the account is folded
+                // into it. With no cashBalance stored, investedOverAllHoldings started from a
+                // zero cash leg, so pairing the two charges that idle cash to the gain — a
+                // 2 000 EUR sleeve waiting to be invested read as 2 000 EUR of profit (issue
+                // #106). The provider priced every line here, so whatever the total exceeds
+                // them by is the cash pocket: put it on the cost side too and it cancels out,
+                // exactly as it does whenever cashBalance is stored.
+                //
+                // The "every line" condition is what makes that inference safe. When even one
+                // line carries no provider value, the residual is an unpriced *position* rather
+                // than cash — charging it to the cost side would invent a loss the size of that
+                // position — so both sides are left alone instead.
+                BigDecimal cashPocket = account.getCurrentBalance().subtract(providerValuedHoldings);
+                if (cashPocket.signum() > 0) {
+                    investedOverAllHoldings = investedOverAllHoldings.add(cashPocket);
+                }
+            }
             // Both sides move together. The provider's total covers every position, so the cost
             // basis must too: pairing it with the partial basis reports a gain the size of the
             // unpriced positions' cost — the same value/cost mismatch as the -85% incident, with
