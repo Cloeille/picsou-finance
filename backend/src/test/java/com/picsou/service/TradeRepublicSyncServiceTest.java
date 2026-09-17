@@ -545,6 +545,8 @@ class TradeRepublicSyncServiceTest {
         Transaction cashLeg = txCaptor.getAllValues().stream()
             .filter(t -> t.getAccount() == cash).findFirst().orElseThrow();
         assertThat(cashLeg.getCategoryRef()).isSameAs(created);
+    }
+
     @Test
     void sync_keepsTheLastKnownPeaCash_whenTheAdapterDoesNotKnowIt() {
         Long memberId = 7L;
