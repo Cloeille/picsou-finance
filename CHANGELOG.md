@@ -127,120 +127,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **The French regulated passbooks each get their own account type.** Livret A,
-  LDDS, Livret Jeune, PEL and CEL sit alongside the existing LEP instead of all
-  collapsing into the generic "Livret d'épargne", so a household holding several
-  can tell them apart on the Accounts page — they still total together under the
-  Savings filter. The BoursoBank sidecar recognises each of them from the label
-  the bank prints, so synced livrets arrive typed rather than lumped; a bank's
-  own house passbook (Livret Bourso+) stays the generic type, since it is not a
-  regulated product. A new check runs every `AccountType` against the real
-  PostgreSQL enum, so a type added without its migration can no longer pass a
-  green build and fail on first save.
-- **Manual accounts can show their bank's logo.** The bank field of the
-  hand-entered account form now searches the institution catalog as you type:
-  pick your bank and its real logo lands on the account card, the same one a
-  connected account gets. The account still stores only the bank's name — the
-  server re-resolves the logo itself from the institution's id, so no
-  client-supplied image URL is ever persisted or fetched by a family member's
-  browser. Loans get it too, from their lender. The field stays free text
-  throughout: a bank the catalog doesn't list, or an Enable Banking install
-  that was never configured, simply means no suggestions and the color circle it
-  showed before. See [feature notes](docs/features/bank-logos.md).
-- **BoursoBank sync — current accounts, livrets and, above all, the PEA.**
-  Enable Banking cannot reach a securities account (PSD2 covers payment accounts
-  only), so the envelope that often holds the largest balance was invisible.
-  Picsou now signs in to BoursoBank directly and imports the current accounts,
-  the livrets and the PEA/CTO with their cash, their total and every open
-  position. A browserless Python sidecar handles the login: BoursoBank hands out
-  its one anti-bot token in the page itself, so no Chromium is needed. The
-  virtual keyboard — whose digits are images rather than text, on purpose — is
-  decoded by matching each button's SVG. Only app validation is supported as a
-  second factor; an SMS prompt is reported as such rather than as a wrong
-  password, since every failed attempt counts toward a lockout. Credentials are
-  never persisted, only the encrypted session. A portfolio whose total does not
-  reconcile with its lines is refused wholesale and the last valid data kept.
-  Accounts BoursoBank aggregates from *other* banks are deliberately left out —
-  they would duplicate an Enable Banking connection. Reachable from the Sync
-  page, the Add-account modal and the setup wizard, in all four locales, and its
-  accounts carry the BoursoBank mark rather than a color circle. Validated
-  end-to-end against a live account, PEA included.
-  See [feature notes](docs/features/bourso-bank.md) and the
-  [ADR](docs/decisions/2026-08-11-boursobank-httpx-sidecar.md).
-- **Amundi Épargne Salariale sync.** Connect an Amundi account and import every
-  funded employee savings plan — PEE/PEG, PERCO, PER Collectif — as its own
-  account, leaving emptied and closed dispositifs out,
-  with each FCPE line's units, unit value, valuation and unrealized gain. A
-  dedicated read-only Playwright sidecar handles the captcha-gated login and the
-  mandatory second factor, either an approval in the "Mon Épargne" app or an SMS
-  code; credentials and codes are never persisted, only the encrypted session.
-  Valuations come from Amundi rather than a price feed, since no FCPE is quotable
-  on Yahoo. Imports expose queued/running/success/failure progress, reject plans
-  whose total does not reconcile with their lines, and preserve the last valid
-  holdings on failure. Reachable from the Sync page and the Add-account modal, in
-  all four locales, and its accounts carry the Amundi logo rather than a color
-  circle. See [feature notes](docs/features/amundi-epargne-salariale.md)
-  and the [ADR](docs/decisions/2026-08-09-amundi-epargne-salariale-sidecar.md).
-- **Meria crypto exchange sync.** Connect a Meria account with the single
-  read-only API key from `dashboard.meria.com/account/api` — no API secret, and
-  the add-exchange form now hides that field for exchanges that don't use one
-  (`CryptoExchangePort.requiresApiSecret()`, enforced server-side in all four
-  locales). Picsou sums spot wallets, staking and lending contracts per coin,
-  counting a contract as its held amount — Meria's `reward` is cumulative
-  interest already reflected there — then
-  values the total in EUR through the existing price path; coins were added
-  to the CoinGecko ticker map so Meria balances aren't silently unvalued. A
-  failed sub-call fails the whole sync rather than writing a shrunken balance
-  into the net-worth history. The account page groups its positions by product —
-  Spot / Staking / Lending — and shows principal, accrued interest and total for
-  each yield-bearing line. See [feature notes](docs/features/crypto-tracking.md).
-- **Automatic real-estate valuation from open data.** Properties now describe themselves
-  (type, category, geocoded address, living and land area, rooms, construction year, floor
-  and lift, garage/parking, garden/terrace/balcony, energy rating, and acquisition costs)
-  and are re-valued monthly from **free, unauthenticated, Licence Ouverte 2.0** sources:
-  DGFiP transaction data via the Cerema DV3F indicators, address geocoding via the IGN
-  Géoplateforme, and re-indexing on the INSEE housing price index. No API key and no
-  subscription — the estimate writes the account balance, so net worth and the gain curve
-  follow automatically, and a MANUAL mode freezes a user's own figure. Every heuristic
-  applied to the commune median is disclosed in the UI, along with the confidence band,
-  sample size and data vintage. Alsace-Moselle and Mayotte are explicitly reported as
-  uncovered rather than given a plausible-looking wrong number. See
-  [feature notes](docs/features/real-estate-valuation.md) and the
-  [ADR](docs/decisions/2026-08-01-open-data-property-valuation.md).
-- **Ownership shares on properties and loans.** A house or a mortgage can be split between
-  family members; each member's net worth, history and goals count only their share, and the
-  family view stops double-counting a jointly-owned property. A split may total under 100%,
-  with the remainder reported as held outside Picsou. Reading a co-owned account is allowed,
-  editing it stays with the owner. See
-  [feature notes](docs/features/account-ownership-shares.md) and the
-  [ADR](docs/decisions/2026-08-01-account-ownership-shares.md).
-- **A guided "Immobilier" flow for adding a property.** A dedicated entry in "Ajouter un
-  compte" replaces hunting for your house under "Manuel", and with the Immobilier filter
-  active the page's primary button targets it directly. Three steps — what it is, where it is,
-  what it cost — then the account, its description and its first estimate are created in one
-  pass. Bathroom count is now recorded too, and feeds a small declared heuristic.
-- **Mortgage-to-property linking.** A loan can be attached to the property it finances,
-  giving gross property value, outstanding debt and net equity, both per property and across
-  the portfolio.
-- **Bourse Direct brokerage sync.** A dedicated read-only Playwright sidecar
-  handles login and the six-digit security code, then imports PEA/CTO positions,
-  average cost, current price, valuation and account cash. Credentials and OTPs
-  are never persisted; only the complete browser session is encrypted at rest.
-  Sessions support manual and daily sync, and accounts remain explicitly typed
-  as PEA or securities accounts. Imports expose queued/running/success/failure
-  progress, reject unreconciled partial portfolios, preserve the last valid
-  holdings on failure, and retain native quote currencies alongside broker EUR
-  valuations. See [feature notes](docs/features/bourse-direct.md) and the
-  [ADR](docs/decisions/2026-07-21-bourse-direct-isolated-atomic-sync.md).
-- **Interactive Brokers (IBKR) sync via the Flex Web Service.** Connect once with a
-  read-only Flex token + an "Open Positions" query id; Picsou pulls open positions
-  end-of-day and maps them to accounts + holdings (one account per IBKR account id),
-  valued live in EUR through the existing ticker/price path. Cost basis is converted
-  to the account base currency via `fxRateToBase`; per-tax-lot rows are de-duplicated.
-  Daily auto-sync runs alongside the other connectors. A connection tab on the Sync
-  page (paste token + query id, then sync/disconnect) drives it, in all four locales. See
-  [ADR](docs/decisions/2026-07-19-ibkr-flex-web-service.md) and
-  [feature note](docs/features/ibkr-sync.md).
+- **Editable cost basis for imported crypto wallets (#59).** A wallet/exchange
+  holding starts with its average buy-in set to the market price at import time,
+  which zeroes out gain/loss on existing holdings. The holding editor now lets
+  you correct it by entering either the average buy-in **or** the total invested
+  — the two stay in sync through the quantity. For synced accounts the quantity
+  is read-only (it's owned by the chain/exchange), so only the cost basis
+  changes, and the corrected value survives future syncs. Dashboard, P&L and KPIs
+  then reflect what you actually invested.
 - **BNB Chain support and EVM multichain wallets.** On-chain wallets gained an
   `EVM` chain that tracks a single `0x` address across every enabled EVM network
   — Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base and Avalanche —
