@@ -17,7 +17,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongFunction;
@@ -483,7 +482,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
                 ticker,
                 "intraday",
                 epochSeconds -> Instant.ofEpochSecond(epochSeconds)
-                    .atZone(ZoneId.of("Europe/Paris")).toLocalDateTime(),
+                    .atZone(ZoneId.systemDefault()).toLocalDateTime(),
                 dt -> !dt.isBefore(from) && !dt.isAfter(to)
             );
 
@@ -516,7 +515,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
                 result,
                 ticker,
                 "historical",
-                epochSeconds -> Instant.ofEpochSecond(epochSeconds).atZone(ZoneOffset.UTC).toLocalDate(),
+                epochSeconds -> Instant.ofEpochSecond(epochSeconds).atZone(ZoneId.systemDefault()).toLocalDate(),
                 date -> !date.isBefore(from) && !date.isAfter(to)
             );
 

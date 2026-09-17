@@ -129,6 +129,16 @@ info:
     version: ${APP_VERSION:dev}
 
 app:
+  # Civil time zone for the whole application: every LocalDate.now() / LocalDateTime.now(), the
+  # snapshot dates connectors write, goal deadlines, and the keys both price adapters give their
+  # intraday and daily series. TimeZoneConfig pins the JVM default from this value at startup, so
+  # it is the only place the zone is chosen — nothing else needs to know it.
+  #
+  # Changing it also changes what "today" means for snapshots already stored under the old zone;
+  # set it once, before the first sync. An unknown zone ID fails startup rather than falling back.
+  # In Docker, keep the image's TZ / -Duser.timezone in step with it (see backend/Dockerfile).
+  timezone: ${APP_TIMEZONE:Europe/Paris}
+
   # Property valuation from French open data. No credentials of any kind: every source
   # below is Licence Ouverte 2.0 and unauthenticated, which is what lets a self-hosted
   # instance estimate property value without a per-user API subscription.

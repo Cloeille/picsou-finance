@@ -3,11 +3,13 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.DegiroSessionExpiredException;
 import com.picsou.exception.SyncException;
 import com.picsou.port.DegiroPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.json.Jackson2JsonDecoder;
@@ -33,7 +35,9 @@ public class DegiroAdapter implements DegiroPort {
 
     private final WebClient sidecarClient;
 
+    @Autowired
     public DegiroAdapter(
+        SidecarWebClientFactory clients,
         ObjectMapper objectMapper,
         @Value("${app.degiro-auth.url:http://degiro-auth:8001}") String degiroAuthUrl
     ) {
@@ -45,10 +49,16 @@ public class DegiroAdapter implements DegiroPort {
         ObjectMapper exactDecimals = objectMapper.copy()
             .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
 
-        this.sidecarClient = WebClient.builder()
-            .baseUrl(degiroAuthUrl)
-            .codecs(c -> c.defaultCodecs().jackson2JsonDecoder(new Jackson2JsonDecoder(exactDecimals)))
-            .build();
+        this.sidecarClient = clients.create(
+            "DEGIRO",
+            degiroAuthUrl,
+            builder -> builder.codecs(
+                c -> c.defaultCodecs().jackson2JsonDecoder(new Jackson2JsonDecoder(exactDecimals)))
+        );
+    }
+
+    DegiroAdapter(WebClient sidecarClient) {
+        this.sidecarClient = sidecarClient;
     }
 
     @Override

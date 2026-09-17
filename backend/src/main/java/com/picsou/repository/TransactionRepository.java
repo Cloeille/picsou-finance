@@ -63,6 +63,24 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @Query("SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t WHERE t.account.id = :accountId AND t.date > :date")
     BigDecimal sumAmountByAccountIdAndDateAfter(@Param("accountId") Long accountId, @Param("date") LocalDate date);
 
+    /**
+     * Rows a bank importer must compare a freshly fetched window against. Manual rows are
+     * excluded: a user who typed a transaction the bank also reports owns their own row, and
+     * silently treating the import as a duplicate of it (or the reverse) would edit their ledger.
+     *
+     * <p>No {@code member_id} predicate — the account id is resolved from a member-scoped
+     * lookup by the only caller ({@code BankTransactionImportService}, reached from
+     * {@code SyncService.upsertAccount}), the same shape as the other per-account queries here.
+     */
+    List<Transaction> findByAccountIdAndIsManualFalseAndDateGreaterThanEqual(Long accountId, LocalDate date);
+
+    /**
+     * Newest already-imported entry for an account, which anchors the next sync's fetch window.
+     * Null when nothing was ever imported — the caller then falls back to a full first-sync window.
+     */
+    @Query("SELECT MAX(t.date) FROM Transaction t WHERE t.account.id = :accountId AND t.isManual = false")
+    LocalDate findLatestSyncedDateByAccountId(@Param("accountId") Long accountId);
+
     List<Transaction> findByAccountIdAndTxTypeInOrderByDateAscIdAsc(Long accountId, List<TransactionType> types);
 
     /**

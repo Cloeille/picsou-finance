@@ -15,7 +15,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
@@ -391,9 +391,9 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
         return pricesInRange(
             "intraday prices",
             ticker,
-            from.atZone(ZoneOffset.UTC).toEpochSecond(),
-            to.atZone(ZoneOffset.UTC).toEpochSecond(),
-            epochMillis -> Instant.ofEpochMilli(epochMillis).atZone(ZoneOffset.UTC).toLocalDateTime(),
+            from.atZone(ZoneId.systemDefault()).toEpochSecond(),
+            to.atZone(ZoneId.systemDefault()).toEpochSecond(),
+            epochMillis -> Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).toLocalDateTime(),
             dt -> !dt.isBefore(from) && !dt.isAfter(to)
         );
     }
@@ -463,9 +463,9 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
         return pricesInRange(
             "historical prices",
             ticker,
-            from.atStartOfDay(ZoneOffset.UTC).toEpochSecond(),
-            to.atStartOfDay(ZoneOffset.UTC).toEpochSecond(),
-            epochMillis -> Instant.ofEpochMilli(epochMillis).atZone(ZoneOffset.UTC).toLocalDate(),
+            from.atStartOfDay(ZoneId.systemDefault()).toEpochSecond(),
+            to.atStartOfDay(ZoneId.systemDefault()).toEpochSecond(),
+            epochMillis -> Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).toLocalDate(),
             date -> !date.isBefore(from) && !date.isAfter(to)
         );
     }

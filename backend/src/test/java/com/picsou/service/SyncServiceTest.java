@@ -45,6 +45,7 @@ class SyncServiceTest {
     @Mock CategorizationService categorizationService;
     @Mock RecurringDetectionService recurringDetectionService;
     @Mock RequisitionLifecycleWriter requisitionLifecycleWriter;
+    @Mock BankTransactionImportService bankTransactionImportService;
 
     SyncService syncService;
 
