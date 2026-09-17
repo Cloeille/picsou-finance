@@ -1,6 +1,6 @@
 # Feature: Demo mode
 
-> Last updated: 2026-04-08
+> Last updated: 2026-08-17
 
 ## Context
 
@@ -55,4 +55,6 @@ VITE_DEMO_MODE=true
 
 ## Tests
 
-The Playwright suite (`frontend/e2e/*.spec.ts`, `bun run test:e2e`) runs entirely against demo mode — it is the de-facto regression net for the handler table. Not run in CI; run it locally against a dev server started with `VITE_DEMO_MODE=true`.
+The Playwright suite (`frontend/e2e/*.spec.ts`, `bun run test:e2e`) runs entirely against demo mode — it is the de-facto regression net for the handler table. `playwright.config.ts` forces `VITE_DEMO_MODE=true` on the Vite dev server it starts, so a missing `frontend/.env` still runs the suite in demo mode.
+
+CI (`.github/workflows/ci.yml` job `e2e`) installs Chromium, runs the same command, and uploads `playwright-report/` on failure. A red e2e job blocks the Docker publish job.

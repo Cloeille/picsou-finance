@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['[0-9]*', 'v[0-9]*']
 
 permissions:
   contents: read
@@ -107,3 +108,45 @@ jobs:
           --workdir /tests
           picsou-amundi-auth:test
           python -m unittest discover -v
+
+  e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+      - name: Run Playwright E2E (demo mode)
+        env:
+          VITE_DEMO_MODE: 'true'
+        run: bun run test:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
+  # Images are only published after every CI job is green, and only on a push
+  # to main or a version tag — not on pull requests.
+  docker:
+    needs: [backend, frontend, e2e, bourse-direct-sidecar, bourso-sidecar, amundi-sidecar]
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/docker.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write

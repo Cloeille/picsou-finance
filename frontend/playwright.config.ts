@@ -6,7 +6,9 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
+  reporter: process.env.CI
+    ? [['github'], ['html', { open: 'never' }]]
+    : 'html',
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'https://localhost:5173',
     ignoreHTTPSErrors: true,
@@ -24,5 +26,9 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
+    env: {
+      ...process.env,
+      VITE_DEMO_MODE: 'true',
+    },
   },
 })

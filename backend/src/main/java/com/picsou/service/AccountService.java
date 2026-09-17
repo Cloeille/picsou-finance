@@ -494,6 +494,13 @@ public class AccountService {
                 anyHoldingPriced = true;
             } else if (hasTicker) {
                 allHoldingsPriced = false;
+                // Aggregator-provided EUR valuation (Finary display_current_value,
+                // Bourse Direct snapshot) is better than dropping the line: Yomoni
+                // fonds, RealT tokens and fonds euros have no Yahoo ticker.
+                if (h.getProviderValueEur() != null) {
+                    liveValue = liveValue.add(h.getProviderValueEur());
+                    continue;
+                }
                 // Skipping is deliberate -- a held-but-unpriced asset must not be valued at a
                 // guess -- but it is not free: the balance (and any snapshot taken from it)
                 // silently shrinks by whatever those holdings were worth. Log it so the dip is

@@ -66,8 +66,10 @@ V{n}__description.sql
 | `V30__account_soft_delete.sql` | Soft-delete (`deleted_at`) on `account` |
 | `V31__price_cleanup_gate.sql` | Gate column controlling price-snapshot cleanup |
 | `V32__goal_history_start.sql` | `history_start` column anchoring goal trajectory charts |
+| … | Later numbered migrations continue sequentially (V37+) |
+| `V80__widen_holding_ticker.sql` | `account_holding.ticker` 30→100, `name` 100→255 (Finary RealT codes) |
 
-Note: V8 is absent by design (skipped — never rolled into another migration).
+Note: V8 is absent by design (skipped — never rolled into another migration). Numbering after V32 is not contiguous (V33–V36 unused).
 
 ### Writing a new migration
 

@@ -8,7 +8,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 
 [![License: Apache 2.0 + Commons Clause](https://img.shields.io/badge/License-Apache%202.0%20%2B%20Commons%20Clause-blue.svg)](LICENSE)
 
-[Getting started](#getting-started) · [Features](#features) · [Development](#development) · [Security](SECURITY.md)
+[Getting started](#getting-started) · [Features](#features) · [Another machine](#another-machine) · [Development](#development) · [Security](SECURITY.md)
 
 </div>
 
@@ -40,7 +40,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 - **Multi-member family** — One admin manages multiple profiles (children, spouse). Per-resource sharing (`NONE` / `ALL` / `MANUAL`), optional activation links to upgrade a managed profile to a full login.
 - **2FA + Remember Me** — Opt-in TOTP per user, 10 single-use recovery codes, 90-day "Remember Me" cookie with rotating tokens, "Trust this device" to skip TOTP, per-session revocation from settings.
 - **GDPR data export** — Self-service ZIP export (JSON + per-entity CSV) gated by re-authentication, rate-limited to 5/hour.
-- **Finary import** — CSV import or direct API sync
+- **Finary import** — XLSX upload or direct API sync (Clerk + TOTP). API sync imports cash, transactions, **and holdings** (securities, crypto, fonds euros) using Finary’s EUR `display_*` values. The mapping wizard matches existing Picsou accounts (external id, then unique name + type) instead of offering to create duplicates.
 - **i18n** — English and French
 - **Dark mode** — System/light/dark with flash-free theme switching
 
@@ -84,9 +84,19 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 
 ### 1. Clone
 
+Published releases:
+
 ```bash
 git clone https://github.com/Zoeille/picsou-finance.git
 cd picsou-finance
+```
+
+Unreleased work on this fork (Finary holdings, account matching, CI e2e, `/mcp` nginx proxy):
+
+```bash
+git clone https://github.com/christopheche/picsou-finance.git
+cd picsou-finance
+git checkout feature/finary-holdings-import
 ```
 
 ### 2. Run (zero-config)
@@ -358,6 +368,57 @@ openssl rsa -pubout -in docker/secrets/enablebanking.pem -out enablebanking_publ
 
 Upload `enablebanking_public.pem` to your Enable Banking dashboard.
 
+## Another machine
+
+Git has the **code** only. It does **not** contain your Postgres data, encryption keys, Finary session, or bank export zips (`data/` is untracked on purpose).
+
+| What | In git? | On the other Mac if you only clone |
+|------|---------|--------------------------------------|
+| `feature/finary-holdings-import` | yes | checkout that branch |
+| Accounts, holdings, transactions | no (`docker_pgdata`) | empty database |
+| `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`, Postgres password | no (`docker_picsou_data`) | new secrets, wizard again |
+| Finary / bank logins | no (encrypted in DB) | reconnect + TOTP |
+| `data/*.zip` bank exports | no | not required to run |
+
+### Code only (fresh instance)
+
+`ghcr.io/zoeille/picsou-finance:latest` does **not** include this branch until the upstream PR is merged. Always **build from source**:
+
+```bash
+git clone https://github.com/christopheche/picsou-finance.git
+cd picsou-finance
+git checkout feature/finary-holdings-import
+docker compose -f docker/docker-compose.yml up --build -d
+```
+
+Open http://localhost:8080, complete the wizard, then Synchronisation → Finary (TOTP). Map **Fortuneo Assurance-vie (investments)** to the CTO, not the fonds-euros row; map **Main Brokerage (investments)** to the Trade Republic CTO, not the BTC account.
+
+### Same data as this Mac
+
+Compose project name must stay `docker` so volumes stay `docker_pgdata` and `docker_picsou_data`. Always use `-f docker/docker-compose.yml` from the repo root.
+
+**On this Mac** (source):
+
+```bash
+docker compose -f docker/docker-compose.yml stop
+docker run --rm -v docker_pgdata:/from -v "$PWD:/to" alpine tar czf /to/pgdata.tar.gz -C /from .
+docker run --rm -v docker_picsou_data:/from -v "$PWD:/to" alpine tar czf /to/picsou_data.tar.gz -C /from .
+```
+
+Copy `pgdata.tar.gz` and `picsou_data.tar.gz` (AirDrop, USB, `scp`). Do **not** commit them.
+
+**On the other Mac**, after clone + checkout, **before** the first `up`:
+
+```bash
+docker volume create docker_pgdata
+docker volume create docker_picsou_data
+docker run --rm -v docker_pgdata:/to -v "$PWD:/from" alpine tar xzf /from/pgdata.tar.gz -C /to
+docker run --rm -v docker_picsou_data:/to -v "$PWD:/from" alpine tar xzf /from/picsou_data.tar.gz -C /to
+docker compose -f docker/docker-compose.yml up --build -d
+```
+
+You must copy **both** archives. Restoring Postgres without `picsou_data` uses a new encryption key and Finary/bank secrets in the DB will not decrypt.
+
 ## Development
 
 ### Backend
@@ -378,7 +439,21 @@ bun install        # Install dependencies
 bun run dev        # HTTPS dev server on https://localhost:5173 (proxies /api/* → localhost:8080)
 bun run build      # TypeScript check + Vite build
 bunx vitest run    # Unit tests
+bun run test:e2e   # Playwright E2E (demo mode; starts Vite itself)
 ```
+
+### CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every
+push to `main` or a version tag:
+
+- backend `mvn test` (Docker required for Flyway migration tests)
+- frontend lint, typecheck, Vitest
+- Playwright e2e in demo mode
+- Bourse Direct sidecar unit tests
+
+Docker images are published to GHCR **only after that suite is green**, and only
+on a push to `main` or a version tag — not on pull requests.
 
 #### 🔒 HTTPS in Development (Hybrid Mode)
 

@@ -1,6 +1,6 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-07-21 (Bourse Direct internal sidecar)
+> Last updated: 2026-09-04
 
 ## Context
 
@@ -150,7 +150,7 @@ fixed at create time, so the new value is never seen.
 - `docker/Caddyfile` — optional TLS terminator (profile `tls`)
 - `services/tr-auth/Dockerfile` — tr-auth sidecar image
 - `services/bourse-direct-auth/Dockerfile` — Bourse Direct sidecar image
-- `docker/nginx.conf` — Nginx reverse proxy config
+- `docker/nginx.conf` — Nginx reverse proxy config (`/api`, `/actuator`, `/mcp` → backend)
 - `docker/supervisord.conf` — supervisor (nginx + backend)
 - `docker/entrypoint.sh` — secret bootstrap + HSTS snippet + exec supervisord
 
@@ -158,11 +158,22 @@ fixed at create time, so the new value is never seen.
 
 ```
 docker compose -f docker/docker-compose.yml up
-  → picsou:latest  (nginx:8080 → backend:9090)
+  → picsou:latest  (nginx:8080 → backend:9090 for /api, /actuator, /mcp)
   → docker-tr-auth (uvicorn:8001)
   → bourse-direct-auth (uvicorn:8001, internal only)
   → postgres:16-alpine (:5432)
 ```
+
+`/mcp` is the embedded MCP HTTP+SSE transport (access-key auth). It must be proxied like
+`/api`; if nginx only has SPA `try_files`, MCP clients get HTML instead of the protocol.
+
+### Moving the stack to another machine
+
+Git has the images’ source, not the live install. Postgres lives in the `pgdata` volume;
+JWT / encryption / DB password live in `picsou_data` (`/data/.secrets/`). Copy **both**
+or Finary and bank secrets in the database will not decrypt. Commands, volume names, and
+the “build this branch, do not `compose pull` GHCR `:latest`” warning are in the root
+[README — Another machine](../../README.md#another-machine).
 
 ### Building a release archive
 
@@ -178,9 +189,14 @@ docker load < picsou-release.tar.gz
 
 ### Pulling from GHCR
 
-All three images are published by `.github/workflows/docker.yml` on every push
-(matrix build, one entry per image). To deploy from the registry instead of
-building or loading a tar.gz:
+All three images are published by `.github/workflows/docker.yml` **only after
+CI is green** (backend tests, frontend lint/typecheck/unit, Playwright e2e,
+bourse-direct sidecar). `ci.yml` calls that workflow on a successful `push` to
+`main` or a version tag — not on pull requests, so a failing test never
+produces `nightly` / `latest` / semver. `workflow_dispatch` on `docker.yml`
+remains a manual escape hatch (publish the current ref without re-running CI).
+
+To deploy from the registry instead of building or loading a tar.gz:
 
 ```bash
 # Replace 1.0.0 with the desired tag (nightly, branch name, or semver).
@@ -190,9 +206,10 @@ docker pull ghcr.io/zoeille/picsou-finance/bourse-direct-auth:1.0.0
 ```
 
 Tag scheme:
-- `main` push → `nightly`
-- other branch push → branch name (e.g. `1.0.0`, `feature-foo`)
-- version tag (`1.0.0` or `v1.0.0`) → `latest` + semver (`1.0.0`, `1.0`, `1`)
+- `main` push (CI green) → `nightly` + `latest`
+- version tag (`1.0.0` or `v1.0.0`, CI green) → `latest` + semver (`1.0.0`, `1.0`, `1`)
+- feature-branch pushes no longer publish an image (open a PR to run CI; use
+  `workflow_dispatch` on the Docker workflow if you need a one-off image)
 
 ### Build version shown in the app
 

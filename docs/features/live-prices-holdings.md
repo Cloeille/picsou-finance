@@ -1,6 +1,6 @@
 # Feature: Live Prices in Holdings
 
-> Last updated: 2026-08-10
+> Last updated: 2026-08-17
 
 ## Context
 
@@ -129,15 +129,16 @@ For each past date, both `total` and `invested` are read from `balance_snapshot`
 - **`useAccountHoldings` still exists**: The old hook is kept for the `usePortfolio` hook which fetches holdings for all accounts (portfolio view). Switching it to live prices would trigger many price API calls at once.
 - **No polling**: Prices refresh only on navigation (TanStack Query stale time of 2 min). There is no auto-refresh or polling interval.
 - **Yahoo Finance is unofficial**: See [price-service.md](./price-service.md) gotchas. A stored quote is displayed only with its explicit `quoteCurrency`; it is never multiplied as EUR when that currency is unknown.
-- **Bourse Direct and Trade Republic write an EUR fallback**: `provider_value_eur` is accepted only from a broker that quotes in EUR — Bourse Direct as part of a fully reconciled snapshot, Trade Republic because its portfolio stream is EUR-denominated by construction (the same assumption already behind `TrAccountData.balanceEur`). Connectors that expose native-currency values without an explicit `quoteCurrency` still return `null`.
+- **Bourse Direct, Trade Republic and Finary write an EUR fallback**: `provider_value_eur` is accepted from a broker/aggregator that quotes in EUR — Bourse Direct as part of a fully reconciled snapshot, Trade Republic because its portfolio stream is EUR-denominated, Finary from `display_current_value`. Connectors that expose native-currency values without an explicit `quoteCurrency` still return `null`.
 - **`liveBalanceEur()` falls back per holding**: when Yahoo has no live price, the holding is valued at `provider_value_eur` before being dropped. Dropping it is the last resort, and it is what makes the dashboard P&L wrong (see the asymmetry gotcha below).
-- **Value and invested must cover the same holdings**: `liveBalanceEur` may drop an unpriced holding, but `DashboardService` and `AccountService.calculateInvestedAmount` still count its full cost basis. Any holding dropped from the value side while its cost basis remains understates P&L by exactly that cost basis (GH issue #76). The `provider_value_eur` fallback closes this for Bourse Direct and Trade Republic; a connector that populates neither can still hit it.
+- **Value and invested must cover the same holdings**: `liveBalanceEur` may drop an unpriced holding, but `DashboardService` and `AccountService.calculateInvestedAmount` still count its full cost basis. Any holding dropped from the value side while its cost basis remains understates P&L by exactly that cost basis (GH issue #76). The `provider_value_eur` fallback closes this for Bourse Direct, Trade Republic and Finary; a connector that populates neither can still hit it.
 - **`AccountService.toResponse()` computes a live balance**: for Bourse Direct it falls back to the complete stored broker total if even one Yahoo price is unavailable.
 - **`liveBalanceEur()` triggers price lookups**: Each call fetches holdings then queries `PriceService` per ticker. Don't call in tight loops. The Dashboard pre-loads holdings into a map to avoid N+1; Goals calls it per-account in the goal's account list (typically small).
 - **The account detail page does not re-sum holdings**: it displays the backend's `currentBalanceEur`, avoiding disagreement with cash and broker fallback rules.
 
 ## Tests
 
+- `AccountServiceTest.liveBalanceEur_usesBrokerPositionValue_whenLivePriceIsUnavailable`
 - Manual: navigate to a PEA/CT/Crypto account, verify `/api/prices` call in network tab and live prices in table
 - Manual: navigate to a checking/savings account, verify no `/api/prices` call
 

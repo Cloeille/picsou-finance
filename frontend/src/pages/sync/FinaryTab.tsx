@@ -32,6 +32,7 @@ import {
   useExecuteFinaryApiSync,
   useFinaryAutoSync,
 } from '@/features/sync/hooks'
+import { initialFinaryMappings } from '@/features/sync/finary-mappings'
 import type {
   Account,
   FinaryPreviewResponse,
@@ -262,21 +263,7 @@ export function FinaryTab() {
   // ----- Mapping -----
 
   function initMappings(preview: FinaryPreviewResponse) {
-    const initialMappings: FinaryAccountMapping[] = preview.accounts.map((account) => ({
-      finaryId: account.finaryId,
-      finaryName: account.finaryName,
-      finaryCategory: account.finaryCategory,
-      action: 'CREATE_NEW' as FinaryMappingAction,
-      targetAccountId: undefined,
-      newAccount: {
-        name: account.finaryName,
-        type: account.suggestedType,
-        provider: account.finaryInstitution,
-        currency: account.nativeCurrency,
-        color: ACCOUNT_COLORS[preview.accounts.indexOf(account) % ACCOUNT_COLORS.length],
-      },
-    }))
-    setMappings(initialMappings)
+    setMappings(initialFinaryMappings(preview))
   }
 
   function setMappingAction(index: number, action: FinaryMappingAction) {

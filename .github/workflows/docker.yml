@@ -1,9 +1,9 @@
 name: Build & publish Docker images
 
+# Called by CI after backend + frontend + e2e + sidecar are green.
+# workflow_dispatch remains an escape hatch (manual publish without re-running CI).
 on:
-  push:
-    branches: ['**']
-    tags: ['[0-9]*', 'v[0-9]*']
+  workflow_call:
   workflow_dispatch:
 
 env:

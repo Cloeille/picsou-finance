@@ -1,6 +1,7 @@
 package com.picsou.service;
 
 import com.picsou.dto.*;
+import com.picsou.finary.FinaryAccountMatcher;
 import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.*;
 import com.picsou.repository.AccountRepository;
@@ -80,13 +81,42 @@ public class FinaryImportService {
                 ))
                 .collect(Collectors.toList());
 
-            List<AccountResponse> existing = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId).stream()
+            List<Account> existingAccounts = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId);
+            List<AccountResponse> existing = existingAccounts.stream()
                 .map(a -> AccountResponse.from(a, a.getCurrentBalance()))
                 .collect(Collectors.toList());
 
+            List<FinaryAccountMatcher.FinaryRow> rows = parsed.accounts.stream()
+                .map(acc -> new FinaryAccountMatcher.FinaryRow(
+                    slugify(acc.category() + "_" + acc.name()),
+                    acc.name(),
+                    acc.category(),
+                    slugify(acc.name())))
+                .toList();
+            List<Optional<FinaryAccountMatcher.Suggestion>> matches =
+                FinaryAccountMatcher.suggestAll(rows, existingAccounts);
+            boolean allAutoMapped = !rows.isEmpty() && matches.stream().allMatch(Optional::isPresent);
+            List<FinaryAccountMapping> suggested = new ArrayList<>();
+            for (int i = 0; i < parsed.accounts.size(); i++) {
+                var acc = parsed.accounts.get(i);
+                String finaryId = slugify(acc.category() + "_" + acc.name());
+                var match = matches.get(i);
+                if (match.isPresent()) {
+                    suggested.add(new FinaryAccountMapping(
+                        finaryId, acc.name(), acc.category(),
+                        FinaryMappingAction.MAP_EXISTING,
+                        match.get().account().getId(), null));
+                } else {
+                    suggested.add(new FinaryAccountMapping(
+                        finaryId, acc.name(), acc.category(),
+                        FinaryMappingAction.CREATE_NEW,
+                        null, null));
+                }
+            }
+
             int totalTx = (int) parsed.transactions.stream().count();
 
-            return new FinaryPreviewResponse(previews, existing, totalTx, fileToken, false, List.of());
+            return new FinaryPreviewResponse(previews, existing, totalTx, fileToken, allAutoMapped, suggested);
 
         } catch (IOException e) {
             throw new IllegalArgumentException("That file isn't a valid Excel spreadsheet (.xlsx).", e);

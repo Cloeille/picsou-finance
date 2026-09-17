@@ -1,6 +1,6 @@
 # Feature: Embedded MCP server + scoped access-keys
 
-> Last updated: 2026-06-05
+> Last updated: 2026-08-13 (nginx proxies `/mcp` with SSE settings)
 
 ## Context
 
@@ -143,6 +143,11 @@ and GDPR data export.
   `POST /mcp/message` (messages). Both are under `/mcp/**` so Property A's prefix check covers them.
   Do not "upgrade" to Streamable HTTP without bumping Spring AI past 1.0.x (which conflicts with the
   Boot 3.4.9 / Spring 6.2 pins — see `pom.xml`).
+- **Nginx must proxy `/mcp`, not only `/api`.** The all-in-one image and the split-stack frontend
+  both serve the SPA via `try_files` for unmatched paths. Without an explicit `location /mcp`
+  block, clients receive `index.html` (HTTP 200 HTML) instead of the MCP transport. Both
+  `docker/nginx.conf` and `frontend/nginx.conf` proxy `/mcp` to the backend with SSE-friendly
+  settings (`proxy_buffering off`, long `proxy_read_timeout`).
 - **Property B lives in `UserContext`, not the filter.** The guard is the first statement in
   `getMemberIdOverride()`: if the current `Authentication` is an `AccessKeyAuthentication`, return
   `null` *before* `isAdmin()` can open the `?memberId=` override. Removing it would let an

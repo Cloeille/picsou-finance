@@ -47,6 +47,7 @@ class FinaryApiSyncServiceTest {
     @Mock FamilyMemberRepository familyMemberRepository;
     @Mock FinarySessionRepository finarySessionRepository;
     @Mock FinaryPersistenceHelper persistenceHelper;
+    @Mock FinaryHoldingsImporter holdingsImporter;
 
     @InjectMocks FinaryApiSyncService service;
 
@@ -126,7 +127,7 @@ class FinaryApiSyncServiceTest {
 
     @Test
     void preview_includesLoanAccountsFromLoansEndpoint() {
-        FinaryAccountDto checking = new FinaryAccountDto(
+        FinaryAccountDto checking = FinaryAccountDto.withoutHoldings(
             "chk-1", "Checking", null, 1000.0, 1000.0, null,
             new FinaryAccountCurrency("EUR", "€"), false);
         FinaryLoanDto loan = new FinaryLoanDto(
@@ -156,7 +157,7 @@ class FinaryApiSyncServiceTest {
 
     @Test
     void execute_createsLoanAccount_fromLoanMapping() {
-        FinaryAccountDto checking = new FinaryAccountDto(
+        FinaryAccountDto checking = FinaryAccountDto.withoutHoldings(
             "chk-1", "Checking", null, 1000.0, 1000.0, null,
             new FinaryAccountCurrency("EUR", "€"), false);
         FinaryLoanDto loan = new FinaryLoanDto(
@@ -178,9 +179,11 @@ class FinaryApiSyncServiceTest {
             service.execute(preview.fileToken(), List.of(loanMapping), 1L);
 
         assertThat(result.accountsCreated()).isEqualTo(1);
+        org.mockito.Mockito.verify(holdingsImporter)
+            .importHoldings(org.mockito.ArgumentMatchers.any(Account.class), org.mockito.ArgumentMatchers.any());
 
         ArgumentCaptor<Account> captor = ArgumentCaptor.forClass(Account.class);
-        org.mockito.Mockito.verify(accountRepository).save(captor.capture());
+        org.mockito.Mockito.verify(accountRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
         Account saved = captor.getValue();
         assertThat(saved.getType()).isEqualTo(AccountType.LOAN);
         assertThat(saved.getExternalAccountId()).isEqualTo("finary_loans_loan-1");
@@ -197,6 +200,19 @@ class FinaryApiSyncServiceTest {
 
         // Repo convention: LOAN balances stored positive; negated only at aggregation.
         assertThat(dto.balance()).isEqualTo(12000.0);
+    }
+
+    @Test
+    void eurBalance_prefersDisplayBalanceOverNativeUsd() {
+        FinaryAccountDto usdWallet = new FinaryAccountDto(
+            "w1", "Bitcoin bridge wallet", null, 9179.30, 9179.30, null,
+            new FinaryAccountCurrency("USD", "$"), false,
+            7920.94, null, null, null, null, null, null, null);
+
+        assertThat(FinaryApiSyncService.eurBalance(usdWallet))
+            .isEqualByComparingTo("7920.94");
+        assertThat(FinaryApiSyncService.displayCurrency(usdWallet, "USD"))
+            .isEqualTo("EUR");
     }
 
     @Test

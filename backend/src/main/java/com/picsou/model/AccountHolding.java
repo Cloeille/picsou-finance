@@ -23,10 +23,10 @@ public class AccountHolding extends AuditableEntity {
     @JoinColumn(name = "account_id", nullable = false)
     private Account account;
 
-    @Column(nullable = false, length = 30)
+    @Column(nullable = false, length = 100)
     private String ticker;
 
-    @Column(length = 100)
+    @Column(length = 255)
     private String name;
 
     @Column(nullable = false, precision = 20, scale = 8)

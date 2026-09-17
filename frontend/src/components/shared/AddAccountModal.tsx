@@ -70,6 +70,7 @@ import {
   PiggyBank,
 } from 'lucide-react'
 import type { ExchangeType, ChainType, AccountRequest, FinaryPreviewResponse, FinaryAccountMapping, FinaryMappingAction, FinaryImportResultResponse, AccountType } from '@/types/api'
+import { initialFinaryMappings } from '@/features/sync/finary-mappings'
 import { SUPPORTED_CHAINS, SUPPORTED_EXCHANGES, exchangeRequiresApiSecret } from '@/types/api'
 
 // ---------------------------------------------------------------------------
@@ -1008,20 +1009,7 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
   }
 
   function initMappings(preview: FinaryPreviewResponse) {
-    setMappings(preview.accounts.map((account, i) => ({
-      finaryId: account.finaryId,
-      finaryName: account.finaryName,
-      finaryCategory: account.finaryCategory,
-      action: 'CREATE_NEW' as FinaryMappingAction,
-      targetAccountId: undefined,
-      newAccount: {
-        name: account.finaryName,
-        type: account.suggestedType,
-        provider: account.finaryInstitution,
-        currency: account.nativeCurrency,
-        color: ACCOUNT_COLORS[i % ACCOUNT_COLORS.length],
-      },
-    })))
+    setMappings(initialFinaryMappings(preview))
   }
 
   function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {

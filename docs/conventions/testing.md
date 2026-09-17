@@ -140,11 +140,12 @@ unspecified, so otherwise the other tests may assert against post-mutation state
 ## Frontend tests
 
 - **Unit tests:** Vitest (`vitest`) with `@testing-library/react` and `jsdom`.
-- **E2E tests:** Playwright (`@playwright/test`).
+- **E2E tests:** Playwright (`@playwright/test`) against demo mode. CI runs them
+  in the `e2e` job (`bun run test:e2e` after `playwright install --with-deps chromium`).
 - Run commands:
   ```bash
   bunx vitest run         # unit tests
-  bun run test:e2e        # E2E tests
+  bun run test:e2e        # E2E tests (starts Vite with VITE_DEMO_MODE=true)
   ```
 
 ## Running tests
