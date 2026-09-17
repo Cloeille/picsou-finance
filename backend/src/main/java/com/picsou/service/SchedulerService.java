@@ -39,6 +39,7 @@ public class SchedulerService {
     private final RevolutSyncService revolutSyncService;
     private final BourseDirectSyncService bourseDirectSyncService;
     private final AmundiSyncService amundiSyncService;
+    private final FortuneoSyncService fortuneoSyncService;
     private final PriceService priceService;
     private final CryptoExchangeSyncService cryptoExchangeSyncService;
     private final WalletSyncService walletSyncService;
@@ -58,6 +59,7 @@ public class SchedulerService {
         RevolutSyncService revolutSyncService,
         BourseDirectSyncService bourseDirectSyncService,
         AmundiSyncService amundiSyncService,
+        FortuneoSyncService fortuneoSyncService,
         PriceService priceService,
         CryptoExchangeSyncService cryptoExchangeSyncService,
         WalletSyncService walletSyncService,
@@ -76,6 +78,7 @@ public class SchedulerService {
         this.revolutSyncService = revolutSyncService;
         this.bourseDirectSyncService = bourseDirectSyncService;
         this.amundiSyncService = amundiSyncService;
+        this.fortuneoSyncService = fortuneoSyncService;
         this.priceService = priceService;
         this.cryptoExchangeSyncService = cryptoExchangeSyncService;
         this.walletSyncService = walletSyncService;
@@ -145,6 +148,7 @@ public class SchedulerService {
             boursoSyncService.resyncIfSessionActive(memberId);
             bourseDirectSyncService.resyncIfSessionActive(memberId);
             amundiSyncService.resyncIfSessionActive(memberId);
+            fortuneoSyncService.resyncIfSessionActive(memberId);
 
             try {
                 ibkrSyncService.resyncIfConnected(memberId);

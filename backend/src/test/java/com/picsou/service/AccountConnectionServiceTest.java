@@ -49,6 +49,7 @@ class AccountConnectionServiceTest {
     @Mock TradeRepublicSyncService tradeRepublicSyncService;
     @Mock BourseDirectSyncService bourseDirectSyncService;
     @Mock BoursoSyncService boursoSyncService;
+    @Mock FortuneoSyncService fortuneoSyncService;
     @Mock DegiroSyncService degiroSyncService;
     @Mock IbkrSyncService ibkrSyncService;
     @Mock SyncService syncService;
@@ -57,8 +58,8 @@ class AccountConnectionServiceTest {
         return new AccountConnectionService(
             accountRepository, accountService, walletRepository, exchangeSessionRepository,
             requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService,
-            tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService, degiroSyncService,
-            ibkrSyncService, syncService);
+            tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
+            fortuneoSyncService, degiroSyncService, ibkrSyncService, syncService);
     }
 
     private static Account account(long id, String externalId) {
@@ -155,6 +156,25 @@ class AccountConnectionServiceTest {
         service().deleteAccount(10L, MEMBER_ID);
 
         verify(tradeRepublicSyncService, never()).clearSession(anyLong());
+    }
+
+    /** Fortuneo writes its PEA, CTO and cash pockets from a single session. */
+    @Test
+    void keepsTheFortuneoSessionWhileAnotherAccountRemains() {
+        given(account(10L, "ft_pea_12345"), account(11L, "ft_cash_12345"));
+
+        service().deleteAccount(10L, MEMBER_ID);
+
+        verify(fortuneoSyncService, never()).clearSession(anyLong());
+    }
+
+    @Test
+    void clearsTheFortuneoSessionWithItsLastAccount() {
+        given(account(10L, "ft_cto_12345"));
+
+        service().deleteAccount(10L, MEMBER_ID);
+
+        verify(fortuneoSyncService).clearSession(MEMBER_ID);
     }
 
     @Test

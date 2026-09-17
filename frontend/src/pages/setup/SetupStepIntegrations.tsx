@@ -7,6 +7,7 @@ import {
   LineChart,
   BriefcaseBusiness,
   PiggyBank,
+  Banknote,
   Bitcoin,
   CreditCard,
 } from 'lucide-react'
@@ -28,6 +29,7 @@ const CATALOG: Array<{
   { key: 'enablebanking', icon: Landmark, route: '/setup/integrations/enablebanking' },
   { key: 'boursobank', icon: Boxes, route: '/setup/integrations/boursobank' },
   { key: 'boursedirect', icon: BriefcaseBusiness, route: '/setup/integrations/boursedirect' },
+  { key: 'fortuneo', icon: Banknote, route: '/setup/integrations/fortuneo' },
   { key: 'traderepublic', icon: LineChart, route: '/setup/integrations/traderepublic' },
   { key: 'revolut', icon: CreditCard, route: '/setup/integrations/revolut' },
   { key: 'finary', icon: PiggyBank, route: '/setup/integrations/finary' },

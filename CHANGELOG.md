@@ -47,6 +47,11 @@ information architecture.
   (`GET /api/merchants/{id}/logo`) fetches logos from DuckDuckGo's keyless icon service behind a
   port/adapter, with an in-memory TTL cache, a per-IP rate limit, and a per-member gate; the
   monogram is always the fallback, and logos never feed categorization.
+- **Fortuneo sync.** A Playwright sidecar handles login and the security code,
+  then imports PEA, PEA-PME, CTO and current accounts with their balances,
+  cash, positions and transactions. Portfolio imports are reconciled and fail
+  closed rather than replacing valid data with a partial snapshot. See
+  [feature notes](docs/features/fortuneo.md).
 - **The French regulated passbooks each get their own account type.** Livret A,
   LDDS, Livret Jeune, PEL and CEL sit alongside the existing LEP instead of all
   collapsing into the generic "Livret d'épargne", so a household holding several
@@ -241,6 +246,9 @@ information architecture.
   holdings, balance, and snapshots untouched. Transaction-derived state is reserved for manual
   accounts. CSV transaction import now accepts only manual investment accounts and rejects synced
   investment accounts before caching a preview or saving rows (#107).
+- **Investment accounts holding unpriceable securities no longer display a
+  partial value.** They fall back to the broker's reported total instead of
+  showing only cash and the holdings resolved by the public price provider.
 - **Dropdown options were unreadable in dark mode.** Native `<select>` popups
   (account type, currency, bank country, CSV import mapping, property type…)
   don't honour a translucent background — the browser falls back to an opaque

@@ -6,6 +6,7 @@ import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
+import com.picsou.repository.FortuneoSessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,6 +32,8 @@ class IntegrationsServiceTest {
     @Mock FinarySessionRepository finarySessions;
     @Mock BourseDirectSessionRepository bourseDirectSessions;
     @Mock BoursoSessionRepository boursoSessions;
+    @Mock FortuneoSessionRepository fortuneoSessions;
+    @Mock UserContext userContext;
     @InjectMocks IntegrationsService integrationsService;
 
     @Test
@@ -130,6 +133,24 @@ class IntegrationsServiceTest {
         when(boursoSessions.existsByActiveTrue()).thenReturn(false);
 
         assertThat(integrationsService.isEffectivelyEnabled("boursobank")).isFalse();
+    }
+
+    @Test
+    void isEffectivelyEnabled_fortuneo_trueWhenAnActiveSessionExists() {
+        when(settingRepository.findByKey("integration.fortuneo.enabled")).thenReturn(Optional.empty());
+        when(userContext.currentMemberId()).thenReturn(7L);
+        when(fortuneoSessions.existsByMemberIdAndActiveTrue(7L)).thenReturn(true);
+
+        assertThat(integrationsService.isEffectivelyEnabled("fortuneo")).isTrue();
+    }
+
+    @Test
+    void isEffectivelyEnabled_fortuneo_falseWhenOnlyExpiredSessionsExist() {
+        when(settingRepository.findByKey("integration.fortuneo.enabled")).thenReturn(Optional.empty());
+        when(userContext.currentMemberId()).thenReturn(7L);
+        when(fortuneoSessions.existsByMemberIdAndActiveTrue(7L)).thenReturn(false);
+
+        assertThat(integrationsService.isEffectivelyEnabled("fortuneo")).isFalse();
     }
 
     @Test

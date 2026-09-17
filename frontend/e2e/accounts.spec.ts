@@ -30,7 +30,7 @@ test.describe('Accounts page', () => {
     // Dialog should appear with the source choices
     await expect(page.getByRole('dialog')).toBeVisible()
     // Close via the dialog's close (X) button
-    await page.getByRole('button', { name: 'Close' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
     await expect(page.getByRole('dialog')).not.toBeVisible()
   })
 })

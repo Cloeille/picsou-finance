@@ -460,7 +460,8 @@
       "manual": "Crear una cuenta manualmente",
       "amundi": "PEE, PEG, PERCO, PER en Amundi",
       "property": "Casa, piso, terreno…",
-      "revolut": "Phone + passcode, on-demand sync"
+      "revolut": "Phone + passcode, on-demand sync",
+      "fortuneo": "Sincronizar tus cuentas Fortuneo"
     },
     "revolutConnected": "Revolut connected!"
   },
@@ -777,6 +778,37 @@
         "transactions": "{{count}} transactions",
         "allImported": "All your Revolut accounts are already imported."
       }
+    },
+    "fortuneo": {
+      "title": "Fortuneo",
+      "login": "Usuario",
+      "password": "Contraseña",
+      "otpCode": "Código de seguridad de 6 dígitos",
+      "otpPrompt": "Introduce el código enviado por Fortuneo. Este dispositivo no se marcará como de confianza.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "validate": "Validar código",
+      "validating": "Validando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Cartera sincronizada.",
+      "clearSession": "Desconectar",
+      "noSession": "No hay sesión activa",
+      "sessionActive": "Sesión activa",
+      "scope": "Sincroniza posiciones, coste medio, cotización, valoración y efectivo de cuentas PEA, de valores y corrientes, además de las transacciones recientes.",
+      "errors": {
+        "tooManyAttempts": "Demasiados intentos. Espera un momento.",
+        "invalidCredentials": "Credenciales de Fortuneo no válidas.",
+        "invalidCode": "Código de seguridad no válido o caducado. Reinicia el acceso.",
+        "authAttemptExpired": "El intento de autenticación ha caducado. Reinicia el acceso.",
+        "sessionExpired": "La sesión de Fortuneo ha caducado. Vuelve a conectarte.",
+        "investorProfileRequired": "Fortuneo está bloqueando la cartera con una solicitud de perfil de inversor. Abre Fortuneo, aplaza o completa esa solicitud y vuelve a sincronizar. Tus datos existentes no se modificaron.",
+        "portfolioIncomplete": "Fortuneo devolvió una cartera incompleta. Tus datos existentes no se modificaron.",
+        "formatChanged": "Fortuneo cambió el formato de la cartera. Tus datos existentes no se modificaron.",
+        "invalidData": "Fortuneo devolvió datos de cartera incoherentes. Tus datos existentes no se modificaron.",
+        "serverError": "No se pudo contactar con Fortuneo. Inténtalo de nuevo."
+      }
     }
   },
   "settings": {
@@ -1057,6 +1089,7 @@
       "enablebanking": "Enable Banking",
       "boursobank": "BoursoBank",
       "boursedirect": "Bourse Direct",
+      "fortuneo": "Fortuneo",
       "traderepublic": "Trade Republic",
       "finary": "Finary",
       "crypto": "Cripto"
@@ -1281,6 +1314,10 @@
         "revolut": {
           "title": "Revolut",
           "description": "Sync all your Revolut assets (accounts, pockets, vaults) with your phone number + passcode and an approval on your mobile."
+        },
+        "fortuneo": {
+          "title": "Fortuneo",
+          "description": "Sincroniza tu PEA, cuenta de valores y cuentas corrientes con autenticación de dos factores."
         }
       },
       "hint": {
@@ -1426,6 +1463,13 @@
       "tip": "Head to Accounts → Add account → Revolut once setup is done.",
       "cta": "Got it",
       "skip": "Don't enable Revolut"
+    },
+    "fortuneo": {
+      "title": "Fortuneo está listo.",
+      "body": "Tras la configuración, inicia sesión con tus credenciales de Fortuneo y el código de seguridad de 6 dígitos.",
+      "tip": "Picsou solo guarda una sesión cifrada. La contraseña y el código 2FA nunca se almacenan. Las cuentas importadas permanecen vinculadas a su PEA, cuenta de valores o cuenta corriente.",
+      "cta": "Activar Fortuneo",
+      "skip": "No activar Fortuneo"
     }
   },
   "import": {

@@ -101,7 +101,7 @@ export const setupApi = {
     setupClient.post<CryptoKeyGenerateResponse>('/integrations/crypto/generate-key')
       .then(r => r.data),
 
-  acknowledgeIntegration: (key: 'traderepublic' | 'revolut' | 'finary' | 'boursedirect') =>
+  acknowledgeIntegration: (key: 'traderepublic' | 'revolut' | 'finary' | 'boursedirect' | 'fortuneo') =>
     setupClient.post<void>(`/integrations/${key}/acknowledge`).then(r => r.data),
 
   complete: () => setupClient.post<void>('/complete').then(r => r.data),

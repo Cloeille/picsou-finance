@@ -768,6 +768,25 @@ handlers.set(key('POST', '/bourso/auth/complete'), () => demoBoursoStatus)
 handlers.set(key('POST', '/bourso/sync'), () => demoBoursoStatus)
 handlers.set(key('DELETE', '/bourso/session'), () => null)
 
+// Fortuneo — its frontend validates every response with Zod, so the demo must
+// return the complete production contract rather than relying on the adapter's
+// permissive `{}` fallback.
+const demoFortuneoStatus = {
+  isActive: false,
+  expiresAt: null,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+handlers.set(key('GET', '/fortuneo/status'), () => demoFortuneoStatus)
+handlers.set(key('POST', '/fortuneo/auth/initiate'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/fortuneo/auth/complete'), () => demoFortuneoStatus)
+handlers.set(key('POST', '/fortuneo/sync'), () => demoFortuneoStatus)
+handlers.set(key('DELETE', '/fortuneo/session'), () => null)
+
 // Trade Republic - session status
 handlers.set(key('GET', '/tr/status'), () => ({ isActive: false, expiresAt: null }))
 

@@ -1,15 +1,18 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-07-21 (Bourse Direct internal sidecar)
+> Last updated: 2026-08-25 (Fortuneo internal sidecar)
 
 ## Context
 
-Picsou deploys as three Docker images orchestrated by `docker/docker-compose.yml`:
+Picsou deploys as six project images orchestrated by `docker/docker-compose.yml`:
 - **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/zoeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/zoeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/zoeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
+- **`amundi-auth`** — Amundi login/2FA sidecar, published to GHCR as `ghcr.io/zoeille/picsou-finance/amundi-auth`.
+- **`bourso-auth`** — BoursoBank login/2FA sidecar, published to GHCR as `ghcr.io/zoeille/picsou-finance/bourso-auth`.
+- **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/zoeille/picsou-finance/fortuneo-auth`.
 
-A fourth container is PostgreSQL 16 (official image, not built).
+PostgreSQL 16 and the optional Caddy TLS proxy use upstream images.
 
 ## How it works
 
@@ -36,6 +39,17 @@ Based on `python:3.12-slim-bookworm`, with Chromium only. It runs as a
 dedicated non-root user and is reached by the backend at
 `BOURSE_DIRECT_AUTH_URL=http://bourse-direct-auth:8001`. Compose does not
 publish its port, so login, 2FA and portfolio endpoints remain internal.
+
+### Fortuneo sidecar — `services/fortuneo-auth/Dockerfile`
+
+Based on `python:3.12-slim-bookworm`, with Chromium only. It runs as a
+dedicated non-root user and is reached by the backend at
+`FORTUNEO_AUTH_URL=http://fortuneo-auth:8001`. Compose does not publish its
+port. Its API is attached to `fortuneo-auth-net`, an internal network shared
+only with the application, while `fortuneo-egress` gives the sidecar outbound
+provider access without exposing that API to the other containers. Custom
+remote sidecar URLs must use HTTPS; HTTP is accepted only for this isolated
+service name or loopback development.
 
 ### Entrypoint (`docker/entrypoint.sh`)
 
@@ -146,10 +160,11 @@ fixed at create time, so the new value is never seen.
 ### Key files
 
 - `docker/Dockerfile` — main image, 3-stage build
-- `docker/docker-compose.yml` — orchestration (app + proxy + both broker sidecars + PostgreSQL + volumes)
+- `docker/docker-compose.yml` — orchestration (app + proxy + connector sidecars + PostgreSQL + volumes)
 - `docker/Caddyfile` — optional TLS terminator (profile `tls`)
 - `services/tr-auth/Dockerfile` — tr-auth sidecar image
 - `services/bourse-direct-auth/Dockerfile` — Bourse Direct sidecar image
+- `services/fortuneo-auth/Dockerfile` — Fortuneo sidecar image
 - `docker/nginx.conf` — Nginx reverse proxy config
 - `docker/supervisord.conf` — supervisor (nginx + backend)
 - `docker/entrypoint.sh` — secret bootstrap + HSTS snippet + exec supervisord
@@ -161,6 +176,9 @@ docker compose -f docker/docker-compose.yml up
   → picsou:latest  (nginx:8080 → backend:9090)
   → docker-tr-auth (uvicorn:8001)
   → bourse-direct-auth (uvicorn:8001, internal only)
+  → amundi-auth (uvicorn:8001, internal only)
+  → bourso-auth (uvicorn:8001, internal only)
+  → fortuneo-auth (uvicorn:8001, internal only)
   → postgres:16-alpine (:5432)
 ```
 
@@ -171,6 +189,9 @@ docker compose -f docker/docker-compose.yml build
 docker save ghcr.io/zoeille/picsou-finance:latest \
   ghcr.io/zoeille/picsou-finance/tr-auth:latest \
   ghcr.io/zoeille/picsou-finance/bourse-direct-auth:latest \
+  ghcr.io/zoeille/picsou-finance/amundi-auth:latest \
+  ghcr.io/zoeille/picsou-finance/bourso-auth:latest \
+  ghcr.io/zoeille/picsou-finance/fortuneo-auth:latest \
   | gzip > picsou-release.tar.gz
 # On target machine:
 docker load < picsou-release.tar.gz
@@ -178,7 +199,7 @@ docker load < picsou-release.tar.gz
 
 ### Pulling from GHCR
 
-All three images are published by `.github/workflows/docker.yml` on every push
+All six project images are published by `.github/workflows/docker.yml` on every push
 (matrix build, one entry per image). To deploy from the registry instead of
 building or loading a tar.gz:
 
@@ -187,6 +208,9 @@ building or loading a tar.gz:
 docker pull ghcr.io/zoeille/picsou-finance:1.0.0
 docker pull ghcr.io/zoeille/picsou-finance/tr-auth:1.0.0
 docker pull ghcr.io/zoeille/picsou-finance/bourse-direct-auth:1.0.0
+docker pull ghcr.io/zoeille/picsou-finance/amundi-auth:1.0.0
+docker pull ghcr.io/zoeille/picsou-finance/bourso-auth:1.0.0
+docker pull ghcr.io/zoeille/picsou-finance/fortuneo-auth:1.0.0
 ```
 
 Tag scheme:

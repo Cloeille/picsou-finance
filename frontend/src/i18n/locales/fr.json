@@ -733,7 +733,8 @@
       "finary": "Importer depuis Finary",
       "manual": "Créer un compte manuellement",
       "amundi": "PEE, PEG, PERCO, PER chez Amundi",
-      "property": "Maison, appartement, terrain…"
+      "property": "Maison, appartement, terrain…",
+      "fortuneo": "Synchroniser vos comptes Fortuneo"
     }
   },
   "sync": {
@@ -1048,6 +1049,37 @@
         "formatChanged": "Le format du site Amundi a changé. Vos données existantes ont été conservées.",
         "invalidData": "Amundi a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
         "serverError": "Impossible de joindre Amundi. Veuillez réessayer."
+      }
+    },
+    "fortuneo": {
+      "title": "Fortuneo",
+      "login": "Identifiant",
+      "password": "Mot de passe",
+      "otpCode": "Code de sécurité à 6 chiffres",
+      "otpPrompt": "Saisissez le code envoyé par Fortuneo. Cet appareil ne sera pas déclaré comme appareil de confiance.",
+      "connect": "Se connecter",
+      "connecting": "Connexion en cours…",
+      "validate": "Valider le code",
+      "validating": "Validation en cours…",
+      "sync": "Synchroniser",
+      "queued": "Synchronisation en attente…",
+      "syncing": "Synchronisation en cours…",
+      "syncSuccess": "Portefeuille synchronisé.",
+      "clearSession": "Déconnecter",
+      "noSession": "Aucune session active",
+      "sessionActive": "Session active",
+      "scope": "Synchronise les positions, le PRU, le cours, la valorisation et les liquidités de vos PEA, comptes-titres et comptes courants, ainsi que les transactions récentes.",
+      "errors": {
+        "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
+        "invalidCredentials": "Identifiants Fortuneo invalides.",
+        "invalidCode": "Code de sécurité invalide ou expiré. Recommencez la connexion.",
+        "authAttemptExpired": "La tentative d’authentification a expiré. Recommencez la connexion.",
+        "sessionExpired": "La session Fortuneo a expiré. Veuillez vous reconnecter.",
+        "investorProfileRequired": "Fortuneo bloque le portefeuille avec la demande de profil investisseur. Ouvrez Fortuneo, reportez ou complétez cette demande, puis relancez la synchronisation. Vos données existantes ont été conservées.",
+        "portfolioIncomplete": "Fortuneo a renvoyé un portefeuille incomplet. Vos données existantes ont été conservées.",
+        "formatChanged": "Le format du portefeuille Fortuneo a changé. Vos données existantes ont été conservées.",
+        "invalidData": "Fortuneo a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
+        "serverError": "Impossible de joindre Fortuneo. Veuillez réessayer."
       }
     }
   },
@@ -1374,6 +1406,7 @@
       "enablebanking": "Enable Banking",
       "boursobank": "BoursoBank",
       "boursedirect": "Bourse Direct",
+      "fortuneo": "Fortuneo",
       "traderepublic": "Trade Republic",
       "finary": "Finary",
       "crypto": "Crypto"
@@ -1578,6 +1611,10 @@
         "crypto": {
           "title": "Échanges crypto",
           "description": "Suivez Binance et consorts via des clés API en lecture seule, chiffrées au repos."
+        },
+        "fortuneo": {
+          "title": "Fortuneo",
+          "description": "Synchronisez votre PEA, compte-titres et comptes courants avec une authentification 2FA."
         }
       },
       "hint": {
@@ -1723,6 +1760,13 @@
       "cta": "Ouvrir mon tableau de bord",
       "loginFallback": "Aller à la connexion",
       "loggingIn": "Connexion en cours..."
+    },
+    "fortuneo": {
+      "title": "Fortuneo est prêt.",
+      "body": "Vous vous connecterez après l'installation avec vos identifiants Fortuneo, puis le code de sécurité à 6 chiffres.",
+      "tip": "Picsou conserve uniquement une session chiffrée. Le mot de passe et le code 2FA ne sont jamais enregistrés. Les comptes restent rattachés à leur PEA, compte-titres ou compte courant.",
+      "cta": "Activer Fortuneo",
+      "skip": "Ne pas activer Fortuneo"
     }
   },
   "pockets": {

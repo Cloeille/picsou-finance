@@ -49,6 +49,11 @@ jobs:
             context: services/bourso-auth
             dockerfile: services/bourso-auth/Dockerfile
             versioned: false
+          - name: fortuneo-auth
+            image: ${{ github.repository }}/fortuneo-auth
+            context: services/fortuneo-auth
+            dockerfile: services/fortuneo-auth/Dockerfile
+            versioned: false
 
     steps:
       - name: Checkout

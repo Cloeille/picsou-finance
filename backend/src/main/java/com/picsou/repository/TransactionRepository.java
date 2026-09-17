@@ -45,6 +45,21 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 
     void deleteByAccountIdAndIsManualFalse(Long accountId);
 
+    /**
+     * Deletes only the synced (non-manual) rows inside a date window, leaving older
+     * history untouched. Preferred over deleting every non-manual row and re-saving
+     * the ones to keep: those are managed entities whose rows have just been deleted,
+     * so re-saving them merges onto a missing row and fails with
+     * {@code StaleObjectStateException}.
+     */
+    void deleteByAccountIdAndIsManualFalseAndDateGreaterThanEqual(Long accountId, LocalDate date);
+
+    /**
+     * Every synced (non-manual) row of an account, used to reconcile a full provider history
+     * against what is already stored without deleting user-entered rows.
+     */
+    List<Transaction> findByAccountIdAndIsManualFalse(Long accountId);
+
     @Query("SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t WHERE t.account.id = :accountId AND t.date > :date")
     BigDecimal sumAmountByAccountIdAndDateAfter(@Param("accountId") Long accountId, @Param("date") LocalDate date);
 

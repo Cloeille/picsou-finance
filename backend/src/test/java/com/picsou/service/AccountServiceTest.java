@@ -657,6 +657,41 @@ class AccountServiceTest {
     }
 
     @Test
+    void liveBalanceEur_fortuneo_usesBrokerTotalWhenAnUnlistedHoldingCannotBePriced() {
+        // A Fortuneo PEA can hold "titres non cotés" that OpenFIGI never resolves, so
+        // the partial recomputation (cash + only the priceable symbols) is permanently
+        // wrong, not merely stale. Confirmed live: three such holdings displayed an
+        // 84k EUR PEA as 49k.
+        Account account = Account.builder().id(4L).name("PEA Fortuneo")
+            .type(AccountType.PEA).provider("Fortuneo").currency("EUR")
+            .currentBalance(new BigDecimal("5000")).cashBalance(new BigDecimal("500")).build();
+        AccountHolding priced = AccountHolding.builder()
+            .ticker("ACME.PA").quantity(new BigDecimal("10")).build();
+        AccountHolding unlisted = AccountHolding.builder()
+            .ticker("XX0000000001").quantity(new BigDecimal("100")).build();
+        when(holdingRepository.findByAccount_Id(4L)).thenReturn(List.of(priced, unlisted));
+        stubQuotes("ACME.PA", "100", "XX0000000001", null);
+
+        // Recomputing would give 500 + 10*100 = 1500, silently dropping the unlisted
+        // holding; the broker's own total is the only figure that includes it.
+        assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("5000");
+    }
+
+    @Test
+    void liveBalanceEur_fortuneo_recomputesLiveWhenEveryHoldingIsPriced() {
+        Account account = Account.builder().id(4L).name("PEA Fortuneo")
+            .type(AccountType.PEA).provider("Fortuneo").currency("EUR")
+            .currentBalance(new BigDecimal("999999")).cashBalance(new BigDecimal("250")).build();
+        AccountHolding holding = AccountHolding.builder()
+            .ticker("ACME.PA").quantity(new BigDecimal("10")).build();
+        when(holdingRepository.findByAccount_Id(4L)).thenReturn(List.of(holding));
+        stubQuotes("ACME.PA", "100");
+
+        // Fully priceable: live prices win over the stored broker total.
+        assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("1250");
+    }
+
+    @Test
     void calculateInvestedAmount_includesCashAndPrefersBrokerEurCostBasis() {
         Account account = Account.builder().id(3L)
             .currentBalance(new BigDecimal("1250"))

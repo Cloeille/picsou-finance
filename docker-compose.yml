@@ -35,6 +35,7 @@ services:
       BOURSO_AUTH_URL: http://bourso-auth:8001
       BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001
       AMUNDI_AUTH_URL: http://amundi-auth:8001
+      FORTUNEO_AUTH_URL: http://fortuneo-auth:8001
     depends_on:
       db:
         condition: service_healthy
@@ -46,8 +47,11 @@ services:
         condition: service_started
       amundi-auth:
         condition: service_started
+      fortuneo-auth:
+        condition: service_started
     networks:
       - picsou-net
+      - fortuneo-auth-net
 
   tr-auth:
     build:
@@ -86,6 +90,17 @@ services:
       - "8001"
     networks:
       - picsou-net
+
+  fortuneo-auth:
+    build:
+      context: ./services/fortuneo-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8001"
+    networks:
+      - fortuneo-auth-net
+      - fortuneo-egress
 
   bourso-auth:
     build:
@@ -133,4 +148,9 @@ volumes:
 
 networks:
   picsou-net:
+    driver: bridge
+  fortuneo-auth-net:
+    driver: bridge
+    internal: true
+  fortuneo-egress:
     driver: bridge

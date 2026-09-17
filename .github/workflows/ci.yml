@@ -49,6 +49,12 @@ jobs:
       - name: Unit tests
         run: bun run test
         working-directory: frontend
+      - name: Install Playwright browser
+        run: bunx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: End-to-end tests
+        run: bun run test:e2e
+        working-directory: frontend
 
   bourse-direct-sidecar:
     runs-on: ubuntu-latest
@@ -67,6 +73,25 @@ jobs:
           --volume "${{ github.workspace }}/services/bourse-direct-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
           --workdir /tests
           picsou-bourse-direct-auth:test
+          python -m unittest discover -v
+
+  fortuneo-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the Chromium-only sidecar image
+        run: docker build --tag picsou-fortuneo-auth:test services/fortuneo-auth
+      - name: Run parser, lifecycle, and browser navigation tests
+        run: >-
+          docker run --rm --ipc=host
+          --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/fortuneo-auth/test_main.py:/tests/test_main.py:ro"
+          --volume "${{ github.workspace }}/services/fortuneo-auth/test_navigation.py:/tests/test_navigation.py:ro"
+          --volume "${{ github.workspace }}/services/fortuneo-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
+          --workdir /tests
+          picsou-fortuneo-auth:test
           python -m unittest discover -v
 
   bourso-sidecar:
