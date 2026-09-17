@@ -51,6 +51,14 @@ public class Transaction {
     @Builder.Default
     private boolean isManual = false;
 
+    /**
+     * Dedup key for provider-imported rows: the bank's own entry reference when it
+     * sends one, otherwise a content fingerprint computed by the importer. Null for
+     * manual rows and for importers that replace their rows wholesale (Finary).
+     */
+    @Column(name = "external_transaction_id", length = 128)
+    private String externalTransactionId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "tx_type", length = 20)
     private TransactionType txType;

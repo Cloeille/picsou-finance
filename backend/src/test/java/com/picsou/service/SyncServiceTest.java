@@ -39,6 +39,7 @@ class SyncServiceTest {
     @Mock FamilyMemberRepository familyMemberRepository;
     @Mock AccountService accountService;
     @Mock RequisitionLifecycleWriter requisitionLifecycleWriter;
+    @Mock BankTransactionImportService bankTransactionImportService;
 
     SyncService syncService;
 
