@@ -3,6 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
+import org.springframework.web.reactive.function.client.WebClient;
 import com.picsou.port.TradeRepublicPort.TrTokens;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.junit.jupiter.api.AfterEach;
