@@ -76,6 +76,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A goal's average monthly contribution adds up its accounts.** It was a
   per-account mean compared with the goal-level monthly need, so three accounts
   saving 100 each reported a 100 contribution and a shortfall.
+- **A loan whose monthly payment is computed now amortises its capital in full.**
+  The computed annuity excluded the insurance, then the schedule subtracted the
+  insurance from it, so every installment repaid less capital than the payment
+  implied and the last one absorbed the difference.
+- **A loan saved without dates is valued at the balance you entered**, not at the
+  full borrowed amount. With no start and end date the schedule is empty and the
+  "remaining balance" was the whole principal, on the dashboard and in the real
+  estate equity.
 
 - **An Amundi account holding two share classes of the same fund now syncs.**
   Amundi does not always put an ISIN in `codeIsin` — on employer funds it holds

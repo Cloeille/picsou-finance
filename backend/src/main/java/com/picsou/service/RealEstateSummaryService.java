@@ -175,8 +175,12 @@ public class RealEstateSummaryService {
             if (loanShare.signum() <= 0) {
                 continue;
             }
-            BigDecimal outstanding = AccountAccessResolver.weigh(
-                loanAmortizationService.computeRemainingBalance(debt, asOf), loanShare);
+            // Same rule as AccountService.valuation: a Debt without dates has no schedule, and
+            // the balance stored on the loan account is what the user owes.
+            BigDecimal remaining = LoanAmortizationService.hasSchedule(debt)
+                ? loanAmortizationService.computeRemainingBalance(debt, asOf)
+                : (loanAccount.getCurrentBalance() != null ? loanAccount.getCurrentBalance() : BigDecimal.ZERO);
+            BigDecimal outstanding = AccountAccessResolver.weigh(remaining, loanShare);
             total = total.add(outstanding);
             lines.add(new LinkedLoan(
                 loanAccount.getId(),

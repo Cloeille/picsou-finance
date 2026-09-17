@@ -436,7 +436,10 @@ public class AccountService {
      */
     public Valuation valuation(Account account) {
         if (account.getType() == AccountType.LOAN) {
+            // A Debt without dates has no schedule, and its "remaining balance" is the whole
+            // borrowed amount; the balance the user typed on the account is the better figure.
             BigDecimal outstanding = debtRepository.findByAccountId(account.getId())
+                .filter(LoanAmortizationService::hasSchedule)
                 .map(debt -> loanAmortizationService.computeRemainingBalance(debt, LocalDate.now()))
                 .orElseGet(() -> priceService.toEur(
                     account.getCurrentBalance(), account.getCurrency(), account.getTicker()));

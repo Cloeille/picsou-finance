@@ -68,9 +68,13 @@ public class LoanAmortizationService {
         int totalInstallments = computeTotalInstallments(startDate, endDate);
         BigDecimal monthlyRate = annualRate.divide(TWELVE, MC);
 
+        // monthlyPayment is the whole installment, insurance included: the schedule below takes
+        // the insurance back out of it. A user-entered payment already includes it; a computed
+        // annuity does not, so it is added here, or every installment under-amortised the capital
+        // by the insurance and the last one absorbed the shortfall.
         BigDecimal monthlyPayment = debt.getMonthlyPayment() != null
             ? debt.getMonthlyPayment()
-            : computeMonthlyPayment(principal, monthlyRate, totalInstallments);
+            : computeMonthlyPayment(principal, monthlyRate, totalInstallments).add(insurance);
 
         // Build full schedule from start
         List<LoanInstallment> schedule = new ArrayList<>(Math.max(totalInstallments, 0));
@@ -177,6 +181,16 @@ public class LoanAmortizationService {
      */
     public BigDecimal computeRemainingBalance(Debt debt, LocalDate asOf) {
         return compute(debt, asOf).summary().remainingBalance();
+    }
+
+    /**
+     * Whether the debt carries enough to amortise: a start and an end date, in that order.
+     * Without them the schedule is empty and {@link #computeRemainingBalance} can only answer
+     * the borrowed amount, which is not what the user owes; callers fall back to the balance
+     * stored on the account instead.
+     */
+    public static boolean hasSchedule(Debt debt) {
+        return computeTotalInstallments(debt.getStartDate(), debt.getEndDate()) > 0;
     }
 
     private static BigDecimal nz(BigDecimal value) {
