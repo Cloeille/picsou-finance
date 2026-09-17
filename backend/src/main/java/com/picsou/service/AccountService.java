@@ -422,6 +422,22 @@ public class AccountService {
                             boolean allPriced, boolean anyPriced, boolean anyStale) {}
 
     /**
+     * A loan's outstanding capital. The second figure is the borrowed amount, but no caller
+     * reads it as a cost basis: a loan is a liability, and every aggregation path contributes
+     * 0 for it on the invested side instead (issue #18).
+     */
+    private Valuation loanValuation(Account account) {
+        // A Debt without dates has no schedule, and its "remaining balance" is the whole
+        // borrowed amount; the balance the user typed on the account is the better figure.
+        BigDecimal outstanding = debtRepository.findByAccountId(account.getId())
+            .filter(LoanAmortizationService::hasSchedule)
+            .map(debt -> loanAmortizationService.computeRemainingBalance(debt, LocalDate.now()))
+            .orElseGet(() -> priceService.toEur(
+                account.getCurrentBalance(), account.getCurrency(), account.getTicker()));
+        return new Valuation(outstanding, account.getCurrentBalance(), true, true, false);
+    }
+
+    /**
      * Values an account and computes its cost basis in a single pass.
      *
      * <p>The two figures used to be computed independently, and disagreed: the value dropped an
