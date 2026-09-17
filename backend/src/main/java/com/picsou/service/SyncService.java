@@ -32,6 +32,7 @@ public class SyncService {
     private final AccountService accountService;
     private final RequisitionLifecycleWriter requisitionLifecycleWriter;
     private final BankLogoResolver bankLogoResolver;
+    private final BankTransactionImportService bankTransactionImportService;
 
     public SyncService(
         BankConnectorPort bankConnector,
@@ -40,7 +41,8 @@ public class SyncService {
         FamilyMemberRepository familyMemberRepository,
         AccountService accountService,
         RequisitionLifecycleWriter requisitionLifecycleWriter,
-        BankLogoResolver bankLogoResolver
+        BankLogoResolver bankLogoResolver,
+        BankTransactionImportService bankTransactionImportService
     ) {
         this.bankConnector = bankConnector;
         this.accountRepository = accountRepository;
@@ -49,6 +51,7 @@ public class SyncService {
         this.accountService = accountService;
         this.requisitionLifecycleWriter = requisitionLifecycleWriter;
         this.bankLogoResolver = bankLogoResolver;
+        this.bankTransactionImportService = bankTransactionImportService;
     }
 
     /** Step 1: Initiate Enable Banking bank connection for a given institution. */
@@ -118,7 +121,7 @@ public class SyncService {
             FamilyMember member = requisition.getMember();
 
             List<AccountResponse> responses = accountDataList.stream()
-                .map(data -> upsertAccount(data, requisition, member))
+                .map(data -> upsertAccount(data, requisition, member, sessionId))
                 .flatMap(Optional::stream)
                 .toList();
 
@@ -190,7 +193,7 @@ public class SyncService {
         FamilyMember member = req.getMember();
 
         List<AccountResponse> responses = accountDataList.stream()
-            .map(data -> upsertAccount(data, req, member))
+            .map(data -> upsertAccount(data, req, member, req.getRequisitionId()))
             .flatMap(Optional::stream)
             .toList();
 
@@ -271,7 +274,7 @@ public class SyncService {
                     continue;
                 }
                 FamilyMember member = req.getMember();
-                accounts.forEach(data -> upsertAccount(data, req, member));
+                accounts.forEach(data -> upsertAccount(data, req, member, req.getRequisitionId()));
                 req.setLastSyncedAt(Instant.now());
                 requisitionRepository.save(req);
                 log.info("Auto-resync OK for {}: {} accounts", req.getInstitutionName(), accounts.size());
@@ -326,7 +329,7 @@ public class SyncService {
             return List.of();
         }
         List<AccountResponse> responses = accountDataList.stream()
-            .map(data -> upsertAccount(data, req, member))
+            .map(data -> upsertAccount(data, req, member, req.getRequisitionId()))
             .flatMap(Optional::stream)
             .toList();
         req.setLastSyncedAt(Instant.now());
@@ -396,8 +399,18 @@ public class SyncService {
      * Returns {@link Optional#empty()} when the matching account was soft-deleted
      * by the user — we must not resurrect it on the next sync. The bank may keep
      * returning the same external id forever; that's not consent to bring it back.
+     *
+     * <p>{@code sessionId} is passed in rather than read off the requisition: during
+     * {@code completeConnection} the row still carries the (now spent) authorization
+     * id at this point, and the live session is only written onto it once every
+     * upsert has succeeded.
      */
-    private Optional<AccountResponse> upsertAccount(BankConnectorPort.AccountData data, Requisition requisition, FamilyMember member) {
+    private Optional<AccountResponse> upsertAccount(
+        BankConnectorPort.AccountData data,
+        Requisition requisition,
+        FamilyMember member,
+        String sessionId
+    ) {
         Optional<Account> existing = accountRepository
             .findByExternalAccountIdAndMemberId(data.externalId(), member.getId());
 
@@ -438,6 +451,11 @@ public class SyncService {
 
         account = accountRepository.save(account);
         accountService.upsertSnapshotFromNative(account, data.balance(), LocalDate.now());
+
+        // Balances first, transactions after, and never the other way round: the import
+        // is best-effort (it swallows provider failures) so that an ASPSP which serves
+        // balances but refuses /transactions still produces the sync the user asked for.
+        bankTransactionImportService.importFor(account, sessionId);
 
         return Optional.of(accountService.toResponse(account));
     }
