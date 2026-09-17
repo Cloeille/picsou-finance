@@ -123,7 +123,6 @@ class PriceServiceTest {
     @Test
     void price_fallsBackToTheLastRecordedOne_whenTheProviderReturnsNothing() {
         LocalDate yesterday = LocalDate.now().minusDays(1);
-        when(priceProvider.supports("BTC")).thenReturn(true);
         when(priceProvider.getPricesEur(Set.of("BTC"))).thenReturn(Map.of());
         when(priceSnapshotRepository.findRecentByTickers(eq(Set.of("BTC")), any(), any()))
             .thenReturn(List.of(snapshot("BTC", yesterday, "54619")));
@@ -162,7 +161,6 @@ class PriceServiceTest {
 
     @Test
     void fallback_onlyLooksBackAWeek() {
-        when(priceProvider.supports("BTC")).thenReturn(true);
         when(priceProvider.getPricesEur(Set.of("BTC"))).thenReturn(Map.of());
         when(priceSnapshotRepository.findRecentByTickers(any(), any(), any())).thenReturn(List.of());
 
@@ -177,7 +175,6 @@ class PriceServiceTest {
 
     @Test
     void aFailedLookupIsNotRetriedOnEveryRead() {
-        when(priceProvider.supports("BTC")).thenReturn(true);
         when(priceProvider.getPricesEur(Set.of("BTC"))).thenReturn(Map.of());
         when(priceSnapshotRepository.findRecentByTickers(any(), any(), any())).thenReturn(List.of());
 
@@ -280,7 +277,6 @@ class PriceServiceTest {
         withHole.add(snapshot("BTC", LocalDate.now(), "54619"));
         when(priceSnapshotRepository.findByTickerInAndDateBetween(eq(Set.of("BTC")), any(), any()))
             .thenReturn(withHole);
-        when(priceProvider.supports("BTC")).thenReturn(true);
         when(priceProvider.getHistoricalPricesEur(eq("BTC"), any(), any()))
             .thenReturn(Map.of(from.plusDays(60), new BigDecimal("51000")));
         when(priceSnapshotRepository.findByTickerAndDate(any(), any())).thenReturn(Optional.empty());
@@ -323,8 +319,8 @@ class PriceServiceTest {
 
     @Test
     void getPriceEur_cachesAMiss_soAnUnresolvableTickerIsFetchedOnce() {
-        when(priceProvider.supports("MWRDF")).thenReturn(false);
         when(priceProvider.getPricesEur(Set.of("MWRDF"))).thenReturn(Map.of());
+        lenient().when(priceSnapshotRepository.findRecentByTickers(any(), any(), any())).thenReturn(List.of());
 
         assertThat(priceService.getPriceEur("MWRDF")).isNull();
         assertThat(priceService.getPriceEur("MWRDF")).isNull();
@@ -335,7 +331,6 @@ class PriceServiceTest {
 
     @Test
     void getPriceEur_stillCachesAndReturnsHits() {
-        when(priceProvider.supports("AAPL")).thenReturn(false);
         when(priceProvider.getPricesEur(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new BigDecimal("200")));
 
         assertThat(priceService.getPriceEur("AAPL")).isEqualByComparingTo("200");
@@ -370,7 +365,6 @@ class PriceServiceTest {
 
     @Test
     void toEur_stillPricesAnAccountThatIsOneAsset_throughItsTicker() {
-        when(priceProvider.supports("AAPL")).thenReturn(false);
         when(priceProvider.getPricesEur(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new BigDecimal("200")));
 
         assertThat(priceService.toEur(new BigDecimal("3"), "USD", "AAPL")).isEqualByComparingTo("600");

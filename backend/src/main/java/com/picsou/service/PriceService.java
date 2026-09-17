@@ -74,28 +74,8 @@ public class PriceService {
      * Returns null if no price is available at all — not even a recent recorded one.
      */
     public BigDecimal getPriceEur(String ticker) {
-        if (ticker == null || ticker.isBlank() || "EUR".equalsIgnoreCase(ticker)) {
-            return BigDecimal.ONE;
-        }
-
-        String upper = ticker.toUpperCase(Locale.ROOT);
-
-        // Check cache
-        CachedPrice cached = priceCache.get(upper);
-        if (cached != null && !cached.isExpired()) {
-            return cached.price();
-        }
-
-        // Fetch through the port; the composite provider routes crypto vs. stock.
-        Map<String, BigDecimal> prices = priceProvider.getPricesEur(Set.of(upper));
-
-        BigDecimal price = prices.get(upper);
-        if (price != null) {
-            priceCache.put(upper, new CachedPrice(price, Instant.now()));
-            return price;
-        }
-
-        return null;
+        Quote quote = getQuote(ticker);
+        return quote == null ? null : quote.price();
     }
 
     /**
@@ -333,13 +313,25 @@ public class PriceService {
 
         Map<String, BigDecimal> result = new HashMap<>();
 
-        // EUR needs no conversion; everything else goes through the port, which
-        // routes crypto to CoinGecko and the rest to Yahoo and batches each call.
+        // EUR needs no conversion; cached tickers are served directly;
+        // everything else goes through the port, which routes crypto to
+        // CoinGecko and the rest to Yahoo and batches each call.
         Set<String> toFetch = new HashSet<>();
         for (String ticker : tickers) {
             String upper = ticker.toUpperCase(Locale.ROOT);
             if ("EUR".equals(upper)) {
                 result.put(upper, BigDecimal.ONE);
+                continue;
+            }
+            CachedPrice cached = priceCache.get(upper);
+            if (cached != null && !cached.isExpired()) {
+                // A remembered miss skips the network like a hit does, but it is not a price:
+                // leaving the ticker out of the result lets refreshCryptoQuotes reach the last
+                // recorded price. Returning it as a null price wrapped that null in a Quote,
+                // hid the fallback, and let an exchange sync engrave a partial total.
+                if (cached.price() != null) {
+                    result.put(upper, cached.price());
+                }
             } else {
                 toFetch.add(upper);
             }
