@@ -85,7 +85,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 ### 1. Clone
 
 ```bash
-git clone https://github.com/Zoeille/picsou-finance.git
+git clone https://github.com/Cloeille/picsou-finance.git
 cd picsou-finance
 ```
 
@@ -95,12 +95,12 @@ Picsou publishes pre-built, multi-arch (amd64/arm64) images to the GitHub Contai
 
 | Image | Package |
 |-------|---------|
-| `ghcr.io/zoeille/picsou-finance` | [picsou-finance](https://github.com/users/Zoeille/packages/container/package/picsou-finance) — app (frontend + backend) |
-| `ghcr.io/zoeille/picsou-finance/tr-auth` | [picsou-finance/tr-auth](https://github.com/users/Zoeille/packages/container/package/picsou-finance%2Ftr-auth) — Trade Republic auth sidecar |
-| `ghcr.io/zoeille/picsou-finance/bourse-direct-auth` | Bourse Direct login/2FA sidecar |
-| `ghcr.io/zoeille/picsou-finance/amundi-auth` | Amundi Épargne Salariale login/2FA sidecar |
-| `ghcr.io/zoeille/picsou-finance/bourso-auth` | BoursoBank login/2FA sidecar |
-| `ghcr.io/zoeille/picsou-finance/fortuneo-auth` | Fortuneo login/2FA and portfolio sidecar |
+| `ghcr.io/cloeille/picsou-finance` | [picsou-finance](https://github.com/users/Cloeille/packages/container/package/picsou-finance) — app (frontend + backend) |
+| `ghcr.io/cloeille/picsou-finance/tr-auth` | [picsou-finance/tr-auth](https://github.com/users/Cloeille/packages/container/package/picsou-finance%2Ftr-auth) — Trade Republic auth sidecar |
+| `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` | Bourse Direct login/2FA sidecar |
+| `ghcr.io/cloeille/picsou-finance/amundi-auth` | Amundi Épargne Salariale login/2FA sidecar |
+| `ghcr.io/cloeille/picsou-finance/bourso-auth` | BoursoBank login/2FA sidecar |
+| `ghcr.io/cloeille/picsou-finance/fortuneo-auth` | Fortuneo login/2FA and portfolio sidecar |
 
 ```bash
 docker compose -f docker/docker-compose.yml pull    # fetch the published images from GHCR

@@ -6,7 +6,7 @@
 
 The portfolio view only shows **open** holdings, so once a position is fully sold it disappears and
 its gain/loss is invisible — you could only infer it from the raw transaction list
-([issue #38](https://github.com/Zoeille/picsou-finance/issues/38)). This adds a realized P&L series
+([issue #38](https://github.com/Cloeille/picsou-finance/issues/38)). This adds a realized P&L series
 computed from the transaction stream, surfaced as a "realized gains" section on the account page.
 
 ## How it works
@@ -82,4 +82,4 @@ See ADR [2026-07-11-realized-pnl-average-cost-on-the-fly](../decisions/2026-07-1
 
 - ADR: [realized-pnl-average-cost-on-the-fly](../decisions/2026-07-11-realized-pnl-average-cost-on-the-fly.md)
 - [live-prices-holdings.md](live-prices-holdings.md) · [dashboard-liabilities-separation.md](dashboard-liabilities-separation.md)
-- Ticket: [issue #38](https://github.com/Zoeille/picsou-finance/issues/38)
+- Ticket: [issue #38](https://github.com/Cloeille/picsou-finance/issues/38)

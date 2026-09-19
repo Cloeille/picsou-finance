@@ -114,7 +114,7 @@ DashboardPage ─► chart (title per wealth mode, tooltip = point.pnl)
 
 ## Links
 
-- Issue: https://github.com/Zoeille/picsou-finance/issues/18
+- Issue: https://github.com/Cloeille/picsou-finance/issues/18
 - Related: [dashboard-liabilities-card.md](./dashboard-liabilities-card.md) (the
   liabilities card's full spec — repayment progress, monthly payment),
   [loans.md](./loans.md) (loan balance sign convention),

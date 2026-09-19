@@ -133,4 +133,4 @@ the next person spends the same afternoon re-reading Spring AI release blogs.
   section updated together.
 - **Until then**, [#53] is the tracking issue and carries the two workarounds.
 
-[#53]: https://github.com/Zoeille/picsou-finance/issues/53
+[#53]: https://github.com/Cloeille/picsou-finance/issues/53

@@ -441,8 +441,8 @@ information architecture.
   startup backfill skips history it already has instead of re-downloading a year of
   it at every boot.
 - **The GitHub link in Settings → About now points to the right repository.** It
-  linked to `github.com/zoeille/picsou`, which does not exist; the repository is
-  `github.com/zoeille/picsou-finance`.
+  linked to `github.com/cloeille/picsou`, which does not exist; the repository is
+  `github.com/cloeille/picsou-finance`.
 - **Restoring several tabs at once no longer logs you out everywhere.** When
   multiple tabs were restored together they each presented the same "Remember
   Me" token; the first request rotated it and the rest looked like a replayed
@@ -1126,4 +1126,4 @@ internationalization, and mobile responsiveness.
 - **V31** — price-snapshot cleanup gate
 - **V32** — `goal.history_start` (anchors trajectory charts)
 
-[1.0.0]: https://github.com/Zoeille/picsou-finance/releases/tag/v1.0.0
+[1.0.0]: https://github.com/Cloeille/picsou-finance/releases/tag/v1.0.0

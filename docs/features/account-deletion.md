@@ -184,4 +184,4 @@ Frontend:
 - [`data-export.md`](./data-export.md) documents the export-before-delete flow.
 - [`multi-account-family.md`](./multi-account-family.md) documents family ownership.
 - [`mfa-and-remember-me.md`](./mfa-and-remember-me.md) documents MFA and sessions.
-- `Zoeille/picsou-finance#118` tracks the feature request.
+- `Cloeille/picsou-finance#118` tracks the feature request.

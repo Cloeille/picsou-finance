@@ -6,7 +6,7 @@
 ## Context
 
 A user reported a PEA displaying **0 €**, graph included, right after an update — every position
-entered manually by ISIN ([GH issue #74](https://github.com/Zoeille/picsou-finance/issues/74)).
+entered manually by ISIN ([GH issue #74](https://github.com/Cloeille/picsou-finance/issues/74)).
 
 An account that holds positions has no stored value: `AccountService.valuation()` recomputes it
 from each holding's ticker, and a holding it cannot price is excluded from the total (and from the
@@ -24,7 +24,7 @@ neither does the priority order:
 | `IE00BGSF1X88` (iShares $ Treasury 0-1yr) | `ISHUF` (US OTC) | 121.42 USD ✓ |
 | `IE00BD6FTQ80` (Invesco Bloomberg Commodity) | `IBBCF` (US OTC) | 33.26 USD ✓ |
 
-[Issue #78](https://github.com/Zoeille/picsou-finance/issues/78) records the attempt to fix this by
+[Issue #78](https://github.com/Cloeille/picsou-finance/issues/78) records the attempt to fix this by
 reordering: preferring EU exchanges for Irish/Luxembourg ISINs fixed the first row and broke the
 other two. Which listing has a live quote varies per instrument, and no exchange code predicts it.
 Irish and Luxembourg domiciles are where this concentrates — i.e. most UCITS ETFs, i.e. the normal
@@ -175,5 +175,5 @@ worse; when resolution still fails, the row is left alone and retried on the nex
 - [ISIN → ticker conversion](../features/ISIN_TO_TICKER_CONVERSION.md)
 - [ADR 2026-08-01 — last known price fallback](./2026-08-01-last-known-price-fallback.md)
 - [ADR 2026-05-19 — Yahoo FX conversion](./2026-05-19-yahoo-fx-conversion.md)
-- GH issues [#74](https://github.com/Zoeille/picsou-finance/issues/74),
-  [#78](https://github.com/Zoeille/picsou-finance/issues/78)
+- GH issues [#74](https://github.com/Cloeille/picsou-finance/issues/74),
+  [#78](https://github.com/Cloeille/picsou-finance/issues/78)
