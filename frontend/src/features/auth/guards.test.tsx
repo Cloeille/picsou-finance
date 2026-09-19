@@ -26,7 +26,7 @@ const { PublicOnly } = await import('./guards')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { useAppStore } = await import('@/stores/app-store')
 
-const USER = { username: 'alice', role: 'ADMIN', memberId: 1, displayName: 'Alice' }
+const USER = { username: 'alice', role: 'ADMIN' as const, memberId: 1, displayName: 'Alice' }
 
 function renderPublicOnly(probe = true) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
