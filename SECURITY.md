@@ -15,7 +15,7 @@ Security patches are applied to the latest release on the `main` branch.
 
 Report privately using one of:
 
-- [GitHub Security Advisory](https://github.com/Zoeille/picsou-finance/security/advisories/new) (preferred)
+- [GitHub Security Advisory](https://github.com/Cloeille/picsou-finance/security/advisories/new) (preferred)
 - Email the maintainer directly (see GitHub profile)
 
 Please include:

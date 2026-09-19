@@ -5,7 +5,7 @@
 ## Context
 
 Users want to seed a PEA/CTO (or crypto) account with their broker's trade history without
-re-keying every line ([issue #38](https://github.com/Zoeille/picsou-finance/issues/38)). This
+re-keying every line ([issue #38](https://github.com/Cloeille/picsou-finance/issues/38)). This
 adds a two-phase CSV importer for **manual investment accounts**. It accepts any broker layout
 because the user maps the columns. It writes manual BUY/SELL transactions and folds per-trade fees
 into the cost basis.
@@ -92,4 +92,4 @@ execute(token, mapping, dialect) ─► consume token (atomic) ─► re-parse �
 
 - Sibling importer: [finary-import.md](finary-import.md) · [trade-republic.md](trade-republic.md)
 - [manual-transactions.md](manual-transactions.md) · [ISIN_TO_TICKER_CONVERSION.md](ISIN_TO_TICKER_CONVERSION.md)
-- Ticket: [issue #38](https://github.com/Zoeille/picsou-finance/issues/38)
+- Ticket: [issue #38](https://github.com/Cloeille/picsou-finance/issues/38)
