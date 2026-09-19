@@ -559,72 +559,7 @@ public class BoursoSyncService {
             accountService.upsertSnapshot(savedAccount, data.balanceEur(), LocalDate.now());
         }
 
-        account = accountRepository.save(account);
-        accountService.upsertSnapshot(account, data.balanceEur(), LocalDate.now());
 
-        // Holdings
-        if (!data.positions().isEmpty()) {
-            holdingRepository.deleteByAccountId(account.getId());
-            holdingRepository.flush();
-
-            Map<String, HoldingDedup.HoldingAgg> deduped = new HashMap<>();
-            for (BoursoPosition p : data.positions()) {
-                var resolved = isinConverter.resolveIsinOrSymbol(p.isin(), p.symbol(), p.label());
-                deduped.merge(
-                    resolved.ticker(),
-                    new HoldingDedup.HoldingAgg(p.quantity(), p.buyingPrice(), p.currentPrice(), resolved.name()),
-                    HoldingDedup::vwapMerge);
-            }
-
-            for (Map.Entry<String, HoldingDedup.HoldingAgg> entry : deduped.entrySet()) {
-                HoldingDedup.HoldingAgg agg = entry.getValue();
-                if (agg.quantity().signum() == 0) {
-                    // vwapMerge is sign-aware and can net two positions to exactly zero
-                    // (shared with IBKR, which can carry short quantities) -- a flat
-                    // position, not a holding to persist. Bourso only ever feeds positive
-                    // quantities today, so this is unreachable here but keeps the
-                    // invariant true regardless.
-                    continue;
-                }
-                holdingRepository.save(AccountHolding.builder()
-                    .account(account)
-                    .ticker(entry.getKey())
-                    .name(agg.name())
-                    .quantity(agg.quantity())
-                    .averageBuyIn(agg.averageBuyIn())
-                    .currentPrice(agg.currentPrice())
-                    .lastSyncedAt(Instant.now())
-                    .build());
-            }
-        }
-
-        // Transactions (replace last 90 days window)
-        if (!data.transactions().isEmpty()) {
-            LocalDate cutoff = LocalDate.now().minusDays(90);
-            List<Transaction> existingTx = transactionRepository.findByAccountIdOrderByDateDesc(account.getId());
-            List<Transaction> toKeep     = existingTx.stream()
-                .filter(t -> t.getDate().isBefore(cutoff) && !t.isManual())
-                .toList();
-
-            transactionRepository.deleteByAccountIdAndIsManualFalse(account.getId());
-            transactionRepository.flush();
-            transactionRepository.saveAll(toKeep);
-
-            List<Transaction> toInsert = new ArrayList<>();
-            for (BoursoTransaction bt : data.transactions()) {
-                toInsert.add(Transaction.builder()
-                    .account(account)
-                    .date(bt.date())
-                    .description(bt.label())
-                    .amount(bt.amount())
-                    .category(bt.category())
-                    .nativeCurrency("EUR")
-                    .build());
-            }
-            transactionRepository.saveAll(toInsert);
-        }
-
-        return accountService.toResponse(account);
     }
 
     private static String colorFor(AccountType type) {
