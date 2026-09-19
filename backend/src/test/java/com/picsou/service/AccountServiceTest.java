@@ -298,7 +298,7 @@ class AccountServiceTest {
 
     private static AccountRequest usdBalanceRequest(String balance) {
         return new AccountRequest("US checking", AccountType.CHECKING, null, "USD",
-            new BigDecimal(balance), true, "#6366f1", null, null, null, null);
+            new BigDecimal(balance), true, "#6366f1", null, null, null);
     }
 
     private static Account usdManualAccount(String balance) {
