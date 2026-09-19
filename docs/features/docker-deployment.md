@@ -5,9 +5,9 @@
 ## Context
 
 Picsou deploys as three Docker images orchestrated by `docker/docker-compose.yml`:
-- **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/zoeille/picsou-finance`.
-- **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/zoeille/picsou-finance/tr-auth`.
-- **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/zoeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
+- **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
+- **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
+- **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
 
 A fourth container is PostgreSQL 16 (official image, not built).
 
@@ -168,9 +168,9 @@ docker compose -f docker/docker-compose.yml up
 
 ```bash
 docker compose -f docker/docker-compose.yml build
-docker save ghcr.io/zoeille/picsou-finance:latest \
-  ghcr.io/zoeille/picsou-finance/tr-auth:latest \
-  ghcr.io/zoeille/picsou-finance/bourse-direct-auth:latest \
+docker save ghcr.io/cloeille/picsou-finance:latest \
+  ghcr.io/cloeille/picsou-finance/tr-auth:latest \
+  ghcr.io/cloeille/picsou-finance/bourse-direct-auth:latest \
   | gzip > picsou-release.tar.gz
 # On target machine:
 docker load < picsou-release.tar.gz
@@ -184,9 +184,9 @@ building or loading a tar.gz:
 
 ```bash
 # Replace 1.0.0 with the desired tag (nightly, branch name, or semver).
-docker pull ghcr.io/zoeille/picsou-finance:1.0.0
-docker pull ghcr.io/zoeille/picsou-finance/tr-auth:1.0.0
-docker pull ghcr.io/zoeille/picsou-finance/bourse-direct-auth:1.0.0
+docker pull ghcr.io/cloeille/picsou-finance:1.0.0
+docker pull ghcr.io/cloeille/picsou-finance/tr-auth:1.0.0
+docker pull ghcr.io/cloeille/picsou-finance/bourse-direct-auth:1.0.0
 ```
 
 Tag scheme:

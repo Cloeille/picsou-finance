@@ -106,7 +106,7 @@ DashboardPage ─► chart (title per wealth mode, tooltip = point.pnl)
 
 ## Links
 
-- Issue: https://github.com/Zoeille/picsou-finance/issues/18
+- Issue: https://github.com/Cloeille/picsou-finance/issues/18
 - Related: [loans.md](./loans.md) (loan balance sign convention),
   [accounts-overview.md](./accounts-overview.md) (PnL chart consumes the same
   history points)
