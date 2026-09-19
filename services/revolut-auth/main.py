@@ -567,9 +567,7 @@ async def _fill_phone(page, phone: str) -> None:
             num = num[len(pfx):]
     if num.startswith("0"):
         num = num[1:]
-    tel = page.locator("input[name='phoneNumber']").first
-    if not await tel.count():
-        tel = page.locator("input[inputmode='tel'], input[type='tel']").first
+    tel = page.locator("input[name='phoneNumber'], input[inputmode='tel'], input[type='tel']").first
     await tel.click()
     await tel.fill("")
     await tel.type(num, delay=70)
