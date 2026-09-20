@@ -52,10 +52,10 @@ public class SidecarWebClientFactory {
     public SidecarWebClientFactory(@Value("${app.sidecar.api-key:}") String apiKey) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException(
-                "SIDECAR_API_KEY is required: it is the shared secret that authenticates Picsou to "
-                    + "its connector sidecars, which carry your bank credentials. Generate one with: "
-                    + "openssl rand -base64 32 -- and give the same value to the backend and to every "
-                    + "*-auth service.");
+                "APP_SIDECAR_API_KEY is required: it is the shared secret that authenticates Picsou "
+                    + "to its connector sidecars, which carry your bank credentials. Generate one "
+                    + "with: openssl rand -base64 32 -- and set it as APP_SIDECAR_API_KEY in both the "
+                    + "backend and every *-auth service.");
         }
         this.apiKey = apiKey.trim();
     }
