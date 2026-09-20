@@ -7,7 +7,7 @@ import com.picsou.exception.SyncException;
  *
  * <p>This is always a deployment fault, never a user one: the bank was never
  * contacted, the credentials the user typed were never wrong, and retrying
- * changes nothing until {@code SIDECAR_API_KEY} matches on both sides. It is a
+ * changes nothing until {@code APP_SIDECAR_API_KEY} matches on both sides. It is a
  * {@link SyncException} so that every adapter's existing
  * {@code instanceof SyncException} short-circuit passes it through untouched
  * instead of relabelling it as an upstream outage or a bad password.
@@ -20,7 +20,7 @@ public class SidecarAuthenticationException extends SyncException {
     public SidecarAuthenticationException(String sidecarName) {
         super(
             "Picsou could not authenticate to the " + sidecarName + " sidecar. The backend and the "
-                + "sidecar must share the same SIDECAR_API_KEY -- check that both containers were "
+                + "sidecar must share the same APP_SIDECAR_API_KEY -- check that both containers were "
                 + "started with it.",
             null,
             CODE
