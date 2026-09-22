@@ -186,7 +186,10 @@ and CTO accounts carry one too (at zero). The contract is read as fully invested
   dated `priceDate`, and a lagging NAV would refuse a correct contract.
 
 A payload that mixes both shapes, carries zero or several `fund` nodes, or has a
-fund without a valid ISIN, label or quantity → `UPSTREAM_FORMAT_CHANGED`. A
+fund without a valid ISIN, label or quantity → `UPSTREAM_FORMAT_CHANGED`. Mixing
+means a `cash`, `valuation` or `total` key beside the fund, even a null one, or a
+non-empty `positions` list. An empty `positions` section is tolerated, as it is
+for PEA and CTO accounts. A
 balance left with zero units → `PORTFOLIO_INCOMPLETE`.
 
 ### Fail-closed rules
@@ -347,7 +350,7 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Verification boundaries
 
-`services/bourso-auth` — 106 tests, run inside the built image in CI: pad decoding
+`services/bourso-auth` — 108 tests, run inside the built image in CI: pad decoding
 against the real SVGs (and its refusal on an unknown one), password encoding, the
 dashboard parsed from a real captured page including the third-party filter and
 the loan exclusion, a card that stops parsing failing the sync, reconciliation

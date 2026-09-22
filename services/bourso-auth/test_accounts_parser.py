@@ -453,6 +453,21 @@ class SingleFundContractTest(unittest.TestCase):
                 parse_trading_summary(mixed, "acc")
             self.assertEqual(raised.exception.code, FORMAT_CHANGED)
 
+    def test_a_null_securities_field_beside_a_fund_is_refused(self):
+        # A PEA with blanked figures and a stray fund would otherwise sync at its
+        # zero balance.
+        for field in ("cash", "valuation", "total"):
+            sections = single_fund()
+            sections[0]["account"][field] = None
+            with self.assertRaises(AccountsFormatError) as raised:
+                parse_trading_summary(sections, "acc")
+            self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_an_empty_positions_section_beside_a_fund_is_tolerated(self):
+        sections = single_fund() + [{"id": "positions", "positions": [], "count": 0}]
+        parsed = parse_trading_summary(sections, "acc")
+        self.assertEqual(parsed["positions"][0]["currentValueEur"], Decimal("350.00"))
+
     def test_a_fund_without_a_valid_isin_is_refused(self):
         # A fund carries no BoursoBank symbol: its ISIN is its only identity.
         for broken in (None, "", "NOT-AN-ISIN"):

@@ -417,8 +417,11 @@ def _parse_single_fund(
     dated `priceDate`, and a lagging NAV would fail a correct contract.
     """
     # Neither reading of a mixed payload is safe: the fund could be one line among
-    # the positions, or the cash a pocket beside the fund.
-    mixed = any(account.get(field) is not None for field in ("cash", "valuation", "total"))
+    # the positions, or the cash a pocket beside the fund. The account fields are
+    # absent from this shape, so even a null one means it changed. An empty
+    # positions section carries nothing to contradict the fund, and BoursoBank
+    # already sends those beside populated ones.
+    mixed = any(field in account for field in ("cash", "valuation", "total"))
     if mixed or any(section.get("positions") for section in sections):
         raise AccountsFormatError(
             FORMAT_CHANGED, "Trading summary mixes a fund contract and a securities account"
