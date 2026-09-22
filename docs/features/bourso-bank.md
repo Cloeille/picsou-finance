@@ -163,6 +163,32 @@ the broker's own `valuation` to the cent.
 every sync rather than persisted, so a session blob can never go stale against
 them.
 
+#### Single-fund contracts
+
+Some investment contracts are invested in exactly one fund and have no cash
+pocket. Their trading summary has neither `cash`/`valuation`/`total` nor a
+`positions` list ([#154](https://github.com/Cloeille/picsou-finance/issues/154)):
+
+```text
+[ {account:{name, currency, balance, gainLoss, …}},
+  {fund:{isin, label, quantity, priceDate, price, …}} ]
+```
+
+A `fund` section is what identifies this shape. `balance` does not, because PEA
+and CTO accounts carry one too (at zero). The contract is read as fully invested:
+
+- `totalEur = balance`, `cashEur = 0`, so the backend's
+  `Σ lines ≈ total − cash` check still runs and holds;
+- the fund becomes one position valued at `balance`, with its ISIN as the
+  symbol, because a fund has no BoursoBank symbol to fall back on, and
+  `account.gainLoss` as its P&L;
+- `quantity × price` is **not** reconciled against the balance: the price is
+  dated `priceDate`, and a lagging NAV would refuse a correct contract.
+
+A payload that mixes both shapes, carries zero or several `fund` nodes, or has a
+fund without a valid ISIN, label or quantity → `UPSTREAM_FORMAT_CHANGED`. A
+balance left with zero units → `PORTFOLIO_INCOMPLETE`.
+
 ### Fail-closed rules
 
 A partial read must never overwrite a correct portfolio. In order of how likely
@@ -321,13 +347,14 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Verification boundaries
 
-`services/bourso-auth` — 80 tests, run inside the built image in CI: pad decoding
+`services/bourso-auth` — 106 tests, run inside the built image in CI: pad decoding
 against the real SVGs (and its refusal on an unknown one), password encoding, the
 dashboard parsed from a real captured page including the third-party filter and
 the loan exclusion, a card that stops parsing failing the sync, reconciliation
 accepted and refused either side of the tolerance, the ISIN read off the position and its
 absent/malformed fallbacks, the account and positions found in either section,
-cookie round-tripping with per-cookie domains, pending TTL, and the HTTP contract.
+the single-fund contract and each of its refusals, cookie round-tripping with
+per-cookie domains, pending TTL, and the HTTP contract.
 
 Backend — `BoursoAdapterTest` (16), `BoursoSyncServiceTest` (23),
 `BoursoControllerTest` (11), `BoursoAdapterWiringTest`, `BoursoSyncRecoveryTest`,
@@ -365,6 +392,11 @@ two-section payload shape, and the existence of a separate ISIN feed.
   reference implementation rather than captured from the validated account;
 - a **foreign-currency line**, which is why the EUR guard is written to refuse
   rather than convert.
+- a **single-fund contract** — its shape comes from the anonymised payload in
+  [#154](https://github.com/Cloeille/picsou-finance/issues/154), whose reporter
+  synced one successfully with an equivalent normalisation. Whether `quantity`
+  always arrives as a bare value rather than a `{value, decimals}` node is taken
+  from that report; a node fails closed with `UPSTREAM_FORMAT_CHANGED`.
 
 ⚠️ **One limit worth stating.** The completeness check proves every account link
 *of the expected shape* (`/compte/…/{32-hex}/`) was accounted for. It cannot prove

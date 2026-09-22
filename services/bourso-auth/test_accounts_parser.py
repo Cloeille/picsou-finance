@@ -363,6 +363,144 @@ class TradingSummaryTest(unittest.TestCase):
             parse_trading_summary(summary(positions=[position(amount=float("nan"))]), "acc")
 
 
+def single_fund(balance="350.00", quantity="3.5", **fund_overrides):
+    """A contract invested in one fund: the account reports a balance only, and
+    the fund sits in its own section instead of a positions list (#154)."""
+    fund = {
+        "isin": "FR0010315770",
+        "label": "Lyxor MSCI World",
+        "quantity": quantity,
+        "priceDate": "2026-09-18",
+        "price": money("100.00"),
+        "headings": [],
+        "permalink": "/bourse/opcvm/cours/0P0000Z1B6/",
+        "actions": [],
+        "composition": [],
+    }
+    fund.update(fund_overrides)
+    return [
+        {
+            "account": {
+                "name": "CONTRAT DOE",
+                "reference": "0123",
+                "currency": "EUR",
+                "typeCategory": "LIFE_INSURANCE",
+                "activationDate": "2021-03-01",
+                "profile": "FREE",
+                "balance": money(balance),
+                "gainLoss": money("50.00"),
+            }
+        },
+        {"fund": fund},
+    ]
+
+
+class SingleFundContractTest(unittest.TestCase):
+    def test_the_contract_is_fully_invested_in_its_fund(self):
+        parsed = parse_trading_summary(single_fund(), "acc")
+
+        self.assertEqual(parsed["cashEur"], Decimal("0"))
+        self.assertEqual(parsed["totalEur"], Decimal("350.00"))
+        self.assertEqual(len(parsed["positions"]), 1)
+        line = parsed["positions"][0]
+        self.assertEqual(line["isin"], "FR0010315770")
+        self.assertEqual(line["symbol"], "FR0010315770")
+        self.assertEqual(line["label"], "Lyxor MSCI World")
+        self.assertEqual(line["quantity"], Decimal("3.5"))
+        self.assertIsNone(line["buyingPriceEur"])
+        self.assertEqual(line["currentPrice"], Decimal("100.00"))
+        self.assertEqual(line["quoteCurrency"], "EUR")
+        self.assertEqual(line["currentValueEur"], Decimal("350.00"))
+        self.assertEqual(line["pnlEur"], Decimal("50.00"))
+
+    def test_the_line_reconciles_with_total_minus_cash(self):
+        # The same equation the backend re-runs before it writes anything.
+        parsed = parse_trading_summary(single_fund(), "acc")
+        lines = sum(line["currentValueEur"] for line in parsed["positions"])
+        self.assertEqual(lines, parsed["totalEur"] - parsed["cashEur"])
+
+    def test_the_fund_is_found_whichever_section_carries_it(self):
+        parsed = parse_trading_summary(list(reversed(single_fund())), "acc")
+        self.assertEqual(parsed["positions"][0]["isin"], "FR0010315770")
+
+    def test_a_contract_without_its_fund_is_refused(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(single_fund()[:1], "acc")
+        self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_contract_with_two_funds_is_refused_rather_than_half_read(self):
+        sections = single_fund()
+        sections.append({"fund": dict(sections[1]["fund"], isin="LU0274208692")})
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(sections, "acc")
+        self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_fund_node_that_is_not_an_object_is_refused(self):
+        sections = single_fund()
+        sections[1]["fund"] = None
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(sections, "acc")
+        self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_payload_mixing_both_shapes_is_refused(self):
+        # Neither reading is safe: the fund could be one line among the
+        # positions, or the cash could be a pocket beside the fund.
+        with_cash = single_fund()
+        with_cash[0]["account"]["cash"] = money("10.00")
+        with_positions = single_fund() + [{"positions": [position()]}]
+        for mixed in (with_cash, with_positions):
+            with self.assertRaises(AccountsFormatError) as raised:
+                parse_trading_summary(mixed, "acc")
+            self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_fund_without_a_valid_isin_is_refused(self):
+        # A fund carries no BoursoBank symbol: its ISIN is its only identity.
+        for broken in (None, "", "NOT-AN-ISIN"):
+            with self.assertRaises(AccountsFormatError) as raised:
+                parse_trading_summary(single_fund(isin=broken), "acc")
+            self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_fund_without_a_label_or_quantity_is_refused(self):
+        for broken in ({"label": None}, {"quantity": None}, {"quantity": "abc"}):
+            with self.assertRaises(AccountsFormatError) as raised:
+                parse_trading_summary(single_fund(**broken), "acc")
+            self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_negative_quantity_is_refused(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(single_fund(quantity="-1"), "acc")
+        self.assertEqual(raised.exception.code, INVALID_DATA)
+
+    def test_an_emptied_contract_syncs_with_no_line(self):
+        parsed = parse_trading_summary(single_fund(balance="0", quantity="0"), "acc")
+        self.assertEqual(parsed["totalEur"], Decimal("0"))
+        self.assertEqual(parsed["positions"], [])
+
+    def test_a_balance_without_units_does_not_reconcile(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(single_fund(quantity="0"), "acc")
+        self.assertEqual(raised.exception.code, INCOMPLETE)
+
+    def test_a_contract_in_a_foreign_currency_is_refused(self):
+        for field in ("balance", "currency"):
+            sections = single_fund()
+            account = sections[0]["account"]
+            account[field] = money("350.00", "USD") if field == "balance" else "USD"
+            with self.assertRaises(AccountsFormatError) as raised:
+                parse_trading_summary(sections, "acc")
+            self.assertEqual(raised.exception.code, INVALID_DATA)
+
+    def test_a_native_quote_keeps_its_currency(self):
+        parsed = parse_trading_summary(single_fund(price=money("110.00", "USD")), "acc")
+        self.assertEqual(parsed["positions"][0]["quoteCurrency"], "USD")
+        self.assertEqual(parsed["positions"][0]["currentValueEur"], Decimal("350.00"))
+
+    def test_a_fund_without_a_price_still_syncs_on_the_balance(self):
+        parsed = parse_trading_summary(single_fund(price=None), "acc")
+        self.assertIsNone(parsed["positions"][0]["currentPrice"])
+        self.assertEqual(parsed["positions"][0]["currentValueEur"], Decimal("350.00"))
+
+
 class SymbolCollisionTest(unittest.TestCase):
     def test_lines_carrying_their_own_isin_never_collide(self):
         guard_symbol_collisions([

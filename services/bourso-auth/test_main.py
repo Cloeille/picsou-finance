@@ -239,6 +239,37 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         # Losing the ISIN must not lose the money.
         self.assertEqual(pea.positions[0].currentValueEur, Decimal("140000.00"))
 
+    async def test_a_single_fund_contract_passes_the_sidecar_contract(self):
+        single_fund = [
+            {
+                "account": {
+                    "name": "CONTRAT DOE",
+                    "currency": "EUR",
+                    "balance": money("350.00"),
+                    "gainLoss": money("50.00"),
+                }
+            },
+            {
+                "fund": {
+                    "isin": "FR0010315770",
+                    "label": "Lyxor MSCI World",
+                    "quantity": "3.5",
+                    "price": money("100.00"),
+                }
+            },
+        ]
+        async with build_client(default_handler(trading=single_fund)) as client:
+            accounts = await _collect_accounts(client)
+
+        contract = next(account for account in accounts if account.type == "PEA")
+        # A zero cash leg, not null: the backend refuses a securities account
+        # without one, which is how this contract first failed (#154).
+        self.assertEqual(contract.cashBalance, Decimal("0"))
+        self.assertEqual(contract.balanceEur, Decimal("350.00"))
+        self.assertEqual(len(contract.positions), 1)
+        self.assertEqual(contract.positions[0].symbol, "FR0010315770")
+        self.assertEqual(contract.positions[0].currentValueEur, Decimal("350.00"))
+
     async def test_a_logged_out_home_page_reports_an_expired_session(self):
         async with build_client(default_handler(home="<html>Connexion</html>")) as client:
             with self.assertRaises(HTTPException) as raised:

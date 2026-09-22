@@ -405,12 +405,88 @@ def _parse_position(raw: Any) -> dict[str, Any] | None:
     }
 
 
+def _parse_single_fund(
+    sections: list[dict[str, Any]], account: dict[str, Any], account_id: str
+) -> dict[str, Any]:
+    """Normalise a contract invested in one fund, with no cash pocket (#154).
+
+    BoursoBank answers these with the contract's `balance` and a `fund` section
+    instead of cash/valuation/total and a positions list. The balance is the only
+    valuation it states, so it is both the account total and the fund's value.
+    Quantity x price is deliberately not reconciled against it: the price is
+    dated `priceDate`, and a lagging NAV would fail a correct contract.
+    """
+    # Neither reading of a mixed payload is safe: the fund could be one line among
+    # the positions, or the cash a pocket beside the fund.
+    mixed = any(account.get(field) is not None for field in ("cash", "valuation", "total"))
+    if mixed or any(section.get("positions") for section in sections):
+        raise AccountsFormatError(
+            FORMAT_CHANGED, "Trading summary mixes a fund contract and a securities account"
+        )
+    funds = [section["fund"] for section in sections if "fund" in section]
+    if len(funds) != 1:
+        raise AccountsFormatError(
+            FORMAT_CHANGED, f"Fund contract carries {len(funds)} fund nodes instead of one"
+        )
+    fund = funds[0]
+    if not isinstance(fund, dict):
+        raise AccountsFormatError(FORMAT_CHANGED, "Fund contract's fund node is not an object")
+
+    balance_node = account.get("balance")
+    total = _summary_money(balance_node, "balance")
+    for currency in (_summary_currency(balance_node), text_value(account.get("currency"), 3)):
+        if currency is not None and currency.upper() != "EUR":
+            raise AccountsFormatError(
+                INVALID_DATA, f"Fund contract {account_id[:8]}… is denominated in {currency}"
+            )
+
+    # No BoursoBank symbol here: the ISIN is the fund's only identity, so unlike
+    # a trading line it cannot fall back to anything when it is unusable.
+    isin = _position_isin(fund, "")
+    label = text_value(fund.get("label"), 200)
+    quantity = decimal_value(fund.get("quantity"))
+    if isin is None or label is None or quantity is None:
+        raise AccountsFormatError(
+            FORMAT_CHANGED, "Fund contract is missing its fund's ISIN, label or quantity"
+        )
+    if quantity < 0:
+        raise AccountsFormatError(INVALID_DATA, "Fund contract reports a negative quantity")
+
+    price_node = fund.get("price")
+    positions = []
+    if quantity != 0:
+        positions.append(
+            {
+                "isin": isin,
+                "symbol": isin,
+                "label": label,
+                "quantity": quantity,
+                "buyingPriceEur": None,
+                "currentPrice": _summary_money(price_node, "price", required=False),
+                "quoteCurrency": _summary_currency(price_node) or "EUR",
+                "currentValueEur": total,
+                # The contract holds nothing else, so its gain is the fund's.
+                "pnlEur": _summary_money(account.get("gainLoss"), "gainLoss", required=False),
+            }
+        )
+
+    # An emptied contract reconciles at zero; units gone with a balance left do not.
+    if not positions and not money_close(Decimal("0"), total):
+        raise AccountsFormatError(
+            INCOMPLETE, f"Fund contract {account_id[:8]}… has a balance but no units"
+        )
+    return {"cashEur": Decimal("0"), "totalEur": total, "positions": positions}
+
+
 def parse_trading_summary(payload: Any, account_id: str) -> dict[str, Any]:
     """Normalise one trading account's summary and prove it is complete.
 
     Two reconciliations, both of which a partial read fails:
       total    ~= cash + portfolio valuation
       sum(line valuations) ~= portfolio valuation
+
+    A contract invested in a single fund has neither figure and is read by
+    `_parse_single_fund` instead.
     """
     items = payload if isinstance(payload, list) else [payload]
     sections = [item for item in items if isinstance(item, dict)]
@@ -427,6 +503,11 @@ def parse_trading_summary(payload: Any, account_id: str) -> dict[str, Any]:
     )
     if account is None:
         raise AccountsFormatError(FORMAT_CHANGED, "Trading summary has no account node")
+
+    # PEA and CTO accounts also carry a (zero) `balance`, so the fund section is
+    # what tells the two shapes apart, not the balance.
+    if any("fund" in section for section in sections):
+        return _parse_single_fund(sections, account, account_id)
 
     cash = _summary_money(account.get("cash"), "cash")
     valuation = _summary_money(account.get("valuation"), "valuation")
