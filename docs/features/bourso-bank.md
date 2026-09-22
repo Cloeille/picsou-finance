@@ -185,12 +185,17 @@ and CTO accounts carry one too (at zero). The contract is read as fully invested
 - `quantity × price` is **not** reconciled against the balance: the price is
   dated `priceDate`, and a lagging NAV would refuse a correct contract.
 
-A payload that mixes both shapes, carries zero or several `fund` nodes, or has a
-fund without a valid ISIN, label or quantity → `UPSTREAM_FORMAT_CHANGED`. Mixing
-means a `cash`, `valuation` or `total` key beside the fund, even a null one, or a
-non-empty `positions` list. An empty `positions` section is tolerated, as it is
-for PEA and CTO accounts. A
-balance left with zero units → `PORTFOLIO_INCOMPLETE`.
+Refusals:
+
+- `UPSTREAM_FORMAT_CHANGED`: a payload mixing both shapes, zero or several `fund`
+  nodes, or a fund with a missing or malformed ISIN, label or quantity. Mixing
+  means a `cash`, `valuation` or `total` key beside the fund, even a null one, or
+  a non-empty `positions` list. An empty `positions` section is tolerated, as it
+  is for PEA and CTO accounts.
+- `INVALID_DATA`: a negative quantity, or a `balance` or account currency other
+  than EUR.
+- `PORTFOLIO_INCOMPLETE`: a balance left with zero units. An emptied contract
+  (zero balance, zero units) syncs with no line.
 
 ### Fail-closed rules
 
