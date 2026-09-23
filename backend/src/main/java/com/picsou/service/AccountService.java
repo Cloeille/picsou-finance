@@ -683,7 +683,11 @@ public class AccountService {
         }
 
         if (account.getType() == AccountType.SCPI) {
-            Optional<ScpiPositionResponse> position = scpiPositionRepository.findByAccountId(account.getId())
+            // Owner id, not viewer id: a co-owner must still see the share they do not administer.
+            Long ownerId = account.getMember() != null ? account.getMember().getId() : null;
+            Optional<ScpiPositionResponse> position = ownerId == null
+                ? Optional.empty()
+                : scpiPositionRepository.findByAccountIdAndMemberId(account.getId(), ownerId)
                 .map(p -> ScpiPositionResponse.from(p, ScpiPositionService.withdrawalValue(
                     p.getShareCount(), p.getWithdrawalPriceEur())));
             if (position.isPresent()) {

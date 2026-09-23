@@ -247,7 +247,8 @@
       "gross": "Valeur au retrait",
       "debt": "Crédit lié",
       "net": "Net",
-      "hint": "Hors estimation au mètre carré. Le prix de souscription n'entre pas dans ce total."
+      "hint": "Hors estimation au mètre carré. Le prix de souscription n'entre pas dans ce total.",
+      "incomplete": "Une part utilise encore son dernier solde connu : le prix de retrait manque."
     }
   },
   "realEstate": {

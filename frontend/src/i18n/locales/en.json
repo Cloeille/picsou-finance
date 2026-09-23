@@ -247,7 +247,8 @@
       "gross": "Withdrawal value",
       "debt": "Linked loan",
       "net": "Net",
-      "hint": "Kept out of the price-per-square-metre estimate. The subscription price is not in this total."
+      "hint": "Kept out of the price-per-square-metre estimate. The subscription price is not in this total.",
+      "incomplete": "One share still uses its last known balance: the withdrawal price is missing."
     }
   },
   "realEstate": {

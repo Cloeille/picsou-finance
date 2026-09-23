@@ -305,7 +305,7 @@ class RealEstateSummaryServiceTest {
         when(metadataRepository.findByAccountId(10L)).thenReturn(Optional.empty());
         when(debtRepository.findByLinkedAccountId(10L)).thenReturn(List.of());
         when(debtRepository.findByLinkedAccountId(11L)).thenReturn(List.of());
-        when(scpiPositionRepository.findByAccountId(11L)).thenReturn(Optional.of(position));
+        when(scpiPositionRepository.findByAccountIdAndMemberId(11L, 1L)).thenReturn(Optional.of(position));
 
         RealEstateSummaryResponse result = service.summarize(1L);
 

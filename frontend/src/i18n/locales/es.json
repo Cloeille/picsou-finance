@@ -247,7 +247,8 @@
       "gross": "Valor al reembolso",
       "debt": "Crédito vinculado",
       "net": "Neto",
-      "hint": "Fuera de la estimación por metro cuadrado. El precio de suscripción no entra en este total."
+      "hint": "Fuera de la estimación por metro cuadrado. El precio de suscripción no entra en este total.",
+      "incomplete": "Una participación sigue usando su último saldo conocido: falta el precio de reembolso."
     }
   },
   "realEstate": {

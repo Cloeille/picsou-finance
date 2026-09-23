@@ -25,7 +25,8 @@ export function ScpiDetailSection({ account }: { account: Account }) {
   const { t } = useTranslation()
   const updatePosition = useUpdateScpiPosition()
   const position = account.scpi
-  const [editing, setEditing] = useState(!position)
+  const canEdit = account.isOwner !== false
+  const [editing, setEditing] = useState(canEdit && !position)
   const [shareCount, setShareCount] = useState(position?.shareCount?.toString() ?? '')
   const [subscriptionPrice, setSubscriptionPrice] = useState(position?.subscriptionPriceEur?.toString() ?? '')
   const [withdrawalPrice, setWithdrawalPrice] = useState(position?.withdrawalPriceEur?.toString() ?? '')
@@ -56,7 +57,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">{t('scpi.position')}</CardTitle>
-        {position && !editing && (
+        {canEdit && position && !editing && (
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
             {t('scpi.edit')}
           </Button>
@@ -111,7 +112,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
           </dl>
         )}
 
-        {editing && (
+        {canEdit && editing && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

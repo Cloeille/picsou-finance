@@ -41,7 +41,7 @@ public class ScpiPositionService {
             throw new IllegalArgumentException("Account is not a SCPI account");
         }
 
-        ScpiPosition position = positionRepository.findByAccountId(accountId)
+        ScpiPosition position = positionRepository.findByAccountIdAndMemberId(accountId, memberId)
             .orElseGet(() -> ScpiPosition.builder()
                 .account(account)
                 .member(account.getMember())

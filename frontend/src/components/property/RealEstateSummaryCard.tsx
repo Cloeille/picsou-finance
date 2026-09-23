@@ -88,6 +88,9 @@ export function RealEstateSummaryCard({ enabled = true }: { enabled?: boolean })
                 <CurrencyDisplay value={data.paperNet} />
               </Stat>
             </div>
+            {data.paper?.some((line) => line.valuationStatus === 'PRICE_INCOMPLETE') && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">{t('scpi.summary.incomplete')}</p>
+            )}
             <p className="text-xs text-muted-foreground">{t('scpi.summary.hint')}</p>
           </div>
         )}

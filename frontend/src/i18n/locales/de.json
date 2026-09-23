@@ -247,7 +247,8 @@
       "gross": "Wert zum Rücknahmepreis",
       "debt": "Verknüpfter Kredit",
       "net": "Netto",
-      "hint": "Nicht in der Quadratmeter-Schätzung. Der Ausgabepreis steht nicht in dieser Summe."
+      "hint": "Nicht in der Quadratmeter-Schätzung. Der Ausgabepreis steht nicht in dieser Summe.",
+      "incomplete": "Ein Anteil nutzt noch den letzten bekannten Saldo: der Rücknahmepreis fehlt."
     }
   },
   "realEstate": {
