@@ -152,14 +152,20 @@ public class AccountService {
 
     @Transactional
     public AccountResponse create(AccountRequest req, FamilyMember member) {
+        boolean scpi = req.type() == AccountType.SCPI;
+        // A typed balance belongs to a cash account. On a SCPI it would be snapshotted as if
+        // it were a withdrawal value, which it is not.
+        BigDecimal opening = scpi
+            ? BigDecimal.ZERO
+            : (req.currentBalance() != null ? req.currentBalance() : BigDecimal.ZERO);
         Account account = Account.builder()
             .member(member)
             .name(req.name())
             .type(req.type())
             .provider(req.provider())
             .currency(req.currency())
-            .currentBalance(req.currentBalance() != null ? req.currentBalance() : BigDecimal.ZERO)
-            .isManual(req.isManual())
+            .currentBalance(opening)
+            .isManual(scpi || req.isManual())
             .color(req.color() != null ? req.color() : "#6366f1")
             .ticker(req.ticker())
             // Nothing stored yet, so nothing survives normalization: a logo key is only ever
@@ -189,6 +195,7 @@ public class AccountService {
         boolean nameChanged = !req.name().equals(account.getName());
         String previousProvider = account.getProvider();
 
+        AccountType previousType = account.getType();
         account.setName(req.name());
         account.setType(req.type());
         account.setProvider(req.provider());
@@ -210,9 +217,14 @@ public class AccountService {
             account.setOpenedAt(req.openedAt());
         }
 
-        // A SCPI balance is withdrawal price × share count, written by ScpiPositionService.
-        // A generic account edit must not replace it with whatever the form still holds.
-        if (account.isManual() && req.currentBalance() != null && account.getType() != AccountType.SCPI) {
+        if (account.getType() == AccountType.SCPI) {
+            account.setManual(true);
+        }
+        // Converting a current account must not keep its old balance as a paper valuation.
+        // A SCPI that is already a SCPI keeps the figure ScpiPositionService wrote.
+        if (previousType != AccountType.SCPI && account.getType() == AccountType.SCPI) {
+            account.setCurrentBalance(BigDecimal.ZERO);
+        } else if (account.isManual() && req.currentBalance() != null && account.getType() != AccountType.SCPI) {
             BigDecimal oldBalance = account.getCurrentBalance();
             account.setCurrentBalance(req.currentBalance());
             if (req.currentBalance().compareTo(oldBalance) != 0) {
