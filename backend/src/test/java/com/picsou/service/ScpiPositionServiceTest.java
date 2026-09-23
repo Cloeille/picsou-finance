@@ -50,7 +50,7 @@ class ScpiPositionServiceTest {
     void save_valuesTheAccountAtWithdrawalPriceTimesFractionalShares() {
         Account account = scpiAccount("0");
         when(accountRepository.findByIdAndMemberId(10L, 1L)).thenReturn(Optional.of(account));
-        when(positionRepository.findByAccountId(10L)).thenReturn(Optional.empty());
+        when(positionRepository.findByAccountIdAndMemberId(10L, 1L)).thenReturn(Optional.empty());
         when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -66,7 +66,7 @@ class ScpiPositionServiceTest {
     void save_withoutWithdrawalPrice_keepsThePreviousBalance() {
         Account account = scpiAccount("8000");
         when(accountRepository.findByIdAndMemberId(10L, 1L)).thenReturn(Optional.of(account));
-        when(positionRepository.findByAccountId(10L)).thenReturn(Optional.empty());
+        when(positionRepository.findByAccountIdAndMemberId(10L, 1L)).thenReturn(Optional.empty());
         when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ScpiPositionResponse result = service.save(10L, 1L, request("10", "1135", null));

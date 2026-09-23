@@ -175,7 +175,10 @@ public class RealEstateSummaryService {
             return null;
         }
         BigDecimal gross = AccountAccessResolver.weigh(accountService.liveBalanceEur(account), share);
-        Optional<ScpiPosition> position = scpiPositionRepository.findByAccountId(account.getId());
+        Long ownerId = account.getMember() != null ? account.getMember().getId() : null;
+        Optional<ScpiPosition> position = ownerId == null
+            ? Optional.empty()
+            : scpiPositionRepository.findByAccountIdAndMemberId(account.getId(), ownerId);
         LoanRollup loans = loansFor(account, memberId, today);
         return new PaperRollup(
             new PaperLine(

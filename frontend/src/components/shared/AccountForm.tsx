@@ -211,12 +211,14 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
                 ))}
               </select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="balance">
-                {selectedType === 'LOAN' ? t('debt.remaining') : t('accounts.balance')}
-              </Label>
-              <NumericInput id="balance" {...register('currentBalance', { setValueAs: toOptionalNumber })} />
-            </div>
+            {selectedType !== 'SCPI' && (
+              <div className="space-y-2">
+                <Label htmlFor="balance">
+                  {selectedType === 'LOAN' ? t('debt.remaining') : t('accounts.balance')}
+                </Label>
+                <NumericInput id="balance" {...register('currentBalance', { setValueAs: toOptionalNumber })} />
+              </div>
+            )}
           </div>
 
           {OPENING_DATE_TYPES.includes(selectedType) && (

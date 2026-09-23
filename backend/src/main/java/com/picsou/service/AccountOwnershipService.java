@@ -70,7 +70,7 @@ public class AccountOwnershipService {
 
         if (!SPLITTABLE.contains(account.getType())) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                "Ownership shares are only supported on real estate and loan accounts");
+                "Ownership shares are only supported on real estate, SCPI and loan accounts");
         }
 
         List<OwnershipRequest.Share> shares = request.shares();
