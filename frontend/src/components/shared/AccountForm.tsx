@@ -156,7 +156,13 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
   }
 
   function handleFormSubmit(data: AccountFormData) {
-    onSubmit(data)
+    if (data.type !== 'SCPI') {
+      onSubmit(data)
+      return
+    }
+    // Unmounted fields keep their last value. A balance typed before the type change, or a
+    // synced account's isManual=false, must not be saved as if this were still that account.
+    onSubmit({ ...data, isManual: true, currentBalance: undefined })
   }
 
   return (

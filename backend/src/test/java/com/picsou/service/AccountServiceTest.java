@@ -174,7 +174,36 @@ class AccountServiceTest {
         assertThat(created.logoKey()).isNull();
     }
 
-    // --- Bank logo on a manual account -------------------------------------------------
+    @Test
+    void create_scpi_ignoresTheTypedBalanceAndForcesManual() {
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(scpiPositionRepository.findByAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
+
+        AccountResponse created = accountService.create(
+            new AccountRequest("Pierre-papier", AccountType.SCPI, null, "EUR",
+                new BigDecimal("5000"), false, "#7c3aed", null, null, null),
+            FamilyMember.builder().id(7L).build());
+
+        assertThat(created.currentBalance()).isEqualByComparingTo("0");
+        assertThat(created.isManual()).isTrue();
+        verify(snapshotRepository, never()).save(any());
+    }
+
+    @Test
+    void update_convertingToScpi_zerosTheOldBalanceAndForcesManual() {
+        Account checking = Account.builder().id(1L).name("Compte").type(AccountType.CHECKING)
+            .currency("EUR").currentBalance(new BigDecimal("2400")).isManual(false).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(checking));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.update(1L, new AccountRequest("Pierre-papier", AccountType.SCPI, null, "EUR",
+            new BigDecimal("2400"), false, "#7c3aed", null, null, null), 7L);
+
+        assertThat(checking.getType()).isEqualTo(AccountType.SCPI);
+        assertThat(checking.getCurrentBalance()).isEqualByComparingTo("0");
+        assertThat(checking.isManual()).isTrue();
+        verify(snapshotRepository, never()).save(any());
+    }
 
     @Test
     void create_resolvesTheBankLogoOfAManualAccountFromTheInstitutionThePickerSent() {
