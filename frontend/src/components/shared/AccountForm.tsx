@@ -32,7 +32,7 @@ const accountSchema = z.object({
   type: z.enum([
     'LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL',
     'PEA', 'COMPTE_TITRES', 'CRYPTO', 'CHECKING', 'SAVINGS',
-    'REAL_ESTATE', 'LOAN', 'EMPLOYEE_SAVINGS', 'OTHER',
+    'REAL_ESTATE', 'SCPI', 'LOAN', 'EMPLOYEE_SAVINGS', 'OTHER',
   ]),
   provider: z.string().max(100).optional(),
   currency: z.string().min(1),
@@ -210,7 +210,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
             </div>
           </div>
 
-          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && (
+          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && selectedType !== 'SCPI' && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="provider">{t('accounts.provider')}</Label>
@@ -346,14 +346,14 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
             </div>
           )}
 
-          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && (
+          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && selectedType !== 'SCPI' && (
             <div className="flex min-h-10 items-center gap-2">
               <input id="isManual" type="checkbox" {...register('isManual')} className="h-5 w-5 rounded accent-primary" />
               <Label htmlFor="isManual">{t('accounts.manual')}</Label>
             </div>
           )}
 
-          {(selectedType === 'REAL_ESTATE' || selectedType === 'LOAN') && (
+          {(selectedType === 'REAL_ESTATE' || selectedType === 'LOAN' || selectedType === 'SCPI') && (
             <input type="hidden" {...register('isManual')} value="true" />
           )}
 

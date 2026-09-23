@@ -217,7 +217,38 @@
     "realEstate": "Inmobiliario",
     "loan": "Préstamo",
     "other": "Otro",
-    "employeeSavings": "Ahorro salarial"
+    "employeeSavings": "Ahorro salarial",
+    "scpi": "SCPI"
+  },
+  "scpi": {
+    "add": {
+      "action": "Añadir una SCPI",
+      "title": "Añadir una participación de SCPI",
+      "description": "Una participación no es un inmueble. El patrimonio es el precio de reembolso por el número de participaciones."
+    },
+    "name": "Nombre del vehículo",
+    "managementCompany": "Sociedad gestora",
+    "shareCount": "Número de participaciones",
+    "subscriptionPrice": "Precio de suscripción",
+    "withdrawalPrice": "Precio de reembolso",
+    "withdrawalValue": "Valor al precio de reembolso",
+    "subscriptionHint": "Se muestra junto al saldo, nunca como saldo. Las comisiones de entrada están en este precio.",
+    "dividendPolicy": "Dividendos",
+    "cash": "Pagados",
+    "reinvest": "Reinvertidos",
+    "jouissanceDate": "Fecha de disfrute",
+    "isin": "ISIN",
+    "incomplete": "Falta el precio de reembolso: se conserva el saldo anterior.",
+    "position": "Posición",
+    "edit": "Modificar",
+    "save": "Guardar",
+    "summary": {
+      "title": "Piedra-papel",
+      "gross": "Valor al reembolso",
+      "debt": "Crédito vinculado",
+      "net": "Neto",
+      "hint": "Fuera de la estimación por metro cuadrado. El precio de suscripción no entra en este total."
+    }
   },
   "realEstate": {
     "purchasePrice": "Precio de compra",

@@ -22,6 +22,7 @@ import { AccountTypeBadge } from '@/components/shared/AccountTypeBadge'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { LoanDetailSection } from '@/components/loan/LoanDetailSection'
 import { PropertyDetailSection } from '@/components/property/PropertyDetailSection'
+import { ScpiDetailSection } from '@/components/scpi/ScpiDetailSection'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -63,6 +64,7 @@ export function AccountDetailPage() {
   const chartData = (history ?? []).map(s => ({ date: s.date, balance: s.balance }))
   const isLoan = account?.type === 'LOAN'
   const isRealEstate = account?.type === 'REAL_ESTATE'
+  const isScpi = account?.type === 'SCPI'
   const showHoldings = account ? HOLDING_ACCOUNT_TYPES.includes(account.type) : false
   const recentSnapshots = [...(history ?? [])].reverse().slice(0, 10)
 
@@ -167,6 +169,8 @@ export function AccountDetailPage() {
 
       {/* Property detail: description, valuation, financing and ownership split */}
       {isRealEstate && account && <PropertyDetailSection account={account} />}
+
+      {isScpi && account && <ScpiDetailSection account={account} />}
 
       {/* History chart */}
       {!isLoan && showHoldings && pnlData && pnlData.length > 1 ? (

@@ -30,7 +30,15 @@ public record RealEstateSummaryResponse(
     BigDecimal unrealizedGainPercent,
     BigDecimal loanToValue,
     BigDecimal monthlyRentalIncome,
-    List<PropertyLine> properties
+    List<PropertyLine> properties,
+    /**
+     * SCPI shares, valued at the withdrawal price. Kept out of {@code grossValue}: that figure
+     * is what the open-data estimator can say about a house, and a share has no floor area.
+     */
+    BigDecimal paperGross,
+    BigDecimal paperDebt,
+    BigDecimal paperNet,
+    List<PaperLine> paper
 ) {
     /**
      * @param sharePercent the member's stake, so the UI can show "50% of 400 000 €"
@@ -54,6 +62,27 @@ public record RealEstateSummaryResponse(
         ValuationMode valuationMode,
         LocalDate lastValuedAt,
         ValuationConfidence lastConfidence,
+        List<LinkedLoan> loans
+    ) {}
+
+    /**
+     * One SCPI vehicle. {@code grossValue} is the withdrawal price times the share count,
+     * already weighted by {@code sharePercent}. The subscription price is shown beside it
+     * and is never this figure.
+     */
+    public record PaperLine(
+        Long accountId,
+        String name,
+        String color,
+        String managementCompany,
+        BigDecimal shareCount,
+        BigDecimal sharePercent,
+        BigDecimal withdrawalPriceEur,
+        BigDecimal subscriptionPriceEur,
+        BigDecimal grossValue,
+        BigDecimal outstandingDebt,
+        BigDecimal netValue,
+        String valuationStatus,
         List<LinkedLoan> loans
     ) {}
 

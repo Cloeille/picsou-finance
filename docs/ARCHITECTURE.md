@@ -150,6 +150,10 @@ the daily snapshot. One Picsou account per *dispositif*, typed `EMPLOYEE_SAVINGS
 Encrypted session and job status live in `AmundiSession`. See the
 [Amundi ADR](./decisions/2026-08-09-amundi-epargne-salariale-sidecar.md).
 
+A SCPI share is not this, and it is not a house either. It is an `SCPI` account valued at
+the withdrawal price times the share count. See
+[SCPI shares](./features/scpi.md).
+
 ### 6. Crypto exchange
 
 ```

@@ -6,6 +6,7 @@ import { useHistory } from '@/features/history/hooks'
 import { AccountForm } from '@/components/shared/AccountForm'
 import { AddAccountModal } from '@/components/shared/AddAccountModal'
 import { AddPropertyModal } from '@/components/property/AddPropertyModal'
+import { AddScpiModal } from '@/components/scpi/AddScpiModal'
 import { AccountCard } from '@/components/shared/AccountCard'
 import { AccountsStackedChart } from '@/components/shared/AccountsStackedChart'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -30,7 +31,7 @@ const ASSET_FILTER_MAP: Record<AssetFilter, AccountType[] | null> = {
   SAVINGS: ['LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL', 'SAVINGS'],
   CHECKING: ['CHECKING'],
   CRYPTO: ['CRYPTO'],
-  REAL_ESTATE: ['REAL_ESTATE'],
+  REAL_ESTATE: ['REAL_ESTATE', 'SCPI'],
   DEBTS: ['LOAN'],
 }
 
@@ -59,6 +60,7 @@ const TYPE_TO_GROUP: Record<AccountType, string> = {
   CHECKING: 'CHECKING',
   CRYPTO: 'CRYPTO',
   REAL_ESTATE: 'REAL_ESTATE',
+  SCPI: 'REAL_ESTATE',
   LOAN: 'DEBTS',
 }
 
@@ -96,6 +98,7 @@ export function AccountsPage() {
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showPropertyModal, setShowPropertyModal] = useState(false)
+  const [showScpiModal, setShowScpiModal] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
@@ -319,10 +322,23 @@ export function AccountsPage() {
       <PageHeader
         title={t('accounts.title')}
         actions={
-          <Button onClick={handleOpenCreate} size="sm">
-            <Plus className="size-4" />
-            {addingProperty ? t('property.add.action') : t('accounts.addAccount')}
-          </Button>
+          addingProperty ? (
+            <div className="flex items-center gap-2">
+              <Button onClick={() => setShowPropertyModal(true)} size="sm">
+                <Plus className="size-4" />
+                {t('property.add.action')}
+              </Button>
+              <Button onClick={() => setShowScpiModal(true)} size="sm" variant="outline">
+                <Plus className="size-4" />
+                {t('scpi.add.action')}
+              </Button>
+            </div>
+          ) : (
+            <Button onClick={handleOpenCreate} size="sm">
+              <Plus className="size-4" />
+              {t('accounts.addAccount')}
+            </Button>
+          )
         }
       />
 
@@ -441,6 +457,10 @@ export function AccountsPage() {
 
       {showPropertyModal && (
         <AddPropertyModal open onOpenChange={setShowPropertyModal} />
+      )}
+
+      {showScpiModal && (
+        <AddScpiModal open onOpenChange={setShowScpiModal} />
       )}
 
       <AddAccountModal

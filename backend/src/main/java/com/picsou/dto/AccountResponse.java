@@ -38,7 +38,9 @@ public record AccountResponse(
      * it, but only the owner may edit, revalue or delete it. The UI needs this to hide write
      * actions rather than letting the user discover the rule through a 403.
      */
-    Boolean isOwner
+    Boolean isOwner,
+    /** Present only for a {@code SCPI} account. Null everywhere else. */
+    ScpiPositionResponse scpi
 ) {
     public static AccountResponse from(Account a, BigDecimal balanceEur) {
         return new AccountResponse(
@@ -60,6 +62,7 @@ public record AccountResponse(
             null,
             null,
             null,
+            null,
             null
         );
     }
@@ -67,18 +70,24 @@ public record AccountResponse(
     public AccountResponse withRealEstate(RealEstateMetadataResponse realEstate) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, realEstate, debt, sharePercent, isOwner);
+            createdAt, realEstate, debt, sharePercent, isOwner, scpi);
     }
 
     public AccountResponse withDebt(DebtResponse debt) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, realEstate, debt, sharePercent, isOwner);
+            createdAt, realEstate, debt, sharePercent, isOwner, scpi);
     }
 
     public AccountResponse withViewer(BigDecimal sharePercent, Boolean isOwner) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, realEstate, debt, sharePercent, isOwner);
+            createdAt, realEstate, debt, sharePercent, isOwner, scpi);
+    }
+
+    public AccountResponse withScpi(ScpiPositionResponse scpi) {
+        return new AccountResponse(id, name, type, provider, currency, currentBalance,
+            currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
+            createdAt, realEstate, debt, sharePercent, isOwner, scpi);
     }
 }

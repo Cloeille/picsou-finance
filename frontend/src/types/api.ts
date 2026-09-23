@@ -1,7 +1,7 @@
 export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'LOAN' | 'EMPLOYEE_SAVINGS' | 'OTHER'
+  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'EMPLOYEE_SAVINGS' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
@@ -138,6 +138,49 @@ export interface LinkedLoan {
   endDate: string | null
 }
 
+export type DividendPolicy = 'CASH' | 'REINVEST'
+export type ScpiValuationStatus = 'OK' | 'PRICE_INCOMPLETE'
+
+export interface ScpiPosition {
+  isin: string | null
+  managementCompany: string | null
+  shareCount: number
+  subscriptionPriceEur: number | null
+  withdrawalPriceEur: number | null
+  /** Withdrawal price times share count. Null when the withdrawal price is missing. */
+  withdrawalValueEur: number | null
+  dividendPolicy: DividendPolicy
+  jouissanceDate: string | null
+  valuationStatus: ScpiValuationStatus
+}
+
+export interface ScpiPositionRequest {
+  isin?: string | null
+  managementCompany?: string | null
+  shareCount: number
+  subscriptionPriceEur?: number | null
+  withdrawalPriceEur?: number | null
+  dividendPolicy?: DividendPolicy
+  jouissanceDate?: string | null
+}
+
+/** One SCPI vehicle in the property summary. Kept out of the open-data gross. */
+export interface ScpiPaperLine {
+  accountId: number
+  name: string
+  color: string | null
+  managementCompany: string | null
+  shareCount: number | null
+  sharePercent: number
+  withdrawalPriceEur: number | null
+  subscriptionPriceEur: number | null
+  grossValue: number
+  outstandingDebt: number
+  netValue: number
+  valuationStatus: ScpiValuationStatus | null
+  loans: LinkedLoan[]
+}
+
 export interface RealEstatePropertyLine {
   accountId: number
   name: string
@@ -169,6 +212,11 @@ export interface RealEstateSummary {
   loanToValue: number | null
   monthlyRentalIncome: number
   properties: RealEstatePropertyLine[]
+  /** SCPI shares. Not included in grossValue, which is the open-data figure for physical property. */
+  paperGross: number
+  paperDebt: number
+  paperNet: number
+  paper: ScpiPaperLine[]
 }
 
 export interface GeocodeSuggestion {
@@ -217,6 +265,8 @@ export interface Account {
   sharePercent?: number | null
   /** Whether the viewer administers the account. Holding a share does not grant write access. */
   isOwner?: boolean | null
+  /** Present only for a SCPI account. */
+  scpi?: ScpiPosition | null
 }
 
 export interface AccountRequest {

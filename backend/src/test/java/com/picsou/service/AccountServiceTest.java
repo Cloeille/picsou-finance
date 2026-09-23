@@ -22,6 +22,7 @@ import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
+import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -59,6 +60,7 @@ class AccountServiceTest {
     @Mock PriceService priceService;
     @Mock LoanAmortizationService loanAmortizationService;
     @Mock BankLogoResolver bankLogoResolver;
+    @Mock ScpiPositionRepository scpiPositionRepository;
     @InjectMocks AccountService accountService;
 
     private Account ownedAccount() {

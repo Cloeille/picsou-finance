@@ -251,6 +251,6 @@ class DegiroSyncServiceTest {
             false, "#f97316", null, null, null, Instant.now(), null, null,
             // Ownership shares (this branch): a wholly-owned account carries a null
             // share and is administered by its member.
-            null, true);
+            null, true, null);
     }
 }

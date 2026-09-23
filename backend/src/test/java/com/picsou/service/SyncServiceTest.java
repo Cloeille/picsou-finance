@@ -126,7 +126,7 @@ class SyncServiceTest {
         lenient().when(accountService.toResponse(any(Account.class)))
             .thenReturn(new AccountResponse(99L, "Compte Courant", null, "BNP Paribas", "EUR",
                 new BigDecimal("100"), new BigDecimal("100"), null, null, false, "#6366f1", null,
-                "https://logos.example/bnp.png", null, null, null, null, null, null));
+                "https://logos.example/bnp.png", null, null, null, null, null, null, null));
 
         syncService.completeConnection("oauth-code", null, memberId);
 
@@ -627,7 +627,7 @@ class SyncServiceTest {
         lenient().when(accountService.toResponse(any(Account.class)))
             .thenReturn(new AccountResponse(1L, "Compte", null, "Revolut", "EUR",
                 new BigDecimal("10"), new BigDecimal("10"), null, null, false, "#6366f1", null, null,
-                null, null, null, null, null, null));
+                null, null, null, null, null, null, null));
 
         // Caller context is member 1 (the admin), requisition belongs to member 2.
         syncService.completeConnection("oauth-code", "state-x", 1L);

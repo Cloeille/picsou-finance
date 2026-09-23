@@ -96,7 +96,7 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "LEP", AccountType.LEP, null, "EUR",
                 new BigDecimal("5000"), new BigDecimal("5000"),
-                null, null, true, "#6366f1", null, null, null, null, null, null, null, null
+                null, null, true, "#6366f1", null, null, null, null, null, null, null, null, null
             )
         );
         when(accountService.signedLiveBalanceEur(account)).thenReturn(new BigDecimal("5000"));
@@ -181,14 +181,14 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "LEP", AccountType.LEP, null, "EUR",
                 new BigDecimal("5000"), new BigDecimal("5000"),
-                null, null, true, "#6366f1", null, null, null, null, null, null, null, null
+                null, null, true, "#6366f1", null, null, null, null, null, null, null, null, null
             )
         );
         when(accountService.toResponse(loan)).thenReturn(
             new com.picsou.dto.AccountResponse(
                 2L, "Prêt", AccountType.LOAN, null, "EUR",
                 new BigDecimal("2000"), new BigDecimal("2000"),
-                null, null, true, "#ef4444", null, null, null, null, null, null, null, null
+                null, null, true, "#ef4444", null, null, null, null, null, null, null, null, null
             )
         );
         when(accountService.signedLiveBalanceEur(asset)).thenReturn(new BigDecimal("5000"));
@@ -355,7 +355,7 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "Livret", AccountType.SAVINGS, null, "EUR",
                 BigDecimal.ZERO, BigDecimal.ZERO,
-                null, null, true, "#000", null, null, null, null, null, null, null, null
+                null, null, true, "#000", null, null, null, null, null, null, null, null, null
             )
         );
         when(accountService.signedLiveBalanceEur(account)).thenReturn(BigDecimal.ZERO);
@@ -412,7 +412,7 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "Mortgage", AccountType.LOAN, null, "EUR",
                 new BigDecimal("9000"), new BigDecimal("9000"),
-                null, null, true, "#ef4444", null, null, null, null, null, null, null, null
+                null, null, true, "#ef4444", null, null, null, null, null, null, null, null, null
             )
         );
         when(accountService.signedLiveBalanceEur(loan)).thenReturn(new BigDecimal("-9000"));
@@ -457,7 +457,7 @@ class GoalServiceTest {
             return new com.picsou.dto.AccountResponse(
                 acc.getId(), acc.getName(), AccountType.CHECKING, null, "EUR",
                 acc.getCurrentBalance(), acc.getCurrentBalance(),
-                null, null, true, "#22c55e", null, null, null, null, null, null, null, null);
+                null, null, true, "#22c55e", null, null, null, null, null, null, null, null, null);
         });
         when(accountService.signedLiveBalanceEur(any())).thenAnswer(inv ->
             ((Account) inv.getArgument(0)).getCurrentBalance());
@@ -527,7 +527,7 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "Livret", AccountType.SAVINGS, null, "EUR",
                 BigDecimal.ZERO, BigDecimal.ZERO,
-                null, null, true, "#000", null, null, null, null, null, null, null, null
+                null, null, true, "#000", null, null, null, null, null, null, null, null, null
             )
         );
         when(accountService.signedLiveBalanceEur(account)).thenReturn(BigDecimal.ZERO);
@@ -574,7 +574,7 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "LEP", AccountType.LEP, null, "EUR",
                 BigDecimal.ZERO, BigDecimal.ZERO,
-                null, null, true, "#000", null, null, null, null, null, null, null, null
+                null, null, true, "#000", null, null, null, null, null, null, null, null, null
             )
         );
         when(accountService.signedLiveBalanceEur(account)).thenReturn(BigDecimal.ZERO);
