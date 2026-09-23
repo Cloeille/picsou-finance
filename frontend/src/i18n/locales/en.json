@@ -217,7 +217,39 @@
     "realEstate": "Real estate",
     "loan": "Loan",
     "other": "Other",
-    "employeeSavings": "Employee savings"
+    "employeeSavings": "Employee savings",
+    "scpi": "SCPI"
+  },
+  "scpi": {
+    "add": {
+      "action": "Add a SCPI",
+      "title": "Add a SCPI share",
+      "description": "A share is not a house. Net worth uses the withdrawal price times the share count."
+    },
+    "name": "Vehicle name",
+    "managementCompany": "Management company",
+    "shareCount": "Share count",
+    "subscriptionPrice": "Subscription price",
+    "withdrawalPrice": "Withdrawal price",
+    "withdrawalValue": "Value at withdrawal price",
+    "subscriptionHint": "Shown beside the balance, never as the balance. Entry fees sit in this price.",
+    "dividendPolicy": "Dividends",
+    "cash": "Paid out",
+    "reinvest": "Reinvested",
+    "jouissanceDate": "Enjoyment date",
+    "isin": "ISIN",
+    "incomplete": "Withdrawal price missing: the previous balance is kept.",
+    "position": "Position",
+    "edit": "Edit",
+    "save": "Save",
+    "summary": {
+      "title": "Paper property",
+      "gross": "Withdrawal value",
+      "debt": "Linked loan",
+      "net": "Net",
+      "hint": "Kept out of the price-per-square-metre estimate. The subscription price is not in this total.",
+      "incomplete": "One share still uses its last known balance: the withdrawal price is missing."
+    }
   },
   "realEstate": {
     "purchasePrice": "Purchase price",

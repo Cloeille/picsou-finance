@@ -13,6 +13,12 @@ public enum AccountType {
     CHECKING,
     SAVINGS,
     REAL_ESTATE,
+    /**
+     * A share in a French property fund (SCPI). Not a physical property: there is no address
+     * and the open-data estimator cannot price it. The balance is the withdrawal price times
+     * the share count, written by {@code ScpiPositionService}, not recomputed from trades.
+     */
+    SCPI,
     LOAN,
     EMPLOYEE_SAVINGS,
     OTHER;

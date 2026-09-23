@@ -217,7 +217,39 @@
     "realEstate": "Immobilier",
     "loan": "Prêt",
     "other": "Autre",
-    "employeeSavings": "Épargne salariale"
+    "employeeSavings": "Épargne salariale",
+    "scpi": "SCPI"
+  },
+  "scpi": {
+    "add": {
+      "action": "Ajouter une SCPI",
+      "title": "Ajouter une part de SCPI",
+      "description": "Une part n'est pas un bien. La valeur retenue est le prix de retrait multiplié par le nombre de parts."
+    },
+    "name": "Nom du véhicule",
+    "managementCompany": "Société de gestion",
+    "shareCount": "Nombre de parts",
+    "subscriptionPrice": "Prix de souscription",
+    "withdrawalPrice": "Prix de retrait",
+    "withdrawalValue": "Valeur au prix de retrait",
+    "subscriptionHint": "Affiché à côté du solde, jamais à sa place. Les frais d'entrée s'y trouvent.",
+    "dividendPolicy": "Dividendes",
+    "cash": "Versés",
+    "reinvest": "Réinvestis",
+    "jouissanceDate": "Date de jouissance",
+    "isin": "ISIN",
+    "incomplete": "Prix de retrait manquant : le solde précédent est conservé.",
+    "position": "Position",
+    "edit": "Modifier",
+    "save": "Enregistrer",
+    "summary": {
+      "title": "Pierre-papier",
+      "gross": "Valeur au retrait",
+      "debt": "Crédit lié",
+      "net": "Net",
+      "hint": "Hors estimation au mètre carré. Le prix de souscription n'entre pas dans ce total.",
+      "incomplete": "Une part utilise encore son dernier solde connu : le prix de retrait manque."
+    }
   },
   "realEstate": {
     "purchasePrice": "Prix d'achat",

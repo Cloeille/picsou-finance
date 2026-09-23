@@ -217,7 +217,39 @@
     "realEstate": "Immobilie",
     "loan": "Kredit",
     "other": "Sonstiges",
-    "employeeSavings": "Mitarbeitersparplan"
+    "employeeSavings": "Mitarbeitersparplan",
+    "scpi": "SCPI"
+  },
+  "scpi": {
+    "add": {
+      "action": "SCPI hinzufügen",
+      "title": "SCPI-Anteil hinzufügen",
+      "description": "Ein Anteil ist kein Haus. Das Vermögen ist der Rücknahmepreis mal die Anzahl der Anteile."
+    },
+    "name": "Name des Vehikels",
+    "managementCompany": "Verwaltungsgesellschaft",
+    "shareCount": "Anzahl der Anteile",
+    "subscriptionPrice": "Ausgabepreis",
+    "withdrawalPrice": "Rücknahmepreis",
+    "withdrawalValue": "Wert zum Rücknahmepreis",
+    "subscriptionHint": "Neben dem Saldo angezeigt, nie als Saldo. Die Einstiegsgebühren stecken in diesem Preis.",
+    "dividendPolicy": "Dividenden",
+    "cash": "Ausgezahlt",
+    "reinvest": "Reinvestiert",
+    "jouissanceDate": "Datum der Nutzungsberechtigung",
+    "isin": "ISIN",
+    "incomplete": "Rücknahmepreis fehlt: der bisherige Saldo bleibt.",
+    "position": "Position",
+    "edit": "Bearbeiten",
+    "save": "Speichern",
+    "summary": {
+      "title": "Papierimmobilie",
+      "gross": "Wert zum Rücknahmepreis",
+      "debt": "Verknüpfter Kredit",
+      "net": "Netto",
+      "hint": "Nicht in der Quadratmeter-Schätzung. Der Ausgabepreis steht nicht in dieser Summe.",
+      "incomplete": "Ein Anteil nutzt noch den letzten bekannten Saldo: der Rücknahmepreis fehlt."
+    }
   },
   "realEstate": {
     "purchasePrice": "Kaufpreis",

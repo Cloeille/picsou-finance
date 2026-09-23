@@ -17,7 +17,10 @@ import com.picsou.model.BalanceSnapshot;
 import com.picsou.dto.OwnershipRequest;
 import com.picsou.dto.OwnershipResponse;
 import com.picsou.dto.PropertyValuationResponse;
+import com.picsou.dto.ScpiPositionRequest;
+import com.picsou.dto.ScpiPositionResponse;
 import com.picsou.service.AccountConnectionService;
+import com.picsou.service.ScpiPositionService;
 import com.picsou.service.AccountOwnershipService;
 import com.picsou.service.AccountService;
 import com.picsou.service.CryptoExchangeSyncService;
@@ -47,6 +50,7 @@ public class AccountController {
     private final PropertyValuationService propertyValuationService;
     private final AccountOwnershipService ownershipService;
     private final AccountConnectionService accountConnectionService;
+    private final ScpiPositionService scpiPositionService;
 
     public AccountController(AccountService accountService, UserContext userContext,
                             ManualTransactionService manualTransactionService,
@@ -54,7 +58,8 @@ public class AccountController {
                             CryptoExchangeSyncService cryptoExchangeSyncService,
                             PropertyValuationService propertyValuationService,
                             AccountOwnershipService ownershipService,
-                            AccountConnectionService accountConnectionService) {
+                            AccountConnectionService accountConnectionService,
+                            ScpiPositionService scpiPositionService) {
         this.accountConnectionService = accountConnectionService;
         this.accountService = accountService;
         this.userContext = userContext;
@@ -63,6 +68,7 @@ public class AccountController {
         this.cryptoExchangeSyncService = cryptoExchangeSyncService;
         this.propertyValuationService = propertyValuationService;
         this.ownershipService = ownershipService;
+        this.scpiPositionService = scpiPositionService;
     }
 
     @GetMapping
@@ -193,6 +199,19 @@ public class AccountController {
         @Valid @RequestBody RealEstateMetadataRequest req
     ) {
         return accountService.updateRealEstateMetadata(id, userContext.currentMemberId(), req);
+    }
+
+    /**
+     * Saves a SCPI position. The account balance becomes withdrawal price × share count.
+     * A missing withdrawal price leaves the previous balance alone and returns
+     * {@code PRICE_INCOMPLETE} — the subscription price is never used as a substitute.
+     */
+    @PutMapping("/{id}/scpi")
+    public ScpiPositionResponse updateScpiPosition(
+        @PathVariable Long id,
+        @Valid @RequestBody ScpiPositionRequest req
+    ) {
+        return scpiPositionService.save(id, userContext.currentMemberId(), req);
     }
 
     /**

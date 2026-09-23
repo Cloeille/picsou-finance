@@ -2,11 +2,13 @@ package com.picsou.service;
 
 import com.picsou.dto.RealEstateSummaryResponse;
 import com.picsou.dto.RealEstateSummaryResponse.LinkedLoan;
+import com.picsou.dto.RealEstateSummaryResponse.PaperLine;
 import com.picsou.dto.RealEstateSummaryResponse.PropertyLine;
 import com.picsou.model.*;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
+import com.picsou.repository.ScpiPositionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,19 +42,22 @@ public class RealEstateSummaryService {
     private final DebtRepository debtRepository;
     private final LoanAmortizationService loanAmortizationService;
     private final AccountService accountService;
+    private final ScpiPositionRepository scpiPositionRepository;
 
     public RealEstateSummaryService(AccountAccessResolver accessResolver,
                                     RealEstateMetadataRepository metadataRepository,
                                     PropertyValuationRepository valuationRepository,
                                     DebtRepository debtRepository,
                                     LoanAmortizationService loanAmortizationService,
-                                    AccountService accountService) {
+                                    AccountService accountService,
+                                    ScpiPositionRepository scpiPositionRepository) {
         this.accessResolver = accessResolver;
         this.metadataRepository = metadataRepository;
         this.valuationRepository = valuationRepository;
         this.debtRepository = debtRepository;
         this.loanAmortizationService = loanAmortizationService;
         this.accountService = accountService;
+        this.scpiPositionRepository = scpiPositionRepository;
     }
 
     public RealEstateSummaryResponse summarize(Long memberId) {
@@ -64,9 +69,21 @@ public class RealEstateSummaryService {
         BigDecimal debtTotal = BigDecimal.ZERO;
         BigDecimal costTotal = BigDecimal.ZERO;
         BigDecimal rentTotal = BigDecimal.ZERO;
+        BigDecimal paperGross = BigDecimal.ZERO;
+        BigDecimal paperDebt = BigDecimal.ZERO;
         List<PropertyLine> lines = new ArrayList<>();
+        List<PaperLine> paper = new ArrayList<>();
 
         for (Account account : accounts) {
+            if (account.getType() == AccountType.SCPI) {
+                PaperRollup rolled = paperLine(account, shares.get(account.getId()), memberId, today);
+                if (rolled != null) {
+                    paper.add(rolled.line());
+                    paperGross = paperGross.add(rolled.gross());
+                    paperDebt = paperDebt.add(rolled.debt());
+                }
+                continue;
+            }
             if (account.getType() != AccountType.REAL_ESTATE) {
                 continue;
             }
@@ -137,11 +154,52 @@ public class RealEstateSummaryService {
             gainPercent,
             ltv,
             scale(rentTotal),
-            lines
+            lines,
+            scale(paperGross),
+            scale(paperDebt),
+            scale(paperGross.subtract(paperDebt)),
+            paper
         );
     }
 
     private record LoanRollup(BigDecimal total, List<LinkedLoan> lines) {}
+
+    private record PaperRollup(PaperLine line, BigDecimal gross, BigDecimal debt) {}
+
+    /**
+     * A SCPI share sits beside the houses, not inside them. Its value is the stored withdrawal
+     * total; the open-data estimator is never asked.
+     */
+    private PaperRollup paperLine(Account account, BigDecimal share, Long memberId, LocalDate today) {
+        if (share == null || share.signum() <= 0) {
+            return null;
+        }
+        BigDecimal gross = AccountAccessResolver.weigh(accountService.liveBalanceEur(account), share);
+        Long ownerId = account.getMember() != null ? account.getMember().getId() : null;
+        Optional<ScpiPosition> position = ownerId == null
+            ? Optional.empty()
+            : scpiPositionRepository.findByAccountIdAndMemberId(account.getId(), ownerId);
+        LoanRollup loans = loansFor(account, memberId, today);
+        return new PaperRollup(
+            new PaperLine(
+                account.getId(),
+                account.getName(),
+                account.getColor(),
+                position.map(ScpiPosition::getManagementCompany).orElse(null),
+                position.map(ScpiPosition::getShareCount).orElse(null),
+                share,
+                position.map(ScpiPosition::getWithdrawalPriceEur).orElse(null),
+                position.map(ScpiPosition::getSubscriptionPriceEur).orElse(null),
+                scale(gross),
+                scale(loans.total()),
+                scale(gross.subtract(loans.total())),
+                position.map(p -> p.getValuationStatus().name()).orElse(null),
+                loans.lines()
+            ),
+            gross,
+            loans.total()
+        );
+    }
 
     /**
      * Loans pointing at this property.
