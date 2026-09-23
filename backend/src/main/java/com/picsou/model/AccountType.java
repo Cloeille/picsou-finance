@@ -22,7 +22,6 @@ public enum AccountType {
     LOAN,
     EMPLOYEE_SAVINGS,
     ASSURANCE_VIE,
-    SCPI,
     OTHER;
 
     /**

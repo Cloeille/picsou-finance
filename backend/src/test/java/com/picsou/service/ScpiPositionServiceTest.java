@@ -65,6 +65,7 @@ class ScpiPositionServiceTest {
     @Test
     void save_withoutWithdrawalPrice_keepsThePreviousBalance() {
         Account account = scpiAccount("8000");
+        account.setCurrency("USD");
         when(accountRepository.findByIdAndMemberId(10L, 1L)).thenReturn(Optional.of(account));
         when(positionRepository.findByAccountIdAndMemberId(10L, 1L)).thenReturn(Optional.empty());
         when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -73,7 +74,8 @@ class ScpiPositionServiceTest {
 
         assertThat(result.valuationStatus()).isEqualTo(ScpiValuationStatus.PRICE_INCOMPLETE);
         assertThat(account.getCurrentBalance()).isEqualByComparingTo("8000");
-        verify(accountRepository, never()).save(any());
+        assertThat(account.getCurrency()).isEqualTo("EUR");
+        verify(accountRepository).save(account);
         ArgumentCaptor<ScpiPosition> saved = ArgumentCaptor.forClass(ScpiPosition.class);
         verify(positionRepository).save(saved.capture());
         assertThat(saved.getValue().getSubscriptionPriceEur()).isEqualByComparingTo("1135");
