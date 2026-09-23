@@ -40,7 +40,7 @@ member scoping non-negotiable — "never query a repository without a member fil
 co-ownership is a deliberate exception to that rule, so it is confined to a single audited
 class rather than spread across services as ad-hoc queries.
 
-**Scope is intentionally limited to `REAL_ESTATE` and `LOAN`.** The table is keyed on
+**Scope is intentionally limited to `REAL_ESTATE`, `SCPI` and `LOAN`.** The table is keyed on
 `account_id` generally, but the write path refuses other types.
 
 ## Alternatives considered

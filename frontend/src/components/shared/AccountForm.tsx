@@ -233,7 +233,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
             </div>
           )}
 
-          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && (
+          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && selectedType !== 'SCPI' && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="provider">{t('accounts.provider')}</Label>
@@ -369,14 +369,14 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
             </div>
           )}
 
-          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && (
+          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && selectedType !== 'SCPI' && (
             <div className="flex min-h-10 items-center gap-2">
               <input id="isManual" type="checkbox" {...register('isManual')} className="h-5 w-5 rounded accent-primary" />
               <Label htmlFor="isManual">{t('accounts.manual')}</Label>
             </div>
           )}
 
-          {(selectedType === 'REAL_ESTATE' || selectedType === 'LOAN') && (
+          {(selectedType === 'REAL_ESTATE' || selectedType === 'LOAN' || selectedType === 'SCPI') && (
             <input type="hidden" {...register('isManual')} value="true" />
           )}
 

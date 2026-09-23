@@ -8,6 +8,7 @@ import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataRequest;
 import com.picsou.dto.RealEstateMetadataResponse;
 import com.picsou.dto.SavingsConfigDto;
+import com.picsou.dto.ScpiPositionResponse;
 import com.picsou.dto.SnapshotRequest;
 import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
@@ -30,6 +31,7 @@ import com.picsou.repository.DebtRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
 import com.picsou.repository.SavingsInterestConfigRepository;
+import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -81,6 +83,7 @@ public class AccountService {
     private final AccountAccessResolver accessResolver;
     private final BankLogoResolver bankLogoResolver;
     private final CryptoLogoService cryptoLogoService;
+    private final ScpiPositionRepository scpiPositionRepository;
 
     public AccountService(
         AccountRepository accountRepository,
@@ -95,7 +98,8 @@ public class AccountService {
         LoanAmortizationService loanAmortizationService,
         AccountAccessResolver accessResolver,
         BankLogoResolver bankLogoResolver,
-        CryptoLogoService cryptoLogoService
+        CryptoLogoService cryptoLogoService,
+        ScpiPositionRepository scpiPositionRepository
     ) {
         this.accountRepository = accountRepository;
         this.snapshotRepository = snapshotRepository;
@@ -110,6 +114,7 @@ public class AccountService {
         this.accessResolver = accessResolver;
         this.bankLogoResolver = bankLogoResolver;
         this.cryptoLogoService = cryptoLogoService;
+        this.scpiPositionRepository = scpiPositionRepository;
     }
 
     /**
@@ -205,8 +210,9 @@ public class AccountService {
             account.setOpenedAt(req.openedAt());
         }
 
-        // For manual accounts, allow balance update
-        if (account.isManual() && req.currentBalance() != null) {
+        // A SCPI balance is withdrawal price × share count, written by ScpiPositionService.
+        // A generic account edit must not replace it with whatever the form still holds.
+        if (account.isManual() && req.currentBalance() != null && account.getType() != AccountType.SCPI) {
             BigDecimal oldBalance = account.getCurrentBalance();
             account.setCurrentBalance(req.currentBalance());
             if (req.currentBalance().compareTo(oldBalance) != 0) {
@@ -752,6 +758,15 @@ public class AccountService {
                 .map(m -> RealEstateMetadataResponse.from(m, lastValuedAt(account.getId())));
             if (meta.isPresent()) {
                 response = response.withRealEstate(meta.get());
+            }
+        }
+
+        if (account.getType() == AccountType.SCPI) {
+            Optional<ScpiPositionResponse> position = scpiPositionRepository.findByAccountId(account.getId())
+                .map(p -> ScpiPositionResponse.from(p, ScpiPositionService.withdrawalValue(
+                    p.getShareCount(), p.getWithdrawalPriceEur())));
+            if (position.isPresent()) {
+                response = response.withScpi(position.get());
             }
         }
 
