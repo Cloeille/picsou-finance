@@ -180,12 +180,13 @@ class AccountServiceTest {
         when(scpiPositionRepository.findByAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
 
         AccountResponse created = accountService.create(
-            new AccountRequest("Pierre-papier", AccountType.SCPI, null, "EUR",
+            new AccountRequest("Pierre-papier", AccountType.SCPI, null, "USD",
                 new BigDecimal("5000"), false, "#7c3aed", null, null, null),
             FamilyMember.builder().id(7L).build());
 
         assertThat(created.currentBalance()).isEqualByComparingTo("0");
         assertThat(created.isManual()).isTrue();
+        assertThat(created.currency()).isEqualTo("EUR");
         verify(snapshotRepository, never()).save(any());
     }
 
@@ -202,7 +203,27 @@ class AccountServiceTest {
         assertThat(checking.getType()).isEqualTo(AccountType.SCPI);
         assertThat(checking.getCurrentBalance()).isEqualByComparingTo("0");
         assertThat(checking.isManual()).isTrue();
+        assertThat(checking.getCurrency()).isEqualTo("EUR");
         verify(snapshotRepository, never()).save(any());
+    }
+
+    @Test
+    void update_convertingToScpi_isRejectedWhileHoldingsRemain() {
+        Account pea = Account.builder().id(1L).name("PEA").type(AccountType.PEA)
+            .currency("EUR").currentBalance(new BigDecimal("9000")).isManual(true).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(pea));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(
+            AccountHolding.builder().ticker("CW8").quantity(new BigDecimal("2")).build()));
+
+        assertThatThrownBy(() -> accountService.update(1L,
+            new AccountRequest("Pierre-papier", AccountType.SCPI, null, "EUR",
+                null, true, "#7c3aed", null, null, null), 7L))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("holdings");
+
+        assertThat(pea.getType()).isEqualTo(AccountType.PEA);
+        assertThat(pea.getCurrentBalance()).isEqualByComparingTo("9000");
+        verify(accountRepository, never()).save(any());
     }
 
     @Test

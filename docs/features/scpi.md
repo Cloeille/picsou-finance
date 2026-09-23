@@ -14,7 +14,11 @@ One Picsou account per vehicle, typed `SCPI`. The user enters the share count (f
 because a scheduled purchase or a reinvested dividend rarely lands on a whole share), the
 subscription price and the withdrawal price.
 
-The account balance is the withdrawal price times the share count. The subscription price
+The account balance is the withdrawal price times the share count, in euros. A SCPI
+account is always manual and always `EUR`: the figure is not a foreign-currency cash
+balance, and converting it again would double-count the exchange rate. Changing an
+existing account into `SCPI` is refused while it still has holdings, because those
+rows would keep being priced instead of the withdrawal value. The subscription price
 is stored and shown beside that figure. It is never used as the balance: entry fees sit
 between the two, and substituting one for the other would overstate net worth.
 

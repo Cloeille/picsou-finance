@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useForm, useWatch, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -148,6 +148,17 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
     }
   }, [open, defaultValues, reset])
 
+  // Zod runs before submit. A negative balance left in a now-hidden field would block the
+  // save, and a non-euro currency would be converted a second time on the withdrawal value.
+  const previousType = useRef(selectedType)
+  useEffect(() => {
+    if (selectedType === 'SCPI' && previousType.current !== 'SCPI') {
+      setValue('currentBalance', undefined, { shouldValidate: true })
+      setValue('currency', 'EUR', { shouldValidate: true })
+    }
+    previousType.current = selectedType
+  }, [selectedType, setValue])
+
   // The lender field and the provider field are the same form value: a loan's provider IS its
   // bank, and it gets a logo on the same terms as any other account.
   function handleBankChange(bankName: string, institutionId?: string) {
@@ -162,7 +173,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
     }
     // Unmounted fields keep their last value. A balance typed before the type change, or a
     // synced account's isManual=false, must not be saved as if this were still that account.
-    onSubmit({ ...data, isManual: true, currentBalance: undefined })
+    onSubmit({ ...data, isManual: true, currentBalance: undefined, currency: 'EUR' })
   }
 
   return (
@@ -200,6 +211,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
                 id="currency"
                 {...register('currency')}
                 className={selectControlClassName}
+                disabled={selectedType === 'SCPI'}
               >
                 {currencyOptions.map((c) => (
                   <option key={c.code} value={c.code}>

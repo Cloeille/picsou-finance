@@ -40,6 +40,7 @@ public class ScpiPositionService {
         if (account.getType() != AccountType.SCPI) {
             throw new IllegalArgumentException("Account is not a SCPI account");
         }
+        account.setCurrency("EUR");
 
         ScpiPosition position = positionRepository.findByAccountIdAndMemberId(accountId, memberId)
             .orElseGet(() -> ScpiPosition.builder()
@@ -61,6 +62,7 @@ public class ScpiPositionService {
             // Entry fees sit between the two, so that substitution would overstate net worth.
             position.setValuationStatus(ScpiValuationStatus.PRICE_INCOMPLETE);
             positionRepository.save(position);
+            accountRepository.save(account);
             return ScpiPositionResponse.from(position, null);
         }
 

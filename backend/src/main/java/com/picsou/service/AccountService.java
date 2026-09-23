@@ -141,7 +141,7 @@ public class AccountService {
             .name(req.name())
             .type(req.type())
             .provider(req.provider())
-            .currency(req.currency())
+            .currency(scpi ? "EUR" : req.currency())
             .currentBalance(opening)
             .isManual(scpi || req.isManual())
             .color(req.color() != null ? req.color() : "#6366f1")
@@ -172,6 +172,11 @@ public class AccountService {
         String previousProvider = account.getProvider();
 
         AccountType previousType = account.getType();
+        if (previousType != AccountType.SCPI && req.type() == AccountType.SCPI
+                && !holdingRepository.findByAccount_Id(account.getId()).isEmpty()) {
+            throw new IllegalArgumentException(
+                "Cannot convert an account that still has holdings to SCPI");
+        }
         account.setName(req.name());
         account.setType(req.type());
         account.setProvider(req.provider());
@@ -188,6 +193,8 @@ public class AccountService {
 
         if (account.getType() == AccountType.SCPI) {
             account.setManual(true);
+            // The withdrawal price is in euros. Leaving USD here would convert that figure again.
+            account.setCurrency("EUR");
         }
         // Converting a current account must not keep its old balance as a paper valuation.
         // A SCPI that is already a SCPI keeps the figure ScpiPositionService wrote.
