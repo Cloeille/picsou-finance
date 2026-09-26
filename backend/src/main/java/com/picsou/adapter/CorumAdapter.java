@@ -79,7 +79,12 @@ public class CorumAdapter implements CorumPort {
             Snapshot.class,
             positionsTimeout,
             "Could not fetch the CORUM portfolio",
-            null
+            // A bare 401 on this endpoint can only mean the session died: the
+            // credentials were already checked at authentication. Without this
+            // a 401 whose body carries no code would fall through to
+            // UPSTREAM_UNAVAILABLE and read as an outage rather than as a
+            // reconnect.
+            CorumErrorCode.SESSION_EXPIRED
         );
         if (!snapshot.snapshotComplete()) {
             // The sidecar refuses a portfolio whose funds do not add up to the
