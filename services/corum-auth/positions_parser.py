@@ -183,5 +183,6 @@ def parse_snapshot(contract: dict[str, Any], products: list[dict[str, Any]]) -> 
         "totalValuationEur": _envelope_total(contract),
         "valuationDate": _valuation_date(valuation_date) if valuation_date else None,
         "snapshotComplete": True,
-        "positions": positions,
+        # `holdings` is the key CorumPort.Snapshot decodes on the Java side.
+        "holdings": positions,
     }

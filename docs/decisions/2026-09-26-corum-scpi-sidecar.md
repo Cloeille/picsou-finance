@@ -17,9 +17,9 @@ decides this ADR.
 
 Three findings from that spike shaped it:
 
-1. **No captcha, no second factor.** The login is a client id and a password, and the
-   session rides on one httpOnly cookie. That is materially easier than Amundi, whose
-   captcha and 2FA forced a two-step handshake with a pending browser held in memory.
+1. **No captcha, no second factor.** The login is a client id and a password. That is
+   materially easier than Amundi, whose captcha and 2FA forced a two-step handshake with
+   a pending browser held in memory.
 2. **The withdrawal price is not in the contract payload.** The contract call names the
    funds and the envelope; a separate per-fund call is the only place a withdrawal
    price appears.
@@ -28,17 +28,46 @@ Three findings from that spike shaped it:
    `averageUnitPrice`. On the spiked account the two differ by the entry fee, about 12 %
    of the position.
 
+## What the first end-to-end run corrected
+
+The spike read the client space from the browser, so it never had to replay the session.
+Running the sidecar against the live account on 2026-09-26 showed that the spike had
+carried three assumptions that the implementation inherited. All three are now covered by
+`test_live_contract.py`.
+
+- **The session is a cookie jar, not a cookie.** Replaying `ai_session` — the httpOnly
+  cookie the SPA sets, and the obvious candidate — is answered `all_tokens_expired` on a
+  session that is demonstrably alive. The tokens the API checks are `au_t` and `re_t`;
+  `ai_session` is only the SPA's own flag. The whole CORUM-domain jar is captured, and
+  login waits for `au_t` rather than for "a cookie arrived" — the pre-login page already
+  sets Cloudflare cookies, so the looser condition returns a jar that fails on first read.
+- **Cloudflare fingerprints the client, not the credential.** The same live cookies
+  requested from the sidecar's own process are answered `403 Error 1010` — "the site
+  owner has banned your browser's signature" — before any application code runs, while
+  the identical request issued by the page answers 200. Every read therefore happens as a
+  same-origin `fetch` inside the page. A side effect worth keeping: a missing or stale
+  token now surfaces as the API's own 401 rather than as a bot-wall 403 we would have to
+  guess about.
+- **The per-fund route has no `realEstate` segment.** The contract reads as
+  `/contract/realEstate/{code}/…` but the fund read as `/contract/{code}/…`. With the
+  segment added, the 404 message reads like a fund that does not exist, which points the
+  operator at the wrong cause.
+
+None of these were reachable by the parser tests, which feed the code a dict rather than a
+URL. That is the argument for `test_live_contract.py` existing at all.
+
 ## Decision
 
 1. A dedicated internal-only FastAPI + Playwright sidecar, `services/corum-auth`, on the
    Chromium-only image the sidecar ADR already mandates. It is the only component that
    knows CORUM's HTML or its routes.
 2. Credentials are ephemeral. Only the sidecar's opaque session blob — Playwright storage
-   state plus the harvested cookie — is persisted, encrypted through `CryptoEncryption`.
+   state plus the harvested cookie jar — is persisted, encrypted through `CryptoEncryption`.
    The password is never stored and never logged.
-3. The cookie is harvested by watching the requests the SPA itself makes, not by reading
-   a CORUM-internal storage key. The session is httpOnly, so a storage state alone does
-   not re-authenticate.
+3. The cookie jar is harvested by watching the requests the SPA itself makes, not by
+   reading a CORUM-internal storage key. Watching live traffic is also the capture point
+   that does not depend on CORUM's internal storage keys, which is what makes this
+   survive a front-end refactor.
 4. The balance is always `quantity × withdrawalPrice`, written through
    `ScpiPositionService.applySyncedPosition` — the same method the manual form uses. A
    sync that valued the share any other way would reintroduce the entry-fee overstatement

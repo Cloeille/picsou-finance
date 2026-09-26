@@ -90,6 +90,24 @@ jobs:
           picsou-bourso-auth:test
           python -m unittest discover -v
 
+  corum-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the Chromium-only sidecar image
+        run: docker build --tag picsou-corum-auth:test services/corum-auth
+      - name: Run parser and live-contract regression tests
+        run: >-
+          docker run --rm --ipc=host
+          --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/corum-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
+          --volume "${{ github.workspace }}/services/corum-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
+          --workdir /tests
+          picsou-corum-auth:test
+          python -m unittest discover -v
+
   amundi-sidecar:
     runs-on: ubuntu-latest
     steps:

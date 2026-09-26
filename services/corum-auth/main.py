@@ -41,16 +41,32 @@ log = logging.getLogger("corum-auth")
 
 BASE_URL = "https://client.corum.fr"
 LOGIN_URL = f"{BASE_URL}/connexion"
-# The cookie CORUM's own session rides on. It is httpOnly, so a storage state
-# alone does not re-authenticate -- reading it off live traffic is the capture
-# point that does not depend on an internal storage key.
-SESSION_COOKIE = "ai_session"
+# Cloudflare's bot management keys on the client fingerprint, not on the
+# session cookie alone. Verified against the live portal: a request carrying
+# only these headers is answered 403 Error 1010 ("the owner has banned your
+# browser's signature") before any application code runs.
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+# The probes and the payload reads share these. The portal serves the SPA from
+# `/`, so a read that omits Referer/Origin is not the request the app makes.
+BROWSER_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": BROWSER_USER_AGENT,
+    "Referer": f"{BASE_URL}/",
+    "Origin": BASE_URL,
+}
 # One probe tells an expired session from a live one without downloading a
 # portfolio. It is cheap and unambiguous: 200 while logged in, 401 once not.
 AUTH_PROBE_PATH = "/api/auth/isAuthenticated"
 CONTRACT_PATH = "/api/contract/active"
+# NB: no `realEstate` segment on the detail paths. The client space routes the
+# contract itself as /contract/realEstate/{code}/... but the per-fund read is
+# /contract/{code}/... -- verified live, where adding `realEstate` is a 404 that
+# reads like a missing fund.
 CONTRACT_DETAIL_PATH = "/api/contract/realEstate/{code}/{investment_type}"
-PRODUCT_PATH = "/api/contract/realEstate/{code}/{investment_type}/product/{product}"
+PRODUCT_PATH = "/api/contract/{code}/{investment_type}/product/{product}"
 
 LOGIN_FORM_TIMEOUT_SECONDS = 25
 SUBMIT_TIMEOUT_SECONDS = 30
@@ -130,7 +146,7 @@ class SessionResponse(BaseModel):
     sessionState: str
 
 
-class PositionPayload(BaseModel):
+class HoldingPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     fundCode: str = Field(min_length=1, max_length=40)
@@ -151,7 +167,10 @@ class SnapshotPayload(BaseModel):
     totalValuationEur: Decimal
     valuationDate: str | None = Field(default=None, max_length=10)
     snapshotComplete: bool
-    positions: list[PositionPayload]
+    # `holdings`, not `positions`: this is the key `CorumPort.Snapshot` decodes.
+    # `extra="forbid"` on both sides means a mismatch surfaces as a 502 rather
+    # than as a snapshot that silently carries no funds.
+    holdings: list[HoldingPayload]
 
 
 @app.exception_handler(RequestValidationError)
@@ -163,41 +182,62 @@ async def validation_exception_handler(
 
 
 class SessionCollector:
-    """Harvests the session cookie off the SPA's own traffic.
+    """Harvests the session cookie jar off the SPA's own traffic.
 
-    CORUM keeps the session in an httpOnly cookie, so it never appears in
-    localStorage and cannot be read out of the page. Watching the requests
-    the dashboard makes is the one capture point that does not depend on
+    CORUM authenticates with a whole cookie jar, not one cookie. Replaying only
+    `ai_session` -- the obvious choice, and the one the earlier spike used --
+    comes back `all_tokens_expired` even on a session that is genuinely live:
+    `au_t` and `re_t` are the tokens the API actually checks, and `ai_session`
+    is only the SPA's own flag. Verified against the portal, where the same
+    jar plus browser headers answers 200.
+
+    So the jar is captured whole rather than by name. Watching the responses
+    the dashboard makes is also the capture point that does not depend on
     CORUM's internal storage keys, which is what makes this survive a
     front-end refactor.
     """
 
+    #: Sent by the client space on a CORUM domain, or set on a subdomain.
+    DOMAIN_SUFFIX = "corum.fr"
+
     def __init__(self) -> None:
-        self.cookie: str | None = None
+        self.cookies: dict[str, str] = {}
 
     def attach(self, context: BrowserContext) -> None:
         context.on("response", self._on_response)
 
     def _on_response(self, response: Any) -> None:
-        if self.cookie is not None:
-            return
         try:
             for cookie in response.headers_array:
-                if cookie.get("name") != SESSION_COOKIE:
-                    continue
-                value = cookie.get("value")
-                if value:
-                    self.cookie = value
-                    return
+                self.record(
+                    cookie.get("domain", ""),
+                    cookie.get("name"),
+                    cookie.get("value"),
+                )
         except Exception:  # noqa: BLE001 - a dead response must never break login
             return
 
-    async def wait(self, timeout_seconds: int) -> str | None:
+    def _is_corum(self, domain: str) -> bool:
+        bare = domain.lstrip(".")
+        return bare == self.DOMAIN_SUFFIX or bare.endswith(f".{self.DOMAIN_SUFFIX}")
+
+    def record(self, domain: str, name: str, value: str) -> None:
+        """Folds one cookie into the jar when it belongs to CORUM."""
+        if name and value and self._is_corum(domain):
+            self.cookies[name] = value
+
+    def has_session(self) -> bool:
+        return len(self.cookies) > 0
+
+    def cookie_header(self) -> str:
+        return "; ".join(f"{name}={value}" for name, value in self.cookies.items())
+
+    async def wait(self, timeout_seconds: int) -> dict[str, str] | None:
         for _ in range(timeout_seconds * 4):
-            if self.cookie is not None:
-                return self.cookie
+            if self.has_session():
+                return self.cookies
             await asyncio.sleep(0.25)
-        return self.cookie
+        return self.cookies or None
 
 
 async def _close_resources(
@@ -354,15 +394,30 @@ async def initiate(req: LoginRequest) -> dict:
             raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
         await submit.click()
 
-        cookie = await collector.wait(SESSION_CAPTURE_TIMEOUT_SECONDS)
-        if cookie is None:
+        # Wait for the tokens, not for any cookie: the pre-login page already
+        # sets Cloudflare and tracking cookies, so "a cookie arrived" would
+        # return before the session exists and hand back a jar that fails on
+        # the first read. `au_t` is the one the API checks.
+        authenticated = False
+        for _ in range(SESSION_CAPTURE_TIMEOUT_SECONDS * 4):
+            if "au_t" in collector.cookies:
+                authenticated = True
+                break
+            await asyncio.sleep(0.25)
+        if not authenticated:
             # Still sitting on the form: CORUM rejected the credentials, or it
             # challenged with something this service does not handle. Either way
             # there is no session to hand back.
             raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
 
+        # Re-read the jar from the browser rather than from the responses seen
+        # so far: the storage state is what the next session will replay, and
+        # the two must agree.
+        for c in await live.context.cookies():
+            collector.record(c.get("domain", ""), c.get("name"), c.get("value"))
+
         storage_state = await live.storage_state()
-        return {"sessionState": _encode_session(storage_state, cookie)}
+        return {"sessionState": _encode_session(storage_state, collector.cookie_header())}
     except HTTPException:
         await _close_resources(context, browser, pw)
         raise
@@ -376,34 +431,51 @@ async def initiate(req: LoginRequest) -> dict:
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
 
 
-def _auth_headers(cookie: str) -> dict[str, str]:
-    return {"Cookie": f"{SESSION_COOKIE}={cookie}", "Accept": "application/json"}
-
-
 async def _get_json(
-    context: BrowserContext,
+    page: Any,
     path: str,
-    cookie: str,
 ) -> tuple[int, Any]:
-    response = await context.request.get(
-        f"{BASE_URL}{path}",
-        headers=_auth_headers(cookie),
-        timeout=POSITIONS_TIMEOUT_SECONDS * 1000,
+    """Reads an API path from inside the page, not from the sidecar process.
+
+    CORUM sits behind Cloudflare, which fingerprints the client. Verified
+    against the live portal: the same cookies requested from the sidecar's own
+    process are answered 403 Error 1010 ("the site owner has banned your
+    browser's signature"), while the identical request issued by the page --
+    same origin, same cookies, same TLS session as the SPA -- answers 200.
+
+    So the reads go through `fetch` in the page. That also means no cookie
+    header is assembled here: a missing or stale token shows up as the API's
+    own 401 rather than as a bot-wall 403 we would have to guess about.
+    """
+    result = await page.evaluate(
+        """async (path) => {
+            const response = await fetch(path, {credentials: 'include'});
+            let body = null;
+            try { body = await response.json(); } catch (e) { body = null; }
+            return {status: response.status, body};
+        }""",
+        path,
     )
-    if response.status in (401, 403):
-        raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
-    if not response.ok:
-        log.warning("CORUM request failed (path=%s; status=%d)", _log_safe(path), response.status)
-        if response.status == 429 or response.status >= 500:
+    status = result.get("status")
+    if status in (401, 403):
+        # 401 is the API refusing the session. 403 here is Cloudflare rather
+        # than CORUM, which the adapter surfaces as an unavailable upstream.
+        raise HTTPException(
+            status_code=401 if status == 401 else 502,
+            detail="SESSION_EXPIRED" if status == 401 else "UPSTREAM_UNAVAILABLE",
+        )
+    if status is None or not 200 <= status < 300:
+        log.warning("CORUM request failed (path=%s; status=%s)", _log_safe(path), status)
+        if status == 429 or (status is not None and status >= 500):
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
         # A 404/400 means the endpoint moved or the query contract changed.
         # Calling that "incomplete portfolio" points the operator at the wrong
         # cause.
         raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
-    try:
-        return response.status, await response.json()
-    except Exception as exc:  # noqa: BLE001 - an HTML error page lands here
-        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED") from exc
+    if result.get("body") is None:
+        # An HTML error page lands here as a 200 with no JSON.
+        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+    return status, result["body"]
 
 
 def _select_real_estate_contract(active: Any) -> tuple[str, str]:
@@ -435,22 +507,26 @@ def _select_real_estate_contract(active: Any) -> tuple[str, str]:
 
 @app.post("/positions", response_model=SnapshotPayload)
 async def positions(req: SessionRequest) -> dict:
-    storage_state, cookie = _decode_session(req.sessionState)
+    storage_state, _cookie = _decode_session(req.sessionState)
 
     pw: Playwright | None = None
     browser: Browser | None = None
     context: BrowserContext | None = None
     try:
         pw = await async_playwright().start()
-        browser, context, _ = await _new_browser(pw, storage_state=storage_state)
+        browser, live, _ = await _new_browser(pw, storage_state=storage_state)
+        context = live
+        page = await live.new_page()
+        # The reads below happen in this page, so it has to be on the client
+        # space itself: a same-origin fetch is what Cloudflare accepts.
+        await page.goto(f"{BASE_URL}/", wait_until="domcontentloaded", timeout=30_000)
 
-        _, active = await _get_json(context, CONTRACT_PATH, cookie)
+        _, active = await _get_json(page, CONTRACT_PATH)
         code, _contract_type = _select_real_estate_contract(active)
 
         _, contract = await _get_json(
-            context,
+            page,
             CONTRACT_DETAIL_PATH.format(code=code, investment_type="FULL_PROPERTY"),
-            cookie,
         )
         if not isinstance(contract, dict):
             raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
@@ -466,11 +542,10 @@ async def positions(req: SessionRequest) -> dict:
             if not isinstance(fund_code, str) or not fund_code:
                 raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
             _, product = await _get_json(
-                context,
+                page,
                 PRODUCT_PATH.format(
                     code=code, investment_type="FULL_PROPERTY", product=fund_code
                 ),
-                cookie,
             )
             products.append(product)
 

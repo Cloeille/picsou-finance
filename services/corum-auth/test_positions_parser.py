@@ -54,7 +54,7 @@ class ParseSnapshotTest(unittest.TestCase):
         contract = _contract([_line("US", "340.00")], total="340.00")
         product = _product("US", "2", "150", "170", "340.00")
 
-        position = parse_snapshot(contract, [product])["positions"][0]
+        position = parse_snapshot(contract, [product])["holdings"][0]
 
         # The portal displays quantity * subscription price. Valuing the share at
         # that figure is what inflates net worth by the entry fee.
@@ -68,7 +68,7 @@ class ParseSnapshotTest(unittest.TestCase):
         contract = _contract([_line("US", "534.37")], total="534.37")
         product = _product("US", "2.67183", 176, 200, "534.37")
 
-        position = parse_snapshot(contract, [product])["positions"][0]
+        position = parse_snapshot(contract, [product])["holdings"][0]
 
         self.assertEqual(position["quantity"], Decimal("2.67183"))
 
@@ -78,7 +78,7 @@ class ParseSnapshotTest(unittest.TestCase):
         contract = _contract([_line("XL", "341.25")], total="341.25")
         product = _product("XL", "1.75", 171.6, 195, "341.25")
 
-        position = parse_snapshot(contract, [product])["positions"][0]
+        position = parse_snapshot(contract, [product])["holdings"][0]
 
         self.assertEqual(position["withdrawalPrice"], Decimal("171.6"))
 
@@ -86,7 +86,7 @@ class ParseSnapshotTest(unittest.TestCase):
         contract = _contract([_line("US", "340.00")], total="340.00")
         product = _product("US", "2", None, 170, "340.00")
 
-        position = parse_snapshot(contract, [product])["positions"][0]
+        position = parse_snapshot(contract, [product])["holdings"][0]
 
         # None means CORUM is not quoting that fund: the domain must keep the
         # previous balance. Zero would be a real price and would write a zero.
@@ -96,7 +96,7 @@ class ParseSnapshotTest(unittest.TestCase):
         contract = _contract([_line("US", "0.00")], total="0.00")
         product = _product("US", "0", 0, 0, "0.00")
 
-        position = parse_snapshot(contract, [product])["positions"][0]
+        position = parse_snapshot(contract, [product])["holdings"][0]
 
         self.assertEqual(position["withdrawalPrice"], Decimal("0"))
 
@@ -132,14 +132,14 @@ class ParseSnapshotTest(unittest.TestCase):
 
         snapshot = parse_snapshot(contract, [us, xl])
 
-        self.assertEqual([p["fundCode"] for p in snapshot["positions"]], ["US", "XL"])
+        self.assertEqual([p["fundCode"] for p in snapshot["holdings"]], ["US", "XL"])
         self.assertEqual(snapshot["totalValuationEur"], Decimal("1052.98"))
 
     def test_fund_code_is_mapped_to_a_label_rather_than_guessed(self):
         contract = _contract([_line("US", "300.00")], total="300.00")
         product = _product("US", "2", 150, 170, "300.00")
 
-        position = parse_snapshot(contract, [product])["positions"][0]
+        position = parse_snapshot(contract, [product])["holdings"][0]
 
         self.assertEqual(position["label"], "CORUM USA")
 
@@ -147,7 +147,7 @@ class ParseSnapshotTest(unittest.TestCase):
         contract = _contract([_line("ZZ", "300.00")], total="300.00")
         product = _product("ZZ", "2", 150, 170, "300.00")
 
-        position = parse_snapshot(contract, [product])["positions"][0]
+        position = parse_snapshot(contract, [product])["holdings"][0]
 
         self.assertEqual(position["label"], "CORUM ZZ")
 
@@ -184,7 +184,7 @@ class ParseSnapshotTest(unittest.TestCase):
         snapshot = parse_snapshot(contract, [product])
 
         self.assertEqual(snapshot["valuationDate"], "2026-09-26")
-        self.assertEqual(snapshot["positions"][0]["valuationDate"], "2026-09-26")
+        self.assertEqual(snapshot["holdings"][0]["valuationDate"], "2026-09-26")
 
     def test_unparseable_date_is_dropped_rather_than_guessed(self):
         contract = _contract([_line("US", "300.00")], total="300.00")
@@ -193,7 +193,20 @@ class ParseSnapshotTest(unittest.TestCase):
 
         snapshot = parse_snapshot(contract, [product])
 
-        self.assertIsNone(snapshot["positions"][0]["valuationDate"])
+        self.assertIsNone(snapshot["holdings"][0]["valuationDate"])
+
+    def test_snapshot_key_is_holdings_to_match_the_java_port(self):
+        # `CorumPort.Snapshot` decodes `holdings`. A key renamed on only one
+        # side decodes into a null list and writes an empty portfolio, so this
+        # pins the name the Java record expects.
+        contract = _contract([_line("US", "300.00")], total="300.00")
+        product = _product("US", "2", 150, 170, "300.00")
+
+        snapshot = parse_snapshot(contract, [product])
+
+        self.assertIn("holdings", snapshot)
+        self.assertNotIn("positions", snapshot)
+        self.assertEqual(len(snapshot["holdings"]), 1)
 
 
 if __name__ == "__main__":
