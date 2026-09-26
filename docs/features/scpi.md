@@ -38,6 +38,23 @@ it as paper gross, outside the open-data gross and outside that gross's loan-to-
 - `RealEstateSummaryService.java` — paper line, not DVF gross
 - `frontend/src/components/scpi/AddScpiModal.tsx` — no address, no floor area
 
+### CORUM sync
+
+A CORUM client-space connection fills the share count and both prices of accounts
+that are already linked to one of its funds. It writes through
+`ScpiPositionService.applySyncedPosition`, the same method the manual form uses, so the
+withdrawal-price rule has one implementation and a sync cannot value a share differently.
+
+Picsou models one account per vehicle while a CORUM contract holds several funds, so a
+fund is matched to its account by `scpi_position.corum_fund_code`, unique per member. A
+fund with no linked account is skipped: creating accounts belongs to the manual flow. A
+fund whose withdrawal price is missing still updates the share count but leaves the
+balance alone and reports `PRICE_INCOMPLETE`, exactly as a manual entry would.
+
+CORUM displays `quantity × subscription price`, which is not the withdrawal value. The
+sync never uses that figure for a balance — see the
+[CORUM sidecar ADR](../decisions/2026-09-26-corum-scpi-sidecar.md).
+
 ### Flow
 
 ```
@@ -61,12 +78,16 @@ PUT /api/accounts/{id}/scpi
   `SCPI`. `V90` creates `scpi_position`.
 - A generic account edit does not overwrite a SCPI balance. `ScpiPositionService` owns it.
 - A linked loan on a SCPI reduces paper net, not the physical property's net.
-- Automatic sync with a management company's client area is a later change. This note does
-  not close that.
+- A CORUM contract holds several funds, so one client-space session writes to several
+  accounts. They are matched by fund code, not by contract.
+- Automatic sync with a management company's client area is a later change for every
+  provider except CORUM. This note does not close that for the others.
 
 ## Tests
 
 - `ScpiPositionServiceTest` — fractional shares, withdrawal value, missing price, wrong type
+- `ScpiPositionServiceSyncTest` — a synced share is valued at the withdrawal price, not
+  CORUM's displayed figure
 - `RealEstateSummaryServiceTest` — a share stays out of the open-data gross
 
 ## Links

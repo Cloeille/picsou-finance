@@ -35,6 +35,7 @@ services:
       BOURSO_AUTH_URL: http://bourso-auth:8001
       BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001
       AMUNDI_AUTH_URL: http://amundi-auth:8001
+      CORUM_AUTH_URL: http://corum-auth:8001
     depends_on:
       db:
         condition: service_healthy
@@ -45,6 +46,8 @@ services:
       degiro-auth:
         condition: service_started
       amundi-auth:
+        condition: service_started
+      corum-auth:
         condition: service_started
     networks:
       - picsou-net
@@ -70,6 +73,16 @@ services:
   amundi-auth:
     build:
       context: ./services/amundi-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8001"
+    networks:
+      - picsou-net
+
+  corum-auth:
+    build:
+      context: ./services/corum-auth
       dockerfile: Dockerfile
     restart: unless-stopped
     expose:

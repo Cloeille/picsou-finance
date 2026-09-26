@@ -44,12 +44,14 @@ services:
       BOURSO_AUTH_URL: http://bourso-auth:8001
       BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001
       AMUNDI_AUTH_URL: http://amundi-auth:8001
+      CORUM_AUTH_URL: http://corum-auth:8001
     depends_on:
       - db
       - tr-auth
       - bourso-auth
       - bourse-direct-auth
       - amundi-auth
+      - corum-auth
 
   # Optional TLS terminator — OFF unless the `tls` profile is requested:
   #   docker compose -f docker/docker-compose.yml --profile tls up -d
@@ -115,6 +117,13 @@ services:
     image: ghcr.io/cloeille/picsou-finance/amundi-auth:latest
     build:
       context: ../services/amundi-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+
+  corum-auth:
+    image: ghcr.io/cloeille/picsou-finance/corum-auth:latest
+    build:
+      context: ../services/corum-auth
       dockerfile: Dockerfile
     restart: unless-stopped
 

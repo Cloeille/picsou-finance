@@ -107,6 +107,8 @@ class ScpiPositionServiceTest {
         return new ScpiPositionRequest(
             "FR0012345678",
             "CORUM",
+            // No CORUM fund link: these cases are all manual entries.
+            null,
             new BigDecimal(shares),
             subscription == null ? null : new BigDecimal(subscription),
             withdrawal == null ? null : new BigDecimal(withdrawal),

@@ -50,6 +50,7 @@ public class ScpiPositionService {
 
         position.setIsin(blankToNull(request.isin()));
         position.setManagementCompany(blankToNull(request.managementCompany()));
+        position.setCorumFundCode(blankToNull(request.corumFundCode()));
         position.setShareCount(request.shareCount());
         position.setSubscriptionPriceEur(request.subscriptionPriceEur());
         position.setWithdrawalPriceEur(request.withdrawalPriceEur());
@@ -72,6 +73,54 @@ public class ScpiPositionService {
         positionRepository.save(position);
         accountRepository.save(account);
         return ScpiPositionResponse.from(position, withdrawalValue);
+    }
+
+    /**
+     * Applies a synchronised CORUM holding onto an existing position.
+     *
+     * <p>This is the same write path {@link #save} performs, reached from a sync
+     * instead of a form. It exists so the withdrawal-price rule lives in one
+     * place: a sync that valued the share any other way would quietly
+     * reintroduce the entry-fee overstatement the manual model exists to avoid.
+     *
+     * <p>A null {@code withdrawalPrice} is not an error and not a zero -- CORUM
+     * is not quoting that fund today. The share count and the subscription price
+     * are still real and get written, the previous balance is left alone, and the
+     * position reports {@code PRICE_INCOMPLETE} so the UI can say why.
+     */
+    @Transactional
+    public void applySyncedPosition(
+        ScpiPosition position,
+        BigDecimal shareCount,
+        BigDecimal subscriptionPrice,
+        BigDecimal withdrawalPrice,
+        java.time.LocalDate jouissanceDate
+    ) {
+        Account account = position.getAccount();
+        if (account.getType() != AccountType.SCPI) {
+            // The fund link is data, and data can be wrong. Refusing here keeps a
+            // bad link from writing a share balance onto another asset type.
+            throw new IllegalArgumentException("Account is not a SCPI account");
+        }
+        account.setCurrency("EUR");
+
+        position.setShareCount(shareCount);
+        position.setSubscriptionPriceEur(subscriptionPrice);
+        position.setWithdrawalPriceEur(withdrawalPrice);
+        if (jouissanceDate != null) {
+            position.setJouissanceDate(jouissanceDate);
+        }
+
+        BigDecimal withdrawalValue = withdrawalValue(shareCount, withdrawalPrice);
+        if (withdrawalValue == null) {
+            position.setValuationStatus(ScpiValuationStatus.PRICE_INCOMPLETE);
+        } else {
+            position.setValuationStatus(ScpiValuationStatus.OK);
+            account.setCurrentBalance(withdrawalValue);
+            account.setCashBalance(BigDecimal.ZERO);
+        }
+        positionRepository.save(position);
+        accountRepository.save(account);
     }
 
     /** Null when the withdrawal price is absent. Zero shares is a real value, not a missing one. */
