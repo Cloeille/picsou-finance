@@ -42,6 +42,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
   const [dividendPolicy, setDividendPolicy] = useState<DividendPolicy>('CASH')
   const [jouissanceDate, setJouissanceDate] = useState('')
   const [isin, setIsin] = useState('')
+  const [corumFundCode, setCorumFundCode] = useState('')
   const [createdAccountId, setCreatedAccountId] = useState<number | null>(null)
 
   const shares = num(shareCount)
@@ -58,6 +59,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
     setDividendPolicy('CASH')
     setJouissanceDate('')
     setIsin('')
+    setCorumFundCode('')
     setCreatedAccountId(null)
   }
 
@@ -85,6 +87,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
     const position: ScpiPositionRequest = {
       isin: isin.trim() || null,
       managementCompany: managementCompany.trim() || null,
+      corumFundCode: corumFundCode.trim() || null,
       shareCount: shares,
       subscriptionPriceEur: num(subscriptionPrice) ?? null,
       withdrawalPriceEur: num(withdrawalPrice) ?? null,
@@ -146,6 +149,16 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">{t('scpi.subscriptionHint')}</p>
+          <div className="space-y-2">
+            <Label htmlFor="scpi-corum-fund">{t('scpi.corumFundCode')}</Label>
+            <Input
+              id="scpi-corum-fund"
+              value={corumFundCode}
+              maxLength={40}
+              onChange={(e) => setCorumFundCode(e.target.value.toUpperCase())}
+            />
+            <p className="text-xs text-muted-foreground">{t('scpi.corumFundHint')}</p>
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="scpi-dividend">{t('scpi.dividendPolicy')}</Label>

@@ -11,6 +11,7 @@ import { FinaryTab } from './FinaryTab'
 import { BourseDirectTab } from './BourseDirectTab'
 import { DegiroTab } from './DegiroTab'
 import { AmundiTab } from './AmundiTab'
+import { CorumTab } from './CorumTab'
 import { BoursoTab } from './BoursoTab'
 
 export function SyncPage() {
@@ -32,6 +33,7 @@ export function SyncPage() {
           <TabsTrigger value="degiro" className="flex-none">{t('sync.degiro.title')}</TabsTrigger>
           <TabsTrigger value="ibkr" className="flex-none">{t('sync.ibkr.title')}</TabsTrigger>
           <TabsTrigger value="amundi" className="flex-none">{t('sync.amundi.title')}</TabsTrigger>
+          <TabsTrigger value="corum" className="flex-none">{t('sync.corum.title')}</TabsTrigger>
           <TabsTrigger value="finary" className="flex-none">{t('sync.finary.title')}</TabsTrigger>
         </TabsList>
         <TabsContent value="banks" className="mt-6">
@@ -60,6 +62,9 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="amundi" className="mt-6">
           <AmundiTab />
+        </TabsContent>
+        <TabsContent value="corum" className="mt-6">
+          <CorumTab />
         </TabsContent>
         <TabsContent value="finary" className="mt-6">
           <FinaryTab />

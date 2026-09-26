@@ -157,6 +157,8 @@ export interface ScpiPosition {
 export interface ScpiPositionRequest {
   isin?: string | null
   managementCompany?: string | null
+  /** Links this account to one fund of a CORUM contract, so a sync can fill it. */
+  corumFundCode?: string | null
   shareCount: number
   subscriptionPriceEur?: number | null
   withdrawalPriceEur?: number | null
@@ -713,6 +715,43 @@ export interface AmundiAuthInitResponse {
   processId: string | null
   mfaRequired: boolean
   mfaType: 'APP_PUSH' | 'SMS' | null
+}
+
+export type CorumErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'SESSION_EXPIRED'
+  | 'MULTIPLE_CONTRACTS'
+  | 'PORTFOLIO_INCOMPLETE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INVALID_DATA'
+  | 'INTERNAL_ERROR'
+
+interface CorumSessionStatusBase {
+  isActive: boolean
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+}
+
+export type CorumSessionStatus =
+  | (CorumSessionStatusBase & {
+      syncStatus: 'FAILED'
+      lastSyncError: CorumErrorCode
+    })
+  | (CorumSessionStatusBase & {
+      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
+      lastSyncError: null
+    })
+
+/**
+ * CORUM needs no second factor, so its `authenticate` response is the session
+ * status itself. It is shaped as an auth-init result with `mfaRequired: false`
+ * so the shared sidecar panel drives it exactly like the providers that do.
+ */
+export interface CorumAuthInitResponse {
+  processId: null
+  mfaRequired: false
+  mfaType: null
 }
 
 export interface FinaryAccountPreview {
