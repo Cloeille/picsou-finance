@@ -1282,6 +1282,40 @@
         "serverError": "Could not reach Amundi. Please try again."
       }
     },
+    "corum": {
+      "title": "CORUM",
+      "login": "Client number",
+      "password": "Password",
+      "otpCode": "6-digit security code",
+      "otpPrompt": "Enter the code CORUM sent by SMS.",
+      "appValidationPrompt": "Open the CORUM app and approve the sign-in.",
+      "appValidationHint": "This page updates on its own as soon as you have approved.",
+      "connect": "Connect",
+      "connecting": "Signing in…",
+      "validate": "Validate the code",
+      "validating": "Validating…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "SCPI shares synced.",
+      "clearSession": "Disconnect",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs the SCPI shares in your CORUM contracts, valued at the withdrawal price. Only the accounts you linked to a fund are updated.",
+      "errors": {
+        "tooManyAttempts": "Too many attempts. Please wait.",
+        "invalidCredentials": "Invalid CORUM credentials.",
+        "invalidCode": "Invalid or expired security code. Start the sign-in again.",
+        "appValidationTimeout": "The in-app approval was not confirmed in time. Start the sign-in again.",
+        "authAttemptExpired": "The sign-in attempt expired. Start again.",
+        "sessionExpired": "The CORUM session expired. Please reconnect.",
+        "multipleContracts": "This CORUM login holds more than one real-estate contract, and the sync cannot tell which one to use.",
+        "portfolioIncomplete": "CORUM returned an incomplete portfolio. Your existing data was kept.",
+        "formatChanged": "The CORUM website format changed. Your existing data was kept.",
+        "invalidData": "CORUM returned inconsistent data. Your existing data was kept.",
+        "serverError": "Could not reach CORUM. Please try again."
+      }
+    },
     "fortuneo": {
       "title": "Fortuneo",
       "login": "Login",

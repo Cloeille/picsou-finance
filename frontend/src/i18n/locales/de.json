@@ -1010,6 +1010,40 @@
         "allImported": "All your Revolut accounts are already imported."
       }
     },
+    "corum": {
+      "title": "CORUM",
+      "login": "Kundennummer",
+      "password": "Passwort",
+      "otpCode": "6-stelliger Sicherheitscode",
+      "otpPrompt": "Geben Sie den per SMS von CORUM gesendeten Code ein.",
+      "appValidationPrompt": "Öffnen Sie die CORUM-App und bestätigen Sie die Anmeldung.",
+      "appValidationHint": "Diese Seite aktualisiert sich automatisch, sobald Sie bestätigt haben.",
+      "connect": "Verbinden",
+      "connecting": "Anmeldung läuft…",
+      "validate": "Code bestätigen",
+      "validating": "Wird bestätigt…",
+      "sync": "Synchronisieren",
+      "queued": "Synchronisierung vorgemerkt…",
+      "syncing": "Synchronisierung läuft…",
+      "syncSuccess": "SCPI-Anteile synchronisiert.",
+      "clearSession": "Trennen",
+      "noSession": "Keine aktive Sitzung",
+      "sessionActive": "Sitzung aktiv",
+      "scope": "Synchronisiert die SCPI-Anteile Ihrer CORUM-Verträge zum Rückgabepreis. Aktualisiert werden nur die Konten, die Sie einem Fonds zugeordnet haben.",
+      "errors": {
+        "tooManyAttempts": "Zu viele Versuche. Bitte warten.",
+        "invalidCredentials": "Ungültige CORUM-Zugangsdaten.",
+        "invalidCode": "Ungültiger oder abgelaufener Sicherheitscode. Starten Sie die Anmeldung erneut.",
+        "appValidationTimeout": "Die Bestätigung in der App wurde nicht rechtzeitig bestätigt. Starten Sie die Anmeldung erneut.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Bitte erneut versuchen.",
+        "sessionExpired": "Die CORUM-Sitzung ist abgelaufen. Bitte erneut verbinden.",
+        "multipleContracts": "Dieses CORUM-Konto enthält mehrere Immobilienverträge. Die Synchronisierung kann nicht erkennen, welcher gemeint ist.",
+        "portfolioIncomplete": "CORUM hat ein unvollständiges Portfolio geliefert. Ihre vorhandenen Daten wurden behalten.",
+        "formatChanged": "Das Format der CORUM-Website hat sich geändert. Ihre vorhandenen Daten wurden behalten.",
+        "invalidData": "CORUM hat inkonsistente Daten geliefert. Ihre vorhandenen Daten wurden behalten.",
+        "serverError": "CORUM ist nicht erreichbar. Bitte erneut versuchen."
+      }
+    },
     "fortuneo": {
       "title": "Fortuneo",
       "login": "Login",

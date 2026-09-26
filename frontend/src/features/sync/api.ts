@@ -25,6 +25,7 @@ import type {
   AmundiAuthInitResponse,
   FortuneoSessionStatus,
   FortuneoAuthInitResponse,
+  CorumSessionStatus,
   IbkrConnectionStatus,
 } from '@/types/api'
 
@@ -357,6 +358,32 @@ export const fortuneoApi = {
       .then(r => parseFortuneoStatus(r.data)),
 
   clearSession: () => api.delete('/fortuneo/session'),
+}
+
+// --- CORUM client space ---
+
+/**
+ * CORUM asks for no second factor, so `authenticate` is the whole exchange and
+ * answers with the session status directly. The panel reads it as "no MFA
+ * required" -- see `SidecarSessionPanel`'s `TInit` contract.
+ */
+export const corumApi = {
+  authenticate: (login: string, password: string) =>
+    api
+      .post<CorumSessionStatus>('/corum/auth', { login, password })
+      .then(r => r.data),
+
+  sync: () => api.post<CorumSessionStatus>('/corum/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<CorumSessionStatus>('/corum/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete('/corum/session'),
+
 }
 
 export const ibkrApi = {

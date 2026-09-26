@@ -62,6 +62,8 @@ const ERROR_MESSAGE_SUFFIXES: Record<string, string> = {
   APP_VALIDATION_TIMEOUT: "appValidationTimeout",
   AUTH_ATTEMPT_EXPIRED: "authAttemptExpired",
   SESSION_EXPIRED: "sessionExpired",
+  /** Only reachable by a provider whose login can see more than one contract. */
+  MULTIPLE_CONTRACTS: "multipleContracts",
   PORTFOLIO_INCOMPLETE: "portfolioIncomplete",
   UPSTREAM_FORMAT_CHANGED: "formatChanged",
   INVALID_DATA: "invalidData",
