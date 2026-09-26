@@ -56,6 +56,14 @@ public class ScpiPosition extends AuditableEntity {
     @Column(name = "jouissance_date")
     private LocalDate jouissanceDate;
 
+    /**
+     * The CORUM fund this position mirrors ({@code US}, {@code XL}, ...), set
+     * when the account was linked to a client space. Null for an account entered
+     * by hand, which no sync will touch.
+     */
+    @Column(name = "corum_fund_code", length = 40)
+    private String corumFundCode;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "valuation_status", nullable = false, length = 30)
     @Builder.Default

@@ -11,4 +11,10 @@ public interface ScpiPositionRepository extends JpaRepository<ScpiPosition, Long
      * owner's row; filtering by the viewer would hide a share they are allowed to see.
      */
     Optional<ScpiPosition> findByAccountIdAndMemberId(Long accountId, Long memberId);
+
+    /**
+     * The fund a CORUM sync writes to. A holding with no match is skipped, so a
+     * manually entered account that was never linked stays untouched.
+     */
+    Optional<ScpiPosition> findByMemberIdAndCorumFundCode(Long memberId, String corumFundCode);
 }

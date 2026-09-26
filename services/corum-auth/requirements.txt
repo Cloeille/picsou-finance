@@ -1,0 +1,7 @@
+fastapi==0.141.1
+uvicorn==0.52.1
+pydantic==2.13.4
+playwright==1.52.0
+# Only used by fastapi.testclient in the contract tests; kept explicit because
+# fastapi no longer pulls it in.
+httpx==0.28.1

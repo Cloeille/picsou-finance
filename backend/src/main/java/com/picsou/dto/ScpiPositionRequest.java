@@ -18,6 +18,8 @@ import java.time.LocalDate;
 public record ScpiPositionRequest(
     @Size(max = 12) String isin,
     @Size(max = 100) String managementCompany,
+    /** Links this account to one fund of a CORUM contract so a sync can fill it. */
+    @Size(max = 40) String corumFundCode,
     @NotNull @DecimalMin("0") BigDecimal shareCount,
     @DecimalMin("0") BigDecimal subscriptionPriceEur,
     @DecimalMin("0") BigDecimal withdrawalPriceEur,

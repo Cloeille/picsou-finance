@@ -111,6 +111,14 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP CORUM auth rate limiter: 5 attempts per 15 minutes.
+     */
+    @Bean("corumAuthBuckets")
+    public Map<String, Bucket> corumAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-member address autocomplete limiter.
      *
      * <p>This endpoint proxies IGN's Géoplateforme, which is free but published at 50 req/s
@@ -320,6 +328,20 @@ public class RateLimitConfig {
     }
 
     public static Bucket createFortuneoAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    /**
+     * Per-IP CORUM auth rate limiter: 5 attempts per 15 minutes. Same budget as
+     * the other portal logins -- a failed attempt here is a real credential
+     * check against CORUM, so it must not be cheap to hammer.
+     */
+    public static Bucket createCorumAuthBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(5)
