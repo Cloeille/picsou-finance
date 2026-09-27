@@ -19,12 +19,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.stream.Collectors;
 
 import static com.picsou.service.SyncValues.errorCode;
 import static com.picsou.service.SyncValues.requireTransactionResult;
@@ -251,7 +253,7 @@ public class SofidySyncService {
                 null
             );
         }
-        if (snapshot.holdings() == null || snapshot.holdings().isEmpty()) {
+        if (snapshot.holdings() == null) {
             throw error(
                 SofidyErrorCode.PORTFOLIO_INCOMPLETE,
                 "Sofidy returned no fund holding",
@@ -296,7 +298,51 @@ public class SofidySyncService {
             );
             updated++;
         }
-        return updated;
+        return updated + reconcileSoldFunds(memberId, snapshot.holdings());
+    }
+
+    /**
+     * Zeroes the linked positions a complete snapshot no longer lists.
+     *
+     * <p>A complete snapshot is authoritative in both directions: what it lists
+     * was sold. Leaving a sold position at its last balance would keep a holding
+     * in the net worth the member exited, which is the one error a snapshot
+     * cannot be allowed to make -- the one the manual entry is not there to
+     * correct. An empty snapshot is the full-exit case, and it is exactly the
+     * one that has to reach every linked position.
+     *
+     * <p>The prices are passed through as they are: {@code 0 x anything} is 0,
+     * and a price Sofidy no longer publishes should not turn a closed position
+     * back into {@code PRICE_INCOMPLETE}.
+     *
+     * @return how many positions were closed
+     */
+    private int reconcileSoldFunds(Long memberId, List<SofidyPort.Holding> holdings) {
+        Set<String> stillHeld = holdings.stream()
+            .map(SofidyPort.Holding::fundCode)
+            .collect(Collectors.toSet());
+        int closed = 0;
+        for (ScpiPosition position
+                : positionRepository.findByAccountMemberIdAndSofidyFundCodeIsNotNull(memberId)) {
+            if (stillHeld.contains(position.getSofidyFundCode())) {
+                continue;
+            }
+            log.info(
+                "Sofidy no longer lists a linked fund, closing the position "
+                    + "(member={}; fund={})",
+                memberId,
+                position.getSofidyFundCode()
+            );
+            positionService.applySyncedPosition(
+                position,
+                BigDecimal.ZERO,
+                null,
+                position.getWithdrawalPriceEur(),
+                null
+            );
+            closed++;
+        }
+        return closed;
     }
 
     private boolean markRunning(SyncJob job) {

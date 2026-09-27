@@ -70,11 +70,17 @@ is the missing value, and `0.00` is a price.
    belongs to the manual flow.
 6. A portfolio whose rows do not sum to the total Sofidy itself prints is refused
    wholesale, in the sidecar and again in the service. The last known-good balances
-   are kept.
-7. A fund row that cannot be matched — no product code, malformed figures — is
+   are kept. A page carrying fund rows but no readable total row is refused as
+   well: without that total nothing is left to catch a partial read, and reading
+   it as "nothing to check" would pass a smaller portfolio as a complete one.
+7. A complete snapshot is authoritative in both directions. A fund Sofidy no
+   longer lists was sold, so its linked position goes to zero instead of keeping
+   a balance the member no longer holds. This is what makes a full exit -- an
+   empty portfolio, which Sofidy reports as complete -- syncable at all.
+8. A fund row that cannot be matched — no product code, malformed figures — is
    refused rather than skipped. A silently dropped row understates a portfolio that
    still adds up.
-8. Upstream I/O happens outside any transaction; the write is then one short
+9. Upstream I/O happens outside any transaction; the write is then one short
    transaction per position.
 
 ## Alternatives considered

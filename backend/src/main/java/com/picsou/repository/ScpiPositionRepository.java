@@ -3,6 +3,7 @@ package com.picsou.repository;
 import com.picsou.model.ScpiPosition;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface ScpiPositionRepository extends JpaRepository<ScpiPosition, Long> {
@@ -24,4 +25,14 @@ public interface ScpiPositionRepository extends JpaRepository<ScpiPosition, Long
      * never linked stays untouched.
      */
     Optional<ScpiPosition> findByMemberIdAndSofidyFundCode(Long memberId, String sofidyFundCode);
+
+    /**
+     * Every position this member linked to a Sofidy fund.
+     *
+     * <p>A complete snapshot is authoritative: a fund Sofidy no longer lists was
+     * sold, so its position has to go to zero rather than keep a balance the
+     * member does not hold any more. Reaching the positions this way is what
+     * makes that reconciliation possible.
+     */
+    List<ScpiPosition> findByAccountMemberIdAndSofidyFundCodeIsNotNull(Long memberId);
 }

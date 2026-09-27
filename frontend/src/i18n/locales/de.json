@@ -1074,7 +1074,7 @@
         "emailUnreachable": "Diesem Sofidy-Konto ist keine E-Mail-Adresse zugeordnet, der Code kann nicht versendet werden.",
         "accountInactive": "Dieses Sofidy-Konto ist inaktiv. Wenden Sie sich an den Service Associés.",
         "appValidationTimeout": "Die Bestätigung in der App wurde nicht rechtzeitig bestätigt. Starten Sie die Anmeldung erneut.",
-        "authAttemptExpired": "Die Anmeldeversuch ist abgelaufen. Bitte erneut starten.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Bitte erneut starten.",
         "sessionExpired": "Die Sofidy-Sitzung ist abgelaufen. Bitte erneut verbinden.",
         "multipleContracts": "Dieses Sofidy-Login enthält mehrere Immobilienverträge. Die Synchronisierung kann keinen davon auswählen.",
         "portfolioIncomplete": "Sofidy hat ein unvollständiges Portfolio geliefert. Ihre bestehenden Daten wurden beibehalten.",

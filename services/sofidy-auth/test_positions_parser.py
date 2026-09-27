@@ -138,6 +138,27 @@ class RefusesPartialOrChangedPayloads(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, "PORTFOLIO_INCOMPLETE")
 
+    def test_fund_rows_without_a_readable_total_row_are_refused(self):
+        # The total row is the only place a partial read shows up, so losing it
+        # has to be a refusal: reading "no total" as "nothing to check" would let
+        # a refonte that drops the funds pass a smaller portfolio as complete.
+        rows = fund_row(code="XY")
+        with self.assertRaises(PositionsFormatError) as ctx:
+            parse_portfolio(page(rows, ""))
+
+        self.assertEqual(ctx.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_an_unreadable_total_value_is_refused_rather_than_skipped(self):
+        # A comma-formatted total used to be swallowed, which disabled the check
+        # without saying so. The format change is now the answer.
+        rows = fund_row(code="XY")
+        with self.assertRaises(PositionsFormatError) as ctx:
+            parse_portfolio(
+                page(rows, total_row(parts="1.00000", total="1\u202f234,00"))
+            )
+
+        self.assertEqual(ctx.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
     def test_one_cent_of_drift_is_still_a_pass(self):
         rows = fund_row(code="XY") + fund_row(
             label="IMMORENTE", parts="1.00000", unit="412.00", total="412.00", code="IM"

@@ -196,21 +196,30 @@ def parse_portfolio(html: str) -> dict[str, Any]:
     }
 
 
-def _declared_total(html: str) -> Decimal | None:
-    """The `Total` row's own share count and value, when the page carries them."""
+def _declared_total(html: str) -> Decimal:
+    """The `Total` row's own value, which a snapshot has to reconcile against.
+
+    Every failure mode raises rather than returning None. An unreadable total
+    used to be read as "nothing to check", which turned the one guard that
+    catches a partial read off: a refonte that dropped the funds and reformatted
+    the total would pass a smaller portfolio as complete, and the sync would
+    write the smaller balances.
+    """
     total_row = re.search(
         r"<td>\s*Total\s*</td>(.*?)</tr>", html, re.IGNORECASE | re.DOTALL
     )
     if not total_row:
-        return None
+        raise PositionsFormatError(
+            "UPSTREAM_FORMAT_CHANGED",
+            "the portfolio page carries fund rows but no total row",
+        )
     cells = _cell_texts(total_row.group(1))
     values = [c for c in cells if c.strip()]
     if len(values) < 2:
-        return None
-    try:
-        return _parse_decimal(values[-1], "total row")
-    except PositionsFormatError:
-        return None
+        raise PositionsFormatError(
+            "UPSTREAM_FORMAT_CHANGED", "the portfolio total row has no value"
+        )
+    return _parse_decimal(values[-1], "total row")
 
 
 def _check_totals(html: str, holdings: list[Holding]) -> None:
@@ -222,8 +231,6 @@ def _check_totals(html: str, holdings: list[Holding]) -> None:
     somebody's portfolio.
     """
     declared = _declared_total(html)
-    if declared is None:
-        return
     computed = sum((h.total_eur for h in holdings), Decimal("0")).quantize(MONEY_QUANT)
     if abs(computed - declared) > MONEY_QUANT:
         raise PositionsFormatError(
