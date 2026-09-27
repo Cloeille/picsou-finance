@@ -54,6 +54,14 @@ import static com.picsou.service.SyncValues.requireTransactionResult;
 public class SofidySyncService {
     private static final Logger log = LoggerFactory.getLogger(SofidySyncService.class);
 
+    /**
+     * What counts as a rounding difference rather than a missing fund, matching
+     * the sidecar's own tolerance. A share count times a unit price rarely comes
+     * back to Sofidy's printed total to the cent, and refusing on that would
+     * refuse a portfolio that is in fact complete.
+     */
+    private static final BigDecimal MONEY_TOLERANCE = new BigDecimal("0.01");
+
     private final SofidyPort port;
     private final SofidySessionRepository sessionRepository;
     private final ScpiPositionRepository positionRepository;
@@ -274,6 +282,7 @@ public class SofidySyncService {
                 throw error(SofidyErrorCode.INVALID_DATA, "Sofidy returned a negative share count", null);
             }
         }
+        checkDeclaredTotal(snapshot);
 
         int updated = 0;
         for (SofidyPort.Holding holding : snapshot.holdings()) {
@@ -289,6 +298,8 @@ public class SofidySyncService {
             }
             // Null subscription price: Sofidy publishes the redemption value and
             // nothing else, and the manual form treats that price as display-only.
+            // A null here means "not quoted", so a price the user typed by hand
+            // survives the sync instead of being deleted by it.
             positionService.applySyncedPosition(
                 linked.get(),
                 holding.quantity(),
@@ -299,6 +310,34 @@ public class SofidySyncService {
             updated++;
         }
         return updated + reconcileSoldFunds(memberId, snapshot.holdings());
+    }
+
+    /**
+     * Reconciles the funds against the total the snapshot declares.
+     *
+     * <p>The sidecar already does this against the page, and repeating it here
+     * is deliberate: the sidecar is a separate deployable, so its check is
+     * exactly the thing a rolling update or a stale image would leave out. A
+     * partial read has to be caught before a single balance is written, not
+     * after.
+     */
+    private void checkDeclaredTotal(SofidyPort.Snapshot snapshot) {
+        BigDecimal declared = snapshot.totalEur();
+        if (declared == null) {
+            return;
+        }
+        BigDecimal computed = snapshot.holdings().stream()
+            .map(SofidyPort.Holding::withdrawalValue)
+            .filter(java.util.Objects::nonNull)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (computed.subtract(declared).abs().compareTo(MONEY_TOLERANCE) > 0) {
+            throw error(
+                SofidyErrorCode.PORTFOLIO_INCOMPLETE,
+                "The Sofidy funds add up to " + computed.setScale(2, java.math.RoundingMode.HALF_UP)
+                    + " but the snapshot declares " + declared.setScale(2, java.math.RoundingMode.HALF_UP),
+                null
+            );
+        }
     }
 
     /**

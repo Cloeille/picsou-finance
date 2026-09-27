@@ -138,6 +138,39 @@ class ScpiPositionServiceSyncTest {
         assertThat(scpi.getJouissanceDate()).isEqualTo(manual);
     }
 
+    /**
+     * A sold position is worth zero whatever price is quoted. Reading "no shares
+     * and no price" as unknown would leave the sold balance standing in the net
+     * worth, which is the one thing a reconciliation has to get right.
+     */
+    @Test
+    void sync_zeroesTheBalanceOfASoldPositionEvenWithoutAPrice() {
+        Account account = Account.builder()
+            .id(1L).type(AccountType.SCPI).currency("EUR")
+            .currentBalance(new BigDecimal("627.20"))
+            .build();
+        ScpiPosition scpi = ScpiPosition.builder().id(1L).account(account).build();
+
+        service.applySyncedPosition(scpi, BigDecimal.ZERO, null, null, VALUED_ON);
+
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("0");
+        assertThat(scpi.getValuationStatus()).isEqualTo(ScpiValuationStatus.OK);
+    }
+
+    /**
+     * Sofidy quotes no subscription price, so every sync passes null. Writing
+     * that through would delete a price the user typed by hand.
+     */
+    @Test
+    void sync_keepsAManuallyEnteredSubscriptionPriceWhenUpstreamHasNone() {
+        ScpiPosition scpi = position(AccountType.SCPI);
+        scpi.setSubscriptionPriceEur(new BigDecimal("298.75"));
+
+        service.applySyncedPosition(scpi, new BigDecimal("2"), null, new BigDecimal("176"), VALUED_ON);
+
+        assertThat(scpi.getSubscriptionPriceEur()).isEqualByComparingTo("298.75");
+    }
+
     @Test
     void sync_refusesAnAccountThatIsNotAScpi() {
         ScpiPosition mislinked = position(AccountType.LOAN);

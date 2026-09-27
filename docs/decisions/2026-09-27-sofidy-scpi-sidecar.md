@@ -73,14 +73,20 @@ is the missing value, and `0.00` is a price.
    are kept. A page carrying fund rows but no readable total row is refused as
    well: without that total nothing is left to catch a partial read, and reading
    it as "nothing to check" would pass a smaller portfolio as a complete one.
-7. A complete snapshot is authoritative in both directions. A fund Sofidy no
+7. A missing figure never overwrites what the user entered. Sofidy quotes no
+   subscription price, so every sync passes null for it and the stored value
+   stays; clearing a price stays a manual action. Zero shares is a value, not an
+   absence, so a sold position is written at a zero balance even when no
+   withdrawal price is quoted for it -- `0 x anything` is 0, and reading it as
+   unknown would leave the sold balance standing in the net worth.
+8. A complete snapshot is authoritative in both directions. A fund Sofidy no
    longer lists was sold, so its linked position goes to zero instead of keeping
    a balance the member no longer holds. This is what makes a full exit -- an
    empty portfolio, which Sofidy reports as complete -- syncable at all.
-8. A fund row that cannot be matched — no product code, malformed figures — is
+9. A fund row that cannot be matched — no product code, malformed figures — is
    refused rather than skipped. A silently dropped row understates a portfolio that
    still adds up.
-9. Upstream I/O happens outside any transaction; the write is then one short
+10. Upstream I/O happens outside any transaction; the write is then one short
    transaction per position.
 
 ## Alternatives considered

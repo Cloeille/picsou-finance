@@ -97,6 +97,11 @@ public class ScpiPositionService {
      * is not quoting that fund today. The share count and the subscription price
      * are still real and get written, the previous balance is left alone, and the
      * position reports {@code PRICE_INCOMPLETE} so the UI can say why.
+     *
+     * <p>A null {@code subscriptionPrice} means "this sync says nothing about
+     * it" and leaves the stored value alone. Sofidy publishes no subscription
+     * price at all, so writing null through would delete a price the user typed
+     * by hand on every sync. Clearing it stays a manual action.
      */
     @Transactional
     public void applySyncedPosition(
@@ -115,7 +120,9 @@ public class ScpiPositionService {
         account.setCurrency("EUR");
 
         position.setShareCount(shareCount);
-        position.setSubscriptionPriceEur(subscriptionPrice);
+        if (subscriptionPrice != null) {
+            position.setSubscriptionPriceEur(subscriptionPrice);
+        }
         position.setWithdrawalPriceEur(withdrawalPrice);
         if (jouissanceDate != null) {
             position.setJouissanceDate(jouissanceDate);
@@ -133,9 +140,23 @@ public class ScpiPositionService {
         accountRepository.save(account);
     }
 
-    /** Null when the withdrawal price is absent. Zero shares is a real value, not a missing one. */
+    /**
+     * Null when the withdrawal price is absent. Zero shares is a real value, not a
+     * missing one.
+     *
+     * <p>Zero shares is checked before the price on purpose: a sold position has
+     * no value whatever price is or is not quoted, so "0 shares and no price"
+     * means zero, not unknown. Reading it as unknown would leave the sold
+     * balance standing in the net worth.
+     */
     static BigDecimal withdrawalValue(BigDecimal shareCount, BigDecimal withdrawalPrice) {
-        if (shareCount == null || withdrawalPrice == null) {
+        if (shareCount == null) {
+            return null;
+        }
+        if (shareCount.signum() == 0) {
+            return BigDecimal.ZERO.setScale(MONEY_SCALE);
+        }
+        if (withdrawalPrice == null) {
             return null;
         }
         return shareCount.multiply(withdrawalPrice).setScale(MONEY_SCALE, RoundingMode.HALF_UP);

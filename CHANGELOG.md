@@ -27,7 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session. A fund with no linked account is skipped, and a fund whose price Sofidy has
   not published yet updates its quantity while leaving its balance alone. A fund
   Sofidy no longer lists has been sold, so its account is closed instead of keeping
-  a balance you no longer hold — which is also what makes a full exit syncable.
+  a balance you no longer hold — which is also what makes a full exit syncable. A
+  figure Sofidy does not quote no longer overwrites what you entered by hand, and
+  a sold position is written at a zero balance even when no withdrawal price is
+  published for it.
 
 
 ## [1.1.0] — 2026-06-09

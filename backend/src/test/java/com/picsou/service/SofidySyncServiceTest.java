@@ -181,6 +181,75 @@ class SofidySyncServiceTest {
             .findByAccountMemberIdAndSofidyFundCodeIsNotNull(any());
     }
 
+    /**
+     * The snapshot declares more than the funds add up to, so the read is
+     * partial and nothing may be written.
+     */
+    @Test
+    void queueSync_refusesASnapshotThatDoesNotAddUp() {
+        arrangeActiveSession();
+        when(port.fetchSnapshot("plain-state")).thenReturn(
+            new SofidyPort.Snapshot(
+                "EUR", new BigDecimal("9999.00"), LocalDate.of(2026, 9, 25), true,
+                List.of(holding("DY", "2.00000", "313.60"))
+            )
+        );
+
+        SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
+        assertThat(result.lastSyncError()).isEqualTo(SofidyErrorCode.PORTFOLIO_INCOMPLETE);
+        verify(positionService, org.mockito.Mockito.never())
+            .applySyncedPosition(any(), any(), any(), any(), any());
+    }
+
+    /**
+     * Sofidy quotes no subscription price at all, so every sync passed null.
+     * Writing that through deleted a price the user typed by hand.
+     */
+    @Test
+    void queueSync_doesNotClearAManuallyEnteredSubscriptionPrice() {
+        arrangeActiveSession();
+        ScpiPosition linked = position("DY", "0", "0");
+        linked.setSubscriptionPriceEur(new BigDecimal("298.75"));
+        when(port.fetchSnapshot("plain-state"))
+            .thenReturn(snapshot(List.of(holding("DY", "2.00000", "313.60"))));
+        when(positionRepository.findByMemberIdAndSofidyFundCode(7L, "DY"))
+            .thenReturn(Optional.of(linked));
+        when(positionRepository.findByAccountMemberIdAndSofidyFundCodeIsNotNull(7L))
+            .thenReturn(List.of(linked));
+
+        service.queueSync(7L);
+
+        assertThat(linked.getSubscriptionPriceEur()).isEqualByComparingTo("298.75");
+    }
+
+    /**
+     * A sold position is worth zero whatever price is quoted, so a missing
+     * withdrawal price must not read as "unknown" and leave the balance
+     * standing.
+     */
+    @Test
+    void queueSync_zeroesTheBalanceOfASoldPositionEvenWithoutAPrice() {
+        arrangeActiveSession();
+        ScpiPosition sold = position("DY", "2.00000", "627.20");
+        sold.setWithdrawalPriceEur(null);
+        when(port.fetchSnapshot("plain-state")).thenReturn(snapshot(List.of()));
+        when(positionRepository.findByAccountMemberIdAndSofidyFundCodeIsNotNull(7L))
+            .thenReturn(List.of(sold));
+
+        service.queueSync(7L);
+
+        verify(positionService).applySyncedPosition(
+            sold, BigDecimal.ZERO, null, null, null
+        );
+        // The balance itself is positionService's job; with a mock here, the
+        // assertion that matters is that zero shares reach it, and that
+        // ScpiPositionServiceSyncTest covers what zero shares mean.
+        assertThat(ScpiPositionService.withdrawalValue(BigDecimal.ZERO, null))
+            .isEqualByComparingTo("0");
+    }
+
     private void arrangeActiveSession() {
         FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
         SofidySession session = SofidySession.builder()
@@ -198,9 +267,17 @@ class SofidySyncServiceTest {
         lenient().when(encryption.decrypt(anyString())).thenReturn("plain-state");
     }
 
+    /**
+     * The declared total follows the holdings, so a test asking for SUCCESS is
+     * never handed a portfolio that does not add up to its own total. The
+     * inconsistent case has its own test, where the mismatch is the point.
+     */
     private SofidyPort.Snapshot snapshot(List<SofidyPort.Holding> holdings) {
+        BigDecimal total = holdings.stream()
+            .map(SofidyPort.Holding::withdrawalValue)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
         return new SofidyPort.Snapshot(
-            "EUR", new BigDecimal("627.20"), LocalDate.of(2026, 9, 25), true, holdings
+            "EUR", total, LocalDate.of(2026, 9, 25), true, holdings
         );
     }
 
