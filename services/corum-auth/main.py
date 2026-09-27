@@ -203,19 +203,21 @@ class SessionCollector:
     def __init__(self) -> None:
         self.cookies: dict[str, str] = {}
 
-    def attach(self, context: BrowserContext) -> None:
-        context.on("response", self._on_response)
+    async def harvest(self, context: BrowserContext) -> None:
+        """Folds the browser's whole jar in, keyed by its real domain.
 
-    def _on_response(self, response: Any) -> None:
-        try:
-            for cookie in response.headers_array:
-                self.record(
-                    cookie.get("domain", ""),
-                    cookie.get("name"),
-                    cookie.get("value"),
-                )
-        except Exception:  # noqa: BLE001 - a dead response must never break login
-            return
+        Read from the context rather than from the responses seen so far.
+        `Response.headers` carries HTTP headers, not cookies, and an entry from
+        there has no domain to match on -- so a response-driven collector keeps
+        nothing. The context is also the only reader that agrees with the
+        storage state the next session will replay.
+        """
+        for cookie in await context.cookies():
+            self.record(
+                cookie.get("domain", ""),
+                cookie.get("name"),
+                cookie.get("value"),
+            )
 
     def _is_corum(self, domain: str) -> bool:
         bare = domain.lstrip(".")
@@ -330,7 +332,6 @@ async def _new_browser(
         else route.continue_(),
     )
     collector = SessionCollector()
-    collector.attach(context)
     return browser, context, collector
 
 
@@ -400,6 +401,7 @@ async def initiate(req: LoginRequest) -> dict:
         # the first read. `au_t` is the one the API checks.
         authenticated = False
         for _ in range(SESSION_CAPTURE_TIMEOUT_SECONDS * 4):
+            await collector.harvest(live)
             if "au_t" in collector.cookies:
                 authenticated = True
                 break
@@ -413,22 +415,23 @@ async def initiate(req: LoginRequest) -> dict:
         # Re-read the jar from the browser rather than from the responses seen
         # so far: the storage state is what the next session will replay, and
         # the two must agree.
-        for c in await live.context.cookies():
-            collector.record(c.get("domain", ""), c.get("name"), c.get("value"))
+        await collector.harvest(live)
 
         storage_state = await live.storage_state()
         return {"sessionState": _encode_session(storage_state, collector.cookie_header())}
     except HTTPException:
-        await _close_resources(context, browser, pw)
         raise
     except PlaywrightError as exc:
-        await _close_resources(context, browser, pw)
         log.warning("CORUM authentication failed", exc_info=True)
         raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
     except Exception as exc:
-        await _close_resources(context, browser, pw)
         log.exception("Unexpected CORUM authentication failure")
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
+    finally:
+        # Every path out of here closes: a successful login still owns a
+        # Chromium process, a driver and a browser slot, and leaking those
+        # would turn the fourth successful login into a permanent 503.
+        await _close_resources(context, browser, pw)
 
 
 async def _get_json(

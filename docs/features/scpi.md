@@ -74,8 +74,8 @@ PUT /api/accounts/{id}/scpi
 
 ## Gotchas / Pitfalls
 
-- PostgreSQL cannot use a new enum value in the transaction that added it. `V89` only adds
-  `SCPI`. `V90` creates `scpi_position`.
+- PostgreSQL cannot use a new enum value in the transaction that added it. `V100` only adds
+  `SCPI`. `V101` creates `scpi_position`.
 - A generic account edit does not overwrite a SCPI balance. `ScpiPositionService` owns it.
 - A linked loan on a SCPI reduces paper net, not the physical property's net.
 - A CORUM contract holds several funds, so one client-space session writes to several

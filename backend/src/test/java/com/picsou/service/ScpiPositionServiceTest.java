@@ -96,6 +96,58 @@ class ScpiPositionServiceTest {
         verify(accountRepository, never()).save(any());
     }
 
+    /**
+     * The edit form never echoes corumFundCode back, so a manual correction arrives
+     * with that field absent. Treating absent as "clear" would drop the link on
+     * every edit and quietly take the position out of later syncs -- the one
+     * failure a user would not notice until CORUM reported a fund as missing.
+     */
+    @Test
+    void save_withoutTheFundCode_keepsTheStoredCorumLink() {
+        Account account = scpiAccount("0");
+        ScpiPosition existing = ScpiPosition.builder()
+            .account(account).member(ALICE).corumFundCode("FUND-42").build();
+        when(accountRepository.findByIdAndMemberId(10L, 1L)).thenReturn(Optional.of(account));
+        when(positionRepository.findByAccountIdAndMemberId(10L, 1L)).thenReturn(Optional.of(existing));
+        when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.save(10L, 1L, request("12.345678", "1135", "1000.50"));
+
+        assertThat(existing.getCorumFundCode()).isEqualTo("FUND-42");
+    }
+
+    /** An explicit empty string is the deliberate way to detach a fund. */
+    @Test
+    void save_withABlankFundCode_clearsTheCorumLink() {
+        Account account = scpiAccount("0");
+        ScpiPosition existing = ScpiPosition.builder()
+            .account(account).member(ALICE).corumFundCode("FUND-42").build();
+        when(accountRepository.findByIdAndMemberId(10L, 1L)).thenReturn(Optional.of(account));
+        when(positionRepository.findByAccountIdAndMemberId(10L, 1L)).thenReturn(Optional.of(existing));
+        when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.save(10L, 1L, withFundCode("12.345678", "1135", "1000.50", ""));
+
+        assertThat(existing.getCorumFundCode()).isNull();
+    }
+
+    @Test
+    void save_withAFundCode_linksThePosition() {
+        Account account = scpiAccount("0");
+        when(accountRepository.findByIdAndMemberId(10L, 1L)).thenReturn(Optional.of(account));
+        when(positionRepository.findByAccountIdAndMemberId(10L, 1L)).thenReturn(Optional.empty());
+        when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.save(10L, 1L, withFundCode("12.345678", "1135", "1000.50", "FUND-42"));
+
+        ArgumentCaptor<ScpiPosition> saved = ArgumentCaptor.forClass(ScpiPosition.class);
+        verify(positionRepository).save(saved.capture());
+        assertThat(saved.getValue().getCorumFundCode()).isEqualTo("FUND-42");
+    }
+
     private static Account scpiAccount(String balance) {
         return Account.builder()
             .id(10L).name("CORUM Origin").type(AccountType.SCPI).currency("EUR")
@@ -104,11 +156,16 @@ class ScpiPositionServiceTest {
     }
 
     private static ScpiPositionRequest request(String shares, String subscription, String withdrawal) {
+        return withFundCode(shares, subscription, withdrawal, null);
+    }
+
+    private static ScpiPositionRequest withFundCode(
+        String shares, String subscription, String withdrawal, String fundCode
+    ) {
         return new ScpiPositionRequest(
             "FR0012345678",
             "CORUM",
-            // No CORUM fund link: these cases are all manual entries.
-            null,
+            fundCode,
             new BigDecimal(shares),
             subscription == null ? null : new BigDecimal(subscription),
             withdrawal == null ? null : new BigDecimal(withdrawal),

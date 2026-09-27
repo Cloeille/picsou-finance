@@ -50,7 +50,14 @@ public class ScpiPositionService {
 
         position.setIsin(blankToNull(request.isin()));
         position.setManagementCompany(blankToNull(request.managementCompany()));
-        position.setCorumFundCode(blankToNull(request.corumFundCode()));
+        // A field the caller did not send means "leave it alone", not "clear it".
+        // The edit form does not echo corumFundCode back -- the response does not
+        // carry it -- so writing unconditionally would drop the link on every
+        // manual correction and quietly remove the position from later syncs.
+        // An explicit empty string is how a user detaches a fund on purpose.
+        if (request.corumFundCode() != null) {
+            position.setCorumFundCode(blankToNull(request.corumFundCode()));
+        }
         position.setShareCount(request.shareCount());
         position.setSubscriptionPriceEur(request.subscriptionPriceEur());
         position.setWithdrawalPriceEur(request.withdrawalPriceEur());
