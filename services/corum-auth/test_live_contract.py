@@ -4,8 +4,46 @@ Each test here corresponds to a defect that a fixture-based test could not see,
 because the fixture was written from the same wrong assumption as the code.
 """
 import unittest
+from unittest.mock import patch
 
 import main
+
+
+class _QuietContext:
+    async def route(self, *_args, **_kwargs):
+        return None
+
+
+class _ExplodingContext:
+    async def route(self, *_args, **_kwargs):
+        raise RuntimeError("route failed")
+
+
+class _FakeBrowser:
+    def __init__(self, explode: bool):
+        self._explode = explode
+        self.closed = False
+
+    async def new_context(self, **_kwargs):
+        if self._explode:
+            return _ExplodingContext()
+        return _QuietContext()
+
+    async def close(self):
+        self.closed = True
+
+
+class _FakeChromium:
+    def __init__(self, explode: bool):
+        self._browser = _FakeBrowser(explode)
+
+    async def launch(self, **_kwargs):
+        return self._browser
+
+
+class _FakePlaywright:
+    def __init__(self, explode: bool):
+        self.chromium = _FakeChromium(explode)
 
 
 class ProductPathTest(unittest.TestCase):
@@ -180,6 +218,44 @@ class InitiateClosesItsBrowserTest(unittest.IsolatedAsyncioTestCase):
                 source.count("_close_resources("), 1,
                 f"{handler.__name__} closes from more than one place",
             )
+
+
+class NewBrowserReleasesOnSetupFailureTest(unittest.IsolatedAsyncioTestCase):
+    """A failure between the launch and the return must give the slot back.
+
+    `_acquire_browser_slot` is called before the launch, and `new_context` /
+    `route` run after it. A raise in between left the slot counted and the
+    Chromium process running: the caller raises too, so it never receives the
+    browser and its own `finally` has nothing to close. Four of those and the
+    sidecar answers 503 until it is restarted.
+
+    Driven with a fake Playwright rather than a real Chromium, so the failure
+    point is exact and the assertion is on the slot count itself.
+    """
+
+    async def _run(self, explode):
+        with patch.object(main, "_browsers", 0):
+            pw = _FakePlaywright(explode)
+            if explode:
+                with self.assertRaises(RuntimeError):
+                    await main._new_browser(pw)
+            else:
+                await main._new_browser(pw)
+            return main._browsers
+
+    async def test_a_failure_in_setup_releases_the_slot(self):
+        self.assertEqual(await self._run(explode=True), 0)
+
+    async def test_a_failure_in_setup_closes_the_browser(self):
+        pw = _FakePlaywright(explode=True)
+        with patch.object(main, "_browsers", 0):
+            with self.assertRaises(RuntimeError):
+                await main._new_browser(pw)
+        self.assertTrue(pw.chromium._browser.closed)
+
+    async def test_a_successful_setup_still_holds_the_slot(self):
+        """The success path must not close early -- the caller owns it now."""
+        self.assertEqual(await self._run(explode=False), 1)
 
 
 if __name__ == "__main__":

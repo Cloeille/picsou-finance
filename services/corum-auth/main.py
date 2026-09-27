@@ -311,28 +311,42 @@ async def _new_browser(
     pw: Playwright,
     storage_state: dict[str, Any] | None = None,
 ) -> tuple[Browser, BrowserContext, SessionCollector]:
+    """Opens a browser and returns it ready to use, or raises having released.
+
+    A slot and a Chromium process are held from the first line. Both have to
+    come back on every failure, including one between the two: a caller that
+    never receives the browser cannot clean it up, so a raise in `new_context`
+    or `route` would otherwise leave the slot counted and leak the process.
+    Four of those and the sidecar answers 503 to everything.
+    """
     await _acquire_browser_slot()
     try:
         browser = await pw.chromium.launch(headless=True, args=LAUNCH_ARGS)
     except BaseException:
+        # Nothing to close yet: the slot is the only thing held.
         await _release_browser_slot()
         raise
-    context = await browser.new_context(
-        locale="fr-FR",
-        timezone_id="Europe/Paris",
-        user_agent=USER_AGENT,
-        storage_state=storage_state,
-    )
-    # Images are left alone -- the login flow was verified with them loading.
-    # Fonts and media are dead weight either way.
-    await context.route(
-        "**/*",
-        lambda route: route.abort()
-        if route.request.resource_type in ("media", "font")
-        else route.continue_(),
-    )
-    collector = SessionCollector()
-    return browser, context, collector
+    try:
+        context = await browser.new_context(
+            locale="fr-FR",
+            timezone_id="Europe/Paris",
+            user_agent=USER_AGENT,
+            storage_state=storage_state,
+        )
+        # Images are left alone -- the login flow was verified with them loading.
+        # Fonts and media are dead weight either way.
+        await context.route(
+            "**/*",
+            lambda route: route.abort()
+            if route.request.resource_type in ("media", "font")
+            else route.continue_(),
+        )
+    except BaseException:
+        # The caller never receives the browser, so this is the only place the
+        # slot and the process can be given back.
+        await _close_resources(None, browser, None)
+        raise
+    return browser, context, SessionCollector()
 
 
 def _encode_session(storage_state: dict[str, Any], cookie: str) -> str:
