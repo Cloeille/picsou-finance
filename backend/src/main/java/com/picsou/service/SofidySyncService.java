@@ -1,0 +1,404 @@
+package com.picsou.service;
+
+import com.picsou.config.CryptoEncryption;
+import com.picsou.exception.ResourceNotFoundException;
+import com.picsou.exception.SyncException;
+import com.picsou.model.FamilyMember;
+import com.picsou.model.ScpiPosition;
+import com.picsou.model.SofidySession;
+import com.picsou.model.SofidySyncStatus;
+import com.picsou.port.SofidyErrorCode;
+import com.picsou.port.SofidyPort;
+import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.ScpiPositionRepository;
+import com.picsou.repository.SofidySessionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.time.Instant;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.Executor;
+
+import static com.picsou.service.SyncValues.errorCode;
+import static com.picsou.service.SyncValues.requireTransactionResult;
+
+/**
+ * Syncs a Sofidy client-space portfolio into the SCPI accounts that are already
+ * linked to its funds.
+ *
+ * <p>Shaped like {@link CorumSyncService}, with one difference the portal forces:
+ * Sofidy always sends a verification code by e-mail after the password, so
+ * authentication is two calls and the session only exists once the code is typed.
+ * Nothing partial is stored in between -- the process id lives in the sidecar for
+ * the length of one attempt.
+ *
+ * <p>Like CORUM this does not create accounts. The manual model owns that, one
+ * account per vehicle, and a Sofidy portfolio simply maps its funds onto accounts
+ * the user already created.
+ *
+ * <p>The balance written here is the withdrawal value, computed by
+ * {@link ScpiPositionService}. This service never re-derives it, and passes a null
+ * subscription price: Sofidy publishes the redemption value and nothing else, so
+ * there is no second figure that could be mistaken for a balance.
+ */
+@Service
+public class SofidySyncService {
+    private static final Logger log = LoggerFactory.getLogger(SofidySyncService.class);
+
+    private final SofidyPort port;
+    private final SofidySessionRepository sessionRepository;
+    private final ScpiPositionRepository positionRepository;
+    private final ScpiPositionService positionService;
+    private final FamilyMemberRepository memberRepository;
+    private final CryptoEncryption encryption;
+    private final TransactionTemplate txTemplate;
+    private final Executor syncExecutor;
+
+    public SofidySyncService(
+        SofidyPort port,
+        SofidySessionRepository sessionRepository,
+        ScpiPositionRepository positionRepository,
+        ScpiPositionService positionService,
+        FamilyMemberRepository memberRepository,
+        CryptoEncryption encryption,
+        TransactionTemplate txTemplate,
+        @Qualifier("sofidySyncExecutor") Executor syncExecutor
+    ) {
+        this.port = port;
+        this.sessionRepository = sessionRepository;
+        this.positionRepository = positionRepository;
+        this.positionService = positionService;
+        this.memberRepository = memberRepository;
+        this.encryption = encryption;
+        this.txTemplate = txTemplate;
+        this.syncExecutor = syncExecutor;
+    }
+
+    /**
+     * Starts a login. Sofidy always answers with a pending process id, so the
+     * session is null and {@code mfaRequired} is true; the shape is kept anyway
+     * because a portal that stops asking for a code would then work without a
+     * change here.
+     */
+    public InitiateResponse initiateAuth(String associateCode, String password, Long memberId) {
+        SofidyPort.InitiateResult result = port.initiateAuth(associateCode, password);
+        if (result == null) {
+            throw error(SofidyErrorCode.INVALID_DATA, "Sofidy did not answer the login request", null);
+        }
+        if (!result.mfaRequired()) {
+            if (result.sessionState() == null || result.sessionState().isBlank()) {
+                throw error(
+                    SofidyErrorCode.INVALID_DATA,
+                    "Sofidy opened no session and asked for no code",
+                    null
+                );
+            }
+            // A portal that opened a session without asking for a code would
+            // still leave the panel waiting on an OTP screen, so the status is
+            // folded into the init shape: the shared panel reads `mfaRequired`
+            // to decide it is connected.
+            SessionStatusResponse status = storeSession(memberId, result.sessionState());
+            return new InitiateResponse(
+                null, false, null, status.isActive(), status.syncStatus(),
+                status.lastSyncError(), status.lastSyncStartedAt(), status.lastSyncCompletedAt()
+            );
+        }
+        if (result.processId() == null || result.processId().isBlank()) {
+            throw error(
+                SofidyErrorCode.INVALID_DATA,
+                "Sofidy asked for a code without giving an attempt to complete",
+                null
+            );
+        }
+        return InitiateResponse.pending(result.processId(), result.mfaType());
+    }
+
+    /** Finishes the login with the code from the inbox, then queues the import. */
+    public SessionStatusResponse completeAuth(String processId, String code, Long memberId) {
+        String plainState = port.completeAuth(processId, code);
+        if (plainState == null || plainState.isBlank()) {
+            throw error(SofidyErrorCode.INVALID_DATA, "Sofidy did not return a session", null);
+        }
+        return storeSession(memberId, plainState);
+    }
+
+    private SessionStatusResponse storeSession(Long memberId, String plainState) {
+        SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
+            FamilyMember member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+            sessionRepository.flush();
+
+            SofidySession newSession = SofidySession.create(
+                member,
+                encryption.encrypt(plainState),
+                Instant.now()
+            );
+            newSession.markQueued();
+            SofidySession stored = sessionRepository.saveAndFlush(newSession);
+            return new SyncJob(stored.getId(), memberId, plainState);
+        }));
+
+        submit(job);
+        return getStatus(memberId);
+    }
+
+    public SessionStatusResponse queueSync(Long memberId) {
+        QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
+            SofidySession session = sessionRepository.findByMemberIdForUpdate(memberId)
+                .orElseThrow(() -> error(
+                    SofidyErrorCode.SESSION_EXPIRED,
+                    "No active Sofidy session. Please reconnect.",
+                    null
+                ));
+            if (!session.isActive()) {
+                throw error(
+                    SofidyErrorCode.SESSION_EXPIRED,
+                    "The Sofidy session expired. Please reconnect.",
+                    null
+                );
+            }
+            if (session.isSyncInFlight()) {
+                return new QueueDecision(null, toStatus(session));
+            }
+
+            String plainState = encryption.decrypt(session.getSessionState());
+            session.markQueued();
+            sessionRepository.save(session);
+            return new QueueDecision(
+                new SyncJob(session.getId(), memberId, plainState),
+                toStatus(session)
+            );
+        }));
+
+        if (decision.job() != null) {
+            submit(decision.job());
+            return getStatus(memberId);
+        }
+        return decision.status();
+    }
+
+    @Transactional(readOnly = true)
+    public SessionStatusResponse getStatus(Long memberId) {
+        return sessionRepository.findByMemberId(memberId)
+            .map(this::toStatus)
+            .orElseGet(SessionStatusResponse::inactive);
+    }
+
+    @Transactional
+    public void clearSession(Long memberId) {
+        sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+    }
+
+    private void submit(SyncJob job) {
+        try {
+            syncExecutor.execute(() -> executeJob(job));
+        } catch (RuntimeException ex) {
+            markFailed(job, SofidyErrorCode.INTERNAL_ERROR);
+            throw error(
+                SofidyErrorCode.INTERNAL_ERROR,
+                "Could not schedule the Sofidy synchronization",
+                ex
+            );
+        }
+    }
+
+    private void executeJob(SyncJob job) {
+        if (!markRunning(job)) {
+            return;
+        }
+        try {
+            SofidyPort.Snapshot snapshot = port.fetchSnapshot(job.plainState());
+            int updated = applySnapshot(job.memberId(), snapshot);
+            markSuccessful(job);
+            log.info("Sofidy sync completed (member={}; positions={})", job.memberId(), updated);
+        } catch (SyncException ex) {
+            SofidyErrorCode code = codeOf(ex);
+            markFailed(job, code);
+            log.warn("Sofidy sync failed (member={}; code={})", job.memberId(), code);
+        } catch (Exception ex) {
+            markFailed(job, SofidyErrorCode.INTERNAL_ERROR);
+            log.error("Sofidy sync failed unexpectedly (member={})", job.memberId(), ex);
+        }
+    }
+
+    /**
+     * Writes the snapshot onto the linked accounts.
+     *
+     * <p>One holding maps to at most one account, matched on Sofidy's own product
+     * code the user linked when creating the account. A holding with no linked
+     * account is skipped rather than creating one: the manual model owns account
+     * creation, and a sync that silently opened a new account would bypass the
+     * Immobilier flow a share is supposed to go through.
+     *
+     * <p>A holding whose withdrawal price is missing still updates the share count
+     * -- that is real information -- but leaves the balance alone and reports
+     * {@code PRICE_INCOMPLETE}, which is what
+     * {@link ScpiPositionService#save} already does.
+     */
+    private int applySnapshot(Long memberId, SofidyPort.Snapshot snapshot) {
+        if (snapshot == null || !snapshot.snapshotComplete()) {
+            throw error(
+                SofidyErrorCode.PORTFOLIO_INCOMPLETE,
+                "Sofidy returned an incomplete portfolio",
+                null
+            );
+        }
+        if (snapshot.holdings() == null || snapshot.holdings().isEmpty()) {
+            throw error(
+                SofidyErrorCode.PORTFOLIO_INCOMPLETE,
+                "Sofidy returned no fund holding",
+                null
+            );
+        }
+
+        Set<String> seenFunds = new HashSet<>();
+        for (SofidyPort.Holding holding : snapshot.holdings()) {
+            if (holding == null || holding.fundCode() == null || holding.quantity() == null) {
+                throw error(SofidyErrorCode.INVALID_DATA, "Sofidy returned an incomplete fund", null);
+            }
+            if (!seenFunds.add(holding.fundCode())) {
+                // Two lines for one fund would write the quantity twice.
+                throw error(SofidyErrorCode.INVALID_DATA, "Sofidy returned a duplicate fund", null);
+            }
+            if (holding.quantity().signum() < 0) {
+                throw error(SofidyErrorCode.INVALID_DATA, "Sofidy returned a negative share count", null);
+            }
+        }
+
+        int updated = 0;
+        for (SofidyPort.Holding holding : snapshot.holdings()) {
+            Optional<ScpiPosition> linked =
+                positionRepository.findByMemberIdAndSofidyFundCode(memberId, holding.fundCode());
+            if (linked.isEmpty()) {
+                log.info(
+                    "No Picsou account is linked to this Sofidy fund (member={}; fund={})",
+                    memberId,
+                    holding.fundCode()
+                );
+                continue;
+            }
+            // Null subscription price: Sofidy publishes the redemption value and
+            // nothing else, and the manual form treats that price as display-only.
+            positionService.applySyncedPosition(
+                linked.get(),
+                holding.quantity(),
+                null,
+                holding.withdrawalPrice(),
+                snapshot.valuationDate()
+            );
+            updated++;
+        }
+        return updated;
+    }
+
+    private boolean markRunning(SyncJob job) {
+        return Boolean.TRUE.equals(txTemplate.execute(status -> {
+            Optional<SofidySession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+                job.sessionId(),
+                job.memberId()
+            );
+            if (current.isEmpty()) {
+                log.info("Sofidy sync session disappeared before execution (member={})", job.memberId());
+                return false;
+            }
+            SofidySession session = current.get();
+            if (!session.isActive() || session.getSyncStatus() != SofidySyncStatus.QUEUED) {
+                log.warn(
+                    "Sofidy sync cannot start from state {} (member={}; active={})",
+                    session.getSyncStatus(), job.memberId(), session.isActive()
+                );
+                return false;
+            }
+            session.markRunning(Instant.now());
+            sessionRepository.save(session);
+            return true;
+        }));
+    }
+
+    private void markSuccessful(SyncJob job) {
+        txTemplate.executeWithoutResult(status -> sessionRepository
+            .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+            .ifPresent(session -> {
+                session.markSuccessful(Instant.now());
+                sessionRepository.save(session);
+            }));
+    }
+
+    private void markFailed(SyncJob job, SofidyErrorCode code) {
+        txTemplate.executeWithoutResult(status -> sessionRepository
+            .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+            .ifPresent(session -> {
+                session.markFailed(code, Instant.now());
+                sessionRepository.save(session);
+            }));
+    }
+
+    private SessionStatusResponse toStatus(SofidySession session) {
+        return new SessionStatusResponse(
+            session.isActive(),
+            session.getSyncStatus(),
+            session.getLastSyncStartedAt(),
+            session.getLastSyncCompletedAt(),
+            session.getLastSyncError()
+        );
+    }
+
+    private SofidyErrorCode codeOf(SyncException exception) {
+        return errorCode(exception, SofidyErrorCode.class, SofidyErrorCode.UPSTREAM_UNAVAILABLE);
+    }
+
+    private SyncException error(SofidyErrorCode code, String message, Throwable cause) {
+        return new SyncException(message, cause, code.name());
+    }
+
+    /**
+     * What {@link #initiateAuth} needs the panel to show next.
+     *
+     * <p>It carries the session status alongside the init fields because the
+     * panel writes this response straight into its status cache: a login that
+     * opened a session directly has to land there already populated, or the
+     * panel would show a connected account it cannot read.
+     */
+    public record InitiateResponse(
+        String processId,
+        boolean mfaRequired,
+        String mfaType,
+        boolean isActive,
+        SofidySyncStatus syncStatus,
+        SofidyErrorCode lastSyncError,
+        java.time.Instant lastSyncStartedAt,
+        java.time.Instant lastSyncCompletedAt
+    ) {
+        /** The pending state: no session exists yet, so the status is all zeroes. */
+        public static InitiateResponse pending(String processId, String mfaType) {
+            return new InitiateResponse(
+                processId, true, mfaType, false,
+                SofidySyncStatus.IDLE, null, null, null
+            );
+        }
+    }
+
+    public record SessionStatusResponse(
+        boolean isActive,
+        SofidySyncStatus syncStatus,
+        Instant lastSyncStartedAt,
+        Instant lastSyncCompletedAt,
+        SofidyErrorCode lastSyncError
+    ) {
+        static SessionStatusResponse inactive() {
+            return new SessionStatusResponse(false, SofidySyncStatus.IDLE, null, null, null);
+        }
+    }
+
+    private record QueueDecision(SyncJob job, SessionStatusResponse status) {}
+
+    private record SyncJob(Long sessionId, Long memberId, String plainState) {}
+}

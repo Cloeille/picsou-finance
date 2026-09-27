@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have no logo source to draw from, and the search for one is tracked in
   [#162](https://github.com/Cloeille/picsou-finance/issues/162).
 
+- **A Sofidy client-space connection keeps your SCPI shares up to date.** The
+  Espace Associé connection fills the share count and the withdrawal price of the
+  accounts you linked to a Sofidy fund, at the withdrawal value — the same rule the
+  manual form uses, so a share is never worth more than it could be sold for. The
+  login takes two steps: Sofidy emails a six-digit code and the session opens once you
+  type it. Neither the password nor the code is ever stored, only the encrypted
+  session. A fund with no linked account is skipped, and a fund whose price Sofidy has
+  not published yet updates its quantity while leaving its balance alone.
+
 
 ## [1.1.0] — 2026-06-09
 

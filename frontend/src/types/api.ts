@@ -159,6 +159,8 @@ export interface ScpiPositionRequest {
   managementCompany?: string | null
   /** Links this account to one fund of a CORUM contract, so a sync can fill it. */
   corumFundCode?: string | null
+  /** Links this account to one fund of a Sofidy portfolio, so a sync can fill it. */
+  sofidyFundCode?: string | null
   shareCount: number
   subscriptionPriceEur?: number | null
   withdrawalPriceEur?: number | null
@@ -910,6 +912,49 @@ export interface AmundiAuthInitResponse {
   processId: string | null
   mfaRequired: boolean
   mfaType: 'APP_PUSH' | 'SMS' | null
+}
+
+export type SofidyErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'MFA_INVALID'
+  | 'FIRST_VISIT_PENDING'
+  | 'EMAIL_UNREACHABLE'
+  | 'ACCOUNT_INACTIVE'
+  | 'RATE_LIMITED'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'PORTFOLIO_INCOMPLETE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INVALID_DATA'
+  | 'INTERNAL_ERROR'
+
+interface SofidySessionStatusBase {
+  isActive: boolean
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+}
+
+export type SofidySessionStatus =
+  | (SofidySessionStatusBase & {
+      syncStatus: 'FAILED'
+      lastSyncError: SofidyErrorCode
+    })
+  | (SofidySessionStatusBase & {
+      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
+      lastSyncError: null
+    })
+
+/**
+ * Sofidy always asks for a six-digit code by e-mail, so `mfaRequired` is
+ * effectively always true. It is kept because a portal that stopped asking would
+ * then work without a change here.
+ */
+export interface SofidyAuthInitResponse {
+  processId: string | null
+  mfaRequired: boolean
+  /** No push variant: the code always arrives by e-mail, so this is null today. */
+  mfaType: 'EMAIL' | null
 }
 
 export type CorumErrorCode =

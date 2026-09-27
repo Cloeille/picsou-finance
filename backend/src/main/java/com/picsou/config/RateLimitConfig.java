@@ -119,6 +119,14 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP Sofidy auth rate limiter: 5 attempts per 15 minutes.
+     */
+    @Bean("sofidyAuthBuckets")
+    public Map<String, Bucket> sofidyAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-member address autocomplete limiter.
      *
      * <p>This endpoint proxies IGN's Géoplateforme, which is free but published at 50 req/s
@@ -342,6 +350,22 @@ public class RateLimitConfig {
      * check against CORUM, so it must not be cheap to hammer.
      */
     public static Bucket createCorumAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    /**
+     * Per-IP Sofidy auth rate limiter: 5 attempts per 15 minutes. Same budget as
+     * the other portal logins, and lower than it would otherwise be, because
+     * Sofidy arms a brute-force counter on its side and answers a locked-out
+     * attempt as a login success: hammering here would lock the account out
+     * rather than merely slow the caller down.
+     */
+    public static Bucket createSofidyAuthBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(5)

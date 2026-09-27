@@ -47,6 +47,7 @@ services:
       AMUNDI_AUTH_URL: http://amundi-auth:8001
       FORTUNEO_AUTH_URL: http://fortuneo-auth:8001
       CORUM_AUTH_URL: http://corum-auth:8001
+      SOFIDY_AUTH_URL: http://sofidy-auth:8001
     depends_on:
       - db
       - tr-auth
@@ -56,6 +57,7 @@ services:
       - amundi-auth
       - fortuneo-auth
       - corum-auth
+      - sofidy-auth
     networks:
       - default
       - fortuneo-auth-net
@@ -150,6 +152,13 @@ services:
     image: ghcr.io/cloeille/picsou-finance/corum-auth:latest
     build:
       context: ../services/corum-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+
+  sofidy-auth:
+    image: ghcr.io/cloeille/picsou-finance/sofidy-auth:latest
+    build:
+      context: ../services/sofidy-auth
       dockerfile: Dockerfile
     restart: unless-stopped
 

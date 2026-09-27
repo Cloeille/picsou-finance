@@ -55,6 +55,27 @@ CORUM displays `quantity × subscription price`, which is not the withdrawal val
 sync never uses that figure for a balance — see the
 [CORUM sidecar ADR](../decisions/2026-09-26-corum-scpi-sidecar.md).
 
+### Sofidy sync
+
+A Sofidy Espace Associé connection fills the share count and the withdrawal price of
+accounts already linked to one of its funds, through the same
+`ScpiPositionService.applySyncedPosition` the manual form and the CORUM sync use.
+
+The login is two steps, not one: Sofidy always emails a six-digit code and refuses the
+session until it is typed, so `/api/sofidy/auth/initiate` returns a process id and
+`/api/sofidy/auth/complete` opens the session. Neither the password nor the code is
+persisted — only the sidecar's cookie jar, encrypted.
+
+Funds are matched by `scpi_position.sofidy_fund_code`, Sofidy's own `Code_Produit`
+(`DY` for SOFIDYNAMIC), unique per member, with the same two rules as CORUM: a fund with
+no linked account is skipped, and a fund whose withdrawal price is missing still updates
+the share count while leaving the balance alone and reporting `PRICE_INCOMPLETE`.
+
+Sofidy publishes no subscription price, so a synced position carries the quantity and
+the withdrawal price only; the subscription price stays whatever the manual entry
+recorded. See the
+[Sofidy sidecar ADR](../decisions/2026-09-27-sofidy-scpi-sidecar.md).
+
 ### Flow
 
 ```
@@ -80,8 +101,12 @@ PUT /api/accounts/{id}/scpi
 - A linked loan on a SCPI reduces paper net, not the physical property's net.
 - A CORUM contract holds several funds, so one client-space session writes to several
   accounts. They are matched by fund code, not by contract.
-- Automatic sync with a management company's client area is a later change for every
-  provider except CORUM. This note does not close that for the others.
+- A Sofidy fund row carries no subscription price, so `subscription_price_eur` keeps
+  whatever the manual entry recorded. The portal has no such column.
+- A Sofidy login is always two steps. A single-call flow would show the user a
+  connected panel while the portal was still waiting on a verification code.
+- The empty unit-value cell in the Sofidy portfolio prints its `€` mark, so an
+  empty-string check reads a missing price as a parse failure.
 
 ## Tests
 
@@ -89,8 +114,16 @@ PUT /api/accounts/{id}/scpi
 - `ScpiPositionServiceSyncTest` — a synced share is valued at the withdrawal price, not
   CORUM's displayed figure
 - `RealEstateSummaryServiceTest` — a share stays out of the open-data gross
+- `SofidyAdapterTest` — the two-step login, a rejected verification code, a fund
+  without a withdrawal price, a complete empty portfolio, an untrusted flag
+- `services/sofidy-auth/test_positions_parser.py` — the real page shape, a row with
+  no product code refused, a missing unit value, a total that does not reconcile
+- `services/sofidy-auth/test_live_contract.py` — the routes, the 2FA handshake, and
+  the codes the Java adapter depends on
 
 ## Links
 
 - Related ADR: [A SCPI share is not a property](../decisions/2026-09-23-scpi-not-a-property.md)
+- Related ADR: [CORUM client space fills existing SCPI accounts through a browser sidecar](../decisions/2026-09-26-corum-scpi-sidecar.md)
+- Related ADR: [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](../decisions/2026-09-27-sofidy-scpi-sidecar.md)
 - Ticket: https://github.com/Cloeille/picsou-finance/issues/157

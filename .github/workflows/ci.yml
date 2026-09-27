@@ -133,6 +133,24 @@ jobs:
           picsou-corum-auth:test
           python -m unittest discover -v
 
+  sofidy-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the browserless sidecar image
+        run: docker build --tag picsou-sofidy-auth:test services/sofidy-auth
+      - name: Run parser and live-contract regression tests
+        run: >-
+          docker run --rm
+          --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
+          --workdir /tests
+          picsou-sofidy-auth:test
+          python -m unittest discover -v
+
   amundi-sidecar:
     runs-on: ubuntu-latest
     steps:

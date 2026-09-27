@@ -64,6 +64,14 @@ public class ScpiPosition extends AuditableEntity {
     @Column(name = "corum_fund_code", length = 40)
     private String corumFundCode;
 
+    /**
+     * The Sofidy {@code Code_Produit} a Sofidy sync writes to, e.g. {@code DY} for
+     * SOFIDYNAMIC. Null means the account was entered by hand. Unique per member,
+     * so two funds can never resolve to the same account.
+     */
+    @Column(name = "sofidy_fund_code", length = 40)
+    private String sofidyFundCode;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "valuation_status", nullable = false, length = 30)
     @Builder.Default
