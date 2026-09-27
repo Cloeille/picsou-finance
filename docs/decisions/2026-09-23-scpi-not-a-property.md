@@ -61,6 +61,6 @@ the same row without a second migration.
 
 ## Consequences
 
-- `V89` adds the enum value alone. `V90` creates `scpi_position`.
+- `V100` adds the enum value alone. `V101` creates `scpi_position`.
 - `PUT /api/accounts/{id}/scpi` is the write path. `PropertyValuationService` still refuses
   anything that is not `REAL_ESTATE`.

@@ -778,7 +778,7 @@
       "clearSession": "Déconnecter",
       "noSession": "Aucune session active",
       "sessionActive": "Session active",
-      "scope": "Synchronise les parts de SCPI de vos contratsCORUM, au prix de retrait. Seuls les comptes que vous avez rattachés à un fonds sont mis à jour.",
+      "scope": "Synchronise les parts de SCPI de vos contrats CORUM, au prix de retrait. Seuls les comptes que vous avez rattachés à un fonds sont mis à jour.",
       "errors": {
         "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
         "invalidCredentials": "Identifiants CORUM invalides.",
