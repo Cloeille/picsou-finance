@@ -45,6 +45,7 @@ services:
       BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001
       AMUNDI_AUTH_URL: http://amundi-auth:8001
       CORUM_AUTH_URL: http://corum-auth:8001
+      SOFIDY_AUTH_URL: http://sofidy-auth:8001
     depends_on:
       - db
       - tr-auth
@@ -52,6 +53,7 @@ services:
       - bourse-direct-auth
       - amundi-auth
       - corum-auth
+      - sofidy-auth
 
   # Optional TLS terminator — OFF unless the `tls` profile is requested:
   #   docker compose -f docker/docker-compose.yml --profile tls up -d
@@ -124,6 +126,13 @@ services:
     image: ghcr.io/cloeille/picsou-finance/corum-auth:latest
     build:
       context: ../services/corum-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+
+  sofidy-auth:
+    image: ghcr.io/cloeille/picsou-finance/sofidy-auth:latest
+    build:
+      context: ../services/sofidy-auth
       dockerfile: Dockerfile
     restart: unless-stopped
 

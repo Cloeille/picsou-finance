@@ -166,6 +166,7 @@ class ScpiPositionServiceTest {
             "FR0012345678",
             "CORUM",
             fundCode,
+            null,
             new BigDecimal(shares),
             subscription == null ? null : new BigDecimal(subscription),
             withdrawal == null ? null : new BigDecimal(withdrawal),

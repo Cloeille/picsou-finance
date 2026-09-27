@@ -20,6 +20,8 @@ public record ScpiPositionRequest(
     @Size(max = 100) String managementCompany,
     /** Links this account to one fund of a CORUM contract so a sync can fill it. */
     @Size(max = 40) String corumFundCode,
+    /** Links this account to one fund of a Sofidy portfolio so a sync can fill it. */
+    @Size(max = 40) String sofidyFundCode,
     @NotNull @DecimalMin("0") BigDecimal shareCount,
     @DecimalMin("0") BigDecimal subscriptionPriceEur,
     @DecimalMin("0") BigDecimal withdrawalPriceEur,

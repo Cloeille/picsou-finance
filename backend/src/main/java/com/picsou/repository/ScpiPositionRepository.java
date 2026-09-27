@@ -17,4 +17,11 @@ public interface ScpiPositionRepository extends JpaRepository<ScpiPosition, Long
      * manually entered account that was never linked stays untouched.
      */
     Optional<ScpiPosition> findByMemberIdAndCorumFundCode(Long memberId, String corumFundCode);
+
+    /**
+     * The fund a Sofidy sync writes to, matched on Sofidy's own Code_Produit.
+     * A holding with no match is skipped, so a manually entered account that was
+     * never linked stays untouched.
+     */
+    Optional<ScpiPosition> findByMemberIdAndSofidyFundCode(Long memberId, String sofidyFundCode);
 }

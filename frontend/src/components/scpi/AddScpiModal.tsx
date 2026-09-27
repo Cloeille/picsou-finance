@@ -43,6 +43,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
   const [jouissanceDate, setJouissanceDate] = useState('')
   const [isin, setIsin] = useState('')
   const [corumFundCode, setCorumFundCode] = useState('')
+  const [sofidyFundCode, setSofidyFundCode] = useState('')
   const [createdAccountId, setCreatedAccountId] = useState<number | null>(null)
 
   const shares = num(shareCount)
@@ -60,6 +61,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
     setJouissanceDate('')
     setIsin('')
     setCorumFundCode('')
+    setSofidyFundCode('')
     setCreatedAccountId(null)
   }
 
@@ -88,6 +90,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
       isin: isin.trim() || null,
       managementCompany: managementCompany.trim() || null,
       corumFundCode: corumFundCode.trim() || null,
+      sofidyFundCode: sofidyFundCode.trim() || null,
       shareCount: shares,
       subscriptionPriceEur: num(subscriptionPrice) ?? null,
       withdrawalPriceEur: num(withdrawalPrice) ?? null,
@@ -158,6 +161,16 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
               onChange={(e) => setCorumFundCode(e.target.value.toUpperCase())}
             />
             <p className="text-xs text-muted-foreground">{t('scpi.corumFundHint')}</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="scpi-sofidy-fund">{t('scpi.sofidyFundCode')}</Label>
+            <Input
+              id="scpi-sofidy-fund"
+              value={sofidyFundCode}
+              maxLength={40}
+              onChange={(e) => setSofidyFundCode(e.target.value.toUpperCase())}
+            />
+            <p className="text-xs text-muted-foreground">{t('scpi.sofidyFundHint')}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
