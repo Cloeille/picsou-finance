@@ -413,6 +413,83 @@ class BoursoSyncServiceTest {
     }
 
     @Test
+    void expiredSessionRelogsOncePersistsFreshStateAndRetriesAccounts() {
+        BoursoSession session = activeSession(member());
+        session.setEncryptedCredentials("credentials-encrypted");
+        arrangeQueuedSession(session);
+        when(encryption.decrypt("credentials-encrypted"))
+            .thenReturn("{\"customerId\":\"12345678\",\"password\":\"123456\"}");
+        when(encryption.encrypt(anyString())).thenReturn("state-encrypted");
+        when(port.fetchAccounts("plain-state")).thenThrow(
+            new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
+        when(port.initiateAuth("12345678", "123456"))
+            .thenReturn(new BoursoPort.InitiateResult(null, false, null, "fresh-state"));
+        when(port.fetchAccounts("fresh-state")).thenReturn(List.of(checkingAccount()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSessionState()).isEqualTo("state-encrypted");
+        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.SUCCESS);
+        verify(port).initiateAuth("12345678", "123456");
+        verify(port, org.mockito.Mockito.times(2)).fetchAccounts(anyString());
+    }
+
+    @Test
+    void expiredSessionWithoutCredentialsDoesNotAttemptRelogin() {
+        BoursoSession session = activeSession(member());
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenThrow(
+            new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.SESSION_EXPIRED);
+        verify(port, never()).initiateAuth(anyString(), anyString());
+    }
+
+    @Test
+    void expiredSessionWithMfaFailsWithoutRepeatedLogin() {
+        BoursoSession session = activeSession(member());
+        session.setEncryptedCredentials("credentials-encrypted");
+        arrangeQueuedSession(session);
+        when(encryption.decrypt("credentials-encrypted"))
+            .thenReturn("{\"customerId\":\"12345678\",\"password\":\"123456\"}");
+        when(port.fetchAccounts("plain-state")).thenThrow(
+            new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
+        when(port.initiateAuth("12345678", "123456"))
+            .thenReturn(new BoursoPort.InitiateResult("process", true, "APP_PUSH", null));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.SESSION_EXPIRED);
+        verify(port).initiateAuth("12345678", "123456");
+    }
+
+    @Test
+    void expiredSessionWithInvalidCredentialsClearsSavedCredentials() {
+        BoursoSession session = activeSession(member());
+        session.setEncryptedCredentials("credentials-encrypted");
+        arrangeQueuedSession(session);
+        when(encryption.decrypt("credentials-encrypted"))
+            .thenReturn("{\"customerId\":\"12345678\",\"password\":\"123456\"}");
+        when(port.fetchAccounts("plain-state")).thenThrow(
+            new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
+        when(port.initiateAuth("12345678", "123456")).thenThrow(
+            new SyncException("bad credentials", null, BoursoErrorCode.INVALID_CREDENTIALS.name()));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_CREDENTIALS);
+        assertThat(session.getEncryptedCredentials()).isNull();
+    }
+
+    @Test
     void initiateAuth_storesNothingWhileTheAppPushIsStillPending() {
         when(port.initiateAuth("12345678", "123456"))
             .thenReturn(new BoursoPort.InitiateResult("p1", true, "APP_PUSH", null));
@@ -422,6 +499,29 @@ class BoursoSyncServiceTest {
         assertThat(result.mfaRequired()).isTrue();
         assertThat(result.mfaType()).isEqualTo("APP_PUSH");
         verify(sessionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void completeAuthStoresCredentialsOnlyAfterSuccessfulPush() {
+        when(port.initiateAuth("12345678", "123456"))
+            .thenReturn(new BoursoPort.InitiateResult("p2", true, "APP_PUSH", null));
+        when(port.completeAuth("p2")).thenReturn("cookies");
+        FamilyMember member = member();
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        lenient().when(encryption.encrypt("cookies")).thenReturn("encrypted-state");
+        when(encryption.encrypt(anyString())).thenReturn("encrypted-credentials");
+        when(sessionRepository.saveAndFlush(any(BoursoSession.class))).thenAnswer(invocation -> {
+            BoursoSession stored = invocation.getArgument(0);
+            assertThat(stored.getEncryptedCredentials()).isEqualTo("encrypted-credentials");
+            return stored;
+        });
+        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(port.fetchAccounts("cookies")).thenThrow(new SyncException("transient", null, BoursoErrorCode.UPSTREAM_UNAVAILABLE.name()));
+
+        service.initiateAuth("12345678", "123456", 7L);
+        service.completeAuth("p2", 7L);
+
+        verify(port).completeAuth("p2");
     }
 
     @Test

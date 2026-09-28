@@ -83,6 +83,7 @@ public class BoursoSyncService {
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
+    private final Map<String, PendingCredentials> pendingCredentials = new java.util.concurrent.ConcurrentHashMap<>();
 
     public BoursoSyncService(
         BoursoPort port,
@@ -116,17 +117,27 @@ public class BoursoSyncService {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
                 throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank did not return a session", null);
             }
-            storeSessionAndQueue(result.sessionState(), memberId);
+            storeSessionAndQueue(result.sessionState(), memberId, customerId, password);
+        } else if (result.processId() != null) {
+            pendingCredentials.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(Instant.now()));
+            pendingCredentials.put(result.processId(), new PendingCredentials(customerId, password, Instant.now().plusSeconds(600), memberId));
         }
         return new AuthInitResponse(result.processId(), result.mfaRequired(), result.mfaType());
     }
 
     public SessionStatusResponse completeAuth(String processId, Long memberId) {
         String plainState = port.completeAuth(processId);
+        PendingCredentials credentials = pendingCredentials.remove(processId);
+        if (credentials != null && !credentials.memberId().equals(memberId)) {
+            throw error(BoursoErrorCode.AUTH_ATTEMPT_EXPIRED, "BoursoBank authentication attempt expired", null);
+        }
         if (plainState == null || plainState.isBlank()) {
             throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank did not return a session", null);
         }
-        return storeSessionAndQueue(plainState, memberId);
+        boolean credentialsValid = credentials != null && credentials.expiresAt().isAfter(Instant.now());
+        return storeSessionAndQueue(plainState, memberId,
+            credentialsValid ? credentials.customerId() : null,
+            credentialsValid ? credentials.password() : null);
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
@@ -165,7 +176,7 @@ public class BoursoSyncService {
         return decision.status();
     }
 
-    private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId) {
+    private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId, String customerId, String password) {
         SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
@@ -177,6 +188,9 @@ public class BoursoSyncService {
                 encryption.encrypt(plainState),
                 Instant.now()
             );
+            if (customerId != null && password != null) {
+                newSession.setEncryptedCredentials(encryption.encrypt(serializeCredentials(customerId, password)));
+            }
             newSession.markQueued();
             BoursoSession stored = sessionRepository.saveAndFlush(newSession);
             return new SyncJob(stored.getId(), memberId, plainState);
@@ -204,7 +218,12 @@ public class BoursoSyncService {
             return;
         }
         try {
-            List<BoursoPort.AccountData> fetched = port.fetchAccounts(job.plainState());
+            List<BoursoPort.AccountData> fetched;
+            try { fetched = port.fetchAccounts(job.plainState()); }
+            catch (SyncException ex) {
+                if (codeOf(ex) != BoursoErrorCode.SESSION_EXPIRED) throw ex;
+                fetched = reauthenticateAndFetch(job);
+            }
             List<PreparedAccount> prepared = prepareAccounts(fetched);
             if (commitAccounts(job, prepared)) {
                 log.info("BoursoBank sync completed (member={}; accounts={})", job.memberId(), prepared.size());
@@ -219,6 +238,78 @@ public class BoursoSyncService {
             markFailed(job, BoursoErrorCode.INTERNAL_ERROR);
             log.error("BoursoBank sync failed unexpectedly (member={})", job.memberId(), ex);
         }
+    }
+
+    private List<BoursoPort.AccountData> reauthenticateAndFetch(SyncJob job) {
+        Optional<BoursoSession> found = requireTransactionResult(txTemplate.execute(
+            status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+        ));
+        Optional<BoursoSession> sessionResult = found;
+        BoursoSession session = sessionResult.orElse(null);
+        if (session == null || !session.isActive()
+            || session.getSyncStatus() != BoursoSyncStatus.RUNNING
+            || session.getEncryptedCredentials() == null) {
+            throw error(BoursoErrorCode.SESSION_EXPIRED, "BoursoBank session expired", null);
+        }
+        Credentials credentials;
+        try { credentials = parseCredentials(encryption.decrypt(session.getEncryptedCredentials())); }
+        catch (RuntimeException ex) { throw error(BoursoErrorCode.SESSION_EXPIRED, "BoursoBank session expired", ex); }
+        BoursoPort.InitiateResult result;
+        try {
+            result = port.initiateAuth(credentials.customerId(), credentials.password());
+        } catch (SyncException ex) {
+            if (codeOf(ex) == BoursoErrorCode.INVALID_CREDENTIALS) {
+                clearStoredCredentials(job);
+                throw ex;
+            }
+            throw ex;
+        }
+        if (result.mfaRequired()) {
+            throw error(BoursoErrorCode.SESSION_EXPIRED, "BoursoBank requires interactive validation", null);
+        }
+        if (result.sessionState() == null || result.sessionState().isBlank()) {
+            throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned no session", null);
+        }
+        String newState = result.sessionState();
+        Boolean updated = txTemplate.execute(status -> sessionRepository
+            .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+            .filter(current -> current.isActive() && current.getSyncStatus() == BoursoSyncStatus.RUNNING)
+            .map(current -> {
+                current.updateSessionState(encryption.encrypt(newState), Instant.now());
+                sessionRepository.save(current);
+                return true;
+            })
+            .orElse(false));
+        if (!Boolean.TRUE.equals(updated)) throw error(BoursoErrorCode.SESSION_EXPIRED, "BoursoBank session changed", null);
+        return port.fetchAccounts(newState);
+    }
+
+    private void clearStoredCredentials(SyncJob job) {
+        txTemplate.executeWithoutResult(status -> sessionRepository
+            .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+            .ifPresent(current -> {
+                current.setEncryptedCredentials(null);
+                sessionRepository.save(current);
+            }));
+    }
+
+    private String serializeCredentials(String customerId, String password) {
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper()
+                .writeValueAsString(Map.of("customerId", customerId, "password", password));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+            throw new IllegalStateException("Could not encode credentials");
+        }
+    }
+
+    private Credentials parseCredentials(String value) {
+        try {
+            var node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(value);
+            String customerId = node.path("customerId").asText();
+            String password = node.path("password").asText();
+            if (customerId.isBlank() || password.isBlank()) throw new IllegalArgumentException("Invalid credentials");
+            return new Credentials(customerId, password);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new IllegalArgumentException("Invalid credentials", ex); }
     }
 
     private boolean markRunning(SyncJob job) {
@@ -600,6 +691,7 @@ public class BoursoSyncService {
                     );
                     return;
                 }
+                if (code == BoursoErrorCode.INVALID_CREDENTIALS) session.setEncryptedCredentials(null);
                 session.markFailed(code, Instant.now());
                 sessionRepository.save(session);
             });
@@ -642,6 +734,7 @@ public class BoursoSyncService {
         txTemplate.executeWithoutResult(status ->
             sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete)
         );
+        pendingCredentials.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
     }
 
     public void resyncIfSessionActive(Long memberId) {
@@ -756,6 +849,8 @@ public class BoursoSyncService {
         }
     }
 
+    private record Credentials(String customerId, String password) {}
+    private record PendingCredentials(String customerId, String password, Instant expiresAt, Long memberId) {}
     private record QueueDecision(SyncJob job, SessionStatusResponse status) {}
     private record SyncJob(Long sessionId, Long memberId, String plainState) {}
     private record PreparedAccount(
