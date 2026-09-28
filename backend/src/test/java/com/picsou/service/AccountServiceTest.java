@@ -45,6 +45,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -62,6 +63,7 @@ class AccountServiceTest {
     @Mock LoanAmortizationService loanAmortizationService;
     @Mock AccountAccessResolver accessResolver;
     @Mock BankLogoResolver bankLogoResolver;
+    @Mock CryptoLogoService cryptoLogoService;
     @InjectMocks AccountService accountService;
 
     private Account ownedAccount() {
@@ -1083,5 +1085,38 @@ class AccountServiceTest {
 
         assertThat(h.getQuantity()).isEqualByComparingTo("0.5"); // synced: chain owns it, unchanged
         assertThat(h.getAverageBuyIn()).isEqualByComparingTo("30000");
+    }
+
+    @Test
+    void getHoldings_carriesTheCryptoLogoOntoTheResponse() {
+        Account crypto = Account.builder().id(1L).type(AccountType.CRYPTO).currency("EUR").build();
+        AccountHolding h = AccountHolding.builder()
+            .account(crypto).ticker("BTC").quantity(new BigDecimal("0.5")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(crypto));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(1L)).thenReturn(List.of(h));
+        when(cryptoLogoService.getLogoUrls(Set.of("BTC")))
+            .thenReturn(Map.of("BTC", "https://coin-images/btc.png"));
+
+        List<HoldingResponse> holdings = accountService.getHoldings(1L, 9L);
+
+        assertThat(holdings).singleElement()
+            .extracting(HoldingResponse::logoUrl)
+            .isEqualTo("https://coin-images/btc.png");
+    }
+
+    @Test
+    void getHoldings_leavesAnEquityLogoNullAndNeverAsksTheCryptoResolver() {
+        Account pea = Account.builder().id(1L).type(AccountType.PEA).currency("EUR").build();
+        AccountHolding h = AccountHolding.builder()
+            .account(pea).ticker("MC").quantity(new BigDecimal("10")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(pea));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(1L)).thenReturn(List.of(h));
+
+        List<HoldingResponse> holdings = accountService.getHoldings(1L, 9L);
+
+        // No equity source exists yet (issue #162), so the ticker is all the UI has to show --
+        // and the crypto-only resolver is never consulted for an equity account.
+        assertThat(holdings).singleElement().extracting(HoldingResponse::logoUrl).isNull();
+        verifyNoInteractions(cryptoLogoService);
     }
 }

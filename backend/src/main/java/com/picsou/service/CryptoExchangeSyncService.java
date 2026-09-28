@@ -48,6 +48,7 @@ public class CryptoExchangeSyncService {
     private final CryptoExchangeStatusWriter statusWriter;
     private final CryptoExchangePositionRepository positionRepository;
     private final AccountHoldingRepository holdingRepository;
+    private final CryptoLogoService cryptoLogoService;
 
     public CryptoExchangeSyncService(
         List<CryptoExchangePort> exchangeAdapters,
@@ -59,7 +60,8 @@ public class CryptoExchangeSyncService {
         CryptoEncryption encryption,
         CryptoExchangeStatusWriter statusWriter,
         CryptoExchangePositionRepository positionRepository,
-        AccountHoldingRepository holdingRepository
+        AccountHoldingRepository holdingRepository,
+        CryptoLogoService cryptoLogoService
     ) {
         this.exchangeAdapters = exchangeAdapters;
         this.sessionRepository = sessionRepository;
@@ -71,6 +73,7 @@ public class CryptoExchangeSyncService {
         this.statusWriter = statusWriter;
         this.positionRepository = positionRepository;
         this.holdingRepository = holdingRepository;
+        this.cryptoLogoService = cryptoLogoService;
     }
 
     public AccountResponse addExchange(ExchangeType type, String apiKey, String apiSecret, Long memberId) {
@@ -337,6 +340,11 @@ public class CryptoExchangeSyncService {
             .map(CryptoExchangePosition::getTicker)
             .collect(Collectors.toSet()));
 
+        // Same reasoning as the quotes above, and the same batching: one call for the page.
+        Map<String, String> logos = cryptoLogoService.getLogoUrls(positions.stream()
+            .map(CryptoExchangePosition::getTicker)
+            .collect(Collectors.toSet()));
+
         return positions.stream()
             .map(position -> {
                 PriceService.Quote quote = quotes.get(position.getTicker());
@@ -356,6 +364,7 @@ public class CryptoExchangeSyncService {
                 return new ExchangePositionResponse(
                     position.getProduct().name(),
                     position.getTicker(),
+                    logos.get(position.getTicker().toUpperCase(Locale.ROOT)),
                     quantity,
                     position.getPrincipal(),
                     position.getInterest(),

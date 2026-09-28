@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Crypto holdings show the coin's logo next to their ticker.** A position is easier to
+  recognise at a glance than by reading its ticker. The mark comes from CoinGecko, which
+  already prices the same coins, and a whole page resolves in a single request — nothing
+  is stored and no account is required. A coin with no logo, a provider that is down, or
+  an image that fails to load all leave the ticker exactly as it was, so nothing
+  disappears when a mark cannot be fetched. Stocks and ETFs are unchanged for now: they
+  have no logo source to draw from, and the search for one is tracked in
+  [#162](https://github.com/Cloeille/picsou-finance/issues/162).
+
+
 ## [1.1.0] — 2026-06-09
 
 Minor release: a complete **Budget & Cashflow** module — zero-config and "Apple-like". Fed by

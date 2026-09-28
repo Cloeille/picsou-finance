@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { useMoney } from '@/hooks/use-money'
 import type { ExchangePositionResponse } from '@/types/api'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { HoldingLogo } from '@/components/shared/HoldingLogo'
 import { PriceFreshnessDot } from '@/components/shared/PriceFreshnessDot'
 import { SortableTableHead } from '@/components/shared/SortableTableHead'
 import { useTableSort, type SortColumns } from '@/hooks/use-table-sort'
@@ -117,7 +118,12 @@ export function PositionsByProduct({ positions }: PositionsByProductProps) {
                   <TableBody>
                     {rows.map(row => (
                       <TableRow key={`${row.product}-${row.ticker}`}>
-                        <TableCell className="font-mono font-medium">{row.ticker}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <HoldingLogo logoUrl={row.logoUrl} ticker={row.ticker} />
+                            <span className="font-mono font-medium">{row.ticker}</span>
+                          </div>
+                        </TableCell>
                         {showYield && (
                           <TableCell className="text-right tabular-nums">
                             {row.principal != null ? money.quantity(row.principal) : '—'}

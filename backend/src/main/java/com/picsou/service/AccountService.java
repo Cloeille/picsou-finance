@@ -79,6 +79,7 @@ public class AccountService {
     private final LoanAmortizationService loanAmortizationService;
     private final AccountAccessResolver accessResolver;
     private final BankLogoResolver bankLogoResolver;
+    private final CryptoLogoService cryptoLogoService;
 
     public AccountService(
         AccountRepository accountRepository,
@@ -92,7 +93,8 @@ public class AccountService {
         PriceService priceService,
         LoanAmortizationService loanAmortizationService,
         AccountAccessResolver accessResolver,
-        BankLogoResolver bankLogoResolver
+        BankLogoResolver bankLogoResolver,
+        CryptoLogoService cryptoLogoService
     ) {
         this.accountRepository = accountRepository;
         this.snapshotRepository = snapshotRepository;
@@ -106,6 +108,7 @@ public class AccountService {
         this.loanAmortizationService = loanAmortizationService;
         this.accessResolver = accessResolver;
         this.bankLogoResolver = bankLogoResolver;
+        this.cryptoLogoService = cryptoLogoService;
     }
 
     /**
@@ -303,8 +306,11 @@ public class AccountService {
         Account account = getOrThrow(accountId, memberId); // validate account exists
         List<AccountHolding> holdings = holdingRepository.findByAccountIdOrderByCurrentPriceDesc(accountId);
         Map<String, PriceService.Quote> quotes = quotesFor(account, holdings);
+        // Both lookups are batched outside the stream: calling either inside it would issue one
+        // provider request per holding instead of one per page.
+        Map<String, String> logos = logosFor(account, holdings);
         return holdings.stream()
-            .map(holding -> toHoldingResponse(holding, quotes))
+            .map(holding -> toHoldingResponse(holding, quotes, logos))
             .toList();
     }
 
@@ -674,6 +680,25 @@ public class AccountService {
             : priceService.getQuotes(tickers);
     }
 
+    /**
+     * Logo URLs for an account's holdings, in one call — and only for a crypto account.
+     *
+     * <p>Mirrors {@link #quotesFor}: the provider that can answer for a symbol decides, and only
+     * CoinGecko can today, so a non-crypto account resolves to nothing and its holdings keep
+     * showing their ticker. Batched for the same reason the prices are — one request per page
+     * rather than one per line.
+     */
+    private Map<String, String> logosFor(Account account, List<AccountHolding> holdings) {
+        if (account.getType() != AccountType.CRYPTO) return Map.of();
+        Set<String> tickers = holdings.stream()
+            .map(AccountHolding::getTicker)
+            .filter(t -> t != null && !t.isBlank())
+            .map(t -> t.toUpperCase(Locale.ROOT))
+            .collect(java.util.stream.Collectors.toSet());
+        if (tickers.isEmpty()) return Map.of();
+        return cryptoLogoService.getLogoUrls(tickers);
+    }
+
     /** Null-safe: {@code Set.of(...)} throws on a null lookup, and most accounts have no provider. */
     private boolean isProviderValued(Account account) {
         return account.getProvider() != null && PROVIDER_VALUED.contains(account.getProvider());
@@ -758,7 +783,7 @@ public class AccountService {
         h.setProviderValueEur(null);
         h.setProviderPnlEur(null);
         holdingRepository.save(h);
-        return toHoldingResponse(h, quotesFor(account, List.of(h)));
+        return toHoldingResponse(h, quotesFor(account, List.of(h)), logosFor(account, List.of(h)));
     }
 
     @Transactional
@@ -908,7 +933,9 @@ public class AccountService {
         return loanAmortizationService.compute(debt, LocalDate.now());
     }
 
-    private HoldingResponse toHoldingResponse(AccountHolding holding, Map<String, PriceService.Quote> quotes) {
+    private HoldingResponse toHoldingResponse(AccountHolding holding,
+                                              Map<String, PriceService.Quote> quotes,
+                                              Map<String, String> logos) {
         BigDecimal currentPrice = holding.getCurrentPrice();
         BigDecimal currentPriceEur = null;
         Instant priceUpdatedAt = null;
@@ -955,6 +982,7 @@ public class AccountService {
         return new HoldingResponse(
             holding.getTicker(),
             holding.getName(),
+            holding.getTicker() == null ? null : logos.get(holding.getTicker().toUpperCase(Locale.ROOT)),
             quantity,
             averageBuyIn,
             currentPrice,

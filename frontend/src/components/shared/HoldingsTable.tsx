@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { useMoney } from '@/hooks/use-money'
 import type { HoldingResponse } from '@/types/api'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { HoldingLogo } from '@/components/shared/HoldingLogo'
 import { PriceFreshnessDot } from '@/components/shared/PriceFreshnessDot'
 import { SortableTableHead } from '@/components/shared/SortableTableHead'
 import { useTableSort, type SortColumns } from '@/hooks/use-table-sort'
@@ -78,7 +79,12 @@ export function HoldingsTable({ holdings, onEdit, onDelete }: HoldingsTableProps
           <TableBody>
             {rows.map((h) => (
               <TableRow key={h.ticker}>
-                <TableCell className="font-mono font-medium">{h.ticker}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <HoldingLogo logoUrl={h.logoUrl} ticker={h.ticker} />
+                    <span className="font-mono font-medium">{h.ticker}</span>
+                  </div>
+                </TableCell>
                 <TableCell>{h.name ?? h.ticker}</TableCell>
                 <TableCell className="text-right">{money.quantity(h.quantity)}</TableCell>
                 <TableCell className="text-right">
