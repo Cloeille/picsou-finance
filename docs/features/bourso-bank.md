@@ -229,7 +229,11 @@ short transaction then replaces every account's holdings and writes the daily
 snapshot. The 08:00 scheduler calls `resyncIfSessionActive` through the same gates.
 
 Only `SESSION_EXPIRED` deactivates the session — a transient failure leaves a
-usable one so the scheduler simply retries.
+usable one so the scheduler simply retries. If encrypted customer credentials
+were saved after a successful login, an expired session triggers one unattended
+re-login; it is accepted only when the bank does not require MFA. Invalid
+credentials are erased to avoid repeatedly submitting a changed password, and
+disconnect removes saved credentials with the session.
 
 ## Key files
 
