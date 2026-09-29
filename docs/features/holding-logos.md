@@ -31,9 +31,15 @@ owns: the provider already serves it for free, so persisting it would buy a migr
 lifecycle for a value that cannot go stale. The one-time-fetch argument that applies to equities
 (issue #162) does not bite here, because a batched call is already O(1) requests per page.
 
-The service caches in memory for 24h, including misses — a ticker CoinGecko has no image for is
-asked about once per TTL rather than on every render. A 24h TTL rather than `PriceService`'s 15
-minutes because the value is not time-sensitive.
+The service caches in memory, and a resolved URL is trusted for 24h rather than
+`PriceService`'s 15 minutes, because a coin's mark does not go stale: re-resolving it every quarter
+of an hour would spend CoinGecko calls to learn nothing. A *miss* is remembered too — an unmapped
+ticker is asked about once rather than on every render of a page that lists it — but on a much
+shorter clock, 60s. The split is the load-bearing part. An absent key is indistinguishable from
+"this coin has no logo", so it is also what a rate-limited or unreachable provider returns;
+remembering it for 24h would turn one throttled page render into blank marks on every portfolio
+page for the rest of the day. This is the same two-TTL shape `PriceService` uses, for the same
+reason (`docs/features/price-service.md`).
 
 The URLs point at `coin-images.coingecko.com` and are fetched by the browser, the same shape as
 the Enable Banking institution logos Picsou already hotlinks (`bank-logos.md`, which considered
@@ -45,10 +51,12 @@ for a set nobody can enumerate).
 Every failure mode is decoration-only, by construction — `logoUrl` is null and the ticker stands:
 
 - **Ticker not in the registry** (every equity, today) → null, no request.
-- **Provider down, 5xx, timeout** → logged, cooldown armed on a 429 (shared with the price path,
-  so a paused provider is not asked for decoration while it is still serving prices), null
-  returned. The price path is untouched: an NPE or parse defect in the new code is **rethrown**,
-  not swallowed into "no logos", matching `handleFetchFailure`.
+- **Provider down, 5xx, timeout, 429** → logged, cooldown armed on a 429 (shared with the price
+  path, so a paused provider is not asked for decoration while it is still serving prices), null
+  returned, and the absence cached for a minute rather than a day. The price path is untouched: an
+  NPE or parse defect in the new code is **rethrown**, not swallowed into "no logos" — the
+  classifier that decides swallow-or-rethrow is shared with the price path
+  (`CoinGeckoPriceProvider.isExpectedUpstreamFailure`), so the two routes cannot drift apart.
 - **Image 404s in the browser** → `HoldingLogo` drops the `src` and shows an empty disc. Radix
   keeps a failed image mounted, so without that reset one failed request would leave the mark
   blank for the rest of the session.
@@ -71,7 +79,16 @@ would move from "in-memory 24h" to "fetch once per ticker, ever". That is the ma
 
 ## Tests
 
-- `CryptoLogoServiceTest` — batching, the negative cache, partial hits, empty/blank input.
+- `CoinGeckoPriceProviderTest` — the failure contract on the new path: images re-keyed by ticker,
+  an unmapped equity never reaching the network, a 200 with no image, a 429 arming the cooldown
+  that the price path then reads, and a genuine bug propagating instead of degrading to "no logo".
+- `CryptoLogoServiceTest` — batching, the two cache clocks, partial hits, empty/blank input. The
+  clock is injected (`Clock`, the bean `PersistentSessionService` already uses) so a TTL is
+  asserted by moving time rather than by sleeping.
 - `AccountServiceTest` — a crypto holding carries its logo; an equity leaves `logoUrl` null and
   never reaches the crypto resolver.
-- `HoldingLogo.test.tsx` — image shown, empty fallback, recovery from a failed load.
+- `HoldingsTable.test.tsx` / `HoldingLogo.test.tsx` — the mark beside the ticker, an equity row on
+  its ticker alone, recovery from a failed load, and the ticker appearing exactly once.
+
+`frontend/src/test/stubImage.ts` holds the global `Image` stub Radix needs, shared by the tests
+that drive an avatar's load outcome rather than copied into each.

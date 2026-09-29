@@ -331,23 +331,25 @@ public class CryptoExchangeSyncService {
             return List.of();
         }
 
-        // One resolution for the whole page. Per-position lookups meant an HTTP request per line
-        // on every render, which is exactly the traffic that gets an instance rate-limited — and
-        // then leaves it with nothing to display. Crypto-only, for the same reason the sync uses
-        // it: a ticker CoinGecko doesn't map must read as "no price", never as the same-named
-        // share price.
-        Map<String, PriceService.Quote> quotes = priceService.getCryptoQuotes(positions.stream()
+        // One resolution for the whole page, one key set, two calls. Per-position lookups meant
+        // an HTTP request per line on every render, which is exactly the traffic that gets an
+        // instance rate-limited — and then leaves it with nothing to display. Crypto-only, for
+        // the same reason the sync uses it: a ticker CoinGecko doesn't map must read as "no
+        // price", never as the same-named share price.
+        Set<String> tickers = positions.stream()
             .map(CryptoExchangePosition::getTicker)
-            .collect(Collectors.toSet()));
+            .collect(Collectors.toSet());
+        Map<String, PriceService.Quote> quotes = priceService.getCryptoQuotes(tickers);
 
         // Same reasoning as the quotes above, and the same batching: one call for the page.
-        Map<String, String> logos = cryptoLogoService.getLogoUrls(positions.stream()
-            .map(CryptoExchangePosition::getTicker)
-            .collect(Collectors.toSet()));
+        Map<String, String> logos = cryptoLogoService.getLogoUrls(tickers);
 
         return positions.stream()
             .map(position -> {
-                PriceService.Quote quote = quotes.get(position.getTicker());
+                // Both resolvers key their map by the upper-cased ticker, so both lookups read
+                // the same spelling of it -- see AccountService.tickersOf.
+                String tickerKey = position.getTicker().toUpperCase(Locale.ROOT);
+                PriceService.Quote quote = quotes.get(tickerKey);
                 BigDecimal price = quote == null ? null : quote.price();
                 BigDecimal quantity = position.getQuantity();
                 BigDecimal averageBuyIn = unitCost.get(position.getTicker());
@@ -364,7 +366,7 @@ public class CryptoExchangeSyncService {
                 return new ExchangePositionResponse(
                     position.getProduct().name(),
                     position.getTicker(),
-                    logos.get(position.getTicker().toUpperCase(Locale.ROOT)),
+                    logos.get(tickerKey),
                     quantity,
                     position.getPrincipal(),
                     position.getInterest(),

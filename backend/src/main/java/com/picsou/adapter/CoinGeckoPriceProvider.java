@@ -237,19 +237,15 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
             // A logo is decoration: the price path must not degrade because the image call
             // failed, and a 429 here is worth arming the shared cooldown so a render loop does
             // not keep asking. Anything that is not an expected upstream failure is a bug in
-            // this method and is rethrown, exactly as handleFetchFailure does for prices.
-            Throwable cause = reactor.core.Exceptions.unwrap(ex);
-            if (cause instanceof WebClientResponseException || cause instanceof TimeoutException
-                || cause instanceof WebClientRequestException) {
+            // this method and is rethrown -- same call as the price path, so both routes through
+            // one classifier.
+            if (isExpectedUpstreamFailure(reactor.core.Exceptions.unwrap(ex))) {
                 handleFetchFailure("logos", supported, TIMEOUT, ex);
                 return Map.of();
             }
             throw ex;
         }
     }
-
-    /** The subset of {@code /coins/markets} we read: the coin's id and its image URL. */
-    private record MarketEntry(String id, String image) {}
 
     @Override
     public Map<String, BigDecimal> getPricesEur(Set<String> tickers) {
@@ -313,6 +309,22 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
     }
 
     /**
+     * Whether a failure is the provider's to own — an HTTP status, a timeout, or a request that
+     * never reached the server. Those are logged and turned into "no answer"; anything else is
+     * ours and is rethrown.
+     *
+     * <p>Shared so the decision is written once. The logo path needs the same swallow-or-rethrow
+     * call as the price path, and a second {@code instanceof} chain would be a divergence trap:
+     * adding a case here later would leave that other gate passing the new failure through as a
+     * 500 on a page render.
+     */
+    private static boolean isExpectedUpstreamFailure(Throwable cause) {
+        return cause instanceof WebClientResponseException
+            || cause instanceof TimeoutException
+            || cause instanceof WebClientRequestException;
+    }
+
+    /**
      * Classifies a failed CoinGecko call, and decides whether it is ours to swallow.
      *
      * <p><b>Expected upstream failures</b> (HTTP error, unreachable API, timeout) are logged
@@ -373,11 +385,18 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
             // stacktrace, which would otherwise flood the log for the whole outage.
             log.warn("CoinGecko {} request for {} could not reach the API ({}) -- returning no prices",
                 operation, context, cause.getMessage());
-        } else {
+        } else if (!isExpectedUpstreamFailure(cause)) {
             // Not an upstream failure -- an NPE, ClassCastException or parse defect on our
             // side. Rethrow rather than return an empty map: a bug that presents as "no
             // prices" is indistinguishable from a quiet outage and would never get fixed.
             throw ex;
+        } else {
+            // An expected failure with no branch of its own above: {@link
+            // #isExpectedUpstreamFailure} and these three cases have drifted apart. Log it
+            // rather than swallow it silently, so the next addition has to give it a severity.
+            log.warn("CoinGecko {} request for {} failed with an unclassified expected failure"
+                + " ({}: {}) -- returning no prices",
+                operation, context, cause.getClass().getSimpleName(), cause.getMessage());
         }
     }
 
@@ -557,6 +576,9 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
             date -> !date.isBefore(from) && !date.isAfter(to)
         );
     }
+
+    /** The subset of {@code /coins/markets} we read: the coin's id and its image URL. */
+    private record MarketEntry(String id, String image) {}
 
     static class PriceData {
         private BigDecimal eur;

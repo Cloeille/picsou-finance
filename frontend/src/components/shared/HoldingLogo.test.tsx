@@ -2,58 +2,13 @@ import '@testing-library/jest-dom'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
 import { HoldingLogo } from './HoldingLogo'
+import { StubImage } from '@/test/stubImage'
 
 const LOGO = 'https://coin-images.coingecko.com/coins/images/1/small/bitcoin.png'
 const BROKEN = 'https://coin-images.coingecko.com/coins/images/1/small/broken.png'
 
-/**
- * Radix probes the image with a synthetic `new Image()` rather than reading the rendered
- * <img>, so jsdom never mounts it on its own. Same stub as AccountCard.test.tsx: a src
- * containing "broken" reports a load failure, anything else reports success.
- */
-class MockImage {
-  onload: (() => void) | null = null
-  onerror: (() => void) | null = null
-  complete = false
-  naturalWidth = 0
-  private listeners = new Map<string, Set<(event: { currentTarget: MockImage }) => void>>()
-  private _src = ''
-
-  addEventListener(type: string, listener: (event: { currentTarget: MockImage }) => void) {
-    const listeners = this.listeners.get(type) ?? new Set()
-    listeners.add(listener)
-    this.listeners.set(type, listeners)
-  }
-
-  removeEventListener(type: string, listener: (event: { currentTarget: MockImage }) => void) {
-    this.listeners.get(type)?.delete(listener)
-  }
-
-  set src(value: string) {
-    this._src = value
-    this.complete = false
-    this.naturalWidth = 0
-    queueMicrotask(() => {
-      this.complete = true
-      if (value.includes('broken')) {
-        this.naturalWidth = 0
-        this.onerror?.()
-        this.listeners.get('error')?.forEach(listener => listener({ currentTarget: this }))
-      } else {
-        this.naturalWidth = 1
-        this.onload?.()
-        this.listeners.get('load')?.forEach(listener => listener({ currentTarget: this }))
-      }
-    })
-  }
-
-  get src() {
-    return this._src
-  }
-}
-
 beforeEach(() => {
-  vi.stubGlobal('Image', MockImage)
+  vi.stubGlobal('Image', StubImage)
 })
 
 afterEach(() => {

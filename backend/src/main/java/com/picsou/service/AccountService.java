@@ -43,6 +43,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional(readOnly = true)
@@ -669,11 +670,7 @@ public class AccountService {
      * what was synced.
      */
     private Map<String, PriceService.Quote> quotesFor(Account account, List<AccountHolding> holdings) {
-        Set<String> tickers = holdings.stream()
-            .map(AccountHolding::getTicker)
-            .filter(t -> t != null && !t.isBlank())
-            .map(t -> t.toUpperCase(Locale.ROOT))
-            .collect(java.util.stream.Collectors.toSet());
+        Set<String> tickers = tickersOf(holdings);
         if (tickers.isEmpty()) return Map.of();
         return account.getType() == AccountType.CRYPTO
             ? priceService.getCryptoQuotes(tickers)
@@ -690,13 +687,25 @@ public class AccountService {
      */
     private Map<String, String> logosFor(Account account, List<AccountHolding> holdings) {
         if (account.getType() != AccountType.CRYPTO) return Map.of();
-        Set<String> tickers = holdings.stream()
+        Set<String> tickers = tickersOf(holdings);
+        if (tickers.isEmpty()) return Map.of();
+        return cryptoLogoService.getLogoUrls(tickers);
+    }
+
+    /**
+     * The holdings' non-blank tickers, upper-cased and deduplicated — the key set both
+     * {@link #quotesFor} and {@link #logosFor} resolve against, and the key their results are
+     * read back with in {@link #toHoldingResponse}.
+     *
+     * <p>One place, because a normalization that drifts between the two lookups is a bug neither
+     * of them could see: the price would resolve under one spelling and the logo under another.
+     */
+    private static Set<String> tickersOf(List<AccountHolding> holdings) {
+        return holdings.stream()
             .map(AccountHolding::getTicker)
             .filter(t -> t != null && !t.isBlank())
             .map(t -> t.toUpperCase(Locale.ROOT))
-            .collect(java.util.stream.Collectors.toSet());
-        if (tickers.isEmpty()) return Map.of();
-        return cryptoLogoService.getLogoUrls(tickers);
+            .collect(Collectors.toSet());
     }
 
     /** Null-safe: {@code Set.of(...)} throws on a null lookup, and most accounts have no provider. */
@@ -948,8 +957,13 @@ public class AccountService {
         // currency without conversion — using it as a fallback would silently
         // produce native-as-EUR values. Better to return null and surface
         // "price unknown" than to invent a wrong number.
-        if (holding.getTicker() != null && !holding.getTicker().isBlank()) {
-            PriceService.Quote quote = quotes.get(holding.getTicker().toUpperCase(Locale.ROOT));
+        // Both maps are keyed by the upper-cased ticker, per tickersOf(). One normalization
+        // here, read by both lookups below: spelled twice it would be a place where a price
+        // resolves and its logo does not, which reads as a missing image rather than a bug.
+        boolean hasTicker = holding.getTicker() != null && !holding.getTicker().isBlank();
+        String tickerKey = hasTicker ? holding.getTicker().toUpperCase(Locale.ROOT) : null;
+        if (hasTicker) {
+            PriceService.Quote quote = quotes.get(tickerKey);
             if (quote != null) {
                 currentPriceEur = quote.price();
                 priceAsOf = quote.asOf();
@@ -982,7 +996,7 @@ public class AccountService {
         return new HoldingResponse(
             holding.getTicker(),
             holding.getName(),
-            holding.getTicker() == null ? null : logos.get(holding.getTicker().toUpperCase(Locale.ROOT)),
+            tickerKey == null ? null : logos.get(tickerKey),
             quantity,
             averageBuyIn,
             currentPrice,
