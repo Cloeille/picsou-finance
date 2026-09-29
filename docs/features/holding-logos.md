@@ -21,10 +21,16 @@ feature.
 ## Resolution: one batched call, no storage
 
 `CryptoLogoService.getLogoUrls` resolves a whole page's tickers in a single
-`CoinGeckoPriceProvider.getLogoUrls` call, which reads `image` off `/coins/markets?ids=…`. The
-lookup is gated on the same `TICKER_TO_ID` registry the crypto *prices* come from, so an equity
-ticker resolves to nothing rather than to an unrelated coin that happens to share its symbol — the
-same reason `quotesFor` resolves a `CRYPTO` account crypto-only.
+`LogoProviderPort.getLogoUrls` call, which reads `image` off `/coins/markets?ids=…`. The lookup is
+gated on the same `TICKER_TO_ID` registry the crypto *prices* come from, so an equity ticker
+resolves to nothing rather than to an unrelated coin that happens to share its symbol — the same
+reason `quotesFor` resolves a `CRYPTO` account crypto-only.
+
+The service depends on the **port**, not on `CoinGeckoPriceProvider`, per the ports & adapters
+rule in [`../CLAUDE.md`](../CLAUDE.md) ("controllers/services never import adapters directly").
+CoinGecko implements it beside `PriceProviderPort`; a second mark source would be a bean rather
+than an edit to the service. `LogoProviderWiringTest` pins the seam, because a service that took
+the concrete adapter again would compile and pass every other test in the suite.
 
 **Nothing is stored.** A coin's image is a read-only attribute of the coin, not state Picsou
 owns: the provider already serves it for free, so persisting it would buy a migration and a
@@ -68,7 +74,7 @@ Inside the lambda it would be one provider request per holding instead of one pe
 
 There is no logo source for equities or ETFs that Picsou can use without a scrape, and the
 candidates were measured (issue #162). Rather than pick one inside a diff, the shape leaves room
-for it: when a source lands, it belongs behind `CryptoLogoService`'s method — or a sibling — and
+for it: a new source implements `LogoProviderPort` beside CoinGecko and becomes a bean, and
 `logosFor` stops being crypto-gated. The `logoUrl` field, the component and the DTO shape are
 already the ones equities will need.
 
@@ -87,6 +93,9 @@ would move from "in-memory 24h" to "fetch once per ticker, ever". That is the ma
   asserted by moving time rather than by sleeping.
 - `AccountServiceTest` — a crypto holding carries its logo; an equity leaves `logoUrl` null and
   never reaches the crypto resolver.
+- `LogoProviderWiringTest` — the service resolves through the port, and the port resolves to
+  CoinGecko. The seam itself is what the equity work will touch, and it is invisible to a unit
+  test of either class.
 - `HoldingsTable.test.tsx` / `HoldingLogo.test.tsx` — the mark beside the ticker, an equity row on
   its ticker alone, recovery from a failed load, and the ticker appearing exactly once.
 

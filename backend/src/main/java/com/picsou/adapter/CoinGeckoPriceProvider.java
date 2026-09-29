@@ -1,6 +1,7 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.picsou.port.LogoProviderPort;
 import com.picsou.port.PriceProviderPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,7 +28,7 @@ import java.util.function.Predicate;
  * Supports tickers like BTC, ETH, SOL, etc.
  */
 @Component
-public class CoinGeckoPriceProvider implements PriceProviderPort {
+public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPort {
 
     private static final Logger log = LoggerFactory.getLogger(CoinGeckoPriceProvider.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
@@ -178,7 +179,11 @@ public class CoinGeckoPriceProvider implements PriceProviderPort {
      * read-only attribute of the coin, not state Picsou owns, so caching it durably would add a
      * migration and a lifecycle for a value the provider already serves for free. An unknown or
      * unmapped ticker is simply absent from the map and the UI shows its ticker.
+     *
+     * <p>Implements {@link LogoProviderPort}; the service above depends on that, not on this
+     * class, so a second mark source is a bean rather than an edit here.
      */
+    @Override
     public Map<String, String> getLogoUrls(Set<String> tickers) {
         if (tickers == null || tickers.isEmpty()) return Map.of();
 

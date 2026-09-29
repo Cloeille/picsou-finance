@@ -1,6 +1,6 @@
 package com.picsou.service;
 
-import com.picsou.adapter.CoinGeckoPriceProvider;
+import com.picsou.port.LogoProviderPort;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -22,7 +22,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CryptoLogoServiceTest {
 
-    @Mock CoinGeckoPriceProvider coinGecko;
+    @Mock LogoProviderPort logoProvider;
 
     /**
      * A clock the test moves by hand. The two cache TTLs are the whole point of this class, and
@@ -31,7 +31,7 @@ class CryptoLogoServiceTest {
     private final MutableClock clock = new MutableClock();
 
     private CryptoLogoService service() {
-        return new CryptoLogoService(coinGecko, clock);
+        return new CryptoLogoService(logoProvider, clock);
     }
 
     private static final class MutableClock extends Clock {
@@ -48,7 +48,7 @@ class CryptoLogoServiceTest {
 
     @Test
     void resolvesEveryTickerInOneBatchedCall() {
-        when(coinGecko.getLogoUrls(Set.of("BTC", "ETH"))).thenReturn(Map.of(
+        when(logoProvider.getLogoUrls(Set.of("BTC", "ETH"))).thenReturn(Map.of(
             "BTC", "https://img/btc.png",
             "ETH", "https://img/eth.png"));
 
@@ -58,12 +58,12 @@ class CryptoLogoServiceTest {
 
         assertThat(logos).containsEntry("BTC", "https://img/btc.png")
             .containsEntry("ETH", "https://img/eth.png");
-        verify(coinGecko, times(1)).getLogoUrls(Set.of("BTC", "ETH"));
+        verify(logoProvider, times(1)).getLogoUrls(Set.of("BTC", "ETH"));
     }
 
     @Test
     void aTickerTheProviderDoesNotKnowIsSimplyAbsent() {
-        when(coinGecko.getLogoUrls(any())).thenReturn(Map.of("BTC", "https://img/btc.png"));
+        when(logoProvider.getLogoUrls(any())).thenReturn(Map.of("BTC", "https://img/btc.png"));
 
         CryptoLogoService service = service();
 
@@ -73,7 +73,7 @@ class CryptoLogoServiceTest {
 
     @Test
     void aMissIsRememberedSoAnUnmappedTickerIsNotAskedAboutOnEveryRender() {
-        when(coinGecko.getLogoUrls(any())).thenReturn(Map.of());
+        when(logoProvider.getLogoUrls(any())).thenReturn(Map.of());
 
         CryptoLogoService service = service();
 
@@ -82,24 +82,24 @@ class CryptoLogoServiceTest {
         service.getLogoUrls(Set.of("NOPE"));
 
         // One call, not three: the negative entry is cached exactly like a hit.
-        verify(coinGecko, times(1)).getLogoUrls(Set.of("NOPE"));
+        verify(logoProvider, times(1)).getLogoUrls(Set.of("NOPE"));
     }
 
     @Test
     void aSecondPageServedFromTheCacheCostsNoRequest() {
-        when(coinGecko.getLogoUrls(any())).thenReturn(Map.of("BTC", "https://img/btc.png"));
+        when(logoProvider.getLogoUrls(any())).thenReturn(Map.of("BTC", "https://img/btc.png"));
 
         CryptoLogoService service = service();
         service.getLogoUrls(Set.of("BTC"));
         service.getLogoUrls(Set.of("BTC"));
 
-        verify(coinGecko, times(1)).getLogoUrls(any());
+        verify(logoProvider, times(1)).getLogoUrls(any());
     }
 
     @Test
     void onlyTheUncachedTickersAreFetchedOnALaterPage() {
-        when(coinGecko.getLogoUrls(Set.of("BTC"))).thenReturn(Map.of("BTC", "https://img/btc.png"));
-        when(coinGecko.getLogoUrls(Set.of("ETH"))).thenReturn(Map.of("ETH", "https://img/eth.png"));
+        when(logoProvider.getLogoUrls(Set.of("BTC"))).thenReturn(Map.of("BTC", "https://img/btc.png"));
+        when(logoProvider.getLogoUrls(Set.of("ETH"))).thenReturn(Map.of("ETH", "https://img/eth.png"));
 
         CryptoLogoService service = service();
         service.getLogoUrls(Set.of("BTC"));
@@ -109,7 +109,7 @@ class CryptoLogoServiceTest {
         assertThat(service.getLogoUrls(Set.of("BTC", "ETH")))
             .containsEntry("BTC", "https://img/btc.png")
             .containsEntry("ETH", "https://img/eth.png");
-        verify(coinGecko, never()).getLogoUrls(Set.of("BTC", "ETH"));
+        verify(logoProvider, never()).getLogoUrls(Set.of("BTC", "ETH"));
     }
 
     @Test
@@ -119,7 +119,7 @@ class CryptoLogoServiceTest {
         assertThat(service.getLogoUrls(Set.of())).isEmpty();
         assertThat(service.getLogoUrls(Set.of("  "))).isEmpty();
         assertThat(service.getLogoUrls(null)).isEmpty();
-        verify(coinGecko, never()).getLogoUrls(any());
+        verify(logoProvider, never()).getLogoUrls(any());
     }
 
     @Test
@@ -127,40 +127,40 @@ class CryptoLogoServiceTest {
         // The bug this pins: an absent key is indistinguishable from "the provider did not
         // answer", so caching a miss for 24h turned one rate-limited render into blank marks on
         // every portfolio page until the next restart. A minute of silence, then ask again.
-        when(coinGecko.getLogoUrls(any())).thenReturn(Map.of());
+        when(logoProvider.getLogoUrls(any())).thenReturn(Map.of());
         CryptoLogoService service = service();
 
         service.getLogoUrls(Set.of("BTC"));
         clock.advanceSeconds(59);
         service.getLogoUrls(Set.of("BTC"));
-        verify(coinGecko, times(1)).getLogoUrls(Set.of("BTC"));
+        verify(logoProvider, times(1)).getLogoUrls(Set.of("BTC"));
 
         clock.advanceSeconds(2);
         service.getLogoUrls(Set.of("BTC"));
-        verify(coinGecko, times(2)).getLogoUrls(Set.of("BTC"));
+        verify(logoProvider, times(2)).getLogoUrls(Set.of("BTC"));
     }
 
     @Test
     void aHitKeepsItsLongClock_acrossTheWindowAMissWouldHaveExpired() {
         // The other half of the split: a resolved URL is not time-sensitive, so the short miss
         // TTL must not also shorten it into CoinGecko calls that learn nothing.
-        when(coinGecko.getLogoUrls(any())).thenReturn(Map.of("BTC", "https://img/btc.png"));
+        when(logoProvider.getLogoUrls(any())).thenReturn(Map.of("BTC", "https://img/btc.png"));
         CryptoLogoService service = service();
 
         service.getLogoUrls(Set.of("BTC"));
         clock.advanceSeconds(23 * 3600);
         assertThat(service.getLogoUrls(Set.of("BTC"))).containsEntry("BTC", "https://img/btc.png");
 
-        verify(coinGecko, times(1)).getLogoUrls(any());
+        verify(logoProvider, times(1)).getLogoUrls(any());
     }
 
     @Test
     void aHitIsRefreshedOnceItsOwnDayIsUp() {
-        when(coinGecko.getLogoUrls(any())).thenReturn(Map.of("BTC", "https://img/old.png"));
+        when(logoProvider.getLogoUrls(any())).thenReturn(Map.of("BTC", "https://img/old.png"));
         CryptoLogoService service = service();
         service.getLogoUrls(Set.of("BTC"));
 
-        when(coinGecko.getLogoUrls(any())).thenReturn(Map.of("BTC", "https://img/new.png"));
+        when(logoProvider.getLogoUrls(any())).thenReturn(Map.of("BTC", "https://img/new.png"));
         clock.advanceSeconds(24 * 3600 + 1);
 
         assertThat(service.getLogoUrls(Set.of("BTC"))).containsEntry("BTC", "https://img/new.png");
@@ -168,7 +168,7 @@ class CryptoLogoServiceTest {
 
     @Test
     void aProviderReturningNothingYieldsAnEmptyMapRatherThanAFailure() {
-        when(coinGecko.getLogoUrls(any())).thenReturn(Map.of());
+        when(logoProvider.getLogoUrls(any())).thenReturn(Map.of());
 
         CryptoLogoService service = service();
 

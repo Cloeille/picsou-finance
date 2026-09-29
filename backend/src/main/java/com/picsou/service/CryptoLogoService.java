@@ -1,6 +1,6 @@
 package com.picsou.service;
 
-import com.picsou.adapter.CoinGeckoPriceProvider;
+import com.picsou.port.LogoProviderPort;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -16,10 +16,11 @@ import java.util.stream.Collectors;
 /**
  * The image URL to show for a holding's crypto asset, resolved on demand.
  *
- * <p>Crypto only, and deliberately so: {@code CoinGeckoPriceProvider.getLogoUrls} answers from
- * the same coin-id registry that prices crypto, so an equity ticker simply has no entry here and
- * the UI keeps rendering its ticker. Equities have no logo source yet (issue #162) — when one
- * lands, it belongs behind this same method so callers do not learn where the URL came from.
+ * <p>Crypto only, and deliberately so: the provider answers from the same coin-id registry that
+ * prices crypto, so an equity ticker simply has no entry and the UI keeps rendering its ticker.
+ * Equities have no logo source yet (issue #162) — when one lands it implements
+ * {@link LogoProviderPort} beside this one, and the cache below becomes the only thing that has to
+ * learn about it. Nothing above this class names a provider.
  *
  * <p>The cache is in-memory and long-lived, unlike {@code PriceService}'s 15-minute one, because
  * the value is not time-sensitive: a coin's mark does not go stale, and the URL is stable enough
@@ -49,12 +50,12 @@ public class CryptoLogoService {
      */
     private static final long MISS_CACHE_TTL_SECONDS = 60;
 
-    private final CoinGeckoPriceProvider coinGecko;
+    private final LogoProviderPort logoProvider;
     private final Clock clock;
     private final Map<String, CachedLogo> cache = new ConcurrentHashMap<>();
 
-    public CryptoLogoService(CoinGeckoPriceProvider coinGecko, Clock clock) {
-        this.coinGecko = coinGecko;
+    public CryptoLogoService(LogoProviderPort logoProvider, Clock clock) {
+        this.logoProvider = logoProvider;
         this.clock = clock;
     }
 
@@ -110,7 +111,7 @@ public class CryptoLogoService {
             .collect(Collectors.toCollection(TreeSet::new));
 
         if (!missing.isEmpty()) {
-            Map<String, String> fetched = coinGecko.getLogoUrls(missing);
+            Map<String, String> fetched = logoProvider.getLogoUrls(missing);
             for (String ticker : missing) {
                 // Cache the miss as well: a null url is the negative entry, and re-asking on
                 // every render is exactly the request storm the cache exists to prevent. It gets
