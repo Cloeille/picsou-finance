@@ -152,12 +152,18 @@ def parse_portfolio(html: str) -> dict[str, Any]:
     candidates = []
     for row in _ROW_RE.findall(html):
         cells = _cell_texts(row)
-        if not cells:
+        if not cells or all(not cell.strip() for cell in cells):
             continue
         if cells[0].strip().lower() == "total":
             continue
-        if len(cells) >= 5:
-            candidates.append(row)
+        if len(cells) < 5:
+            # A short row is a fund the page no longer renders fully. Skipping
+            # it used to turn "total 0 + truncated lines" into an empty
+            # complete portfolio, which then zeroed every linked account.
+            raise PositionsFormatError(
+                "UPSTREAM_FORMAT_CHANGED", "portfolio row has too few cells"
+            )
+        candidates.append(row)
 
     if not candidates:
         if _declared_total(html) != 0:

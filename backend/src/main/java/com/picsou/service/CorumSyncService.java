@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
@@ -49,6 +50,7 @@ import static com.picsou.service.SyncValues.requireTransactionResult;
 @Service
 public class CorumSyncService {
     private static final Logger log = LoggerFactory.getLogger(CorumSyncService.class);
+    private static final BigDecimal MONEY_TOLERANCE = new BigDecimal("0.01");
 
     private final CorumPort port;
     private final CorumSessionRepository sessionRepository;
@@ -227,6 +229,7 @@ public class CorumSyncService {
                 throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a negative share count", null);
             }
         }
+        checkDeclaredTotal(snapshot);
 
         int updated = 0;
         for (CorumPort.Holding holding : snapshot.holdings()) {
@@ -251,6 +254,40 @@ public class CorumSyncService {
             updated++;
         }
         return updated;
+    }
+
+    /**
+     * Reconciles the funds against the contract total the snapshot declares.
+     *
+     * <p>The sidecar already does this, and repeating it here is deliberate: the
+     * sidecar is a separate deployable, so its check is exactly the thing a
+     * rolling update or a stale image would leave out. The figure compared is
+     * the displayed value, not the withdrawal value: entry fees sit between the
+     * two, and comparing the withdrawal value to the contract would refuse
+     * every real portfolio.
+     */
+    private void checkDeclaredTotal(CorumPort.Snapshot snapshot) {
+        BigDecimal declared = snapshot.totalValuationEur();
+        if (declared == null || declared.signum() < 0) {
+            throw error(CorumErrorCode.PORTFOLIO_INCOMPLETE,
+                "CORUM returned no valid portfolio total", null);
+        }
+        BigDecimal computed = BigDecimal.ZERO;
+        for (CorumPort.Holding holding : snapshot.holdings()) {
+            if (holding.displayedValueEur() == null) {
+                throw error(CorumErrorCode.PORTFOLIO_INCOMPLETE,
+                    "CORUM returned a fund without a displayed value", null);
+            }
+            computed = computed.add(holding.displayedValueEur());
+        }
+        if (computed.subtract(declared).abs().compareTo(MONEY_TOLERANCE) > 0) {
+            throw error(
+                CorumErrorCode.PORTFOLIO_INCOMPLETE,
+                "The CORUM funds add up to " + computed.setScale(2, RoundingMode.HALF_UP)
+                    + " but the snapshot declares " + declared.setScale(2, RoundingMode.HALF_UP),
+                null
+            );
+        }
     }
 
     private boolean markRunning(SyncJob job) {

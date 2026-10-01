@@ -100,6 +100,30 @@ class ParseSnapshotTest(unittest.TestCase):
 
         self.assertEqual(position["withdrawalPrice"], Decimal("0"))
 
+    def test_positive_total_with_no_lines_is_not_an_empty_portfolio(self):
+        with self.assertRaises(PositionsFormatError) as caught:
+            parse_snapshot(_contract([], total="300.00"), [])
+
+        self.assertEqual(caught.exception.code, "PORTFOLIO_INCOMPLETE")
+
+    def test_missing_displayed_value_is_not_a_complete_snapshot(self):
+        contract = _contract([_line("US", "340.00")], total="340.00")
+        product = _product("US", "2", "150", "170", None)
+
+        with self.assertRaises(PositionsFormatError) as caught:
+            parse_snapshot(contract, [product])
+
+        self.assertEqual(caught.exception.code, "PORTFOLIO_INCOMPLETE")
+
+    def test_negative_envelope_is_refused(self):
+        contract = _contract([_line("US", "-1.00")], total="-1.00")
+        product = _product("US", "1", "150", "170", "-1.00")
+
+        with self.assertRaises(PositionsFormatError) as caught:
+            parse_snapshot(contract, [product])
+
+        self.assertEqual(caught.exception.code, "PORTFOLIO_INCOMPLETE")
+
     def test_snapshot_is_refused_when_a_fund_is_missing(self):
         contract = _contract([_line("US", "150.00"), _line("XL", "150.00")])
         only_one = _product("US", "1", 150, 170, "150.00")

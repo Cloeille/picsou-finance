@@ -114,4 +114,56 @@ class CorumSyncServiceTest {
             assertThat(current.get().getSyncStatus()).isEqualTo(CorumSyncStatus.IDLE);
         }
     }
+
+    @org.junit.jupiter.api.Test
+    void queueSync_refusesASnapshotWhoseDisplayedValuesMissTheEnvelope() {
+        CorumSession session = activeSession();
+        when(port.fetchSnapshot("plain-state")).thenReturn(new CorumPort.Snapshot(
+            "contract", "PP", "EUR", new BigDecimal("600.00"), null, true,
+            List.of(holding("US", "100.00", "150"))
+        ));
+
+        service.queueSync(7L);
+
+        verifyNoInteractions(positionRepository, positionService);
+        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.PORTFOLIO_INCOMPLETE);
+    }
+
+    @org.junit.jupiter.api.Test
+    void queueSync_acceptsDisplayedTotalEvenWhenWithdrawalValueIsLower() {
+        activeSession();
+        when(port.fetchSnapshot("plain-state")).thenReturn(new CorumPort.Snapshot(
+            "contract", "PP", "EUR", new BigDecimal("340.00"), null, true,
+            List.of(holding("US", "340.00", "150"))
+        ));
+        when(positionRepository.findByMemberIdAndCorumFundCode(7L, "US"))
+            .thenReturn(Optional.of(mock(com.picsou.model.ScpiPosition.class)));
+
+        service.queueSync(7L);
+
+        verify(positionService).applySyncedPosition(
+            any(), eq(new BigDecimal("2")), eq(new BigDecimal("170")),
+            eq(new BigDecimal("150")), eq(null)
+        );
+    }
+
+    private CorumSession activeSession() {
+        FamilyMember member = FamilyMember.builder().id(7L).build();
+        CorumSession session = CorumSession.builder().id(3L).member(member)
+            .sessionState("encrypted").build();
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("encrypted")).thenReturn("plain-state");
+        return session;
+    }
+
+    private static CorumPort.Holding holding(String code, String displayed, String withdrawal) {
+        return new CorumPort.Holding(
+            code, "CORUM " + code, new BigDecimal("2"),
+            new BigDecimal(withdrawal), new BigDecimal("170"),
+            new BigDecimal(displayed), null
+        );
+    }
 }

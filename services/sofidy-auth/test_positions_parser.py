@@ -214,6 +214,15 @@ class RefusesPartialOrChangedPayloads(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, "INVALID_DATA")
 
+    def test_truncated_fund_row_is_not_an_empty_portfolio(self):
+        # Three cells, a zero total, and no product code. Skipping the row
+        # would read this as a sold-out portfolio and zero every linked account.
+        short = "<tr><td>FONDS-EXEMPLE</td><td>3.00000</td><td>Pleine propriété</td></tr>"
+        with self.assertRaises(PositionsFormatError) as ctx:
+            parse_portfolio(page(short, total_row(parts="0", total="0.00")))
+
+        self.assertEqual(ctx.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
     def test_empty_portfolio_is_a_real_state(self):
         # A holder who sold every fund still gets the totals row. That is a
         # complete, empty portfolio, not a failure.

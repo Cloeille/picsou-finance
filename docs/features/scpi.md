@@ -136,6 +136,10 @@ PUT /api/accounts/{id}/scpi
   connected panel while the portal was still waiting on a verification code.
 - The empty unit-value cell in the Sofidy portfolio prints its `€` mark, so an
   empty-string check reads a missing price as a parse failure.
+- A positive, negative or unreadable portfolio total with missing lines is refused,
+  not stored as an empty portfolio. CORUM also refuses a fund whose displayed value
+  is missing, and the Java sync repeats the envelope check so a stale sidecar cannot
+  skip it. A Sofidy row with too few cells is a format change, not a row to skip.
 
 ## Tests
 
@@ -146,7 +150,15 @@ PUT /api/accounts/{id}/scpi
 - `SofidyAdapterTest` — the two-step login, a rejected verification code, a fund
   without a withdrawal price, a complete empty portfolio, an untrusted flag
 - `services/sofidy-auth/test_positions_parser.py` — the real page shape, a row with
-  no product code refused, a missing unit value, a total that does not reconcile
+  no product code refused, a missing unit value, a total that does not reconcile,
+  a truncated row refused rather than read as an empty portfolio
+- `services/corum-auth/test_positions_parser.py` — a missing displayed value, a
+  negative envelope, and a positive total with no lines are refused
+- `CorumSyncServiceTest` — a stale sidecar whose displayed values miss the envelope
+  writes nothing; entry fees do not fail the envelope check
+- `ImpersonationControllerTest` — an activated member cannot be impersonated, a
+  managed-member override is the id passed downstream, a co-owner can read ownership
+  but cannot replace it
 - `services/sofidy-auth/test_live_contract.py` — the routes, the 2FA handshake, and
   the codes the Java adapter depends on
 

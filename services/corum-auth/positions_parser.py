@@ -68,7 +68,12 @@ def _envelope_total(contract: dict[str, Any]) -> Decimal:
     total = contract.get("valuationAmount")
     if total is None:
         raise PositionsFormatError("UPSTREAM_FORMAT_CHANGED")
-    return _decimal(total, "valuationAmount")
+    parsed = _decimal(total, "valuationAmount")
+    # A missing or negative envelope is not "nothing to check". Skipping it
+    # used to let a partial read through as a complete portfolio.
+    if not parsed.is_finite() or parsed < 0:
+        raise PositionsFormatError("PORTFOLIO_INCOMPLETE")
+    return parsed
 
 
 def _share(product: dict[str, Any]) -> dict[str, Any]:
@@ -154,8 +159,13 @@ def parse_snapshot(contract: dict[str, Any], products: list[dict[str, Any]]) -> 
 
         saving = product["saving"]
         value_raw = saving.get("value")
-        if value_raw is not None:
-            displayed_values.append(_decimal(value_raw, "saving.value"))
+        # A fund with no displayed value cannot be reconciled. Leaving the
+        # check off and still marking the snapshot complete is how a positive
+        # total and a missing line used to pass as a full portfolio.
+        if value_raw is None:
+            raise PositionsFormatError("PORTFOLIO_INCOMPLETE")
+        displayed = _decimal(value_raw, "saving.value")
+        displayed_values.append(displayed)
 
         positions.append(
             {
@@ -164,16 +174,12 @@ def parse_snapshot(contract: dict[str, Any], products: list[dict[str, Any]]) -> 
                 "quantity": quantity,
                 "withdrawalPrice": withdrawal,
                 "subscriptionPrice": subscription,
-                "displayedValueEur": _decimal(value_raw, "saving.value")
-                if value_raw is not None
-                else None,
+                "displayedValueEur": displayed,
                 "valuationDate": _valuation_date(share.get("valuationDate")),
             }
         )
 
-    if len(displayed_values) == len(codes):
-        # Only a complete read can be checked against the envelope.
-        _lines_sum(contract, displayed_values)
+    _lines_sum(contract, displayed_values)
 
     valuation_date = contract.get("valuationDate")
     return {
