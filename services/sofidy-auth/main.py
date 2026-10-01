@@ -446,6 +446,7 @@ async def complete(req: CompleteRequest) -> dict:
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
 
     client: httpx.AsyncClient = state["client"]
+    retryable = False
     try:
         raw = (
             await _post(
@@ -464,6 +465,7 @@ async def complete(req: CompleteRequest) -> dict:
             # is the only reading its contract supports. 401 here means "try
             # again with another code": not a dead session, and not an outage the
             # operator should go looking for.
+            retryable = True
             raise HTTPException(status_code=401, detail="MFA_INVALID")
 
         if not _is_logged_in(await _home(client)):
@@ -480,9 +482,14 @@ async def complete(req: CompleteRequest) -> dict:
         log.error("Unexpected Sofidy authentication completion failure")
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
     finally:
-        # The pending client is handed to the caller only as serialised cookies,
-        # so it can always be closed here.
-        await _dispose_pending_state(state)
+        # A wrong code is retryable: the portal keeps the same attempt open.
+        # Disposing it here would turn the next code into an expired attempt.
+        if retryable:
+            restored = await _store_pending(req.processId, state)
+            if not restored:
+                await _dispose_pending_state(state)
+        else:
+            await _dispose_pending_state(state)
 
 
 @app.post("/positions", response_model=SnapshotPayload)

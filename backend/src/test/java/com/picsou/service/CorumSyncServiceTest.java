@@ -20,6 +20,7 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -163,7 +164,7 @@ class CorumSyncServiceTest {
         return new CorumPort.Holding(
             code, "CORUM " + code, new BigDecimal("2"),
             new BigDecimal(withdrawal), new BigDecimal("170"),
-            new BigDecimal(displayed), null
+            new BigDecimal(displayed), LocalDate.of(2026, 9, 26)
         );
     }
 }

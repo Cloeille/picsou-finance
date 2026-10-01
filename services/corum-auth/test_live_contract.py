@@ -6,6 +6,8 @@ because the fixture was written from the same wrong assumption as the code.
 import unittest
 from unittest.mock import patch
 
+from fastapi import HTTPException
+
 import main
 
 
@@ -256,6 +258,35 @@ class NewBrowserReleasesOnSetupFailureTest(unittest.IsolatedAsyncioTestCase):
     async def test_a_successful_setup_still_holds_the_slot(self):
         """The success path must not close early -- the caller owns it now."""
         self.assertEqual(await self._run(explode=False), 1)
+
+
+class SelectsTheRealEstateContract(unittest.TestCase):
+    def test_a_life_contract_does_not_make_one_real_estate_contract_ambiguous(self):
+        code, kind = main._select_real_estate_contract([
+            {"contractCode": "LIFE-1", "contractType": "LIFE"},
+            {"contractCode": "RE-1", "contractType": "real_estate"},
+        ])
+
+        self.assertEqual((code, kind), ("RE-1", "real_estate"))
+
+    def test_two_real_estate_contracts_stay_ambiguous(self):
+        with self.assertRaises(HTTPException) as caught:
+            main._select_real_estate_contract([
+                {"contractCode": "RE-1", "contractType": "REAL_ESTATE"},
+                {"contractCode": "RE-2", "contractType": "REAL_ESTATE"},
+            ])
+
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(caught.exception.detail, "MULTIPLE_CONTRACTS")
+
+    def test_no_real_estate_contract_is_incomplete(self):
+        with self.assertRaises(HTTPException) as caught:
+            main._select_real_estate_contract([
+                {"contractCode": "LIFE-1", "contractType": "LIFE"},
+            ])
+
+        self.assertEqual(caught.exception.status_code, 502)
+        self.assertEqual(caught.exception.detail, "PORTFOLIO_INCOMPLETE")
 
 
 if __name__ == "__main__":

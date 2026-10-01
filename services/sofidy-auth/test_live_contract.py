@@ -259,6 +259,19 @@ class RouteContract(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "MFA_INVALID")
         self.assertNotIn("sessionState", response.json())
 
+    def test_a_wrong_code_can_be_retried_on_the_same_attempt(self):
+        process_id, stub = self._pending_id()
+        stub.responses[service.VERIFY_2FA_PATH] = StubResponse("faux")
+
+        rejected = self.client.post("/complete", json={"processId": process_id, "code": "000000"})
+        self.assertEqual(rejected.status_code, 401)
+
+        stub.responses[service.VERIFY_2FA_PATH] = StubResponse("fauxyes")
+        retried = self.client.post("/complete", json={"processId": process_id, "code": "480921"})
+
+        self.assertEqual(retried.status_code, 200)
+        self.assertIn("PHPSESSID", retried.json()["sessionState"])
+
     def test_completing_twice_fails(self):
         process_id, _ = self._pending_id()
         first = self.client.post("/complete", json={"processId": process_id, "code": "480921"})

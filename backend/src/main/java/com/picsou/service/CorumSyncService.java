@@ -249,7 +249,7 @@ public class CorumSyncService {
                 holding.quantity(),
                 holding.subscriptionPrice(),
                 holding.withdrawalPrice(),
-                holding.valuationDate()
+                null
             );
             updated++;
         }

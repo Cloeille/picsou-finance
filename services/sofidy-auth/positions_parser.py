@@ -30,6 +30,7 @@ _VALUATION_DATE_RE = re.compile(
 _TOTAL_RE = re.compile(r"<td>\s*Total\s*</td>", re.IGNORECASE)
 _LOGIN_FORM_MARKER = "connexion_espace_partenaire"
 _HEADER_RE = re.compile(r"Nombre\s+de\s+parts", re.IGNORECASE)
+_TABLE_RE = re.compile(r"<table\b[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
 
 
 class PositionsFormatError(Exception):
@@ -131,6 +132,18 @@ def _parse_valuation_date(html: str) -> str | None:
     return f"{year}-{month}-{day}"
 
 
+def _portfolio_table(html: str) -> str:
+    """The fund table, not every table on the page.
+
+    A navigation table with a short row used to refuse a valid portfolio,
+    because every `<tr>` on the page was treated as a fund.
+    """
+    for table in _TABLE_RE.findall(html):
+        if _HEADER_RE.search(table):
+            return table
+    raise PositionsFormatError("UPSTREAM_FORMAT_CHANGED", "no portfolio table on the page")
+
+
 def parse_portfolio(html: str) -> dict[str, Any]:
     """Turns the portfolio page into a snapshot, or refuses it.
 
@@ -142,15 +155,15 @@ def parse_portfolio(html: str) -> dict[str, Any]:
     """
     if _LOGIN_FORM_MARKER in html:
         raise PositionsFormatError("SESSION_EXPIRED", "page is the login form")
-    if not _HEADER_RE.search(html):
-        raise PositionsFormatError("UPSTREAM_FORMAT_CHANGED", "no portfolio table on the page")
+    table = _portfolio_table(html)
 
-    # Every row of the table is a candidate, not only the ones that carry a
-    # product code: a fund row whose "Rapport détaillé" link disappeared must be
-    # refused below, not skipped here, or a refonte of the page would read as a
-    # smaller portfolio that still adds up.
+    # Every row of the portfolio table is a candidate, not only the ones that
+    # carry a product code: a fund row whose "Rapport détaillé" link disappeared
+    # must be refused below, not skipped here, or a refonte of the page would
+    # read as a smaller portfolio that still adds up. Rows from any other table
+    # are not funds, and a short one used to refuse the whole page.
     candidates = []
-    for row in _ROW_RE.findall(html):
+    for row in _ROW_RE.findall(table):
         cells = _cell_texts(row)
         if not cells or all(not cell.strip() for cell in cells):
             continue
@@ -166,7 +179,7 @@ def parse_portfolio(html: str) -> dict[str, Any]:
         candidates.append(row)
 
     if not candidates:
-        if _declared_total(html) != 0:
+        if _declared_total(table) != 0:
             raise PositionsFormatError("PORTFOLIO_INCOMPLETE", "no funds but a nonzero total")
         # A holder with no fund still gets the totals row. That is a real,
         # complete, empty portfolio -- an account whose funds were all sold.
@@ -189,10 +202,10 @@ def parse_portfolio(html: str) -> dict[str, Any]:
             f"duplicate fund codes: {', '.join(sorted(duplicates))}",
         )
 
-    _check_totals(html, holdings)
+    _check_totals(table, holdings)
     return {
         "currency": "EUR",
-        "totalEur": _declared_total(html),
+        "totalEur": _declared_total(table),
         "valuationDate": _parse_valuation_date(html),
         "holdings": [
             {

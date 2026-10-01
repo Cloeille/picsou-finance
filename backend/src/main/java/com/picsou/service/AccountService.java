@@ -302,6 +302,14 @@ public class AccountService {
     @Transactional
     public void delete(Long id, Long memberId) {
         Account account = getOrThrow(id, memberId);
+        // Soft-delete leaves the row, and the fund-code unique indexes do not
+        // exclude it. Clearing the links is what lets the same fund be attached
+        // to a new account, and what stops a later sync from writing here.
+        scpiPositionRepository.findByAccountIdAndMemberId(id, memberId).ifPresent(position -> {
+            position.setCorumFundCode(null);
+            position.setSofidyFundCode(null);
+            scpiPositionRepository.save(position);
+        });
         account.setDeletedAt(Instant.now());
         accountRepository.save(account);
     }

@@ -109,7 +109,7 @@ class SofidySyncServiceTest {
             new BigDecimal("2.00000"),
             null,
             new BigDecimal("313.60"),
-            LocalDate.of(2026, 9, 25)
+            null
         );
     }
 
@@ -172,7 +172,7 @@ class SofidySyncServiceTest {
             new BigDecimal("2.00000"),
             null,
             new BigDecimal("313.60"),
-            LocalDate.of(2026, 9, 25)
+            null
         );
     }
 

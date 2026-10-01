@@ -368,7 +368,7 @@ public class SofidySyncService {
                 holding.quantity(),
                 null,
                 holding.withdrawalPrice(),
-                snapshot.valuationDate()
+                null
             );
             updated++;
         }

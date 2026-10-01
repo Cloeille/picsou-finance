@@ -551,7 +551,12 @@ def _select_real_estate_contract(active: Any) -> tuple[str, str]:
             continue
         code = entry.get("contractCode")
         contract_type = entry.get("contractType")
-        if isinstance(code, str) and code and isinstance(contract_type, str):
+        if (
+            isinstance(code, str)
+            and code
+            and isinstance(contract_type, str)
+            and contract_type.casefold() == "real_estate"
+        ):
             contracts.append((code, contract_type))
 
     if not contracts:

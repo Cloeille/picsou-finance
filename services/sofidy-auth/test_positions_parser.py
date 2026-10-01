@@ -67,6 +67,13 @@ class ParsesRealPage(unittest.TestCase):
         self.assertEqual(holding["totalEur"], Decimal("300.00"))
         self.assertTrue(snapshot["snapshotComplete"])
 
+    def test_a_short_row_outside_the_portfolio_table_is_not_a_fund(self):
+        decoy = "<table><tr><td>Menu</td></tr></table>"
+        snapshot = parse_portfolio(decoy + page(fund_row(), total_row()))
+
+        self.assertEqual(len(snapshot["holdings"]), 1)
+        self.assertEqual(snapshot["holdings"][0]["fundCode"], "XY")
+
     def test_reads_a_fractional_share_count(self):
         # A scheduled purchase or a reinvested dividend lands on fractions
         # routinely, so a whole-share-only read would misprice the account.
