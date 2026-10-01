@@ -284,12 +284,16 @@ class RouteContract(unittest.TestCase):
         body = self.client.post("/positions", json={"sessionState": FAKE_SESSION}).json()
 
         self.assertEqual(body["valuationDate"], "2026-09-27")
+        self.assertEqual(body["currency"], "EUR")
+        self.assertEqual(float(body["totalEur"]), 300.00)
         self.assertEqual(len(body["holdings"]), 1)
         holding = body["holdings"][0]
         self.assertEqual(holding["fundCode"], "XY")
         self.assertEqual(holding["label"], "FONDS-EXEMPLE")
-        self.assertEqual(float(holding["shareCount"]), 3.0)
-        self.assertEqual(float(holding["withdrawalPriceEur"]), 100.00)
+        self.assertEqual(float(holding["quantity"]), 3.0)
+        self.assertEqual(float(holding["withdrawalPrice"]), 100.00)
+        self.assertNotIn("shareCount", holding)
+        self.assertNotIn("withdrawalPriceEur", holding)
         self.assertEqual(float(holding["totalEur"]), 300.00)
         self.assertTrue(body["snapshotComplete"])
 

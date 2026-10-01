@@ -1,5 +1,5 @@
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
-import type { GoalProgress } from '@/types/api'
+import type { GoalProgress, ScpiPosition, ScpiPositionRequest } from '@/types/api'
 import { mockAccounts } from './data/accounts'
 import {
   mockAllocationTargets,
@@ -204,6 +204,34 @@ for (let i = 8; i <= 10; i++) {
 }
 
 // Account CRUD
+for (const account of mockAccounts.filter(account => account.type === 'SCPI')) {
+  handlers.set(key('GET', `/accounts/${account.id}`), () => _demoAccounts.find(a => a.id === account.id))
+  handlers.set(key('PUT', `/accounts/${account.id}/scpi`), config => {
+    const data: ScpiPositionRequest = JSON.parse(config.data || '{}')
+    const current = _demoAccounts.find(a => a.id === account.id)!
+    const withdrawalValue = data.withdrawalPriceEur == null ? null : data.shareCount * data.withdrawalPriceEur
+    const scpi: ScpiPosition = {
+      isin: data.isin?.trim() || null,
+      managementCompany: data.managementCompany?.trim() || null,
+      corumFundCode: data.corumFundCode == null ? current.scpi?.corumFundCode ?? null : data.corumFundCode.trim() || null,
+      sofidyFundCode: data.sofidyFundCode == null ? current.scpi?.sofidyFundCode ?? null : data.sofidyFundCode.trim() || null,
+      shareCount: data.shareCount,
+      subscriptionPriceEur: data.subscriptionPriceEur ?? null,
+      withdrawalPriceEur: data.withdrawalPriceEur ?? null,
+      withdrawalValueEur: withdrawalValue,
+      dividendPolicy: data.dividendPolicy ?? 'CASH',
+      jouissanceDate: data.jouissanceDate ?? null,
+      valuationStatus: withdrawalValue == null ? 'PRICE_INCOMPLETE' : 'OK',
+    }
+    _demoAccounts = _demoAccounts.map(a => a.id === account.id ? {
+      ...a, scpi,
+      currentBalance: withdrawalValue ?? a.currentBalance,
+      currentBalanceEur: withdrawalValue ?? a.currentBalanceEur,
+    } : a)
+    return scpi
+  })
+}
+
 handlers.set(key('POST', '/accounts'), (config) => {
   const body = JSON.parse(config.data || '{}')
   return {
@@ -480,6 +508,26 @@ handlers.set(key('GET', '/accounts/11/history'), () => generateHistory(
 
 const demoProperty = mockAccounts.find((a) => a.id === 11)!
 
+function demoPaperSummary() {
+  const paper = _demoAccounts.filter(account => account.type === 'SCPI').map(account => ({
+    accountId: account.id,
+    name: account.name,
+    color: account.color,
+    managementCompany: account.scpi?.managementCompany ?? null,
+    shareCount: account.scpi?.shareCount ?? null,
+    sharePercent: 100,
+    withdrawalPriceEur: account.scpi?.withdrawalPriceEur ?? null,
+    subscriptionPriceEur: account.scpi?.subscriptionPriceEur ?? null,
+    grossValue: account.currentBalanceEur,
+    outstandingDebt: 0,
+    netValue: account.currentBalanceEur,
+    valuationStatus: account.scpi?.valuationStatus ?? 'PRICE_INCOMPLETE',
+    loans: [],
+  }))
+  const paperGross = paper.reduce((total, line) => total + line.grossValue, 0)
+  return { paperGross, paperDebt: 0, paperNet: paperGross, paper }
+}
+
 handlers.set(key('GET', '/real-estate/summary'), () => ({
   grossValue: 412000,
   outstandingDebt: 168400,
@@ -489,24 +537,7 @@ handlers.set(key('GET', '/real-estate/summary'), () => ({
   unrealizedGainPercent: 11.71,
   loanToValue: 40.87,
   monthlyRentalIncome: 0,
-  paperGross: 8800,
-  paperDebt: 0,
-  paperNet: 8800,
-  paper: [{
-    accountId: 9,
-    name: 'Pierre-papier exemple',
-    color: '#7c3aed',
-    managementCompany: 'Société exemple',
-    shareCount: 10,
-    sharePercent: 100,
-    withdrawalPriceEur: 880,
-    subscriptionPriceEur: 1000,
-    grossValue: 8800,
-    outstandingDebt: 0,
-    netValue: 8800,
-    valuationStatus: 'OK',
-    loans: [],
-  }],
+  ...demoPaperSummary(),
   properties: [{
     accountId: 11,
     name: demoProperty.name,

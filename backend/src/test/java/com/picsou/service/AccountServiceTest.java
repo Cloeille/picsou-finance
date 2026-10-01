@@ -186,7 +186,7 @@ class AccountServiceTest {
 
         AccountResponse created = accountService.create(
             new AccountRequest("Pierre-papier", AccountType.SCPI, null, "USD",
-                new BigDecimal("5000"), false, "#7c3aed", null, null, null),
+                new BigDecimal("5000"), false, "#7c3aed", null, null, null, null),
             FamilyMember.builder().id(7L).build());
 
         assertThat(created.currentBalance()).isEqualByComparingTo("0");
@@ -203,7 +203,7 @@ class AccountServiceTest {
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         accountService.update(1L, new AccountRequest("Pierre-papier", AccountType.SCPI, null, "EUR",
-            new BigDecimal("2400"), false, "#7c3aed", null, null, null), 7L);
+            new BigDecimal("2400"), false, "#7c3aed", null, null, null, null), 7L);
 
         assertThat(checking.getType()).isEqualTo(AccountType.SCPI);
         assertThat(checking.getCurrentBalance()).isEqualByComparingTo("0");
@@ -222,7 +222,7 @@ class AccountServiceTest {
 
         assertThatThrownBy(() -> accountService.update(1L,
             new AccountRequest("Pierre-papier", AccountType.SCPI, null, "EUR",
-                null, true, "#7c3aed", null, null, null), 7L))
+                null, true, "#7c3aed", null, null, null, null), 7L))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("holdings");
 

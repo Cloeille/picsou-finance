@@ -13,8 +13,8 @@ Auth flow:
   POST /complete {processId, code}
     → {sessionState}
   POST /positions {sessionState}
-    → [{fundCode, label, shareCount, withdrawalPriceEur, totalEur, valuationDate,
-        snapshotComplete}]
+    → {currency, totalEur, valuationDate, snapshotComplete,
+       holdings: [{fundCode, label, quantity, withdrawalPrice, totalEur}]}
 
 Only the session cookies are returned to Java, which encrypts them before
 storage. Credentials are held in memory for the length of one request and are
@@ -51,6 +51,9 @@ from positions_parser import (
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("sofidy-auth")
+# httpx logs complete URLs, including upstream-controlled query strings.
+logging.getLogger("httpx").setLevel(logging.ERROR)
+logging.getLogger("httpcore").setLevel(logging.ERROR)
 
 BASE_URL = "https://moncompte.sofidy.com"
 # The portal hands out PHPSESSID on the first page view, so the login POST has
@@ -161,13 +164,15 @@ class InitiateResponse(BaseModel):
 class HoldingPayload(BaseModel):
     fundCode: str
     label: str
-    shareCount: Decimal
-    withdrawalPriceEur: Decimal | None
+    quantity: Decimal = Field(validation_alias="shareCount")
+    withdrawalPrice: Decimal | None = Field(validation_alias="withdrawalPriceEur")
     totalEur: Decimal
     snapshotComplete: bool = True
 
 
 class SnapshotPayload(BaseModel):
+    currency: Literal["EUR"]
+    totalEur: Decimal
     valuationDate: str | None
     holdings: list[HoldingPayload]
     snapshotComplete: bool = True
@@ -189,11 +194,25 @@ async def validation_exception_handler(
 # ─── pending second factors ──────────────────────────────────────────────────
 
 
+async def _check_request_origin(request: httpx.Request) -> None:
+    """Runs before every send, including each automatic 307/308 redirect.
+
+    A fixed HTTPS origin also excludes loopback/private-IP redirect targets.
+    Never log the rejected URL: it may carry a password, OTP or cookie.
+    """
+    url = request.url
+    if (url.scheme != "https" or url.host != "moncompte.sofidy.com"
+            or url.port not in (None, 443) or url.username or url.password):
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+
+
 def _new_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=BASE_URL,
         timeout=httpx.Timeout(REQUEST_TIMEOUT_SECONDS),
         follow_redirects=True,
+        max_redirects=5,
+        event_hooks={"request": [_check_request_origin]},
         headers={
             "User-Agent": USER_AGENT,
             "Accept-Language": "fr-FR,fr;q=0.9",
@@ -391,7 +410,7 @@ async def initiate(req: InitiateRequest) -> dict:
             # The portal accepted the POST and answered with no recognisable
             # token, but the session is not usable. Treating this as a login
             # success would store a session that fails on the first sync.
-            log.warning("Sofidy login answered %s without opening a session", _log_safe(raw[:24]))
+            log.warning("Sofidy login answered without opening a session")
             raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
 
         return {
@@ -406,10 +425,10 @@ async def initiate(req: InitiateRequest) -> dict:
     except HTTPException:
         raise
     except httpx.HTTPError as exc:
-        log.warning("Sofidy authentication initiation failed", exc_info=True)
+        log.warning("Sofidy authentication initiation failed")
         raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
     except Exception as exc:
-        log.exception("Unexpected Sofidy authentication initiation failure")
+        log.error("Unexpected Sofidy authentication initiation failure")
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
     finally:
         if not keep_client:
@@ -455,10 +474,10 @@ async def complete(req: CompleteRequest) -> dict:
     except HTTPException:
         raise
     except httpx.HTTPError as exc:
-        log.warning("Sofidy authentication completion failed", exc_info=True)
+        log.warning("Sofidy authentication completion failed")
         raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
     except Exception as exc:
-        log.exception("Unexpected Sofidy authentication completion failure")
+        log.error("Unexpected Sofidy authentication completion failure")
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
     finally:
         # The pending client is handed to the caller only as serialised cookies,
@@ -467,7 +486,7 @@ async def complete(req: CompleteRequest) -> dict:
 
 
 @app.post("/positions", response_model=SnapshotPayload)
-async def positions(req: SessionRequest) -> dict:
+async def positions(req: SessionRequest) -> SnapshotPayload:
     client = _new_client()
     try:
         restore_cookies(client, req.sessionState)
@@ -488,7 +507,7 @@ async def positions(req: SessionRequest) -> dict:
             raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
 
         snapshot = parse_portfolio(html)
-        return SnapshotPayload.model_validate(snapshot).model_dump()
+        return SnapshotPayload.model_validate(snapshot)
     except PositionsFormatError as exc:
         log.warning("Sofidy payload rejected (code=%s)", exc.code)
         raise HTTPException(status_code=502, detail=exc.code) from exc
@@ -498,10 +517,10 @@ async def positions(req: SessionRequest) -> dict:
     except HTTPException:
         raise
     except httpx.HTTPError as exc:
-        log.warning("Sofidy positions fetch failed", exc_info=True)
+        log.warning("Sofidy positions fetch failed")
         raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
     except Exception as exc:
-        log.exception("Unexpected Sofidy positions failure")
+        log.error("Unexpected Sofidy positions failure")
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
     finally:
         await client.aclose()

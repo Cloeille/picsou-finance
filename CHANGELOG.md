@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have no logo source to draw from, and the search for one is tracked in
   [#162](https://github.com/Cloeille/picsou-finance/issues/162).
 
+- **SCPI positions can be synced from a CORUM real-estate contract.** A CORUM
+  contract now fills the SCPI accounts you created by hand, through a Chromium
+  sidecar like the other brokers — the login is a client id and a password, with
+  no captcha and no second factor. Each fund in the contract becomes one
+  position, matched on the fund code you enter in the SCPI form, so a two-fund
+  contract is not flattened into a single account. The quantity and the value
+  come from the **withdrawal** price, not the figure CORUM displays: CORUM shows
+  the subscription-side price, which carries the entry fee — about 12% of the
+  position. The sync never creates an account, and the sidecar is read-only: no
+  order, no subscription, no redemption. A client space holding more than one
+  real-estate contract is refused rather than guessed at; CORUM Life and PER are
+  insurance, not shares, and are not read.
 - **A Sofidy client-space connection keeps your SCPI shares up to date.** The
   Espace Associé connection fills the share count and the withdrawal price of the
   accounts you linked to a Sofidy fund, at the withdrawal value — the same rule the
@@ -328,18 +340,6 @@ information architecture.
 
 ### Added
 
-- **SCPI positions can be synced from a CORUM real-estate contract.** A CORUM
-  contract now fills the SCPI accounts you created by hand, through a Chromium
-  sidecar like the other brokers — the login is a client id and a password, with
-  no captcha and no second factor. Each fund in the contract becomes one
-  position, matched on the fund code you enter in the SCPI form, so a two-fund
-  contract is not flattened into a single account. The quantity and the value
-  come from the **withdrawal** price, not the figure CORUM displays: CORUM shows
-  the subscription-side price, which carries the entry fee — about 12% of the
-  position. The sync never creates an account, and the sidecar is read-only: no
-  order, no subscription, no redemption. A client space holding more than one
-  real-estate contract is refused rather than guessed at; CORUM Life and PER are
-  insurance, not shares, and are not read.
 - **Editable cost basis for imported crypto wallets (#59).** A wallet/exchange
   holding starts with its average buy-in set to the market price at import time,
   which zeroes out gain/loss on existing holdings. The holding editor now lets

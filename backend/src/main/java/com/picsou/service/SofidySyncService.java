@@ -21,9 +21,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Objects;
+import java.util.UUID;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
@@ -38,8 +41,8 @@ import static com.picsou.service.SyncValues.requireTransactionResult;
  * <p>Shaped like {@link CorumSyncService}, with one difference the portal forces:
  * Sofidy always sends a verification code by e-mail after the password, so
  * authentication is two calls and the session only exists once the code is typed.
- * Nothing partial is stored in between -- the process id lives in the sidecar for
- * the length of one attempt.
+ * An inactive, encrypted reservation binds each pending process to its member.
+ * Replacing or deleting it invalidates an authentication response in flight.
  *
  * <p>Like CORUM this does not create accounts. The manual model owns that, one
  * account per vehicle, and a Sofidy portfolio simply maps its funds onto accounts
@@ -61,6 +64,9 @@ public class SofidySyncService {
      * refuse a portfolio that is in fact complete.
      */
     private static final BigDecimal MONEY_TOLERANCE = new BigDecimal("0.01");
+    private static final String AUTH_START_PREFIX = "sofidy-auth-start:";
+    private static final String AUTH_PROCESS_PREFIX = "sofidy-auth-process:";
+    private static final Duration AUTH_TTL = Duration.ofMinutes(5);
 
     private final SofidyPort port;
     private final SofidySessionRepository sessionRepository;
@@ -98,6 +104,7 @@ public class SofidySyncService {
      * change here.
      */
     public InitiateResponse initiateAuth(String associateCode, String password, Long memberId) {
+        AuthAttempt attempt = reserveAuthAttempt(memberId);
         SofidyPort.InitiateResult result = port.initiateAuth(associateCode, password);
         if (result == null) {
             throw error(SofidyErrorCode.INVALID_DATA, "Sofidy did not answer the login request", null);
@@ -114,7 +121,7 @@ public class SofidySyncService {
             // still leave the panel waiting on an OTP screen, so the status is
             // folded into the init shape: the shared panel reads `mfaRequired`
             // to decide it is connected.
-            SessionStatusResponse status = storeSession(memberId, result.sessionState());
+            SessionStatusResponse status = storeSession(memberId, result.sessionState(), attempt);
             return new InitiateResponse(
                 null, false, null, status.isActive(), status.syncStatus(),
                 status.lastSyncError(), status.lastSyncStartedAt(), status.lastSyncCompletedAt()
@@ -127,23 +134,79 @@ public class SofidySyncService {
                 null
             );
         }
+        txTemplate.executeWithoutResult(status -> {
+            FamilyMember member = lockMember(memberId);
+            SofidySession current = currentAttempt(memberId, attempt);
+            sessionRepository.delete(current);
+            sessionRepository.flush();
+            sessionRepository.saveAndFlush(pendingSession(member,
+                AUTH_PROCESS_PREFIX + result.processId()));
+        });
         return InitiateResponse.pending(result.processId(), result.mfaType());
     }
 
     /** Finishes the login with the code from the inbox, then queues the import. */
     public SessionStatusResponse completeAuth(String processId, String code, Long memberId) {
+        AuthAttempt attempt = requireTransactionResult(txTemplate.execute(status -> {
+            lockMember(memberId);
+            SofidySession pending = sessionRepository.findByMemberIdForUpdate(memberId)
+                .filter(session -> !session.isActive() && !session.isSyncInFlight())
+                .filter(session -> isCurrentAttempt(session))
+                .filter(session -> processId != null && !processId.isBlank()
+                    && (AUTH_PROCESS_PREFIX + processId).equals(encryption.decrypt(session.getSessionState())))
+                .orElseThrow(this::expiredAuthAttempt);
+            return new AuthAttempt(pending.getId(), pending.getSessionState());
+        }));
         String plainState = port.completeAuth(processId, code);
         if (plainState == null || plainState.isBlank()) {
             throw error(SofidyErrorCode.INVALID_DATA, "Sofidy did not return a session", null);
         }
-        return storeSession(memberId, plainState);
+        return storeSession(memberId, plainState, attempt);
     }
 
-    private SessionStatusResponse storeSession(Long memberId, String plainState) {
-        SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
-            FamilyMember member = memberRepository.findById(memberId)
-                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+    private AuthAttempt reserveAuthAttempt(Long memberId) {
+        return requireTransactionResult(txTemplate.execute(status -> {
+            FamilyMember member = lockMember(memberId);
             sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+            sessionRepository.flush();
+            SofidySession pending = sessionRepository.saveAndFlush(pendingSession(member,
+                AUTH_START_PREFIX + UUID.randomUUID()));
+            return new AuthAttempt(pending.getId(), pending.getSessionState());
+        }));
+    }
+
+    private SofidySession pendingSession(FamilyMember member, String marker) {
+        return SofidySession.builder().member(member).active(false)
+            .sessionState(encryption.encrypt(marker)).lastValidatedAt(Instant.now()).build();
+    }
+
+    private FamilyMember lockMember(Long memberId) {
+        return sessionRepository.findMemberByIdForUpdate(memberId)
+            .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+    }
+
+    private boolean isCurrentAttempt(SofidySession session) {
+        return session.getLastValidatedAt() != null
+            && session.getLastValidatedAt().plus(AUTH_TTL).isAfter(Instant.now());
+    }
+
+    private SofidySession currentAttempt(Long memberId, AuthAttempt attempt) {
+        return sessionRepository.findByIdAndMemberIdForUpdate(attempt.sessionId(), memberId)
+            .filter(session -> !session.isActive() && !session.isSyncInFlight())
+            .filter(this::isCurrentAttempt)
+            .filter(session -> Objects.equals(session.getSessionState(), attempt.encryptedState()))
+            .orElseThrow(this::expiredAuthAttempt);
+    }
+
+    private SyncException expiredAuthAttempt() {
+        return error(SofidyErrorCode.AUTH_ATTEMPT_EXPIRED,
+            "This Sofidy login attempt is no longer valid. Please reconnect.", null);
+    }
+
+    private SessionStatusResponse storeSession(Long memberId, String plainState, AuthAttempt attempt) {
+        SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
+            FamilyMember member = lockMember(memberId);
+            sessionRepository.delete(currentAttempt(memberId, attempt));
             sessionRepository.flush();
 
             SofidySession newSession = SofidySession.create(
@@ -162,6 +225,7 @@ public class SofidySyncService {
 
     public SessionStatusResponse queueSync(Long memberId) {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
+            lockMember(memberId);
             SofidySession session = sessionRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
                     SofidyErrorCode.SESSION_EXPIRED,
@@ -204,6 +268,7 @@ public class SofidySyncService {
 
     @Transactional
     public void clearSession(Long memberId) {
+        lockMember(memberId);
         sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
     }
 
@@ -226,9 +291,7 @@ public class SofidySyncService {
         }
         try {
             SofidyPort.Snapshot snapshot = port.fetchSnapshot(job.plainState());
-            int updated = applySnapshot(job.memberId(), snapshot);
-            markSuccessful(job);
-            log.info("Sofidy sync completed (member={}; positions={})", job.memberId(), updated);
+            commitSnapshot(job, snapshot);
         } catch (SyncException ex) {
             SofidyErrorCode code = codeOf(ex);
             markFailed(job, code);
@@ -323,8 +386,9 @@ public class SofidySyncService {
      */
     private void checkDeclaredTotal(SofidyPort.Snapshot snapshot) {
         BigDecimal declared = snapshot.totalEur();
-        if (declared == null) {
-            return;
+        if (declared == null || declared.signum() < 0) {
+            throw error(SofidyErrorCode.PORTFOLIO_INCOMPLETE,
+                "Sofidy returned no valid portfolio total", null);
         }
         BigDecimal computed = snapshot.holdings().stream()
             .map(SofidyPort.Holding::withdrawalValue)
@@ -408,22 +472,32 @@ public class SofidySyncService {
         }));
     }
 
-    private void markSuccessful(SyncJob job) {
-        txTemplate.executeWithoutResult(status -> sessionRepository
-            .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
-            .ifPresent(session -> {
-                session.markSuccessful(Instant.now());
-                sessionRepository.save(session);
-            }));
+    private void commitSnapshot(SyncJob job, SofidyPort.Snapshot snapshot) {
+        txTemplate.executeWithoutResult(status -> {
+            lockMember(job.memberId());
+            Optional<SofidySession> current = sessionRepository
+                .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId());
+            if (current.isEmpty() || !current.get().isActive()
+                    || current.get().getSyncStatus() != SofidySyncStatus.RUNNING) {
+                return;
+            }
+            int updated = applySnapshot(job.memberId(), snapshot);
+            current.get().markSuccessful(Instant.now());
+            sessionRepository.save(current.get());
+            log.info("Sofidy sync completed (member={}; positions={})", job.memberId(), updated);
+        });
     }
 
     private void markFailed(SyncJob job, SofidyErrorCode code) {
-        txTemplate.executeWithoutResult(status -> sessionRepository
-            .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
-            .ifPresent(session -> {
-                session.markFailed(code, Instant.now());
-                sessionRepository.save(session);
-            }));
+        txTemplate.executeWithoutResult(status -> {
+            lockMember(job.memberId());
+            sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+                .filter(session -> session.isActive() && session.isSyncInFlight())
+                .ifPresent(session -> {
+                    session.markFailed(code, Instant.now());
+                    sessionRepository.save(session);
+                });
+        });
     }
 
     private SessionStatusResponse toStatus(SofidySession session) {
@@ -482,6 +556,8 @@ public class SofidySyncService {
             return new SessionStatusResponse(false, SofidySyncStatus.IDLE, null, null, null);
         }
     }
+
+    private record AuthAttempt(Long sessionId, String encryptedState) {}
 
     private record QueueDecision(SyncJob job, SessionStatusResponse status) {}
 

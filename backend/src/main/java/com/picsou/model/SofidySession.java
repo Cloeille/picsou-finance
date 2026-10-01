@@ -15,9 +15,10 @@ import java.util.Objects;
  * sidecar's opaque session blob, exactly as the Amundi and CORUM sidecars do.
  * One row per member, replaced on reconnect.
  *
- * <p>The e-mailed code fences nothing here. It lives in the sidecar's pending map
- * for the length of one attempt, so there is no half-authenticated state to
- * reconcile if the user never types it: the attempt simply expires.
+ * <p>An inactive row can also reserve a pending login. Its encrypted session
+ * state then holds an attempt marker, not cookies. This binds the sidecar's
+ * process to the member and lets disconnect/reconnect invalidate in-flight
+ * authentication without storing a password or verification code.
  */
 @Entity
 @Table(name = "sofidy_session")

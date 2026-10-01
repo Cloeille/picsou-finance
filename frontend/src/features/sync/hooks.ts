@@ -81,6 +81,8 @@ function useSidecarSessionStatus<
     if (!succeeded || !completedAt) return
     queryClient.invalidateQueries({ queryKey: ['accounts'] })
     queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    queryClient.invalidateQueries({ queryKey: ['real-estate'] })
+    queryClient.invalidateQueries({ queryKey: ['analysis'] })
   }, [completedAt, queryClient, succeeded])
 
   return query

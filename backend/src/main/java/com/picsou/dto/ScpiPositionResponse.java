@@ -10,6 +10,8 @@ import java.time.LocalDate;
 public record ScpiPositionResponse(
     String isin,
     String managementCompany,
+    String corumFundCode,
+    String sofidyFundCode,
     BigDecimal shareCount,
     BigDecimal subscriptionPriceEur,
     BigDecimal withdrawalPriceEur,
@@ -23,6 +25,8 @@ public record ScpiPositionResponse(
         return new ScpiPositionResponse(
             position.getIsin(),
             position.getManagementCompany(),
+            position.getCorumFundCode(),
+            position.getSofidyFundCode(),
             position.getShareCount(),
             position.getSubscriptionPriceEur(),
             position.getWithdrawalPriceEur(),

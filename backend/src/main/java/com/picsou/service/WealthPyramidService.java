@@ -211,10 +211,14 @@ public class WealthPyramidService {
 
         // Property net of its mortgage, from the one service that already resolves both sides'
         // shares together. Re-deriving gross-minus-loans here would let this page and the
-        // property card disagree about the same house.
+        // property card disagree about the same house. Paper-property loans contribute to the
+        // same tier, but remain separate in the summary and do not affect the physical LTV.
         RealEstateSummaryResponse property = realEstateSummaryService.summarize(memberId);
         BigDecimal propertyDebt = property.outstandingDebt() == null
             ? BigDecimal.ZERO : property.outstandingDebt();
+        BigDecimal paperDebt = property.paperDebt() == null
+            ? BigDecimal.ZERO : property.paperDebt();
+        propertyDebt = propertyDebt.add(paperDebt);
         if (propertyDebt.signum() > 0) {
             totalAssets = totalAssets.subtract(propertyDebt);
             byTier.merge(WealthTier.REAL_ESTATE, propertyDebt.negate(), BigDecimal::add);

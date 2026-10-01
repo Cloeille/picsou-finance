@@ -85,6 +85,7 @@ public class CorumSyncService {
             throw error(CorumErrorCode.INVALID_DATA, "CORUM did not return a session", null);
         }
         SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
+            lockMember(memberId);
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
@@ -106,6 +107,7 @@ public class CorumSyncService {
 
     public SessionStatusResponse queueSync(Long memberId) {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
+            lockMember(memberId);
             CorumSession session = sessionRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
                     CorumErrorCode.SESSION_EXPIRED,
@@ -148,6 +150,7 @@ public class CorumSyncService {
 
     @Transactional
     public void clearSession(Long memberId) {
+        lockMember(memberId);
         sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
     }
 
@@ -170,9 +173,7 @@ public class CorumSyncService {
         }
         try {
             CorumPort.Snapshot snapshot = port.fetchSnapshot(job.plainState());
-            int updated = applySnapshot(job.memberId(), snapshot);
-            markSuccessful(job);
-            log.info("CORUM sync completed (member={}; positions={})", job.memberId(), updated);
+            commitSnapshot(job, snapshot);
         } catch (SyncException ex) {
             CorumErrorCode code = codeOf(ex);
             markFailed(job, code);
@@ -276,22 +277,37 @@ public class CorumSyncService {
         }));
     }
 
-    private void markSuccessful(SyncJob job) {
-        txTemplate.executeWithoutResult(status -> sessionRepository
-            .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
-            .ifPresent(session -> {
-                session.markSuccessful(Instant.now());
-                sessionRepository.save(session);
-            }));
+    private void commitSnapshot(SyncJob job, CorumPort.Snapshot snapshot) {
+        txTemplate.executeWithoutResult(status -> {
+            lockMember(job.memberId());
+            Optional<CorumSession> current = sessionRepository
+                .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId());
+            if (current.isEmpty() || !current.get().isActive()
+                    || current.get().getSyncStatus() != CorumSyncStatus.RUNNING) {
+                return;
+            }
+            int updated = applySnapshot(job.memberId(), snapshot);
+            current.get().markSuccessful(Instant.now());
+            sessionRepository.save(current.get());
+            log.info("CORUM sync completed (member={}; positions={})", job.memberId(), updated);
+        });
+    }
+
+    private void lockMember(Long memberId) {
+        sessionRepository.findMemberByIdForUpdate(memberId)
+            .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
     }
 
     private void markFailed(SyncJob job, CorumErrorCode code) {
-        txTemplate.executeWithoutResult(status -> sessionRepository
-            .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
-            .ifPresent(session -> {
-                session.markFailed(code, Instant.now());
-                sessionRepository.save(session);
-            }));
+        txTemplate.executeWithoutResult(status -> {
+            lockMember(job.memberId());
+            sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+                .filter(session -> session.isActive() && session.isSyncInFlight())
+                .ifPresent(session -> {
+                    session.markFailed(code, Instant.now());
+                    sessionRepository.save(session);
+                });
+        });
     }
 
     private SessionStatusResponse toStatus(CorumSession session) {

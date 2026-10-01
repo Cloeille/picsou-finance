@@ -147,7 +147,7 @@ would corrupt the net-worth series permanently, whereas a refused sync costs a r
 
 - New: `services/corum-auth/`, `CorumPort` / `CorumErrorCode` / `CorumAdapter`,
   `CorumSyncService`, `CorumController`, `CorumSession` / `CorumSyncStatus`,
-  `CorumSessionRepository`, `CorumSyncConfig`, migration `V102`.
+  `CorumSessionRepository`, `CorumSyncConfig`, migration `V105`.
 - `scpi_position` gains `corum_fund_code`, unique per member, and
   `ScpiPositionRequest` gains the matching field. `ScpiPositionService` gains
   `applySyncedPosition`.

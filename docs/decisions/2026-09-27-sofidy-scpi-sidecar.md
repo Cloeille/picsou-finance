@@ -154,7 +154,7 @@ a refused sync costs a retry.
 
 - New: `services/sofidy-auth/`, `SofidyPort` / `SofidyErrorCode` / `SofidyAdapter`,
   `SofidySyncService`, `SofidyController`, `SofidySession` / `SofidySyncStatus`,
-  `SofidySessionRepository`, `SofidySyncConfig`, migration `V103`.
+  `SofidySessionRepository`, `SofidySyncConfig`, migration `V106`.
 - `scpi_position` gains `sofidy_fund_code`, unique per member, and
   `ScpiPositionRequest` gains the matching field.
 - `docker-compose.yml`, `docker/docker-compose.yml`, `.env.example` and the CI

@@ -17,6 +17,13 @@ Using the subscription price as net worth overstates it.
 `SCPI` is its own account type, listed in the Immobilier filter beside physical property,
 not inside `PropertyKind`.
 
+On the 1.1.0 release branch this type already exists through V82, together with
+`ASSURANCE_VIE`. Reuse that enum value and its existing wealth classification;
+extend it with `scpi_position` rather than replaying the original main-based
+enum migration. Keep V82 unchanged and preserve `ASSURANCE_VIE.isInvestment()`.
+The enum's position before `OTHER` versus before `LOAN` is not a different
+financial model and does not justify a second account type or migration.
+
 One account per vehicle. The balance is the withdrawal price times the share count, including
 a fraction. The subscription price is displayed and never becomes the balance. A missing
 withdrawal price keeps the previous balance and reports `PRICE_INCOMPLETE`.
@@ -61,6 +68,7 @@ the same row without a second migration.
 
 ## Consequences
 
-- `V100` adds the enum value alone. `V101` creates `scpi_position`.
+- `V82` already supplies the enum value on 1.1.0. `V104` creates `scpi_position`;
+  no second enum migration is needed.
 - `PUT /api/accounts/{id}/scpi` is the write path. `PropertyValuationService` still refuses
   anything that is not `REAL_ESTATE`.

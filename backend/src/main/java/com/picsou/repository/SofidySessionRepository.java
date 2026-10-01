@@ -1,6 +1,7 @@
 package com.picsou.repository;
 
 import com.picsou.model.SofidySession;
+import com.picsou.model.FamilyMember;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -12,6 +13,11 @@ import java.util.Optional;
 public interface SofidySessionRepository extends JpaRepository<SofidySession, Long> {
 
     Optional<SofidySession> findByMemberId(Long memberId);
+
+    /** Serializes creation and deletion even when no session row exists yet. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from FamilyMember m where m.id = :memberId")
+    Optional<FamilyMember> findMemberByIdForUpdate(@Param("memberId") Long memberId);
 
     /**
      * Row-locked so two concurrent syncs cannot both pass the "is one already

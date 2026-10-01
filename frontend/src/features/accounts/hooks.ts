@@ -352,6 +352,7 @@ export function useUpdateScpiPosition() {
       queryClient.invalidateQueries({ queryKey: ['accounts', variables.id] })
       queryClient.invalidateQueries({ queryKey: ['real-estate'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['analysis'] })
     },
   })
 }

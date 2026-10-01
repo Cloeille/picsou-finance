@@ -1,6 +1,7 @@
 package com.picsou.service;
 
 import com.picsou.config.CryptoEncryption;
+import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
@@ -15,6 +16,10 @@ import com.picsou.repository.SofidySessionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.TransactionStatus;
@@ -26,6 +31,9 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,6 +43,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * Covers the snapshot reconciliation, which is where a Sofidy sync can do real
@@ -57,6 +67,8 @@ class SofidySyncServiceTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(sessionRepository.findMemberByIdForUpdate(7L))
+            .thenReturn(Optional.of(FamilyMember.builder().id(7L).build()));
         lenient().doAnswer(invocation -> {
             TransactionCallback<Object> callback = invocation.getArgument(0);
             return callback.doInTransaction(transactionStatus);
@@ -248,6 +260,96 @@ class SofidySyncServiceTest {
         // ScpiPositionServiceSyncTest covers what zero shares mean.
         assertThat(ScpiPositionService.withdrawalValue(BigDecimal.ZERO, null))
             .isEqualByComparingTo("0");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "true,false", "false,true", "true,true"})
+    void queueSync_discardsSnapshotAfterDisconnectOrReplacement(boolean replace, boolean remoteFailure) throws Exception {
+        FamilyMember member = FamilyMember.builder().id(7L).build();
+        SofidySession old = SofidySession.builder().id(3L).member(member)
+            .sessionState("encrypted").build();
+        AtomicReference<SofidySession> current = new AtomicReference<>(old);
+        when(sessionRepository.findByMemberIdForUpdate(7L))
+            .thenAnswer(inv -> Optional.ofNullable(current.get()));
+        when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
+            .thenAnswer(inv -> Optional.ofNullable(current.get()).filter(s -> s.getId().equals(3L)));
+        when(sessionRepository.findByMemberId(7L))
+            .thenAnswer(inv -> Optional.ofNullable(current.get()));
+        when(encryption.decrypt("encrypted")).thenReturn("plain-state");
+        org.mockito.Mockito.doAnswer(inv -> { current.set(null); return null; })
+            .when(sessionRepository).delete(old);
+        CountDownLatch fetching = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(port.fetchSnapshot("plain-state")).thenAnswer(inv -> {
+            fetching.countDown();
+            assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+            if (remoteFailure) {
+                throw new SyncException("Expired while fetching", null, "SESSION_EXPIRED");
+            }
+            return snapshot(List.of(holding("DY", "2", "313.60")));
+        });
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread worker = new Thread(() -> {
+            try { service.queueSync(7L); } catch (Throwable ex) { failure.set(ex); }
+        });
+        worker.start();
+        try {
+            assertThat(fetching.await(5, TimeUnit.SECONDS)).isTrue();
+            service.clearSession(7L);
+            if (replace) {
+                current.set(SofidySession.builder().id(4L).member(member)
+                    .sessionState("new-session").build());
+            }
+            clearInvocations(sessionRepository);
+        } finally {
+            release.countDown();
+            worker.join(5000);
+        }
+        assertThat(worker.isAlive()).isFalse();
+        assertThat(failure.get()).isNull();
+        var order = org.mockito.Mockito.inOrder(sessionRepository);
+        order.verify(sessionRepository).findMemberByIdForUpdate(7L);
+        order.verify(sessionRepository).findByIdAndMemberIdForUpdate(3L, 7L);
+        verifyNoInteractions(positionRepository, positionService);
+        verify(sessionRepository, org.mockito.Mockito.never()).save(any());
+        assertThat(old.getSyncStatus()).isEqualTo(SofidySyncStatus.RUNNING);
+        if (replace) {
+            assertThat(current.get().getSyncStatus()).isEqualTo(SofidySyncStatus.IDLE);
+        }
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"-1", "-0.001"})
+    void queueSync_rejectsMissingOrNegativeTotalEvenForEmptyPortfolio(String total) {
+        arrangeActiveSession();
+        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyPort.Snapshot(
+            "EUR", total == null ? null : new BigDecimal(total), null, true, List.of()));
+
+        SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
+        assertThat(result.lastSyncError()).isEqualTo(SofidyErrorCode.PORTFOLIO_INCOMPLETE);
+        verifyNoInteractions(positionService, positionRepository);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"627.19", "627.20", "627.21"})
+    void queueSync_acceptsTotalWithinOneCent(String total) {
+        arrangeActiveSession();
+        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyPort.Snapshot(
+            "EUR", new BigDecimal(total), null, true, List.of(holding("DY", "2", "313.60"))));
+        assertThat(service.queueSync(7L).syncStatus()).isEqualTo(SofidySyncStatus.SUCCESS);
+    }
+
+    @Test
+    void queueSync_rejectsNullQuantityBeforeWritingOrClosingPositions() {
+        arrangeActiveSession();
+        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyPort.Snapshot(
+            "EUR", BigDecimal.ZERO, null, true,
+            List.of(new SofidyPort.Holding("DY", "Test fund", null, new BigDecimal("313.60"), null))));
+        assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(SofidyErrorCode.INVALID_DATA);
+        verifyNoInteractions(positionService, positionRepository);
     }
 
     private void arrangeActiveSession() {

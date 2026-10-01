@@ -77,9 +77,12 @@ def _parse_decimal(raw: str, field: str) -> Decimal:
     if "," in value:
         raise PositionsFormatError("UPSTREAM_FORMAT_CHANGED", f"{field} is comma-formatted")
     try:
-        return Decimal(value)
+        number = Decimal(value)
     except InvalidOperation as exc:
         raise PositionsFormatError("INVALID_DATA", f"{field} is not a number") from exc
+    if not number.is_finite():
+        raise PositionsFormatError("INVALID_DATA", f"{field} is not finite")
+    return number
 
 
 def _parse_optional_price(raw: str) -> Decimal | None:
@@ -157,11 +160,13 @@ def parse_portfolio(html: str) -> dict[str, Any]:
             candidates.append(row)
 
     if not candidates:
-        if not _TOTAL_RE.search(html):
-            raise PositionsFormatError("UPSTREAM_FORMAT_CHANGED", "no portfolio rows and no total")
+        if _declared_total(html) != 0:
+            raise PositionsFormatError("PORTFOLIO_INCOMPLETE", "no funds but a nonzero total")
         # A holder with no fund still gets the totals row. That is a real,
         # complete, empty portfolio -- an account whose funds were all sold.
         return {
+            "currency": "EUR",
+            "totalEur": Decimal("0"),
             "valuationDate": _parse_valuation_date(html),
             "holdings": [],
             "snapshotComplete": True,
@@ -180,6 +185,8 @@ def parse_portfolio(html: str) -> dict[str, Any]:
 
     _check_totals(html, holdings)
     return {
+        "currency": "EUR",
+        "totalEur": _declared_total(html),
         "valuationDate": _parse_valuation_date(html),
         "holdings": [
             {

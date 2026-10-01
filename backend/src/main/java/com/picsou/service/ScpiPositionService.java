@@ -51,9 +51,8 @@ public class ScpiPositionService {
         position.setIsin(blankToNull(request.isin()));
         position.setManagementCompany(blankToNull(request.managementCompany()));
         // A field the caller did not send means "leave it alone", not "clear it".
-        // The edit form does not echo the fund codes back -- the response does not
-        // carry them -- so writing unconditionally would drop the link on every
-        // manual correction and quietly remove the position from later syncs.
+        // Partial callers may omit provider links when correcting a position.
+        // Writing unconditionally would quietly remove it from later syncs.
         // An explicit empty string is how a user detaches a fund on purpose.
         if (request.corumFundCode() != null) {
             position.setCorumFundCode(blankToNull(request.corumFundCode()));

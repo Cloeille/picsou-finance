@@ -22,6 +22,7 @@ import time
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -32,6 +33,7 @@ from playwright.async_api import (
     BrowserContext,
     Error as PlaywrightError,
     Playwright,
+    Page,
     async_playwright,
 )
 from positions_parser import PositionsFormatError, parse_snapshot
@@ -332,6 +334,7 @@ async def _new_browser(
             timezone_id="Europe/Paris",
             user_agent=USER_AGENT,
             storage_state=storage_state,
+            service_workers="block",
         )
         # Images are left alone -- the login flow was verified with them loading.
         # Fonts and media are dead weight either way.
@@ -347,6 +350,45 @@ async def _new_browser(
         await _close_resources(None, browser, None)
         raise
     return browser, context, SessionCollector()
+
+
+def _is_portal_url(url: str) -> bool:
+    try:
+        parsed = urlsplit(url)
+        origin = urlsplit(BASE_URL)
+        return (parsed.scheme == "https" and parsed.hostname == origin.hostname
+                and (443 if parsed.port is None else parsed.port)
+                == (443 if origin.port is None else origin.port)
+                and not parsed.username and not parsed.password)
+    except ValueError:
+        return False
+
+
+async def _new_page(context: BrowserContext) -> Page:
+    """Guard every Chromium request, including redirected POSTs, before sending.
+
+    Playwright routes only see the first hop of a redirected request. CDP's
+    request-stage interception sees each hop without replacing Chromium's TLS
+    fingerprint with an API client's, which Cloudflare would reject.
+    """
+    page = await context.new_page()
+    session = await context.new_cdp_session(page)
+    hops: dict[str, int] = {}
+
+    async def guard(event: dict[str, Any]) -> None:
+        request_id = event["requestId"]
+        previous = event.get("redirectedRequestId")
+        count = hops.pop(previous, 0) + 1 if previous else 0
+        hops[request_id] = count
+        if count > 5 or not _is_portal_url(event["request"]["url"]):
+            await session.send("Fetch.failRequest", {
+                "requestId": request_id, "errorReason": "BlockedByClient"})
+        else:
+            await session.send("Fetch.continueRequest", {"requestId": request_id})
+
+    session.on("Fetch.requestPaused", guard)
+    await session.send("Fetch.enable", {"patterns": [{"urlPattern": "*", "requestStage": "Request"}]})
+    return page
 
 
 def _encode_session(storage_state: dict[str, Any], cookie: str) -> str:
@@ -386,7 +428,7 @@ async def initiate(req: LoginRequest) -> dict:
         pw = await async_playwright().start()
         browser, live, collector = await _new_browser(pw)
         context = live
-        page = await live.new_page()
+        page = await _new_page(live)
         await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
 
         # The form is server-rendered but the SPA takes a moment to enable the
@@ -436,10 +478,10 @@ async def initiate(req: LoginRequest) -> dict:
     except HTTPException:
         raise
     except PlaywrightError as exc:
-        log.warning("CORUM authentication failed", exc_info=True)
+        log.warning("CORUM authentication failed")
         raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
     except Exception as exc:
-        log.exception("Unexpected CORUM authentication failure")
+        log.error("Unexpected CORUM authentication failure")
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
     finally:
         # Every path out of here closes: a successful login still owns a
@@ -482,7 +524,7 @@ async def _get_json(
             detail="SESSION_EXPIRED" if status == 401 else "UPSTREAM_UNAVAILABLE",
         )
     if status is None or not 200 <= status < 300:
-        log.warning("CORUM request failed (path=%s; status=%s)", _log_safe(path), status)
+        log.warning("CORUM request failed (status=%s)", status)
         if status == 429 or (status is not None and status >= 500):
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
         # A 404/400 means the endpoint moved or the query contract changed.
@@ -533,7 +575,7 @@ async def positions(req: SessionRequest) -> dict:
         pw = await async_playwright().start()
         browser, live, _ = await _new_browser(pw, storage_state=storage_state)
         context = live
-        page = await live.new_page()
+        page = await _new_page(live)
         # The reads below happen in this page, so it has to be on the client
         # space itself: a same-origin fetch is what Cloudflare accepts.
         await page.goto(f"{BASE_URL}/", wait_until="domcontentloaded", timeout=30_000)
@@ -576,10 +618,10 @@ async def positions(req: SessionRequest) -> dict:
     except HTTPException:
         raise
     except PlaywrightError as exc:
-        log.warning("CORUM positions browser failed", exc_info=True)
+        log.warning("CORUM positions browser failed")
         raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
     except Exception as exc:
-        log.exception("Unexpected CORUM positions failure")
+        log.error("Unexpected CORUM positions failure")
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
     finally:
         await _close_resources(context, browser, pw)

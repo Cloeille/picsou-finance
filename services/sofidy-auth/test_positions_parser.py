@@ -113,6 +113,22 @@ class MissingWithdrawalPrice(unittest.TestCase):
 
 
 class RefusesPartialOrChangedPayloads(unittest.TestCase):
+    def test_empty_portfolio_requires_a_readable_exact_zero_total(self):
+        for total, code in (("300.00", "PORTFOLIO_INCOMPLETE"),
+                            ("0.01", "PORTFOLIO_INCOMPLETE"),
+                            ("n/c", "INVALID_DATA"),
+                            ("NaN", "INVALID_DATA"),
+                            ("Infinity", "INVALID_DATA")):
+            with self.subTest(total=total):
+                with self.assertRaises(PositionsFormatError) as ctx:
+                    parse_portfolio(page("", total_row(parts="0", total=total)))
+                self.assertEqual(ctx.exception.code, code)
+
+    def test_empty_portfolio_without_a_total_is_refused(self):
+        with self.assertRaises(PositionsFormatError) as ctx:
+            parse_portfolio(page(""))
+        self.assertEqual(ctx.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
     def test_login_form_is_an_expired_session_not_an_empty_portfolio(self):
         # The portal answers 200 with the login form for a dead session. Reading
         # that as "no funds" would wipe every Sofidy-linked account's balance.

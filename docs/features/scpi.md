@@ -1,6 +1,6 @@
 # Feature: SCPI shares
 
-> Last updated: 2026-09-23
+> Last updated: 2026-10-01
 
 ## Context
 
@@ -9,6 +9,25 @@ estimator cannot price it. Folding it into `REAL_ESTATE` would either refuse it 
 value it like a house.
 
 ## How it works
+
+### Integration with 1.1.0 and V82
+
+V82 already defines the PostgreSQL `SCPI` account type alongside `ASSURANCE_VIE`.
+It also underpins the existing real-estate classification and wealth pyramid.
+This feature extends that same type; it does not replace or recreate it. The
+former main-based enum migration is redundant and is not replayed on 1.1.0.
+V82 and all other migrations already present on the release branch remain unchanged.
+
+The new `scpi_position` table stores the fractional quantity, the two prices and
+the provider links. `ScpiPositionService` computes the existing account balance
+from the withdrawal price instead of leaving it as a manually typed amount.
+`SCPI` still does not enter `AccountType.isInvestment()`, while `ASSURANCE_VIE`
+keeps its investment behaviour. Existing account metadata, translations and
+wealth-allocation features from 1.1.0 are retained.
+
+The consolidated change includes the manual slice originally reviewed in #158
+and the two connectors in #159; it implements the manual requirements of #157
+plus their read-only synchronization follow-up.
 
 One Picsou account per vehicle, typed `SCPI`. The user enters the share count (fractional,
 because a scheduled purchase or a reinvested dividend rarely lands on a whole share), the
@@ -29,6 +48,11 @@ is written in this version, so the hourly price job cannot send the ISIN to Yaho
 
 The Immobilier filter lists `SCPI` next to physical property. The property summary reports
 it as paper gross, outside the open-data gross and outside that gross's loan-to-value.
+
+The wealth pyramid deducts both the physical-property debt and the SCPI debt
+from the real-estate tier exactly once. Loan accounts themselves are skipped
+there. Only physical-property debt enters the existing physical loan-to-value
+indicator, so financing a SCPI does not change a house's LTV.
 
 ### Key files
 
@@ -95,8 +119,13 @@ PUT /api/accounts/{id}/scpi
 
 ## Gotchas / Pitfalls
 
-- PostgreSQL cannot use a new enum value in the transaction that added it. `V100` only adds
-  `SCPI`. `V101` creates `scpi_position`.
+- `CORUM_AUTH_URL` and `SOFIDY_AUTH_URL` are bound in both backend configurations.
+  Development defaults use loopback ports 8006 and 8007, avoiding BoursoBank's
+  8004 and Fortuneo's 8005. Compose uses the internal service names on port 8001;
+  no new sidecar port is published to the host.
+- `V82` already adds `SCPI` and `ASSURANCE_VIE` on 1.1.0; do not add the enum twice.
+  The appended migrations are `V104` (`scpi_position`), `V105` (`corum_session`)
+  and `V106` (`sofidy_session`), above the base branch's `V103`.
 - A generic account edit does not overwrite a SCPI balance. `ScpiPositionService` owns it.
 - A linked loan on a SCPI reduces paper net, not the physical property's net.
 - A CORUM contract holds several funds, so one client-space session writes to several

@@ -144,6 +144,8 @@ export type ScpiValuationStatus = 'OK' | 'PRICE_INCOMPLETE'
 export interface ScpiPosition {
   isin: string | null
   managementCompany: string | null
+  corumFundCode: string | null
+  sofidyFundCode: string | null
   shareCount: number
   subscriptionPriceEur: number | null
   withdrawalPriceEur: number | null

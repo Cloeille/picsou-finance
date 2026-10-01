@@ -246,7 +246,8 @@ export const mockAccounts: Account[] = [
   },
   {
     // Invented paper-property line. Not a real fund, and not priced from a market bulletin.
-    id: 9,
+    id: 12,
+    hidden: false,
     name: 'Pierre-papier exemple',
     type: 'SCPI',
     provider: 'Société exemple',
@@ -263,6 +264,8 @@ export const mockAccounts: Account[] = [
     scpi: {
       isin: null,
       managementCompany: 'Société exemple',
+      corumFundCode: null,
+      sofidyFundCode: null,
       shareCount: 10,
       subscriptionPriceEur: 1000,
       withdrawalPriceEur: 880,

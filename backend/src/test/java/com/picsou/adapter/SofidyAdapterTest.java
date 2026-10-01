@@ -1,9 +1,11 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
 import com.picsou.exception.SyncException;
 import com.picsou.port.SofidyErrorCode;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.ClientResponse;
@@ -12,11 +14,66 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SofidyAdapterTest {
+
+    @Test
+    @EnabledIfSystemProperty(named = "sofidy.contract.python", matches = ".+")
+    void fetchSnapshot_decodesTheActualPythonHttpResponse() throws Exception {
+        for (String scenario : new String[]{"priced", "unpriced", "empty", "fees"}) {
+            Path script = Path.of("../services/sofidy-auth/test_java_contract.py").toAbsolutePath();
+            Process python = new ProcessBuilder(System.getProperty("sofidy.contract.python"),
+                script.toString(), scenario).redirectError(ProcessBuilder.Redirect.INHERIT).start();
+            assertThat(python.waitFor(30, TimeUnit.SECONDS)).as("Python contract response").isTrue();
+            String json = new String(python.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(python.exitValue()).as("Python contract exit status").isZero();
+            HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            server.createContext("/positions", exchange -> {
+                byte[] payload = json.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, payload.length);
+                exchange.getResponseBody().write(payload);
+                exchange.close();
+            });
+            server.start();
+            try {
+                SofidyAdapter adapter = new SofidyAdapter(WebClient.builder()
+                    .baseUrl("http://127.0.0.1:" + server.getAddress().getPort()).build(),
+                    new ObjectMapper().findAndRegisterModules());
+                var snapshot = adapter.fetchSnapshot("fixture-session");
+                assertThat(snapshot.currency()).isEqualTo("EUR");
+                assertThat(snapshot.valuationDate()).hasToString("2026-09-27");
+                assertThat(snapshot.snapshotComplete()).isTrue();
+                if (scenario.equals("empty")) {
+                    assertThat(snapshot.totalEur()).isEqualByComparingTo("0");
+                    assertThat(snapshot.holdings()).isEmpty();
+                } else {
+                    assertThat(snapshot.totalEur())
+                        .isEqualByComparingTo(scenario.equals("fees") ? "330" : "300");
+                    assertThat(snapshot.holdings()).hasSize(1);
+                    var holding = snapshot.holdings().getFirst();
+                    assertThat(holding.fundCode()).isEqualTo("XY");
+                    assertThat(holding.quantity()).isEqualByComparingTo("3");
+                    if (scenario.equals("unpriced")) {
+                        assertThat(holding.withdrawalPrice()).isNull();
+                        assertThat(holding.withdrawalValue()).isNull();
+                    } else {
+                        assertThat(holding.withdrawalPrice()).isEqualByComparingTo("100");
+                        assertThat(holding.withdrawalValue()).isEqualByComparingTo("300");
+                    }
+                }
+            } finally {
+                server.stop(0);
+            }
+        }
+    }
 
     @Test
     void fetchSnapshot_mapsTheStrictSidecarContract() {

@@ -96,25 +96,23 @@ class ScpiPositionServiceTest {
         verify(accountRepository, never()).save(any());
     }
 
-    /**
-     * The edit form never echoes corumFundCode back, so a manual correction arrives
-     * with that field absent. Treating absent as "clear" would drop the link on
-     * every edit and quietly take the position out of later syncs -- the one
-     * failure a user would not notice until CORUM reported a fund as missing.
-     */
+    /** Partial callers can still omit links without detaching either provider. */
     @Test
-    void save_withoutTheFundCode_keepsTheStoredCorumLink() {
+    void save_withoutTheFundCodes_keepsBothStoredLinks() {
         Account account = scpiAccount("0");
         ScpiPosition existing = ScpiPosition.builder()
-            .account(account).member(ALICE).corumFundCode("FUND-42").build();
+            .account(account).member(ALICE).corumFundCode("FUND-42").sofidyFundCode("DY").build();
         when(accountRepository.findByIdAndMemberId(10L, 1L)).thenReturn(Optional.of(account));
         when(positionRepository.findByAccountIdAndMemberId(10L, 1L)).thenReturn(Optional.of(existing));
         when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        service.save(10L, 1L, request("12.345678", "1135", "1000.50"));
+        ScpiPositionResponse response = service.save(10L, 1L, request("12.345678", "1135", "1000.50"));
 
         assertThat(existing.getCorumFundCode()).isEqualTo("FUND-42");
+        assertThat(existing.getSofidyFundCode()).isEqualTo("DY");
+        assertThat(response.corumFundCode()).isEqualTo("FUND-42");
+        assertThat(response.sofidyFundCode()).isEqualTo("DY");
     }
 
     /** An explicit empty string is the deliberate way to detach a fund. */

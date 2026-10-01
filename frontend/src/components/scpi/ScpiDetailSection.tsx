@@ -34,15 +34,32 @@ export function ScpiDetailSection({ account }: { account: Account }) {
   const [jouissanceDate, setJouissanceDate] = useState(position?.jouissanceDate ?? '')
   const [isin, setIsin] = useState(position?.isin ?? '')
   const [managementCompany, setManagementCompany] = useState(position?.managementCompany ?? '')
+  const [corumFundCode, setCorumFundCode] = useState(position?.corumFundCode ?? '')
+  const [sofidyFundCode, setSofidyFundCode] = useState(position?.sofidyFundCode ?? '')
+
+  function startEditing() {
+    setShareCount(position?.shareCount?.toString() ?? '')
+    setSubscriptionPrice(position?.subscriptionPriceEur?.toString() ?? '')
+    setWithdrawalPrice(position?.withdrawalPriceEur?.toString() ?? '')
+    setDividendPolicy(position?.dividendPolicy ?? 'CASH')
+    setJouissanceDate(position?.jouissanceDate ?? '')
+    setIsin(position?.isin ?? '')
+    setManagementCompany(position?.managementCompany ?? '')
+    setCorumFundCode(position?.corumFundCode ?? '')
+    setSofidyFundCode(position?.sofidyFundCode ?? '')
+    setEditing(true)
+  }
 
   const shares = num(shareCount)
   const canSave = shares != null && shares >= 0
 
   async function save() {
-    if (!canSave || shares == null) return
+    if (!canEdit || !canSave || shares == null) return
     const data: ScpiPositionRequest = {
       isin: isin.trim() || null,
       managementCompany: managementCompany.trim() || null,
+      corumFundCode: corumFundCode.trim(),
+      sofidyFundCode: sofidyFundCode.trim(),
       shareCount: shares,
       subscriptionPriceEur: num(subscriptionPrice) ?? null,
       withdrawalPriceEur: num(withdrawalPrice) ?? null,
@@ -58,7 +75,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">{t('scpi.position')}</CardTitle>
         {canEdit && position && !editing && (
-          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+          <Button size="sm" variant="outline" onClick={startEditing}>
             {t('scpi.edit')}
           </Button>
         )}
@@ -68,7 +85,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
           <p className="text-sm text-amber-600 dark:text-amber-400">{t('scpi.incomplete')}</p>
         )}
 
-        {position && !editing && (
+        {position && (!editing || !canEdit) && (
           <dl className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <dt className="text-muted-foreground">{t('scpi.shareCount')}</dt>
@@ -109,6 +126,14 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                 <dd>{position.jouissanceDate}</dd>
               </div>
             )}
+            <div>
+              <dt className="text-muted-foreground">{t('scpi.corumFundCode')}</dt>
+              <dd>{position.corumFundCode || '—'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('scpi.sofidyFundCode')}</dt>
+              <dd>{position.sofidyFundCode || '—'}</dd>
+            </div>
           </dl>
         )}
 
@@ -133,6 +158,16 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                 <Label htmlFor="scpi-edit-withdrawal">{t('scpi.withdrawalPrice')}</Label>
                 <NumericInput id="scpi-edit-withdrawal" value={withdrawalPrice} onChange={(e) => setWithdrawalPrice(e.target.value)} />
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="scpi-edit-corum-fund">{t('scpi.corumFundCode')}</Label>
+              <Input id="scpi-edit-corum-fund" value={corumFundCode} maxLength={40} onChange={(e) => setCorumFundCode(e.target.value)} />
+              <p className="text-xs text-muted-foreground">{t('scpi.corumFundHint')}</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="scpi-edit-sofidy-fund">{t('scpi.sofidyFundCode')}</Label>
+              <Input id="scpi-edit-sofidy-fund" value={sofidyFundCode} maxLength={40} onChange={(e) => setSofidyFundCode(e.target.value)} />
+              <p className="text-xs text-muted-foreground">{t('scpi.sofidyFundHint')}</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="scpi-edit-subscription">{t('scpi.subscriptionPrice')}</Label>
