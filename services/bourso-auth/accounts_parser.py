@@ -385,9 +385,9 @@ def _parse_position(raw: Any) -> dict[str, Any] | None:
     gain_node = raw.get("gainLoss")
     gain_currency = _summary_currency(gain_node)
     if gain_currency is not None and gain_currency != "EUR":
-        # Not dropped like a foreign cost basis: with no buyingPrice the backend
-        # derives the basis as value − gain, and a null gain falls the whole
-        # account's invested amount back to its balance.
+        # Not dropped like a foreign cost basis: the backend derives the basis as
+        # value − gain, first for the displayed P&L and as the fallback for the
+        # invested amount, where a null gain falls the account back to its balance.
         raise AccountsFormatError(
             INVALID_DATA, f"Position {symbol} reports its gain in {gain_currency}, not EUR"
         )

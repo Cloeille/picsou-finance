@@ -183,9 +183,10 @@ each is to bite:
   currency is dropped to null rather than recorded as EUR: it would report a gain
   the size of the FX spread.
 - A position whose `gainLoss` is in anything but EUR → `INVALID_DATA`. It is not
-  dropped like a foreign cost basis: a line without `buyingPrice` derives its
-  basis as `amount − gainLoss`, and a null gain would fall the whole account's
-  invested amount back to its balance. A gain with no currency is read as EUR.
+  dropped like a foreign cost basis: the backend derives a line's cost basis as
+  `amount − gainLoss` first (`AccountService`), and as a fallback when
+  `buyingPrice` is missing (`BoursoSyncService`), where a null gain would fall the
+  whole account's invested amount back to its balance. A gain with no currency is read as EUR.
 - Positions on a cash account, a missing cash balance on a securities account,
   duplicate accounts, an unsupported type → `INVALID_DATA`.
 
