@@ -132,10 +132,10 @@ public class WealthPyramidService {
         BigDecimal cryptoDetailed = BigDecimal.ZERO;
 
         for (Account account : accounts) {
-            // Loans are liabilities. Property already enters the pyramid net of the debt
-            // financing it, via RealEstateSummaryService below, so counting a loan here would
-            // subtract it twice.
-            if (account.getType() == AccountType.LOAN) continue;
+            // Loans and cards are liabilities. Property already enters the pyramid net of the
+            // debt financing it, via RealEstateSummaryService below, so counting a loan here
+            // would subtract it twice.
+            if (account.getType().isLiability()) continue;
 
             BigDecimal share = shares.get(account.getId());
             WealthTier accountTier = WealthTier.of(account.getType());

@@ -50,7 +50,9 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 
 ## Gotchas / Pitfalls
 
-- Regular sync replaces the trailing 90-day window. The sidecar may return duplicate rows; backend deduplication uses the prepared transaction external id before persistence, and history recovery uses that same id when matching existing rows.
+- A regular sync only gets the latest 100 posted (+ pending) transactions, so it reconciles by external id over the range that page covers (the day after its oldest transaction to today, never wider than 90 days) instead of replacing the whole window. Older rows, including those imported by history recovery, are never touched; a stored row inside the range that the page no longer reports (a pending charge that settled under another identity, or vanished) is deleted.
+- Without an AMEX id, a transaction's external id is a hash of date + label + amount, numbered per repeat in the sidecar's order, so two identical purchases on the same day stay two rows. The first occurrence keeps the un-numbered hash. Routine sync and history recovery derive the same ids.
+- A credit card is a liability everywhere: `AccountType.isLiability()` (the accounts page's Debts group) keeps it out of the dashboard's assets, allocation donut and wealth pyramid, and adds its debt (the balance negated) to the dashboard's liabilities.
 - Pending transaction retrieval is best effort; a failure does not invalidate a posted snapshot.
 - The balance formula is inferred and must be re-checked after a payment/credit appears.
 - Existing AMEX sessions may not contain captured enrichment; a new login is needed to observe dashboard responses.

@@ -40,4 +40,12 @@ public enum AccountType {
     public boolean isInvestment() {
         return this == PEA || this == COMPTE_TITRES || this == CRYPTO || this == ASSURANCE_VIE;
     }
+
+    /**
+     * Whether this account is money owed rather than wealth: the same set the accounts page
+     * groups under Debts, so the dashboard and the pyramid never count one as a negative asset.
+     */
+    public boolean isLiability() {
+        return this == LOAN || this == CREDIT_CARD;
+    }
 }

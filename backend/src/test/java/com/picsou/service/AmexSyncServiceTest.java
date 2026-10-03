@@ -13,6 +13,9 @@ import com.picsou.repository.FamilyMemberRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
@@ -23,6 +26,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
@@ -32,8 +36,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -76,75 +82,96 @@ class AmexSyncServiceTest {
 
     @Test
     void firstSync_savesTransactionsAlongsideTheAccount() {
-        FamilyMember member = member();
-        AmexSession session = activeSession(member);
-        arrangeQueuedSession(session);
-        AmexPort.Transaction charge = new AmexPort.Transaction(
-            null, LocalDate.now().minusDays(1).toString(), "Coffee shop", new BigDecimal("-4.50")
-        );
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1", charge)));
-        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        arrangeNewAccountPersistence(20L);
+        AmexPort.Transaction charge = charge(1, "Coffee shop", "-4.50");
 
-        AmexSyncService.SessionStatusResponse result = service.queueSync(7L);
+        Reconciliation result = routineSync(List.of(), charge);
 
-        assertThat(result.syncStatus()).isEqualTo(AmexSyncStatus.SUCCESS);
-        verify(transactionWriter).replaceRecentTransactions(
-            eq(20L), any(LocalDate.class), transactionsCaptor.capture());
-        List<Transaction> inserted = transactionsCaptor.getValue();
-        assertThat(inserted).singleElement().satisfies(tx -> {
+        assertThat(result.obsolete()).isEmpty();
+        assertThat(result.upserts()).singleElement().satisfies(tx -> {
             assertThat(tx.getDescription()).isEqualTo("Coffee shop");
             assertThat(tx.getAmount()).isEqualByComparingTo("-4.50");
+            assertThat(tx.getExternalId()).startsWith("amex_tx_");
         });
     }
 
     @Test
-    void resync_replacesTheWindowInsteadOfDuplicatingRows() {
-        // The sidecar returns the same transaction on a second sync (no stable id to
-        // reconcile on); a real re-sync would just re-report the same charge. The writer
-        // must be told to replace the window each time, so the repository-level dedup lives
-        // in FortuneoTransactionWriter.replaceRecentTransactions rather than this service
-        // appending a second copy.
-        FamilyMember member = member();
-        AmexSession session = activeSession(member);
-        arrangeQueuedSession(session);
-        AmexPort.Transaction charge = new AmexPort.Transaction(
-            null, LocalDate.now().minusDays(1).toString(), "Coffee shop", new BigDecimal("-4.50")
-        );
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1", charge)));
-        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        arrangeNewAccountPersistence(20L);
+    void resync_updatesTheStoredRowInsteadOfDuplicatingIt() {
+        AmexPort.Transaction charge = charge(1, "Coffee shop", "-4.50");
+        List<Transaction> stored = routineSync(List.of(), charge).upserts();
 
-        service.queueSync(7L);
-        service.queueSync(7L);
+        Reconciliation second = routineSync(stored, charge);
 
-        verify(transactionWriter, org.mockito.Mockito.times(2)).replaceRecentTransactions(
-            eq(20L), any(LocalDate.class), transactionsCaptor.capture());
-        for (List<Transaction> inserted : transactionsCaptor.getAllValues()) {
-            assertThat(inserted).singleElement().satisfies(tx ->
-                assertThat(tx.getDescription()).isEqualTo("Coffee shop"));
-        }
+        assertThat(second.obsolete()).isEmpty();
+        assertThat(second.upserts()).singleElement().isSameAs(stored.getFirst());
     }
 
     @Test
-    void duplicateTransactionsWithSameIdentity_arePersistedOnce() {
-        FamilyMember member = member();
-        AmexSession session = activeSession(member);
-        arrangeQueuedSession(session);
-        AmexPort.Transaction posted = new AmexPort.Transaction(
-            null, LocalDate.now().minusDays(1).toString(), "Coffee shop", new BigDecimal("-4.50")
-        );
-        AmexPort.Transaction pendingDuplicate = new AmexPort.Transaction(
-            null, LocalDate.now().minusDays(1).toString(), "Coffee shop", new BigDecimal("-4.50")
-        );
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1", posted, pendingDuplicate)));
-        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        arrangeNewAccountPersistence(20L);
+    void routineSync_keepsOlderTransactionsTheLatestPageNoLongerReturns() {
+        // 150 charges over the 90-day window, newest first like the sidecar. A routine sync
+        // only gets the latest 100; the 50 older ones -- some sharing the page's oldest day --
+        // must survive it.
+        List<AmexPort.Transaction> all = new ArrayList<>();
+        for (int i = 0; i < 150; i++) {
+            all.add(charge(i * 89 / 149, "Shop " + i, "-" + (i + 1)));
+        }
+        List<Transaction> stored = historySync(all);
+        assertThat(stored).hasSize(150);
 
-        service.queueSync(7L);
+        Reconciliation routine = routineSync(stored, all.subList(0, 100).toArray(AmexPort.Transaction[]::new));
 
-        verify(transactionWriter).replaceRecentTransactions(eq(20L), any(LocalDate.class), transactionsCaptor.capture());
-        assertThat(transactionsCaptor.getValue()).hasSize(1);
+        assertThat(routine.obsolete()).isEmpty();
+        assertThat(routine.upserts()).hasSize(100).allSatisfy(tx -> assertThat(stored).contains(tx));
+    }
+
+    @Test
+    void routineSync_dropsAPendingChargeThatSettledOrVanished() {
+        AmexPort.Transaction older = charge(10, "Bookshop", "-12.00");
+        AmexPort.Transaction pending = charge(2, "PENDING Grocer", "-30.00");
+        AmexPort.Transaction cancelled = charge(1, "PENDING Hotel hold", "-150.00");
+        List<Transaction> stored = routineSync(List.of(), older, pending, cancelled).upserts();
+
+        AmexPort.Transaction posted = charge(1, "Grocer", "-30.00");
+        Reconciliation result = routineSync(stored, older, posted);
+
+        assertThat(result.obsolete())
+            .extracting(Transaction::getDescription)
+            .containsExactlyInAnyOrder("PENDING Grocer", "PENDING Hotel hold");
+        assertThat(result.upserts())
+            .extracting(Transaction::getDescription)
+            .containsExactly("Bookshop", "Grocer");
+    }
+
+    @Test
+    void identicalPurchasesOnTheSameDay_stayTwoRowsAcrossSyncs() {
+        AmexPort.Transaction ticket = charge(1, "Metro ticket", "-2.15");
+
+        List<Transaction> first = routineSync(List.of(), ticket, ticket).upserts();
+        assertThat(first).hasSize(2).extracting(Transaction::getExternalId).doesNotHaveDuplicates();
+
+        Reconciliation second = routineSync(first, ticket, ticket);
+        assertThat(second.obsolete()).isEmpty();
+        assertThat(second.upserts()).containsExactlyElementsOf(first);
+    }
+
+    @Test
+    void identicalPurchasesOnTheSameDay_historyImportsBothOnceOnly() {
+        AmexPort.Transaction ticket = charge(1, "Metro ticket", "-2.15");
+
+        List<Transaction> first = historySync(List.of(ticket, ticket));
+        assertThat(first).hasSize(2).extracting(Transaction::getExternalId).doesNotHaveDuplicates();
+
+        assertThat(historySync(List.of(ticket, ticket), first)).isEmpty();
+    }
+
+    @Test
+    void historyIdsMatchRoutineIds_soARoutineSyncAfterRecoveryDropsNothing() {
+        AmexPort.Transaction ticket = charge(1, "Metro ticket", "-2.15");
+        List<Transaction> stored = historySync(List.of(ticket, ticket));
+
+        Reconciliation routine = routineSync(stored, ticket, ticket);
+
+        assertThat(routine.obsolete()).isEmpty();
+        assertThat(routine.upserts()).containsExactlyInAnyOrderElementsOf(stored);
     }
 
     @Test
@@ -159,8 +186,25 @@ class AmexSyncServiceTest {
         AmexSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(AmexSyncStatus.SUCCESS);
-        verify(transactionWriter, org.mockito.Mockito.never())
-            .replaceRecentTransactions(any(), any(), any());
+        verifyNoInteractions(transactionWriter);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"04/03/26", "2026-13-01"})
+    void unparseableDueDate_isDroppedWithoutFailingTheSync(String dueDate) {
+        FamilyMember member = member();
+        AmexSession session = activeSession(member);
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1", dueDate)));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        arrangeNewAccountPersistence(20L);
+
+        AmexSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(AmexSyncStatus.SUCCESS);
+        verify(accountRepository).save(org.mockito.ArgumentMatchers.argThat(account ->
+            account.getPaymentDueDate() == null && account.getPaymentDueAmount() != null));
     }
 
     @Test
@@ -221,7 +265,53 @@ class AmexSyncServiceTest {
         verify(transactionWriter, org.mockito.Mockito.never()).replaceRecentTransactions(any(), any(), any());
     }
 
+    private record Reconciliation(List<Transaction> obsolete, List<Transaction> upserts) {}
+
+    private Reconciliation routineSync(List<Transaction> stored, AmexPort.Transaction... response) {
+        arrangeSync(stored);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1", response)));
+
+        service.queueSync(7L);
+
+        ArgumentCaptor<List<Transaction>> obsolete = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<Transaction>> upserts = ArgumentCaptor.forClass(List.class);
+        verify(transactionWriter).reconcileHistory(obsolete.capture(), upserts.capture());
+        return new Reconciliation(obsolete.getValue(), upserts.getValue());
+    }
+
+    private List<Transaction> historySync(List<AmexPort.Transaction> response) {
+        return historySync(response, List.of());
+    }
+
+    private List<Transaction> historySync(List<AmexPort.Transaction> response, List<Transaction> stored) {
+        arrangeSync(stored);
+        when(port.fetchTransactionHistory("plain-state"))
+            .thenReturn(List.of(accountData("amex_1", response.toArray(AmexPort.Transaction[]::new))));
+
+        service.queueHistoryRecovery(7L);
+
+        verify(transactionRepository).saveAllAndFlush(transactionsCaptor.capture());
+        return transactionsCaptor.getValue();
+    }
+
+    private void arrangeSync(List<Transaction> stored) {
+        clearInvocations(transactionWriter, transactionRepository);
+        FamilyMember member = member();
+        arrangeQueuedSession(activeSession(member));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        arrangeNewAccountPersistence(20L);
+        when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(stored);
+    }
+
+    private AmexPort.Transaction charge(int daysAgo, String label, String amount) {
+        return new AmexPort.Transaction(null, LocalDate.now().minusDays(daysAgo).toString(), label, new BigDecimal(amount));
+    }
+
     private AmexPort.AccountData accountData(String externalId, AmexPort.Transaction... transactions) {
+        return accountData(externalId, LocalDate.now().plusDays(5).toString(), transactions);
+    }
+
+    private AmexPort.AccountData accountData(String externalId, String dueDate, AmexPort.Transaction... transactions) {
         return new AmexPort.AccountData(
             externalId,
             "American Express",
@@ -229,7 +319,7 @@ class AmexSyncServiceTest {
             new BigDecimal("-100.00"),
             new BigDecimal("75.00"),
             new BigDecimal("42.50"),
-            LocalDate.now().plusDays(5).toString(),
+            dueDate,
             null,
             500L,
             List.of(transactions),

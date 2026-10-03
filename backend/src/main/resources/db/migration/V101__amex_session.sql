@@ -24,7 +24,7 @@ CREATE TABLE amex_session (
             last_sync_error IS NULL
             OR last_sync_error IN (
                 'INVALID_CREDENTIALS',
-                'SAFEKEY_TIMEOUT',
+                'INVALID_OTP',
                 'AUTH_ATTEMPT_EXPIRED',
                 'SESSION_EXPIRED',
                 'UPSTREAM_FORMAT_CHANGED',

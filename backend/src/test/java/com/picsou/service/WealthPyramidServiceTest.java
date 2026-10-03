@@ -202,6 +202,17 @@ class WealthPyramidServiceTest {
     }
 
     @Test
+    void aCreditCardDebtIsNeverCountedAsANegativeAsset() {
+        cash(AccountType.LIVRET_A, "5000");
+        cash(AccountType.CREDIT_CARD, "-800");
+
+        WealthPyramidResponse response = service.pyramid(MEMBER);
+
+        assertThat(response.totalAssetsEur()).isEqualByComparingTo("5000");
+        assertThat(response.tiers()).allSatisfy(line -> assertThat(line.valueEur().signum()).isNotNegative());
+    }
+
+    @Test
     void aCryptoLineInsideABrokerageAccountCountsAsCrypto() {
         // The wrapper does not determine the asset. A bitcoin ETP in a CTO is crypto exposure,
         // and calling it listed equity would misstate two tiers at once.

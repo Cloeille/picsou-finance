@@ -28,8 +28,11 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -48,8 +51,7 @@ public class AmexSyncService {
     private static final Logger log = LoggerFactory.getLogger(AmexSyncService.class);
     static final String PROVIDER = "American Express";
     private static final String EXTERNAL_ID_PREFIX = "amex_";
-    /** The sidecar returns no stable per-transaction id, so every sync replaces this trailing
-     * window rather than reconciling by id -- mirrors FortuneoSyncService's no-id fallback. */
+    /** Routine syncs never touch stored rows older than this trailing window. */
     private static final int TRANSACTION_WINDOW_DAYS = 90;
 
     private final AmexPort port;
@@ -272,21 +274,22 @@ public class AmexSyncService {
         return List.copyOf(prepared);
     }
 
-    /**
-     * Validates the sidecar's raw transaction list and parses each date, rejecting the whole
-     * sync on a malformed row rather than silently dropping money movements.
-     */
     private LocalDate parseOptionalDate(String value) {
-        if (value == null || value.isBlank()) return null;
+        if (value == null || value.length() < 10) return null;
         try { return LocalDate.parse(value.substring(0, 10)); }
         catch (DateTimeException ex) { return null; }
     }
 
+    /**
+     * Validates the sidecar's raw transaction list and parses each date, rejecting the whole
+     * sync on a malformed row rather than silently dropping money movements.
+     */
     private List<PreparedTransaction> prepareTransactions(List<AmexPort.Transaction> raw) {
         if (raw == null || raw.isEmpty()) {
             return List.of();
         }
         List<PreparedTransaction> prepared = new ArrayList<>(raw.size());
+        Map<String, Integer> occurrences = new HashMap<>();
         for (AmexPort.Transaction tx : raw) {
             if (tx == null || tx.date() == null || tx.amountEur() == null) {
                 throw error(AmexErrorCode.INVALID_DATA, "American Express returned an incomplete transaction", null);
@@ -297,8 +300,14 @@ public class AmexSyncService {
             } catch (DateTimeException ex) {
                 throw error(AmexErrorCode.INVALID_DATA, "American Express returned an invalid transaction date", ex);
             }
-            String externalId = tx.externalId() != null ? tx.externalId()
-                : identity(date, tx.label(), tx.amountEur());
+            // Two identical purchases on the same day (two metro tickets) are two rows: number
+            // each repeat of a tuple in response order so both survive and a re-sync of the
+            // same data maps back onto the same ids.
+            String externalId = tx.externalId();
+            if (externalId == null) {
+                String base = identity(date, tx.label(), tx.amountEur(), 0);
+                externalId = identity(date, tx.label(), tx.amountEur(), occurrences.merge(base, 1, Integer::sum) - 1);
+            }
             prepared.add(new PreparedTransaction(
                 externalId,
                 date,
@@ -309,8 +318,12 @@ public class AmexSyncService {
         return List.copyOf(prepared);
     }
 
-    private String identity(LocalDate date, String description, BigDecimal amount) {
-        return "amex_tx_" + Integer.toUnsignedString(Objects.hash(date, description, amount.stripTrailingZeros()), 36);
+    /** The first occurrence keeps the pre-numbering hash, so rows stored before it keep their id. */
+    private String identity(LocalDate date, String description, BigDecimal amount, int occurrence) {
+        int hash = occurrence == 0
+            ? Objects.hash(date, description, amount.stripTrailingZeros())
+            : Objects.hash(date, description, amount.stripTrailingZeros(), occurrence);
+        return "amex_tx_" + Integer.toUnsignedString(hash, 36);
     }
 
     private boolean commitAccounts(SyncJob job, List<PreparedAccount> prepared) {
@@ -397,7 +410,7 @@ public class AmexSyncService {
             List<Transaction> existing = transactionRepository.findByAccountIdAndIsManualFalse(account.getId());
             Set<String> known = new HashSet<>();
             for (Transaction tx : existing) {
-                known.add(tx.getExternalId() != null ? tx.getExternalId() : identity(tx.getDate(), tx.getDescription(), tx.getAmount()));
+                known.add(tx.getExternalId() != null ? tx.getExternalId() : identity(tx.getDate(), tx.getDescription(), tx.getAmount(), 0));
             }
             List<Transaction> missing = transactions.stream()
                 .filter(tx -> known.add(tx.externalId()))
@@ -407,23 +420,43 @@ public class AmexSyncService {
             return;
         }
         LocalDate cutoff = LocalDate.now().minusDays(TRANSACTION_WINDOW_DAYS);
-        List<Transaction> toInsert = transactions.stream()
-            .filter(tx -> !tx.date().isBefore(cutoff))
-            .collect(java.util.stream.Collectors.toMap(
-                PreparedTransaction::externalId,
-                tx -> Transaction.builder()
+        Map<String, PreparedTransaction> reported = new LinkedHashMap<>();
+        for (PreparedTransaction tx : transactions) {
+            if (!tx.date().isBefore(cutoff)) reported.putIfAbsent(tx.externalId(), tx);
+        }
+        // The sidecar returns only the latest page, so the response is authoritative from its
+        // oldest day to today, never across the whole 90-day window. That oldest day is itself
+        // left alone: the page may have cut it, and the rows it dropped are still real.
+        LocalDate oldest = transactions.stream().map(PreparedTransaction::date).min(LocalDate::compareTo).orElseThrow();
+        LocalDate deleteFrom = oldest.isBefore(cutoff) ? cutoff : oldest.plusDays(1);
+
+        Map<String, Transaction> storedById = new HashMap<>();
+        List<Transaction> obsolete = new ArrayList<>();
+        for (Transaction row : transactionRepository.findByAccountIdAndIsManualFalse(account.getId())) {
+            if (row.getExternalId() != null && reported.containsKey(row.getExternalId())) {
+                storedById.put(row.getExternalId(), row);
+            } else if (!row.getDate().isBefore(deleteFrom)) {
+                // A pending charge that settled under another identity, or vanished.
+                obsolete.add(row);
+            }
+        }
+
+        List<Transaction> upserts = new ArrayList<>(reported.size());
+        for (PreparedTransaction tx : reported.values()) {
+            Transaction row = storedById.get(tx.externalId());
+            if (row == null) {
+                row = Transaction.builder()
                     .account(account)
                     .externalId(tx.externalId())
-                    .date(tx.date())
-                    .description(tx.label())
-                    .amount(tx.amountEur())
                     .nativeCurrency("EUR")
-                    .build(),
-                (first, duplicate) -> first,
-                java.util.LinkedHashMap::new
-            ))
-            .values().stream().toList();
-        transactionWriter.replaceRecentTransactions(account.getId(), cutoff, toInsert);
+                    .build();
+            }
+            row.setDate(tx.date());
+            row.setDescription(tx.label());
+            row.setAmount(tx.amountEur());
+            upserts.add(row);
+        }
+        transactionWriter.reconcileHistory(obsolete, upserts);
     }
 
     private void markFailed(SyncJob job, AmexErrorCode code) {
