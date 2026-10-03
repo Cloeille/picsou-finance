@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fully invested: its balance is the account total and the fund's value, with a
   zero cash balance. A payload mixing both shapes, or carrying zero or several
   funds, is still refused.
+- **A BoursoBank position whose gain is reported in a foreign currency is refused
+  instead of being recorded as EUR.** The sidecar already refused a line valued in
+  USD and dropped a USD cost basis, but read `gainLoss` as EUR whatever its
+  currency. The backend derives a line's cost basis as value minus gain (first
+  choice for the displayed P&L, fallback for the invested amount when
+  `buyingPrice` is missing), so a 150 USD gain read as 150 EUR misstated it by
+  the exchange-rate difference. The sync now fails with `INVALID_DATA` and keeps the last good
+  portfolio; a gain without a currency is still read as EUR.
 - **A price the provider could not deliver a minute ago no longer blanks a position
   in the exchange sync.** `refreshPrices` returned a remembered miss as a `null`
   price, `refreshCryptoQuotes` wrapped it in a quote, and the last-known-price
