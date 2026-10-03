@@ -121,7 +121,9 @@ def stub_client(responses: dict[str, StubResponse]) -> StubClient:
 class RouteContract(unittest.TestCase):
     def setUp(self) -> None:
         self._original = service._new_client
-        self.client = TestClient(service.app)
+        self.client = TestClient(
+            service.app, headers={"X-Picsou-Sidecar-Key": "test-key"}
+        )
 
     def tearDown(self) -> None:
         service._new_client = self._original

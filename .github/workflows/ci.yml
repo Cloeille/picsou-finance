@@ -138,9 +138,11 @@ jobs:
           docker run --rm --ipc=host
           --env PYTHONPATH=/app
           --env CORUM_BROWSER_TESTS=1
+          --env APP_SIDECAR_API_KEY=test-key
           --volume "${{ github.workspace }}/services/corum-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
           --volume "${{ github.workspace }}/services/corum-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
           --volume "${{ github.workspace }}/services/corum-auth/test_navigation_security.py:/tests/test_navigation_security.py:ro"
+          --volume "${{ github.workspace }}/services/corum-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
           --workdir /tests
           picsou-corum-auth:test
           python -m unittest discover -v
@@ -161,6 +163,8 @@ jobs:
           --volume "${{ github.workspace }}/services/sofidy-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
           --volume "${{ github.workspace }}/services/sofidy-auth/test_redirect_security.py:/tests/test_redirect_security.py:ro"
           --volume "${{ github.workspace }}/services/sofidy-auth/test_java_contract.py:/tests/test_java_contract.py:ro"
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --env APP_SIDECAR_API_KEY=test-key
           --workdir /tests
           picsou-sofidy-auth:test
           python -m unittest discover -v

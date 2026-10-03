@@ -123,6 +123,16 @@ PUT /api/accounts/{id}/scpi
   Development defaults use loopback ports 8006 and 8007, avoiding BoursoBank's
   8004 and Fortuneo's 8005. Compose uses the internal service names on port 8001;
   no new sidecar port is published to the host.
+- The backend, CORUM and Sofidy must share the same `APP_SIDECAR_API_KEY`.
+  Generate a secret with `openssl rand -base64 32` and set it before startup;
+  both Compose files forward it explicitly and refuse a missing or empty value.
+  Each SCPI sidecar also refuses startup with a missing or whitespace-only key.
+  Every route except `/health`, including documentation routes, requires
+  `X-Picsou-Sidecar-Key`. A constant-time comparison runs before request parsing
+  or upstream work. A missing or wrong key returns HTTP 401 with
+  `WWW-Authenticate: Picsou-Sidecar-Key`, distinguishing sidecar configuration
+  errors from provider login/session failures. After rotating the key, recreate
+  the backend and both sidecar containers together.
 - `V82` already adds `SCPI` and `ASSURANCE_VIE` on 1.1.0; do not add the enum twice.
   The appended migrations are `V104` (`scpi_position`), `V105` (`corum_session`)
   and `V106` (`sofidy_session`), above the base branch's `V103`.
@@ -161,6 +171,9 @@ PUT /api/accounts/{id}/scpi
   but cannot replace it
 - `services/sofidy-auth/test_live_contract.py` — the routes, the 2FA handshake, and
   the codes the Java adapter depends on
+- `services/corum-auth/test_sidecar_auth.py` and
+  `services/sofidy-auth/test_sidecar_auth.py` — missing, empty and wrong keys,
+  authenticated dispatch, public health and fail-closed configuration
 
 ## Links
 

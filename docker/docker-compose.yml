@@ -48,6 +48,7 @@ services:
       FORTUNEO_AUTH_URL: http://fortuneo-auth:8001
       CORUM_AUTH_URL: http://corum-auth:8001
       SOFIDY_AUTH_URL: http://sofidy-auth:8001
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     depends_on:
       - db
       - tr-auth
@@ -154,6 +155,8 @@ services:
       context: ../services/corum-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
 
   sofidy-auth:
     image: ghcr.io/cloeille/picsou-finance/sofidy-auth:latest
@@ -161,6 +164,8 @@ services:
       context: ../services/sofidy-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
 
 
   db:

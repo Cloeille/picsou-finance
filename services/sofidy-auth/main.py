@@ -30,7 +30,9 @@ import asyncio
 import html as html_module
 import json
 import logging
+import os
 import re
+import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -69,6 +71,7 @@ USER_AGENT = (
     "Chrome/141.0.0.0 Safari/537.36"
 )
 REQUEST_TIMEOUT_SECONDS = 30.0
+SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
 
 # The portal shows a 120 s countdown before it will re-send a verification code,
 # and says the code itself expires. Holding the attempt open much longer than
@@ -84,6 +87,8 @@ _pending_lock = asyncio.Lock()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    if not SIDECAR_API_KEY.strip():
+        raise RuntimeError("APP_SIDECAR_API_KEY must be configured with a non-blank value")
     sweeper = asyncio.create_task(_pending_sweeper())
     try:
         yield
@@ -117,6 +122,26 @@ async def log_request_duration(request: Request, call_next):
         (time.time() - started) * 1000,
     )
     return response
+
+
+@app.middleware("http")
+async def require_sidecar_key(request: Request, call_next):
+    """Authenticate before routing, request parsing, or any application work."""
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    provided = request.headers.get("X-Picsou-Sidecar-Key", "")
+    expected_bytes = SIDECAR_API_KEY.encode("utf-8")
+    # Starlette decodes wire header bytes as Latin-1; recover those bytes so
+    # UTF-8 secrets with non-ASCII characters compare exactly as configured.
+    provided_bytes = provided.encode("latin-1")
+    if not SIDECAR_API_KEY.strip() or not secrets.compare_digest(provided_bytes, expected_bytes):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "UNAUTHORIZED"},
+            headers={"WWW-Authenticate": "Picsou-Sidecar-Key"},
+        )
+    return await call_next(request)
 
 
 def _log_safe(value: str) -> str:

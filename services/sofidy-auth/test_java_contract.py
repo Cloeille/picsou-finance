@@ -3,11 +3,15 @@
 Run with the sidecar's pinned requirements. Only the upstream transport is fake;
 parser, app route, Pydantic response filtering and JSON serialization are real.
 """
+import os
 import sys
 from unittest.mock import patch
 
 import httpx
 from fastapi.testclient import TestClient
+
+# The standalone fixture process has its own test-only key, never a production default.
+os.environ["APP_SIDECAR_API_KEY"] = "test-key"
 
 import main
 from test_live_contract import FAKE_SESSION, FUND_ROW, TOTAL_ROW, portfolio_html
@@ -39,7 +43,11 @@ def response_json(scenario):
 
     with patch.object(main.httpx, "AsyncClient", side_effect=factory):
         with TestClient(main.app) as client:
-            response = client.post("/positions", json={"sessionState": FAKE_SESSION})
+            response = client.post(
+                "/positions",
+                json={"sessionState": FAKE_SESSION},
+                headers={"X-Picsou-Sidecar-Key": "test-key"},
+            )
             response.raise_for_status()
             return response.text
 

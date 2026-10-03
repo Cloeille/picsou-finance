@@ -33,7 +33,9 @@ class RedirectSecurityTest(unittest.TestCase):
             return original_client(**kwargs)
 
         with patch.object(main.httpx, "AsyncClient", side_effect=factory):
-            with TestClient(main.app) as app:
+            with TestClient(
+                main.app, headers={"X-Picsou-Sidecar-Key": "test-key"}
+            ) as app:
                 if route == "/complete":
                     upstream = main._new_client()
                     main._pending["fixture"] = {
