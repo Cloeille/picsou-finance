@@ -44,8 +44,8 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 |--------|-----|----------------------|
 | Missing enrichment remains null and latest non-null persisted value wins | Upstream discovery is not guaranteed on every response | Clearing a known value on a sparse sync |
 | Account due amount is stored as plaintext NUMERIC(20,8), date and points are ordinary account data | These values are not credentials | Encrypting non-secret amounts |
-|| Connect runs the provider-maximum history import once | A fresh connection is already the heavy operation (browser login + OTP); routine syncs stay cheap and the daily scheduler keeps the session warm | Fetching full history on **every** sync |
-|| Pinned Camoufox 152.0.4-beta.30 | 156.0.1-beta.33 breaks login (UnknownProperty); verified build works | Pin deliberately after real login test |
+| Connect runs the provider-maximum history import once | A fresh connection is already the heavy operation (browser login + OTP); routine syncs stay cheap and the daily scheduler keeps the session warm | Fetching full history on **every** sync |
+| Pinned Camoufox 152.0.4-beta.30 | 156.0.1-beta.33 breaks login (UnknownProperty); verified build works | Pin deliberately after real login test |
 
 ## Gotchas / Pitfalls
 
