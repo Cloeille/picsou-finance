@@ -5,10 +5,12 @@ import com.picsou.port.PriceProviderPort;
 import com.picsou.port.SymbolCatalogPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import com.picsou.dto.EquityProfile;
 import com.picsou.port.EquityProfileProvider;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -72,19 +74,30 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     private static final String SECTOR_SOURCE = "Yahoo Finance";
 
     private final WebClient webClient;
+    private final YahooCooldown cooldown;
     private final Map<String, CachedFx> fxCache = new ConcurrentHashMap<>();
 
     public YahooFinancePriceProvider() {
+        this(new YahooCooldown(java.time.Clock.systemUTC()));
+    }
+
+    @Autowired
+    public YahooFinancePriceProvider(YahooCooldown cooldown) {
         this(WebClient.builder()
             .baseUrl("https://query1.finance.yahoo.com")
             .defaultHeader("Accept", "application/json")
             .defaultHeader("User-Agent", "Mozilla/5.0")
-            .build());
+            .build(), cooldown);
     }
 
-    // Package-private constructor for tests — inject a WebClient backed by an ExchangeFunction.
+    // Package-private constructors for tests — inject a WebClient backed by an ExchangeFunction.
     YahooFinancePriceProvider(WebClient webClient) {
+        this(webClient, new YahooCooldown(java.time.Clock.systemUTC()));
+    }
+
+    YahooFinancePriceProvider(WebClient webClient, YahooCooldown cooldown) {
         this.webClient = webClient;
+        this.cooldown = cooldown;
     }
 
     @Override
@@ -131,6 +144,11 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
                 BigDecimal price = fetchSinglePrice(ticker);
                 if (price != null) result.put(ticker, price);
             } catch (Exception ex) {
+                // Armed, never read here: see YahooCooldown for why prices do not yield to it.
+                if (reactor.core.Exceptions.unwrap(ex) instanceof WebClientResponseException http
+                        && http.getStatusCode().value() == 429) {
+                    cooldown.arm(http.getHeaders());
+                }
                 log.warn("Yahoo Finance price fetch failed for {}: {}", ticker, ex.getMessage());
             }
         }

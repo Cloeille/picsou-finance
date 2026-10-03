@@ -1,0 +1,233 @@
+package com.picsou.adapter;
+
+import com.picsou.port.InstrumentLogoPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.NestedExceptionUtils;
+import org.springframework.core.io.buffer.DataBufferLimitException;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.netty.http.client.HttpClient;
+
+import java.net.URI;
+import java.time.Duration;
+import java.util.Locale;
+import java.util.concurrent.TimeoutException;
+
+/**
+ * Downloads a share's or fund's mark from its Yahoo Finance quote page (issue #162).
+ *
+ * <p>Two requests per ticker on a hit: the quote page (around 1 MB of HTML), then the 50px
+ * rendition of the mark that the page links to on {@code s.yimg.com} (a few KB, versus up to
+ * 300 KB for the original), plus the dark-background variant when it is a different file. The
+ * caller runs this at most once per ticker, so the page weight is paid once per installation.
+ *
+ * <p>Every answer the page gives is treated as untrusted: the logo URL must be https on
+ * {@code s.yimg.com} ({@link YahooQuotePageParser#imageUri}), and the downloaded bytes must be a
+ * PNG, JPEG or WebP by their own signature, not just by the header, and under
+ * {@link #MAX_IMAGE_BYTES}. SVG is refused outright: it is a document that can carry script, and
+ * these bytes are served from Picsou's own origin.
+ */
+@Component
+public class YahooQuotePageLogoProvider implements InstrumentLogoPort {
+
+    private static final Logger log = LoggerFactory.getLogger(YahooQuotePageLogoProvider.class);
+
+    static final int MAX_IMAGE_BYTES = 256 * 1024;
+    /** The page is about 1 MB today; this is a memory bound, not an expectation. */
+    static final int MAX_PAGE_BYTES = 4 * 1024 * 1024;
+    private static final int MAX_HEADER_BYTES = 64 * 1024;
+    private static final Duration PAGE_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration IMAGE_TIMEOUT = Duration.ofSeconds(5);
+
+    private final WebClient webClient;
+    private final YahooCooldown cooldown;
+    private final YahooFinancePriceProvider yahoo;
+    private final CoinGeckoPriceProvider coinGecko;
+
+    @Autowired
+    public YahooQuotePageLogoProvider(YahooCooldown cooldown,
+                                      YahooFinancePriceProvider yahoo,
+                                      CoinGeckoPriceProvider coinGecko) {
+        this(clientBuilder().build(), cooldown, yahoo, coinGecko);
+    }
+
+    /**
+     * Shared with the tests, so they exercise the same body-size limit production runs with.
+     *
+     * <p>The header limit is raised because the quote page answers with more than Reactor
+     * Netty's default 8 KB of response headers (measured live: every lookup failed with "HTTP
+     * header is larger than 8192 bytes"). Redirects are not followed, so a page can never steer
+     * a request off the hosts asked for.
+     */
+    static WebClient.Builder clientBuilder() {
+        HttpClient http = HttpClient.create()
+            .followRedirect(false)
+            .httpResponseDecoder(spec -> spec.maxHeaderSize(MAX_HEADER_BYTES));
+        return WebClient.builder()
+            .clientConnector(new ReactorClientHttpConnector(http))
+            .defaultHeader("User-Agent", "Mozilla/5.0")
+            .codecs(c -> c.defaultCodecs().maxInMemorySize(MAX_PAGE_BYTES));
+    }
+
+    YahooQuotePageLogoProvider(WebClient webClient, YahooCooldown cooldown,
+                               YahooFinancePriceProvider yahoo, CoinGeckoPriceProvider coinGecko) {
+        this.webClient = webClient;
+        this.cooldown = cooldown;
+        this.yahoo = yahoo;
+        this.coinGecko = coinGecko;
+    }
+
+    /**
+     * A symbol Yahoo would quote and CoinGecko would not claim: the same split
+     * {@code CompositePriceProvider} prices by, so a coin never reaches the equity page.
+     */
+    @Override
+    public boolean supports(String ticker) {
+        return ticker != null && !coinGecko.supports(ticker) && yahoo.supports(ticker);
+    }
+
+    @Override
+    public Lookup lookup(String ticker) {
+        if (!supports(ticker)) return new Lookup.Absent("not a quoted symbol");
+        if (cooldown.active()) return new Lookup.RateLimited();
+        String symbol = ticker.toUpperCase(Locale.ROOT);
+
+        String html;
+        try {
+            html = webClient.get()
+                .uri("https://finance.yahoo.com/quote/{symbol}/", symbol)
+                .accept(MediaType.TEXT_HTML)
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(PAGE_TIMEOUT)
+                .block();
+        } catch (RuntimeException ex) {
+            return failure("quote page", symbol, ex);
+        }
+
+        var urls = YahooQuotePageParser.logoUrls(html, symbol).orElse(null);
+        if (urls == null) {
+            log.info("Yahoo quote page for {} carries no logo for that symbol", symbol);
+            return new Lookup.Absent("no logo on the quote page");
+        }
+
+        Image light;
+        try {
+            light = download(urls.light(), symbol);
+        } catch (RuntimeException ex) {
+            return failure("logo", symbol, ex);
+        }
+        if (light == null) return new Lookup.Absent("logo rejected by validation");
+
+        Image dark = null;
+        if (urls.dark() != null && !urls.dark().equals(urls.light())) {
+            try {
+                dark = download(urls.dark(), symbol);
+            } catch (RuntimeException ex) {
+                // The light mark is enough to show; a failed dark variant is not worth losing it.
+                failure("dark logo", symbol, ex);
+            }
+        }
+        return new Lookup.Found(light, dark);
+    }
+
+    /** The image at {@code uri}, or null when it fails validation. Throws on transport failure. */
+    private Image download(URI uri, String symbol) {
+        ResponseEntity<byte[]> response = webClient.get()
+            .uri(uri)
+            .retrieve()
+            .toEntity(byte[].class)
+            .timeout(IMAGE_TIMEOUT)
+            .block();
+        if (response == null) return null;
+        MediaType declared = response.getHeaders().getContentType();
+        Image image = validate(response.getBody(), declared == null ? null : declared.toString());
+        if (image == null) {
+            log.info("Rejected the logo Yahoo serves for {} (type {}, {} bytes)", symbol, declared,
+                response.getBody() == null ? 0 : response.getBody().length);
+        }
+        return image;
+    }
+
+    /**
+     * The image if the declared type is PNG, JPEG or WebP <em>and</em> the bytes carry that
+     * format's signature, and it fits under {@link #MAX_IMAGE_BYTES}. Null otherwise.
+     *
+     * <p>The returned content type is the canonical one for the signature, never the header
+     * verbatim, so a parameter or an odd casing in the upstream header cannot reach the browser.
+     */
+    static Image validate(byte[] bytes, String declaredContentType) {
+        if (bytes == null || bytes.length == 0 || bytes.length > MAX_IMAGE_BYTES) return null;
+        if (declaredContentType == null) return null;
+        // Type and subtype only: a stray parameter (an odd charset on an image) is no reason to
+        // refuse bytes whose signature is checked below anyway.
+        int semicolon = declaredContentType.indexOf(';');
+        String declared = (semicolon < 0 ? declaredContentType : declaredContentType.substring(0, semicolon))
+            .trim().toLowerCase(Locale.ROOT);
+        String sniffed = sniff(bytes);
+        if (sniffed == null || !sniffed.equals("image/jpg".equals(declared) ? "image/jpeg" : declared)) return null;
+        return new Image(bytes, sniffed);
+    }
+
+    private static String sniff(byte[] b) {
+        if (startsWith(b, 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A)) return MediaType.IMAGE_PNG_VALUE;
+        if (startsWith(b, 0xFF, 0xD8, 0xFF)) return MediaType.IMAGE_JPEG_VALUE;
+        if (b.length >= 12 && startsWith(b, 'R', 'I', 'F', 'F')
+            && b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P') return "image/webp";
+        return null;
+    }
+
+    private static boolean startsWith(byte[] b, int... prefix) {
+        if (b.length < prefix.length) return false;
+        for (int i = 0; i < prefix.length; i++) {
+            if ((b[i] & 0xFF) != prefix[i]) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Maps a failed request to what the caller should remember. A 429 or a 5xx also arms the
+     * shared cooldown, so the rest of the batch and the next pass stand down too. Anything that
+     * is not an upstream failure is a bug here and is rethrown, the house rule
+     * {@code CoinGeckoPriceProvider.isExpectedUpstreamFailure} documents.
+     */
+    private Lookup failure(String what, String symbol, RuntimeException ex) {
+        Throwable cause = reactor.core.Exceptions.unwrap(ex);
+        // Checked first: an over-limit body arrives wrapped in a WebClientResponseException that
+        // carries the 200 it was served with, and is a property of the content, not an outage.
+        if (NestedExceptionUtils.getMostSpecificCause(cause) instanceof DataBufferLimitException) {
+            log.info("Yahoo's {} for {} exceeds the size cap", what, symbol);
+            return new Lookup.Absent("too large");
+        }
+        if (cause instanceof WebClientResponseException http) {
+            int status = http.getStatusCode().value();
+            if (status == 429) {
+                Duration pause = cooldown.arm(http.getHeaders());
+                log.warn("Yahoo rate-limited (429) the {} request for {} -- pausing logo lookups for {}s",
+                    what, symbol, pause.toSeconds());
+                return new Lookup.RateLimited();
+            }
+            if (status == 404) {
+                log.info("Yahoo has no {} for {} (HTTP 404)", what, symbol);
+                return new Lookup.Absent("HTTP 404");
+            }
+            if (http.getStatusCode().is5xxServerError()) {
+                cooldown.arm(null);
+            }
+            log.warn("Yahoo answered the {} request for {} with HTTP {}", what, symbol, status);
+            return new Lookup.Unavailable("HTTP " + status);
+        }
+        if (cause instanceof TimeoutException || cause instanceof WebClientRequestException) {
+            log.warn("Yahoo {} request for {} did not complete: {}", what, symbol, cause.getMessage());
+            return new Lookup.Unavailable(cause.getClass().getSimpleName());
+        }
+        throw ex;
+    }
+}

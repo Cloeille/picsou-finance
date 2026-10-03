@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { useDarkTheme } from '@/hooks/use-dark-theme'
 import { cn } from '@/lib/utils'
 
 /**
  * A holding's mark, sized to sit in a table's first column beside its ticker.
  *
  * Wraps the same `Avatar` primitive the account cards use, so a broken or absent image degrades
- * to the fallback instead of a torn-image glyph. Only crypto resolves a URL today — an equity has
- * no logo source, so it renders as the empty disc, see `docs/features/holding-logos.md`.
+ * to the fallback instead of a torn-image glyph. A crypto mark is a CoinGecko URL; a share or
+ * fund mark is Picsou's own `/api/instrument-logos` endpoint, see `docs/features/holding-logos.md`.
  *
- * Three details are deliberate:
+ * Four details are deliberate:
  *
  * - The image is sized to the same box as the fallback rather than overflowing it. Coin logos are
  *   circular PNGs with transparent margins, so `object-contain` inside a fixed square keeps the
@@ -21,22 +22,28 @@ import { cn } from '@/lib/utils'
  *   stable when an image is absent, exactly as the account cards' colour circle does.
  * - The `onError` reset is what makes a *transient* failure recoverable: Radix keeps the image
  *   mounted after a load error, so without flipping back to "no image" a single failed request
- *   would leave the mark blank for that holding. Remounting on the next `logoUrl` change also
- *   picks up a corrected URL.
+ *   would leave the mark blank for that holding. Remounting on the next URL change also picks up
+ *   a corrected URL.
+ * - `logoUrlDark` is used under the dark palette when the source drew a separate mark for it. A
+ *   black logo (Apple's) on the light variant would otherwise vanish against a dark table.
  */
 export function HoldingLogo({
   logoUrl,
+  logoUrlDark,
   ticker,
   className,
 }: {
-  logoUrl: string | null
+  logoUrl: string | null | undefined
+  logoUrlDark?: string | null
   /** The image's accessible name, so the asset is read whether or not the mark loads. */
   ticker: string
   className?: string
 }) {
+  const dark = useDarkTheme()
+  const url = (dark && logoUrlDark) || logoUrl || null
   // Keyed on the URL: changing it remounts the image, so a previously failed one is retried.
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
-  const src = logoUrl && logoUrl !== failedUrl ? logoUrl : null
+  const src = url && url !== failedUrl ? url : null
 
   return (
     <Avatar className={cn('size-6 shrink-0', className)}>

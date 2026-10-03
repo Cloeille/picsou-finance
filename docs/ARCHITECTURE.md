@@ -112,6 +112,8 @@ SchedulerService (hourly) → PriceService → PriceProviderPort → CoinGecko /
 
 `SchedulerService.refreshPrices` runs hourly over one global ticker set (account tickers ∪ holding tickers). CoinGecko for crypto, Yahoo Finance for stocks/ETFs. On-demand reads resolve a whole set in one call and degrade in three steps — cache, batched provider call, last recorded price — so a rate-limited provider makes prices *older*, not absent. See [ADR 2026-08-01](./decisions/2026-08-01-last-known-price-fallback.md).
 
+After the prices, the same pass queues a background lookup of share and ETF logos (`InstrumentLogoService` → `InstrumentLogoPort` → Yahoo quote page), at most 10 tickers, stored once in `instrument_logo` and served by `/api/instrument-logos`. It yields to the price path on a Yahoo 429. See [holding-logos.md](./features/holding-logos.md).
+
 ### 3. Trade Republic
 
 ```
@@ -270,7 +272,7 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 | Binance | Crypto exchange balances | Via CryptoExchangePort |
 | Meria | Crypto exchange balances (wallets + staking + lending) | Via CryptoExchangePort |
 | CoinGecko | Crypto prices (free) | No config |
-| Yahoo Finance | Stock/ETF prices (free) | No config |
+| Yahoo Finance | Stock/ETF prices (free); quote page read once per ticker for its logo | No config (`INSTRUMENT_LOGOS_ENABLED=false` stops logo lookups) |
 | PublicNode EVM RPCs | EVM wallet balances (Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base, Avalanche) — native + curated ERC-20 | No config (keyless) |
 | Solana RPC | Solana wallet balances | No config |
 | Blockstream Esplora | Bitcoin wallet balances | No config |

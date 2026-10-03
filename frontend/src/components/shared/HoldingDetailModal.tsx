@@ -6,6 +6,7 @@ import { NetWorthChart } from '@/components/shared/NetWorthChart'
 import { EmptyChartState } from '@/components/shared/EmptyChartState'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { HoldingInsightSection } from '@/components/shared/HoldingInsightSection'
+import { HoldingLogo } from '@/components/shared/HoldingLogo'
 import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
@@ -100,6 +101,10 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
           <>
             <DialogHeader>
               <div className="flex items-center gap-3">
+                {/* Only with a mark: the header has never carried an empty disc, unlike a table row. */}
+                {line.ticker && line.logoUrl && (
+                  <HoldingLogo logoUrl={line.logoUrl} logoUrlDark={line.logoUrlDark} ticker={line.ticker} className="size-8" />
+                )}
                 <DialogTitle className="text-lg">{line.name}</DialogTitle>
                 {line.ticker && line.accountId !== null && (
                   <Badge variant="outline" className="font-mono text-xs">

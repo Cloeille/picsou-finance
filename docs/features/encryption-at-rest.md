@@ -33,6 +33,7 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 
 - **Bank sync session IDs** (`requisition.requisition_id`): These are opaque references to Enable Banking sessions, not credentials. They cannot be reused to initiate new bank connections.
 - **Wallet addresses**: Public blockchain data by nature.
+- **Instrument logos** (`instrument_logo`): public company and fund marks, keyed by ticker. Like `security_profile`, the table reveals which tickers the household holds, not a credential, so it gets the same treatment as `price_snapshot` (see [holding-logos.md](./holding-logos.md)).
 - **User password**: BCrypt-hashed (not encrypted) -- correct approach for passwords.
 - **Finary credentials**: Stored in environment variables, not in the database. Out of scope for DB-level encryption.
 

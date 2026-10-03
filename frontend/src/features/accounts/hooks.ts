@@ -14,6 +14,9 @@ export interface PortfolioLine {
   id: string
   name: string
   ticker: string | null
+  /** The holding's mark, as in `HoldingResponse`. Absent on the aggregated cash row. */
+  logoUrl?: string | null
+  logoUrlDark?: string | null
   quantity: number
   /**
    * Needed to classify the line: the write is authorised by the account it was reached through.
@@ -70,6 +73,8 @@ export function usePortfolio() {
             id: `${account.id}-${h.ticker}`,
             name: h.name ?? h.ticker,
             ticker: h.ticker,
+            logoUrl: h.logoUrl,
+            logoUrlDark: h.logoUrlDark,
             quantity: h.quantity,
             accountId: account.id,
             accountName: account.name,

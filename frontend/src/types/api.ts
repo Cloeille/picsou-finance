@@ -546,10 +546,13 @@ export interface Institution {
 export interface HoldingResponse {
   ticker: string
   name: string | null
-  // The image to show beside the ticker, or null when the asset has no known logo. Today only
-  // crypto resolves one (CoinGecko); every equity keeps its ticker. A null is a normal answer,
-  // not a failure — see docs/features/holding-logos.md.
+  // The image to show beside the ticker, or null when the asset has no known logo. A crypto
+  // mark is a CoinGecko URL; a share or fund mark is Picsou's own /api/instrument-logos
+  // endpoint, present once the background lookup stored one. A null is a normal answer, not a
+  // failure — see docs/features/holding-logos.md.
   logoUrl: string | null
+  // The same mark drawn for a dark background, when the source has a distinct one.
+  logoUrlDark?: string | null
   quantity: number
   averageBuyIn: number | null
   currentPrice: number | null

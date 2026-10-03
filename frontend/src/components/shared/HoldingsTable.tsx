@@ -81,7 +81,7 @@ export function HoldingsTable({ holdings, onEdit, onDelete }: HoldingsTableProps
               <TableRow key={h.ticker}>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <HoldingLogo logoUrl={h.logoUrl} ticker={h.ticker} />
+                    <HoldingLogo logoUrl={h.logoUrl} logoUrlDark={h.logoUrlDark} ticker={h.ticker} />
                     <span className="font-mono font-medium">{h.ticker}</span>
                   </div>
                 </TableCell>
