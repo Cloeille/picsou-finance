@@ -86,9 +86,12 @@ the table draws a 24px mark (48px on a 2x screen).
 The page is untrusted input, and the bytes end up served from Picsou's own origin:
 
 - the logo URL must be `https` on exactly `s.yimg.com` (no user-info, no other port);
-- the declared type must be PNG, JPEG or WebP **and** the bytes must carry that format's
-  signature. The stored type is the canonical one for the signature, not the header;
-- SVG is refused outright: it is a document that can carry script;
+- the bytes must carry a PNG, JPEG or WebP signature. The signature decides, not the header: an
+  image served without a type, as `application/octet-stream`, `text/plain`, `text/html` or under
+  the wrong image type is still that image. The stored type is the canonical one for the
+  signature, so the upstream label never reaches the browser;
+- SVG is refused outright, by its declared type, whatever the bytes: it is a document that can
+  carry script;
 - 256 KB cap per image, 4 MB cap on the page;
 - redirects are not followed, so the page cannot steer a download to another host. A 3xx on the
   page or on an image is `FAILED`, not an empty answer: a redirect to `consent.yahoo.com` or to a
@@ -99,12 +102,17 @@ more than the default 8 KB of headers, and the first live run failed every looku
 fixtures cannot show this, so it is pinned here rather than in a test.
 
 A refused image is a permanent miss (`ABSENT`) only when the refusal is about the mark itself: an
-image over 256 KB, an SVG, or bytes with a PNG, JPEG or WebP signature under a type that
-contradicts them. A 404 on the page or the image is `ABSENT` too. A response that is not an image
-at all (an HTML error or anti-bot page served with a 200, an empty body) or that has no
-Content-Type says nothing about the mark, and is `FAILED`, like everything else that goes wrong
-upstream: 5xx, 3xx, timeout, a connection cut mid-body, a Content-Type the codecs cannot parse,
-and a page over its 4 MB cap (the page's size is Yahoo's layout, the same for every ticker).
+SVG, or an image over 256 KB. "An image" means bytes with a PNG, JPEG or WebP signature; a body
+over the 4 MB read cap is never read, so there it means a declared `image/*` type. A 404 on the
+page or the image is `ABSENT` too. A response that is not an image at all (an HTML error or
+anti-bot page served with a 200, whatever its size, an empty body) says nothing about the mark,
+and is `FAILED`, like everything else that goes wrong upstream: 5xx, 3xx, timeout, a connection
+cut mid-body, a Content-Type the codecs cannot parse, and a page over its 4 MB cap (the page's
+size is Yahoo's layout, the same for every ticker). The rule behind all of these: a CDN or layout
+quirk must never settle a ticker, because it would settle every ticker at once.
+
+A 404 on the quote page stays `ABSENT`: it is what Yahoo answers for a delisted or unknown symbol,
+and nothing observed so far shows Yahoo answering 404 transiently for a symbol it quotes.
 
 The dark variant follows the light one. When the page gives no distinct dark URL, or Yahoo has no
 usable file behind it (404, a mark refused as above), the light mark is stored alone. When the dark
@@ -228,8 +236,10 @@ Every failure mode is decoration-only: `logoUrl` is null and the ticker stands.
   lookup, 404 and an unmarked quote as permanent misses, a consent page, other-symbols-only JSON,
   a recommendations-only object, a quote without a logo on a page with no usable mark, an
   off-host logo URL, a 3xx on the page or the image, a cut body, a malformed Content-Type and a
-  page over its cap as retryable, SVG / wrong type / oversize refused, an HTML body or a missing
-  Content-Type on an image (light or dark) as retryable, a dark variant Yahoo lacks keeping the
+  page over its cap as retryable, SVG and an oversized image refused, an image without a type, as
+  `octet-stream`, `text/plain`, `text/html` or the wrong image type stored by its signature, an
+  HTML body of any size (under the image cap, over it, over the read cap) on an image (light or
+  dark) as retryable, a dark variant Yahoo lacks keeping the
   light one, a 429 or 503 on the dark variant failing the whole lookup, coins and ISINs never
   reaching the network, and the price path arming the cooldown on a 429 but never waiting on it.
 - `InstrumentLogoServiceTest`: candidate selection (crypto accounts, unsupported, unpriced,

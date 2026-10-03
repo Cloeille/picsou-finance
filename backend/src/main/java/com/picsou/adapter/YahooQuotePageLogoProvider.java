@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.core.codec.CodecException;
 import org.springframework.core.io.buffer.DataBufferLimitException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
@@ -36,7 +37,7 @@ import java.util.concurrent.TimeoutException;
  *
  * <p>Every answer the page gives is treated as untrusted: the logo URL must be https on
  * {@code s.yimg.com} ({@link YahooQuotePageParser#imageUri}), and the downloaded bytes must be a
- * PNG, JPEG or WebP by their own signature, not just by the header, and under
+ * PNG, JPEG or WebP by their own signature, whatever the header says, and under
  * {@link #MAX_IMAGE_BYTES}. SVG is refused outright: it is a document that can carry script, and
  * these bytes are served from Picsou's own origin.
  */
@@ -175,33 +176,34 @@ public class YahooQuotePageLogoProvider implements InstrumentLogoPort {
     }
 
     /**
-     * {@link Lookup.Found} (light only) if the declared type is PNG, JPEG or WebP <em>and</em>
-     * the bytes carry that format's signature, and it fits under {@link #MAX_IMAGE_BYTES}.
+     * {@link Lookup.Found} (light only) if the bytes carry a PNG, JPEG or WebP signature and fit
+     * under {@link #MAX_IMAGE_BYTES}, whatever the header says, unless it says SVG.
      *
-     * <p>Otherwise {@link Lookup.Absent} only when the refusal is about the mark itself: too
-     * large, an SVG, or image bytes whose type contradicts them. No type, or a body that is not
-     * an image at all (an error or anti-bot page served with a 200, an empty body), says nothing
-     * about the mark and is {@link Lookup.Unavailable}.
+     * <p>The bytes decide, not the label: a CDN that serves the same files as
+     * {@code application/octet-stream}, without a type, or under the wrong image type changes
+     * nothing about the mark, and judging by the header would settle every ticker at once. Since
+     * the stored type is the canonical one for the signature, the label never reaches the
+     * browser either.
      *
-     * <p>The returned content type is the canonical one for the signature, never the header
-     * verbatim, so a parameter or an odd casing in the upstream header cannot reach the browser.
+     * <p>{@link Lookup.Absent} only when the refusal is about the mark itself: an image over the
+     * cap, or an SVG. A body that is not an image at all (an error or anti-bot page served with a
+     * 200, whatever its size, or an empty body) says nothing about the mark and is
+     * {@link Lookup.Unavailable}.
      */
     static Lookup validate(byte[] bytes, String declaredContentType) {
         if (bytes == null || bytes.length == 0) return new Lookup.Unavailable("empty image body");
-        if (bytes.length > MAX_IMAGE_BYTES) return new Lookup.Absent("too large");
-        if (declaredContentType == null) return new Lookup.Unavailable("no image content type");
-        // Type and subtype only: a stray parameter (an odd charset on an image) is no reason to
-        // refuse bytes whose signature is checked below anyway.
-        int semicolon = declaredContentType.indexOf(';');
-        String declared = (semicolon < 0 ? declaredContentType : declaredContentType.substring(0, semicolon))
-            .trim().toLowerCase(Locale.ROOT);
+        if ("image/svg+xml".equals(mediaType(declaredContentType))) return new Lookup.Absent("SVG");
         String sniffed = sniff(bytes);
-        if (sniffed != null && sniffed.equals("image/jpg".equals(declared) ? "image/jpeg" : declared)) {
-            return new Lookup.Found(new Image(bytes, sniffed), null);
-        }
-        if (sniffed != null) return new Lookup.Absent("image type contradicts its bytes");
-        if ("image/svg+xml".equals(declared)) return new Lookup.Absent("SVG");
-        return new Lookup.Unavailable("not an image: " + declared);
+        if (sniffed == null) return new Lookup.Unavailable("not an image: " + declaredContentType);
+        if (bytes.length > MAX_IMAGE_BYTES) return new Lookup.Absent("too large");
+        return new Lookup.Found(new Image(bytes, sniffed), null);
+    }
+
+    /** Type and subtype, lower-cased, without parameters; null when there is no header. */
+    private static String mediaType(String contentType) {
+        if (contentType == null) return null;
+        int semicolon = contentType.indexOf(';');
+        return (semicolon < 0 ? contentType : contentType.substring(0, semicolon)).trim().toLowerCase(Locale.ROOT);
     }
 
     private static String sniff(byte[] b) {
@@ -230,11 +232,16 @@ public class YahooQuotePageLogoProvider implements InstrumentLogoPort {
     private Lookup failure(String what, String symbol, RuntimeException ex, boolean image) {
         Throwable cause = reactor.core.Exceptions.unwrap(ex);
         // Checked first: an over-limit body arrives wrapped in a WebClientResponseException that
-        // carries the 200 it was served with. An image's size is the mark's; the page's is
-        // Yahoo's layout, the same for every ticker, so it says nothing about this one.
+        // carries the 200 and the headers it was served with. An image's size is the mark's, but
+        // only if it is an image: the bytes were never read, so the header is all there is, and an
+        // HTML page that large is an error page. The page's size is Yahoo's layout, the same for
+        // every ticker, so it says nothing about this one.
         if (NestedExceptionUtils.getMostSpecificCause(cause) instanceof DataBufferLimitException) {
-            log.warn("Yahoo's {} for {} exceeds the size cap", what, symbol);
-            return image ? new Lookup.Absent("too large") : new Lookup.Unavailable("page too large");
+            String type = cause instanceof WebClientResponseException http
+                ? mediaType(http.getHeaders().getFirst(HttpHeaders.CONTENT_TYPE)) : null;
+            log.warn("Yahoo's {} for {} exceeds the size cap (type {})", what, symbol, type);
+            return image && type != null && type.startsWith("image/")
+                ? new Lookup.Absent("too large") : new Lookup.Unavailable(what + " too large");
         }
         if (cause instanceof WebClientResponseException http) {
             int status = http.getStatusCode().value();

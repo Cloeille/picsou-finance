@@ -280,6 +280,22 @@ class YahooQuotePageLogoProviderTest {
     }
 
     @Test
+    void anHtmlPageOverTheMemoryCap_servedForTheImage_isRetriedLater() {
+        page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
+        image(LIGHT, MediaType.TEXT_HTML_VALUE, new byte[YahooQuotePageLogoProvider.MAX_PAGE_BYTES + 1]);
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+    }
+
+    @Test
+    void anHtmlPageOverTheImageCap_servedForTheImage_isRetriedLater() {
+        page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
+        image(LIGHT, MediaType.TEXT_HTML_VALUE, "<html>".repeat(50_000).getBytes(StandardCharsets.UTF_8));
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+    }
+
+    @Test
     void anHtmlPageServedAsTheImage_isRetriedLater() {
         page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
         image(LIGHT, MediaType.TEXT_HTML_VALUE, "<html>Too many requests</html>".getBytes(StandardCharsets.UTF_8));
@@ -288,13 +304,23 @@ class YahooQuotePageLogoProviderTest {
     }
 
     @Test
-    void anImageWithoutAContentType_isRetriedLater() {
+    void anImageWithoutAContentType_isStoredByItsSignature() {
         page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
         routes.put(LIGHT, Mono.just(ClientResponse.create(HttpStatus.OK)
             .body(Flux.just(DefaultDataBufferFactory.sharedInstance.wrap(PNG)))
             .build()));
 
-        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(provider.lookup("AAPL")).isInstanceOfSatisfying(Lookup.Found.class,
+            found -> assertThat(found.light().contentType()).isEqualTo("image/png"));
+    }
+
+    @Test
+    void anImageServedAsOctetStream_isStoredByItsSignature() {
+        page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
+        image(LIGHT, MediaType.APPLICATION_OCTET_STREAM_VALUE, PNG);
+
+        assertThat(provider.lookup("AAPL")).isInstanceOfSatisfying(Lookup.Found.class,
+            found -> assertThat(found.light().contentType()).isEqualTo("image/png"));
     }
 
     @Test
@@ -358,18 +384,31 @@ class YahooQuotePageLogoProviderTest {
         assertThat(validated(PNG, "IMAGE/PNG; charset=binary").contentType()).isEqualTo("image/png");
         assertThat(validated(Arrays.copyOf(PNG, YahooQuotePageLogoProvider.MAX_IMAGE_BYTES), "image/png")).isNotNull();
 
+        // A label the CDN got wrong or left generic: the bytes decide, and the stored type is theirs.
+        assertThat(validated(PNG, null).contentType()).isEqualTo("image/png");
+        assertThat(validated(PNG, "application/octet-stream").contentType()).isEqualTo("image/png");
+        assertThat(validated(PNG, "binary/octet-stream").contentType()).isEqualTo("image/png");
+        assertThat(validated(JPEG, "text/plain").contentType()).isEqualTo("image/jpeg");
+        assertThat(validated(PNG, "text/html").contentType()).isEqualTo("image/png");
+        assertThat(validated(PNG, "image/jpeg").contentType()).isEqualTo("image/png");
+
         // Refusals about the mark itself: asking again gets the same file.
-        assertThat(YahooQuotePageLogoProvider.validate(PNG, "text/html")).isInstanceOf(Lookup.Absent.class);
-        assertThat(YahooQuotePageLogoProvider.validate(PNG, "image/jpeg")).isInstanceOf(Lookup.Absent.class);
         assertThat(YahooQuotePageLogoProvider.validate(SVG, "image/svg+xml")).isInstanceOf(Lookup.Absent.class);
+        assertThat(YahooQuotePageLogoProvider.validate(PNG, "Image/SVG+XML")).isInstanceOf(Lookup.Absent.class);
         assertThat(YahooQuotePageLogoProvider.validate(
             Arrays.copyOf(PNG, YahooQuotePageLogoProvider.MAX_IMAGE_BYTES + 1), "image/png")).isInstanceOf(Lookup.Absent.class);
+        assertThat(YahooQuotePageLogoProvider.validate(
+            Arrays.copyOf(PNG, 300 * 1024), "application/octet-stream")).isInstanceOf(Lookup.Absent.class);
 
-        // Not an image at all, or no type: an error page or a CDN hiccup, which says nothing of the mark.
+        // Not an image at all, whatever its size: an error page or a CDN hiccup, which says nothing of the mark.
         assertThat(YahooQuotePageLogoProvider.validate("<html>".getBytes(StandardCharsets.UTF_8), "text/html"))
             .isInstanceOf(Lookup.Unavailable.class);
+        assertThat(YahooQuotePageLogoProvider.validate(new byte[300 * 1024], "text/html"))
+            .isInstanceOf(Lookup.Unavailable.class);
+        assertThat(YahooQuotePageLogoProvider.validate(new byte[300 * 1024], "image/png"))
+            .isInstanceOf(Lookup.Unavailable.class);
         assertThat(YahooQuotePageLogoProvider.validate(SVG, "image/png")).isInstanceOf(Lookup.Unavailable.class);
-        assertThat(YahooQuotePageLogoProvider.validate(PNG, null)).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(YahooQuotePageLogoProvider.validate(SVG, null)).isInstanceOf(Lookup.Unavailable.class);
         assertThat(YahooQuotePageLogoProvider.validate(new byte[0], "image/png")).isInstanceOf(Lookup.Unavailable.class);
     }
 
