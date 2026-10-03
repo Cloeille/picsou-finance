@@ -15,7 +15,7 @@ vi.mock('@/features/budget/hooks', () => ({
     isLoading: false, isError: false, refetch: vi.fn(),
   }),
 }))
-vi.mock('@/components/shared/CurrencyDisplay', () => ({ CurrencyDisplay: () => <span>75 €</span> }))
+vi.mock('@/components/shared/CurrencyDisplay', () => ({ CurrencyDisplay: () => <span>75 EUR</span> }))
 vi.mock('./ActivityFeed', () => ({ ActivityFeed: () => null }))
 vi.mock('./SubscriptionCard', () => ({ SubscriptionCard: () => null }))
 

@@ -32,6 +32,7 @@ import static com.picsou.dto.RecurringSeriesResponse.STALE_MISSED_PERIODS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 /**
  * Unit tests for the lifecycle surface over recurring series: the computed runtime status on the
@@ -51,7 +52,7 @@ class RecurringSeriesServiceTest {
     @BeforeEach
     void setUp() {
         // Neutralize the AMEX credit-card projection: no card accounts in these tests.
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
+        lenient().when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
     }
 
     private static final Long MEMBER_ID = 7L;
