@@ -427,7 +427,8 @@ public class AmexSyncService {
     /**
      * Regular sync upserts the 90-day window and deletes only stored pending charges the pending
      * feed no longer reports. Recovery instead imports the full bounded history returned by AMEX
-     * and merges without deleting existing/manual rows.
+     * and merges without updating or deleting existing/manual rows, except stored pending charges
+     * an answered pending feed no longer reports, purged exactly as a routine sync does.
      */
     private void syncTransactions(
         Account account,
@@ -440,15 +441,36 @@ public class AmexSyncService {
         transactions.forEach(tx -> returned.add(tx.externalId()));
         List<Transaction> stored = rekeyLegacyRows(
             account, transactionRepository.findByAccountIdAndIsManualFalse(account.getId()), returned);
+        // The posted feed is one page, cut on a date that is not the one rows carry, so a posted
+        // row missing from it proves nothing: posted rows are never deleted here. A stored
+        // pending charge the pending feed no longer returns has settled or was cancelled, but
+        // only an answered pending feed says so.
+        List<Transaction> obsolete = new ArrayList<>();
+        List<Transaction> storedPosted = new ArrayList<>();
+        for (Transaction row : stored) {
+            String externalId = row.getExternalId();
+            if (externalId == null) continue;
+            if (!externalId.startsWith(PENDING_TX_ID_PREFIX)) {
+                storedPosted.add(row);
+            } else if (pendingComplete && !returned.contains(externalId)) {
+                obsolete.add(row);
+            }
+        }
+
         if (history) {
             Set<String> known = new HashSet<>();
             for (Transaction tx : stored) {
                 known.add(tx.getExternalId() != null ? tx.getExternalId() : identity(false, tx.getDate(), tx.getDescription(), tx.getAmount(), 0));
             }
-            List<Transaction> missing = transactions.stream()
+            List<Transaction> missing = new ArrayList<>(transactions.stream()
                 .filter(tx -> known.add(tx.externalId()))
                 .map(tx -> Transaction.builder().account(account).externalId(tx.externalId())
-                    .date(tx.date()).description(tx.label()).amount(tx.amountEur()).nativeCurrency("EUR").build()).toList();
+                    .date(tx.date()).description(tx.label()).amount(tx.amountEur()).nativeCurrency("EUR").build()).toList());
+            addMissing(missing, carryOverSettledCharges(obsolete, postedRows(storedPosted, missing)));
+            if (!obsolete.isEmpty()) {
+                transactionRepository.deleteAll(obsolete);
+                transactionRepository.flush();
+            }
             transactionRepository.saveAllAndFlush(missing);
             return;
         }
@@ -457,19 +479,10 @@ public class AmexSyncService {
         for (PreparedTransaction tx : transactions) {
             if (!tx.date().isBefore(cutoff)) reported.putIfAbsent(tx.externalId(), tx);
         }
-        // The posted feed is one page, cut on a date that is not the one rows carry, so a posted
-        // row missing from it proves nothing: posted rows are never deleted here. A stored
-        // pending charge the pending feed no longer returns has settled or was cancelled, but
-        // only an answered pending feed says so.
         Map<String, Transaction> storedById = new HashMap<>();
-        List<Transaction> obsolete = new ArrayList<>();
         for (Transaction row : stored) {
-            String externalId = row.getExternalId();
-            if (externalId == null) continue;
-            if (reported.containsKey(externalId)) {
-                storedById.put(externalId, row);
-            } else if (pendingComplete && externalId.startsWith(PENDING_TX_ID_PREFIX) && !returned.contains(externalId)) {
-                obsolete.add(row);
+            if (row.getExternalId() != null && reported.containsKey(row.getExternalId())) {
+                storedById.put(row.getExternalId(), row);
             }
         }
 
@@ -490,45 +503,73 @@ public class AmexSyncService {
             row.setAmount(tx.amountEur());
             upserts.add(row);
         }
-        carryOverSettledCharges(obsolete, inserted);
+        addMissing(upserts, carryOverSettledCharges(obsolete, postedRows(storedPosted, inserted)));
         transactionWriter.reconcileHistory(obsolete, upserts);
     }
 
+    /** Posted rows a settled pending may have become: stored on any earlier sync, or new now. */
+    private static List<Transaction> postedRows(List<Transaction> storedPosted, List<Transaction> inserted) {
+        List<Transaction> posted = new ArrayList<>(storedPosted);
+        for (Transaction row : inserted) {
+            if (!row.getExternalId().startsWith(PENDING_TX_ID_PREFIX)) posted.add(row);
+        }
+        return posted;
+    }
+
+    /** Appends the rows of {@code extra} not already in {@code target}, by identity. */
+    private static void addMissing(List<Transaction> target, List<Transaction> extra) {
+        Set<Transaction> present = Collections.newSetFromMap(new IdentityHashMap<>());
+        present.addAll(target);
+        for (Transaction row : extra) {
+            if (present.add(row)) target.add(row);
+        }
+    }
+
     /**
-     * A settled charge comes back as a new posted row while its pending row is deleted, so what
-     * the user set on the pending row (category, recurring series) is copied onto the posted row
-     * it became. Same date, label, amount and occurrence give the same hash suffix under both
-     * prefixes; otherwise AMEX may have rewritten the label or moved the date on settlement, so
-     * the closest posted row with the exact amount within {@link #SETTLEMENT_WINDOW_DAYS} is
-     * taken, each row paired at most once.
+     * A settled charge comes back as a posted row while its pending row is deleted, so what the
+     * user set on the pending row (category, recurring series) is copied onto the posted row it
+     * became. That posted row may be new in this sync or stored by an earlier one: the pending
+     * outlives it when the pending feed failed in between, or when a history import stored it.
+     * Same date, label, amount and occurrence give the same hash suffix under both prefixes;
+     * otherwise AMEX may have rewritten the label or moved the date on settlement, so the closest
+     * posted row with the exact amount within {@link #SETTLEMENT_WINDOW_DAYS} that can still
+     * receive the edit is taken, each row paired at most once. A posted row that already has a
+     * category (or, for a pending with only a series, a series) is not a candidate: it is either
+     * another pending's settlement or categorised by the user, and pairing it would copy nothing.
+     *
+     * @return the posted rows that received an edit, so the caller saves them
      */
-    private void carryOverSettledCharges(List<Transaction> obsoletePending, List<Transaction> insertedPosted) {
-        if (obsoletePending.isEmpty() || insertedPosted.isEmpty()) return;
+    private List<Transaction> carryOverSettledCharges(List<Transaction> obsoletePending, List<Transaction> posted) {
+        List<Transaction> edited = obsoletePending.stream().filter(AmexSyncService::hasUserFields).toList();
+        if (edited.isEmpty() || posted.isEmpty()) return List.of();
         Map<String, Transaction> postedBySuffix = new HashMap<>();
-        for (Transaction posted : insertedPosted) {
-            String suffix = identitySuffix(posted.getExternalId(), POSTED_TX_ID_PREFIX);
-            if (suffix != null) postedBySuffix.put(suffix, posted);
+        for (Transaction row : posted) {
+            String suffix = identitySuffix(row.getExternalId(), POSTED_TX_ID_PREFIX);
+            if (suffix != null) postedBySuffix.put(suffix, row);
         }
         Set<Transaction> paired = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (Transaction pending : obsoletePending) {
-            Transaction posted = postedBySuffix.get(identitySuffix(pending.getExternalId(), PENDING_TX_ID_PREFIX));
-            if (posted != null) {
-                carryUserFields(pending, posted);
+        List<Transaction> receivers = new ArrayList<>();
+        for (Transaction pending : edited) {
+            Transaction same = postedBySuffix.get(identitySuffix(pending.getExternalId(), PENDING_TX_ID_PREFIX));
+            if (same != null) {
+                carryUserFields(pending, same);
                 paired.add(pending);
-                paired.add(posted);
+                paired.add(same);
+                receivers.add(same);
             }
         }
 
         record Pair(Transaction pending, Transaction posted, long days) {}
         List<Pair> candidates = new ArrayList<>();
-        for (Transaction pending : obsoletePending) {
+        for (Transaction pending : edited) {
             if (paired.contains(pending)) continue;
-            for (Transaction posted : insertedPosted) {
-                long days = Math.abs(ChronoUnit.DAYS.between(pending.getDate(), posted.getDate()));
-                if (!paired.contains(posted)
-                    && posted.getAmount().compareTo(pending.getAmount()) == 0
-                    && days <= SETTLEMENT_WINDOW_DAYS) {
-                    candidates.add(new Pair(pending, posted, days));
+            for (Transaction row : posted) {
+                long days = Math.abs(ChronoUnit.DAYS.between(pending.getDate(), row.getDate()));
+                if (!paired.contains(row)
+                    && row.getAmount().compareTo(pending.getAmount()) == 0
+                    && days <= SETTLEMENT_WINDOW_DAYS
+                    && canReceive(pending, row)) {
+                    candidates.add(new Pair(pending, row, days));
                 }
             }
         }
@@ -541,7 +582,20 @@ public class AmexSyncService {
             carryUserFields(pair.pending(), pair.posted());
             paired.add(pair.pending());
             paired.add(pair.posted());
+            receivers.add(pair.posted());
         }
+        return receivers;
+    }
+
+    private static boolean hasUserFields(Transaction row) {
+        return row.getCategoryRef() != null || row.getRecurringSeriesId() != null;
+    }
+
+    private static boolean canReceive(Transaction pending, Transaction posted) {
+        if (pending.getCategoryRef() != null) {
+            return posted.getCategoryRef() == null && !posted.isCategoryManual();
+        }
+        return posted.getRecurringSeriesId() == null;
     }
 
     private static String identitySuffix(String externalId, String prefix) {

@@ -268,6 +268,91 @@ class AmexSyncServiceTest {
     }
 
     @Test
+    void pendingThatOutlivesItsPostedRow_carriesItsEditsToThePostedRowStoredEarlier() {
+        Category groceries = Category.builder().id(1L).build();
+        Transaction pendingRow = routineSync(List.of(), pending(3, "GROCER*PENDING", "-30.00")).upserts().getFirst();
+        categorise(pendingRow, groceries);
+        pendingRow.setRecurringSeriesId(9L);
+        // The posted row arrives while the pending feed is down: the pending row stays.
+        Reconciliation settled = routineSync(List.of(pendingRow), false, charge(1, "Grocer Paris", "-30.00"));
+        assertThat(settled.obsolete()).isEmpty();
+        Transaction postedRow = settled.upserts().getFirst();
+        assertThat(postedRow.getCategoryRef()).isNull();
+
+        // The pending feed answers without it, and the posted row is no longer on the page.
+        Reconciliation result = routineSync(List.of(pendingRow, postedRow), charge(0, "Bakery", "-3.20"));
+
+        assertThat(result.obsolete()).containsExactly(pendingRow);
+        assertThat(postedRow.getCategoryRef()).isSameAs(groceries);
+        assertThat(postedRow.isCategoryManual()).isTrue();
+        assertThat(postedRow.getRecurringSeriesId()).isEqualTo(9L);
+        assertThat(result.upserts()).contains(postedRow);
+    }
+
+    @Test
+    void historyImportWithAnAnsweredPendingFeed_purgesASettledPendingAndCarriesItsEdits() {
+        Category groceries = Category.builder().id(1L).build();
+        Transaction pendingRow = routineSync(List.of(), pending(2, "GROCER*PENDING", "-30.00")).upserts().getFirst();
+        categorise(pendingRow, groceries);
+
+        List<Transaction> saved = historySync(List.of(charge(1, "Grocer Paris", "-30.00")), List.of(pendingRow));
+
+        ArgumentCaptor<Iterable<Transaction>> deleted = ArgumentCaptor.forClass(Iterable.class);
+        verify(transactionRepository).deleteAll(deleted.capture());
+        assertThat(deleted.getValue()).containsExactly(pendingRow);
+        assertThat(saved).singleElement().satisfies(tx -> {
+            assertThat(tx.getDescription()).isEqualTo("Grocer Paris");
+            assertThat(tx.getCategoryRef()).isSameAs(groceries);
+        });
+    }
+
+    @Test
+    void storedPostedRowWithItsOwnCategory_isNotOverwrittenBySettlingPending() {
+        Category travel = Category.builder().id(1L).build();
+        Category mine = Category.builder().id(2L).build();
+        Transaction pendingRow = routineSync(List.of(), pending(2, "HOTEL*HOLD", "-150.00")).upserts().getFirst();
+        categorise(pendingRow, travel);
+        AmexPort.Transaction hotel = charge(1, "Hotel", "-150.00");
+        Transaction postedRow = routineSync(List.of(), hotel).upserts().getFirst();
+        categorise(postedRow, mine);
+
+        Reconciliation result = routineSync(List.of(pendingRow, postedRow), hotel);
+
+        assertThat(result.obsolete()).containsExactly(pendingRow);
+        assertThat(postedRow.getCategoryRef()).isSameAs(mine);
+    }
+
+    @Test
+    void twoEquallyCloseStoredPostedRows_theSameOneReceivesTheEditWhateverTheOrder() {
+        List<String> forward = settlementPick(false);
+        List<String> reversed = settlementPick(true);
+
+        assertThat(forward).hasSize(1).isEqualTo(reversed);
+        assertThat(forward).isSubsetOf("Shop A", "Shop B");
+    }
+
+    private List<String> settlementPick(boolean reversed) {
+        Transaction pendingRow = routineSync(List.of(), pending(3, "SHOP*PENDING", "-30.00")).upserts().getFirst();
+        categorise(pendingRow, Category.builder().id(1L).build());
+        AmexPort.Transaction shopA = charge(1, "Shop A", "-30.00");
+        AmexPort.Transaction shopB = charge(5, "Shop B", "-30.00");
+        AmexPort.Transaction farther = charge(0, "Shop C", "-30.00");
+        List<Transaction> posted = new ArrayList<>(routineSync(List.of(), shopA, shopB, farther).upserts());
+        if (reversed) java.util.Collections.reverse(posted);
+        List<Transaction> stored = new ArrayList<>(posted);
+        stored.addFirst(pendingRow);
+
+        Reconciliation result = reversed
+            ? routineSync(stored, farther, shopB, shopA)
+            : routineSync(stored, shopA, shopB, farther);
+
+        return result.upserts().stream()
+            .filter(tx -> tx.getCategoryRef() != null)
+            .map(Transaction::getDescription)
+            .toList();
+    }
+
+    @Test
     void earlierIdFormat_isReKeyedOnce_soNeitherRoutineSyncNorBackfillDuplicates() {
         AmexPort.Transaction recent = charge(10, "Bookshop", "-12.00");
         AmexPort.Transaction older = charge(40, "Garage", "-80.00");
