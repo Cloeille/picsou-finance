@@ -182,6 +182,10 @@ each is to bite:
   currency is carried through as `quoteCurrency`, but a cost basis in a foreign
   currency is dropped to null rather than recorded as EUR: it would report a gain
   the size of the FX spread.
+- A position whose `gainLoss` is in anything but EUR → `INVALID_DATA`. It is not
+  dropped like a foreign cost basis: a line without `buyingPrice` derives its
+  basis as `amount − gainLoss`, and a null gain would fall the whole account's
+  invested amount back to its balance. A gain with no currency is read as EUR.
 - Positions on a cash account, a missing cash balance on a securities account,
   duplicate accounts, an unsupported type → `INVALID_DATA`.
 
@@ -321,7 +325,7 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Verification boundaries
 
-`services/bourso-auth` — 80 tests, run inside the built image in CI: pad decoding
+`services/bourso-auth` — 92 tests, run inside the built image in CI: pad decoding
 against the real SVGs (and its refusal on an unknown one), password encoding, the
 dashboard parsed from a real captured page including the third-party filter and
 the loan exclusion, a card that stops parsing failing the sync, reconciliation
