@@ -30,10 +30,14 @@ import java.security.NoSuchAlgorithmException;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +45,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.regex.Pattern;
 
 /**
  * Imports the American Express credit card: balance, and (when the sidecar returns them)
@@ -63,6 +68,15 @@ public class AmexSyncService {
     private static final String PENDING_TX_ID_PREFIX = "amex_txp_";
     /** Routine syncs only upsert reported rows dated inside this trailing window. */
     private static final int TRANSACTION_WINDOW_DAYS = 90;
+    /**
+     * AMEX usually settles a charge within a few business days; a week also covers a weekend
+     * and bank holidays. Requiring the exact amount keeps that window from pairing unrelated
+     * charges.
+     */
+    private static final int SETTLEMENT_WINDOW_DAYS = 7;
+    /** How recent a row from the earlier id format must be to be treated as possibly pending. */
+    private static final int LEGACY_PENDING_WINDOW_DAYS = 7;
+    private static final Pattern CURRENT_TX_ID = Pattern.compile("^amex_txp?_[0-9a-f]{32}$");
 
     private final AmexPort port;
     private final AmexSessionRepository sessionRepository;
@@ -422,10 +436,13 @@ public class AmexSyncService {
         boolean history
     ) {
         if (transactions.isEmpty()) return;
+        Set<String> returned = new HashSet<>();
+        transactions.forEach(tx -> returned.add(tx.externalId()));
+        List<Transaction> stored = rekeyLegacyRows(
+            account, transactionRepository.findByAccountIdAndIsManualFalse(account.getId()), returned);
         if (history) {
-            List<Transaction> existing = transactionRepository.findByAccountIdAndIsManualFalse(account.getId());
             Set<String> known = new HashSet<>();
-            for (Transaction tx : existing) {
+            for (Transaction tx : stored) {
                 known.add(tx.getExternalId() != null ? tx.getExternalId() : identity(false, tx.getDate(), tx.getDescription(), tx.getAmount(), 0));
             }
             List<Transaction> missing = transactions.stream()
@@ -444,11 +461,9 @@ public class AmexSyncService {
         // row missing from it proves nothing: posted rows are never deleted here. A stored
         // pending charge the pending feed no longer returns has settled or was cancelled, but
         // only an answered pending feed says so.
-        Set<String> returned = new HashSet<>();
-        transactions.forEach(tx -> returned.add(tx.externalId()));
         Map<String, Transaction> storedById = new HashMap<>();
         List<Transaction> obsolete = new ArrayList<>();
-        for (Transaction row : transactionRepository.findByAccountIdAndIsManualFalse(account.getId())) {
+        for (Transaction row : stored) {
             String externalId = row.getExternalId();
             if (externalId == null) continue;
             if (reported.containsKey(externalId)) {
@@ -459,6 +474,7 @@ public class AmexSyncService {
         }
 
         List<Transaction> upserts = new ArrayList<>(reported.size());
+        List<Transaction> inserted = new ArrayList<>();
         for (PreparedTransaction tx : reported.values()) {
             Transaction row = storedById.get(tx.externalId());
             if (row == null) {
@@ -467,13 +483,142 @@ public class AmexSyncService {
                     .externalId(tx.externalId())
                     .nativeCurrency("EUR")
                     .build();
+                inserted.add(row);
             }
             row.setDate(tx.date());
             row.setDescription(tx.label());
             row.setAmount(tx.amountEur());
             upserts.add(row);
         }
+        carryOverSettledCharges(obsolete, inserted);
         transactionWriter.reconcileHistory(obsolete, upserts);
+    }
+
+    /**
+     * A settled charge comes back as a new posted row while its pending row is deleted, so what
+     * the user set on the pending row (category, recurring series) is copied onto the posted row
+     * it became. Same date, label, amount and occurrence give the same hash suffix under both
+     * prefixes; otherwise AMEX may have rewritten the label or moved the date on settlement, so
+     * the closest posted row with the exact amount within {@link #SETTLEMENT_WINDOW_DAYS} is
+     * taken, each row paired at most once.
+     */
+    private void carryOverSettledCharges(List<Transaction> obsoletePending, List<Transaction> insertedPosted) {
+        if (obsoletePending.isEmpty() || insertedPosted.isEmpty()) return;
+        Map<String, Transaction> postedBySuffix = new HashMap<>();
+        for (Transaction posted : insertedPosted) {
+            String suffix = identitySuffix(posted.getExternalId(), POSTED_TX_ID_PREFIX);
+            if (suffix != null) postedBySuffix.put(suffix, posted);
+        }
+        Set<Transaction> paired = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Transaction pending : obsoletePending) {
+            Transaction posted = postedBySuffix.get(identitySuffix(pending.getExternalId(), PENDING_TX_ID_PREFIX));
+            if (posted != null) {
+                carryUserFields(pending, posted);
+                paired.add(pending);
+                paired.add(posted);
+            }
+        }
+
+        record Pair(Transaction pending, Transaction posted, long days) {}
+        List<Pair> candidates = new ArrayList<>();
+        for (Transaction pending : obsoletePending) {
+            if (paired.contains(pending)) continue;
+            for (Transaction posted : insertedPosted) {
+                long days = Math.abs(ChronoUnit.DAYS.between(pending.getDate(), posted.getDate()));
+                if (!paired.contains(posted)
+                    && posted.getAmount().compareTo(pending.getAmount()) == 0
+                    && days <= SETTLEMENT_WINDOW_DAYS) {
+                    candidates.add(new Pair(pending, posted, days));
+                }
+            }
+        }
+        candidates.sort(Comparator.comparingLong(Pair::days)
+            .thenComparing(pair -> pair.pending().getDate())
+            .thenComparing(pair -> pair.pending().getExternalId())
+            .thenComparing(pair -> pair.posted().getExternalId()));
+        for (Pair pair : candidates) {
+            if (paired.contains(pair.pending()) || paired.contains(pair.posted())) continue;
+            carryUserFields(pair.pending(), pair.posted());
+            paired.add(pair.pending());
+            paired.add(pair.posted());
+        }
+    }
+
+    private static String identitySuffix(String externalId, String prefix) {
+        return externalId != null && externalId.startsWith(prefix) ? externalId.substring(prefix.length()) : null;
+    }
+
+    /** Copies what is set on {@code from} and still unset on {@code to}; never overwrites. */
+    private static void carryUserFields(Transaction from, Transaction to) {
+        if (from.getCategoryRef() != null && to.getCategoryRef() == null && !to.isCategoryManual()) {
+            to.setCategoryRef(from.getCategoryRef());
+            to.setCategory(from.getCategory());
+            to.setCategoryManual(from.isCategoryManual());
+        }
+        if (from.getRecurringSeriesId() != null && to.getRecurringSeriesId() == null) {
+            to.setRecurringSeriesId(from.getRecurringSeriesId());
+        }
+    }
+
+    /**
+     * Rows synced before ids became SHA-256 based carry {@code amex_tx_} + a base-36 32-bit hash
+     * and would never match a current id: every posted row would be inserted again, and a
+     * pending one never purged. They are re-keyed once to the current identity, numbering
+     * repeats of a tuple in date then row order as {@link #prepareTransactions} does. The old
+     * format stored no pending state, so a legacy row dated within
+     * {@link #LEGACY_PENDING_WINDOW_DAYS} that the response does not report under its posted id
+     * is re-keyed as pending: the pending lifecycle then deletes it once an answered pending feed
+     * stops reporting it, carrying its edits to the posted row it settled into. A real posted
+     * charge that recent is on the latest 100-posting page unless over 100 charges posted
+     * since, so the window keeps that risk out of reach. A legacy row whose new id is already
+     * held is merged into the holder, keeping the holder and its edits.
+     */
+    private List<Transaction> rekeyLegacyRows(Account account, List<Transaction> stored, Set<String> returned) {
+        List<Transaction> legacy = stored.stream()
+            .filter(row -> row.getExternalId() != null
+                && row.getExternalId().startsWith("amex_tx")
+                && !CURRENT_TX_ID.matcher(row.getExternalId()).matches())
+            .sorted(Comparator.comparing(Transaction::getDate)
+                .thenComparing(Transaction::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+            .toList();
+        if (legacy.isEmpty()) return stored;
+
+        Set<Transaction> legacyRows = Collections.newSetFromMap(new IdentityHashMap<>());
+        legacyRows.addAll(legacy);
+        Map<String, Transaction> holders = new HashMap<>();
+        for (Transaction row : stored) {
+            if (row.getExternalId() != null && !legacyRows.contains(row)) holders.put(row.getExternalId(), row);
+        }
+        LocalDate pendingCutoff = LocalDate.now().minusDays(LEGACY_PENDING_WINDOW_DAYS);
+        Map<String, Integer> occurrences = new HashMap<>();
+        List<Transaction> rekeyed = new ArrayList<>();
+        Set<Transaction> merged = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Transaction row : legacy) {
+            String base = identity(false, row.getDate(), row.getDescription(), row.getAmount(), 0);
+            int occurrence = occurrences.merge(base, 1, Integer::sum) - 1;
+            String posted = identity(false, row.getDate(), row.getDescription(), row.getAmount(), occurrence);
+            String pending = identity(true, row.getDate(), row.getDescription(), row.getAmount(), occurrence);
+            boolean stillPending = returned.contains(pending)
+                || (!returned.contains(posted) && !row.getDate().isBefore(pendingCutoff));
+            String target = stillPending ? pending : posted;
+            Transaction holder = holders.get(target);
+            if (holder != null) {
+                carryUserFields(row, holder);
+                merged.add(row);
+                continue;
+            }
+            row.setExternalId(target);
+            holders.put(target, row);
+            rekeyed.add(row);
+        }
+        if (!merged.isEmpty()) {
+            transactionRepository.deleteAll(merged);
+            transactionRepository.flush();
+        }
+        transactionRepository.saveAllAndFlush(rekeyed);
+        log.info("American Express re-keyed {} earlier transaction id(s) and merged {} duplicate(s) (account={})",
+            rekeyed.size(), merged.size(), account.getId());
+        return stored.stream().filter(row -> !merged.contains(row)).toList();
     }
 
     private void markFailed(SyncJob job, AmexErrorCode code) {

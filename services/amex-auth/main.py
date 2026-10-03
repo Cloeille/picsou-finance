@@ -1496,6 +1496,8 @@ async def _collect_accounts(client: httpx.AsyncClient, account_token: str | None
         log.info("AMEX pending-transactions fetch failed (status=%s)", exc.status_code)
     except AmexFormatError:
         log.info("AMEX pending-transactions response rejected")
+    except httpx.HTTPError as exc:
+        log.info("AMEX pending-transactions fetch failed (error=%s)", type(exc).__name__)
 
     transactions = _merge_transactions(posted_transactions, pending_transactions)
 
@@ -1738,12 +1740,14 @@ def _self_check() -> None:
     assert all("identifier" not in t for t in merged)
 
     # The backend deletes stored pending rows only when the pending feed answered.
-    def collect_with_pending(pending_status: int) -> AccountPayload:
+    def collect_with_pending(pending_status: int | type[httpx.HTTPError]) -> AccountPayload:
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == BALANCES_PATH.split("?")[0]:
                 return httpx.Response(200, json=[{"account_token": "tok", "statement_balance_amount": 10.0}])
             if request.url.path == TRANSACTIONS_PATH:
                 status = request.url.params["status"]
+                if status == "pending" and not isinstance(pending_status, int):
+                    raise pending_status("pending feed down", request=request)
                 if status == "pending" and pending_status != 200:
                     return httpx.Response(pending_status)
                 return httpx.Response(200, json={"transactions": [
@@ -1760,7 +1764,7 @@ def _self_check() -> None:
     answered = collect_with_pending(200)
     assert answered.pendingComplete is True
     assert [(t.description, t.status) for t in answered.transactions] == [("posted", "posted"), ("pending", "pending")]
-    for failure in (429, 503, 404):
+    for failure in (429, 503, 404, httpx.ReadTimeout, httpx.ConnectError):
         failed = collect_with_pending(failure)
         assert failed.pendingComplete is False, failure
         assert [(t.description, t.status) for t in failed.transactions] == [("posted", "posted")]

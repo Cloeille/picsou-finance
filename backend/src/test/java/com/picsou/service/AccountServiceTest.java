@@ -191,6 +191,36 @@ class AccountServiceTest {
     }
 
     @Test
+    void create_recordsTheInitialSnapshotOfAManualCardsDebt() {
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(priceService.toEur(new BigDecimal("-800"), "EUR", null)).thenReturn(new BigDecimal("-800"));
+
+        accountService.create(cardRequest("800"), FamilyMember.builder().id(7L).build());
+
+        ArgumentCaptor<BalanceSnapshot> snapshot = ArgumentCaptor.forClass(BalanceSnapshot.class);
+        verify(snapshotRepository).save(snapshot.capture());
+        assertThat(snapshot.getValue().getBalance()).isEqualByComparingTo("-800");
+    }
+
+    @Test
+    void addManualSnapshot_storesAManualCardsAmountOwedAsANegativeDebt() {
+        Account card = Account.builder().id(1L).name("Card").type(AccountType.CREDIT_CARD)
+            .currency("EUR").isManual(true).currentBalance(new BigDecimal("-500")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(card));
+        when(snapshotRepository.findLatestByAccountId(1L)).thenReturn(Optional.empty());
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(priceService.toEur(new BigDecimal("-800"), "EUR", null)).thenReturn(new BigDecimal("-800"));
+
+        BalanceSnapshot saved = accountService.addManualSnapshot(
+            1L, 7L, new SnapshotRequest(new BigDecimal("800"), LocalDate.now()));
+
+        assertThat(saved.getBalance()).isEqualByComparingTo("-800");
+        assertThat(card.getCurrentBalance()).isEqualByComparingTo("-800");
+    }
+
+    @Test
     void update_keepsAManualCardsDebtNegativeWhenTheFormSendsTheAmountOwed() {
         Account card = Account.builder().id(1L).name("Card").type(AccountType.CREDIT_CARD)
             .currency("EUR").isManual(true).currentBalance(new BigDecimal("-800")).build();

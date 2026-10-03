@@ -4,6 +4,7 @@ import com.picsou.config.CryptoEncryption;
 import com.picsou.model.Account;
 import com.picsou.model.AmexSession;
 import com.picsou.model.AmexSyncStatus;
+import com.picsou.model.Category;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
 import com.picsou.port.AmexPort;
@@ -204,6 +205,123 @@ class AmexSyncServiceTest {
     }
 
     @Test
+    void pendingThatPostsUnderTheSameIdentity_keepsItsCategory() {
+        Category groceries = Category.builder().id(1L).build();
+        List<Transaction> stored = routineSync(List.of(), pending(1, "Grocer", "-30.00")).upserts();
+        categorise(stored.getFirst(), groceries);
+
+        Reconciliation result = routineSync(stored, charge(1, "Grocer", "-30.00"));
+
+        assertThat(result.obsolete()).containsExactly(stored.getFirst());
+        assertThat(result.upserts()).singleElement().satisfies(tx -> {
+            assertThat(tx.getExternalId()).startsWith("amex_tx_");
+            assertThat(tx.getCategoryRef()).isSameAs(groceries);
+            assertThat(tx.isCategoryManual()).isTrue();
+        });
+    }
+
+    @Test
+    void pendingThatPostsUnderAnotherLabelTwoDaysLater_keepsItsCategoryAndSeries() {
+        Category groceries = Category.builder().id(1L).build();
+        List<Transaction> stored = routineSync(List.of(), pending(3, "GROCER*PENDING", "-30.00")).upserts();
+        categorise(stored.getFirst(), groceries);
+        stored.getFirst().setRecurringSeriesId(9L);
+
+        Reconciliation result = routineSync(stored,
+            charge(1, "Bakery", "-3.20"), charge(1, "Grocer Paris", "-30.00"), charge(12, "Grocer Lyon", "-30.00"));
+
+        assertThat(result.obsolete()).containsExactly(stored.getFirst());
+        assertThat(result.upserts()).extracting(Transaction::getDescription, tx -> tx.getCategoryRef(), Transaction::getRecurringSeriesId)
+            .containsExactly(
+                org.assertj.core.groups.Tuple.tuple("Bakery", null, null),
+                org.assertj.core.groups.Tuple.tuple("Grocer Paris", groceries, 9L),
+                org.assertj.core.groups.Tuple.tuple("Grocer Lyon", null, null));
+    }
+
+    @Test
+    void twoIdenticalPendingsThatPost_eachKeepItsOwnCategory() {
+        Category work = Category.builder().id(1L).build();
+        Category personal = Category.builder().id(2L).build();
+        List<Transaction> stored = routineSync(List.of(),
+            pending(1, "Metro ticket", "-2.15"), pending(1, "Metro ticket", "-2.15")).upserts();
+        categorise(stored.get(0), work);
+        categorise(stored.get(1), personal);
+
+        Reconciliation result = routineSync(stored, charge(1, "Metro ticket", "-2.15"), charge(1, "Metro ticket", "-2.15"));
+
+        assertThat(result.obsolete()).containsExactlyInAnyOrderElementsOf(stored);
+        assertThat(result.upserts()).extracting(Transaction::getCategoryRef).containsExactly(work, personal);
+    }
+
+    @Test
+    void pendingWithNoPostedCounterpart_isDeletedAndCarriesNothing() {
+        List<Transaction> stored = routineSync(List.of(), pending(1, "Hotel hold", "-150.00")).upserts();
+        categorise(stored.getFirst(), Category.builder().id(1L).build());
+
+        Reconciliation result = routineSync(stored, charge(1, "Bakery", "-3.20"));
+
+        assertThat(result.obsolete()).containsExactly(stored.getFirst());
+        assertThat(result.upserts()).singleElement().satisfies(tx -> {
+            assertThat(tx.getCategoryRef()).isNull();
+            assertThat(tx.isCategoryManual()).isFalse();
+        });
+    }
+
+    @Test
+    void earlierIdFormat_isReKeyedOnce_soNeitherRoutineSyncNorBackfillDuplicates() {
+        AmexPort.Transaction recent = charge(10, "Bookshop", "-12.00");
+        AmexPort.Transaction older = charge(40, "Garage", "-80.00");
+        AmexPort.Transaction ancient = charge(200, "Old store", "-7.00");
+        Transaction bookshop = legacyRow(1L, recent);
+        Transaction garage = legacyRow(2L, older);
+        categorise(garage, Category.builder().id(1L).build());
+        List<Transaction> stored = List.of(bookshop, garage);
+
+        Reconciliation routine = routineSync(stored, recent, older);
+
+        assertThat(routine.obsolete()).isEmpty();
+        assertThat(routine.upserts()).containsExactly(bookshop, garage);
+        assertThat(stored).extracting(Transaction::getExternalId).allMatch(id -> id.matches("amex_tx_[0-9a-f]{32}"));
+        assertThat(garage.getCategoryRef()).isNotNull();
+
+        assertThat(historySync(List.of(recent, older, ancient), stored))
+            .singleElement().extracting(Transaction::getDescription).isEqualTo("Old store");
+        verify(transactionRepository, org.mockito.Mockito.never()).deleteAll(any());
+    }
+
+    @Test
+    void earlierIdFormat_recentRowTheResponseNoLongerReports_isTreatedAsAPendingThatSettled() {
+        Category groceries = Category.builder().id(1L).build();
+        Transaction hold = legacyRow(1L, charge(2, "GROCER*PENDING", "-30.00"));
+        categorise(hold, groceries);
+
+        Reconciliation result = routineSync(List.of(hold), charge(1, "Grocer", "-30.00"));
+
+        assertThat(result.obsolete()).containsExactly(hold);
+        assertThat(hold.getExternalId()).matches("amex_txp_[0-9a-f]{32}");
+        assertThat(result.upserts()).singleElement().extracting(Transaction::getCategoryRef).isSameAs(groceries);
+    }
+
+    @Test
+    void earlierIdFormat_rowAlreadyStoredUnderTheCurrentId_isMergedIntoIt() {
+        AmexPort.Transaction bookshop = charge(10, "Bookshop", "-12.00");
+        Transaction current = routineSync(List.of(), bookshop).upserts().getFirst();
+        Transaction legacy = legacyRow(1L, bookshop);
+        categorise(legacy, Category.builder().id(1L).build());
+
+        Reconciliation result = routineSync(List.of(current, legacy), bookshop);
+
+        ArgumentCaptor<Iterable<Transaction>> deleted = ArgumentCaptor.forClass(Iterable.class);
+        verify(transactionRepository).deleteAll(deleted.capture());
+        assertThat(deleted.getValue()).containsExactly(legacy);
+        assertThat(result.upserts()).containsExactly(current);
+        assertThat(current.getCategoryRef()).isNotNull();
+
+        routineSync(List.of(current), bookshop);
+        verify(transactionRepository, org.mockito.Mockito.never()).saveAllAndFlush(any());
+    }
+
+    @Test
     void emptyTransactionList_leavesExistingRowsAlone() {
         List<Transaction> stored = routineSync(List.of(), charge(3, "Bookshop", "-12.00"), pending(1, "Grocer", "-30.00"))
             .upserts();
@@ -335,6 +453,25 @@ class AmexSyncServiceTest {
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         arrangeNewAccountPersistence(20L);
         when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(stored);
+    }
+
+    private static void categorise(Transaction tx, Category category) {
+        tx.setCategoryRef(category);
+        tx.setCategoryManual(true);
+    }
+
+    /** A row as the pushed head 1e56f7a4 stored it: base-36 32-bit hash, no pending state. */
+    private static Transaction legacyRow(Long id, AmexPort.Transaction source) {
+        LocalDate date = LocalDate.parse(source.date());
+        return Transaction.builder()
+            .id(id)
+            .externalId("amex_tx_" + Integer.toUnsignedString(
+                java.util.Objects.hash(date, source.label(), source.amountEur().stripTrailingZeros()), 36))
+            .date(date)
+            .description(source.label())
+            .amount(source.amountEur().setScale(8))
+            .nativeCurrency("EUR")
+            .build();
     }
 
     private AmexPort.Transaction charge(int daysAgo, String label, String amount) {

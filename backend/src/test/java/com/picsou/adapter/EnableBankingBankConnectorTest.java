@@ -85,6 +85,17 @@ class EnableBankingBankConnectorTest {
         assertThat(result.get(0).balance()).isEqualByComparingTo("1234.56");
     }
 
+    @Test
+    void fetchBalances_everyAccountFails_rethrowsTheFirstFailureInsteadOfAnEmptyList() {
+        EnableBankingBankConnector underTest = spy(connector());
+        doReturn(List.of("uid-1", "uid-2")).when(underTest).fetchSessionAccountsWithRetry("sess-down");
+        SyncException consentExpired = new SyncException("Consent expired", null, "CONSENT_EXPIRED");
+        doThrow(consentExpired).when(underTest).fetchAccountData("uid-1");
+        doThrow(new RuntimeException("503 Service Unavailable")).when(underTest).fetchAccountData("uid-2");
+
+        assertThatThrownBy(() -> underTest.fetchBalances("sess-down")).isSameAs(consentExpired);
+    }
+
     /**
      * When all accounts succeed, all are returned — the normal path must not regress.
      */

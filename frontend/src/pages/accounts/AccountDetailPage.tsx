@@ -471,6 +471,7 @@ export function AccountDetailPage() {
         onClose={() => setShowHistory(false)}
         accountId={accountId}
         history={history}
+        amountOwed={account?.type === 'CREDIT_CARD'}
       />
     </div>
   )

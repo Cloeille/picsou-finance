@@ -27,7 +27,6 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -187,20 +186,25 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     @Override
     public List<AccountData> fetchBalances(String sessionId) {
         List<String> accounts = fetchSessionAccountsWithRetry(sessionId);
-        return accounts.stream()
-            .map(accountId -> {
-                try {
-                    return fetchAccountData(accountId);
-                } catch (RuntimeException ex) {
-                    // An account uid can rotate independently after a successful session link.
-                    // Keep the remaining accounts syncable; the next session refresh supplies its uid.
-                    log.warn("Failed to fetch account {} from Enable Banking; skipping it for this sync",
-                        LogSanitizer.fingerprint(accountId), ex);
-                    return null;
-                }
-            })
-            .filter(Objects::nonNull)
-            .toList();
+        List<AccountData> fetched = new ArrayList<>(accounts.size());
+        RuntimeException firstFailure = null;
+        for (String accountId : accounts) {
+            try {
+                fetched.add(fetchAccountData(accountId));
+            } catch (RuntimeException ex) {
+                // An account uid can rotate independently after a successful session link.
+                // Keep the remaining accounts syncable; the next session refresh supplies its uid.
+                log.warn("Failed to fetch account {} from Enable Banking; skipping it for this sync",
+                    LogSanitizer.fingerprint(accountId), ex);
+                if (firstFailure == null) firstFailure = ex;
+            }
+        }
+        // Every account failing is a bank- or consent-level failure (5xx, 429, expired consent),
+        // not a stale uid: an empty list would read as "accounts still linking" upstream.
+        if (fetched.isEmpty() && firstFailure != null) {
+            throw firstFailure;
+        }
+        return fetched;
     }
 
     /**

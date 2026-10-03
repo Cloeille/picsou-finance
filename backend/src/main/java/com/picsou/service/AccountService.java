@@ -168,8 +168,9 @@ public class AccountService {
 
         account = accountRepository.save(account);
 
-        // Create initial snapshot if balance is provided
-        if (account.getCurrentBalance().compareTo(BigDecimal.ZERO) > 0) {
+        // Create initial snapshot if balance is provided; a card's debt is stored negative
+        if (account.getCurrentBalance().compareTo(BigDecimal.ZERO) > 0
+            || (account.getType() == AccountType.CREDIT_CARD && account.getCurrentBalance().signum() != 0)) {
             BigDecimal invested = calculateInvestedAmount(account);
             createSnapshot(account, toSnapshotEur(account, account.getCurrentBalance()), invested, LocalDate.now());
         }
@@ -285,16 +286,17 @@ public class AccountService {
     @Transactional
     public BalanceSnapshot addManualSnapshot(Long accountId, Long memberId, SnapshotRequest req) {
         Account account = getOrThrow(accountId, memberId);
+        BigDecimal balance = signedBalance(account.getType(), req.balance());
 
         // Update current balance if this is the most recent snapshot
         Optional<BalanceSnapshot> latest = snapshotRepository.findLatestByAccountId(accountId);
         if (latest.isEmpty() || !req.date().isBefore(latest.get().getDate())) {
-            account.setCurrentBalance(req.balance());
+            account.setCurrentBalance(balance);
             account.setLastSyncedAt(Instant.now());
             accountRepository.save(account);
         }
 
-        return upsertSnapshotFromNative(account, req.balance(), req.date());
+        return upsertSnapshotFromNative(account, balance, req.date());
     }
 
     public List<BalanceSnapshot> getHistory(Long accountId, Long memberId, LocalDate from, LocalDate to) {
