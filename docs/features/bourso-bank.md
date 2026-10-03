@@ -192,8 +192,9 @@ Refusals:
   means a `cash`, `valuation` or `total` key beside the fund, even a null one, or
   a non-empty `positions` list. An empty `positions` section is tolerated, as it
   is for PEA and CTO accounts.
-- `INVALID_DATA`: a negative quantity, or a `balance` or account currency other
-  than EUR.
+- `INVALID_DATA`: a negative quantity, or a `balance`, account or `gainLoss`
+  currency other than EUR. A foreign gain would corrupt the cost basis the
+  backend derives as `value − gain`. A node without a currency is read as EUR.
 - `PORTFOLIO_INCOMPLETE`: a balance left with zero units. An emptied contract
   (zero balance, zero units) syncs with no line.
 
@@ -355,7 +356,7 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Verification boundaries
 
-`services/bourso-auth` — 108 tests, run inside the built image in CI: pad decoding
+`services/bourso-auth` — 110 tests, run inside the built image in CI: pad decoding
 against the real SVGs (and its refusal on an unknown one), password encoding, the
 dashboard parsed from a real captured page including the third-party filter and
 the loan exclusion, a card that stops parsing failing the sync, reconciliation

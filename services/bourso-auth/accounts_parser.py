@@ -442,6 +442,14 @@ def _parse_single_fund(
             raise AccountsFormatError(
                 INVALID_DATA, f"Fund contract {account_id[:8]}… is denominated in {currency}"
             )
+    # The backend derives the cost basis as value - gain, so a foreign gain
+    # would corrupt it as surely as a foreign balance.
+    gain_node = account.get("gainLoss")
+    gain_currency = _summary_currency(gain_node)
+    if gain_currency is not None and gain_currency != "EUR":
+        raise AccountsFormatError(
+            INVALID_DATA, f"Fund contract {account_id[:8]}… reports its gain in {gain_currency}"
+        )
 
     # No BoursoBank symbol here: the ISIN is the fund's only identity, so unlike
     # a trading line it cannot fall back to anything when it is unusable.
@@ -469,7 +477,7 @@ def _parse_single_fund(
                 "quoteCurrency": _summary_currency(price_node) or "EUR",
                 "currentValueEur": total,
                 # The contract holds nothing else, so its gain is the fund's.
-                "pnlEur": _summary_money(account.get("gainLoss"), "gainLoss", required=False),
+                "pnlEur": _summary_money(gain_node, "gainLoss", required=False),
             }
         )
 

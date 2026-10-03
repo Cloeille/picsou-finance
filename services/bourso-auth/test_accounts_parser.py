@@ -505,6 +505,21 @@ class SingleFundContractTest(unittest.TestCase):
                 parse_trading_summary(sections, "acc")
             self.assertEqual(raised.exception.code, INVALID_DATA)
 
+    def test_a_gain_in_a_foreign_currency_is_refused(self):
+        # The backend derives the cost basis as value - gain.
+        sections = single_fund()
+        sections[0]["account"]["gainLoss"] = money("50.00", "USD")
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(sections, "acc")
+        self.assertEqual(raised.exception.code, INVALID_DATA)
+
+    def test_a_gain_whose_currency_is_lowercase_or_absent_is_eur(self):
+        for currency in ("eur", None):
+            sections = single_fund()
+            sections[0]["account"]["gainLoss"] = money("50.00", currency)
+            parsed = parse_trading_summary(sections, "acc")
+            self.assertEqual(parsed["positions"][0]["pnlEur"], Decimal("50.00"))
+
     def test_a_native_quote_keeps_its_currency(self):
         parsed = parse_trading_summary(single_fund(price=money("110.00", "USD")), "acc")
         self.assertEqual(parsed["positions"][0]["quoteCurrency"], "USD")
