@@ -496,6 +496,16 @@ class SingleFundContractTest(unittest.TestCase):
             parse_trading_summary(single_fund(quantity="0"), "acc")
         self.assertEqual(raised.exception.code, INCOMPLETE)
 
+    def test_units_without_a_balance_do_not_reconcile(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(single_fund(balance="0"), "acc")
+        self.assertEqual(raised.exception.code, INCOMPLETE)
+
+    def test_a_negative_balance_is_refused(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(single_fund(balance="-350"), "acc")
+        self.assertEqual(raised.exception.code, INVALID_DATA)
+
     def test_a_contract_in_a_foreign_currency_is_refused(self):
         for field in ("balance", "currency"):
             sections = single_fund()

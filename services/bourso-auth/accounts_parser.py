@@ -437,6 +437,10 @@ def _parse_single_fund(
 
     balance_node = account.get("balance")
     total = _summary_money(balance_node, "balance")
+    if total < 0:
+        raise AccountsFormatError(
+            INVALID_DATA, f"Fund contract {account_id[:8]}… reports a negative balance"
+        )
     for currency in (_summary_currency(balance_node), text_value(account.get("currency"), 3)):
         if currency is not None and currency.upper() != "EUR":
             raise AccountsFormatError(
@@ -481,10 +485,17 @@ def _parse_single_fund(
             }
         )
 
-    # An emptied contract reconciles at zero; units gone with a balance left do not.
-    if not positions and not money_close(Decimal("0"), total):
+    # An emptied contract reconciles at zero. Units and balance must otherwise
+    # come together: the line is valued at the balance, so the backend's
+    # reconciliation cannot catch either one missing.
+    empty_balance = money_close(Decimal("0"), total)
+    if not positions and not empty_balance:
         raise AccountsFormatError(
             INCOMPLETE, f"Fund contract {account_id[:8]}… has a balance but no units"
+        )
+    if positions and empty_balance:
+        raise AccountsFormatError(
+            INCOMPLETE, f"Fund contract {account_id[:8]}… holds units but no balance"
         )
     return {"cashEur": Decimal("0"), "totalEur": total, "positions": positions}
 
