@@ -122,6 +122,8 @@ services:
     restart: unless-stopped
     expose:
       - "8001"
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?APP_SIDECAR_API_KEY is required}
     networks:
       - picsou-net
 

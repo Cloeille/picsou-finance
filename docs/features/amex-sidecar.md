@@ -46,6 +46,7 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 | Account due amount is stored as plaintext NUMERIC(20,8), date and points are ordinary account data | These values are not credentials | Encrypting non-secret amounts |
 | Connect runs the provider-maximum history import once | A fresh connection is already the heavy operation (browser login + OTP); routine syncs stay cheap and the daily scheduler keeps the session warm | Fetching full history on **every** sync |
 | Pinned Camoufox 152.0.4-beta.30 | 156.0.1-beta.33 breaks login (UnknownProperty); verified build works | Pin deliberately after real login test |
+| Sidecar requires `X-Picsou-Sidecar-Key` (= `APP_SIDECAR_API_KEY`) on every path except `/health`, refuses to start without it | Only the backend may drive bank logins; a 401 `WWW-Authenticate: Picsou-Sidecar-Key` is mapped to a key-mismatch error by `SidecarWebClientFactory` | Relying on network isolation alone (other sidecars: #169) |
 
 ## Gotchas / Pitfalls
 

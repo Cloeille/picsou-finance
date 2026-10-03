@@ -24,8 +24,10 @@ Why Camoufox (stealth Firefox) and not plain Playwright Chromium:
 """
 
 import asyncio
+import hmac
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -126,6 +128,34 @@ _pending: dict[str, dict[str, Any]] = {}
 _pending_lock = asyncio.Lock()
 
 
+# ─── Sidecar shared-secret enforcement ─────────────────────────────────
+# The backend sends X-Picsou-Sidecar-Key on every call and maps a 401 whose
+# WWW-Authenticate contains "Picsou-Sidecar-Key" back to a SidecarAuthenticationException.
+# Each *-auth sidecar enforces that same secret so a container that can reach port 8001
+# cannot drive the sidecar or replay a captured sessionState. See
+# docs/decisions/2026-09-17-sidecar-shared-secret-channel.md.
+SIDECAR_KEY_HEADER = "X-Picsou-Sidecar-Key"
+SIDECAR_AUTH_CHALLENGE = "Picsou-Sidecar-Key"
+_SIDECAR_KEY: str | None = None  # set in lifespan; None until then
+
+
+def _get_sidecar_key() -> str:
+    """Return the sidecar key, loading it lazily on first use so `python main.py`
+    self-check (which never starts the server) still runs without the env var."""
+    global _SIDECAR_KEY
+    if _SIDECAR_KEY is None:
+        key = os.environ.get("APP_SIDECAR_API_KEY")
+        if not key or not key.strip():
+            raise RuntimeError(
+                "APP_SIDECAR_API_KEY is required: it is the shared secret that authenticates Picsou "
+                "to its connector sidecars, which carry your bank credentials. Generate one "
+                "with: openssl rand -base64 32 -- and set it as APP_SIDECAR_API_KEY in both the "
+                "backend and every *-auth service."
+            )
+        _SIDECAR_KEY = key.strip()
+    return _SIDECAR_KEY
+
+
 # ─── Lifecycle ──────────────────────────────────────────────────────────────
 
 
@@ -143,6 +173,7 @@ async def _pending_sweeper() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    _get_sidecar_key()  # fail fast at startup when the shared key is missing
     sweeper = asyncio.create_task(_pending_sweeper())
     try:
         yield
@@ -170,6 +201,29 @@ async def log_request_duration(request: Request, call_next):
                 request.url.path,
                 time.monotonic() - started_at,
             )
+
+
+@app.middleware("http")
+async def enforce_sidecar_key(request: Request, call_next):
+    """Reject every request except /health unless it carries the shared sidecar key.
+
+    The backend authenticates to the sidecar with X-Picsou-Sidecar-Key; this sidecar
+    answers 401 with a WWW-Authenticate challenge of "Picsou-Sidecar-Key" when the
+    key is missing or wrong, so the backend's SidecarWebClientFactory can turn the
+    rejection into a SidecarAuthenticationException instead of a bank credential error.
+    The header value is never logged.
+    """
+    if request.url.path == "/health":
+        return await call_next(request)
+    expected = _get_sidecar_key().encode("utf-8")
+    provided = request.headers.get(SIDECAR_KEY_HEADER, "").encode("utf-8")
+    if not provided or not hmac.compare_digest(expected, provided):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "invalid sidecar key"},
+            headers={"WWW-Authenticate": SIDECAR_AUTH_CHALLENGE},
+        )
+    return await call_next(request)
 
 
 # ─── Contract ───────────────────────────────────────────────────────────────
@@ -1486,6 +1540,8 @@ def _self_check() -> None:
     """Pure-function regression check for the sessionState round-trip this
     fix depends on: old sessionState (no accountToken) and new sessionState
     (with accountToken) must both restore correctly."""
+    from fastapi.testclient import TestClient  # self-check only, keep it off the serving path
+
     sample_cookies = [{"name": "session", "value": "abc", "domain": "americanexpress.com", "path": "/"}]
 
     legacy_state = json.dumps({"cookies": sample_cookies}, separators=(",", ":"))
@@ -1697,6 +1753,58 @@ def _self_check() -> None:
     assert secret_amount not in entry_summary
     assert "charges_amount:num:nz" in entry_summary
     assert "extended_details:dict[amount:num:nz,flag:bool:True]" in entry_summary
+
+    # ─── Sidecar shared-secret enforcement ───────────────────────────────
+    # /health is open; every other path is gated by X-Picsou-Sidecar-Key, and a
+    # bad key answers 401 with the WWW-Authenticate challenge the backend's
+    # SidecarWebClientFactory maps to SidecarAuthenticationException.
+    global _SIDECAR_KEY
+    _SIDECAR_KEY = None  # reset any cached value so the assertions set their own
+    os.environ["APP_SIDECAR_API_KEY"] = "self-check-key"
+    try:
+        client = TestClient(app)
+        health = client.get("/health")
+        assert health.status_code == 200, health.status_code
+
+        no_key = client.post("/accounts", json={"sessionState": "{}"})
+        assert no_key.status_code == 401, no_key.status_code
+        assert no_key.json() == {"detail": "invalid sidecar key"}
+        assert no_key.headers["www-authenticate"] == "Picsou-Sidecar-Key"
+
+        wrong_key = client.post(
+            "/accounts", json={"sessionState": "{}"},
+            headers={SIDECAR_KEY_HEADER: "wrong"},
+        )
+        assert wrong_key.status_code == 401, wrong_key.status_code
+        assert wrong_key.headers["www-authenticate"] == "Picsou-Sidecar-Key"
+
+        # /health must stay open even with a bad key -- it is the only hop the
+        # backend (and a liveness probe) is allowed to make unauthenticated.
+        health_wrong = client.get("/health", headers={SIDECAR_KEY_HEADER: "wrong"})
+        assert health_wrong.status_code == 200, health_wrong.status_code
+
+        right_key = client.post(
+            "/accounts", json={"sessionState": "{}"},
+            headers={SIDECAR_KEY_HEADER: "self-check-key"},
+        )
+        # A valid key passes the middleware; what reaches the endpoint is the
+        # sessionState contract (400 INVALID_DATA), not the 401 auth rejection.
+        assert right_key.status_code != 401, right_key.status_code
+    finally:
+        os.environ.pop("APP_SIDECAR_API_KEY", None)
+        _SIDECAR_KEY = None
+
+    # Without the env var at all, the first gated request must fail loudly
+    # rather than silently defaulting to open -- same wording spirit as the
+    # Java SidecarWebClientFactory's startup check.
+    _SIDECAR_KEY = None
+    os.environ.pop("APP_SIDECAR_API_KEY", None)
+    try:
+        _get_sidecar_key()
+    except RuntimeError as exc:
+        assert "APP_SIDECAR_API_KEY is required" in str(exc), str(exc)
+    else:
+        raise AssertionError("expected RuntimeError when APP_SIDECAR_API_KEY is unset")
 
     print("self-check OK")
 

@@ -22,6 +22,9 @@ vi.mock('./SubscriptionCard', () => ({ SubscriptionCard: () => null }))
 it('exposes the complete AMEX reward label despite visual truncation', () => {
   render(<RecurringTab />)
   const label = screen.getByTitle(/American Express/)
-  expect(label).toHaveAttribute('title', 'American Express · 1 365 Miles gagnés ce cycle')
-  expect(label).toHaveAttribute('aria-label', 'American Express · 1 365 Miles gagnés ce cycle')
+  // Points use the runtime's number grouping, so derive them the same way instead of
+  // hard-coding a locale-specific separator (fr: narrow no-break space, en: comma).
+  const expected = `American Express · ${(1365).toLocaleString()} Miles gagnés ce cycle`
+  expect(label).toHaveAttribute('title', expected)
+  expect(label).toHaveAttribute('aria-label', expected)
 })
