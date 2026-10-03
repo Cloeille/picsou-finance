@@ -117,7 +117,7 @@ public class YahooQuotePageLogoProvider implements InstrumentLogoPort {
                 .timeout(PAGE_TIMEOUT)
                 .block();
         } catch (RuntimeException ex) {
-            return failure("quote page", symbol, ex);
+            return failure("quote page", symbol, ex, false);
         }
 
         YahooQuotePageParser.LogoUrls urls;
@@ -127,70 +127,81 @@ public class YahooQuotePageLogoProvider implements InstrumentLogoPort {
                 log.info("Yahoo quote page for {} carries no logo for that symbol", symbol);
                 return new Lookup.Absent("no logo on the quote page");
             }
+            case Result.RefusedMark refused -> {
+                log.warn("Yahoo quote page for {} links its logo off {} (CDN change?)", symbol, YahooQuotePageParser.IMAGE_HOST);
+                return new Lookup.Unavailable("logo URL off the image host");
+            }
             case Result.NotQuoted notQuoted -> {
                 log.warn("Yahoo quote page for {} does not quote that symbol (layout change or consent page?)", symbol);
                 return new Lookup.Unavailable("symbol not quoted on the page");
             }
         }
 
-        Image light;
-        try {
-            light = download(urls.light(), symbol);
-        } catch (RuntimeException ex) {
-            return failure("logo", symbol, ex);
-        }
-        if (light == null) return new Lookup.Absent("logo rejected by validation");
+        Lookup light = download("logo", urls.light(), symbol);
+        if (!(light instanceof Lookup.Found found)) return light;
 
         Image dark = null;
         if (urls.dark() != null && !urls.dark().equals(urls.light())) {
-            try {
-                dark = download(urls.dark(), symbol);
-            } catch (RuntimeException ex) {
-                // A dark variant Yahoo does not have is no reason to lose the light mark. An outage
-                // is: storing the light one alone would settle the ticker without its dark variant.
-                Lookup failed = failure("dark logo", symbol, ex);
-                if (!(failed instanceof Lookup.Absent)) return failed;
-            }
+            // A dark variant Yahoo does not have is no reason to lose the light mark. An outage
+            // is: storing the light one alone would settle the ticker without its dark variant.
+            Lookup darkLookup = download("dark logo", urls.dark(), symbol);
+            if (darkLookup instanceof Lookup.Found darkFound) dark = darkFound.light();
+            else if (!(darkLookup instanceof Lookup.Absent)) return darkLookup;
         }
-        return new Lookup.Found(light, dark);
+        return new Lookup.Found(found.light(), dark);
     }
 
-    /** The image at {@code uri}, or null when it fails validation. Throws on transport failure. */
-    private Image download(URI uri, String symbol) {
-        ResponseEntity<byte[]> response = webClient.get()
-            .uri(uri)
-            .retrieve()
-            .toEntity(byte[].class)
-            .timeout(IMAGE_TIMEOUT)
-            .block();
-        if (response == null) return null;
-        MediaType declared = response.getHeaders().getContentType();
-        Image image = validate(response.getBody(), declared == null ? null : declared.toString());
-        if (image == null) {
-            log.info("Rejected the logo Yahoo serves for {} (type {}, {} bytes)", symbol, declared,
-                response.getBody() == null ? 0 : response.getBody().length);
+    /** The image at {@code uri} as {@link Lookup.Found#light()}, or why there is none. */
+    private Lookup download(String what, URI uri, String symbol) {
+        ResponseEntity<byte[]> response;
+        try {
+            response = webClient.get()
+                .uri(uri)
+                .retrieve()
+                .toEntity(byte[].class)
+                .timeout(IMAGE_TIMEOUT)
+                .block();
+        } catch (RuntimeException ex) {
+            return failure(what, symbol, ex, true);
         }
-        return image;
+        if (response == null) return new Lookup.Unavailable("empty response");
+        MediaType declared = response.getHeaders().getContentType();
+        Lookup verdict = validate(response.getBody(), declared == null ? null : declared.toString());
+        if (!(verdict instanceof Lookup.Found)) {
+            log.info("Rejected the {} Yahoo serves for {} (type {}, {} bytes): {}", what, symbol, declared,
+                response.getBody() == null ? 0 : response.getBody().length, verdict);
+        }
+        return verdict;
     }
 
     /**
-     * The image if the declared type is PNG, JPEG or WebP <em>and</em> the bytes carry that
-     * format's signature, and it fits under {@link #MAX_IMAGE_BYTES}. Null otherwise.
+     * {@link Lookup.Found} (light only) if the declared type is PNG, JPEG or WebP <em>and</em>
+     * the bytes carry that format's signature, and it fits under {@link #MAX_IMAGE_BYTES}.
+     *
+     * <p>Otherwise {@link Lookup.Absent} only when the refusal is about the mark itself: too
+     * large, an SVG, or image bytes whose type contradicts them. No type, or a body that is not
+     * an image at all (an error or anti-bot page served with a 200, an empty body), says nothing
+     * about the mark and is {@link Lookup.Unavailable}.
      *
      * <p>The returned content type is the canonical one for the signature, never the header
      * verbatim, so a parameter or an odd casing in the upstream header cannot reach the browser.
      */
-    static Image validate(byte[] bytes, String declaredContentType) {
-        if (bytes == null || bytes.length == 0 || bytes.length > MAX_IMAGE_BYTES) return null;
-        if (declaredContentType == null) return null;
+    static Lookup validate(byte[] bytes, String declaredContentType) {
+        if (bytes == null || bytes.length == 0) return new Lookup.Unavailable("empty image body");
+        if (bytes.length > MAX_IMAGE_BYTES) return new Lookup.Absent("too large");
+        if (declaredContentType == null) return new Lookup.Unavailable("no image content type");
         // Type and subtype only: a stray parameter (an odd charset on an image) is no reason to
         // refuse bytes whose signature is checked below anyway.
         int semicolon = declaredContentType.indexOf(';');
         String declared = (semicolon < 0 ? declaredContentType : declaredContentType.substring(0, semicolon))
             .trim().toLowerCase(Locale.ROOT);
         String sniffed = sniff(bytes);
-        if (sniffed == null || !sniffed.equals("image/jpg".equals(declared) ? "image/jpeg" : declared)) return null;
-        return new Image(bytes, sniffed);
+        if (sniffed != null && sniffed.equals("image/jpg".equals(declared) ? "image/jpeg" : declared)) {
+            return new Lookup.Found(new Image(bytes, sniffed), null);
+        }
+        if (sniffed != null) return new Lookup.Absent("image type contradicts its bytes");
+        if ("image/svg+xml".equals(declared)) return new Lookup.Absent("SVG");
+        return new Lookup.Unavailable("not an image: " + declared);
     }
 
     private static String sniff(byte[] b) {
@@ -210,19 +221,20 @@ public class YahooQuotePageLogoProvider implements InstrumentLogoPort {
     }
 
     /**
-     * Maps a failed request to what the caller should remember. Only a 404 or an oversized body
+     * Maps a failed request to what the caller should remember. Only a 404 or an oversized image
      * is permanent; every other upstream failure, a 3xx included, is retried later. A 429 or a
      * 5xx also arms the shared cooldown, so the rest of the batch and the next pass stand down
      * too. Anything that is not an upstream failure is a bug here and is rethrown, the house rule
      * {@code CoinGeckoPriceProvider.isExpectedUpstreamFailure} documents.
      */
-    private Lookup failure(String what, String symbol, RuntimeException ex) {
+    private Lookup failure(String what, String symbol, RuntimeException ex, boolean image) {
         Throwable cause = reactor.core.Exceptions.unwrap(ex);
         // Checked first: an over-limit body arrives wrapped in a WebClientResponseException that
-        // carries the 200 it was served with, and is a property of the content, not an outage.
+        // carries the 200 it was served with. An image's size is the mark's; the page's is
+        // Yahoo's layout, the same for every ticker, so it says nothing about this one.
         if (NestedExceptionUtils.getMostSpecificCause(cause) instanceof DataBufferLimitException) {
-            log.info("Yahoo's {} for {} exceeds the size cap", what, symbol);
-            return new Lookup.Absent("too large");
+            log.warn("Yahoo's {} for {} exceeds the size cap", what, symbol);
+            return image ? new Lookup.Absent("too large") : new Lookup.Unavailable("page too large");
         }
         if (cause instanceof WebClientResponseException http) {
             int status = http.getStatusCode().value();

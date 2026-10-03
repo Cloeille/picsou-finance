@@ -62,10 +62,43 @@ class YahooQuotePageParserTest {
     }
 
     @Test
-    void refusesALogoUrlOffTheImageHost() {
-        String html = page("{\"symbol\":\"AAPL\",\"logoUrl\":\"https://evil.example/logo.png\"}");
+    void refusesALogoUrlOffTheImageHost_withoutCallingTheSymbolUnmarked() {
+        // A CDN move would put every mark off the host at once; that is not "Yahoo has none".
+        String html = page("{\"symbol\":\"MSFT\",\"logoUrl\":\"https://s.yimg.com/lg/m.png\"},"
+            + "{\"symbol\":\"AAPL\",\"quoteType\":\"EQUITY\",\"logoUrl\":\"https://evil.example/logo.png\"}");
+
+        assertThat(YahooQuotePageParser.read(html, "AAPL")).isInstanceOf(Result.RefusedMark.class);
+    }
+
+    @Test
+    void anObjectKeyedByTheSymbolThatIsNotAQuote_isNotQuoted() {
+        // The real page has one: recommendationsbysymbol, which never carries a logo.
+        String html = page("{\"symbol\":\"MSFT\",\"logoUrl\":\"https://s.yimg.com/lg/m.png\"},"
+            + "{\"symbol\":\"AAPL\",\"recommendedSymbols\":[{\"symbol\":\"MSFT\",\"score\":0.25}]}");
+
+        assertThat(YahooQuotePageParser.read(html, "AAPL")).isInstanceOf(Result.NotQuoted.class);
+    }
+
+    @Test
+    void aQuoteWithoutALogo_onAPageWithNoUsableMarkAtAll_isNotQuoted() {
+        String html = page("{\"symbol\":\"MSFT\",\"quoteType\":\"EQUITY\"},{\"symbol\":\"AAPL\",\"quoteType\":\"EQUITY\"}");
+
+        assertThat(YahooQuotePageParser.read(html, "AAPL")).isInstanceOf(Result.NotQuoted.class);
+    }
+
+    @Test
+    void theRealPageWithoutTheSymbolsOwnMark_isUnmarked() {
+        String html = fixture("quote-page-aapl.html").replace(
+            "https://s.yimg.com/lo/mysterio/api/5dee/finance/resizefill_w50_h50/https://s.yimg.com/lg/logos/US0378331005/light/2e23b039.png", "");
 
         assertThat(YahooQuotePageParser.read(html, "AAPL")).isInstanceOf(Result.Unmarked.class);
+    }
+
+    @Test
+    void theRealPageWithItsLogoFieldRenamed_isNotQuoted_ratherThanUnmarked() {
+        String html = fixture("quote-page-aapl.html").replace("logoUrl", "brandLogo");
+
+        assertThat(YahooQuotePageParser.read(html, "AAPL")).isInstanceOf(Result.NotQuoted.class);
     }
 
     @Test
@@ -111,7 +144,7 @@ class YahooQuotePageParserTest {
 
     @Test
     void aMarkInALaterBlock_winsOverAnUnmarkedQuoteInAnEarlierOne() {
-        String html = page("{\"symbol\":\"AAPL\"}")
+        String html = page("{\"symbol\":\"AAPL\",\"quoteType\":\"EQUITY\"}")
             + page("{\"symbol\":\"AAPL\",\"logoUrl\":\"https://s.yimg.com/lg/a.png\"}");
 
         assertThat(marked(html, "AAPL").light()).isEqualTo(URI.create("https://s.yimg.com/lg/a.png"));

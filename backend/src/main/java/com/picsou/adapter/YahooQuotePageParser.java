@@ -21,8 +21,8 @@ import java.util.regex.Pattern;
  * watch"), each with its own logo URL, and the first {@code s.yimg.com/lg/logos/} URL in the
  * page belongs to one of them. So this never scans the page for a logo URL: it parses the JSON
  * and only accepts the object whose {@code symbol} is the one asked for. A layout change can make
- * it find nothing, which it reports as {@link Result.NotQuoted}, never as a missing mark; it
- * cannot make it find the wrong company.
+ * it find nothing, which it reports as {@link Result.NotQuoted} or {@link Result.RefusedMark},
+ * never as a missing mark; it cannot make it find the wrong company.
  */
 final class YahooQuotePageParser {
 
@@ -45,57 +45,87 @@ final class YahooQuotePageParser {
         /** The page quotes the symbol and carries a usable mark for it. */
         record Marked(LogoUrls urls) implements Result {}
 
-        /** The page quotes the symbol and gives it no usable mark: Yahoo has none. */
+        /**
+         * The page quotes the symbol without a {@code logoUrl}, and carries other companies'
+         * marks, so it is the layout this parser reads: Yahoo has none.
+         */
         record Unmarked() implements Result {}
 
         /**
-         * No quote object for the symbol at all: a layout this parser no longer reads, or a
-         * consent or anti-bot page served with a 200. Says nothing about whether a mark exists.
+         * The quote has a {@code logoUrl} this parser will not download (another host, not
+         * https): a CDN move, not a missing mark.
+         */
+        record RefusedMark() implements Result {}
+
+        /**
+         * No quote object for the symbol, or one on a page carrying no usable mark at all: a
+         * layout this parser no longer reads, or a consent or anti-bot page served with a 200.
+         * Says nothing about whether a mark exists.
          */
         record NotQuoted() implements Result {}
     }
 
     static Result read(String html, String symbol) {
-        Result best = new Result.NotQuoted();
-        if (html == null || symbol == null || symbol.isBlank()) return best;
+        if (html == null || symbol == null || symbol.isBlank()) return new Result.NotQuoted();
+        Scan scan = new Scan(symbol);
         Matcher m = JSON_SCRIPT.matcher(html);
         while (m.find()) {
             JsonNode root = parse(m.group(1));
             if (root == null) continue;
-            best = moreSpecific(best, search(root, symbol));
-            if (!(best instanceof Result.Marked) && root.path("body").isTextual()) {
-                JsonNode body = parse(root.path("body").asText());
-                if (body != null) best = moreSpecific(best, search(body, symbol));
-            }
-            if (best instanceof Result.Marked) return best;
+            scan.visit(root);
+            if (scan.mark == null && root.path("body").isTextual()) scan.visit(parse(root.path("body").asText()));
+            if (scan.mark != null) return new Result.Marked(scan.mark);
         }
-        return best;
+        return scan.verdict();
     }
 
-    private static Result moreSpecific(Result a, Result b) {
-        return b instanceof Result.NotQuoted ? a : b;
-    }
+    /** What the whole page has said so far about the symbol, and whether it carries any mark. */
+    private static final class Scan {
+        private final String symbol;
+        private LogoUrls mark;
+        private boolean markRefused;
+        private boolean quotedWithoutMark;
+        private boolean pageHasAMark;
 
-    private static Result search(JsonNode root, String symbol) {
-        Result found = new Result.NotQuoted();
-        Deque<JsonNode> stack = new ArrayDeque<>();
-        stack.push(root);
-        while (!stack.isEmpty()) {
-            JsonNode node = stack.pop();
-            if (node.isObject()) {
-                if (symbol.equalsIgnoreCase(node.path("symbol").asText(null))) {
-                    URI light = imageUri(node.path("logoUrl").asText(null));
-                    if (light != null) {
-                        return new Result.Marked(new LogoUrls(light, imageUri(node.path("logoUrlDarkMode").asText(null))));
+        Scan(String symbol) {
+            this.symbol = symbol;
+        }
+
+        void visit(JsonNode root) {
+            if (root == null) return;
+            Deque<JsonNode> stack = new ArrayDeque<>();
+            stack.push(root);
+            while (!stack.isEmpty()) {
+                JsonNode node = stack.pop();
+                if (node.isObject()) {
+                    String raw = node.path("logoUrl").asText(null);
+                    URI light = imageUri(raw);
+                    if (light != null) pageHasAMark = true;
+                    if (symbol.equalsIgnoreCase(node.path("symbol").asText(null))) {
+                        if (light != null) {
+                            mark = new LogoUrls(light, imageUri(node.path("logoUrlDarkMode").asText(null)));
+                            return;
+                        }
+                        // Only a quote object counts: the page also has other objects keyed by
+                        // the symbol (recommendations, news) that never carry a logo.
+                        if (raw != null && !raw.isBlank()) markRefused = true;
+                        else if (node.has("quoteType")) quotedWithoutMark = true;
                     }
-                    found = new Result.Unmarked();
                 }
-                node.elements().forEachRemaining(stack::push);
-            } else if (node.isArray()) {
-                node.elements().forEachRemaining(stack::push);
+                if (node.isContainerNode()) node.elements().forEachRemaining(stack::push);
             }
         }
-        return found;
+
+        /**
+         * A missing mark is only believed on a page that carries other companies' marks, which
+         * Yahoo's quote pages always do: without one, the field was renamed or moved and every
+         * symbol would look unmarked.
+         */
+        Result verdict() {
+            if (markRefused) return new Result.RefusedMark();
+            if (quotedWithoutMark && pageHasAMark) return new Result.Unmarked();
+            return new Result.NotQuoted();
+        }
     }
 
     /** An https URL on {@link #IMAGE_HOST}, or null. The page is untrusted input. */

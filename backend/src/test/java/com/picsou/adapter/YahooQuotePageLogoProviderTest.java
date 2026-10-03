@@ -156,11 +156,40 @@ class YahooQuotePageLogoProviderTest {
 
     @Test
     void aQuoteForTheSymbolWithoutALogo_isAPermanentMiss_andDownloadsNothing() {
-        page("<html><script type=\"application/json\">{\"quoteResponse\":{\"result\":["
-            + "{\"symbol\":\"AAPL\",\"quoteType\":\"EQUITY\"}]}}</script></html>");
+        quotes("{\"symbol\":\"MSFT\",\"logoUrl\":\"https://s.yimg.com/lg/m.png\"},{\"symbol\":\"AAPL\",\"quoteType\":\"EQUITY\"}");
 
         assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Absent.class);
         assertThat(requested).containsExactly(PAGE);
+    }
+
+    @Test
+    void aQuoteWithoutALogo_onAPageWithNoUsableMarkAtAll_isRetriedLater() {
+        quotes("{\"symbol\":\"AAPL\",\"quoteType\":\"EQUITY\"}");
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(requested).containsExactly(PAGE);
+    }
+
+    @Test
+    void onlyARecommendationsObjectForTheSymbol_isRetriedLater() {
+        quotes("{\"symbol\":\"MSFT\",\"logoUrl\":\"https://s.yimg.com/lg/m.png\"},"
+            + "{\"symbol\":\"AAPL\",\"recommendedSymbols\":[{\"symbol\":\"MSFT\",\"score\":0.25}]}");
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(requested).containsExactly(PAGE);
+    }
+
+    @Test
+    void aLogoUrlOffTheImageHost_isRetriedLater_andNotDownloaded() {
+        quotes("{\"symbol\":\"MSFT\",\"logoUrl\":\"https://s.yimg.com/lg/m.png\"},"
+            + "{\"symbol\":\"AAPL\",\"quoteType\":\"EQUITY\",\"logoUrl\":\"https://cdn.example/aapl.png\"}");
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(requested).containsExactly(PAGE);
+    }
+
+    private void quotes(String quoteJson) {
+        page("<html><script type=\"application/json\">{\"quoteResponse\":{\"result\":[" + quoteJson + "]}}</script></html>");
     }
 
     @Test
@@ -233,13 +262,48 @@ class YahooQuotePageLogoProviderTest {
     }
 
     @Test
-    void aPageOverTheMemoryCap_isAPermanentMiss_notAnOutage() {
-        // The codec wraps the overflow in a WebClientResponseException carrying the 200 it was
-        // served with. Read as an HTTP failure it would be retried weekly forever.
+    void aPageOverTheMemoryCap_isRetriedLater_notAPermanentMiss() {
+        // The page's size is Yahoo's layout, the same for every ticker: recording it as ABSENT
+        // would settle the whole portfolio on one page redesign.
         routes.put(PAGE, ok(MediaType.TEXT_HTML_VALUE, new byte[YahooQuotePageLogoProvider.MAX_PAGE_BYTES + 1]));
 
-        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Absent.class);
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
         assertThat(cooldown.active()).isFalse();
+    }
+
+    @Test
+    void anImageOverTheMemoryCap_isAPermanentMiss() {
+        page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
+        image(LIGHT, MediaType.IMAGE_PNG_VALUE, Arrays.copyOf(PNG, YahooQuotePageLogoProvider.MAX_PAGE_BYTES + 1));
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Absent.class);
+    }
+
+    @Test
+    void anHtmlPageServedAsTheImage_isRetriedLater() {
+        page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
+        image(LIGHT, MediaType.TEXT_HTML_VALUE, "<html>Too many requests</html>".getBytes(StandardCharsets.UTF_8));
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+    }
+
+    @Test
+    void anImageWithoutAContentType_isRetriedLater() {
+        page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
+        routes.put(LIGHT, Mono.just(ClientResponse.create(HttpStatus.OK)
+            .body(Flux.just(DefaultDataBufferFactory.sharedInstance.wrap(PNG)))
+            .build()));
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+    }
+
+    @Test
+    void anHtmlPageServedAsTheDarkVariant_isRetriedLater_notAMarkWithoutItsDarkVariant() {
+        page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
+        image(LIGHT, MediaType.IMAGE_PNG_VALUE, PNG);
+        image(DARK, MediaType.TEXT_HTML_VALUE, "<html></html>".getBytes(StandardCharsets.UTF_8));
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
     }
 
     @Test
@@ -287,26 +351,32 @@ class YahooQuotePageLogoProviderTest {
 
     @Test
     void validation_trustsTheSignature_notTheHeader() {
-        assertThat(YahooQuotePageLogoProvider.validate(PNG, "image/png")).isNotNull();
-        assertThat(YahooQuotePageLogoProvider.validate(JPEG, "image/jpeg")).isNotNull();
-        assertThat(YahooQuotePageLogoProvider.validate(JPEG, "image/jpg"))
-            .extracting(Image::contentType).isEqualTo("image/jpeg");
-        assertThat(YahooQuotePageLogoProvider.validate(WEBP, "image/webp")).isNotNull();
-        assertThat(YahooQuotePageLogoProvider.validate(PNG, "IMAGE/PNG; charset=binary"))
-            .extracting(Image::contentType).isEqualTo("image/png");
+        assertThat(validated(PNG, "image/png").contentType()).isEqualTo("image/png");
+        assertThat(validated(JPEG, "image/jpeg").contentType()).isEqualTo("image/jpeg");
+        assertThat(validated(JPEG, "image/jpg").contentType()).isEqualTo("image/jpeg");
+        assertThat(validated(WEBP, "image/webp").contentType()).isEqualTo("image/webp");
+        assertThat(validated(PNG, "IMAGE/PNG; charset=binary").contentType()).isEqualTo("image/png");
+        assertThat(validated(Arrays.copyOf(PNG, YahooQuotePageLogoProvider.MAX_IMAGE_BYTES), "image/png")).isNotNull();
 
-        // An HTML error page served with a 200, a type that lies about its bytes, an SVG, no type.
-        assertThat(YahooQuotePageLogoProvider.validate("<html>".getBytes(StandardCharsets.UTF_8), "text/html")).isNull();
-        assertThat(YahooQuotePageLogoProvider.validate(PNG, "text/html")).isNull();
-        assertThat(YahooQuotePageLogoProvider.validate(PNG, "image/jpeg")).isNull();
-        assertThat(YahooQuotePageLogoProvider.validate(SVG, "image/svg+xml")).isNull();
-        assertThat(YahooQuotePageLogoProvider.validate(SVG, "image/png")).isNull();
-        assertThat(YahooQuotePageLogoProvider.validate(PNG, null)).isNull();
-        assertThat(YahooQuotePageLogoProvider.validate(new byte[0], "image/png")).isNull();
+        // Refusals about the mark itself: asking again gets the same file.
+        assertThat(YahooQuotePageLogoProvider.validate(PNG, "text/html")).isInstanceOf(Lookup.Absent.class);
+        assertThat(YahooQuotePageLogoProvider.validate(PNG, "image/jpeg")).isInstanceOf(Lookup.Absent.class);
+        assertThat(YahooQuotePageLogoProvider.validate(SVG, "image/svg+xml")).isInstanceOf(Lookup.Absent.class);
         assertThat(YahooQuotePageLogoProvider.validate(
-            Arrays.copyOf(PNG, YahooQuotePageLogoProvider.MAX_IMAGE_BYTES + 1), "image/png")).isNull();
-        assertThat(YahooQuotePageLogoProvider.validate(
-            Arrays.copyOf(PNG, YahooQuotePageLogoProvider.MAX_IMAGE_BYTES), "image/png")).isNotNull();
+            Arrays.copyOf(PNG, YahooQuotePageLogoProvider.MAX_IMAGE_BYTES + 1), "image/png")).isInstanceOf(Lookup.Absent.class);
+
+        // Not an image at all, or no type: an error page or a CDN hiccup, which says nothing of the mark.
+        assertThat(YahooQuotePageLogoProvider.validate("<html>".getBytes(StandardCharsets.UTF_8), "text/html"))
+            .isInstanceOf(Lookup.Unavailable.class);
+        assertThat(YahooQuotePageLogoProvider.validate(SVG, "image/png")).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(YahooQuotePageLogoProvider.validate(PNG, null)).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(YahooQuotePageLogoProvider.validate(new byte[0], "image/png")).isInstanceOf(Lookup.Unavailable.class);
+    }
+
+    private static Image validated(byte[] bytes, String contentType) {
+        Lookup result = YahooQuotePageLogoProvider.validate(bytes, contentType);
+        assertThat(result).isInstanceOf(Lookup.Found.class);
+        return ((Lookup.Found) result).light();
     }
 
     @Test
