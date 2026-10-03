@@ -7,7 +7,6 @@ import java.net.URI;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Locale;
-import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -22,7 +21,8 @@ import java.util.regex.Pattern;
  * watch"), each with its own logo URL, and the first {@code s.yimg.com/lg/logos/} URL in the
  * page belongs to one of them. So this never scans the page for a logo URL: it parses the JSON
  * and only accepts the object whose {@code symbol} is the one asked for. A layout change can make
- * it find nothing, which is a missing mark; it cannot make it find the wrong company.
+ * it find nothing, which it reports as {@link Result.NotQuoted}, never as a missing mark; it
+ * cannot make it find the wrong company.
  */
 final class YahooQuotePageParser {
 
@@ -40,23 +40,44 @@ final class YahooQuotePageParser {
 
     record LogoUrls(URI light, URI dark) {}
 
-    static Optional<LogoUrls> logoUrls(String html, String symbol) {
-        if (html == null || symbol == null || symbol.isBlank()) return Optional.empty();
+    /** What the page says about one symbol. */
+    sealed interface Result {
+        /** The page quotes the symbol and carries a usable mark for it. */
+        record Marked(LogoUrls urls) implements Result {}
+
+        /** The page quotes the symbol and gives it no usable mark: Yahoo has none. */
+        record Unmarked() implements Result {}
+
+        /**
+         * No quote object for the symbol at all: a layout this parser no longer reads, or a
+         * consent or anti-bot page served with a 200. Says nothing about whether a mark exists.
+         */
+        record NotQuoted() implements Result {}
+    }
+
+    static Result read(String html, String symbol) {
+        Result best = new Result.NotQuoted();
+        if (html == null || symbol == null || symbol.isBlank()) return best;
         Matcher m = JSON_SCRIPT.matcher(html);
         while (m.find()) {
             JsonNode root = parse(m.group(1));
             if (root == null) continue;
-            Optional<LogoUrls> found = search(root, symbol);
-            if (found.isEmpty() && root.path("body").isTextual()) {
+            best = moreSpecific(best, search(root, symbol));
+            if (!(best instanceof Result.Marked) && root.path("body").isTextual()) {
                 JsonNode body = parse(root.path("body").asText());
-                if (body != null) found = search(body, symbol);
+                if (body != null) best = moreSpecific(best, search(body, symbol));
             }
-            if (found.isPresent()) return found;
+            if (best instanceof Result.Marked) return best;
         }
-        return Optional.empty();
+        return best;
     }
 
-    private static Optional<LogoUrls> search(JsonNode root, String symbol) {
+    private static Result moreSpecific(Result a, Result b) {
+        return b instanceof Result.NotQuoted ? a : b;
+    }
+
+    private static Result search(JsonNode root, String symbol) {
+        Result found = new Result.NotQuoted();
         Deque<JsonNode> stack = new ArrayDeque<>();
         stack.push(root);
         while (!stack.isEmpty()) {
@@ -65,15 +86,16 @@ final class YahooQuotePageParser {
                 if (symbol.equalsIgnoreCase(node.path("symbol").asText(null))) {
                     URI light = imageUri(node.path("logoUrl").asText(null));
                     if (light != null) {
-                        return Optional.of(new LogoUrls(light, imageUri(node.path("logoUrlDarkMode").asText(null))));
+                        return new Result.Marked(new LogoUrls(light, imageUri(node.path("logoUrlDarkMode").asText(null))));
                     }
+                    found = new Result.Unmarked();
                 }
                 node.elements().forEachRemaining(stack::push);
             } else if (node.isArray()) {
                 node.elements().forEachRemaining(stack::push);
             }
         }
-        return Optional.empty();
+        return found;
     }
 
     /** An https URL on {@link #IMAGE_HOST}, or null. The page is untrusted input. */

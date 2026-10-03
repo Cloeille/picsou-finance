@@ -37,7 +37,10 @@ public interface InstrumentLogoPort {
         /** The source answered and has no usable mark. Permanent: remember it, never ask again. */
         record Absent(String reason) implements Lookup {}
 
-        /** The source did not answer (5xx, timeout, unreachable). Stop the batch, retry later. */
+        /**
+         * The source gave no usable answer (5xx, 3xx, timeout, unreachable, a page that does not
+         * quote the symbol). Stop the batch, retry later.
+         */
         record Unavailable(String reason) implements Lookup {}
 
         /**

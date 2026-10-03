@@ -140,7 +140,8 @@ public class InstrumentLogoService {
      * <p>Stops at the first sign that Yahoo is not answering: a 429 or a cooldown records nothing
      * (the ticker was not really asked, so it stays first in line), a 5xx or timeout records the
      * ticker as FAILED. Either way the rest of the batch waits for the next pass rather than
-     * spending more of the budget the price path depends on.
+     * spending more of the budget the price path depends on. A lookup that throws is a bug, not
+     * an answer from Yahoo: the ticker is recorded as FAILED and the pass goes on.
      */
     int resolvePending() {
         List<String> due = dueTickers();
@@ -148,7 +149,17 @@ public class InstrumentLogoService {
         for (int i = 0; i < due.size(); i++) {
             if (i > 0) pause();
             String ticker = due.get(i);
-            Lookup result = logoPort.lookup(ticker);
+            Lookup result;
+            try {
+                result = logoPort.lookup(ticker);
+            } catch (RuntimeException ex) {
+                // A bug, not an outage, so it is logged loudly. Left unrecorded, the same ticker
+                // would head the sorted batch every hour and starve every ticker after it.
+                log.error("Instrument logo lookup for {} failed unexpectedly; retrying it in {} days",
+                    ticker, RETRY_FAILED_AFTER.toDays(), ex);
+                record(ticker, Instant.now(clock), logo -> logo.setStatus(InstrumentLogoStatus.FAILED));
+                continue;
+            }
             Instant now = Instant.now(clock);
             switch (result) {
                 case Lookup.Found found -> {

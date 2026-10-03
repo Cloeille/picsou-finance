@@ -58,9 +58,18 @@ IWDA.AS (issue #162; the parser fixtures are trimmed copies of those pages).
 The page also lists dozens of *other* companies with their own logos (trending tickers, "people
 also watch"), and the first logo URL in the AAPL page belongs to a different company. So
 `YahooQuotePageParser` never scans for a logo URL: it parses each JSON block (and the escaped
-`body` inside it) and accepts only the object whose `symbol` is the one asked for. A layout
-change can make it find nothing, which shows the ticker; it cannot make it store the wrong
-company's mark.
+`body` inside it) and accepts only the object whose `symbol` is the one asked for. It answers
+one of three things, and only the second is a permanent miss:
+
+- **marked**: a quote object for the symbol with a usable `logoUrl`;
+- **unmarked**: a quote object for the symbol without one, so Yahoo has no mark (`ABSENT`);
+- **not quoted**: no quote object for the symbol at all. That is a layout this parser no longer
+  reads, or a consent or anti-bot page served with a 200, and says nothing about the mark. It is
+  recorded as `FAILED` and retried after 7 days, so a later parser fix picks every ticker up
+  again instead of leaving the whole portfolio `ABSENT`.
+
+A layout change can therefore make it find nothing for a while, which shows the ticker; it
+cannot make it store the wrong company's mark.
 
 The 50px rendition, not the original: the IWDA.AS original is 292 KB, its rendition 6 KB, and
 the table draws a 24px mark (48px on a 2x screen).
@@ -74,14 +83,24 @@ The page is untrusted input, and the bytes end up served from Picsou's own origi
   signature. The stored type is the canonical one for the signature, not the header;
 - SVG is refused outright: it is a document that can carry script;
 - 256 KB cap per image, 4 MB cap on the page;
-- redirects are not followed, so the page cannot steer a download to another host.
+- redirects are not followed, so the page cannot steer a download to another host. A 3xx on the
+  page or on an image is `FAILED`, not an empty answer: a redirect to `consent.yahoo.com` or to a
+  normalised URL says nothing about the mark.
 
 The client raises Reactor Netty's response-header limit to 64 KB. The quote page answers with
 more than the default 8 KB of headers, and the first live run failed every lookup on it; the
 fixtures cannot show this, so it is pinned here rather than in a test.
 
 A mark that fails validation is a permanent miss (`ABSENT`), since asking again returns the same
-bytes.
+bytes. So is a 404, on the page or the image, and a body over its cap. Everything else that goes
+wrong upstream (5xx, 3xx, timeout, a connection cut mid-body, a Content-Type the codecs cannot
+parse) is `FAILED`.
+
+The dark variant follows the light one. When the page gives no distinct dark URL, or Yahoo has no
+usable file behind it (404, failed validation), the light mark is stored alone. When the dark
+download is rate-limited or fails transiently, the whole lookup reports that instead (`RateLimited`
+records nothing, anything else records `FAILED`), so the ticker is retried later with both
+variants rather than settled without its dark one.
 
 ### Storage: `instrument_logo` (V104)
 
@@ -91,7 +110,7 @@ private data, and AAPL in two accounts or two members' portfolios is one row):
 | Column | Meaning |
 |---|---|
 | `ticker` | upper-cased holding ticker, unique |
-| `status` | `STORED`, `ABSENT` (source answered, no usable mark: never retried), `FAILED` (no answer: retried after 7 days) |
+| `status` | `STORED`, `ABSENT` (the page quotes the symbol and has no usable mark, or a 404: never retried), `FAILED` (no usable answer: retried after 7 days) |
 | `image`, `content_type` | the light mark; present exactly when `STORED` (CHECK constraint) |
 | `image_dark`, `content_type_dark` | the dark mark, optional, both or neither |
 | `attempted_at`, `fetched_at` | the miss marker's clock, and the stored mark's version |
@@ -173,9 +192,13 @@ Every failure mode is decoration-only: `logoUrl` is null and the ticker stands.
 - **Crypto provider down, 5xx, timeout, 429**: logged, cooldown armed on a 429 (shared with the
   CoinGecko price path), absence cached for a minute. A genuine bug in that path is rethrown,
   through the classifier shared with the price path.
-- **Yahoo page or image unavailable**: the pass stops; the ticker is `FAILED` (5xx, timeout) or
-  untouched (429), and the read path keeps showing the ticker. A bug in the logo adapter is
-  rethrown into the pass, which logs it; it never reaches a page render or the price pass.
+- **Yahoo page or image unavailable**: the pass stops; the ticker is `FAILED` (5xx, 3xx,
+  timeout, cut or unreadable body, a page that does not quote the symbol) or untouched (429),
+  and the read path keeps showing the ticker.
+- **A bug in the logo adapter**: the lookup throws, the pass logs it at error level, records the
+  ticker as `FAILED` and goes on with the next one. Left unrecorded, the same ticker would head
+  the sorted batch every hour and starve every ticker after it. It never reaches a page render
+  or the price pass.
 - **Image 404s in the browser**: `HoldingLogo` drops the `src` and shows an empty disc. Radix
   keeps a failed image mounted, so without that reset one failed request would leave the mark
   blank for the rest of the session.
@@ -186,14 +209,18 @@ Every failure mode is decoration-only: `logoUrl` is null and the ticker stands.
   path, as in #163.
 - `YahooQuotePageParserTest`: trimmed fixtures (`src/test/resources/yahoo/`) of the AAPL and
   IWDA.AS pages. The right company's mark when another company's logo comes first, an ETF with
-  an exchange suffix, an unknown symbol, a page with no JSON blocks, off-host and look-alike URLs.
+  an exchange suffix, marked / unmarked / not quoted (an unknown symbol, JSON quoting only other
+  symbols, a page with no JSON blocks), off-host and look-alike URLs.
 - `YahooQuotePageLogoProviderTest`: both variants downloaded, 429 arming the cooldown from
   `Retry-After` and recording nothing, no request while cooling down, 5xx stopping the next
-  lookup, 404 and no-mark as permanent misses, SVG / wrong type / oversize refused, a failed
-  dark variant keeping the light one, coins and ISINs never reaching the network, and the price
-  path arming the cooldown on a 429 but never waiting on it.
+  lookup, 404 and an unmarked quote as permanent misses, a consent page, other-symbols-only JSON,
+  a 3xx on the page or the image, a cut body and a malformed Content-Type as retryable,
+  SVG / wrong type / oversize refused, a dark variant Yahoo lacks keeping the light one, a 429 or
+  503 on the dark variant failing the whole lookup, coins and ISINs never reaching the network,
+  and the price path arming the cooldown on a 429 but never waiting on it.
 - `InstrumentLogoServiceTest`: candidate selection (crypto accounts, unsupported, unpriced,
-  settled, the cap), what each outcome records, a 429 or 5xx stopping the pass, the
+  settled, the cap), what each outcome records, a 429 or 5xx stopping the pass, a throwing
+  lookup recorded as `FAILED` without stopping the pass, the
   single-flight trigger and the switch, URLs only for stored rows, the dark fallback.
 - `InstrumentLogoRepositoryTest` (H2): the settled-ticker query (an old `ABSENT` stays settled,
   an old `FAILED` comes due again), the byte-free projection, the priced-ticker query.

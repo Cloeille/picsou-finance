@@ -1,20 +1,26 @@
 package com.picsou.adapter;
 
+import com.picsou.adapter.YahooQuotePageParser.Result;
 import com.picsou.port.InstrumentLogoPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.NestedExceptionUtils;
+import org.springframework.core.codec.CodecException;
 import org.springframework.core.io.buffer.DataBufferLimitException;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.netty.http.client.HttpClient;
 
+import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Locale;
@@ -64,7 +70,8 @@ public class YahooQuotePageLogoProvider implements InstrumentLogoPort {
      * <p>The header limit is raised because the quote page answers with more than Reactor
      * Netty's default 8 KB of response headers (measured live: every lookup failed with "HTTP
      * header is larger than 8192 bytes"). Redirects are not followed, so a page can never steer
-     * a request off the hosts asked for.
+     * a request off the hosts asked for. A 3xx is raised as an error rather than read as an empty
+     * answer: a redirect to a consent page or a normalised URL says nothing about the mark.
      */
     static WebClient.Builder clientBuilder() {
         HttpClient http = HttpClient.create()
@@ -72,6 +79,7 @@ public class YahooQuotePageLogoProvider implements InstrumentLogoPort {
             .httpResponseDecoder(spec -> spec.maxHeaderSize(MAX_HEADER_BYTES));
         return WebClient.builder()
             .clientConnector(new ReactorClientHttpConnector(http))
+            .defaultStatusHandler(HttpStatusCode::is3xxRedirection, ClientResponse::createException)
             .defaultHeader("User-Agent", "Mozilla/5.0")
             .codecs(c -> c.defaultCodecs().maxInMemorySize(MAX_PAGE_BYTES));
     }
@@ -112,10 +120,17 @@ public class YahooQuotePageLogoProvider implements InstrumentLogoPort {
             return failure("quote page", symbol, ex);
         }
 
-        var urls = YahooQuotePageParser.logoUrls(html, symbol).orElse(null);
-        if (urls == null) {
-            log.info("Yahoo quote page for {} carries no logo for that symbol", symbol);
-            return new Lookup.Absent("no logo on the quote page");
+        YahooQuotePageParser.LogoUrls urls;
+        switch (YahooQuotePageParser.read(html, symbol)) {
+            case Result.Marked marked -> urls = marked.urls();
+            case Result.Unmarked unmarked -> {
+                log.info("Yahoo quote page for {} carries no logo for that symbol", symbol);
+                return new Lookup.Absent("no logo on the quote page");
+            }
+            case Result.NotQuoted notQuoted -> {
+                log.warn("Yahoo quote page for {} does not quote that symbol (layout change or consent page?)", symbol);
+                return new Lookup.Unavailable("symbol not quoted on the page");
+            }
         }
 
         Image light;
@@ -131,8 +146,10 @@ public class YahooQuotePageLogoProvider implements InstrumentLogoPort {
             try {
                 dark = download(urls.dark(), symbol);
             } catch (RuntimeException ex) {
-                // The light mark is enough to show; a failed dark variant is not worth losing it.
-                failure("dark logo", symbol, ex);
+                // A dark variant Yahoo does not have is no reason to lose the light mark. An outage
+                // is: storing the light one alone would settle the ticker without its dark variant.
+                Lookup failed = failure("dark logo", symbol, ex);
+                if (!(failed instanceof Lookup.Absent)) return failed;
             }
         }
         return new Lookup.Found(light, dark);
@@ -193,9 +210,10 @@ public class YahooQuotePageLogoProvider implements InstrumentLogoPort {
     }
 
     /**
-     * Maps a failed request to what the caller should remember. A 429 or a 5xx also arms the
-     * shared cooldown, so the rest of the batch and the next pass stand down too. Anything that
-     * is not an upstream failure is a bug here and is rethrown, the house rule
+     * Maps a failed request to what the caller should remember. Only a 404 or an oversized body
+     * is permanent; every other upstream failure, a 3xx included, is retried later. A 429 or a
+     * 5xx also arms the shared cooldown, so the rest of the batch and the next pass stand down
+     * too. Anything that is not an upstream failure is a bug here and is rethrown, the house rule
      * {@code CoinGeckoPriceProvider.isExpectedUpstreamFailure} documents.
      */
     private Lookup failure(String what, String symbol, RuntimeException ex) {
@@ -224,8 +242,12 @@ public class YahooQuotePageLogoProvider implements InstrumentLogoPort {
             log.warn("Yahoo answered the {} request for {} with HTTP {}", what, symbol, status);
             return new Lookup.Unavailable("HTTP " + status);
         }
-        if (cause instanceof TimeoutException || cause instanceof WebClientRequestException) {
-            log.warn("Yahoo {} request for {} did not complete: {}", what, symbol, cause.getMessage());
+        // A connection cut mid-body or a header the codecs cannot read is the upstream misbehaving,
+        // not a bug here, and must not be rethrown: the pass would stop on the same ticker hourly.
+        if (cause instanceof TimeoutException || cause instanceof WebClientException
+            || cause instanceof CodecException || cause instanceof InvalidMediaTypeException
+            || NestedExceptionUtils.getMostSpecificCause(cause) instanceof IOException) {
+            log.warn("Yahoo {} request for {} did not complete: {}", what, symbol, cause.toString());
             return new Lookup.Unavailable(cause.getClass().getSimpleName());
         }
         throw ex;

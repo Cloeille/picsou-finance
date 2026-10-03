@@ -13,6 +13,7 @@ import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -136,11 +137,83 @@ class YahooQuotePageLogoProviderTest {
     }
 
     @Test
-    void aPageWithoutAMarkForTheSymbol_isAPermanentMiss_andDownloadsNothing() {
-        page("<html><body>No quote here</body></html>");
+    void aConsentPageWithoutJson_isRetriedLater_notAPermanentMiss() {
+        page("<html><body><form action=\"https://consent.yahoo.com/v2/collectConsent\">Accept all</form></body></html>");
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(requested).containsExactly(PAGE);
+        assertThat(cooldown.active()).isFalse();
+    }
+
+    @Test
+    void jsonThatOnlyQuotesOtherSymbols_isRetriedLater() {
+        page("<html><script type=\"application/json\">{\"quoteResponse\":{\"result\":["
+            + "{\"symbol\":\"MSFT\",\"logoUrl\":\"https://s.yimg.com/lg/m.png\"}]}}</script></html>");
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(requested).containsExactly(PAGE);
+    }
+
+    @Test
+    void aQuoteForTheSymbolWithoutALogo_isAPermanentMiss_andDownloadsNothing() {
+        page("<html><script type=\"application/json\">{\"quoteResponse\":{\"result\":["
+            + "{\"symbol\":\"AAPL\",\"quoteType\":\"EQUITY\"}]}}</script></html>");
 
         assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Absent.class);
         assertThat(requested).containsExactly(PAGE);
+    }
+
+    @Test
+    void aRedirectedPage_isRetriedLater_andNotFollowed() {
+        // A body worth parsing, so only the status can make this Unavailable.
+        routes.put(PAGE, Mono.just(ClientResponse.create(HttpStatus.MOVED_PERMANENTLY)
+            .header("Location", "https://consent.yahoo.com/")
+            .header("Content-Type", MediaType.TEXT_HTML_VALUE)
+            .body(YahooQuotePageParserTest.fixture("quote-page-aapl.html"))
+            .build()));
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(requested).containsExactly(PAGE);
+    }
+
+    @Test
+    void aRedirectedImage_isRetriedLater() {
+        page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
+        routes.put(LIGHT, status(HttpStatus.FOUND, "Location", "https://s.yimg.com/elsewhere.png"));
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(requested).containsExactly(PAGE, LIGHT);
+    }
+
+    @Test
+    void aConnectionCutMidPage_isRetriedLater_notRethrown() {
+        // The whole page arrives before the cut, so only the cut itself can make this Unavailable.
+        byte[] html = YahooQuotePageParserTest.fixture("quote-page-aapl.html").getBytes(StandardCharsets.UTF_8);
+        routes.put(PAGE, Mono.just(ClientResponse.create(HttpStatus.OK)
+            .header("Content-Type", MediaType.TEXT_HTML_VALUE)
+            .body(Flux.concat(
+                Flux.just(DefaultDataBufferFactory.sharedInstance.wrap(html)),
+                Flux.error(new IOException("Connection prematurely closed DURING response"))))
+            .build()));
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(requested).containsExactly(PAGE);
+    }
+
+    @Test
+    void aMalformedContentTypeOnThePage_isRetriedLater_notRethrown() {
+        routes.put(PAGE, ok("html", YahooQuotePageParserTest.fixture("quote-page-aapl.html").getBytes(StandardCharsets.UTF_8)));
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
+        assertThat(requested).containsExactly(PAGE);
+    }
+
+    @Test
+    void aMalformedContentTypeOnTheImage_isRetriedLater_notRethrown() {
+        page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
+        image(LIGHT, "png", PNG);
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
     }
 
     @Test
@@ -170,15 +243,34 @@ class YahooQuotePageLogoProviderTest {
     }
 
     @Test
-    void aFailedDarkVariant_keepsTheLightMark() {
+    void aDarkVariantYahooDoesNotHave_keepsTheLightMark() {
         page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
         image(LIGHT, MediaType.IMAGE_PNG_VALUE, PNG);
-        routes.put(DARK, status(HttpStatus.INTERNAL_SERVER_ERROR));
 
         assertThat(provider.lookup("AAPL")).isInstanceOfSatisfying(Lookup.Found.class, found -> {
             assertThat(found.light().bytes()).isEqualTo(PNG);
             assertThat(found.dark()).isNull();
         });
+        assertThat(requested).containsExactly(PAGE, LIGHT, DARK);
+    }
+
+    @Test
+    void aRateLimitedDarkVariant_isRateLimited_notAMarkWithoutItsDarkVariant() {
+        page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
+        image(LIGHT, MediaType.IMAGE_PNG_VALUE, PNG);
+        routes.put(DARK, status(HttpStatus.TOO_MANY_REQUESTS, "Retry-After", "90"));
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.RateLimited.class);
+        assertThat(cooldown.until()).isEqualTo(NOW.plusSeconds(90));
+    }
+
+    @Test
+    void anUnavailableDarkVariant_isUnavailable_soTheTickerIsRetriedWhole() {
+        page(YahooQuotePageParserTest.fixture("quote-page-aapl.html"));
+        image(LIGHT, MediaType.IMAGE_PNG_VALUE, PNG);
+        routes.put(DARK, status(HttpStatus.SERVICE_UNAVAILABLE));
+
+        assertThat(provider.lookup("AAPL")).isInstanceOf(Lookup.Unavailable.class);
     }
 
     @Test

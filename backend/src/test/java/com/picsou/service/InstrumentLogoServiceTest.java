@@ -168,6 +168,22 @@ class InstrumentLogoServiceTest {
     }
 
     @Test
+    void aLookupThatThrows_isRecordedAsFailed_andThePassGoesOn() {
+        held("AAPL", "MC.PA");
+        when(logoPort.lookup("AAPL")).thenThrow(new IllegalStateException("boom"));
+        when(logoPort.lookup("MC.PA")).thenReturn(new Lookup.Found(PNG, null));
+
+        assertThat(service.resolvePending()).isEqualTo(1);
+
+        List<InstrumentLogo> rows = saved(2);
+        assertThat(rows.get(0).getTicker()).isEqualTo("AAPL");
+        assertThat(rows.get(0).getStatus()).isEqualTo(InstrumentLogoStatus.FAILED);
+        assertThat(rows.get(0).getAttemptedAt()).isEqualTo(NOW);
+        assertThat(rows.get(1).getTicker()).isEqualTo("MC.PA");
+        assertThat(rows.get(1).getStatus()).isEqualTo(InstrumentLogoStatus.STORED);
+    }
+
+    @Test
     void aRateLimit_recordsNothing_andStopsThePass() {
         held("AAPL", "MC.PA");
         when(logoPort.lookup("AAPL")).thenReturn(new Lookup.RateLimited());
