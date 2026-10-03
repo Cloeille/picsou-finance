@@ -20,6 +20,11 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the Sofidy contract interpreter
+        run: pip install -r services/sofidy-auth/requirements.txt
       - name: Run backend tests
         # Migration tests skip themselves when Docker is unreachable so local runs
         # without a socket still work. Runners always have Docker, so require it here --
@@ -27,8 +32,13 @@ jobs:
         # data-mutating migrations and the build would stay green.
         env:
           PICSOU_REQUIRE_DOCKER_TESTS: 'true'
-        run: mvn -B test
+          APP_SIDECAR_API_KEY: test-key
+        run: mvn -B test -Dsofidy.contract.python=python3
         working-directory: backend
+      - name: Require the SCPI PostgreSQL tests
+        run: >-
+          grep -q 'Tests run: 6, Failures: 0, Errors: 0, Skipped: 0'
+          backend/target/surefire-reports/com.picsou.service.ScpiSyncSessionPostgresTest.txt
 
   frontend:
     runs-on: ubuntu-latest
@@ -113,6 +123,50 @@ jobs:
           --volume "${{ github.workspace }}/services/bourso-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
           --workdir /tests
           picsou-bourso-auth:test
+          python -m unittest discover -v
+
+  corum-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the Chromium-only sidecar image
+        run: docker build --tag picsou-corum-auth:test services/corum-auth
+      - name: Run parser, navigation and live-contract tests
+        run: >-
+          docker run --rm --ipc=host
+          --env PYTHONPATH=/app
+          --env CORUM_BROWSER_TESTS=1
+          --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/corum-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
+          --volume "${{ github.workspace }}/services/corum-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
+          --volume "${{ github.workspace }}/services/corum-auth/test_navigation_security.py:/tests/test_navigation_security.py:ro"
+          --volume "${{ github.workspace }}/services/corum-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --workdir /tests
+          picsou-corum-auth:test
+          python -m unittest discover -v
+
+  sofidy-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the browserless sidecar image
+        run: docker build --tag picsou-sofidy-auth:test services/sofidy-auth
+      - name: Run parser, redirect and live-contract tests
+        run: >-
+          docker run --rm
+          --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_redirect_security.py:/tests/test_redirect_security.py:ro"
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_java_contract.py:/tests/test_java_contract.py:ro"
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --env APP_SIDECAR_API_KEY=test-key
+          --workdir /tests
+          picsou-sofidy-auth:test
           python -m unittest discover -v
 
   amundi-sidecar:

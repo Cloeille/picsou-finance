@@ -27,6 +27,7 @@ import { LoanDetailSection } from '@/components/loan/LoanDetailSection'
 import { SavingsConfigSection } from '@/features/savings/SavingsConfigSection'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
 import { PropertyDetailSection } from '@/components/property/PropertyDetailSection'
+import { ScpiDetailSection } from '@/components/scpi/ScpiDetailSection'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -118,6 +119,7 @@ export function AccountDetailPage() {
     ? (account.type === 'SAVINGS' || account.type === 'LEP' || !!account.savingsConfig || !!savingsSuggestion)
     : false
   const isRealEstate = account?.type === 'REAL_ESTATE'
+  const isScpi = account?.type === 'SCPI'
   const showHoldings = account ? HOLDING_ACCOUNT_TYPES.includes(account.type) : false
   const recentSnapshots = [...(history ?? [])].reverse().slice(0, 10)
 
@@ -336,6 +338,8 @@ export function AccountDetailPage() {
 
       {/* Property detail: description, valuation, financing and ownership split */}
       {isRealEstate && account && <PropertyDetailSection account={account} />}
+
+      {isScpi && account && <ScpiDetailSection account={account} />}
 
       {/* History chart */}
       {!isLoan && showHoldings && pnlData && pnlData.length > 1 ? (

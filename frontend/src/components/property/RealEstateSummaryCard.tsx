@@ -26,7 +26,7 @@ export function RealEstateSummaryCard({ enabled = true }: { enabled?: boolean })
   // Nothing to say when the user owns no property; an empty card would just be noise.
   // The optional chain also covers a truncated payload, which would otherwise throw during
   // render and take the whole dashboard down with it.
-  if (!data?.properties?.length) return null
+  if (!data?.properties?.length && !data?.paper?.length) return null
 
   const gainPositive = data.unrealizedGain >= 0
   const GainIcon = gainPositive ? TrendingUp : TrendingDown
@@ -72,6 +72,27 @@ export function RealEstateSummaryCard({ enabled = true }: { enabled?: boolean })
             {t('property.summary.rentalIncome')}{' '}
             <CurrencyDisplay value={data.monthlyRentalIncome} className="tabular-nums" />
           </p>
+        )}
+
+        {(data.paper?.length ?? 0) > 0 && (
+          <div className="space-y-2 border-t pt-4">
+            <p className="text-sm font-medium">{t('scpi.summary.title')}</p>
+            <div className="grid grid-cols-3 gap-4">
+              <Stat label={t('scpi.summary.gross')}>
+                <CurrencyDisplay value={data.paperGross} />
+              </Stat>
+              <Stat label={t('scpi.summary.debt')}>
+                <CurrencyDisplay value={data.paperDebt} />
+              </Stat>
+              <Stat label={t('scpi.summary.net')} emphasis>
+                <CurrencyDisplay value={data.paperNet} />
+              </Stat>
+            </div>
+            {data.paper?.some((line) => line.valuationStatus === 'PRICE_INCOMPLETE') && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">{t('scpi.summary.incomplete')}</p>
+            )}
+            <p className="text-xs text-muted-foreground">{t('scpi.summary.hint')}</p>
+          </div>
         )}
       </CardContent>
     </Card>

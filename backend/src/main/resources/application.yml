@@ -195,6 +195,10 @@ app:
     url: ${AMUNDI_AUTH_URL:http://amundi-auth:8001}
   fortuneo-auth:
     url: ${FORTUNEO_AUTH_URL:http://fortuneo-auth:8001}
+  corum-auth:
+    url: ${CORUM_AUTH_URL:http://corum-auth:8001}
+  sofidy-auth:
+    url: ${SOFIDY_AUTH_URL:http://sofidy-auth:8001}
   # Meria's public API. Overridable like every other external base URL above, which is what lets
   # an integration environment point it at a stub without editing the packaged config.
   # MeriaAdapter carries the same value as its @Value default, so a stripped config still boots.

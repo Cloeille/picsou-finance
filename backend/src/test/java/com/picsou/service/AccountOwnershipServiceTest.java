@@ -124,7 +124,7 @@ class AccountOwnershipServiceTest {
         // its sync; refusing beats half-supporting it.
         assertThatThrownBy(() -> service.replace(10L, 1L, request(1L, "50", 2L, "50")))
             .isInstanceOf(ResponseStatusException.class)
-            .hasMessageContaining("real estate and loan");
+            .hasMessageContaining("real estate, SCPI and loan");
     }
 
     @Test

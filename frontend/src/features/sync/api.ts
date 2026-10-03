@@ -25,6 +25,9 @@ import type {
   AmundiAuthInitResponse,
   FortuneoSessionStatus,
   FortuneoAuthInitResponse,
+  CorumSessionStatus,
+  SofidySessionStatus,
+  SofidyAuthInitResponse,
   IbkrConnectionStatus,
 } from '@/types/api'
 
@@ -357,6 +360,64 @@ export const fortuneoApi = {
       .then(r => parseFortuneoStatus(r.data)),
 
   clearSession: () => api.delete('/fortuneo/session'),
+}
+
+// --- CORUM client space ---
+
+/**
+ * CORUM asks for no second factor, so `authenticate` is the whole exchange and
+ * answers with the session status directly. The panel reads it as "no MFA
+ * required" -- see `SidecarSessionPanel`'s `TInit` contract.
+ */
+export const corumApi = {
+  authenticate: (login: string, password: string) =>
+    api
+      .post<CorumSessionStatus>('/corum/auth', { login, password })
+      .then(r => r.data),
+
+  sync: () => api.post<CorumSessionStatus>('/corum/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<CorumSessionStatus>('/corum/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete('/corum/session'),
+
+}
+
+// --- Sofidy client space ---
+
+/**
+ * Sofidy always asks for a verification code by e-mail after the password, so
+ * the login is two calls: this one starts it, `completeAuth` opens the session.
+ */
+export const sofidyApi = {
+  initiateAuth: (associateCode: string, password: string) =>
+    api
+      .post<SofidyAuthInitResponse>('/sofidy/auth/initiate', {
+        associateCode,
+        password,
+      })
+      .then(r => r.data),
+
+  completeAuth: (processId: string, code: string) =>
+    api
+      .post<SofidySessionStatus>('/sofidy/auth/complete', { processId, code })
+      .then(r => r.data),
+
+  sync: () => api.post<SofidySessionStatus>('/sofidy/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<SofidySessionStatus>('/sofidy/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete('/sofidy/session'),
 }
 
 export const ibkrApi = {

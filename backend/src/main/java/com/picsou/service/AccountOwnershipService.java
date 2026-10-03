@@ -25,7 +25,7 @@ import java.util.Set;
 /**
  * Reads and writes how an account is split between family members.
  *
- * <p>Restricted on purpose to {@code REAL_ESTATE} and {@code LOAN}. Splitting a joint current
+ * Restricted on purpose to {@code REAL_ESTATE}, {@code SCPI} and {@code LOAN}. Splitting a joint current
  * account sounds reasonable but immediately raises questions this feature does not answer —
  * whose transactions are they, who syncs it, what does a half-transaction mean — so the
  * write path refuses other types rather than half-supporting them.
@@ -36,7 +36,8 @@ public class AccountOwnershipService {
     private static final BigDecimal FULL = new BigDecimal("100");
 
     /** Types a split is meaningful for today. */
-    private static final Set<AccountType> SPLITTABLE = Set.of(AccountType.REAL_ESTATE, AccountType.LOAN);
+    private static final Set<AccountType> SPLITTABLE = Set.of(
+        AccountType.REAL_ESTATE, AccountType.LOAN, AccountType.SCPI);
 
     private final AccountOwnershipRepository ownershipRepository;
     private final FamilyMemberRepository memberRepository;
@@ -69,7 +70,7 @@ public class AccountOwnershipService {
 
         if (!SPLITTABLE.contains(account.getType())) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                "Ownership shares are only supported on real estate and loan accounts");
+                "Ownership shares are only supported on real estate, SCPI and loan accounts");
         }
 
         List<OwnershipRequest.Share> shares = request.shares();

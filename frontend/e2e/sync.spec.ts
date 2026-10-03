@@ -15,13 +15,17 @@ test.describe('Sync page tabs', () => {
       'Exchanges',
       'Wallets',
       'Trade Republic',
+      'Revolut',
       'BoursoBank',
       'Bourse Direct',
       'DEGIRO',
       'Interactive Brokers',
       'Amundi',
       'Fortuneo',
+      'CORUM',
+      'Sofidy',
       'Finary',
+      'Comptes',
     ]
 
     for (const name of providerNames) {
