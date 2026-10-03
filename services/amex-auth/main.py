@@ -286,6 +286,8 @@ class AccountPayload(BaseModel):
     minimumPayment: Decimal | None = None
     directDebit: DirectDebitPayload | None = None
     transactions: list[TransactionPayload] = Field(default_factory=list)
+    # False when the pending feed failed: the backend must then keep its stored pending rows.
+    pendingComplete: bool = False
     snapshotComplete: Literal[True]
 
 
@@ -1349,7 +1351,9 @@ def _parse_transactions(
                 "date": str(date)[:10],
                 "description": str(description),
                 "amount": -_decimal(amount, "transaction amount"),
-                "status": entry.get("status") or status_default,
+                # The feed the row came from decides its status: the backend deletes only
+                # rows it stored as pending, so AMEX's own field must not relabel them.
+                "status": status_default or entry.get("status"),
                 "category": category,
                 "identifier": entry.get("identifier"),
             }
@@ -1484,13 +1488,14 @@ async def _collect_accounts(client: httpx.AsyncClient, account_token: str | None
 
     posted_transactions = await fetch_transactions("posted")
     pending_transactions: list[dict[str, Any]] = []
+    pending_complete = False
     try:
         pending_transactions = await fetch_transactions("pending")
+        pending_complete = True
     except HTTPException as exc:
         log.info("AMEX pending-transactions fetch failed (status=%s)", exc.status_code)
     except AmexFormatError:
         log.info("AMEX pending-transactions response rejected")
-
 
     transactions = _merge_transactions(posted_transactions, pending_transactions)
 
@@ -1498,6 +1503,7 @@ async def _collect_accounts(client: httpx.AsyncClient, account_token: str | None
     account["dueDate"] = account.get("dueDate") or None
 
     account["transactions"] = transactions
+    account["pendingComplete"] = pending_complete
     account["snapshotComplete"] = True
     return [AccountPayload.model_validate(account)]
 
@@ -1730,6 +1736,34 @@ def _self_check() -> None:
     assert merged[0]["status"] == "posted"  # posted wins over duplicate identifier
     assert merged[1]["description"] == "B"
     assert all("identifier" not in t for t in merged)
+
+    # The backend deletes stored pending rows only when the pending feed answered.
+    def collect_with_pending(pending_status: int) -> AccountPayload:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == BALANCES_PATH.split("?")[0]:
+                return httpx.Response(200, json=[{"account_token": "tok", "statement_balance_amount": 10.0}])
+            if request.url.path == TRANSACTIONS_PATH:
+                status = request.url.params["status"]
+                if status == "pending" and pending_status != 200:
+                    return httpx.Response(pending_status)
+                return httpx.Response(200, json={"transactions": [
+                    {"charge_date": "2026-01-02", "description": status, "amount": "1.00", "status": "other"},
+                ]})
+            return httpx.Response(404)
+
+        async def run() -> AccountPayload:
+            async with httpx.AsyncClient(base_url="https://amex.test", transport=httpx.MockTransport(handler)) as fake:
+                return (await _collect_accounts(fake, "tok"))[0]
+
+        return asyncio.run(run())
+
+    answered = collect_with_pending(200)
+    assert answered.pendingComplete is True
+    assert [(t.description, t.status) for t in answered.transactions] == [("posted", "posted"), ("pending", "pending")]
+    for failure in (429, 503, 404):
+        failed = collect_with_pending(failure)
+        assert failed.pendingComplete is False, failure
+        assert [(t.description, t.status) for t in failed.transactions] == [("posted", "posted")]
 
     # Exception diagnostics retain only the type, never unsafe exception text.
     synthetic_secret = "private-page-text?token=secret-alert"

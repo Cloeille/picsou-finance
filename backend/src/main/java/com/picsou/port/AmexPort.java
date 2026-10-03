@@ -52,14 +52,20 @@ public interface AmexPort {
     /**
      * The sidecar's {@code TransactionPayload} carries no stable id and spells the label/amount
      * fields {@code description}/{@code amount} (see services/amex-auth/main.py); the aliases
-     * below map onto Picsou's naming without requiring a sidecar change.
+     * below map onto Picsou's naming without requiring a sidecar change. {@code status} is the
+     * feed the row came from, {@code "posted"} or {@code "pending"}.
      */
     record Transaction(
         String externalId,
         String date,
         @JsonAlias("description") String label,
-        @JsonAlias("amount") BigDecimal amountEur
-    ) {}
+        @JsonAlias("amount") BigDecimal amountEur,
+        String status
+    ) {
+        public boolean pending() {
+            return "pending".equalsIgnoreCase(status);
+        }
+    }
 
     record AccountData(
         String externalId,
@@ -72,6 +78,8 @@ public interface AmexPort {
         BigDecimal minimumPayment,
         @JsonAlias("rewardPoints") Long rewardPoints,
         List<Transaction> transactions,
+        /** False when the sidecar's pending feed failed: the pending rows are then unknown. */
+        boolean pendingComplete,
         boolean snapshotComplete
     ) {}
 }

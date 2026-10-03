@@ -24,12 +24,16 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,7 +55,13 @@ public class AmexSyncService {
     private static final Logger log = LoggerFactory.getLogger(AmexSyncService.class);
     static final String PROVIDER = "American Express";
     private static final String EXTERNAL_ID_PREFIX = "amex_";
-    /** Routine syncs never touch stored rows older than this trailing window. */
+    private static final String POSTED_TX_ID_PREFIX = "amex_tx_";
+    /**
+     * A pending charge is stored under its own prefix, the only rows a routine sync may delete:
+     * AMEX reports it again under a posted identity once it settles, or drops a cancelled hold.
+     */
+    private static final String PENDING_TX_ID_PREFIX = "amex_txp_";
+    /** Routine syncs only upsert reported rows dated inside this trailing window. */
     private static final int TRANSACTION_WINDOW_DAYS = 90;
 
     private final AmexPort port;
@@ -268,7 +278,8 @@ public class AmexSyncService {
                 account.paymentDueAmount(),
                 parseOptionalDate(account.dueDate()),
                 account.rewardPoints(),
-                prepareTransactions(account.transactions())
+                prepareTransactions(account.transactions()),
+                account.pendingComplete()
             ));
         }
         return List.copyOf(prepared);
@@ -300,30 +311,29 @@ public class AmexSyncService {
             } catch (DateTimeException ex) {
                 throw error(AmexErrorCode.INVALID_DATA, "American Express returned an invalid transaction date", ex);
             }
+            String label = limit(tx.label(), 255, "American Express transaction");
             // Two identical purchases on the same day (two metro tickets) are two rows: number
             // each repeat of a tuple in response order so both survive and a re-sync of the
             // same data maps back onto the same ids.
             String externalId = tx.externalId();
             if (externalId == null) {
-                String base = identity(date, tx.label(), tx.amountEur(), 0);
-                externalId = identity(date, tx.label(), tx.amountEur(), occurrences.merge(base, 1, Integer::sum) - 1);
+                String base = identity(tx.pending(), date, label, tx.amountEur(), 0);
+                externalId = identity(tx.pending(), date, label, tx.amountEur(), occurrences.merge(base, 1, Integer::sum) - 1);
             }
-            prepared.add(new PreparedTransaction(
-                externalId,
-                date,
-                limit(tx.label(), 255, "American Express transaction"),
-                tx.amountEur()
-            ));
+            prepared.add(new PreparedTransaction(externalId, date, label, tx.amountEur()));
         }
         return List.copyOf(prepared);
     }
 
-    /** The first occurrence keeps the pre-numbering hash, so rows stored before it keep their id. */
-    private String identity(LocalDate date, String description, BigDecimal amount, int occurrence) {
-        int hash = occurrence == 0
-            ? Objects.hash(date, description, amount.stripTrailingZeros())
-            : Objects.hash(date, description, amount.stripTrailingZeros(), occurrence);
-        return "amex_tx_" + Integer.toUnsignedString(hash, 36);
+    private String identity(boolean pending, LocalDate date, String description, BigDecimal amount, int occurrence) {
+        String key = date + "|" + description + "|" + amount.stripTrailingZeros().toPlainString() + "|" + occurrence;
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8));
+            return (pending ? PENDING_TX_ID_PREFIX : POSTED_TX_ID_PREFIX) + HexFormat.of().formatHex(digest, 0, 16);
+        } catch (NoSuchAlgorithmException ex) {
+            // SHA-256 is mandated by the JDK; unreachable on any supported runtime.
+            throw new IllegalStateException("SHA-256 is unavailable", ex);
+        }
     }
 
     private boolean commitAccounts(SyncJob job, List<PreparedAccount> prepared) {
@@ -396,21 +406,27 @@ public class AmexSyncService {
 
         accountService.upsertSnapshot(savedAccount, data.balanceEur(), LocalDate.now());
 
-        syncTransactions(savedAccount, data.transactions(), history);
+        syncTransactions(savedAccount, data.transactions(), data.pendingComplete(), history);
 
     }
 
     /**
-     * Regular sync refreshes the 90-day window. Recovery instead imports the full bounded history
-     * returned by AMEX and merges without deleting existing/manual rows.
+     * Regular sync upserts the 90-day window and deletes only stored pending charges the pending
+     * feed no longer reports. Recovery instead imports the full bounded history returned by AMEX
+     * and merges without deleting existing/manual rows.
      */
-    private void syncTransactions(Account account, List<PreparedTransaction> transactions, boolean history) {
+    private void syncTransactions(
+        Account account,
+        List<PreparedTransaction> transactions,
+        boolean pendingComplete,
+        boolean history
+    ) {
         if (transactions.isEmpty()) return;
         if (history) {
             List<Transaction> existing = transactionRepository.findByAccountIdAndIsManualFalse(account.getId());
             Set<String> known = new HashSet<>();
             for (Transaction tx : existing) {
-                known.add(tx.getExternalId() != null ? tx.getExternalId() : identity(tx.getDate(), tx.getDescription(), tx.getAmount(), 0));
+                known.add(tx.getExternalId() != null ? tx.getExternalId() : identity(false, tx.getDate(), tx.getDescription(), tx.getAmount(), 0));
             }
             List<Transaction> missing = transactions.stream()
                 .filter(tx -> known.add(tx.externalId()))
@@ -424,19 +440,20 @@ public class AmexSyncService {
         for (PreparedTransaction tx : transactions) {
             if (!tx.date().isBefore(cutoff)) reported.putIfAbsent(tx.externalId(), tx);
         }
-        // The sidecar returns only the latest page, so the response is authoritative from its
-        // oldest day to today, never across the whole 90-day window. That oldest day is itself
-        // left alone: the page may have cut it, and the rows it dropped are still real.
-        LocalDate oldest = transactions.stream().map(PreparedTransaction::date).min(LocalDate::compareTo).orElseThrow();
-        LocalDate deleteFrom = oldest.isBefore(cutoff) ? cutoff : oldest.plusDays(1);
-
+        // The posted feed is one page, cut on a date that is not the one rows carry, so a posted
+        // row missing from it proves nothing: posted rows are never deleted here. A stored
+        // pending charge the pending feed no longer returns has settled or was cancelled, but
+        // only an answered pending feed says so.
+        Set<String> returned = new HashSet<>();
+        transactions.forEach(tx -> returned.add(tx.externalId()));
         Map<String, Transaction> storedById = new HashMap<>();
         List<Transaction> obsolete = new ArrayList<>();
         for (Transaction row : transactionRepository.findByAccountIdAndIsManualFalse(account.getId())) {
-            if (row.getExternalId() != null && reported.containsKey(row.getExternalId())) {
-                storedById.put(row.getExternalId(), row);
-            } else if (!row.getDate().isBefore(deleteFrom)) {
-                // A pending charge that settled under another identity, or vanished.
+            String externalId = row.getExternalId();
+            if (externalId == null) continue;
+            if (reported.containsKey(externalId)) {
+                storedById.put(externalId, row);
+            } else if (pendingComplete && externalId.startsWith(PENDING_TX_ID_PREFIX) && !returned.contains(externalId)) {
                 obsolete.add(row);
             }
         }
@@ -642,7 +659,8 @@ public class AmexSyncService {
         BigDecimal paymentDueAmount,
         LocalDate paymentDueDate,
         Long rewardPoints,
-        List<PreparedTransaction> transactions
+        List<PreparedTransaction> transactions,
+        boolean pendingComplete
     ) {}
     private record PreparedTransaction(String externalId, LocalDate date, String label, BigDecimal amountEur) {}
 }

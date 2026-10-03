@@ -213,7 +213,9 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
             </div>
             <div className="space-y-2">
               <Label htmlFor="balance">
-                {selectedType === 'LOAN' ? t('debt.remaining') : t('accounts.balance')}
+                {selectedType === 'LOAN'
+                  ? t('debt.remaining')
+                  : selectedType === 'CREDIT_CARD' ? t('accounts.currentDebt') : t('accounts.balance')}
               </Label>
               <NumericInput id="balance" {...register('currentBalance', { setValueAs: toOptionalNumber })} />
             </div>

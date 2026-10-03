@@ -90,7 +90,7 @@ class AmexSyncServiceTest {
         assertThat(result.upserts()).singleElement().satisfies(tx -> {
             assertThat(tx.getDescription()).isEqualTo("Coffee shop");
             assertThat(tx.getAmount()).isEqualByComparingTo("-4.50");
-            assertThat(tx.getExternalId()).startsWith("amex_tx_");
+            assertThat(tx.getExternalId()).matches("amex_tx_[0-9a-f]{32}");
         });
     }
 
@@ -126,19 +126,48 @@ class AmexSyncServiceTest {
     @Test
     void routineSync_dropsAPendingChargeThatSettledOrVanished() {
         AmexPort.Transaction older = charge(10, "Bookshop", "-12.00");
-        AmexPort.Transaction pending = charge(2, "PENDING Grocer", "-30.00");
-        AmexPort.Transaction cancelled = charge(1, "PENDING Hotel hold", "-150.00");
-        List<Transaction> stored = routineSync(List.of(), older, pending, cancelled).upserts();
+        AmexPort.Transaction grocer = pending(2, "Grocer", "-30.00");
+        AmexPort.Transaction hotelHold = pending(1, "Hotel hold", "-150.00");
+        List<Transaction> stored = routineSync(List.of(), older, grocer, hotelHold).upserts();
 
-        AmexPort.Transaction posted = charge(1, "Grocer", "-30.00");
-        Reconciliation result = routineSync(stored, older, posted);
+        AmexPort.Transaction settled = charge(1, "Grocer", "-30.00");
+        Reconciliation result = routineSync(stored, older, settled);
 
         assertThat(result.obsolete())
             .extracting(Transaction::getDescription)
-            .containsExactlyInAnyOrder("PENDING Grocer", "PENDING Hotel hold");
+            .containsExactlyInAnyOrder("Grocer", "Hotel hold");
+        assertThat(result.obsolete()).extracting(Transaction::getExternalId).allMatch(id -> id.startsWith("amex_txp_"));
         assertThat(result.upserts())
             .extracting(Transaction::getDescription)
             .containsExactly("Bookshop", "Grocer");
+        assertThat(result.upserts().get(1).getExternalId()).startsWith("amex_tx_");
+    }
+
+    @Test
+    void routineSync_keepsStoredPendingChargesWhenThePendingFeedFailed() {
+        AmexPort.Transaction older = charge(10, "Bookshop", "-12.00");
+        AmexPort.Transaction grocer = pending(1, "Grocer", "-30.00");
+        List<Transaction> stored = routineSync(List.of(), older, grocer).upserts();
+
+        Reconciliation result = routineSync(stored, false, older);
+
+        assertThat(result.obsolete()).isEmpty();
+        assertThat(result.upserts()).containsExactly(stored.getFirst());
+    }
+
+    @Test
+    void routineSync_keepsAPostedRowThePageNoLongerReturns() {
+        // The page is cut on the posting date while rows carry the charge date: a foreign
+        // purchase charged 5 days ago but posted after the page's newest rows can fall off it.
+        AmexPort.Transaction recent = charge(1, "Bakery", "-3.20");
+        AmexPort.Transaction foreign = charge(5, "Hotel abroad", "-210.00");
+        AmexPort.Transaction older = charge(10, "Bookshop", "-12.00");
+        List<Transaction> stored = routineSync(List.of(), recent, foreign, older).upserts();
+
+        Reconciliation result = routineSync(stored, recent, older);
+
+        assertThat(result.obsolete()).isEmpty();
+        assertThat(result.upserts()).extracting(Transaction::getDescription).containsExactly("Bakery", "Bookshop");
     }
 
     @Test
@@ -176,17 +205,17 @@ class AmexSyncServiceTest {
 
     @Test
     void emptyTransactionList_leavesExistingRowsAlone() {
-        FamilyMember member = member();
-        AmexSession session = activeSession(member);
-        arrangeQueuedSession(session);
+        List<Transaction> stored = routineSync(List.of(), charge(3, "Bookshop", "-12.00"), pending(1, "Grocer", "-30.00"))
+            .upserts();
+        assertThat(stored).hasSize(2);
+        clearInvocations(transactionWriter, transactionRepository);
+        lenient().when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(stored);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1")));
-        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        arrangeNewAccountPersistence(20L);
 
         AmexSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(AmexSyncStatus.SUCCESS);
-        verifyNoInteractions(transactionWriter);
+        verifyNoInteractions(transactionWriter, transactionRepository);
     }
 
     @ParameterizedTest
@@ -226,7 +255,7 @@ class AmexSyncServiceTest {
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(stored));
         lenient().when(encryption.encrypt("plain-state")).thenReturn("encrypted");
 
-        AmexPort.Transaction oldCharge = new AmexPort.Transaction(null, "2020-01-02", "Old store", new BigDecimal("-7.00"));
+        AmexPort.Transaction oldCharge = new AmexPort.Transaction(null, "2020-01-02", "Old store", new BigDecimal("-7.00"), "posted");
         when(port.fetchTransactionHistory("plain-state")).thenReturn(List.of(accountData("amex_1", oldCharge)));
         arrangeNewAccountPersistence(20L);
         when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(List.of());
@@ -248,7 +277,7 @@ class AmexSyncServiceTest {
         FamilyMember member = member();
         AmexSession session = activeSession(member);
         arrangeQueuedSession(session);
-        AmexPort.Transaction oldCharge = new AmexPort.Transaction(null, "2020-01-02", "Old store", new BigDecimal("-7.00"));
+        AmexPort.Transaction oldCharge = new AmexPort.Transaction(null, "2020-01-02", "Old store", new BigDecimal("-7.00"), "posted");
         when(port.fetchTransactionHistory("plain-state")).thenReturn(List.of(accountData("amex_1", oldCharge)));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         arrangeNewAccountPersistence(20L);
@@ -268,8 +297,13 @@ class AmexSyncServiceTest {
     private record Reconciliation(List<Transaction> obsolete, List<Transaction> upserts) {}
 
     private Reconciliation routineSync(List<Transaction> stored, AmexPort.Transaction... response) {
+        return routineSync(stored, true, response);
+    }
+
+    private Reconciliation routineSync(List<Transaction> stored, boolean pendingComplete, AmexPort.Transaction... response) {
         arrangeSync(stored);
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1", response)));
+        when(port.fetchAccounts("plain-state"))
+            .thenReturn(List.of(accountData("amex_1", LocalDate.now().plusDays(5).toString(), pendingComplete, response)));
 
         service.queueSync(7L);
 
@@ -304,7 +338,11 @@ class AmexSyncServiceTest {
     }
 
     private AmexPort.Transaction charge(int daysAgo, String label, String amount) {
-        return new AmexPort.Transaction(null, LocalDate.now().minusDays(daysAgo).toString(), label, new BigDecimal(amount));
+        return new AmexPort.Transaction(null, LocalDate.now().minusDays(daysAgo).toString(), label, new BigDecimal(amount), "posted");
+    }
+
+    private AmexPort.Transaction pending(int daysAgo, String label, String amount) {
+        return new AmexPort.Transaction(null, LocalDate.now().minusDays(daysAgo).toString(), label, new BigDecimal(amount), "pending");
     }
 
     private AmexPort.AccountData accountData(String externalId, AmexPort.Transaction... transactions) {
@@ -312,6 +350,15 @@ class AmexSyncServiceTest {
     }
 
     private AmexPort.AccountData accountData(String externalId, String dueDate, AmexPort.Transaction... transactions) {
+        return accountData(externalId, dueDate, true, transactions);
+    }
+
+    private AmexPort.AccountData accountData(
+        String externalId,
+        String dueDate,
+        boolean pendingComplete,
+        AmexPort.Transaction... transactions
+    ) {
         return new AmexPort.AccountData(
             externalId,
             "American Express",
@@ -323,6 +370,7 @@ class AmexSyncServiceTest {
             null,
             500L,
             List.of(transactions),
+            pendingComplete,
             true
         );
     }

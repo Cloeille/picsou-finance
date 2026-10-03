@@ -101,7 +101,10 @@ class AmexAdapterTest {
               "minimumPayment":-50.00,
               "rewardsPoints":12000,
               "directDebit":null,
-              "transactions":[],
+              "transactions":[
+                {"date":"2025-11-01","description":"Grocer","amount":-30.00,"status":"pending","category":null}
+              ],
+              "pendingComplete":true,
               "snapshotComplete":true
             }]
             """);
@@ -111,7 +114,12 @@ class AmexAdapterTest {
         assertThat(accounts).hasSize(1);
         assertThat(accounts.get(0)).satisfies(account -> {
             assertThat(account.balanceEur()).isEqualByComparingTo("-1250.75");
+            assertThat(account.pendingComplete()).isTrue();
             assertThat(account.snapshotComplete()).isTrue();
+            assertThat(account.transactions()).singleElement().satisfies(tx -> {
+                assertThat(tx.label()).isEqualTo("Grocer");
+                assertThat(tx.pending()).isTrue();
+            });
         });
     }
 

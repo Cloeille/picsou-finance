@@ -153,7 +153,7 @@ public class AccountService {
             .type(req.type())
             .provider(req.provider())
             .currency(req.currency())
-            .currentBalance(req.currentBalance() != null ? req.currentBalance() : BigDecimal.ZERO)
+            .currentBalance(req.currentBalance() != null ? signedBalance(req.type(), req.currentBalance()) : BigDecimal.ZERO)
             .isManual(req.isManual())
             .color(req.color() != null ? req.color() : "#6366f1")
             .ticker(req.ticker())
@@ -208,9 +208,10 @@ public class AccountService {
         // For manual accounts, allow balance update
         if (account.isManual() && req.currentBalance() != null) {
             BigDecimal oldBalance = account.getCurrentBalance();
-            account.setCurrentBalance(req.currentBalance());
-            if (req.currentBalance().compareTo(oldBalance) != 0) {
-                upsertSnapshotFromNative(account, req.currentBalance(), LocalDate.now());
+            BigDecimal newBalance = signedBalance(account.getType(), req.currentBalance());
+            account.setCurrentBalance(newBalance);
+            if (newBalance.compareTo(oldBalance) != 0) {
+                upsertSnapshotFromNative(account, newBalance, LocalDate.now());
             }
         }
 
@@ -706,6 +707,14 @@ public class AccountService {
             .filter(t -> t != null && !t.isBlank())
             .map(t -> t.toUpperCase(Locale.ROOT))
             .collect(Collectors.toSet());
+    }
+
+    /**
+     * The form asks for a card's amount owed, like a loan's remaining capital, but a card stores
+     * its debt signed (negative), the way the American Express sync writes it: 800 becomes -800.
+     */
+    private static BigDecimal signedBalance(AccountType type, BigDecimal balance) {
+        return type == AccountType.CREDIT_CARD ? balance.abs().negate() : balance;
     }
 
     /** Null-safe: {@code Set.of(...)} throws on a null lookup, and most accounts have no provider. */

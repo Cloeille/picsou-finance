@@ -1,6 +1,6 @@
 # Feature: American Express France sidecar
 
-> Last updated: 2026-09-29
+> Last updated: 2026-10-03
 
 ## Context
 
@@ -18,7 +18,7 @@ Backend sync persists these optional fields on `account`, exposes them through a
 
 ### History recovery
 
-`POST /api/amex/history-recovery` (Sync page → AMEX tab, secondary action) reuses the current session — no new credential prompt — and asks the sidecar for up to 1,000 posted and pending transactions. The result is merged into existing transactions without deleting manual ones; transactions without an AMEX id get a deterministic `amex_tx_` identity, so re-running recovery is idempotent. This is an upstream request bound, not a guarantee: AMEX only returns what its transaction API exposes, and the UI says older transactions may be unavailable.
+`POST /api/amex/history-recovery` (Sync page → AMEX tab, secondary action) reuses the current session — no new credential prompt — and asks the sidecar for up to 1,000 posted and pending transactions. The result is merged into existing transactions without deleting manual ones; transactions without an AMEX id get a deterministic `amex_tx_` (posted) or `amex_txp_` (pending) identity, so re-running recovery is idempotent. This is an upstream request bound, not a guarantee: AMEX only returns what its transaction API exposes, and the UI says older transactions may be unavailable.
 
 **Connect imports full history automatically.** The first sync right after login/OTP (and after a reconnect) already runs the provider-maximum history request — the same one the recovery action triggers — so a fresh connection backfills months of older transactions without pressing anything. Routine syncs (manual Sync button, daily scheduler) then keep only the trailing 90-day window refreshed, and the recovery action remains available for an on-demand full refresh.
 
@@ -50,10 +50,13 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 
 ## Gotchas / Pitfalls
 
-- A regular sync only gets the latest 100 posted (+ pending) transactions, so it reconciles by external id over the range that page covers (the day after its oldest transaction to today, never wider than 90 days) instead of replacing the whole window. Older rows, including those imported by history recovery, are never touched; a stored row inside the range that the page no longer reports (a pending charge that settled under another identity, or vanished) is deleted.
-- Without an AMEX id, a transaction's external id is a hash of date + label + amount, numbered per repeat in the sidecar's order, so two identical purchases on the same day stay two rows. The first occurrence keeps the un-numbered hash. Routine sync and history recovery derive the same ids.
+- A regular sync only gets the latest 100 posted transactions, a page cut on the posting date while rows carry the charge date, so a missing posted row proves nothing: a routine sync upserts posted rows by external id inside the 90-day window and never deletes one. Only rows stored as pending can become obsolete. The sidecar labels each transaction with the feed it came from (`status`: `posted` or `pending`) and sends `pendingComplete: false` when the pending call failed (429, 5xx, rejected payload). When it is true, a stored pending row the response no longer returns (settled under its posted identity, or a cancelled hold) is deleted; when it is false, stored pending rows are kept. An empty transaction list touches nothing.
+- Pending is persisted in the external id prefix rather than a column: `amex_txp_` for a pending charge, `amex_tx_` for a posted one. A charge that settles changes identity anyway (the posted form is a new row), so the prefix carries the only state the reconciliation needs without widening the shared `transaction` table for one provider.
+- Without an AMEX id, a transaction's external id is the prefix + the first 128 bits of SHA-256 over `date|label|amount|occurrence` (amount as `stripTrailingZeros().toPlainString()`), numbered per repeat in the sidecar's order so two identical purchases on the same day stay two rows. Routine sync and history recovery derive the same ids.
 - A credit card is a liability everywhere: `AccountType.isLiability()` (the accounts page's Debts group) keeps it out of the dashboard's assets, allocation donut and wealth pyramid, and adds its debt (the balance negated) to the dashboard's liabilities.
-- Pending transaction retrieval is best effort; a failure does not invalidate a posted snapshot.
+- Pending transaction retrieval is best effort; a failure does not invalidate a posted snapshot, it only sets `pendingComplete: false` so the backend keeps the pending rows it already has.
+- A manual `CREDIT_CARD` stores its debt negative like the synced card: the account form asks for the amount owed (positive, like a loan's remaining capital) and `AccountService` stores `-abs(amount)` on create and update.
+- History, P&L and the positions page use the same liability notion as the dashboard (`AccountType.isLiability()`, `LIABILITY_ACCOUNT_TYPES` in `frontend/src/lib/constants.ts`): a card counts in net worth but never in invested or P&L. A loan's stored balance is positive and negated; a card's is already signed.
 - The balance formula is inferred and must be re-checked after a payment/credit appears.
 - Existing AMEX sessions may not contain captured enrichment; a new login is needed to observe dashboard responses.
 - Debt is shown signed (negative) like every other liability in Picsou; the amount to pay is shown as a positive amount to settle.
@@ -61,8 +64,8 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 ## Tests
 
 - `AmexSyncServiceTest`, `AmexAdapterTest`, `AmexControllerTest`
-- `RecurringSeriesServiceTest`
-- `TransactionsList.test.tsx` (header actions), `money-axis.test.tsx` (chart axis masking)
+- `RecurringSeriesServiceTest`, `HistoryServiceTest`, `AccountServiceTest` (card sign)
+- `TransactionsList.test.tsx` (header actions), `AccountForm.test.tsx` (card amount owed), `features/accounts/hooks.test.tsx` (debts out of the cash line), `money-axis.test.tsx` (chart axis masking)
 - Sidecar `python /app/main.py` self-check inside the built container
 
 ## Links
