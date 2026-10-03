@@ -51,13 +51,12 @@ class TimeZoneConfigBootTest {
         }
     }
 
-    private ConfigurableApplicationContext boot(String... properties) {
+    private ConfigurableApplicationContext boot(String... args) {
         return new SpringApplicationBuilder(EmptyConfiguration.class)
             .web(WebApplicationType.NONE)
             .bannerMode(org.springframework.boot.Banner.Mode.OFF)
             .listeners(new TimeZoneConfig())
-            .properties(properties)
-            .run();
+            .run(args);
     }
 
     @Test
