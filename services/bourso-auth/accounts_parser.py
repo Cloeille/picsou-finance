@@ -382,6 +382,16 @@ def _parse_position(raw: Any) -> dict[str, Any] | None:
             INVALID_DATA, f"Position {symbol} is valued in {value_currency}, not EUR"
         )
 
+    gain_node = raw.get("gainLoss")
+    gain_currency = _summary_currency(gain_node)
+    if gain_currency is not None and gain_currency != "EUR":
+        # Not dropped like a foreign cost basis: the backend derives the basis as
+        # value − gain, first for the displayed P&L and as the fallback for the
+        # invested amount, where a null gain falls the account back to its balance.
+        raise AccountsFormatError(
+            INVALID_DATA, f"Position {symbol} reports its gain in {gain_currency}, not EUR"
+        )
+
     last_node = raw.get("last")
     buying_node = raw.get("buyingPrice")
     buying_currency = _summary_currency(buying_node)
@@ -401,7 +411,7 @@ def _parse_position(raw: Any) -> dict[str, Any] | None:
         # The quote's own currency when it carries one, else the position's.
         "quoteCurrency": _summary_currency(last_node) or text_value(raw.get("currency"), 3),
         "currentValueEur": value_eur,
-        "pnlEur": _summary_money(raw.get("gainLoss"), "gainLoss", required=False),
+        "pnlEur": _summary_money(gain_node, "gainLoss", required=False),
     }
 
 

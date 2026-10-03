@@ -317,6 +317,20 @@ class TradingSummaryTest(unittest.TestCase):
             parse_trading_summary(summary(positions=[position(currency="USD")]), "acc")
         self.assertEqual(raised.exception.code, INVALID_DATA)
 
+    def test_a_position_whose_gain_is_in_a_foreign_currency_is_refused(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(
+                summary(positions=[position(gainLoss=money("150.00", "USD"))]), "acc"
+            )
+        self.assertEqual(raised.exception.code, INVALID_DATA)
+
+    def test_a_gain_in_lowercase_eur_or_without_a_currency_is_kept(self):
+        for currency in ("eur", None):
+            parsed = parse_trading_summary(
+                summary(positions=[position(gainLoss=money("150.00", currency))]), "acc"
+            )
+            self.assertEqual(parsed["positions"][0]["pnlEur"], Decimal("150.00"))
+
     def test_a_native_quote_keeps_its_currency_and_drops_the_cost_basis(self):
         # A USD cost basis recorded as EUR reports a gain the size of the FX
         # spread; null is the honest answer.
