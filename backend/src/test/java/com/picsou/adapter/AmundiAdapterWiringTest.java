@@ -11,6 +11,8 @@ class AmundiAdapterWiringTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
         .withPropertyValues("app.amundi-auth.url=http://amundi-auth:8001")
         .withBean(ObjectMapper.class)
+        .withBean(com.picsou.adapter.sidecar.SidecarWebClientFactory.class,
+            () -> new com.picsou.adapter.sidecar.SidecarWebClientFactory("test-key"))
         .withBean(AmundiAdapter.class);
 
     @Test

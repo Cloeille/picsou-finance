@@ -11,6 +11,8 @@ class BourseDirectAdapterWiringTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
         .withPropertyValues("app.bourse-direct-auth.url=http://bourse-direct-auth:8001")
         .withBean(ObjectMapper.class)
+        .withBean(com.picsou.adapter.sidecar.SidecarWebClientFactory.class,
+            () -> new com.picsou.adapter.sidecar.SidecarWebClientFactory("test-key"))
         .withBean(BourseDirectAdapter.class);
 
     @Test

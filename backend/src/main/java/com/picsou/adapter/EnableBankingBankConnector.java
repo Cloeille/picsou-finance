@@ -27,6 +27,7 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -187,7 +188,18 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     public List<AccountData> fetchBalances(String sessionId) {
         List<String> accounts = fetchSessionAccountsWithRetry(sessionId);
         return accounts.stream()
-            .map(accountId -> fetchAccountData(accountId))
+            .map(accountId -> {
+                try {
+                    return fetchAccountData(accountId);
+                } catch (RuntimeException ex) {
+                    // An account uid can rotate independently after a successful session link.
+                    // Keep the remaining accounts syncable; the next session refresh supplies its uid.
+                    log.warn("Failed to fetch account {} from Enable Banking; skipping it for this sync",
+                        LogSanitizer.fingerprint(accountId), ex);
+                    return null;
+                }
+            })
+            .filter(Objects::nonNull)
             .toList();
     }
 

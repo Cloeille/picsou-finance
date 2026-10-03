@@ -102,7 +102,6 @@ class SyncServiceIbanMatchTest {
             .thenReturn(Optional.of(existing));
 
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(accountService.toResponse(any())).thenReturn(mock(AccountResponse.class));
 
         syncService.resyncAll(MEMBER_ID);
 
@@ -174,7 +173,6 @@ class SyncServiceIbanMatchTest {
             if (a.getId() == null) a.setId(99L);
             return a;
         });
-        when(accountService.toResponse(any())).thenReturn(mock(AccountResponse.class));
 
         syncService.resyncAll(MEMBER_ID);
 
