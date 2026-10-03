@@ -24,6 +24,7 @@ function holding(ticker: string, name: string): HoldingResponse {
   return {
     ticker,
     name,
+    logoUrl: null,
     quantity: 1,
     averageBuyIn: null,
     currentPrice: null,

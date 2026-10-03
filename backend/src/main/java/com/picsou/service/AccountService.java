@@ -43,6 +43,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional(readOnly = true)
@@ -79,6 +80,7 @@ public class AccountService {
     private final LoanAmortizationService loanAmortizationService;
     private final AccountAccessResolver accessResolver;
     private final BankLogoResolver bankLogoResolver;
+    private final CryptoLogoService cryptoLogoService;
 
     public AccountService(
         AccountRepository accountRepository,
@@ -92,7 +94,8 @@ public class AccountService {
         PriceService priceService,
         LoanAmortizationService loanAmortizationService,
         AccountAccessResolver accessResolver,
-        BankLogoResolver bankLogoResolver
+        BankLogoResolver bankLogoResolver,
+        CryptoLogoService cryptoLogoService
     ) {
         this.accountRepository = accountRepository;
         this.snapshotRepository = snapshotRepository;
@@ -106,6 +109,7 @@ public class AccountService {
         this.loanAmortizationService = loanAmortizationService;
         this.accessResolver = accessResolver;
         this.bankLogoResolver = bankLogoResolver;
+        this.cryptoLogoService = cryptoLogoService;
     }
 
     /**
@@ -303,8 +307,11 @@ public class AccountService {
         Account account = getOrThrow(accountId, memberId); // validate account exists
         List<AccountHolding> holdings = holdingRepository.findByAccountIdOrderByCurrentPriceDesc(accountId);
         Map<String, PriceService.Quote> quotes = quotesFor(account, holdings);
+        // Both lookups are batched outside the stream: calling either inside it would issue one
+        // provider request per holding instead of one per page.
+        Map<String, String> logos = logosFor(account, holdings);
         return holdings.stream()
-            .map(holding -> toHoldingResponse(holding, quotes))
+            .map(holding -> toHoldingResponse(holding, quotes, logos))
             .toList();
     }
 
@@ -663,15 +670,42 @@ public class AccountService {
      * what was synced.
      */
     private Map<String, PriceService.Quote> quotesFor(Account account, List<AccountHolding> holdings) {
-        Set<String> tickers = holdings.stream()
-            .map(AccountHolding::getTicker)
-            .filter(t -> t != null && !t.isBlank())
-            .map(t -> t.toUpperCase(Locale.ROOT))
-            .collect(java.util.stream.Collectors.toSet());
+        Set<String> tickers = tickersOf(holdings);
         if (tickers.isEmpty()) return Map.of();
         return account.getType() == AccountType.CRYPTO
             ? priceService.getCryptoQuotes(tickers)
             : priceService.getQuotes(tickers);
+    }
+
+    /**
+     * Logo URLs for an account's holdings, in one call — and only for a crypto account.
+     *
+     * <p>Mirrors {@link #quotesFor}: the provider that can answer for a symbol decides, and only
+     * CoinGecko can today, so a non-crypto account resolves to nothing and its holdings keep
+     * showing their ticker. Batched for the same reason the prices are — one request per page
+     * rather than one per line.
+     */
+    private Map<String, String> logosFor(Account account, List<AccountHolding> holdings) {
+        if (account.getType() != AccountType.CRYPTO) return Map.of();
+        Set<String> tickers = tickersOf(holdings);
+        if (tickers.isEmpty()) return Map.of();
+        return cryptoLogoService.getLogoUrls(tickers);
+    }
+
+    /**
+     * The holdings' non-blank tickers, upper-cased and deduplicated — the key set both
+     * {@link #quotesFor} and {@link #logosFor} resolve against, and the key their results are
+     * read back with in {@link #toHoldingResponse}.
+     *
+     * <p>One place, because a normalization that drifts between the two lookups is a bug neither
+     * of them could see: the price would resolve under one spelling and the logo under another.
+     */
+    private static Set<String> tickersOf(List<AccountHolding> holdings) {
+        return holdings.stream()
+            .map(AccountHolding::getTicker)
+            .filter(t -> t != null && !t.isBlank())
+            .map(t -> t.toUpperCase(Locale.ROOT))
+            .collect(Collectors.toSet());
     }
 
     /** Null-safe: {@code Set.of(...)} throws on a null lookup, and most accounts have no provider. */
@@ -758,7 +792,7 @@ public class AccountService {
         h.setProviderValueEur(null);
         h.setProviderPnlEur(null);
         holdingRepository.save(h);
-        return toHoldingResponse(h, quotesFor(account, List.of(h)));
+        return toHoldingResponse(h, quotesFor(account, List.of(h)), logosFor(account, List.of(h)));
     }
 
     @Transactional
@@ -908,7 +942,9 @@ public class AccountService {
         return loanAmortizationService.compute(debt, LocalDate.now());
     }
 
-    private HoldingResponse toHoldingResponse(AccountHolding holding, Map<String, PriceService.Quote> quotes) {
+    private HoldingResponse toHoldingResponse(AccountHolding holding,
+                                              Map<String, PriceService.Quote> quotes,
+                                              Map<String, String> logos) {
         BigDecimal currentPrice = holding.getCurrentPrice();
         BigDecimal currentPriceEur = null;
         Instant priceUpdatedAt = null;
@@ -921,8 +957,13 @@ public class AccountService {
         // currency without conversion — using it as a fallback would silently
         // produce native-as-EUR values. Better to return null and surface
         // "price unknown" than to invent a wrong number.
-        if (holding.getTicker() != null && !holding.getTicker().isBlank()) {
-            PriceService.Quote quote = quotes.get(holding.getTicker().toUpperCase(Locale.ROOT));
+        // Both maps are keyed by the upper-cased ticker, per tickersOf(). One normalization
+        // here, read by both lookups below: spelled twice it would be a place where a price
+        // resolves and its logo does not, which reads as a missing image rather than a bug.
+        boolean hasTicker = holding.getTicker() != null && !holding.getTicker().isBlank();
+        String tickerKey = hasTicker ? holding.getTicker().toUpperCase(Locale.ROOT) : null;
+        if (hasTicker) {
+            PriceService.Quote quote = quotes.get(tickerKey);
             if (quote != null) {
                 currentPriceEur = quote.price();
                 priceAsOf = quote.asOf();
@@ -955,6 +996,7 @@ public class AccountService {
         return new HoldingResponse(
             holding.getTicker(),
             holding.getName(),
+            tickerKey == null ? null : logos.get(tickerKey),
             quantity,
             averageBuyIn,
             currentPrice,

@@ -60,7 +60,7 @@ class PortfolioDiversificationServiceTest {
             .thenReturn(true);
         lenient().when(accountService.getHoldings(account.getId(), MEMBER)).thenReturn(
             lines.entrySet().stream().map(e -> new HoldingResponse(
-                e.getKey(), e.getKey(), BigDecimal.ONE, null, null, "EUR",
+                e.getKey(), e.getKey(), null, BigDecimal.ONE, null, null, "EUR",
                 new BigDecimal(e.getValue()), null, null, null, null, null, false)).toList());
         return account;
     }

@@ -7,6 +7,10 @@ import java.time.LocalDate;
 public record HoldingResponse(
     String ticker,
     String name,
+    // The image to show beside the ticker, or null when the asset has no known logo (any
+    // equity today — see docs/features/holding-logos.md). The UI shows the ticker either
+    // way, so a null is a normal answer, not a failure.
+    String logoUrl,
     BigDecimal quantity,
     BigDecimal averageBuyIn,
     BigDecimal currentPrice,
