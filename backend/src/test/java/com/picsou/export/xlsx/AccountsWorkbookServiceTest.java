@@ -144,12 +144,12 @@ class AccountsWorkbookServiceTest {
         AccountResponse pea = bank(1L, "PEA", AccountType.PEA);
         stubAccount(pea);
         when(accountService.getHoldings(1L, MEMBER)).thenReturn(List.of(
-            new HoldingResponse("CW8.PA", "Amundi MSCI World", new BigDecimal("12.5"),
+            new HoldingResponse("CW8.PA", "Amundi MSCI World", null, new BigDecimal("12.5"),
                 new BigDecimal("400.00"), new BigDecimal("520.00"), "EUR",
                 new BigDecimal("6500.00"), new BigDecimal("5000.00"),
                 new BigDecimal("1500.00"), new BigDecimal("30.00"),
                 Instant.parse("2026-08-18T10:00:00Z"), LocalDate.parse("2026-08-18"), false),
-            new HoldingResponse("ESE.PA", "BNP S&P 500", new BigDecimal("3"),
+            new HoldingResponse("ESE.PA", "BNP S&P 500", null, new BigDecimal("3"),
                 new BigDecimal("20.00"), new BigDecimal("18.00"), "EUR",
                 new BigDecimal("54.00"), new BigDecimal("60.00"),
                 new BigDecimal("-6.00"), new BigDecimal("-10.00"),
@@ -274,7 +274,7 @@ class AccountsWorkbookServiceTest {
         AccountResponse pea = bank(1L, "PEA", AccountType.PEA);
         stubAccount(pea);
         when(accountService.getHoldings(1L, MEMBER)).thenReturn(List.of(
-            new HoldingResponse("CW8.PA", "World", BigDecimal.ONE, BigDecimal.ONE,
+            new HoldingResponse("CW8.PA", "World", null, BigDecimal.ONE, BigDecimal.ONE,
                 BigDecimal.ONE, "EUR", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO,
                 BigDecimal.ZERO, null, null, false)
         ));

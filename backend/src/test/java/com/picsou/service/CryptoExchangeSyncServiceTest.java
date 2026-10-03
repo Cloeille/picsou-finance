@@ -64,14 +64,18 @@ class CryptoExchangeSyncServiceTest {
     @Mock CryptoExchangeStatusWriter statusWriter;
     @Mock CryptoExchangePositionRepository positionRepository;
     @Mock AccountHoldingRepository holdingRepository;
+    @Mock CryptoLogoService cryptoLogoService;
 
     private final CryptoExchangeSession[] saved = new CryptoExchangeSession[1];
 
     private CryptoExchangeSyncService serviceWith(CryptoExchangePort... adapters) {
+        // The logo lookup is decoration the tests do not assert on; a lenient empty map keeps
+        // every existing test from having to stub it, exactly like the adapter fixtures below.
+        lenient().when(cryptoLogoService.getLogoUrls(any())).thenReturn(Map.of());
         return new CryptoExchangeSyncService(
             List.of(adapters), sessionRepository, accountRepository,
             familyMemberRepository, accountService, priceService, encryption, statusWriter,
-            positionRepository, holdingRepository);
+            positionRepository, holdingRepository, cryptoLogoService);
     }
 
     // Both fixtures are lenient: which of the two traits a given test exercises depends on how far

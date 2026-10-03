@@ -549,6 +549,10 @@ export interface Institution {
 export interface HoldingResponse {
   ticker: string
   name: string | null
+  // The image to show beside the ticker, or null when the asset has no known logo. Today only
+  // crypto resolves one (CoinGecko); every equity keeps its ticker. A null is a normal answer,
+  // not a failure — see docs/features/holding-logos.md.
+  logoUrl: string | null
   quantity: number
   averageBuyIn: number | null
   currentPrice: number | null
@@ -629,6 +633,8 @@ export type FinaryMappingAction = 'SKIP' | 'MAP_EXISTING' | 'CREATE_NEW'
 export interface ExchangePositionResponse {
   product: 'SPOT' | 'STAKING' | 'LENDING'
   ticker: string
+  /** The coin's image, or null when CoinGecko has no mark for it. See HoldingResponse.logoUrl. */
+  logoUrl: string | null
   quantity: number
   /** Capital part of `quantity`; null when the exchange doesn't split it. */
   principal: number | null

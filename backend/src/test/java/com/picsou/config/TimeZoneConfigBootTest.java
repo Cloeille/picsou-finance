@@ -51,12 +51,12 @@ class TimeZoneConfigBootTest {
         }
     }
 
-    private ConfigurableApplicationContext boot(String... properties) {
-        SpringApplicationBuilder builder = new SpringApplicationBuilder(EmptyConfiguration.class)
+    private ConfigurableApplicationContext boot(String... args) {
+        return new SpringApplicationBuilder(EmptyConfiguration.class)
             .web(WebApplicationType.NONE)
             .bannerMode(org.springframework.boot.Banner.Mode.OFF)
-            .listeners(new TimeZoneConfig());
-        return builder.run();
+            .listeners(new TimeZoneConfig())
+            .run(args);
     }
 
     @Test
@@ -68,17 +68,9 @@ class TimeZoneConfigBootTest {
 
     @Test
     void anOperatorOverrideWins() {
-        String original = System.getProperty(TimeZoneConfig.PROPERTY);
-        System.setProperty(TimeZoneConfig.PROPERTY, "America/New_York");
-        try (ConfigurableApplicationContext context = boot()) {
+        try (ConfigurableApplicationContext context = boot("--" + TimeZoneConfig.PROPERTY + "=America/New_York")) {
             assertThat(ZoneId.systemDefault()).isEqualTo(ZoneId.of("America/New_York"));
             assertThat(System.getProperty("user.timezone")).isEqualTo("America/New_York");
-        } finally {
-            if (original == null) {
-                System.clearProperty(TimeZoneConfig.PROPERTY);
-            } else {
-                System.setProperty(TimeZoneConfig.PROPERTY, original);
-            }
         }
     }
 
