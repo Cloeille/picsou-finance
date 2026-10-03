@@ -8,9 +8,11 @@ import com.picsou.dto.RecurringSeriesResponse;
 import com.picsou.model.RecurringCadence;
 import com.picsou.model.RecurringSeries;
 import com.picsou.model.RecurringStatus;
+import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CategoryRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.RecurringSeriesRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -42,11 +44,23 @@ class RecurringSeriesServiceTest {
     @Mock RecurringSeriesRepository seriesRepository;
     @Mock CategoryRepository categoryRepository;
     @Mock FamilyMemberRepository familyMemberRepository;
+    @Mock AccountRepository accountRepository;
 
     @InjectMocks RecurringSeriesService service;
 
+    @BeforeEach
+    void setUp() {
+        // Neutralize the AMEX credit-card projection: no card accounts in these tests.
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
+    }
+
     private static final Long MEMBER_ID = 7L;
     private static final LocalDate TODAY = LocalDate.of(2026, 6, 9);
+
+    @org.junit.jupiter.api.BeforeEach
+    void noCardPaymentsByDefault() {
+        org.mockito.Mockito.lenient().when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of());
+    }
 
     private static RecurringSeries.RecurringSeriesBuilder series() {
         return RecurringSeries.builder()
@@ -240,8 +254,35 @@ class RecurringSeriesServiceTest {
     }
 
     @Test
+    void upcoming_includesCreditCardPaymentOnlyWhenAmountPositiveAndDue() {
+        com.picsou.model.Account card = com.picsou.model.Account.builder()
+            .id(99L).name("Amex").type(com.picsou.model.AccountType.CREDIT_CARD)
+            .paymentDueAmount(new BigDecimal("24.50")).paymentDueDate(TODAY.plusDays(3))
+            .rewardPoints(250L).build();
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of(card));
+
+        List<RecurringOccurrenceResponse> result = service.upcoming(MEMBER_ID, TODAY, 30);
+
+        assertThat(result).singleElement().satisfies(occurrence -> {
+            assertThat(occurrence.expectedAmount()).isEqualByComparingTo("-24.50");
+            assertThat(occurrence.dueDate()).isEqualTo(TODAY.plusDays(3));
+            assertThat(occurrence.creditCardPayment()).isTrue();
+            assertThat(occurrence.rewardPoints()).isEqualTo(250L);
+        });
+    }
+
+    @Test
+    void upcoming_omitsZeroAmountCreditCardPayment() {
+        com.picsou.model.Account card = com.picsou.model.Account.builder()
+            .id(99L).name("Amex").type(com.picsou.model.AccountType.CREDIT_CARD)
+            .paymentDueAmount(BigDecimal.ZERO).paymentDueDate(TODAY.plusDays(3)).build();
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of(card));
+
+        assertThat(service.upcoming(MEMBER_ID, TODAY, 30)).isEmpty();
+    }
+
+    @Test
     void upcoming_includesHealthySeriesAndProjectsForward() {
-        // A MONTHLY series due tomorrow — healthy, must appear in the 60-day horizon.
         LocalDate nextDue = TODAY.plusDays(1);
         RecurringSeries healthy = series().id(20L).label("Netflix").cadence(RecurringCadence.MONTHLY)
             .nextDueDate(nextDue).build();

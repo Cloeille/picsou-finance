@@ -50,6 +50,16 @@ function transaction(overrides: Partial<Transaction>): Transaction {
 }
 
 describe('TransactionsList', () => {
+  it('keeps the header actions reachable on an empty account, and renders nothing without them', () => {
+    const { container, rerender } = render(<TransactionsList transactions={[]} />)
+    expect(container).toBeEmptyDOMElement()
+
+    rerender(<TransactionsList transactions={[]} actions={<button>Add</button>} />)
+    expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument()
+    expect(screen.getByText('accounts.transactions')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('common.search')).not.toBeInTheDocument()
+  })
+
   it('keeps single-year date headings compact', () => {
     render(<TransactionsList transactions={[transaction({ description: 'Single year' })]} />)
 

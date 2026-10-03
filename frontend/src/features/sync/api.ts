@@ -23,6 +23,9 @@ import type {
   DegiroAuthInitResponse,
   AmundiSessionStatus,
   AmundiAuthInitResponse,
+  AmexSessionStatus,
+  AmexAuthInitResponse,
+  AmexOtpMethod,
   FortuneoSessionStatus,
   FortuneoAuthInitResponse,
   IbkrConnectionStatus,
@@ -270,6 +273,33 @@ export const amundiApi = {
       .then(r => r.data),
 
   clearSession: () => api.delete('/amundi/session'),
+}
+
+// --- American Express ---
+
+export const amexApi = {
+  initiateAuth: (login: string, password: string, method: AmexOtpMethod) =>
+    api
+      .post<AmexAuthInitResponse>('/amex/auth/initiate', { login, password, method })
+      .then(r => r.data),
+
+  completeAuth: (processId: string, code: string) =>
+    api
+      .post<AmexSessionStatus>('/amex/auth/complete', { processId, otp: code })
+      .then(r => r.data),
+
+  sync: () => api.post<AmexSessionStatus>('/amex/sync').then(r => r.data),
+
+  recoverHistory: () => api.post<AmexSessionStatus>('/amex/history-recovery').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<AmexSessionStatus>('/amex/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete('/amex/session'),
 }
 
 // --- Fortuneo ---

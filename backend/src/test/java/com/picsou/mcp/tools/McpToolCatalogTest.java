@@ -7,6 +7,7 @@ import com.picsou.mcp.RequiresScope;
 import com.picsou.mcp.Scopes;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.AccountService;
+import com.picsou.service.AmexSyncService;
 import com.picsou.service.BoursoSyncService;
 import com.picsou.service.CryptoExchangeSyncService;
 import com.picsou.service.DashboardService;
@@ -101,6 +102,7 @@ class McpToolCatalogTest {
             mock(FamilyViewService.class), mock(AccountService.class), mock(UserContext.class));
         SyncTools sync = new SyncTools(
             mock(SyncService.class), mock(TradeRepublicSyncService.class), mock(BoursoSyncService.class),
+            mock(AmexSyncService.class),
             mock(CryptoExchangeSyncService.class), mock(WalletSyncService.class), mock(UserContext.class));
         OAuth2Tools oauth2 = new OAuth2Tools(
             mock(AuthorizationServerSettings.class), mock(OAuthClientProperties.class),

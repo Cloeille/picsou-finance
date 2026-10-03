@@ -36,7 +36,7 @@ const ASSET_FILTER_MAP: Record<AssetFilter, AccountType[] | null> = {
   CHECKING: ['CHECKING'],
   CRYPTO: ['CRYPTO'],
   REAL_ESTATE: ['REAL_ESTATE', 'SCPI'],
-  DEBTS: ['LOAN'],
+  DEBTS: ['LOAN', 'CREDIT_CARD'],
 }
 
 const TYPE_GROUP_META: Record<string, { key: string; labelKey: string; color: string }> = {
@@ -67,6 +67,7 @@ const TYPE_TO_GROUP: Record<AccountType, string> = {
   REAL_ESTATE: 'REAL_ESTATE',
   SCPI: 'REAL_ESTATE',
   LOAN: 'DEBTS',
+  CREDIT_CARD: 'DEBTS',
 }
 
 

@@ -247,8 +247,8 @@ for (const i of [1, 2, 3, 4, 5, 7]) {
   handlers.set(key('GET', `/accounts/${i}/positions`), () => [])
 }
 
-// Account details: transactions for all accounts (1–10)
-for (let i = 1; i <= 10; i++) {
+// Account details: transactions for all accounts
+for (let i = 1; i <= mockAccounts.length; i++) {
   handlers.set(key('GET', `/accounts/${i}/transactions`), () => mockTransactions[i] ?? [])
 }
 
@@ -457,6 +457,10 @@ handlers.set(key('GET', '/accounts/4/history'), () => generateHistory(
 // Checking BoursoBank: smaller balance, fluctuates
 handlers.set(key('GET', '/accounts/5/history'), () => generateHistory(
   [800, 1100, 950, 1300, 1050, 1200, 900, 1350, 1100, 1250, 1400, 1580.9]))
+
+// AMEX card: debt builds up then resets on each monthly debit
+handlers.set(key('GET', '/accounts/12/history'), () => generateHistory(
+  [-640, -910, -720, -1050, -830, -1180, -760, -990, -1120, -870, -1030.5, -1284.6]))
 
 // Crypto: volatile, strong upward trend
 handlers.set(key('GET', '/accounts/6/history'), () => generateHistory(

@@ -17,6 +17,7 @@ public enum AccountType {
     EMPLOYEE_SAVINGS,
     ASSURANCE_VIE,
     SCPI,
+    CREDIT_CARD,
     OTHER;
 
     /**

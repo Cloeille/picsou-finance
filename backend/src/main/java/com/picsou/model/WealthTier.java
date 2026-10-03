@@ -44,7 +44,10 @@ public enum WealthTier {
             case REAL_ESTATE, SCPI, LOAN                                        -> REAL_ESTATE;
             case PEA, COMPTE_TITRES, EMPLOYEE_SAVINGS, ASSURANCE_VIE            -> EQUITY;
             case CRYPTO                                                         -> CRYPTO;
-            case OTHER                                                          -> ALTERNATIVE;
+            // A credit card is a liability, not wealth; it has no natural tier but the
+            // switch must stay total, so it lands here next to OTHER rather than
+            // inflating any real asset class.
+            case CREDIT_CARD, OTHER                                             -> ALTERNATIVE;
         };
     }
 }

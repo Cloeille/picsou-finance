@@ -53,6 +53,15 @@ public class Account extends AuditableEntity {
     @Column(name = "last_synced_at")
     private Instant lastSyncedAt;
 
+    @Column(name = "payment_due_amount", precision = 20, scale = 8)
+    private BigDecimal paymentDueAmount;
+
+    @Column(name = "payment_due_date")
+    private LocalDate paymentDueDate;
+
+    @Column(name = "reward_points")
+    private Long rewardPoints;
+
     @Column(name = "external_account_id", length = 100)
     private String externalAccountId;
 

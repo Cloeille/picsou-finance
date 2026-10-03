@@ -13,6 +13,7 @@ import {
   bourseDirectApi,
   degiroApi,
   amundiApi,
+  amexApi,
   fortuneoApi,
   ibkrApi,
 } from './api'
@@ -21,6 +22,7 @@ import type {
   ChainType,
   FinaryAccountMapping,
   FinaryImportRequest,
+  AmexOtpMethod,
 } from '@/types/api'
 
 // ---------------------------------------------------------------------------
@@ -38,6 +40,7 @@ export const syncKeys = {
   bourseDirect: () => [...syncKeys.all, 'bourse-direct'] as const,
   degiro: () => [...syncKeys.all, 'degiro'] as const,
   amundi: () => [...syncKeys.all, 'amundi'] as const,
+  amex: () => [...syncKeys.all, 'amex'] as const,
   fortuneo: () => [...syncKeys.all, 'fortuneo'] as const,
   ibkr: () => [...syncKeys.all, 'ibkr'] as const,
   exchanges: () => [...syncKeys.all, 'exchanges'] as const,
@@ -552,6 +555,61 @@ export function useClearAmundiSession() {
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// American Express
+// ---------------------------------------------------------------------------
+
+export function useAmexStatus() {
+  return useSidecarSessionStatus(syncKeys.amex(), amexApi.getStatus)
+}
+
+export function useInitiateAmexAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ login, password, method }: { login: string; password: string; [key: string]: string }) =>
+      amexApi.initiateAuth(login, password, method as AmexOtpMethod),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: syncKeys.amex() }),
+  })
+}
+
+export function useCompleteAmexAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ processId, code }: { processId: string; code?: string }) =>
+      amexApi.completeAuth(processId, code ?? ''),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: syncKeys.amex() }),
+  })
+}
+
+export function useSyncAmex() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => amexApi.sync(),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: syncKeys.amex() }),
+  })
+}
+
+export function useRecoverAmexHistory() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => amexApi.recoverHistory(),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.amex() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['history'] })
+    },
+  })
+}
+
+export function useClearAmexSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => amexApi.clearSession(),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: syncKeys.amex() }),
   })
 }
 

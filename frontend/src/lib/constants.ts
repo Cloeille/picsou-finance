@@ -17,6 +17,7 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
   { value: 'SCPI', labelKey: 'accountTypes.scpi' },
   { value: 'EMPLOYEE_SAVINGS', labelKey: 'accountTypes.employeeSavings' },
   { value: 'LOAN', labelKey: 'accountTypes.loan' },
+  { value: 'CREDIT_CARD', labelKey: 'accountTypes.creditCard' },
   { value: 'OTHER', labelKey: 'accountTypes.other' },
 ]
 

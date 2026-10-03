@@ -2,6 +2,7 @@ package com.picsou.mcp.tools;
 
 import com.picsou.mcp.RequiresScope;
 import com.picsou.mcp.Scopes;
+import com.picsou.service.AmexSyncService;
 import com.picsou.service.BoursoSyncService;
 import com.picsou.service.CryptoExchangeSyncService;
 import com.picsou.service.SyncService;
@@ -28,6 +29,7 @@ public class SyncTools {
     private final SyncService syncService;
     private final TradeRepublicSyncService tradeRepublicSyncService;
     private final BoursoSyncService boursoSyncService;
+    private final AmexSyncService amexSyncService;
     private final CryptoExchangeSyncService cryptoExchangeSyncService;
     private final WalletSyncService walletSyncService;
     private final UserContext userContext;
@@ -35,12 +37,14 @@ public class SyncTools {
     public SyncTools(SyncService syncService,
                      TradeRepublicSyncService tradeRepublicSyncService,
                      BoursoSyncService boursoSyncService,
+                     AmexSyncService amexSyncService,
                      CryptoExchangeSyncService cryptoExchangeSyncService,
                      WalletSyncService walletSyncService,
                      UserContext userContext) {
         this.syncService = syncService;
         this.tradeRepublicSyncService = tradeRepublicSyncService;
         this.boursoSyncService = boursoSyncService;
+        this.amexSyncService = amexSyncService;
         this.cryptoExchangeSyncService = cryptoExchangeSyncService;
         this.walletSyncService = walletSyncService;
         this.userContext = userContext;
@@ -63,6 +67,7 @@ public class SyncTools {
         Long memberId = userContext.currentMemberId();
         tradeRepublicSyncService.resyncIfSessionActive(memberId);
         boursoSyncService.resyncIfSessionActive(memberId);
+        amexSyncService.resyncIfSessionActive(memberId);
         return "Broker sync triggered for your active broker sessions.";
     }
 

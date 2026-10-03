@@ -215,6 +215,7 @@
     "logoLedger": "Ledger",
     "total": "Total",
     "currentBalance": "Solde actuel",
+    "currentDebt": "Dette carte",
     "tabOverview": "Aperçu",
     "cashBalance": "Liquidités dans le PEA/CTO",
     "snapshots": "Relevés mensuels",
@@ -253,6 +254,11 @@
       "submit": "Exporter",
       "success": "Export terminé : {{filename}}",
       "empty": "Aucun compte à exporter"
+    },
+    "amex": {
+      "amountDue": "Montant à payer",
+      "dueDate": "Date de prélèvement",
+      "miles": "Miles gagnés ce cycle"
     }
   },
   "analysis": {
@@ -401,7 +407,8 @@
     "other": "Autre",
     "employeeSavings": "Épargne salariale",
     "assuranceVie": "Assurance vie",
-    "scpi": "SCPI"
+    "scpi": "SCPI",
+    "creditCard": "Carte de crédit"
   },
   "realEstate": {
     "purchasePrice": "Prix d'achat",
@@ -815,7 +822,8 @@
         "autoConfirmedDesc": "Détecté et confirmé automatiquement",
         "priceChangeDesc": "Prix passé de {{from}} à {{to}}",
         "acknowledge": "OK"
-      }
+      },
+      "creditCardPayment": "Paiement carte bancaire"
     },
     "categorize": {
       "subtitle": "Affectez une catégorie aux transactions non classées.",
@@ -931,6 +939,7 @@
       "finary": "Importer depuis Finary",
       "manual": "Créer un compte manuellement",
       "amundi": "PEE, PEG, PERCO, PER chez Amundi",
+      "amex": "Carte de crédit American Express : solde et transactions",
       "property": "Maison, appartement, terrain…",
       "fortuneo": "Synchroniser vos comptes Fortuneo"
     }
@@ -1249,6 +1258,41 @@
         "invalidData": "Amundi a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
         "serverError": "Impossible de joindre Amundi. Veuillez réessayer."
       }
+    },
+    "amex": {
+      "title": "American Express",
+      "login": "Identifiant",
+      "password": "Mot de passe",
+      "otpMethod": "Recevoir le code par",
+      "otpMethodSms": "SMS",
+      "otpMethodEmail": "E-mail",
+      "otpCode": "Code à usage unique",
+      "otpPrompt": "Saisissez le code envoyé par American Express.",
+      "connect": "Se connecter",
+      "connecting": "Connexion en cours…",
+      "validate": "Valider le code",
+      "validating": "Validation en cours…",
+      "sync": "Synchroniser",
+      "queued": "Synchronisation en attente…",
+      "syncing": "Synchronisation en cours…",
+      "syncSuccess": "Carte American Express synchronisée.",
+      "clearSession": "Déconnecter",
+      "noSession": "Aucune session active",
+      "sessionActive": "Session active",
+      "scope": "Synchronise votre carte American Express : solde et transactions récentes comptabilisées/en attente. La récupération demande davantage de transactions dans les limites de l’API AMEX.",
+      "errors": {
+        "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
+        "invalidCredentials": "Identifiants American Express invalides.",
+        "invalidCode": "Code à usage unique invalide ou expiré. Veuillez réessayer.",
+        "authAttemptExpired": "La tentative d'authentification a expiré. Recommencez la connexion.",
+        "sessionExpired": "La session American Express a expiré. Veuillez vous reconnecter.",
+        "formatChanged": "Le format du site American Express a changé. Vos données existantes ont été conservées.",
+        "invalidData": "American Express a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
+        "serverError": "Impossible de joindre American Express. Veuillez réessayer."
+      },
+      "historyLimit": "AMEX limite l'historique aux transactions exposées par son API ; les plus anciennes peuvent être indisponibles.",
+      "recoverHistory": "Récupérer l’historique disponible",
+      "recoveringHistory": "Récupération de l’historique…"
     },
     "fortuneo": {
       "title": "Fortuneo",

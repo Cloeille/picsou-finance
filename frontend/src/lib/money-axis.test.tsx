@@ -44,9 +44,9 @@ describe('a chart scale', () => {
       { date: '2026-02-28', balance: 360_000 },
     ]} />)
 
-    // 350 000 renders as "350k" — the tick carries no currency symbol, but the order of magnitude
-    // is exactly what a curve plus its axis discloses.
-    expect(screen.getByTestId('y-ticks')).toHaveTextContent('350k')
+    // 350 000 renders as a compact amount ("350 k €") — the order of magnitude is exactly what a
+    // curve plus its axis discloses.
+    expect(screen.getByTestId('y-ticks').textContent).toMatch(/350\s?k/)
 
     act(() => { useAppStore.getState().setHideAmounts(true) })
 
