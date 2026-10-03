@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A BoursoBank contract invested in a single fund syncs instead of failing the
+  whole import** ([#154](https://github.com/Cloeille/picsou-finance/issues/154)).
+  Its trading summary reports the contract balance and one `fund` node, with no
+  cash, valuation, total or positions list, so the sidecar refused it and every
+  other BoursoBank account went unsynced with it. The contract is now read as
+  fully invested: its balance is the account total and the fund's value, with a
+  zero cash balance. A payload mixing both shapes, or carrying zero or several
+  funds, is still refused.
 - **A BoursoBank position whose gain is reported in a foreign currency is refused
   instead of being recorded as EUR.** The sidecar already refused a line valued in
   USD and dropped a USD cost basis, but read `gainLoss` as EUR whatever its
