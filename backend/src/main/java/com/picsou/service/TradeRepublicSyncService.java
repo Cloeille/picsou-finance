@@ -573,9 +573,12 @@ public class TradeRepublicSyncService {
         return new SessionStatusResponse(active, s.getExpiresAt());
     }
 
-    public void clearSession(Long memberId) {
-        sessionRepository.findByMemberId(memberId).ifPresent(sessionRepository::delete);
+    /** Returns whether a stored session was there to delete. */
+    public boolean clearSession(Long memberId) {
+        var session = sessionRepository.findByMemberId(memberId);
+        session.ifPresent(sessionRepository::delete);
         log.info("Trade Republic session cleared for member {}", memberId);
+        return session.isPresent();
     }
 
     // --- Scheduler entry point ---

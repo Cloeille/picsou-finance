@@ -54,7 +54,10 @@ public class AccountConnectionService {
 
     public enum Kind { WALLET, EXCHANGE, AMUNDI, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, DEGIRO, ENABLE_BANKING }
 
-    /** What deleting an account would cost in a preview, or what it actually removed. */
+    /**
+     * What deleting an account would cost ({@link #describeDeletion}, a prediction) or what it
+     * actually removed ({@link #deleteAccount}).
+     */
     public record DeletionImpact(boolean removesConnection, String connectionLabel) {}
 
     private final AccountRepository accountRepository;
@@ -112,6 +115,9 @@ public class AccountConnectionService {
      *
      * <p>Order matters: the account is deleted first so a connector that runs concurrently
      * finds the soft-deleted row and refuses to rebuild it, rather than racing the removal.
+     *
+     * <p>The returned impact reports a removal only when a wallet row, exchange session, stored
+     * session or requisition was actually there to remove.
      */
     public DeletionImpact deleteAccount(Long accountId, Long memberId) {
         Account account = accountRepository.findByIdAndMemberId(accountId, memberId)
@@ -126,11 +132,16 @@ public class AccountConnectionService {
 
         ConnectionRef ref = connection.get();
         String connectionLabel = label(ref, account, memberId);
-        removeConnection(ref, memberId);
-        return new DeletionImpact(true, connectionLabel);
+        return removeConnection(ref, memberId)
+            ? new DeletionImpact(true, connectionLabel)
+            : new DeletionImpact(false, null);
     }
 
-    /** Whether deleting this account would also remove its connection, and which one. */
+    /**
+     * Preview: whether deleting this account would also remove its connection, and which one.
+     * A prediction, not a promise -- {@link #deleteAccount} reports what actually happened, which
+     * differs if a sibling account appears or the connection is already gone in between.
+     */
     @Transactional(readOnly = true)
     public DeletionImpact describeDeletion(Long accountId, Long memberId) {
         Account account = accountRepository.findByIdAndMemberId(accountId, memberId)
@@ -203,14 +214,23 @@ public class AccountConnectionService {
             .anyMatch(other -> resolve(other).filter(ref::equals).isPresent());
     }
 
-    private void removeConnection(ConnectionRef ref, Long memberId) {
+    /** Returns whether there was anything left to remove. */
+    private boolean removeConnection(ConnectionRef ref, Long memberId) {
         log.info("Removing {} connection {} -- its last account was deleted", ref.kind(), ref.discriminator());
-        switch (ref.kind()) {
+        return switch (ref.kind()) {
             case WALLET -> walletRepository
                 .findByIdAndMemberId(Long.valueOf(ref.discriminator()), memberId)
-                .ifPresent(w -> walletSyncService.removeWallet(w.getId(), memberId));
+                .map(w -> {
+                    walletSyncService.removeWallet(w.getId(), memberId);
+                    return true;
+                })
+                .orElse(false);
             case EXCHANGE -> exchangeSession(ref, memberId)
-                .ifPresent(s -> cryptoExchangeSyncService.removeExchange(s.getId(), memberId));
+                .map(s -> {
+                    cryptoExchangeSyncService.removeExchange(s.getId(), memberId);
+                    return true;
+                })
+                .orElse(false);
             case AMUNDI -> amundiSyncService.clearSession(memberId);
             case TRADE_REPUBLIC -> tradeRepublicSyncService.clearSession(memberId);
             case BOURSE_DIRECT -> bourseDirectSyncService.clearSession(memberId);
@@ -218,8 +238,13 @@ public class AccountConnectionService {
             case FORTUNEO -> fortuneoSyncService.clearSession(memberId);
             case DEGIRO -> degiroSyncService.clearSession(memberId);
             case IBKR -> ibkrSyncService.deleteConnection(memberId);
-            case ENABLE_BANKING -> syncService.deleteRequisition(Long.valueOf(ref.discriminator()), memberId);
-        }
+            case ENABLE_BANKING -> {
+                // Throws when the requisition is missing, which the ON DELETE SET NULL foreign key
+                // rules out: a resolved requisition_id still points at a row.
+                syncService.deleteRequisition(Long.valueOf(ref.discriminator()), memberId);
+                yield true;
+            }
+        };
     }
 
     /** Human name for the connection, so the confirmation can say what it is about to remove. */

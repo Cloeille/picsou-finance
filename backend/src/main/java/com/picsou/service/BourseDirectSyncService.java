@@ -541,10 +541,13 @@ public class BourseDirectSyncService {
             .orElseGet(SessionStatusResponse::inactive);
     }
 
-    public void clearSession(Long memberId) {
-        txTemplate.executeWithoutResult(status ->
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete)
-        );
+    /** Returns whether a stored session was there to delete. */
+    public boolean clearSession(Long memberId) {
+        return Boolean.TRUE.equals(txTemplate.execute(status -> {
+            var session = sessionRepository.findByMemberIdForUpdate(memberId);
+            session.ifPresent(sessionRepository::delete);
+            return session.isPresent();
+        }));
     }
 
     public void resyncIfSessionActive(Long memberId) {

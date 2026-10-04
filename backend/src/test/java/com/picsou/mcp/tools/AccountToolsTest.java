@@ -187,6 +187,7 @@ class AccountToolsTest {
         boursoAccount.setExternalAccountId("bourso_123");
         when(fixture.accountRepository().findByIdAndMemberId(5L, MID)).thenReturn(java.util.Optional.of(boursoAccount));
         when(fixture.accountRepository().findAllByMemberIdOrderByCreatedAtAsc(MID)).thenReturn(java.util.List.of(boursoAccount));
+        when(fixture.boursoSyncService().clearSession(MID)).thenReturn(true);
         AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service());
         DeletionImpact impact = toolsWithReal.deleteAccount(5L);
         assertThat(impact.removesConnection()).isTrue();
@@ -242,6 +243,7 @@ class AccountToolsTest {
             liveAccounts.set(List.of(cash));
             return null;
         }).when(fixture.accountService()).delete(5L, MID);
+        when(fixture.tradeRepublicSyncService().clearSession(MID)).thenReturn(true);
         AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service());
 
         DeletionImpact impact = toolsWithReal.deleteAccount(5L);

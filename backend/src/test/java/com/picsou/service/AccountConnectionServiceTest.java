@@ -99,9 +99,35 @@ class AccountConnectionServiceTest {
         when(exchangeSessionRepository.findByExchangeTypeAndMemberId(ExchangeType.MERIA, MEMBER_ID))
             .thenReturn(Optional.of(session));
 
-        service().deleteAccount(10L, MEMBER_ID);
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
 
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(true, "MERIA"));
         verify(cryptoExchangeSyncService).removeExchange(7L, MEMBER_ID);
+    }
+
+    /** The wallet row went first (removed from the wallets page): nothing left to remove. */
+    @Test
+    void reportsNoRemovalWhenTheWalletRowIsAlreadyGone() {
+        given(account(10L, "wallet_bitcoin_2"));
+        when(walletRepository.findByIdAndMemberId(2L, MEMBER_ID)).thenReturn(Optional.empty());
+
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
+
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(accountService).delete(10L, MEMBER_ID);
+        verify(walletSyncService, never()).removeWallet(anyLong(), anyLong());
+    }
+
+    @Test
+    void reportsNoRemovalWhenTheExchangeSessionIsAlreadyGone() {
+        given(account(10L, "crypto_exchange_meria"));
+        when(exchangeSessionRepository.findByExchangeTypeAndMemberId(ExchangeType.MERIA, MEMBER_ID))
+            .thenReturn(Optional.empty());
+
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
+
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(cryptoExchangeSyncService, never()).removeExchange(any(), any());
     }
 
     @Test
@@ -143,10 +169,35 @@ class AccountConnectionServiceTest {
     @Test
     void clearsTheAmundiSessionWithItsLastPlan() {
         given(account(10L, "amundi_0001655730"));
+        when(amundiSyncService.clearSession(MEMBER_ID)).thenReturn(true);
 
-        service().deleteAccount(10L, MEMBER_ID);
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
 
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(true, "Amundi"));
         verify(amundiSyncService).clearSession(MEMBER_ID);
+    }
+
+    /** Logged out from the Amundi page earlier: the last plan goes, but no session was left. */
+    @Test
+    void reportsNoRemovalWhenNoSessionIsStored() {
+        given(account(10L, "amundi_0001655730"));
+        when(amundiSyncService.clearSession(MEMBER_ID)).thenReturn(false);
+
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
+
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(accountService).delete(10L, MEMBER_ID);
+        verify(amundiSyncService).clearSession(MEMBER_ID);
+    }
+
+    @Test
+    void reportsNoRemovalWhenTheIbkrConnectionIsAlreadyGone() {
+        given(account(10L, "ibkr_U1234567"));
+        when(ibkrSyncService.deleteConnection(MEMBER_ID)).thenReturn(false);
+
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
+
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
     }
 
     /** Trade Republic writes a cash and a securities account from a single session. */
@@ -319,8 +370,9 @@ class AccountConnectionServiceTest {
     void deletesCleanlyWhenTheExchangeTypeIsUnknown() {
         given(account(10L, "crypto_exchange_defunctexchange"));
 
-        service().deleteAccount(10L, MEMBER_ID);
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
 
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
         verify(accountService).delete(10L, MEMBER_ID);
         verify(cryptoExchangeSyncService, never()).removeExchange(any(), any());
     }
