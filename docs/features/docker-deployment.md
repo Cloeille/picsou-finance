@@ -250,11 +250,13 @@ re-running V93–V99.
 The callback only renames history rows. It does not reconcile a schema that changed while Flyway
 was off. If objects exist that the history does not record (a table or column created by hand, or
 by an image that ran with Flyway disabled), the first migration that creates them again fails with
-`already exists`. PostgreSQL rolls that migration back and the application does not start. Nothing
-else changes, and the renumbered rows stay correct for the next attempt. The log names the failing
-script. Reconcile by hand: either restore a backup taken before the drift and let Flyway apply the
-migrations, or, once you have checked that every object the failing migration creates is present
-and identical, add its row to `flyway_schema_history` yourself. Do not keep
+`already exists` and the application does not start. Flyway commits each migration on its own, so
+only the failing one is rolled back. The renumbered rows and every migration that succeeded earlier
+in that start stay applied and recorded. For example, with a history that stops at the old V80/V81
+rows, V80 `widen tr and degiro session tokens` is applied and committed before V82 fails. The log
+names the failing script. Reconcile by hand: either restore the backup taken before the upgrade and
+fix the drift before starting again, or, once you have checked that every object the failing
+migration creates is present and identical, add its row to `flyway_schema_history` yourself. Do not keep
 `SPRING_FLYWAY_ENABLED=false` as a lasting fix.
 
 ### Build version shown in the app
