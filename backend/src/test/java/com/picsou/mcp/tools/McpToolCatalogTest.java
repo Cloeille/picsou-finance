@@ -7,19 +7,16 @@ import com.picsou.mcp.RequiresScope;
 import com.picsou.mcp.Scopes;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.AccountService;
-import com.picsou.service.BoursoSyncService;
-import com.picsou.service.CryptoExchangeSyncService;
 import com.picsou.service.DashboardService;
+import com.picsou.service.MemberSyncService;
+import com.picsou.service.SyncStatusService;
+import com.picsou.service.UserContext;
 import com.picsou.service.FamilyViewService;
 import com.picsou.service.GoalService;
 import com.picsou.service.HistoryService;
 import com.picsou.service.ManualTransactionService;
 import com.picsou.service.MfaService;
 import com.picsou.service.PriceService;
-import com.picsou.service.SyncService;
-import com.picsou.service.TradeRepublicSyncService;
-import com.picsou.service.UserContext;
-import com.picsou.service.WalletSyncService;
 import com.picsou.service.budget.BudgetService;
 import com.picsou.service.budget.CashflowFlowService;
 import com.picsou.service.budget.CashflowService;
@@ -33,6 +30,7 @@ import org.springframework.ai.tool.annotation.Tool;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -65,8 +63,9 @@ class McpToolCatalogTest {
         "delete_goal", "set_goal_month_contribution", "create_recurring_investment",
         // dashboard:read / family:read / prices:read (read-only insights)
         "get_dashboard", "get_net_worth_history", "get_profit_and_loss", "get_family_dashboard", "get_price",
-        // sync:trigger (refresh existing connections only)
-        "trigger_bank_sync", "trigger_broker_sync", "trigger_crypto_exchange_sync", "trigger_crypto_wallet_sync",
+        // sync:trigger / sync:read
+        "trigger_full_sync", "trigger_bank_sync", "trigger_broker_sync",
+        "trigger_crypto_exchange_sync", "trigger_crypto_wallet_sync", "get_sync_status",
         // oauth2:discover / oauth2:session-status
         "get_oauth2_configuration", "get_oauth2_session_status",
         // budget:categories-read / budget:categories-write
@@ -100,8 +99,7 @@ class McpToolCatalogTest {
             mock(DashboardService.class), mock(HistoryService.class), mock(PriceService.class),
             mock(FamilyViewService.class), mock(AccountService.class), mock(UserContext.class));
         SyncTools sync = new SyncTools(
-            mock(SyncService.class), mock(TradeRepublicSyncService.class), mock(BoursoSyncService.class),
-            mock(CryptoExchangeSyncService.class), mock(WalletSyncService.class), mock(UserContext.class));
+            mock(MemberSyncService.class), mock(SyncStatusService.class), mock(UserContext.class), new HashMap<>());
         OAuth2Tools oauth2 = new OAuth2Tools(
             mock(AuthorizationServerSettings.class), mock(OAuthClientProperties.class),
             mock(AccessKeyService.class), mock(MfaService.class), mock(UserContext.class));

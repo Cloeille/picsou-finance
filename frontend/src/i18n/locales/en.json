@@ -1591,6 +1591,10 @@
         "label": "Sync",
         "desc": "Refresh existing bank, crypto and broker connections"
       },
+      "sync_read": {
+        "label": "Sync status",
+        "desc": "View the last result and reauthentication need of existing connections"
+      },
       "budget_categories-read": {
         "label": "Budget categories",
         "desc": "View budget categories (income, expense, transfer)"

@@ -1319,6 +1319,10 @@
         "label": "Sincronización",
         "desc": "Actualizar las conexiones existentes de bancos, cripto y brókeres"
       },
+      "sync_read": {
+        "label": "Estado de sincronización",
+        "desc": "Ver el último resultado y si las conexiones existentes necesitan reconexión"
+      },
       "budget_categories-read": {
         "label": "Categorías de presupuesto",
         "desc": "Ver categorías de presupuesto (ingresos, gastos, transferencias)"

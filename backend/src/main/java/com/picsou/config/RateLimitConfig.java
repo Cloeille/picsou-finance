@@ -241,6 +241,17 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-member cooldown for MCP-triggered syncs only. The 08:00 scheduler does not use it.
+     * One token per 15 minutes stops an agent loop; four per day is the unattended bank-access
+     * budget that loop would otherwise burn. In-memory, like every other bucket here: a restart
+     * clears it.
+     */
+    @Bean("mcpMemberSyncBuckets")
+    public Map<Long, Bucket> mcpMemberSyncBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-member access-key creation limiter: keyed by member id (not IP), because the
      * {@code POST /api/access-keys} endpoint is cookie-authenticated and self-service — the member is
      * the correct abuse boundary, so an attacker with a stolen session can't mint keys faster than this
@@ -488,6 +499,23 @@ public class RateLimitConfig {
             .addLimit(Bandwidth.builder()
                 .capacity(10)
                 .refillIntervally(10, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    /**
+     * MCP sync cooldown: at most one trigger per member every 15 minutes, and four per day.
+     * The short window is what an agent loop hits; the daily window is the PSD2-style budget.
+     */
+    public static Bucket createMcpMemberSyncBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(1)
+                .refillIntervally(1, Duration.ofMinutes(15))
+                .build())
+            .addLimit(Bandwidth.builder()
+                .capacity(4)
+                .refillIntervally(4, Duration.ofHours(24))
                 .build())
             .build();
     }

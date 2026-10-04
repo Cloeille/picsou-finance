@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An MCP client can refresh every existing connector and read whether one needs a new login.**
+  `trigger_full_sync` runs the same per-member sync as the 08:00 job and returns one line per
+  source, so a failed bank or a broker that needs reauthentication is named instead of hidden
+  behind a success sentence. The older trigger tools are filters over that same list. A second
+  trigger for the same member within 15 minutes, or a fifth in a day, answers with how many
+  minutes to wait and does not call the banks. `get_sync_status` (`sync:read`) reports the last
+  sync time and the reauthentication flag without starting a sync.
+
 - **Crypto holdings show the coin's logo next to their ticker.** A position is easier to
   recognise at a glance than by reading its ticker. The mark comes from CoinGecko, which
   already prices the same coins, and a whole page resolves in a single request — nothing

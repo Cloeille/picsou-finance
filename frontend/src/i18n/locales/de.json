@@ -1319,6 +1319,10 @@
         "label": "Sync",
         "desc": "Bestehende Bank-, Krypto- und Broker-Verbindungen aktualisieren"
       },
+      "sync_read": {
+        "label": "Sync-Status",
+        "desc": "Letztes Ergebnis und erneuten Anmeldungsbedarf bestehender Verbindungen ansehen"
+      },
       "budget_categories-read": {
         "label": "Budgetkategorien",
         "desc": "Budgetkategorien einsehen (Einnahmen, Ausgaben, Umbuchungen)"

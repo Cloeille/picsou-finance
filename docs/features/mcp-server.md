@@ -1,6 +1,6 @@
 # Feature: Embedded MCP server + scoped access-keys
 
-> Last updated: 2026-06-26
+> Last updated: 2026-10-04
 
 ## Context
 
@@ -120,7 +120,8 @@ Every tool acts only on the key owner's own data; writes are restricted to **man
 | `accounts:write` | `create_manual_account`, `update_account`, `delete_account`, `add_balance_snapshot`, `upsert_holding`, `delete_holding` |
 | `transactions:write` | `add_transaction`, `update_transaction`, `delete_transaction` |
 | `goals:write` | `create_goal`, `update_goal`, `delete_goal`, `set_goal_month_contribution` |
-| `sync:trigger` | `trigger_bank_sync`, `trigger_broker_sync`, `trigger_crypto_exchange_sync`, `trigger_crypto_wallet_sync` |
+| `sync:read` | `get_sync_status` |
+| `sync:trigger` | `trigger_full_sync`, `trigger_bank_sync`, `trigger_broker_sync`, `trigger_crypto_exchange_sync`, `trigger_crypto_wallet_sync` |
 
 **Never exposed** (no `@Tool` exists, so no scope can reach them): authentication / credential
 flows, connecting a new bank / broker / exchange / wallet, MFA, admin settings, member management,
@@ -157,6 +158,13 @@ and GDPR data export.
   SSE events are withheld and the stream stalls. Configured in `frontend/nginx.conf`, `docker/nginx.conf`,
   and the Vite dev proxy (`frontend/vite.config.ts`). Forgetting it yields a `404` (or, if `/` is a SPA
   fallback, an HTML page) on `/mcp` while the backend is perfectly healthy on `:8080/mcp`.
+- **MCP sync triggers share one per-member cooldown.** `trigger_full_sync` and the four older
+  trigger tools all call `MemberSyncService` and share `mcpMemberSyncBuckets`: one sync per member
+  every 15 minutes, and four per day. A blocked call returns `Try again in N min` and does not
+  touch the banks. `get_sync_status` (`sync:read`) does not consume the cooldown. The 08:00
+  scheduler does not use the bucket. The store is in-memory, like the other limiters, so a restart
+  clears it — it stops an agent loop, it is not a durable PSD2 counter. Trade Republic has no
+  last-sync column, so its status line says `lastSync=none`.
 - **`SyncTools` must be named `@Component("picsouSyncTools")`.** Spring AI's
   `McpServerAutoConfiguration` already defines a bean named `syncTools` (the SYNC server's tool-spec
   list). A `@Component` defaulting to `syncTools` collides with it and aborts the context
@@ -189,7 +197,10 @@ Backend (H2, `mvn test`):
 - `mcp/ScopesTest`, `mcp/ScopeSetConverterTest` — vocabulary + converter round-trip.
 - `mcp/ScopeEnforcementAspectTest` — **denial** when the required scope is absent.
 - `mcp/tools/McpToolCatalogTest` — **curation guard**: pins the exact advertised tool set (no auth/credential/admin tool).
-- `mcp/tools/{Account,Transaction,Goal,Insight,Sync}ToolsTest` — delegation + member-scoping per tool.
+- `mcp/tools/{Account,Transaction,Goal,Insight}ToolsTest` — delegation + member-scoping per tool.
+- `mcp/tools/SyncToolsTest` — every trigger is a filter over `MemberSyncService`, failures stay visible, and the cooldown blocks a second call.
+- `service/SyncStatusServiceTest` — last sync, status and reauth flag per connection; a secret never appears in the text.
+- `mcp/SyncToolsSseTest` — real SSE transport: `GET /mcp`, then `tools/call trigger_full_sync` with a `sync:trigger` key, and the per-source summary comes back. The sync itself is stubbed so the test does not call a bank.
 - `config/AccessKeyAuthFilterTest` — Property A (key on `/api/**` ⇒ not authenticated; on `/mcp` ⇒ authenticated), Property C (scope authorities only), throttle 429.
 - `service/UserContextTest` — Property B (`AccessKeyAuthentication` ⇒ override returns `null`, even for an admin-owned key).
 - `controller/AccessKeyControllerTest` — create/list/revoke, one-time secret, unknown-scope 400, member isolation, create throttle.
@@ -200,10 +211,9 @@ Frontend (`bunx vitest run`):
 - `frontend/src/features/accessKeys/status.test.ts` — `keyStatus` (revoked > expired > active, boundary at "now").
 
 **Not covered by unit tests** (they run on a single thread, so they can't reproduce it): the
-cross-thread `SecurityContext` propagation and the `/mcp` reverse-proxy route. Both are verified by
-driving the **real SSE transport** end to end — open `GET /mcp`, read the `endpoint` event, then
-`POST /mcp/message` an `initialize` + `tools/call` and assert a scoped tool returns data. Run that
-against `:8080` (backend) and the public origin to cover both the propagation fix and the proxy chain.
+cross-thread `SecurityContext` propagation. `SyncToolsSseTest` covers that hop for
+`trigger_full_sync` against the embedded server. The `/mcp` reverse-proxy route is still only
+verified by driving the same exchange against the public origin.
 
 ## Links
 

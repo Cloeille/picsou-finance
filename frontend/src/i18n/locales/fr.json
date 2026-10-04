@@ -1591,6 +1591,10 @@
         "label": "Synchronisation",
         "desc": "Rafraîchir les connexions bancaires, crypto et courtier existantes"
       },
+      "sync_read": {
+        "label": "État des synchronisations",
+        "desc": "Voir le dernier résultat et le besoin de reconnexion des connexions existantes"
+      },
       "budget_categories-read": {
         "label": "Catégories budgétaires",
         "desc": "Voir les catégories budgétaires (revenus, dépenses, virements)"
