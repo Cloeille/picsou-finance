@@ -14,6 +14,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useImportActualBudget, usePlanActualImport, usePreviewActualBudget } from '@/features/actual/hooks'
 import type {
   ActualAccountMapping,
+  ActualAccountPreview,
   ActualCategoryMapping,
   ActualImportPlan,
   ActualImportRequest,
@@ -47,19 +48,22 @@ function isPlan(data: unknown): data is ActualImportPlan {
     && typeof value.largeDeletion === 'boolean'
 }
 
-function compatibleAccounts(preview: ActualPreviewResponse, currency: string) {
-  return preview.existingAccounts.filter((item) => item.currency === currency && !NON_LEDGER_TYPES.includes(item.type))
+/**
+ * An account an Actual import created belongs to the source account it was created for: offered
+ * to another source, a re-import of its own file would treat that source's rows as its ledger.
+ */
+function compatibleAccounts(preview: ActualPreviewResponse, account: ActualAccountPreview, currency: string) {
+  const actualAccountIds = new Set(preview.actualAccountIds)
+  return preview.existingAccounts.filter((item) => item.currency === currency && !NON_LEDGER_TYPES.includes(item.type)
+    && (!actualAccountIds.has(item.id) || item.id === account.importedAccountId))
 }
 
 function initialAccountMappings(preview: ActualPreviewResponse, currency: string): ActualAccountMapping[] {
-  const compatible = compatibleAccounts(preview, currency)
-  const actualAccountIds = new Set(preview.actualAccountIds)
   return preview.accounts.map((account, index) => {
-    // The account an earlier import created for this very source wins. An account an import
-    // created for another source or budget is never matched by name: the re-import would treat
-    // it as that source's ledger.
+    const compatible = compatibleAccounts(preview, account, currency)
+    // The account an earlier import created for this very source wins over a same-name account.
     const match = compatible.find((item) => item.id === account.importedAccountId)
-      ?? compatible.find((item) => item.name === account.name && !actualAccountIds.has(item.id))
+      ?? compatible.find((item) => item.name === account.name)
     // newAccount is kept even when mapping to an existing account, so switching back to
     // "create" restores the suggested details; the request strips it for other actions.
     return {
@@ -307,7 +311,7 @@ export function ActualBudgetTab() {
             <h3 className="font-semibold">{t('sync.actual.accounts')}</h3>
             {preview.accounts.map((account, index) => {
               const mapping = accountMappings[index]
-              const compatible = compatibleAccounts(preview, currency)
+              const compatible = compatibleAccounts(preview, account, currency)
               return (
                 <Card key={account.sourceId} size="sm">
                   <CardContent className="space-y-3 pt-0">

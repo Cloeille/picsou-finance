@@ -873,7 +873,7 @@
       "largeDeletion": "Achtung: Dieser Import löscht {{count}} Transaktionen, einen großen Teil des Verlaufs eines Kontos. Prüfen Sie, ob jedes Actual-Konto dem richtigen Picsou-Konto zugeordnet ist.",
       "confirmDescription": "Ein Konto, das ein Actual-Import für ein Konto dieser Datei erstellt hat, folgt der Datei: In Actual gelöschte oder aufgeteilte Transaktionen werden gelöscht, in Actual verschobene folgen ihrem Konto. Andere Konten (Ihre eigenen oder für ein anderes Budget erstellte) erhalten nur neue Transaktionen. Bei einem Prüffehler wird nichts geschrieben.",
       "warnings": {
-        "KEPT_MISSING": "{{count}} in Actual gelöschte oder aufgeteilte Transaktionen bleiben auf Konten, die nicht zu dieser Datei gehören; löschen Sie sie bei Bedarf von Hand.",
+        "KEPT_MISSING": "{{count}} zuvor in diese Konten importierte Transaktionen sind nicht in dieser Datei. Sie können aus einer anderen Datei stammen oder in Actual gelöscht worden sein. Es wurde nichts geändert.",
         "KEPT_MOVED": "{{count}} bereits in ein anderes Konto importierte Transaktionen bleiben, wo sie sind, da dieses Konto der Datei nicht folgt."
       },
       "errors": {

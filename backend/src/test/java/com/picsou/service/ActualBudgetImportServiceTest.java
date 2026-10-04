@@ -313,19 +313,31 @@ class ActualBudgetImportServiceTest {
     }
 
     @Test
-    void anotherBudgetMappedOntoAnImportedAccountOfTheSameNameNeverDeletesItsHistory() {
+    void refusesToMapAnotherBudgetOntoAnAccountAnImportCreated() {
         service.executeImport(createEverything(preview()), MEMBER);
         Account checking = accountWithExternalId("actual_acc-checking");
         Request request = withAccount(createEverything(preview(otherBudget())), "b2-checking",
                 new AccountMapping("b2-checking", FinaryMappingAction.MAP_EXISTING, checking.getId(), null));
-        List<Warning> warnings = List.of(new Warning(WarningReason.KEPT_MISSING, 7));
+        String refusal = "This account was created by another Actual import; map it from that file or"
+                + " create a new account";
 
-        assertThat(service.planImport(request, MEMBER)).isEqualTo(new Plan(1, 0, 0, warnings, false));
-        Result result = service.executeImport(request, MEMBER);
+        assertThatThrownBy(() -> service.planImport(request, MEMBER))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage(refusal);
+        assertThatThrownBy(() -> service.executeImport(request, MEMBER))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage(refusal);
+        assertThat(transactions).hasSize(8).allMatch(t -> t.getExternalId().startsWith("actual_t-"));
+        assertThat(checking.getCurrentBalance()).isEqualByComparingTo("2915.66");
+    }
 
-        assertThat(result).isEqualTo(new Result(0, 1, 0, 0, 1, 0, 0, 0, warnings));
-        assertThat(transactions).hasSize(9).filteredOn(t -> t.getAccount() == checking).hasSize(8);
-        assertThat(checking.getCurrentBalance()).isEqualByComparingTo("2910.66");
+    @Test
+    void refusesToMapASourceOntoTheAccountAnImportCreatedForAnotherSourceOfTheSameFile() {
+        service.executeImport(createEverything(preview()), MEMBER);
+        Request request = mapCheckingOnto(accountWithExternalId("actual_acc-savings"), preview());
+
+        assertThatThrownBy(() -> service.executeImport(request, MEMBER))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("This account was created by another Actual import; map it from that file or"
+                        + " create a new account");
     }
 
     @Test

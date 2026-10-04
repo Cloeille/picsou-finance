@@ -235,10 +235,12 @@ describe('ActualBudgetTab', () => {
         { id: 31, name: 'Everyday', currency: 'EUR', type: 'CHECKING' },
         { id: 35, name: 'Everyday (Actual)', currency: 'EUR', type: 'CHECKING' },
       ],
+      actualAccountIds: [35],
     })
 
     const account = await screen.findByLabelText('sync.actual.targetAccount')
     expect(account).toHaveValue('35')
+    expect(Array.from(account.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '31', '35'])
     expect(screen.getByText('sync.actual.previouslyImported')).toBeInTheDocument()
     fireEvent.change(account, { target: { value: '31' } })
     expect(screen.queryByText('sync.actual.previouslyImported')).not.toBeInTheDocument()
@@ -248,10 +250,14 @@ describe('ActualBudgetTab', () => {
     expect(request.accountMappings).toEqual([{ sourceId: 'acc-1', action: 'MAP_EXISTING', targetAccountId: 35 }])
   })
 
-  it('never pre-selects by name an account an import created for another Actual account', async () => {
+  it('offers an account an import created only to the Actual account it was created for', async () => {
     renderTab()
     await uploadPreview({
       ...preview,
+      accounts: [
+        { ...preview.accounts[0], importedAccountId: 36 },
+        { ...preview.accounts[0], sourceId: 'b2-checking', importedAccountId: null },
+      ],
       existingAccounts: [
         { id: 36, name: 'Everyday', currency: 'EUR', type: 'CHECKING' },
         { id: 31, name: 'Everyday', currency: 'EUR', type: 'CHECKING' },
@@ -259,7 +265,11 @@ describe('ActualBudgetTab', () => {
       actualAccountIds: [36],
     })
 
-    expect(await screen.findByLabelText('sync.actual.targetAccount')).toHaveValue('31')
+    const [own, other] = await screen.findAllByLabelText('sync.actual.targetAccount')
+    expect(own).toHaveValue('36')
+    expect(Array.from(own.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '36', '31'])
+    expect(other).toHaveValue('31')
+    expect(Array.from(other.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '31'])
   })
 
   it('creates a new account rather than reuse another budget\'s imported account of the same name', async () => {

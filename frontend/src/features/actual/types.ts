@@ -40,7 +40,7 @@ export interface ActualPreviewResponse {
   accounts: ActualAccountPreview[]
   categories: ActualCategoryPreview[]
   existingAccounts: Account[]
-  /** Existing accounts any Actual import created; never pre-selected by name. */
+  /** Existing accounts any Actual import created; each is offered only to its own source account. */
   actualAccountIds: number[]
   existingCategories: Category[]
   sampleTransactions: ActualSampleTransaction[]
@@ -74,10 +74,10 @@ export interface ActualImportRequest {
 }
 
 /**
- * Rows a re-import leaves on an append-only account (one the user created, or one an import
- * created for another source): KEPT_MISSING rows no longer exist in Actual (deleted, or a parent
- * since split), KEPT_MOVED rows now belong to another Actual account or were imported into an
- * account this request does not target.
+ * Rows a re-import leaves on an append-only account (one the user created): KEPT_MISSING rows
+ * imported earlier are not in this file (another file imported them, or Actual deleted them),
+ * KEPT_MOVED rows now belong to another Actual account or were imported into an account this
+ * request does not target.
  */
 export type ActualWarningReason = 'KEPT_MISSING' | 'KEPT_MOVED'
 export interface ActualImportWarning {

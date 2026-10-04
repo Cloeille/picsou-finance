@@ -1720,7 +1720,8 @@ See [Actual Budget import](../../docs/features/actual-budget-import.md).
   `transactionCount`, `importedAccountId` = the account an earlier import created for this
   source, or `null`), `categories[]` (`sourceId`, `name`, `groupName`, `income`,
   `transactionCount`), `existingAccounts[]`, `actualAccountIds[]` (the existing accounts any
-  Actual import created, which the wizard never pre-selects by name), `existingCategories[]`,
+  Actual import created, which the wizard offers only to the source they were created for),
+  `existingCategories[]`,
   `sampleTransactions[]`
   (newest 20: `sourceId`, `accountSourceId`, `date`, `amount`, `payee`, `notes`,
   `categorySourceId`, `kind` = `REGULAR` | `TRANSFER` | `STARTING_BALANCE`),
@@ -1768,9 +1769,10 @@ loan account types are refused (the file holds cash ledgers, and Picsou stores a
 positive amount owed). `MAP_EXISTING` categories must be active and of the same kind
 (income/expense). On a re-import, an account an Actual import created for a source account of
 this file (`externalAccountId = actual_<source id>`), mapped from that same source, follows the
-file: rows no longer in Actual are deleted, rows moved to another such account are moved. Every
-other account (the user's, or one created for another source or budget) only receives new
-rows; rows missing or moved there are kept and reported as warnings. When the plan reports
+file: rows no longer in Actual are deleted, rows moved to another such account are moved.
+`MAP_EXISTING` onto an `actual_<X>` account from a source other than `X` is refused with `400`.
+Every other account (the user's) only receives new rows; rows missing or moved there are kept
+and reported as warnings. When the plan reports
 `largeDeletion`, the import is refused with `400` unless `acknowledgeLargeDeletion` is `true`
 (optional, defaults to `false`). Every touched account an Actual import created gets its balance and
 snapshots recomputed from its full ledger, whichever action maps it; accounts the user created

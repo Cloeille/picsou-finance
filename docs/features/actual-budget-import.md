@@ -23,9 +23,10 @@ Two phases, the same shape as the Finary XLSX and CSV importers:
    existing accounts and categories for mapping. Each source account also carries
    `importedAccountId`, the Picsou account an earlier import created for it; the wizard
    pre-selects that account as the target and says its balance follows the imported history.
-   Otherwise it pre-selects a same-name account, but never one listed in `actualAccountIds`
-   (accounts any Actual import created): mapped from another source, it would not follow the
-   file, and the old wizard pre-selected budget 1's account for budget 2's same-name account.
+   Otherwise it pre-selects a same-name account. An account listed in `actualAccountIds`
+   (accounts any Actual import created) is offered only to the source it was created for
+   (`importedAccountId`); every other source's target list leaves it out, since the backend
+   refuses that mapping (see Mapping).
 2. **Plan** (`POST /api/actual/import/plan`). A dry run of execute with the same request: it
    runs every validation and returns how many rows the import would add, delete and move, plus
    the warnings below and `largeDeletion`. It writes nothing and does not consume the token.
@@ -47,15 +48,16 @@ the file by its `actual_<transaction id>`, never by date.
 
 A target is **synchronised** when its `externalAccountId` is `actual_<S>` and this request maps
 source account `S` of this file onto it (`CREATE_NEW` reuses it, `MAP_EXISTING` may pick it).
-An account `CREATE_NEW` is about to create is synchronised by construction. Every other target
-is **append-only**: an account the user created, and also an `actual_*` account created for a
-source that is not in this file (another budget) or mapped from a different source.
+An account `CREATE_NEW` is about to create is synchronised by construction. Mapping an
+`actual_*` account from any other source is refused (see Mapping), so every other target is an
+account the user created and is **append-only**. A synchronised account therefore only ever
+receives rows of its own source, and only its own file can delete from it.
 
 | Stored row | Account kind | Outcome |
 |------------|--------------|---------|
 | Same Actual id, same target account | any | unchanged (counted as skipped) |
 | Actual id no longer emitted (deleted in Actual, or a parent since split into children) | synchronised target | **deleted** |
-| | append-only target | kept, warning `KEPT_MISSING` |
+| | append-only target | kept, warning `KEPT_MISSING` ("N transactions imported earlier into these accounts are not in this file. They may come from another file or have been deleted in Actual. Nothing was changed.") |
 | Actual id now in another Actual account | both synchronised (or the new one being created) | **moved** (`account_id` updated) |
 | | otherwise, including a row on an account this request does not target | kept where it is, warning `KEPT_MOVED` |
 | Row still on `actual_<S>`, its Actual account `S` now mapped elsewhere | | **refused** ("The Actual account 'X' was imported into 'Y' before; map it to that account to update it") |
@@ -67,6 +69,12 @@ Warnings are `{reason, count}` in both the plan and the result.
 account's `actual_` rows, sets `largeDeletion`. Execute refuses it unless the request carries
 `acknowledgeLargeDeletion: true`, which the wizard sends only after the typed confirmation. It
 is a safety net against a wrong mapping, independent of the ownership rule above.
+
+**Data from before the ownership refusal.** Rows do not record their source account. If an
+older build let budget B append rows to budget A's `actual_*` account, a re-import of A cannot
+tell them from rows Actual deleted: it counts them as deletions, accurately, and the
+large-deletion acknowledgement applies to that count. A file that does not contain an account's
+source never deletes from it, since only a source of the file makes its account synchronised.
 
 **Soft-deleted accounts.** `Account`'s `@SQLRestriction("deleted_at IS NULL")` is folded into
 the `JOIN` of both stored-row lookups (`t.account.member.id`, `t.account.id`), so a deleted
@@ -104,7 +112,10 @@ A budget is single-currency. When the file records no currency, the wizard asks 
   property and **loan** accounts are refused as targets, whether created or mapped. Picsou
   stores a loan as the positive amount owed and negates it in totals (`signedLiveBalanceEur`,
   [loans.md](loans.md)), so an Actual mortgage at -150 000 would count as +150 000 of wealth.
-  The wizard leaves `LOAN` out of the type list and the mapping targets.
+  The wizard leaves `LOAN` out of the type list and the mapping targets. An account an Actual
+  import created belongs to the source account it was created for: `MAP_EXISTING` onto an
+  `actual_<X>` account from any source other than `X` is refused ("This account was created by
+  another Actual import; map it from that file or create a new account").
 - **Categories**: `CREATE_NEW` (under a parent created from the Actual group,
   slug `actual_group_<id>`; the category's slug is `actual_<id>`), `MAP_EXISTING` (an active
   category of the same income/expense kind), or `UNCATEGORIZED` (left for the categorizer).
@@ -154,6 +165,7 @@ execute ─► validate mappings + sync plan ─► consume token ─► @Transa
 | Stored rows looked up by external id (member-scoped, `IN` batches of 1 000) | The user can move an imported row to another date; a date-range lookup missed it, re-inserted it, hit the unique index and rolled back every later re-import | Searching the file's date range |
 | Import-created accounts follow the file: missing rows deleted, moved rows moved | Appending only double-counted a row split or deleted in Actual (a -100 parent split into -60 / -40 became -200), and a row moved in Actual blocked every later re-import | Append-only everywhere |
 | Ownership is `actual_<source id>` of a source in this file, mapped from that source | An `actual_` prefix alone let budget 2, mapped by name onto budget 1's account, delete all of budget 1's rows there | Trusting any `actual_` account |
+| Refuse `MAP_EXISTING` onto another source's `actual_` account | Once budget B appended to A's account, A's next re-import deleted B's rows, often under the confirmation threshold. Refusing the mapping keeps one source per synchronised account, with no new column | Recording each row's source account (a data-model change) |
 | User-created accounts stay append-only, with a warning | Their rows may have been edited or reconciled by the user; the import never removes what it cannot prove it owns | Deleting there too |
 | Refuse only when the row sits on the account created for its own Actual account | That is the one case that proves the mapping changed; a row on an untargeted user account may have moved in Actual too | Refusing whenever the row's previous source is unknown (blocked legitimate re-imports) |
 | Typed acknowledgement above 200 rows or 20 % of an account | A mapping mistake that survives the ownership rule still cannot wipe a history silently | A plain checkbox (too easy to click through) |
@@ -222,8 +234,9 @@ execute ─► validate mappings + sync plan ─► consume token ─► @Transa
   a row moved between import-created accounts and into an account the re-import creates (both
   balances exact), a row moved out of or into a user-created account (`KEPT_MOVED`, import
   succeeds), and a plan that writes nothing and leaves the token usable. Ownership: a second
-  budget mapped onto the first one's same-name account deletes nothing (`KEPT_MISSING × 7`),
-  the account created for the same source still deletes when mapped explicitly, a row on a
+  budget mapped onto the first one's imported account is refused by the plan and the import,
+  as is a source of the same file mapped onto another source's imported account; the account
+  created for the same source still deletes when mapped explicitly, a row on a
   user account the request no longer targets is `KEPT_MOVED` instead of refused, and a
   soft-deleted import-created account's rows do not block a re-import. Large deletions (3 of 7
   rows, and 250 of 1 507) are refused without acknowledgement and applied with it.
@@ -238,8 +251,7 @@ execute ─► validate mappings + sync plan ─► consume token ─► @Transa
 - `ActualBudgetTab.test.tsx` — preview, dry run then confirmation with the same request, plan
   counts and warnings in the dialog and the result, a refused dry run opening no dialog, no
   `LOAN` type or target, currency choice, compatible targets, the previously imported account
-  pre-selected over a same-name one, another source's imported account never pre-selected by
-  name, the typed confirmation of a large deletion and its acknowledgement flag, validation
+  pre-selected over a same-name one, an imported account offered only to its own source, the typed confirmation of a large deletion and its acknowledgement flag, validation
   gating, error display, demo-mode guard.
 - `e2e/sync.spec.ts` — the tab is listed and opens on its upload step.
 

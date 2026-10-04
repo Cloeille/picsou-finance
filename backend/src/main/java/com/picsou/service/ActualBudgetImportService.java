@@ -344,6 +344,12 @@ public class ActualBudgetImportService {
                     Account existing = accounts.findByIdAndMemberId(mapping.targetAccountId(), memberId)
                             .orElseThrow(() -> bad("Target account not found"));
                     requireLedger(existing.getType(), existing.getCurrency(), currency);
+                    // An imported account belongs to the source it was created for: a foreign
+                    // source's rows in it would be deleted by the next re-import of its own file.
+                    if (importCreated(existing) && !(PREFIX + source.id()).equals(existing.getExternalAccountId())) {
+                        throw bad("This account was created by another Actual import; map it from that file or"
+                                + " create a new account");
+                    }
                     yield existing;
                 }
                 case CREATE_NEW -> {
@@ -477,10 +483,15 @@ public class ActualBudgetImportService {
      * <p>Only a <em>synchronised</em> account follows the file: one an import created for a
      * source account of this file ({@code actual_<source id>}) and mapped from that same source.
      * There, rows Actual no longer emits are deleted and rows Actual moved to another synchronised
-     * account follow them. Every other target is append-only, whoever created it: an account the
-     * user made, or one an import created for another source or another budget. Its rows stay and
-     * are reported. A row still in the account an import created for its own Actual account,
-     * while that Actual account now maps elsewhere, means the mapping changed and is refused.
+     * account follow them. {@link #resolveAccounts} refuses an imported account as the target of
+     * any other source, so the only other targets are accounts the user made: append-only, their
+     * rows stay and are reported. A row still in the account an import created for its own Actual
+     * account, while that Actual account now maps elsewhere, means the mapping changed and is
+     * refused.
+     *
+     * <p>Rows do not record their source account, so rows another budget appended to a
+     * synchronised account before that refusal existed cannot be told apart from rows Actual
+     * deleted; both count towards the deletion, and towards the large-deletion confirmation.
      *
      * @param targets the existing target of each mapped source account; a source absent from it
      *                gets an account this import creates, synchronised by construction

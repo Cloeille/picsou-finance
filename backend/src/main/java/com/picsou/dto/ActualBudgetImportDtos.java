@@ -54,10 +54,10 @@ public final class ActualBudgetImportDtos {
                           boolean acknowledgeLargeDeletion) { }
 
     /**
-     * Rows a re-import leaves in place on an append-only account (one the user created, or one an
-     * import created for another source): {@code KEPT_MISSING} rows no longer exist in Actual
-     * (deleted, or a parent since split), {@code KEPT_MOVED} rows now belong to another Actual
-     * account or sit in an account this request does not target.
+     * Rows a re-import leaves in place on an append-only account (one the user created):
+     * {@code KEPT_MISSING} rows imported earlier are not in this file (another file imported them,
+     * or Actual deleted them), {@code KEPT_MOVED} rows now belong to another Actual account or sit
+     * in an account this request does not target.
      */
     public enum WarningReason { KEPT_MISSING, KEPT_MOVED }
 

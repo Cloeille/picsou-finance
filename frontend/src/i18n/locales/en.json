@@ -1175,7 +1175,7 @@
       "largeDeletion": "Warning: this import deletes {{count}} transactions, a large part of an account's history. Check that each Actual account maps to the right Picsou account.",
       "confirmDescription": "An account an Actual import created for one of this file's accounts follows the file: transactions deleted or split in Actual are deleted, and transactions moved in Actual follow them. Other accounts (yours, or created for another budget) only receive new transactions. Nothing is written if any check fails.",
       "warnings": {
-        "KEPT_MISSING": "{{count}} transactions deleted or split in Actual stay on accounts this file does not own; remove them by hand if needed.",
+        "KEPT_MISSING": "{{count}} transactions imported earlier into these accounts are not in this file. They may come from another file or have been deleted in Actual. Nothing was changed.",
         "KEPT_MOVED": "{{count}} transactions already imported into another account stay where they are, because that account does not follow this file."
       },
       "errors": {
