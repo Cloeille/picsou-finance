@@ -1619,6 +1619,10 @@
         "label": "Famille",
         "desc": "Voir le tableau de bord familial partagé"
       },
+      "analysis_read": {
+        "label": "Analyse du patrimoine",
+        "desc": "Consulter l'allocation, la diversification, les projections et la synthèse immobilière"
+      },
       "accounts_write": {
         "label": "Comptes",
         "desc": "Créer et modifier comptes manuels, soldes et positions"

@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An AI app connected over MCP can read your wealth analysis.** It could list accounts
+  and balances, but had to recompute allocation, diversification or a loan schedule from
+  raw data, and could get them wrong. Fourteen read-only tools now return what the
+  analysis pages show: allocation, wealth pyramid, diversification, projection,
+  allocation targets, essential-expense estimate, savings suggestions and interest,
+  real-estate summary and valuations, loan summary, realized P&L, crypto exchange
+  positions and ETF composition. Whole-wealth views need the new **Wealth analysis**
+  (`analysis:read`) permission on the access key; views of a single account use the
+  existing accounts permission, and ETF composition the prices one. Nothing can be
+  changed through these tools
+  ([#177](https://github.com/Cloeille/picsou-finance/issues/177)).
+
 - **The sync page is reachable from the profile menu.** `/sync` had no entry in the
   desktop sidebar; it was only reachable from the dashboard sync dialog or by typing the
   address. The profile menu now lists it beside Administration and Sign out, in both

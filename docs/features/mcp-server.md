@@ -48,7 +48,7 @@ Three security properties are guaranteed structurally (not by per-call checks):
 
 **Backend — MCP surface**
 - `backend/src/main/java/com/picsou/config/McpToolConfig.java` — the single `ToolCallbackProvider` bean; the one place tools are wired.
-- `backend/src/main/java/com/picsou/mcp/tools/{Account,Transaction,Goal,Insight,Sync}Tools.java` — the `@Tool` methods, each gated by `@RequiresScope`.
+- `backend/src/main/java/com/picsou/mcp/tools/{Account,Transaction,Goal,Insight,Sync,Analysis}Tools.java` — the `@Tool` methods, each gated by `@RequiresScope`.
 - `backend/src/main/java/com/picsou/mcp/RequiresScope.java` + `backend/src/main/java/com/picsou/mcp/ScopeEnforcementAspect.java` + `backend/src/main/java/com/picsou/exception/MissingScopeException.java` — scope enforcement (AOP) and its clean error.
 - `backend/src/main/java/com/picsou/controller/AccessKeyController.java` + `dto/AccessKey{CreateRequest,Response,CreatedResponse}.java` — self-service management REST API under `/api/access-keys`.
 - `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — `mcpKeyBuckets`, `accessKeyCreateBuckets`, and the bucket factories.
@@ -124,16 +124,29 @@ by `delete_account`.
 
 | Scope | Tools |
 |-------|-------|
-| `accounts:read` | `list_accounts`, `get_account`, `get_account_holdings`, `get_account_balance_history`, `get_account_deletion_impact` |
+| `accounts:read` | `list_accounts`, `get_account`, `get_account_holdings`, `get_account_balance_history`, `get_account_deletion_impact`, `get_savings_interest`, `get_property_valuations`, `get_loan_summary`, `get_realized_pnl`, `get_exchange_positions` |
 | `transactions:read` | `list_account_transactions` |
 | `goals:read` | `list_goals`, `get_goal`, `get_goal_monthly_entries` |
 | `dashboard:read` | `get_dashboard`, `get_net_worth_history`, `get_profit_and_loss` |
 | `family:read` | `get_family_dashboard` |
-| `prices:read` | `get_price` |
+| `analysis:read` | `get_allocation`, `get_wealth_pyramid`, `get_portfolio_diversification`, `get_wealth_projection`, `get_allocation_targets`, `get_essential_expense_estimate`, `get_savings_suggestions`, `get_real_estate_summary` |
+| `prices:read` | `get_price`, `get_security_insight` |
 | `accounts:write` | `create_manual_account`, `update_account`, `delete_account`, `add_balance_snapshot`, `upsert_holding`, `delete_holding` |
 | `transactions:write` | `add_transaction`, `update_transaction`, `delete_transaction` |
 | `goals:write` | `create_goal`, `update_goal`, `delete_goal`, `set_goal_month_contribution` |
 | `sync:trigger` | `trigger_bank_sync`, `trigger_broker_sync`, `trigger_crypto_exchange_sync`, `trigger_crypto_wallet_sync` |
+
+The wealth-analysis tools (`AnalysisTools`) are read-only. Each calls the service behind its REST
+counterpart with the caller's member and returns the same payload. Whole-wealth judgements
+(allocation, pyramid, diversification, projection, targets, expense estimate, savings suggestions,
+real-estate summary) need `analysis:read`, so a member can grant them without granting raw account
+data, or the reverse. Tools that take an account id read one account, so they stay under
+`accounts:read` like `get_account_holdings`. An account of another member gets the same not-found
+error as every other account tool. `get_security_insight` is market reference data, not member
+data, so it sits next to `get_price` under `prices:read`. `get_wealth_projection` keeps the REST
+default of 20 years and the service's 1 to 40 clamp. Deliberately not exposed: the security-profile
+refresh (a rate-limited fan-out to external providers) and every analysis write (allocation
+targets, savings config, real-estate, debt, ownership and visibility settings).
 
 **Never exposed** (no `@Tool` exists, so no scope can initiate them): authentication flows,
 credential submission or retrieval, connecting a new bank / broker / exchange / wallet, MFA,
@@ -204,6 +217,7 @@ Backend (H2, `mvn test`):
 - `mcp/ScopeEnforcementAspectTest` — **denial** when the required scope is absent.
 - `mcp/tools/McpToolCatalogTest` — **curation guard**: pins the exact advertised tool set (no auth/credential/admin tool).
 - `mcp/tools/{Account,Transaction,Goal,Insight,Sync}ToolsTest` — delegation + member-scoping per tool; account deletion reports the cleanup decision even when the earlier read-only preview has become stale.
+- `mcp/tools/AnalysisToolsTest` — delegation per tool, another member's account surfaces the service's not-found, the scope each tool carries, and every tool rejected through the real `ScopeEnforcementAspect` proxy when its scope is missing.
 - `service/AccountConnectionServiceTest` — last-account cleanup, connection preservation, and deletion results with labels captured before the connection is removed.
 - `config/AccessKeyAuthFilterTest` — Property A (key on `/api/**` ⇒ not authenticated; on `/mcp` ⇒ authenticated), Property C (scope authorities only), throttle 429.
 - `service/UserContextTest` — Property B (`AccessKeyAuthentication` ⇒ override returns `null`, even for an admin-owned key).
@@ -211,7 +225,7 @@ Backend (H2, `mvn test`):
 - `model/AccessKeyTest` — `isUsable` (revoked / expired / live).
 
 Frontend (`bunx vitest run`):
-- `frontend/src/features/accessKeys/scopes.test.ts` — scope grouping, i18n-key mapping, and a **vocabulary guard** asserting the frontend list equals backend `Scopes.ALL`.
+- `frontend/src/features/accessKeys/scopes.test.ts` — scope grouping, i18n-key mapping, a **vocabulary guard** asserting the frontend list equals backend `Scopes.ALL`, and a label guard so no scope reaches the consent screen as a raw key.
 - `frontend/src/features/accessKeys/status.test.ts` — `keyStatus` (revoked > expired > active, boundary at "now").
 
 **Not covered by unit tests** (they run on a single thread, so they can't reproduce it): the

@@ -1347,6 +1347,10 @@
         "label": "Familia",
         "desc": "Ver el panel familiar compartido"
       },
+      "analysis_read": {
+        "label": "Análisis patrimonial",
+        "desc": "Consultar la asignación, la diversificación, las proyecciones y el resumen inmobiliario"
+      },
       "accounts_write": {
         "label": "Cuentas",
         "desc": "Crear y editar cuentas manuales, saldos y posiciones"
