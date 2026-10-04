@@ -140,7 +140,8 @@ The wealth-analysis tools (`AnalysisTools`) are read-only. Each calls the servic
 counterpart with the caller's member and returns the same payload. Whole-wealth judgements
 (allocation, pyramid, diversification, projection, targets, expense estimate, savings suggestions,
 real-estate summary) need `analysis:read`, so a member can grant them without granting raw account
-data, or the reverse. Tools that take an account id read one account, so they stay under
+data (balances history, holdings, transactions), or the reverse. These views still name the accounts
+they summarise: the real-estate summary includes property and loan names, city and lender. Tools that take an account id read one account, so they stay under
 `accounts:read` like `get_account_holdings`. An account of another member gets the same not-found
 error as every other account tool. `get_security_insight` is market reference data, not member
 data, so it sits next to `get_price` under `prices:read`. `get_wealth_projection` keeps the REST
