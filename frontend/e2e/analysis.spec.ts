@@ -15,8 +15,14 @@ test.describe('Analysis', () => {
   test('should show the composition score and every tier', async ({ page }) => {
     await page.goto('/analysis')
     await expect(page.getByText('Score de composition')).toBeVisible()
-    for (const tier of ['Matelas de sécurité', 'Immobilier', 'Actions & ETF', 'Crypto', 'Actifs alternatifs']) {
-      await expect(page.getByText(tier, { exact: true })).toBeVisible()
+    // The cushion is measured in euros above the allocation bars, not as one of them. Scoped to
+    // its card because the sector breakdown further down has its own "Immobilier".
+    const allocation = page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: 'Matelas de sécurité et répartition' })
+    await expect(allocation).toBeVisible()
+    for (const tier of ['Immobilier', 'Actions & ETF', 'Crypto', 'Actifs alternatifs']) {
+      await expect(allocation.getByText(tier, { exact: true })).toBeVisible()
     }
   })
 
