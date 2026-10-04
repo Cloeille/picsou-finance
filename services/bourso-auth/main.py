@@ -43,8 +43,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from accounts_parser import (
+    FORMAT_CHANGED,
     AccountKind,
     AccountsFormatError,
+    choose_personal_identity,
     guard_symbol_collisions,
     parse_dashboard,
     parse_trading_summary,
@@ -52,6 +54,9 @@ from accounts_parser import (
 from virtual_pad import VirtualPadError, encode_password, extract_challenge, parse_virtual_pad
 
 logging.basicConfig(level=logging.INFO)
+# httpx logs every request URL at INFO, and the identity-switch URL embeds a
+# per-session token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("bourso-auth")
 
 BASE_URL = "https://clients.boursobank.com"
@@ -66,6 +71,9 @@ SECURISATION_PATH = "/securisation"
 FRAUD_EDUCATION_PATH = "/infos-profil/pedagogie-fraude"
 VALIDATION_PATH = "/securisation/validation"
 ACCOUNTS_PATH = "/dashboard/liste-comptes?rumroute=dashboard.new_accounts&_hinclude=1"
+# An access holding several identities (personal and sole-trader) answers the
+# dashboard with a 302 here until one identity is chosen for the session.
+IDENTITY_SELECTOR_PATH = "/connexion/lister-identites"
 
 PENDING_TTL_SECONDS = 600
 PENDING_SWEEP_SECONDS = 30
@@ -568,13 +576,51 @@ async def _fetch_trading_account(
     return parse_trading_summary(payload, account_id)
 
 
+def redirects_to_identity_selector(response: httpx.Response) -> bool:
+    if not response.is_redirect:
+        return False
+    target = httpx.URL(BASE_URL).join(response.headers.get("location", ""))
+    return target.host == httpx.URL(BASE_URL).host and target.path.rstrip("/") == IDENTITY_SELECTOR_PATH
+
+
+async def _get_dashboard(client: httpx.AsyncClient) -> httpx.Response:
+    return await client.get(ACCOUNTS_PATH, headers={"X-Requested-With": "XMLHttpRequest"})
+
+
+async def _dashboard(client: httpx.AsyncClient) -> tuple[str, bool]:
+    """Return the dashboard HTML and whether an identity switch was needed.
+
+    At most one switch per call: the switch link chains through
+    `/feature-redirect` back to the dashboard, so a selector served again after
+    it means the flow is not the one this was written against.
+    """
+    response = await _get_dashboard(client)
+    if not redirects_to_identity_selector(response):
+        return response.text, False
+
+    selector = (await client.get(IDENTITY_SELECTOR_PATH, follow_redirects=True)).text
+    await client.get(choose_personal_identity(selector), follow_redirects=True)
+    response = await _get_dashboard(client)
+    if redirects_to_identity_selector(response):
+        raise AccountsFormatError(
+            FORMAT_CHANGED, "Identity selector was served again after switching identity"
+        )
+    log.info("BoursoBank: switched to the personal identity before reading the dashboard")
+    return response.text, True
+
+
 async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
     home = await _home(client)
     if _LOGGED_IN_MARKER not in home:
         raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+
+    dashboard, switched = await _dashboard(client)
+    if switched:
+        # BRS_CONFIG is re-read from the switched session: nothing says its
+        # USER_HASH is shared across identities, and the trading calls use it.
+        home = await _home(client)
     api_url, user_hash = extract_brs_config(home)
 
-    dashboard = (await client.get(ACCOUNTS_PATH, headers={"X-Requested-With": "XMLHttpRequest"})).text
     accounts, third_party = parse_dashboard(dashboard)
     if third_party:
         log.info(
