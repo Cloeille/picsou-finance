@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V86 adds no data, but it drops a NOT NULL — and that nullability is load-bearing rather than
+ * V97 adds no data, but it drops a NOT NULL — and that nullability is load-bearing rather than
  * cosmetic.
  *
  * <p>A sync now seeds a profile that carries an ISIN and nothing else. {@code refreshed_at} must
@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 @EnabledIf("dockerAvailable")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-class V86SecurityProfileIsinMigrationTest {
+class V97SecurityProfileIsinMigrationTest {
 
     static {
         // Same pin as the other migration tests: docker-java otherwise negotiates down to an API
@@ -73,7 +73,7 @@ class V86SecurityProfileIsinMigrationTest {
 
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
-        migrateTo("85");
+        migrateTo("96");
         try (Connection c = connection(); Statement st = c.createStatement()) {
             st.execute("INSERT INTO security_profile (ticker, asset_type, sector_key, refreshed_at) "
                 + "VALUES ('AI.PA', 'STOCK', 'basic_materials', NOW())");
@@ -94,7 +94,7 @@ class V86SecurityProfileIsinMigrationTest {
     @Test
     @Order(2)
     void afterTheMigrationAnIsinOnlyRowIsSeedableAndReadsAsNeverResolved() throws SQLException {
-        migrateTo("86");
+        migrateTo("97");
 
         try (Connection c = connection(); Statement st = c.createStatement()) {
             assertThatCode(() -> st.execute(

@@ -658,8 +658,6 @@ public class TradeRepublicSyncService {
             account = accountRepository.save(account);
             log.info("TR upsertAccount: concurrent insert resolved for externalId={}", data.externalId());
         }
-        accountService.upsertSnapshot(account, data.balanceEur(), LocalDate.now());
-        account = accountRepository.save(account);
 
         // The snapshot comes AFTER the holdings are replaced (both exits below): the 3-arg
         // upsertSnapshot derives the day's investedAmount from the holdings in the table, and
