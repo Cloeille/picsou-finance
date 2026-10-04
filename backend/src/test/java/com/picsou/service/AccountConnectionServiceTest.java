@@ -52,14 +52,13 @@ class AccountConnectionServiceTest {
     @Mock FortuneoSyncService fortuneoSyncService;
     @Mock DegiroSyncService degiroSyncService;
     @Mock IbkrSyncService ibkrSyncService;
-    @Mock SyncService syncService;
 
     private AccountConnectionService service() {
         return new AccountConnectionService(
             accountRepository, accountService, walletRepository, exchangeSessionRepository,
             requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
-            fortuneoSyncService, degiroSyncService, ibkrSyncService, syncService);
+            fortuneoSyncService, degiroSyncService, ibkrSyncService);
     }
 
     private static Account account(long id, String externalId) {
@@ -135,10 +134,29 @@ class AccountConnectionServiceTest {
         Account target = account(10L, "0f7a1c2e-uuid-from-the-bank");
         target.setRequisitionId(3L);
         given(target);
+        when(requisitionRepository.deleteByIdAndMemberId(3L, MEMBER_ID)).thenReturn(1);
 
-        service().deleteAccount(10L, MEMBER_ID);
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
 
-        verify(syncService).deleteRequisition(3L, MEMBER_ID);
+        assertThat(impact.removesConnection()).isTrue();
+        verify(requisitionRepository).deleteByIdAndMemberId(3L, MEMBER_ID);
+    }
+
+    /**
+     * The requisition was deleted from the sync page (DELETE /api/sync/requisitions/{id}) after
+     * this deletion resolved it. The account still goes; only the report changes.
+     */
+    @Test
+    void reportsNoRemovalWhenTheRequisitionIsAlreadyGone() {
+        Account target = account(10L, "0f7a1c2e-uuid-from-the-bank");
+        target.setRequisitionId(3L);
+        given(target);
+        when(requisitionRepository.deleteByIdAndMemberId(3L, MEMBER_ID)).thenReturn(0);
+
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
+
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(accountService).delete(10L, MEMBER_ID);
     }
 
     /** One requisition, several accounts: removing it would kill the ones still in use. */
@@ -153,7 +171,7 @@ class AccountConnectionServiceTest {
         service().deleteAccount(10L, MEMBER_ID);
 
         verify(accountService).delete(10L, MEMBER_ID);
-        verify(syncService, never()).deleteRequisition(anyLong(), anyLong());
+        verify(requisitionRepository, never()).deleteByIdAndMemberId(anyLong(), anyLong());
     }
 
     /** Amundi routinely holds several plans on one session — deleting one must not log you out. */
@@ -263,7 +281,7 @@ class AccountConnectionServiceTest {
         assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
         verify(accountService).delete(10L, MEMBER_ID);
         verify(walletSyncService, never()).removeWallet(anyLong(), anyLong());
-        verify(syncService, never()).deleteRequisition(anyLong(), anyLong());
+        verify(requisitionRepository, never()).deleteByIdAndMemberId(anyLong(), anyLong());
         verify(amundiSyncService, never()).clearSession(anyLong());
     }
 
@@ -278,7 +296,7 @@ class AccountConnectionServiceTest {
         service().deleteAccount(10L, MEMBER_ID);
 
         verify(bourseDirectSyncService, never()).clearSession(anyLong());
-        verify(syncService, never()).deleteRequisition(anyLong(), anyLong());
+        verify(requisitionRepository, never()).deleteByIdAndMemberId(anyLong(), anyLong());
     }
 
     /**
@@ -294,7 +312,7 @@ class AccountConnectionServiceTest {
 
         service().deleteAccount(10L, MEMBER_ID);
 
-        verify(syncService).deleteRequisition(3L, MEMBER_ID);
+        verify(requisitionRepository).deleteByIdAndMemberId(3L, MEMBER_ID);
         verify(walletSyncService, never()).removeWallet(anyLong(), anyLong());
     }
 
@@ -343,13 +361,14 @@ class AccountConnectionServiceTest {
         given(target);
         when(requisitionRepository.findByIdAndMemberId(3L, MEMBER_ID)).thenReturn(Optional.of(
             Requisition.builder().id(3L).institutionName("Boursorama Banque").build()));
+        when(requisitionRepository.deleteByIdAndMemberId(3L, MEMBER_ID)).thenReturn(1);
 
         AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
 
         assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(true, "Boursorama Banque"));
-        var inOrder = org.mockito.Mockito.inOrder(requisitionRepository, syncService);
+        var inOrder = org.mockito.Mockito.inOrder(requisitionRepository);
         inOrder.verify(requisitionRepository).findByIdAndMemberId(3L, MEMBER_ID);
-        inOrder.verify(syncService).deleteRequisition(3L, MEMBER_ID);
+        inOrder.verify(requisitionRepository).deleteByIdAndMemberId(3L, MEMBER_ID);
     }
 
     /** Reading the impact must not change anything — it backs a dialog the user may cancel. */

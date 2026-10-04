@@ -74,7 +74,6 @@ public class AccountConnectionService {
     private final FortuneoSyncService fortuneoSyncService;
     private final DegiroSyncService degiroSyncService;
     private final IbkrSyncService ibkrSyncService;
-    private final SyncService syncService;
 
     public AccountConnectionService(
         AccountRepository accountRepository,
@@ -90,8 +89,7 @@ public class AccountConnectionService {
         BoursoSyncService boursoSyncService,
         FortuneoSyncService fortuneoSyncService,
         DegiroSyncService degiroSyncService,
-        IbkrSyncService ibkrSyncService,
-        SyncService syncService
+        IbkrSyncService ibkrSyncService
     ) {
         this.accountRepository = accountRepository;
         this.accountService = accountService;
@@ -107,7 +105,6 @@ public class AccountConnectionService {
         this.fortuneoSyncService = fortuneoSyncService;
         this.degiroSyncService = degiroSyncService;
         this.ibkrSyncService = ibkrSyncService;
-        this.syncService = syncService;
     }
 
     /**
@@ -238,12 +235,11 @@ public class AccountConnectionService {
             case FORTUNEO -> fortuneoSyncService.clearSession(memberId);
             case DEGIRO -> degiroSyncService.clearSession(memberId);
             case IBKR -> ibkrSyncService.deleteConnection(memberId);
-            case ENABLE_BANKING -> {
-                // Throws when the requisition is missing, which the ON DELETE SET NULL foreign key
-                // rules out: a resolved requisition_id still points at a row.
-                syncService.deleteRequisition(Long.valueOf(ref.discriminator()), memberId);
-                yield true;
-            }
+            // Not SyncService.deleteRequisition: it throws on a missing requisition, and one
+            // removed concurrently (DELETE /api/sync/requisitions/{id}) would roll back the
+            // account deletion with it.
+            case ENABLE_BANKING -> requisitionRepository
+                .deleteByIdAndMemberId(Long.valueOf(ref.discriminator()), memberId) > 0;
         };
     }
 

@@ -93,9 +93,13 @@ Enable Banking requisition costs a full OAuth round trip through the bank.
 ## Consequences
 
 - `AccountConnectionService` is the only caller of the connectors' removal methods on this path
-  (`removeWallet`, `removeExchange`, each `clearSession`, `deleteConnection`,
-  `deleteRequisition`). It sits outside `AccountService` because the connectors already depend
-  on it, and calling them from there would close a Spring dependency cycle.
+  (`removeWallet`, `removeExchange`, each `clearSession`, `deleteConnection`). It sits outside
+  `AccountService` because the connectors already depend on it, and calling them from there
+  would close a Spring dependency cycle.
+- An Enable Banking requisition is removed with a single member-scoped `DELETE` that returns
+  its row count, not through `SyncService.deleteRequisition`. That method throws when the
+  requisition is missing. A requisition deleted concurrently from the sync page would then roll
+  back the whole account deletion. With the count, it just reports that nothing was removed.
 - Deletion order is fixed: the account is soft-deleted first, so a connector running
   concurrently finds the soft-deleted row and refuses to rebuild it rather than racing the
   removal.
