@@ -1704,6 +1704,62 @@ Returns whether the Finary API credentials (`FINARY_EMAIL`, `FINARY_PASSWORD`) a
 
 ---
 
+### 14b. Actual Budget import — `/api/actual/import`
+
+Two-phase, member-scoped import of an **Actual Budget** export: the budget `.zip`
+(`db.sqlite` + `metadata.json`) or a bare `db.sqlite`, recognised by signature. Scheduled
+transactions, budget envelopes and live sync with an Actual server are not part of it.
+See [Actual Budget import](../../docs/features/actual-budget-import.md).
+
+#### `POST /api/actual/import/preview`
+
+- **Auth:** Required. **Content-Type:** `multipart/form-data`, field `file` (at most 10 MB).
+- **Response `200` — `ActualBudgetImportDtos.Preview`:** `fileToken` (member-bound, single-use,
+  30-minute TTL), `currency` (the budget's `defaultCurrencyCode`, or `null` when the file has
+  none), `accounts[]` (`sourceId`, `name`, `offBudget`, `closed`, `suggestedType`, `balance`,
+  `transactionCount`), `categories[]` (`sourceId`, `name`, `groupName`, `income`,
+  `transactionCount`), `existingAccounts[]`, `existingCategories[]`, `sampleTransactions[]`
+  (newest 20: `sourceId`, `accountSourceId`, `date`, `amount`, `payee`, `notes`,
+  `categorySourceId`, `kind` = `REGULAR` | `TRANSFER` | `STARTING_BALANCE`),
+  `totalTransactions`, `transferTransactions`.
+
+The whole file is validated before a token is returned; preview writes nothing.
+
+#### `POST /api/actual/import`
+
+- **Auth:** Required. **Content-Type:** `application/json`. **Response `201` — `Result`.**
+
+```json
+{
+  "fileToken": "token-from-preview",
+  "currency": "EUR",
+  "accountMappings": [
+    { "sourceId": "acc-1", "action": "CREATE_NEW",
+      "newAccount": { "name": "Everyday", "type": "CHECKING", "currency": "EUR" } },
+    { "sourceId": "acc-2", "action": "MAP_EXISTING", "targetAccountId": 12 },
+    { "sourceId": "acc-3", "action": "SKIP" }
+  ],
+  "categoryMappings": [
+    { "sourceId": "cat-1", "action": "CREATE_NEW", "name": "Groceries" },
+    { "sourceId": "cat-2", "action": "MAP_EXISTING", "targetCategoryId": 40 },
+    { "sourceId": "cat-3", "action": "UNCATEGORIZED" }
+  ]
+}
+```
+
+Every source account and category needs exactly one mapping. `currency` must match the
+budget's when the file records one, and every target account's. Investment and property
+account types are refused (the file holds cash ledgers). `MAP_EXISTING` categories must be
+active and of the same kind (income/expense).
+
+**Result:** `accountsCreated`, `accountsMapped`, `accountsSkipped`, `categoriesCreated`,
+`transactionsImported`, `transactionsSkipped`.
+
+**Errors:** `400` (RFC 7807) for unsupported/corrupt/unsafe files, invalid mappings and
+expired previews — nothing is written; `429` when the shared sync/import rate limit trips.
+
+---
+
 ### 15. Amundi Épargne Salariale — `/api/amundi`
 
 Read-only. Amundi gates its login behind a captcha and a mandatory second
