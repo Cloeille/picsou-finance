@@ -771,10 +771,13 @@ export type BoursoSessionStatus =
  * surfaces as `MFA_TYPE_UNSUPPORTED` instead. `FRAUD_ACK_REQUIRED` means the
  * login was parked on the bank's fraud-education notice: the credentials work,
  * the holder must tick the notice on the bank's website and retry.
+ * `IDENTITY_SELECTION_UNSUPPORTED` means the access holds several identities
+ * and the personal one could not be singled out.
  */
 export type BoursoErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'FRAUD_ACK_REQUIRED'
+  | 'IDENTITY_SELECTION_UNSUPPORTED'
   | 'MFA_TYPE_UNSUPPORTED'
   | 'APP_VALIDATION_TIMEOUT'
   | 'AUTH_ATTEMPT_EXPIRED'

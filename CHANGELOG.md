@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Deleting an account through the MCP assistant now also disconnects the bank, wallet or broker when it was the last account on that connection, and says which one.** ([#176](https://github.com/Cloeille/picsou-finance/issues/176))
+- **A BoursoBank access with a personal and a business identity now syncs the personal one.** BoursoBank shows such an access an identity selector before the dashboard, which the connector used to report as a site format change. It now switches to the personal identity on each sync, and says so plainly when it cannot tell which identity is personal. Business identities are not synced. ([#153](https://github.com/Cloeille/picsou-finance/issues/153))
 - **A 1.1.0 database that applied migrations before they were renumbered starts again.**
   The old V80, V81 and V86–V88 rows are moved to V93–V99 before Flyway validates, matched on
   version, description and checksum, so the boot no longer fails and those migrations do not run
