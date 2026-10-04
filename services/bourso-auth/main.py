@@ -29,7 +29,9 @@ import asyncio
 import html as html_module
 import json
 import logging
+import os
 import re
+import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -58,6 +60,7 @@ logging.basicConfig(level=logging.INFO)
 # per-session token.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("bourso-auth")
+SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
 
 BASE_URL = "https://clients.boursobank.com"
 LOGIN_PATH = "/connexion/"
@@ -128,6 +131,8 @@ async def _pending_sweeper() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    if not SIDECAR_API_KEY.strip():
+        raise RuntimeError("APP_SIDECAR_API_KEY must be configured and non-blank")
     sweeper = asyncio.create_task(_pending_sweeper())
     try:
         yield
@@ -141,6 +146,25 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.middleware("http")
+async def authenticate_sidecar_request(request: Request, call_next):
+    if request.url.path != "/health":
+        supplied_key = request.headers.get("X-Picsou-Sidecar-Key", "")
+        # Starlette exposes wire header bytes through Latin-1, not UTF-8.
+        if (
+            not SIDECAR_API_KEY.strip()
+            or not secrets.compare_digest(
+                supplied_key.encode("latin-1"), SIDECAR_API_KEY.encode("utf-8")
+            )
+        ):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "UNAUTHORIZED"},
+                headers={"WWW-Authenticate": "Picsou-Sidecar-Key"},
+            )
+    return await call_next(request)
 
 
 @app.middleware("http")

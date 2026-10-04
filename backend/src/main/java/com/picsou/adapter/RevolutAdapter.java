@@ -1,6 +1,7 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
 import com.picsou.port.RevolutPort;
@@ -43,12 +44,11 @@ public class RevolutAdapter implements RevolutPort {
     private final SyncProgressService progressService;
 
     public RevolutAdapter(
+        SidecarWebClientFactory clients,
         @Value("${app.revolut-auth.url:http://revolut-auth:8002}") String revolutAuthUrl,
         SyncProgressService progressService
     ) {
-        this.sidecarClient = WebClient.builder()
-            .baseUrl(revolutAuthUrl)
-            .build();
+        this.sidecarClient = clients.create("Revolut", revolutAuthUrl);
         this.progressService = progressService;
     }
 

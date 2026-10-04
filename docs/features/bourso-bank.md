@@ -370,6 +370,10 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Gotchas / Pitfalls
 
+- **The sidecar requires `APP_SIDECAR_API_KEY`.** It refuses to start without
+  it and answers every route except `/health` with a 401 `Picsou-Sidecar-Key`
+  challenge unless the backend presents it. That 401 is not a bank rejection;
+  see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
 - **The pad digit is an image, not text.** `<button data-matrix-key="XYZ">` wraps
   an `<img src="data:image/svg+xml;base64,…">`. Do not "simplify" the digest
   lookup back into reading the button's text — there is no text.

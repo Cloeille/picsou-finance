@@ -65,6 +65,8 @@ services:
       context: ./services/tr-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     networks:
       - picsou-net
 
@@ -73,6 +75,8 @@ services:
       context: ./services/revolut-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     networks:
       - picsou-net
     volumes:
@@ -83,6 +87,8 @@ services:
       context: ./services/bourse-direct-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
     networks:
@@ -93,6 +99,8 @@ services:
       context: ./services/amundi-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
     networks:
@@ -103,6 +111,8 @@ services:
       context: ./services/fortuneo-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
     networks:
@@ -138,6 +148,8 @@ services:
       context: ./services/bourso-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
     networks:
@@ -148,6 +160,8 @@ services:
       context: ./services/degiro-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     networks:
       - picsou-net
 

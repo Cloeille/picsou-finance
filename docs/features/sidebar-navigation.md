@@ -1,6 +1,6 @@
 # Feature: Navigation (Sidebar + Mobile Bottom Nav)
 
-> Last updated: 2026-08-13
+> Last updated: 2026-10-04
 
 ## Context
 
@@ -13,7 +13,11 @@ Navigation adapts to screen size: a vertical sidebar on desktop (>=768px) and a 
 The sidebar lives in `AppSidebar.tsx` with two visual sections:
 
 1. **Primary nav items** — rendered by the `NavItem` internal component, one per route. Uses `react-router-dom`'s `NavLink` with `useLocation` for active detection. Desktop intentionally does not render a separate Settings item because the bottom account link already targets `/settings`.
-2. **Bottom account area** — non-admin and demo sessions keep a bottom-pinned `NavLink` to `/settings`. Admin sessions render a `DropdownMenu` trigger in the same place. The trigger shows the currently scoped profile; the menu lets the admin switch back to their own account, switch into managed profiles from `selectSwitchableMembers()`, or open Settings.
+2. **Bottom account area** — a `DropdownMenu` trigger showing the currently scoped profile. For admins the menu also switches back to their own account or into managed profiles from `selectSwitchableMembers()`. Every session gets the shared `AccountMenuFooterItems`: **Sync** (`/sync`, `RefreshCw` icon, `nav.sync` label, `bg-muted` plus `aria-current="page"` while on that route), **Administration** (admins only), and **Sign out**. The default style keeps a separate icon `NavLink` to `/settings` next to the trigger; the classic style lists Settings among its nav items instead.
+
+The menu opens **above** the trigger in the default style (`side="top"`), because the profile is pinned to the bottom of a full-height sidebar. The classic sidebar is `h-fit`, so its profile row can have free space underneath and the menu asks to open **below** it (`side="bottom"`). Radix collision handling flips either one when the viewport is too short. In the classic style that flip is common: the trigger ends about 770 px from the top and the demo menu is about 170 px tall, so the menu only opens below on viewports roughly 945 px tall or more (measured with Playwright at 1440×900, where it flips up, and 1440×1080, where it opens below).
+
+`/sync` has no other permanent entry point. The dashboard `SyncAllModal` links to `/sync?tab=…` only for providers whose flow lives in the dedicated tab: a provider that needs re-authentication, Revolut, and Finary. Those links are contextual, not a general entry point. Mobile has no profile menu, so on mobile `/sync` stays effectively unreachable unless the user syncs one of those providers or types the URL.
 
 Desktop navigation opens with the horizontal Picsou brand logo (`horizontal-white-picsou.svg`, `brightness-0 dark:invert` so the single white SVG renders black in light theme and white in dark), then the route list. The logo sits at the top of the `<nav>`, aligned on the items' `px-4` gutter with `self-start` so it doesn't stretch in the flex column.
 
@@ -75,7 +79,7 @@ Active nav items keep Lucide icons stroke-only. The item gets `ring-1 ring-borde
 - **File encoding**: Editing `AppSidebar.tsx` with the Edit tool introduced invisible characters that broke Babel parsing. If the file breaks after edits, rewrite it entirely with the Write tool.
 - **`ItemMedia` import**: The component is imported even though the user dropdown no longer uses it — it's still used by `NavItem`. Don't remove the import.
 - **Mobile bottom nav padding**: `AppLayout` adds `pb-20` on mobile to prevent content from being hidden behind the fixed bottom nav. If the bottom nav height changes, update this value.
-- **Admin switcher only**: the sidebar dropdown is only for profile scope plus Settings access. Logout, language, admin, and account controls remain centralized in Settings.
+- **Account menu scope**: the sidebar dropdown carries profile scope (admins), Sync, Administration (admins), and Sign out. Language and account controls stay in Settings. Add new entries to `AccountMenuFooterItems` so both sidebar styles get them.
 - **Admin-only members query**: keep `useFamilyMembers({ enabled: isAdmin })` on the sidebar. Calling `/family/members` for non-admins causes a 403 redirect.
 - **No duplicate desktop Settings item**: desktop settings access is the bottom-pinned account row. Do not add `/settings` back to `NAV_ITEMS`, or the sidebar will show two entries for the same page.
 - **`hidden md:flex` on sidebar**: The sidebar nav element uses `hidden md:flex` — not `md:block` — because it needs flexbox for its internal layout. Changing to `md:block` will break the sidebar layout.
@@ -83,7 +87,7 @@ Active nav items keep Lucide icons stroke-only. The item gets `ring-1 ring-borde
 
 ## Tests
 
-- `frontend/src/components/layout/AppSidebar.test.tsx` covers the admin switcher, query disabling for non-admins, managed-profile filtering, and Query invalidation on profile switch.
+- `frontend/src/components/layout/AppSidebar.test.tsx` covers the admin switcher, query disabling for non-admins, managed-profile filtering, Query invalidation on profile switch, and, for both sidebar styles, the Sync entry (navigates to `/sync`, `aria-current` on that route) and the menu's opening side.
 - Sidebar is also covered by E2E via Playwright (`bun run test:e2e`).
 
 ## Links

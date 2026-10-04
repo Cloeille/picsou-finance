@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The sync page is reachable from the profile menu.** `/sync` had no entry in the
+  desktop sidebar; it was only reachable from the dashboard sync dialog or by typing the
+  address. The profile menu now lists it beside Administration and Sign out, in both
+  sidebar styles, and highlights it while you are on that page. In the classic style the
+  menu now opens below the profile button when the window is tall enough, and flips
+  above it otherwise; the default style keeps it opening upwards because its profile
+  sits at the bottom of the screen.
+
 - **Crypto holdings show the coin's logo next to their ticker.** A position is easier to
   recognise at a glance than by reading its ticker. The mark comes from CoinGecko, which
   already prices the same coins, and a whole page resolves in a single request — nothing
@@ -48,6 +56,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Deleting an account through the MCP assistant now also disconnects the bank, wallet or broker when it was the last account on that connection, and says which one.** ([#176](https://github.com/Cloeille/picsou-finance/issues/176))
 - **A BoursoBank access with a personal and a business identity now syncs the personal one.** BoursoBank shows such an access an identity selector before the dashboard, which the connector used to report as a site format change. It now switches to the personal identity on each sync, and says so plainly when it cannot tell which identity is personal. Business identities are not synced. ([#153](https://github.com/Cloeille/picsou-finance/issues/153))
+- **A 1.1.0 database that applied migrations before they were renumbered starts again.**
+  The old V80, V81 and V86–V88 rows are moved to V93–V99 before Flyway validates, matched on
+  version, description and checksum, so the boot no longer fails and those migrations do not run
+  twice. **If you set `SPRING_FLYWAY_ENABLED=false` to work around it, remove it after upgrading**:
+  with Flyway off, newer migrations such as V103 never run and the application refuses to start.
+  See the upgrade note in `docs/features/docker-deployment.md`.
+  ([#174](https://github.com/Cloeille/picsou-finance/issues/174))
+
+### Security
+
+- **Every connector sidecar now checks the shared `APP_SIDECAR_API_KEY`.** The
+  Trade Republic, Revolut, BoursoBank, Bourse Direct, Amundi, Fortuneo and DEGIRO
+  sidecars carry bank logins and one-time codes, yet any container on the Compose
+  network could drive them. They now refuse to start without the key and answer
+  every route except `/health` with a 401 unless the backend presents it, as
+  CORUM and Sofidy already did. The Fortuneo and Revolut adapters now send it
+  too. **Upgrade note:** both Compose files forward the key to every sidecar they define, so
+  a `docker/.env` that already sets it needs no change; recreate the app and all
+  sidecars together. ([#169](https://github.com/Cloeille/picsou-finance/issues/169))
 
 
 ## [1.1.0] — 2026-06-09

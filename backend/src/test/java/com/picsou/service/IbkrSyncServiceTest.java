@@ -55,6 +55,23 @@ class IbkrSyncServiceTest {
 
     @InjectMocks IbkrSyncService service;
 
+    @Test
+    void deleteConnectionReportsTheConnectionItDeleted() {
+        IbkrConnection connection = IbkrConnection.builder().build();
+        when(connectionRepository.findByMemberId(7L)).thenReturn(Optional.of(connection));
+
+        assertThat(service.deleteConnection(7L)).isTrue();
+        verify(connectionRepository).delete(connection);
+    }
+
+    @Test
+    void deleteConnectionReportsNothingWhenNoConnectionIsStored() {
+        when(connectionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+
+        assertThat(service.deleteConnection(7L)).isFalse();
+        verify(connectionRepository, never()).delete(any());
+    }
+
     /**
      * IBKR reports cost basis in the security's native currency. The stored
      * {@code averageBuyIn} must be converted to the account base currency (≈EUR) via
