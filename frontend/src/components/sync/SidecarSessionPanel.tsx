@@ -74,10 +74,21 @@ const ERROR_MESSAGE_SUFFIXES: Record<string, string> = {
   INVALID_CREDENTIALS: "invalidCredentials",
   CAPTCHA_BLOCKED: "captchaBlocked",
   INVALID_OTP: "invalidCode",
+  /** Sofidy names it MFA_INVALID: its code is a wrong or expired e-mail code. */
+  MFA_INVALID: "invalidCode",
+  /** Sofidy parks the login until the holder finishes their first visit. */
+  FIRST_VISIT_PENDING: "firstVisitPending",
+  /** No e-mail on the account, so no code can be sent to it. */
+  EMAIL_UNREACHABLE: "emailUnreachable",
+  ACCOUNT_INACTIVE: "accountInactive",
+  /** Sofidy arms a brute-force counter of its own; the fix is to wait. */
+  RATE_LIMITED: "tooManyAttempts",
   APP_VALIDATION_TIMEOUT: "appValidationTimeout",
   SAFEKEY_TIMEOUT: "appValidationTimeout",
   AUTH_ATTEMPT_EXPIRED: "authAttemptExpired",
   SESSION_EXPIRED: "sessionExpired",
+  /** Only reachable by a provider whose login can see more than one contract. */
+  MULTIPLE_CONTRACTS: "multipleContracts",
   PORTFOLIO_INCOMPLETE: "portfolioIncomplete",
   UPSTREAM_FORMAT_CHANGED: "formatChanged",
   INVALID_DATA: "invalidData",

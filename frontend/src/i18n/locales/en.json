@@ -215,7 +215,6 @@
     "logoLedger": "Ledger",
     "total": "Total",
     "currentBalance": "Current balance",
-    "currentDebt": "Credit-card debt",
     "tabOverview": "Overview",
     "cashBalance": "Cash in the PEA/securities account",
     "snapshots": "Monthly snapshots",
@@ -254,11 +253,6 @@
       "submit": "Export",
       "success": "Export complete: {{filename}}",
       "empty": "No account to export"
-    },
-    "amex": {
-      "amountDue": "Amount to pay",
-      "dueDate": "Direct debit date",
-      "miles": "Miles earned this cycle"
     }
   },
   "analysis": {
@@ -407,8 +401,42 @@
     "other": "Other",
     "employeeSavings": "Employee savings",
     "assuranceVie": "Life insurance",
-    "scpi": "SCPI",
-    "creditCard": "Credit card"
+    "scpi": "SCPI"
+  },
+  "scpi": {
+    "add": {
+      "action": "Add a SCPI",
+      "title": "Add a SCPI share",
+      "description": "A share is not a house. Net worth uses the withdrawal price times the share count."
+    },
+    "name": "Vehicle name",
+    "managementCompany": "Management company",
+    "shareCount": "Share count",
+    "subscriptionPrice": "Subscription price",
+    "withdrawalPrice": "Withdrawal price",
+    "withdrawalValue": "Value at withdrawal price",
+    "subscriptionHint": "Shown beside the balance, never as the balance. Entry fees sit in this price.",
+    "corumFundCode": "CORUM fund code",
+    "corumFundHint": "Optional. The fund code (US, XL…) lets the CORUM sync update this account. Leave empty for a manual entry.",
+    "sofidyFundCode": "Sofidy fund code",
+    "sofidyFundHint": "Optional. The Sofidy product code (DY, IM…) lets the Sofidy sync update this account. Leave empty for a manual entry.",
+    "dividendPolicy": "Dividends",
+    "cash": "Paid out",
+    "reinvest": "Reinvested",
+    "jouissanceDate": "Enjoyment date",
+    "isin": "ISIN",
+    "incomplete": "Withdrawal price missing: the previous balance is kept.",
+    "position": "Position",
+    "edit": "Edit",
+    "save": "Save",
+    "summary": {
+      "title": "Paper property",
+      "gross": "Withdrawal value",
+      "debt": "Linked loan",
+      "net": "Net",
+      "hint": "Kept out of the price-per-square-metre estimate. The subscription price is not in this total.",
+      "incomplete": "One share still uses its last known balance: the withdrawal price is missing."
+    }
   },
   "realEstate": {
     "purchasePrice": "Purchase price",
@@ -792,7 +820,6 @@
       "noSeries": "No recurring series detected yet.",
       "noUpcoming": "No upcoming payments",
       "noUpcomingHint": "Upcoming charges will appear here once detected.",
-      "creditCardPayment": "Credit card payment",
       "error": "Couldn't load recurring items.",
       "label": "Label",
       "counterparty": "Counterparty",
@@ -939,7 +966,6 @@
       "finary": "Import from Finary",
       "manual": "Create an account manually",
       "amundi": "PEE, PEG, PERCO, PER held at Amundi",
-      "amex": "American Express credit card: balance and transactions",
       "property": "House, apartment, land…",
       "fortuneo": "Sync your Fortuneo accounts"
     }
@@ -1259,6 +1285,106 @@
         "serverError": "Could not reach Amundi. Please try again."
       }
     },
+    "corum": {
+      "title": "CORUM",
+      "login": "Client number",
+      "password": "Password",
+      "otpCode": "6-digit security code",
+      "otpPrompt": "Enter the code CORUM sent by SMS.",
+      "appValidationPrompt": "Open the CORUM app and approve the sign-in.",
+      "appValidationHint": "This page updates on its own as soon as you have approved.",
+      "connect": "Connect",
+      "connecting": "Signing in…",
+      "validate": "Validate the code",
+      "validating": "Validating…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "SCPI shares synced.",
+      "clearSession": "Disconnect",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs the SCPI shares in your CORUM contracts, valued at the withdrawal price. Only the accounts you linked to a fund are updated.",
+      "errors": {
+        "tooManyAttempts": "Too many attempts. Please wait.",
+        "invalidCredentials": "Invalid CORUM credentials.",
+        "invalidCode": "Invalid or expired security code. Start the sign-in again.",
+        "appValidationTimeout": "The in-app approval was not confirmed in time. Start the sign-in again.",
+        "authAttemptExpired": "The sign-in attempt expired. Start again.",
+        "sessionExpired": "The CORUM session expired. Please reconnect.",
+        "multipleContracts": "This CORUM login holds more than one real-estate contract, and the sync cannot tell which one to use.",
+        "portfolioIncomplete": "CORUM returned an incomplete portfolio. Your existing data was kept.",
+        "formatChanged": "The CORUM website format changed. Your existing data was kept.",
+        "invalidData": "CORUM returned inconsistent data. Your existing data was kept.",
+        "serverError": "Could not reach CORUM. Please try again."
+      }
+    },
+    "sofidy": {
+      "title": "Sofidy",
+      "login": "Associate code",
+      "password": "Password",
+      "otpCode": "6-digit verification code",
+      "otpPrompt": "Sofidy emailed you a verification code. Enter it here.",
+      "connect": "Connect",
+      "connecting": "Signing in…",
+      "validate": "Validate the code",
+      "validating": "Validating…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "SCPI shares synced.",
+      "clearSession": "Disconnect",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs the SCPI shares in your Sofidy account, valued at the withdrawal price. Only the accounts you linked to a fund are updated.",
+      "errors": {
+        "tooManyAttempts": "Too many attempts. Please wait.",
+        "invalidCredentials": "Invalid Sofidy associate code or password.",
+        "invalidCode": "Invalid or expired verification code. Start the sign-in again.",
+        "firstVisitPending": "Finish your first visit on the Sofidy client space first, then try again.",
+        "emailUnreachable": "No e-mail address is attached to this Sofidy account, so no code can be sent to it.",
+        "accountInactive": "This Sofidy account is inactive. Please contact the Service Associés.",
+        "appValidationTimeout": "The in-app approval was not confirmed in time. Start the sign-in again.",
+        "authAttemptExpired": "The sign-in attempt expired. Start again.",
+        "sessionExpired": "The Sofidy session expired. Please reconnect.",
+        "multipleContracts": "This Sofidy login holds more than one real-estate contract, and the sync cannot tell which one to use.",
+        "portfolioIncomplete": "Sofidy returned an incomplete portfolio. Your existing data was kept.",
+        "formatChanged": "The Sofidy website format changed. Your existing data was kept.",
+        "invalidData": "Sofidy returned inconsistent data. Your existing data was kept.",
+        "serverError": "Could not reach Sofidy. Please try again."
+      }
+    },
+    "fortuneo": {
+      "title": "Fortuneo",
+      "login": "Login",
+      "password": "Password",
+      "otpCode": "6-digit security code",
+      "otpPrompt": "Enter the code sent by Fortuneo. This device will not be marked as trusted.",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "validate": "Validate code",
+      "validating": "Validating…",
+      "sync": "Sync",
+      "queued": "Synchronization queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Portfolio synchronized.",
+      "clearSession": "Disconnect",
+      "noSession": "No active session",
+      "sessionActive": "Active session",
+      "scope": "Syncs positions, average cost, price, valuation and cash for PEA, securities, and current accounts, plus recent transactions.",
+      "errors": {
+        "tooManyAttempts": "Too many attempts. Please wait.",
+        "invalidCredentials": "Invalid Fortuneo credentials.",
+        "invalidCode": "Invalid or expired security code. Start the login again.",
+        "authAttemptExpired": "The authentication attempt expired. Start the login again.",
+        "sessionExpired": "The Fortuneo session expired. Please reconnect.",
+        "investorProfileRequired": "Fortuneo is blocking the portfolio with an investor-profile request. Open Fortuneo, defer or complete that request, then retry synchronization. Your existing data was kept unchanged.",
+        "portfolioIncomplete": "Fortuneo returned an incomplete portfolio. Your existing data was kept unchanged.",
+        "formatChanged": "Fortuneo changed its portfolio format. Your existing data was kept unchanged.",
+        "invalidData": "Fortuneo returned inconsistent portfolio data. Your existing data was kept unchanged.",
+        "serverError": "Could not reach Fortuneo. Please try again."
+      }
+    },
     "amex": {
       "title": "American Express",
       "login": "User ID",
@@ -1292,37 +1418,6 @@
         "formatChanged": "The American Express website format has changed. Your existing data has been preserved.",
         "invalidData": "American Express returned inconsistent data. Your existing data has been preserved.",
         "serverError": "Unable to reach American Express. Please try again."
-      }
-    },
-    "fortuneo": {
-      "title": "Fortuneo",
-      "login": "Login",
-      "password": "Password",
-      "otpCode": "6-digit security code",
-      "otpPrompt": "Enter the code sent by Fortuneo. This device will not be marked as trusted.",
-      "connect": "Connect",
-      "connecting": "Connecting…",
-      "validate": "Validate code",
-      "validating": "Validating…",
-      "sync": "Sync",
-      "queued": "Synchronization queued…",
-      "syncing": "Syncing…",
-      "syncSuccess": "Portfolio synchronized.",
-      "clearSession": "Disconnect",
-      "noSession": "No active session",
-      "sessionActive": "Active session",
-      "scope": "Syncs positions, average cost, price, valuation and cash for PEA, securities, and current accounts, plus recent transactions.",
-      "errors": {
-        "tooManyAttempts": "Too many attempts. Please wait.",
-        "invalidCredentials": "Invalid Fortuneo credentials.",
-        "invalidCode": "Invalid or expired security code. Start the login again.",
-        "authAttemptExpired": "The authentication attempt expired. Start the login again.",
-        "sessionExpired": "The Fortuneo session expired. Please reconnect.",
-        "investorProfileRequired": "Fortuneo is blocking the portfolio with an investor-profile request. Open Fortuneo, defer or complete that request, then retry synchronization. Your existing data was kept unchanged.",
-        "portfolioIncomplete": "Fortuneo returned an incomplete portfolio. Your existing data was kept unchanged.",
-        "formatChanged": "Fortuneo changed its portfolio format. Your existing data was kept unchanged.",
-        "invalidData": "Fortuneo returned inconsistent portfolio data. Your existing data was kept unchanged.",
-        "serverError": "Could not reach Fortuneo. Please try again."
       }
     }
   },

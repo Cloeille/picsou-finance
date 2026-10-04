@@ -54,6 +54,16 @@ jobs:
             context: services/fortuneo-auth
             dockerfile: services/fortuneo-auth/Dockerfile
             versioned: false
+          - name: corum-auth
+            image: ${{ github.repository }}/corum-auth
+            context: services/corum-auth
+            dockerfile: services/corum-auth/Dockerfile
+            versioned: false
+          - name: sofidy-auth
+            image: ${{ github.repository }}/sofidy-auth
+            context: services/sofidy-auth
+            dockerfile: services/sofidy-auth/Dockerfile
+            versioned: false
 
     steps:
       - name: Checkout

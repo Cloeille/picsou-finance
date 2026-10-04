@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useForm, useWatch, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -157,6 +157,17 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
     }
   }, [open, defaultValues, reset])
 
+  // Zod runs before submit. A negative balance left in a now-hidden field would block the
+  // save, and a non-euro currency would be converted a second time on the withdrawal value.
+  const previousType = useRef(selectedType)
+  useEffect(() => {
+    if (selectedType === 'SCPI' && previousType.current !== 'SCPI') {
+      setValue('currentBalance', undefined, { shouldValidate: true })
+      setValue('currency', 'EUR', { shouldValidate: true })
+    }
+    previousType.current = selectedType
+  }, [selectedType, setValue])
+
   // The lender field and the provider field are the same form value: a loan's provider IS its
   // bank, and it gets a logo on the same terms as any other account.
   function handleBankChange(bankName: string, institutionId?: string) {
@@ -165,7 +176,13 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
   }
 
   function handleFormSubmit(data: AccountFormData) {
-    onSubmit(data)
+    if (data.type !== 'SCPI') {
+      onSubmit(data)
+      return
+    }
+    // Unmounted fields keep their last value. A balance typed before the type change, or a
+    // synced account's isManual=false, must not be saved as if this were still that account.
+    onSubmit({ ...data, isManual: true, currentBalance: undefined, currency: 'EUR' })
   }
 
   return (
@@ -203,6 +220,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
                 id="currency"
                 {...register('currency')}
                 className={SELECT_CONTROL_CLASS}
+                disabled={selectedType === 'SCPI'}
               >
                 {currencyOptions.map((c) => (
                   <option key={c.code} value={c.code}>
@@ -211,12 +229,14 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
                 ))}
               </select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="balance">
-                {selectedType === 'LOAN' ? t('debt.remaining') : t('accounts.balance')}
-              </Label>
-              <NumericInput id="balance" {...register('currentBalance', { setValueAs: toOptionalNumber })} />
-            </div>
+            {selectedType !== 'SCPI' && (
+              <div className="space-y-2">
+                <Label htmlFor="balance">
+                  {selectedType === 'LOAN' ? t('debt.remaining') : t('accounts.balance')}
+                </Label>
+                <NumericInput id="balance" {...register('currentBalance', { setValueAs: toOptionalNumber })} />
+              </div>
+            )}
           </div>
 
           {OPENING_DATE_TYPES.includes(selectedType) && (
@@ -233,7 +253,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
             </div>
           )}
 
-          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && (
+          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && selectedType !== 'SCPI' && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="provider">{t('accounts.provider')}</Label>
@@ -369,14 +389,14 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
             </div>
           )}
 
-          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && (
+          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && selectedType !== 'SCPI' && (
             <div className="flex min-h-10 items-center gap-2">
               <input id="isManual" type="checkbox" {...register('isManual')} className="h-5 w-5 rounded accent-primary" />
               <Label htmlFor="isManual">{t('accounts.manual')}</Label>
             </div>
           )}
 
-          {(selectedType === 'REAL_ESTATE' || selectedType === 'LOAN') && (
+          {(selectedType === 'REAL_ESTATE' || selectedType === 'LOAN' || selectedType === 'SCPI') && (
             <input type="hidden" {...register('isManual')} value="true" />
           )}
 

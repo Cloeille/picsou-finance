@@ -19,7 +19,7 @@ import java.sql.SQLException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Verifies the V81 Trade Republic valuation backfill against real PostgreSQL. */
+/** Verifies the V96 Trade Republic valuation backfill against real PostgreSQL. */
 @Testcontainers
 @EnabledIf("dockerAvailable")
 class TradeRepublicValuationMigrationTest {
@@ -37,7 +37,7 @@ class TradeRepublicValuationMigrationTest {
         if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
             throw new IllegalStateException(
                 "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V81 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
+                    + "The V96 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
         }
         return available;
     }
@@ -51,7 +51,7 @@ class TradeRepublicValuationMigrationTest {
 
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
-        migrateTo("80");
+        migrateTo("95");
 
         try (Connection conn = connect()) {
             long memberId = insertReturningId(conn,
@@ -90,7 +90,7 @@ class TradeRepublicValuationMigrationTest {
             insertHolding(conn, otherProviderAccountId, "BD-B", "3", "90", "110", null, null);
         }
 
-        migrateTo("81");
+        migrateTo("96");
     }
 
     @Test

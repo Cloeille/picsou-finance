@@ -21,7 +21,7 @@ import java.sql.Statement;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * V87 rewrites existing rows, so it gets a Testcontainers test by the letter of the convention.
+ * V98 rewrites existing rows, so it gets a Testcontainers test by the letter of the convention.
  *
  * <p>What it has to get right is the repair. The old {@code refresh()} emptied a profile on any
  * provider failure and stamped {@code refreshed_at} regardless, so an emptied row is
@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Testcontainers
 @EnabledIf("dockerAvailable")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-class V87SecurityProfileStatusMigrationTest {
+class V98SecurityProfileStatusMigrationTest {
 
     static {
         System.setProperty("api.version", "1.44");
@@ -65,7 +65,7 @@ class V87SecurityProfileStatusMigrationTest {
 
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
-        migrateTo("86");
+        migrateTo("97");
         try (Connection c = connection(); Statement st = c.createStatement()) {
             // A share that resolved.
             st.execute("INSERT INTO security_profile (id, ticker, asset_type, sector_key, refreshed_at) "
@@ -85,7 +85,7 @@ class V87SecurityProfileStatusMigrationTest {
     @Test
     @Order(1)
     void aResolvedProfileIsMarkedOkAndKeepsItsTimestamp() throws SQLException {
-        migrateTo("87");
+        migrateTo("98");
 
         try (Connection c = connection(); Statement st = c.createStatement();
              ResultSet rs = st.executeQuery(

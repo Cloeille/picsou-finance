@@ -138,6 +138,55 @@ export interface LinkedLoan {
   endDate: string | null
 }
 
+export type DividendPolicy = 'CASH' | 'REINVEST'
+export type ScpiValuationStatus = 'OK' | 'PRICE_INCOMPLETE'
+
+export interface ScpiPosition {
+  isin: string | null
+  managementCompany: string | null
+  corumFundCode: string | null
+  sofidyFundCode: string | null
+  shareCount: number
+  subscriptionPriceEur: number | null
+  withdrawalPriceEur: number | null
+  /** Withdrawal price times share count. Null when the withdrawal price is missing. */
+  withdrawalValueEur: number | null
+  dividendPolicy: DividendPolicy
+  jouissanceDate: string | null
+  valuationStatus: ScpiValuationStatus
+}
+
+export interface ScpiPositionRequest {
+  isin?: string | null
+  managementCompany?: string | null
+  /** Links this account to one fund of a CORUM contract, so a sync can fill it. */
+  corumFundCode?: string | null
+  /** Links this account to one fund of a Sofidy portfolio, so a sync can fill it. */
+  sofidyFundCode?: string | null
+  shareCount: number
+  subscriptionPriceEur?: number | null
+  withdrawalPriceEur?: number | null
+  dividendPolicy?: DividendPolicy
+  jouissanceDate?: string | null
+}
+
+/** One SCPI vehicle in the property summary. Kept out of the open-data gross. */
+export interface ScpiPaperLine {
+  accountId: number
+  name: string
+  color: string | null
+  managementCompany: string | null
+  shareCount: number | null
+  sharePercent: number
+  withdrawalPriceEur: number | null
+  subscriptionPriceEur: number | null
+  grossValue: number
+  outstandingDebt: number
+  netValue: number
+  valuationStatus: ScpiValuationStatus | null
+  loans: LinkedLoan[]
+}
+
 export interface RealEstatePropertyLine {
   accountId: number
   name: string
@@ -169,6 +218,11 @@ export interface RealEstateSummary {
   loanToValue: number | null
   monthlyRentalIncome: number
   properties: RealEstatePropertyLine[]
+  /** SCPI shares. Not included in grossValue, which is the open-data figure for physical property. */
+  paperGross: number
+  paperDebt: number
+  paperNet: number
+  paper: ScpiPaperLine[]
 }
 
 export interface GeocodeSuggestion {
@@ -235,6 +289,8 @@ export interface Account {
   sharePercent?: number | null
   /** Whether the viewer administers the account. Holding a share does not grant write access. */
   isOwner?: boolean | null
+  /** Present only for a SCPI account. */
+  scpi?: ScpiPosition | null
 }
 
 export interface AccountRequest {
@@ -865,40 +921,27 @@ export interface AmundiAuthInitResponse {
 
 // --- American Express ---
 
-interface AmexSessionStatusBase {
-  isActive: boolean
-  lastSyncStartedAt: string | null
-  lastSyncCompletedAt: string | null
-}
-
+interface AmexSessionStatusBase { isActive: boolean; lastSyncStartedAt: string | null; lastSyncCompletedAt: string | null }
 export type AmexSessionStatus =
-  | (AmexSessionStatusBase & {
-      syncStatus: 'FAILED'
-      lastSyncError: AmexErrorCode
-    })
-  | (AmexSessionStatusBase & {
-      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
-      lastSyncError: null
-    })
-
-export type AmexErrorCode =
-  | 'INVALID_CREDENTIALS'
-  | 'INVALID_OTP'
-  | 'AUTH_ATTEMPT_EXPIRED'
-  | 'SESSION_EXPIRED'
-  | 'UPSTREAM_FORMAT_CHANGED'
-  | 'UPSTREAM_UNAVAILABLE'
-  | 'INVALID_DATA'
-  | 'INTERNAL_ERROR'
-
+  | (AmexSessionStatusBase & { syncStatus: 'FAILED'; lastSyncError: AmexErrorCode })
+  | (AmexSessionStatusBase & { syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'; lastSyncError: null })
+export type AmexErrorCode = 'INVALID_CREDENTIALS' | 'INVALID_OTP' | 'AUTH_ATTEMPT_EXPIRED' | 'SESSION_EXPIRED' | 'UPSTREAM_FORMAT_CHANGED' | 'UPSTREAM_UNAVAILABLE' | 'INVALID_DATA' | 'INTERNAL_ERROR'
 export type AmexOtpMethod = 'sms' | 'email'
+export interface AmexAuthInitResponse { processId: string | null; mfaRequired: boolean; mfaType: string | null }
 
-/** `mfaType` is always `OTP` when a one-time code was sent (SMS or e-mail). */
-export interface AmexAuthInitResponse {
-  processId: string | null
-  mfaRequired: boolean
-  mfaType: string | null
-}
+export type SofidyErrorCode = 'INVALID_CREDENTIALS' | 'MFA_INVALID' | 'FIRST_VISIT_PENDING' | 'EMAIL_UNREACHABLE' | 'ACCOUNT_INACTIVE' | 'RATE_LIMITED' | 'AUTH_ATTEMPT_EXPIRED' | 'SESSION_EXPIRED' | 'PORTFOLIO_INCOMPLETE' | 'UPSTREAM_FORMAT_CHANGED' | 'UPSTREAM_UNAVAILABLE' | 'INVALID_DATA' | 'INTERNAL_ERROR'
+interface SofidySessionStatusBase { isActive: boolean; lastSyncStartedAt: string | null; lastSyncCompletedAt: string | null }
+export type SofidySessionStatus =
+  | (SofidySessionStatusBase & { syncStatus: 'FAILED'; lastSyncError: SofidyErrorCode })
+  | (SofidySessionStatusBase & { syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'; lastSyncError: null })
+export interface SofidyAuthInitResponse { processId: string | null; mfaRequired: boolean; mfaType: 'EMAIL' | null }
+
+export type CorumErrorCode = 'INVALID_CREDENTIALS' | 'SESSION_EXPIRED' | 'MULTIPLE_CONTRACTS' | 'PORTFOLIO_INCOMPLETE' | 'UPSTREAM_FORMAT_CHANGED' | 'UPSTREAM_UNAVAILABLE' | 'INVALID_DATA' | 'INTERNAL_ERROR'
+interface CorumSessionStatusBase { isActive: boolean; lastSyncStartedAt: string | null; lastSyncCompletedAt: string | null }
+export type CorumSessionStatus =
+  | (CorumSessionStatusBase & { syncStatus: 'FAILED'; lastSyncError: CorumErrorCode })
+  | (CorumSessionStatusBase & { syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'; lastSyncError: null })
+export interface CorumAuthInitResponse { processId: null; mfaRequired: false; mfaType: null }
 
 export interface FinaryAccountPreview {
   finaryId: string

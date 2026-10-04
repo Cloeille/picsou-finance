@@ -69,8 +69,8 @@ class EnableBankingBankConnectorTest {
         doReturn(List.of("uid-bad", "uid-good"))
             .when(underTest).fetchSessionAccountsWithRetry(sessionId);
 
-        // uid-bad: throws (simulates a 404 / parse error after uid rotation)
-        doThrow(new RuntimeException("404 Not Found"))
+        // uid-bad: the 404 after a uid rotation, as mapToSyncException surfaces it
+        doThrow(new SyncException("Failed to fetch account balances: 404 Not Found"))
             .when(underTest).fetchAccountData("uid-bad");
 
         // uid-good: returns valid data
@@ -83,6 +83,42 @@ class EnableBankingBankConnectorTest {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).externalId()).isEqualTo("uid-good");
         assertThat(result.get(0).balance()).isEqualByComparingTo("1234.56");
+    }
+
+    @Test
+    void fetchBalances_everyAccountFails_rethrowsTheFirstFailureInsteadOfAnEmptyList() {
+        EnableBankingBankConnector underTest = spy(connector());
+        doReturn(List.of("uid-1", "uid-2")).when(underTest).fetchSessionAccountsWithRetry("sess-down");
+        SyncException consentExpired = new SyncException("Consent expired", null, "CONSENT_EXPIRED");
+        doThrow(consentExpired).when(underTest).fetchAccountData("uid-1");
+        doThrow(new SyncException("503 Service Unavailable")).when(underTest).fetchAccountData("uid-2");
+
+        assertThatThrownBy(() -> underTest.fetchBalances("sess-down")).isSameAs(consentExpired);
+    }
+
+    @Test
+    void fetchBalances_malformedBalanceAmount_skipsThatAccount() {
+        EnableBankingBankConnector underTest = spy(connector());
+        doReturn(List.of("uid-bad", "uid-good")).when(underTest).fetchSessionAccountsWithRetry("sess-nfe");
+        doThrow(new NumberFormatException("Character n is neither a decimal digit number"))
+            .when(underTest).fetchAccountData("uid-bad");
+        BankConnectorPort.AccountData goodData = new BankConnectorPort.AccountData(
+            "uid-good", "Livret A", null, "EUR", BigDecimal.valueOf(500));
+        doReturn(goodData).when(underTest).fetchAccountData("uid-good");
+
+        assertThat(underTest.fetchBalances("sess-nfe")).containsExactly(goodData);
+    }
+
+    @Test
+    void fetchBalances_unexpectedFailure_propagatesEvenWhenAnotherAccountSucceeds() {
+        EnableBankingBankConnector underTest = spy(connector());
+        doReturn(List.of("uid-good", "uid-bug")).when(underTest).fetchSessionAccountsWithRetry("sess-bug");
+        doReturn(new BankConnectorPort.AccountData("uid-good", "Livret A", null, "EUR", BigDecimal.valueOf(500)))
+            .when(underTest).fetchAccountData("uid-good");
+        IllegalStateException bug = new IllegalStateException("unexpected");
+        doThrow(bug).when(underTest).fetchAccountData("uid-bug");
+
+        assertThatThrownBy(() -> underTest.fetchBalances("sess-bug")).isSameAs(bug);
     }
 
     /**

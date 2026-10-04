@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { Account, AccountDeletionImpact, AccountRequest, BalanceSnapshot, DebtRequest, DebtInfo, HoldingResponse, LoanScheduleResponse, Ownership, OwnershipRequest, PropertyValuation, PropertyValuationHistoryEntry, RealEstateMetadataRequest, RealEstateMetadata, RealEstateSummary, RealizedPnlResponse, SecurityInsight, Transaction, TransactionImportPreviewResponse, TransactionImportRequest, TransactionImportResultResponse, TransactionRequest, ExchangePositionResponse } from '@/types/api'
+import type { Account, AccountDeletionImpact, AccountRequest, BalanceSnapshot, DebtRequest, DebtInfo, HoldingResponse, LoanScheduleResponse, Ownership, OwnershipRequest, PropertyValuation, PropertyValuationHistoryEntry, RealEstateMetadataRequest, RealEstateMetadata, RealEstateSummary, RealizedPnlResponse, ScpiPosition, ScpiPositionRequest, SecurityInsight, Transaction, TransactionImportPreviewResponse, TransactionImportRequest, TransactionImportResultResponse, TransactionRequest, ExchangePositionResponse } from '@/types/api'
 
 export const accountsApi = {
   list: () => api.get<Account[]>('/accounts').then(r => r.data),
@@ -34,6 +34,8 @@ export const accountsApi = {
     api.post<BalanceSnapshot>(`/accounts/${id}/history`, { balance, date }).then(r => r.data),
   updateRealEstateMetadata: (id: number, data: RealEstateMetadataRequest) =>
     api.put<RealEstateMetadata>(`/accounts/${id}/real-estate`, data).then(r => r.data),
+  updateScpiPosition: (id: number, data: ScpiPositionRequest) =>
+    api.put<ScpiPosition>(`/accounts/${id}/scpi`, data).then(r => r.data),
   updateDebtMetadata: (id: number, data: DebtRequest) =>
     api.put<DebtInfo>(`/accounts/${id}/debt`, data).then(r => r.data),
   loanSummary: (id: number) =>

@@ -46,6 +46,9 @@ services:
       BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001
       AMUNDI_AUTH_URL: http://amundi-auth:8001
       FORTUNEO_AUTH_URL: http://fortuneo-auth:8001
+      CORUM_AUTH_URL: http://corum-auth:8001
+      SOFIDY_AUTH_URL: http://sofidy-auth:8001
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     depends_on:
       - db
       - tr-auth
@@ -54,6 +57,8 @@ services:
       - bourse-direct-auth
       - amundi-auth
       - fortuneo-auth
+      - corum-auth
+      - sofidy-auth
     networks:
       - default
       - fortuneo-auth-net
@@ -143,6 +148,25 @@ services:
     networks:
       - fortuneo-auth-net
       - fortuneo-egress
+
+  corum-auth:
+    image: ghcr.io/cloeille/picsou-finance/corum-auth:latest
+    build:
+      context: ../services/corum-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+
+  sofidy-auth:
+    image: ghcr.io/cloeille/picsou-finance/sofidy-auth:latest
+    build:
+      context: ../services/sofidy-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+
 
   db:
     image: postgres:16-alpine
