@@ -59,7 +59,9 @@ describe('SimplefinTab', () => {
 
     renderTab()
 
-    fireEvent.change(await screen.findByLabelText('sync.simplefin.token'), { target: { value: '  tok-123  ' } })
+    const token = await screen.findByLabelText('sync.simplefin.token')
+    expect(token).toHaveAttribute('type', 'password')
+    fireEvent.change(token, { target: { value: '  tok-123  ' } })
     fireEvent.click(screen.getByRole('button', { name: 'sync.simplefin.connect' }))
 
     await vi.waitFor(() =>

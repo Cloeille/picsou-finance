@@ -499,12 +499,33 @@ handlers.set(key('POST', '/ibkr/connect'), () => null)
 handlers.set(key('POST', '/ibkr/sync'), () => [])
 handlers.set(key('DELETE', '/ibkr/connection'), () => null)
 
-handlers.set(key('GET', '/simplefin/status'), () => ({
-  connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null,
-}))
-handlers.set(key('POST', '/simplefin/connect'), () => null)
-handlers.set(key('POST', '/simplefin/sync'), () => [])
-handlers.set(key('DELETE', '/simplefin/connection'), () => null)
+const demoSimplefin = {
+  connected: false,
+  connectionId: null as number | null,
+  status: null as string | null,
+  lastSyncedAt: null as string | null,
+  maskedToken: null as string | null,
+}
+handlers.set(key('GET', '/simplefin/status'), () => ({ ...demoSimplefin }))
+handlers.set(key('POST', '/simplefin/connect'), () => {
+  demoSimplefin.connected = true
+  demoSimplefin.connectionId = 1
+  demoSimplefin.status = 'CONNECTED'
+  demoSimplefin.maskedToken = '••••demo'
+  return null
+})
+handlers.set(key('POST', '/simplefin/sync'), () => {
+  demoSimplefin.lastSyncedAt = new Date().toISOString()
+  return []
+})
+handlers.set(key('DELETE', '/simplefin/connection'), () => {
+  demoSimplefin.connected = false
+  demoSimplefin.connectionId = null
+  demoSimplefin.status = null
+  demoSimplefin.lastSyncedAt = null
+  demoSimplefin.maskedToken = null
+  return null
+})
 
 // Amundi Épargne Salariale — same demo convention: reads report a disconnected
 // session, mutations fake-succeed with the real response shapes. Bourse Direct

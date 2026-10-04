@@ -4,7 +4,12 @@ import com.picsou.exception.SyncException;
 import com.picsou.port.SimplefinPort.SimplefinAccountSet;
 import org.junit.jupiter.api.Test;
 
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.Base64;
@@ -157,9 +162,64 @@ class SimplefinClientTest {
         assertRejected(token("https://10.1.2.3/simplefin/claim/abc"));
         assertRejected(token("https://192.168.0.5/simplefin/claim/abc"));
         assertRejected(token("https://169.254.169.254/latest"));
+        assertRejected(token("https://0.1.2.3/simplefin/claim/abc"));
+        assertRejected(token("https://100.64.0.1/simplefin/claim/abc"));
+        assertRejected(token("https://100.127.255.255/simplefin/claim/abc"));
+        assertRejected(token("https://[64:ff9b::7f00:1]/simplefin/claim/abc"));
         assertRejected(token("https://user:pass@bridge.simplefin.org/simplefin/claim/abc"));
         assertRejected("not base64!!!");
         assertThat(transport.calls).isZero();
+    }
+
+    @Test
+    void aPublicAddressOutsideThoseRangesIsAccepted() {
+        assertThat(SimplefinUrls.claimUri(token("https://8.8.8.8/simplefin/claim/abc")).getHost())
+            .isEqualTo("8.8.8.8");
+        assertThat(SimplefinUrls.claimUri(token("https://100.128.0.1/simplefin/claim/abc")).getHost())
+            .isEqualTo("100.128.0.1");
+        assertThat(SimplefinUrls.claimUri(token("https://[64:ff9b:1::1]/simplefin/claim/abc")).getHost())
+            .contains("64:ff9b:1");
+    }
+
+    @Test
+    void anOversizedBodyIsRefusedWhileItIsRead() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/small", exchange -> {
+            byte[] payload = "ok".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, payload.length);
+            exchange.getResponseBody().write(payload);
+            exchange.close();
+        });
+        server.createContext("/big", exchange -> {
+            exchange.sendResponseHeaders(200, 0);
+            exchange.getResponseBody().write(new byte[8_000]);
+            exchange.close();
+        });
+        server.start();
+        try {
+            int port = server.getAddress().getPort();
+            HttpClient http = HttpClient.newHttpClient();
+            HttpResponse<String> small = http.send(
+                HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/small")).build(),
+                SimplefinClient.boundedUtf8(100));
+            assertThat(small.body()).isEqualTo("ok");
+
+            assertThatThrownBy(() -> http.send(
+                HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/big")).build(),
+                SimplefinClient.boundedUtf8(100)))
+                .hasMessageContaining("response too large");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void aPlusInTheAccessPasswordIsNotTurnedIntoASpace() {
+        String header = SimplefinUrls.accountsRequest(
+            "https://user:p+ss%2Bword@bridge.simplefin.org/simplefin",
+            LocalDate.of(2026, 1, 1)).authorization();
+        String decoded = new String(Base64.getDecoder().decode(header.substring("Basic ".length())), StandardCharsets.UTF_8);
+        assertThat(decoded).isEqualTo("user:p+ss+word");
     }
 
     private void assertRejected(String setupToken) {
@@ -178,7 +238,7 @@ class SimplefinClientTest {
         int calls;
 
         @Override
-        public Response send(String method, URI uri, String authorization) {
+        public Response send(String method, URI uri, String authorization, int maxBody) {
             this.calls++;
             this.method = method;
             this.uri = uri;

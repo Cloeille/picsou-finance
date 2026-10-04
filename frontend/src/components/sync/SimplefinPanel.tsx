@@ -156,6 +156,7 @@ export function SimplefinPanel({ onConnected }: SimplefinPanelProps = {}) {
                 </Label>
                 <Input
                   id="simplefin-token"
+                  type="password"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   placeholder={t('sync.simplefin.tokenPlaceholder')}

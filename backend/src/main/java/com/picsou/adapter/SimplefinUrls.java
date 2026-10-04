@@ -156,15 +156,31 @@ final class SimplefinUrls {
             return true;
         }
         if (address instanceof Inet6Address v6) {
-            int first = v6.getAddress()[0] & 0xff;
-            // fc00::/7 unique local
-            return (first & 0xfe) == 0xfc;
+            byte[] raw = v6.getAddress();
+            int first = raw[0] & 0xff;
+            // fc00::/7 unique local, and 64:ff9b::/96 which embeds an IPv4 destination
+            return (first & 0xfe) == 0xfc || isNat64(raw);
         }
-        return false;
+        byte[] v4 = address.getAddress();
+        if (v4.length != 4) return false;
+        int a = v4[0] & 0xff;
+        int b = v4[1] & 0xff;
+        // 0.0.0.0/8 "this network", and 100.64.0.0/10 carrier-grade NAT
+        return a == 0 || (a == 100 && b >= 64 && b <= 127);
     }
 
+    /** Well-known NAT64 prefix {@code 64:ff9b::/96}. */
+    private static boolean isNat64(byte[] raw) {
+        return raw.length == 16
+            && raw[0] == 0x00 && raw[1] == 0x64
+            && raw[2] == (byte) 0xff && raw[3] == (byte) 0x9b
+            && raw[4] == 0 && raw[5] == 0 && raw[6] == 0 && raw[7] == 0
+            && raw[8] == 0 && raw[9] == 0 && raw[10] == 0 && raw[11] == 0;
+    }
+
+    /** Percent-decodes a URI component. A literal {@code +} stays a plus; {@code %2B} becomes one too. */
     private static String urlDecode(String value) {
-        return URLDecoder.decode(value, StandardCharsets.UTF_8);
+        return URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8);
     }
 
     record AccountsRequest(URI uri, String authorization, String username) {}
