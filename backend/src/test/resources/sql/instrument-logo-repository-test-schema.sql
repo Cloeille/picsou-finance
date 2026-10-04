@@ -2,7 +2,7 @@
 --
 -- Same reasoning as sql/transaction-repository-test-schema.sql: the real migrations cannot run
 -- on H2 (docs/conventions/testing.md), so this stands up the two tables the logo queries read,
--- with the same columns and CHECK constraints as V104 and V14.
+-- with the same columns and CHECK constraints as V107 and V14.
 
 DROP TABLE IF EXISTS instrument_logo;
 DROP TABLE IF EXISTS price_snapshot;

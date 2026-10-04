@@ -120,7 +120,7 @@ download is rate-limited or fails transiently, the whole lookup reports that ins
 records nothing, anything else records `FAILED`), so the ticker is retried later with both
 variants rather than settled without its dark one.
 
-### Storage: `instrument_logo` (V104)
+### Storage: `instrument_logo` (V107)
 
 One row per ticker that was *attempted*, global rather than member-scoped (a logo is not
 private data, and AAPL in two accounts or two members' portfolios is one row):
@@ -252,7 +252,7 @@ Every failure mode is decoration-only: `logoUrl` is null and the ticker stands.
   anonymous caller, the cache headers and ETag, a 304 on revalidation, the dark variant, 404.
 - `InstrumentLogoWiringTest`: the price provider's constructor choice and the port seam.
 - `SchedulerServiceTest`: logos are queued after the prices, even when the price refresh fails.
-- `V104InstrumentLogoMigrationTest` (Testcontainers): the migration applies on the full chain
+- `V107InstrumentLogoMigrationTest` (Testcontainers): the migration applies on the full chain
   and its CHECK and UNIQUE constraints hold.
 - `AccountServiceTest`: a crypto holding carries its CoinGecko logo, a share its stored URLs,
   a share with nothing stored stays null, and a crypto account never reads the share store.

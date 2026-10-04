@@ -8,6 +8,7 @@ import { AccountForm } from '@/components/shared/AccountForm'
 import { AddAccountModal } from '@/components/shared/AddAccountModal'
 import { AddPropertyModal } from '@/components/property/AddPropertyModal'
 import { ExportAccountsModal } from '@/components/shared/ExportAccountsModal'
+import { AddScpiModal } from '@/components/scpi/AddScpiModal'
 import { AccountCard } from '@/components/shared/AccountCard'
 import { AccountsStackedChart } from '@/components/shared/AccountsStackedChart'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -135,6 +136,7 @@ export function AccountsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showPropertyModal, setShowPropertyModal] = useState(false)
   const [showExportModal, setShowExportModal] = useState(false)
+  const [showScpiModal, setShowScpiModal] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
@@ -411,6 +413,12 @@ export function AccountsPage() {
               <Plus className="size-4" />
               {addingProperty ? t('property.add.action') : t('accounts.addAccount')}
             </Button>
+            {addingProperty && (
+              <Button onClick={() => setShowScpiModal(true)} size="sm" variant="outline">
+                <Plus className="size-4" />
+                {t('scpi.add.action')}
+              </Button>
+            )}
           </div>
         }
       />
@@ -627,6 +635,10 @@ export function AccountsPage() {
         onOpenChange={setShowExportModal}
         accounts={accounts ?? []}
       />
+      {showScpiModal && (
+        <AddScpiModal open onOpenChange={setShowScpiModal} />
+      )}
+
 
       <AddAccountModal
         open={showCreateModal}

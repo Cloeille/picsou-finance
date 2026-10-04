@@ -61,7 +61,8 @@ class WealthPyramidServiceTest {
 
     private static RealEstateSummaryResponse noProperty() {
         return new RealEstateSummaryResponse(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-            BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null, BigDecimal.ZERO, List.of());
+            BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null, BigDecimal.ZERO, List.of(),
+            BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, List.of());
     }
 
     /** A balance-only account worth {@code value}, wholly owned. */
@@ -253,12 +254,49 @@ class WealthPyramidServiceTest {
         when(realEstateSummaryService.summarize(MEMBER)).thenReturn(new RealEstateSummaryResponse(
             new BigDecimal("300000"), new BigDecimal("120000"), new BigDecimal("180000"),
             BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("40"),
-            BigDecimal.ZERO, List.of()));
+            BigDecimal.ZERO, List.of(),
+            BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, List.of()));
 
         WealthPyramidResponse response = service.pyramid(MEMBER);
 
         assertThat(response.totalAssetsEur()).isEqualByComparingTo("180000");
         assertThat(tier(response, WealthTier.REAL_ESTATE).valueEur()).isEqualByComparingTo("180000");
+    }
+
+    @Test
+    void scpiEntersNetOfItsOwnLoanWithoutChangingThePhysicalLtv() {
+        cash(AccountType.SCPI, "50000");
+        cash(AccountType.LOAN, "-10000");
+        when(realEstateSummaryService.summarize(MEMBER)).thenReturn(new RealEstateSummaryResponse(
+            BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+            BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null,
+            BigDecimal.ZERO, List.of(),
+            new BigDecimal("50000"), new BigDecimal("10000"), new BigDecimal("40000"), List.of()));
+
+        WealthPyramidResponse response = service.pyramid(MEMBER);
+
+        assertThat(response.totalAssetsEur()).isEqualByComparingTo("40000");
+        assertThat(tier(response, WealthTier.REAL_ESTATE).valueEur()).isEqualByComparingTo("40000");
+        assertThat(response.score().loanToValue()).isNull();
+    }
+
+    @Test
+    void physicalAndPaperDebtAreSubtractedOnceTogether() {
+        cash(AccountType.REAL_ESTATE, "300000");
+        cash(AccountType.SCPI, "50000");
+        cash(AccountType.LOAN, "-120000");
+        cash(AccountType.LOAN, "-10000");
+        when(realEstateSummaryService.summarize(MEMBER)).thenReturn(new RealEstateSummaryResponse(
+            new BigDecimal("300000"), new BigDecimal("120000"), new BigDecimal("180000"),
+            BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("40"),
+            BigDecimal.ZERO, List.of(),
+            new BigDecimal("50000"), new BigDecimal("10000"), new BigDecimal("40000"), List.of()));
+
+        WealthPyramidResponse response = service.pyramid(MEMBER);
+
+        assertThat(response.totalAssetsEur()).isEqualByComparingTo("220000");
+        assertThat(tier(response, WealthTier.REAL_ESTATE).valueEur()).isEqualByComparingTo("220000");
+        assertThat(response.score().loanToValue()).isEqualByComparingTo("40");
     }
 
     // --- Safety net ---
@@ -413,7 +451,8 @@ class WealthPyramidServiceTest {
         when(realEstateSummaryService.summarize(MEMBER)).thenReturn(new RealEstateSummaryResponse(
             new BigDecimal("100000"), BigDecimal.ZERO, new BigDecimal("100000"),
             BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal(ltv),
-            BigDecimal.ZERO, List.of()));
+            BigDecimal.ZERO, List.of(),
+            BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, List.of()));
         return service.pyramid(MEMBER).score().leverageBonus();
     }
 

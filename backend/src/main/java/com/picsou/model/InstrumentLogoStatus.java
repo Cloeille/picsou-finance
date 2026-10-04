@@ -1,6 +1,6 @@
 package com.picsou.model;
 
-/** What the last logo lookup for a ticker concluded. See {@code V104__instrument_logo.sql}. */
+/** What the last logo lookup for a ticker concluded. See {@code V107__instrument_logo.sql}. */
 public enum InstrumentLogoStatus {
     /** The mark is stored and served. */
     STORED,
