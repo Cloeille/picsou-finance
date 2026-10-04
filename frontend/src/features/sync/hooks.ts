@@ -13,6 +13,7 @@ import {
   degiroApi,
   amundiApi,
   ibkrApi,
+  simplefinApi,
 } from './api'
 import type {
   ExchangeType,
@@ -36,6 +37,7 @@ export const syncKeys = {
   degiro: () => [...syncKeys.all, 'degiro'] as const,
   amundi: () => [...syncKeys.all, 'amundi'] as const,
   ibkr: () => [...syncKeys.all, 'ibkr'] as const,
+  simplefin: () => [...syncKeys.all, 'simplefin'] as const,
   exchanges: () => [...syncKeys.all, 'exchanges'] as const,
   wallets: () => [...syncKeys.all, 'wallets'] as const,
   finary: () => [...syncKeys.all, 'finary'] as const,
@@ -529,6 +531,49 @@ export function useDisconnectIbkr() {
   return useMutation({
     mutationFn: ibkrApi.disconnect,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: syncKeys.ibkr() }),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// SimpleFIN
+// ---------------------------------------------------------------------------
+
+export function useSimplefinStatus() {
+  return useQuery({
+    queryKey: syncKeys.simplefin(),
+    queryFn: simplefinApi.getStatus,
+    staleTime: QUERY_STALE_TIMES.sync,
+  })
+}
+
+export function useConnectSimplefin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (token: string) => simplefinApi.connect(token),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: syncKeys.simplefin() }),
+  })
+}
+
+export function useSyncSimplefin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: simplefinApi.sync,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.simplefin() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+export function useDisconnectSimplefin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: simplefinApi.disconnect,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.simplefin() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    },
   })
 }
 

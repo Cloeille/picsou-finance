@@ -441,6 +441,7 @@
       "bourseDirect": "PEA- und Wertpapierkonten synchronisieren",
       "degiro": "DEGIRO-Wertpapierkonto synchronisieren",
       "ibkr": "Synchronisieren Sie Ihr Interactive-Brokers-Konto per Flex Query",
+      "simplefin": "Bankkonten mit einem SimpleFIN-Setup-Token importieren",
       "finary": "Aus Finary importieren",
       "manual": "Konto manuell erstellen",
       "amundi": "PEE, PEG, PERCO, PER bei Amundi",
@@ -517,6 +518,28 @@
       "errors": {
         "connectFailed": "Verbindung konnte nicht gespeichert werden. Prüfen Sie Token und Abfrage-ID.",
         "syncFailed": "Interactive-Brokers-Synchronisierung fehlgeschlagen. Prüfen Sie Ihr Token oder versuchen Sie es erneut.",
+        "disconnectFailed": "Verbindung konnte nicht entfernt werden. Bitte versuchen Sie es erneut."
+      }
+    },
+    "simplefin": {
+      "title": "SimpleFIN",
+      "setupHint": "Verknüpfen Sie Ihre Banken auf SimpleFIN Bridge, erstellen Sie ein Setup-Token und fügen Sie es hier ein.",
+      "createToken": "Setup-Token erstellen",
+      "token": "Setup-Token",
+      "tokenPlaceholder": "Token von SimpleFIN einfügen",
+      "connect": "Verbinden",
+      "sync": "Synchronisieren",
+      "syncing": "Wird synchronisiert…",
+      "disconnect": "Trennen",
+      "disconnectConfirm": "Gespeicherte SimpleFIN-Verbindung entfernen? Importierte Konten bleiben und werden nicht mehr aktualisiert.",
+      "connected": "Verbunden",
+      "statusError": "Letzte Synchronisierung fehlgeschlagen",
+      "lastSync": "Letzte Sync",
+      "neverSynced": "Nie synchronisiert",
+      "syncedToast": "SimpleFIN synchronisiert: {{count}} Konto/Konten",
+      "errors": {
+        "connectFailed": "Verbindung zu SimpleFIN fehlgeschlagen. Prüfen Sie das Token und versuchen Sie es erneut.",
+        "syncFailed": "SimpleFIN-Synchronisierung fehlgeschlagen. Versuchen Sie es erneut oder erstellen Sie ein neues Token, wenn der Zugriff widerrufen wurde.",
         "disconnectFailed": "Verbindung konnte nicht entfernt werden. Bitte versuchen Sie es erneut."
       }
     },

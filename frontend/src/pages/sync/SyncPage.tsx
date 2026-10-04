@@ -7,6 +7,7 @@ import { CryptoExchangeTab } from './CryptoExchangeTab'
 import { CryptoWalletTab } from './CryptoWalletTab'
 import { TradeRepublicTab } from './TradeRepublicTab'
 import { IbkrTab } from './IbkrTab'
+import { SimplefinTab } from './SimplefinTab'
 import { FinaryTab } from './FinaryTab'
 import { BourseDirectTab } from './BourseDirectTab'
 import { DegiroTab } from './DegiroTab'
@@ -31,6 +32,7 @@ export function SyncPage() {
           <TabsTrigger value="bourse-direct" className="flex-none">{t('sync.bourseDirect.title')}</TabsTrigger>
           <TabsTrigger value="degiro" className="flex-none">{t('sync.degiro.title')}</TabsTrigger>
           <TabsTrigger value="ibkr" className="flex-none">{t('sync.ibkr.title')}</TabsTrigger>
+          <TabsTrigger value="simplefin" className="flex-none">{t('sync.simplefin.title')}</TabsTrigger>
           <TabsTrigger value="amundi" className="flex-none">{t('sync.amundi.title')}</TabsTrigger>
           <TabsTrigger value="finary" className="flex-none">{t('sync.finary.title')}</TabsTrigger>
         </TabsList>
@@ -57,6 +59,9 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="ibkr" className="mt-6">
           <IbkrTab />
+        </TabsContent>
+        <TabsContent value="simplefin" className="mt-6">
+          <SimplefinTab />
         </TabsContent>
         <TabsContent value="amundi" className="mt-6">
           <AmundiTab />

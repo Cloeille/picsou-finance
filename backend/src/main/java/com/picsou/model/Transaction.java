@@ -56,7 +56,7 @@ public class Transaction {
      * sends one, otherwise a content fingerprint computed by the importer. Null for
      * manual rows and for importers that replace their rows wholesale (Finary).
      */
-    @Column(name = "external_transaction_id", length = 128)
+    @Column(name = "external_transaction_id", length = 255)
     private String externalTransactionId;
 
     @Enumerated(EnumType.STRING)

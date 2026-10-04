@@ -499,6 +499,13 @@ handlers.set(key('POST', '/ibkr/connect'), () => null)
 handlers.set(key('POST', '/ibkr/sync'), () => [])
 handlers.set(key('DELETE', '/ibkr/connection'), () => null)
 
+handlers.set(key('GET', '/simplefin/status'), () => ({
+  connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null,
+}))
+handlers.set(key('POST', '/simplefin/connect'), () => null)
+handlers.set(key('POST', '/simplefin/sync'), () => [])
+handlers.set(key('DELETE', '/simplefin/connection'), () => null)
+
 // Amundi Épargne Salariale — same demo convention: reads report a disconnected
 // session, mutations fake-succeed with the real response shapes. Bourse Direct
 // has no handlers at all, which leaves its panel reading `isActive: undefined`

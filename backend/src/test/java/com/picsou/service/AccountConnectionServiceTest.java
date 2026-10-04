@@ -51,6 +51,7 @@ class AccountConnectionServiceTest {
     @Mock BoursoSyncService boursoSyncService;
     @Mock DegiroSyncService degiroSyncService;
     @Mock IbkrSyncService ibkrSyncService;
+    @Mock SimplefinSyncService simplefinSyncService;
     @Mock SyncService syncService;
 
     private AccountConnectionService service() {
@@ -58,7 +59,7 @@ class AccountConnectionServiceTest {
             accountRepository, accountService, walletRepository, exchangeSessionRepository,
             requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService, degiroSyncService,
-            ibkrSyncService, syncService);
+            ibkrSyncService, simplefinSyncService, syncService);
     }
 
     private static Account account(long id, String externalId) {
@@ -174,6 +175,20 @@ class AccountConnectionServiceTest {
         given(account(30L, "ibkr_U1234567"));
         service().deleteAccount(30L, MEMBER_ID);
         verify(ibkrSyncService).deleteConnection(MEMBER_ID);
+    }
+
+    @Test
+    void keepsSimplefinWhileAnotherAccountRemains() {
+        given(account(40L, "sfin_conn_checking"), account(41L, "sfin_conn_savings"));
+        service().deleteAccount(40L, MEMBER_ID);
+        verify(simplefinSyncService, never()).deleteConnection(anyLong());
+    }
+
+    @Test
+    void clearsSimplefinWithItsLastAccount() {
+        given(account(40L, "sfin_conn_checking"));
+        service().deleteAccount(40L, MEMBER_ID);
+        verify(simplefinSyncService).deleteConnection(MEMBER_ID);
     }
 
     /**

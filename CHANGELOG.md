@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **SimpleFIN bank sync.** A member can paste a one-time setup token from SimpleFIN
+  Bridge (or any SimpleFIN server). Picsou claims it, stores the access URL
+  encrypted, and imports account balances and posted transactions alongside
+  Enable Banking. Pending transactions, non-ISO currencies, and credit-card
+  liability detection are not handled. There is no institution search: banks are
+  linked on the SimpleFIN server, then one token is brought back.
+
 ### Fixed
 
 - **A BoursoBank contract invested in a single fund syncs instead of failing the

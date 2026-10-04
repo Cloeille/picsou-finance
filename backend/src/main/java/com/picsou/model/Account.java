@@ -52,7 +52,7 @@ public class Account extends AuditableEntity {
     @Column(name = "last_synced_at")
     private Instant lastSyncedAt;
 
-    @Column(name = "external_account_id", length = 100)
+    @Column(name = "external_account_id", length = 255)
     private String externalAccountId;
 
     @Column(name = "is_manual", nullable = false)

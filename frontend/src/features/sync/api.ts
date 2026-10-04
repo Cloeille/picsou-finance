@@ -21,6 +21,7 @@ import type {
   AmundiSessionStatus,
   AmundiAuthInitResponse,
   IbkrConnectionStatus,
+  SimplefinConnectionStatus,
 } from '@/types/api'
 
 // --- Bank Sync (Enable Banking) ---
@@ -252,6 +253,17 @@ export const ibkrApi = {
   sync: () => api.post<Account[]>('/ibkr/sync').then(r => r.data),
 
   disconnect: () => api.delete('/ibkr/connection').then(r => r.data),
+}
+
+export const simplefinApi = {
+  getStatus: () => api.get<SimplefinConnectionStatus>('/simplefin/status').then(r => r.data),
+
+  connect: (token: string) =>
+    api.post('/simplefin/connect', { token }).then(r => r.data),
+
+  sync: () => api.post<Account[]>('/simplefin/sync').then(r => r.data),
+
+  disconnect: () => api.delete('/simplefin/connection').then(r => r.data),
 }
 
 // --- Finary ---

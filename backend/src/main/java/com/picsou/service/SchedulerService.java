@@ -43,6 +43,7 @@ public class SchedulerService {
     private final WalletSyncService walletSyncService;
     private final FinaryApiSyncService finaryApiSyncService;
     private final IbkrSyncService ibkrSyncService;
+    private final SimplefinSyncService simplefinSyncService;
     private final PropertyValuationService propertyValuationService;
 
     public SchedulerService(
@@ -61,6 +62,7 @@ public class SchedulerService {
         WalletSyncService walletSyncService,
         FinaryApiSyncService finaryApiSyncService,
         IbkrSyncService ibkrSyncService,
+        SimplefinSyncService simplefinSyncService,
         PropertyValuationService propertyValuationService
     ) {
         this.accountRepository = accountRepository;
@@ -78,6 +80,7 @@ public class SchedulerService {
         this.walletSyncService = walletSyncService;
         this.finaryApiSyncService = finaryApiSyncService;
         this.ibkrSyncService = ibkrSyncService;
+        this.simplefinSyncService = simplefinSyncService;
         this.propertyValuationService = propertyValuationService;
     }
 
@@ -148,6 +151,12 @@ public class SchedulerService {
                 // after the method's internal catch. Without this wrapper that breaks
                 // the loop for every remaining member.
                 log.error("Daily IBKR auto-sync failed for member {}", memberId, ex);
+            }
+
+            try {
+                simplefinSyncService.resyncIfConnected(memberId);
+            } catch (Exception ex) {
+                log.error("Daily SimpleFIN auto-sync failed for member {}", memberId, ex);
             }
 
             try {

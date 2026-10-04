@@ -117,6 +117,38 @@ public class BankTransactionImportService {
     }
 
     /**
+     * Stores transactions already downloaded with the balances (SimpleFIN returns both
+     * in one response). Same dedup as {@link #importFor}. A write failure propagates:
+     * the rows are already in hand, so this is not an upstream refusal to ignore.
+     *
+     * @return how many new transactions were stored
+     */
+    public int importProvided(Account account, List<TransactionData> fetched) {
+        if (account.getId() == null || fetched == null || fetched.isEmpty()) return 0;
+
+        LocalDate windowStart = windowStart(account.getId(), LocalDate.now());
+        List<Transaction> toInsert = selectNew(account, windowStart, fetched);
+        if (toInsert.isEmpty()) {
+            log.debug("No new transactions for account {} ({} provided, all known)", account.getId(), fetched.size());
+            return 0;
+        }
+
+        transactionRepository.saveAll(toInsert);
+        log.info("Imported {} new transactions for account {} ({} provided)",
+            toInsert.size(), account.getId(), fetched.size());
+        return toInsert.size();
+    }
+
+    /**
+     * How far back one shared download should reach. SimpleFIN returns every account
+     * in a single response, so a shorter per-account window would hide a bank that
+     * was linked after the first sync. Dedup drops the rows already stored.
+     */
+    public LocalDate sharedHistoryStart() {
+        return LocalDate.now().minusDays(initialHistoryDays);
+    }
+
+    /**
      * Start of the window to request. First import of an account: {@link #initialHistoryDays}
      * back. Afterwards: {@link #OVERLAP_DAYS} before the newest entry already stored, so
      * late-booked entries are still picked up without re-downloading the whole history on
@@ -196,7 +228,7 @@ public class BankTransactionImportService {
 
     /**
      * Hash of date + amount + description. Hashed rather than concatenated so the key
-     * fits {@code transaction.external_transaction_id} (VARCHAR(128)) whatever the
+     * fits {@code transaction.external_transaction_id} (VARCHAR(255)) whatever the
      * description's length, and stays a fixed, index-friendly width.
      *
      * <p>{@code stripTrailingZeros} normalizes the scale: the provider sends

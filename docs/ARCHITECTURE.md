@@ -244,6 +244,7 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 | PostgreSQL 16 | Persistence | `SPRING_DATASOURCE_URL` |
 | Flyway | Schema migrations | `db/migration/` (latest V74) |
 | Enable Banking | PSD2 bank sync (optional) | `ENABLEBANKING_*` |
+| SimpleFIN | Bank balances and posted transactions from a setup token (optional, no app credentials) | User-supplied token |
 | Powens / Budget Insight | Scraping bank sync (**experimental, disabled in 1.0.0**) | `POWENS_*` |
 | Trade Republic | Broker sync via Python microservice | `TR_AUTH_URL` |
 | Bourse Direct | PEA/CTO sync via internal Python sidecar | `BOURSE_DIRECT_AUTH_URL` |

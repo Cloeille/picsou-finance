@@ -71,6 +71,8 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: { isActive: false, status: null, lastSyncedAt: null } })
       case '/ibkr/status':
         return Promise.resolve({ data: { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null } })
+      case '/simplefin/status':
+        return Promise.resolve({ data: { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null } })
       case '/accounts':
         return Promise.resolve({ data: accountsFixture })
       default:

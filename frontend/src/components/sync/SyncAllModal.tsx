@@ -57,6 +57,8 @@ import {
   useSyncDegiro,
   useIbkrStatus,
   useSyncIbkr,
+  useSimplefinStatus,
+  useSyncSimplefin,
 } from '@/features/sync/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
@@ -67,7 +69,7 @@ import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso'
-    | 'amundi' | 'bourse-direct' | 'degiro' | 'ibkr'
+    | 'amundi' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -88,6 +90,7 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   'bourse-direct': LineChart,
   degiro: LineChart,
   ibkr: LineChart,
+  simplefin: Landmark,
 }
 
 /** Which Sync-page tab each provider re-authenticates on. */
@@ -97,6 +100,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   'bourse-direct': 'bourse-direct',
   degiro: 'degiro',
   ibkr: 'ibkr',
+  simplefin: 'simplefin',
   finary: 'finary',
 }
 
@@ -140,6 +144,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: bourseDirectStatus } = useBourseDirectStatus()
   const { data: degiroStatus } = useDegiroSessionStatus()
   const { data: ibkrStatus } = useIbkrStatus()
+  const { data: simplefinStatus } = useSimplefinStatus()
   const { data: accounts } = useAccounts()
 
   // Detect if user has a TR account
@@ -183,7 +188,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       active: ibkrStatus?.connected ?? false, lastSyncedAt: ibkrStatus?.lastSyncedAt ?? null,
       failed: ibkrStatus?.status === 'ERROR',
     },
-  ], [amundiStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus])
+    {
+      type: 'simplefin' as const, name: 'SimpleFIN', provider: 'SimpleFIN',
+      active: simplefinStatus?.connected ?? false, lastSyncedAt: simplefinStatus?.lastSyncedAt ?? null,
+      failed: simplefinStatus?.status === 'ERROR',
+    },
+  ], [amundiStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
 
   const retryBankMutation    = useRetryBankSync()
   const syncExchangeMutation = useSyncCryptoExchange()
@@ -197,6 +207,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncBourseDirectMutation = useSyncBourseDirect()
   const syncDegiroMutation       = useSyncDegiro()
   const syncIbkrMutation         = useSyncIbkr()
+  const syncSimplefinMutation    = useSyncSimplefin()
 
   // Track syncing state per connection
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set())
@@ -376,6 +387,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'ibkr':
         syncIbkrMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'simplefin':
+        syncSimplefinMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'finary':
         navigate('/sync?tab=finary')
         onOpenChange(false)
@@ -393,6 +407,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncBourseDirectMutation,
     syncDegiroMutation,
     syncIbkrMutation,
+    syncSimplefinMutation,
     navigate,
     onOpenChange,
     queryClient,

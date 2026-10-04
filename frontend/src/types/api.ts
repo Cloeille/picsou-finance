@@ -533,6 +533,14 @@ export interface IbkrConnectionStatus {
   maskedToken: string | null
 }
 
+export interface SimplefinConnectionStatus {
+  connected: boolean
+  connectionId: number | null
+  status: string | null
+  lastSyncedAt: string | null
+  maskedToken: string | null
+}
+
 interface BoursoSessionStatusBase {
   isActive: boolean
   lastSyncStartedAt: string | null

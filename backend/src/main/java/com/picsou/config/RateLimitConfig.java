@@ -125,6 +125,16 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP SimpleFIN limiter: 6 requests per minute, shared by connect and sync.
+     * Connect claims a single-use token and sync hits the bridge, which expects
+     * roughly a daily poll rather than a tight loop.
+     */
+    @Bean("simplefinBuckets")
+    public Map<String, Bucket> simplefinBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP setup wizard rate limiter: 10 mutating requests per minute.
      * Tight because the endpoints are unauthenticated until setup completes
      * — without this, a fresh install is exposed to admin-seeding floods
@@ -256,6 +266,15 @@ public class RateLimitConfig {
     }
 
     public static Bucket createIbkrSyncBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(6)
+                .refillIntervally(6, Duration.ofMinutes(1))
+                .build())
+            .build();
+    }
+
+    public static Bucket createSimplefinBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(6)

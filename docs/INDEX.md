@@ -57,6 +57,7 @@
 | 2026-08-10 | [Verify an ISIN's ticker against Yahoo instead of predicting it](./decisions/2026-08-10-yahoo-verified-isin-tickers.md) | Active |
 | 2026-08-11 | [Deleting an account removes the connection behind it](./decisions/2026-08-11-account-deletion-removes-its-connection.md) | Active |
 | 2026-09-17 | [Defer the MCP protocol upgrade until the Spring Boot 4 migration](./decisions/2026-09-17-defer-mcp-protocol-upgrade.md) | Active |
+| 2026-10-04 | [SimpleFIN as its own connector, beside Enable Banking](./decisions/2026-10-04-simplefin-beside-enable-banking.md) | Active |
 
 ## Feature notes
 
@@ -70,6 +71,7 @@
 | Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
 | Dashboard — Liabilities separated from performance | 2026-07-08 | [dashboard-liabilities-separation.md](./features/dashboard-liabilities-separation.md) |
 | Bank sync | 2026-08-11 | [bank-sync.md](./features/bank-sync.md) |
+| SimpleFIN sync | 2026-10-04 | [simplefin-sync.md](./features/simplefin-sync.md) |
 | Trade Republic | 2026-07-07 | [trade-republic.md](./features/trade-republic.md) |
 | Bourse Direct | 2026-07-21 | [bourse-direct.md](./features/bourse-direct.md) |
 | Interactive Brokers (IBKR) sync | 2026-07-19 | [ibkr-sync.md](./features/ibkr-sync.md) |
