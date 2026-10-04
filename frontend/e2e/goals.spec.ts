@@ -47,7 +47,7 @@ test.describe('Goals page', () => {
   })
 
   test('should reveal a plan position breakdown from its card', async ({ page }) => {
-    const card = page.locator('div').filter({ hasText: 'DCA mensuel PEA' }).last()
+    const card = page.locator('[data-slot="card"]').filter({ hasText: 'DCA mensuel PEA' })
     // Collapsed by default: the split is detail, the monthly amount is the headline.
     await expect(page.getByText('Non alloué')).toHaveCount(0)
 
@@ -60,25 +60,29 @@ test.describe('Goals page', () => {
 
   test('should split a monthly amount across positions the account already holds', async ({ page }) => {
     await page.getByRole('button', { name: 'Nouvel objectif' }).click()
-    await page.getByRole('button', { name: 'Investissement mensuel' }).click()
-    await page.getByLabel('Montant mensuel').fill('400')
+    // The demo plan's card behind the dialog carries the same account name as a badge.
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'Investissement mensuel' }).click()
+    await dialog.getByLabel('Montant mensuel').fill('400')
 
     // No account picked yet, so there is nothing legitimate to split across.
-    await expect(page.getByText("Choisissez d'abord le compte alimenté.")).toBeVisible()
+    await expect(dialog.getByText("Choisissez d'abord le compte alimenté.")).toBeVisible()
 
-    await page.getByText('PEA BoursoBank').click()
-    await page.getByText('AAPL').click()
-    await page.getByLabel('Montant mensuel sur AAPL').fill('500')
+    await dialog.getByText('PEA BoursoBank').click()
+    await dialog.getByText('AAPL').click()
+    await dialog.getByLabel('Montant mensuel sur AAPL').fill('500')
 
     // Over the plan's own amount: refused here, before the 422 has to say it.
-    await expect(page.getByRole('button', { name: 'Enregistrer' })).toBeDisabled()
+    await expect(dialog.getByRole('button', { name: 'Enregistrer' })).toBeDisabled()
 
-    await page.getByLabel('Montant mensuel sur AAPL').fill('250')
-    await expect(page.getByRole('button', { name: 'Enregistrer' })).toBeEnabled()
+    await dialog.getByLabel('Montant mensuel sur AAPL').fill('250')
+    await expect(dialog.getByRole('button', { name: 'Enregistrer' })).toBeEnabled()
   })
 
   test('should compare the savings rate against the French average', async ({ page }) => {
     await expect(page.getByText("Taux d'épargne")).toBeVisible()
-    await expect(page.getByText(/moyenne française/)).toBeVisible()
+    // The benchmark is indicative only, so it is quoted in a tooltip rather than as a verdict.
+    await page.getByRole('button', { name: 'À propos de la moyenne française' }).hover()
+    await expect(page.getByRole('tooltip')).toContainText('ménages en France')
   })
 })
