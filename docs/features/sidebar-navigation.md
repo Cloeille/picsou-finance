@@ -17,7 +17,7 @@ The sidebar lives in `AppSidebar.tsx` with two visual sections:
 
 The menu opens **above** the trigger in the default style (`side="top"`), because the profile is pinned to the bottom of a full-height sidebar. The classic sidebar is `h-fit`, so its profile row can have free space underneath and the menu asks to open **below** it (`side="bottom"`). Radix collision handling flips either one when the viewport is too short. In the classic style that flip is common: the trigger ends about 770 px from the top and the demo menu is about 170 px tall, so the menu only opens below on viewports roughly 945 px tall or more (measured with Playwright at 1440×900, where it flips up, and 1440×1080, where it opens below).
 
-`/sync` has no other permanent entry point. The dashboard `SyncAllModal` only links to it for a provider that needs re-authentication (`/sync?tab=…`). Mobile has no profile menu, so on mobile `/sync` is still reachable only through that dialog or by typing the URL.
+`/sync` has no other permanent entry point. The dashboard `SyncAllModal` links to `/sync?tab=…` only for providers whose flow lives in the dedicated tab: a provider that needs re-authentication, Revolut, and Finary. Those links are contextual, not a general entry point. Mobile has no profile menu, so on mobile `/sync` stays effectively unreachable unless the user syncs one of those providers or types the URL.
 
 Desktop navigation opens with the horizontal Picsou brand logo (`horizontal-white-picsou.svg`, `brightness-0 dark:invert` so the single white SVG renders black in light theme and white in dark), then the route list. The logo sits at the top of the `<nav>`, aligned on the items' `px-4` gutter with `self-start` so it doesn't stretch in the flex column.
 
