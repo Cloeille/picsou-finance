@@ -56,6 +56,39 @@ class FortuneoTransactionWriterTest {
     }
 
     @Test
+    void replacementReleasesExternalIdBeforeInsertingItsReplacement() {
+        inTransaction(() -> transactionRepository.saveAndFlush(Transaction.builder()
+            .account(accountReference())
+            .externalId("x")
+            .date(LocalDate.now())
+            .description("existing identified row")
+            .amount(BigDecimal.ONE)
+            .nativeCurrency("EUR")
+            .isManual(false)
+            .build()));
+
+        inTransaction(() -> transactionWriter.replaceRecentTransactions(
+            ACCOUNT_ID,
+            LocalDate.now(),
+            List.of(Transaction.builder()
+                .account(accountReference())
+                .externalId("x")
+                .date(LocalDate.now())
+                .description("replacement identified row")
+                .amount(BigDecimal.TEN)
+                .nativeCurrency("EUR")
+                .isManual(false)
+                .build())
+        ));
+
+        assertThat(transactionRepository.findByAccountIdOrderByDateDesc(ACCOUNT_ID))
+            .filteredOn(row -> "x".equals(row.getExternalId()))
+            .singleElement()
+            .extracting(Transaction::getDescription)
+            .isEqualTo("replacement identified row");
+    }
+
+    @Test
     void insertionFailureAfterDeletion_rollsBackTheCompleteReplacement() {
         assertThatThrownBy(() -> inTransaction(() ->
             transactionWriter.replaceRecentTransactions(

@@ -1,7 +1,7 @@
 export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'OTHER'
+  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
@@ -280,6 +280,9 @@ export interface Account {
    *  Null / absent for regular accounts. */
   externalAccountId?: string | null
   savingsConfig?: SavingsConfig | null
+  paymentDueAmount?: number
+  paymentDueDate?: string
+  rewardPoints?: number
   /** Display-only visibility flag; hidden account still syncs normally. */
   hidden: boolean
   /** Set only when the member owns less than all of it — the co-ownership badge signal. */
@@ -919,6 +922,43 @@ export interface AmundiAuthInitResponse {
   mfaType: 'APP_PUSH' | 'SMS' | null
 }
 
+// --- American Express ---
+
+interface AmexSessionStatusBase {
+  isActive: boolean
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+}
+
+export type AmexSessionStatus =
+  | (AmexSessionStatusBase & {
+      syncStatus: 'FAILED'
+      lastSyncError: AmexErrorCode
+    })
+  | (AmexSessionStatusBase & {
+      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
+      lastSyncError: null
+    })
+
+export type AmexErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'INVALID_OTP'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INVALID_DATA'
+  | 'INTERNAL_ERROR'
+
+export type AmexOtpMethod = 'sms' | 'email'
+
+/** `mfaType` is always `OTP` when a one-time code was sent (SMS or e-mail). */
+export interface AmexAuthInitResponse {
+  processId: string | null
+  mfaRequired: boolean
+  mfaType: string | null
+}
+
 export type SofidyErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'MFA_INVALID'
@@ -1494,6 +1534,8 @@ export interface RecurringOccurrence {
   categoryName: string | null
   categoryColor: string | null
   categoryIcon: string | null
+  rewardPoints?: number
+  creditCardPayment?: boolean
 }
 
 /**

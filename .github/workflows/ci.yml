@@ -31,8 +31,12 @@ jobs:
         # otherwise environment drift would silently drop the PostgreSQL coverage of
         # data-mutating migrations and the build would stay green.
         env:
+          # SidecarWebClientFactory (shared by the Bourso, DEGIRO, Trade Republic, Amundi,
+          # Bourse Direct, AMEX, CORUM and Sofidy adapters) fails the Spring context if this key is
+          # blank. Runners hold no bank secrets, so a fresh value is enough — the adapters never call
+          # out for real in the test suite.
+          APP_SIDECAR_API_KEY: ci-test-only
           PICSOU_REQUIRE_DOCKER_TESTS: 'true'
-          APP_SIDECAR_API_KEY: test-key
         run: mvn -B test -Dsofidy.contract.python=python3
         working-directory: backend
       - name: Require the SCPI PostgreSQL tests

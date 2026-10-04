@@ -123,8 +123,14 @@ public class HistoryService {
 
         LocalDate from = LocalDate.now().minusMonths(months);
 
+        // A loan stores its outstanding capital positive and is negated here; a credit card
+        // stores its debt already signed. Both are liabilities: never invested, never P&L.
         Set<Long> loanIds = accounts.stream()
             .filter(a -> a.getType() == AccountType.LOAN)
+            .map(Account::getId)
+            .collect(Collectors.toSet());
+        Set<Long> liabilityIds = accounts.stream()
+            .filter(a -> a.getType().isLiability())
             .map(Account::getId)
             .collect(Collectors.toSet());
 
@@ -142,6 +148,7 @@ public class HistoryService {
             for (Account account : accounts) {
                 Long accId = account.getId();
                 boolean isLoan = loanIds.contains(accId);
+                boolean isLiability = liabilityIds.contains(accId);
 
                 NavigableMap<LocalDate, BigDecimal> balMap = ffData.balanceByAccount().get(accId);
                 NavigableMap<LocalDate, BigDecimal> invMap = ffData.investedByAccount().get(accId);
@@ -156,17 +163,17 @@ public class HistoryService {
                 BigDecimal accTotal = isLoan ? rawBalance.negate() : rawBalance;
                 aggTotal = aggTotal.add(accTotal);
 
-                // Match live-path semantics: loans contribute 0 to invested; non-loans
+                // Match live-path semantics: liabilities contribute 0 to invested; assets
                 // use the forward-filled snapshot (falling back to balance if the row
                 // predates V18 / the account has no prior snapshot).
-                BigDecimal accInvested = isLoan
+                BigDecimal accInvested = isLiability
                     ? BigDecimal.ZERO
                     : (invEntry != null ? weigh(invEntry.getValue(), shares, accId) : rawBalance);
                 aggInvested = aggInvested.add(accInvested);
 
-                // Debt-neutral pnl (issue #18): loans contribute 0 — outstanding debt
+                // Debt-neutral pnl (issue #18): liabilities contribute 0 — outstanding debt
                 // is a liability, not an investment loss.
-                BigDecimal accPnl = isLoan ? BigDecimal.ZERO : accTotal.subtract(accInvested);
+                BigDecimal accPnl = isLiability ? BigDecimal.ZERO : accTotal.subtract(accInvested);
                 aggPnl = aggPnl.add(accPnl);
 
                 if (split) {
@@ -192,22 +199,20 @@ public class HistoryService {
             AccountService.Valuation valuation = accountService.valuation(account);
             BigDecimal accLive = weigh(valuation.liveEur(), shares, account.getId());
             BigDecimal accInvested = weigh(valuation.investedEur(), shares, account.getId());
-            boolean isLoan = account.getType() == AccountType.LOAN;
+            boolean isLiability = account.getType().isLiability();
+            BigDecimal total = account.getType() == AccountType.LOAN ? accLive.negate() : accLive;
 
-            if (isLoan) {
-                liveTotal = liveTotal.subtract(accLive);
-            } else {
-                liveTotal = liveTotal.add(accLive);
+            liveTotal = liveTotal.add(total);
+            if (!isLiability) {
                 liveInvested = liveInvested.add(accInvested);
             }
 
-            // Debt-neutral pnl (issue #18): loans contribute 0.
-            BigDecimal accPnl = isLoan ? BigDecimal.ZERO : accLive.subtract(accInvested);
+            // Debt-neutral pnl (issue #18): liabilities contribute 0.
+            BigDecimal accPnl = isLiability ? BigDecimal.ZERO : accLive.subtract(accInvested);
             livePnl = livePnl.add(accPnl);
 
             if (split) {
-                BigDecimal total = isLoan ? accLive.negate() : accLive;
-                BigDecimal invested = isLoan ? BigDecimal.ZERO : accInvested;
+                BigDecimal invested = isLiability ? BigDecimal.ZERO : accInvested;
                 liveAccountPoints.put(account.getId(), new AccountPoint(total, invested, accPnl));
             }
         }
@@ -259,6 +264,7 @@ public class HistoryService {
         Map<Long, BigDecimal> accountBankBalance = new HashMap<>(); // non-investment account balances
         Set<String> allTickers = new HashSet<>();
         Set<Long> loanIds = new HashSet<>();
+        Set<Long> liabilityIds = new HashSet<>();
 
         LocalDate today = LocalDate.now();
 
@@ -267,6 +273,9 @@ public class HistoryService {
 
             if (account.getType() == AccountType.LOAN) {
                 loanIds.add(accId);
+            }
+            if (account.getType().isLiability()) {
+                liabilityIds.add(accId);
             }
 
             List<AccountHolding> holdings = holdingRepository.findByAccount_Id(accId);
@@ -341,7 +350,7 @@ public class HistoryService {
                     BigDecimal balance = accountBankBalance.getOrDefault(accId, BigDecimal.ZERO);
                     BigDecimal value = loanIds.contains(accId) ? balance.negate() : balance;
                     aggTotal = aggTotal.add(value);
-                    if (!loanIds.contains(accId)) {
+                    if (!liabilityIds.contains(accId)) {
                         aggInvested = aggInvested.add(value);
                     }
                 } else {
@@ -423,6 +432,8 @@ public class HistoryService {
 
             if (account.getType() == AccountType.LOAN) {
                 liveTotal = liveTotal.subtract(accLive);
+            } else if (account.getType().isLiability()) {
+                liveTotal = liveTotal.add(accLive);
             } else {
                 liveTotal = liveTotal.add(accLive);
                 liveNonLoanValue = liveNonLoanValue.add(accLive);

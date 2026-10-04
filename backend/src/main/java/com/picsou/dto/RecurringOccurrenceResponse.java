@@ -17,5 +17,8 @@ public record RecurringOccurrenceResponse(
     Long categoryId,
     String categoryName,
     String categoryColor,
-    String categoryIcon
+    String categoryIcon,
+    Long rewardPoints,
+    /** True for a one-off card payment rather than a recurring subscription. */
+    boolean creditCardPayment
 ) {}

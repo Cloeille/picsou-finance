@@ -21,9 +21,8 @@ public class FortuneoTransactionWriter {
     /**
      * Deletes and reinserts the synchronized window as one atomic unit.
      *
-     * <p>{@link Propagation#MANDATORY} prevents a future caller from accidentally moving this
-     * replacement outside the portfolio transaction. {@code saveAllAndFlush} surfaces an insert
-     * failure before control returns while preserving normal transaction rollback semantics.
+     * <p>{@link Propagation#MANDATORY} keeps the replacement inside the portfolio transaction;
+     * flushing the delete releases identified rows' unique-index slots before {@code saveAllAndFlush}.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void replaceRecentTransactions(
@@ -35,6 +34,7 @@ public class FortuneoTransactionWriter {
             accountId,
             cutoff
         );
+        transactionRepository.flush();
         transactionRepository.saveAllAndFlush(replacements);
     }
 

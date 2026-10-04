@@ -245,8 +245,29 @@ export const mockAccounts: Account[] = [
     },
   },
   {
-    // Invented paper-property line. Not a real fund, and not priced from a market bulletin.
+    // Demo AMEX card: exercises the credit-card detail (debt, amount due, debit date, miles).
     id: 12,
+    name: 'Carte Air France KLM',
+    type: 'CREDIT_CARD',
+    provider: 'American Express',
+    currency: 'EUR',
+    currentBalance: -1284.6,
+    currentBalanceEur: -1284.6,
+    lastSyncedAt: '2025-03-15T07:00:00Z',
+    isManual: false,
+    color: '#2e77bc',
+    ticker: null,
+    logoUrl: null,
+    logoKey: null,
+    createdAt: '2024-09-01T08:00:00Z',
+    hidden: false,
+    paymentDueAmount: 912.4,
+    paymentDueDate: '2025-04-05',
+    rewardPoints: 48250,
+  },
+  {
+    // Invented paper-property line. Not a real fund, and not priced from a market bulletin.
+    id: 13,
     hidden: false,
     name: 'Pierre-papier exemple',
     type: 'SCPI',

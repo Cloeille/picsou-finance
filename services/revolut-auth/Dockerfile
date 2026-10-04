@@ -33,7 +33,10 @@ USER revoauth
 
 # Download Camoufox's stealth Firefox (into ~/.cache/camoufox) + the GeoIP DB (into the
 # camoufox package dir, chowned above) as the runtime user so both are readable at runtime.
-RUN python -m camoufox fetch
+# Camoufox browser pinned: `camoufox fetch` installs the latest release, and v156.0.1-beta.33
+# breaks the AMEX login (UnknownProperty). Reuse the package's fetcher with a fixed release.
+COPY pin_camoufox.py .
+RUN python pin_camoufox.py
 
 COPY --chown=revoauth:revoauth main.py entrypoint.sh ./
 

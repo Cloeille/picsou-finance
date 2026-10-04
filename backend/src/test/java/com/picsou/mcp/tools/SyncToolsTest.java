@@ -28,6 +28,7 @@ class SyncToolsTest {
     @Mock SyncService syncService;
     @Mock TradeRepublicSyncService tradeRepublicSyncService;
     @Mock BoursoSyncService boursoSyncService;
+    @Mock com.picsou.service.AmexSyncService amexSyncService;
     @Mock CryptoExchangeSyncService cryptoExchangeSyncService;
     @Mock WalletSyncService walletSyncService;
     @Mock UserContext userContext;

@@ -157,7 +157,7 @@ public class AccountService {
         // it were a withdrawal value, which it is not.
         BigDecimal opening = scpi
             ? BigDecimal.ZERO
-            : (req.currentBalance() != null ? req.currentBalance() : BigDecimal.ZERO);
+            : (req.currentBalance() != null ? signedBalance(req.type(), req.currentBalance()) : BigDecimal.ZERO);
         Account account = Account.builder()
             .member(member)
             .name(req.name())
@@ -179,8 +179,9 @@ public class AccountService {
 
         account = accountRepository.save(account);
 
-        // Create initial snapshot if balance is provided
-        if (account.getCurrentBalance().compareTo(BigDecimal.ZERO) > 0) {
+        // Create initial snapshot if balance is provided; a card's debt is stored negative
+        if (account.getCurrentBalance().compareTo(BigDecimal.ZERO) > 0
+            || (account.getType() == AccountType.CREDIT_CARD && account.getCurrentBalance().signum() != 0)) {
             BigDecimal invested = calculateInvestedAmount(account);
             createSnapshot(account, toSnapshotEur(account, account.getCurrentBalance()), invested, LocalDate.now());
         }
@@ -233,9 +234,10 @@ public class AccountService {
             account.setCurrentBalance(BigDecimal.ZERO);
         } else if (account.isManual() && req.currentBalance() != null && account.getType() != AccountType.SCPI) {
             BigDecimal oldBalance = account.getCurrentBalance();
-            account.setCurrentBalance(req.currentBalance());
-            if (req.currentBalance().compareTo(oldBalance) != 0) {
-                upsertSnapshotFromNative(account, req.currentBalance(), LocalDate.now());
+            BigDecimal newBalance = signedBalance(account.getType(), req.currentBalance());
+            account.setCurrentBalance(newBalance);
+            if (newBalance.compareTo(oldBalance) != 0) {
+                upsertSnapshotFromNative(account, newBalance, LocalDate.now());
             }
         }
 
@@ -317,16 +319,17 @@ public class AccountService {
     @Transactional
     public BalanceSnapshot addManualSnapshot(Long accountId, Long memberId, SnapshotRequest req) {
         Account account = getOrThrow(accountId, memberId);
+        BigDecimal balance = signedBalance(account.getType(), req.balance());
 
         // Update current balance if this is the most recent snapshot
         Optional<BalanceSnapshot> latest = snapshotRepository.findLatestByAccountId(accountId);
         if (latest.isEmpty() || !req.date().isBefore(latest.get().getDate())) {
-            account.setCurrentBalance(req.balance());
+            account.setCurrentBalance(balance);
             account.setLastSyncedAt(Instant.now());
             accountRepository.save(account);
         }
 
-        return upsertSnapshotFromNative(account, req.balance(), req.date());
+        return upsertSnapshotFromNative(account, balance, req.date());
     }
 
     public List<BalanceSnapshot> getHistory(Long accountId, Long memberId, LocalDate from, LocalDate to) {
@@ -739,6 +742,14 @@ public class AccountService {
             .filter(t -> t != null && !t.isBlank())
             .map(t -> t.toUpperCase(Locale.ROOT))
             .collect(Collectors.toSet());
+    }
+
+    /**
+     * The form asks for a card's amount owed, like a loan's remaining capital, but a card stores
+     * its debt signed (negative), the way the American Express sync writes it: 800 becomes -800.
+     */
+    private static BigDecimal signedBalance(AccountType type, BigDecimal balance) {
+        return type == AccountType.CREDIT_CARD ? balance.abs().negate() : balance;
     }
 
     /** Null-safe: {@code Set.of(...)} throws on a null lookup, and most accounts have no provider. */

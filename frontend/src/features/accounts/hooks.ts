@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, realEstateApi } from './api'
 import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, ScpiPositionRequest, TransactionImportRequest, TransactionRequest } from '@/types/api'
-import { HOLDING_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
+import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
 
 export interface HoldingWithAccount extends HoldingResponse {
   accountName: string
@@ -115,8 +115,10 @@ export function usePortfolio() {
         }
       })
 
-      // Cash accounts — aggregate into a single "Euros" line (exclude LOAN accounts)
-      const cashAccounts = accounts.filter(a => !HOLDING_ACCOUNT_TYPES.includes(a.type) && a.type !== 'LOAN')
+      // Cash accounts — aggregate into a single "Euros" line (debts are not cash)
+      const cashAccounts = accounts.filter(
+        a => !HOLDING_ACCOUNT_TYPES.includes(a.type) && !LIABILITY_ACCOUNT_TYPES.includes(a.type),
+      )
       if (cashAccounts.length > 0) {
         enriched.push({
           id: 'cash-aggregated',

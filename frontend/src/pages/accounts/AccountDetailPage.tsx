@@ -33,7 +33,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Upload } from 'lucide-react'
-import { formatLocalDate } from '@/lib/utils'
+import { formatLocalDate, localeFromLanguage } from '@/lib/utils'
 import { accountTypeLabelKey, HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { HoldingResponse, Transaction } from '@/types/api'
@@ -42,7 +42,8 @@ import type { HoldingResponse, Transaction } from '@/types/api'
 export function AccountDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const accountId = parseInt(id!, 10)
 
   const { data: account, isLoading } = useAccount(accountId)
@@ -179,18 +180,17 @@ export function AccountDetailPage() {
       {showHoldings && <RealizedPnlSection accountId={accountId} enabled={showHoldings} />}
 
       {/* Transactions */}
-      {!isLoan && (transactions ? (
+      {!isLoan && transactions && (
         <>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-base font-semibold">{t('accounts.transactions')}</h3>
-            <div className="flex items-center gap-2">
-              <input
-                type="file"
-                accept=".csv"
-                className="hidden"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-              />
+          <input
+            type="file"
+            accept=".csv"
+            className="hidden"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+          />
+          <TransactionsList
+            actions={<>
               {account?.provider === 'Trade Republic' && account?.type === 'CHECKING' && (
                 <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importTRMutation.isPending}>
                   {importTRMutation.isPending ? t('common.loading') : t('accounts.importCsvTR')}
@@ -203,11 +203,9 @@ export function AccountDetailPage() {
                 </Button>
               )}
               <Button size="sm" variant="outline" onClick={() => setShowAddTx(true)}>
-                + Ajouter
+                + {t('common.add')}
               </Button>
-            </div>
-          </div>
-          <TransactionsList
+            </>}
             transactions={transactions}
             onDelete={(txId) => deleteTxMutation.mutate(txId)}
             onEdit={(tx) => setEditingTx(tx)}
@@ -215,13 +213,7 @@ export function AccountDetailPage() {
             onCategorize={handleCategorize}
           />
         </>
-      ) : (
-        <Card>
-          <CardContent className="pt-6">
-            <Skeleton className="h-32 w-full" />
-          </CardContent>
-        </Card>
-      ))}
+      )}
 
       {/* Snapshot list */}
       {!isLoan && recentSnapshots.length > 0 && (
@@ -287,21 +279,38 @@ export function AccountDetailPage() {
         </Card>
       ) : account ? (
         <Card>
-          <CardHeader>
-            <CardTitle>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: account.color }} />
-                {account.name}
-                <AccountTypeBadge type={account.type} />
+        <CardHeader className="pb-3">
+          <CardTitle className="flex flex-wrap items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="size-3 shrink-0 rounded-full" style={{ backgroundColor: account.color }} />
+              <span className="truncate">{account.name}</span>
+              <AccountTypeBadge type={account.type} />
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {account.type === 'CREDIT_CARD' ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('accounts.currentDebt')}</p>
+                <CurrencyDisplay value={displayBalance} className="text-3xl font-bold tabular-nums" />
               </div>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+              {account.paymentDueAmount != null && <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.amountDue')}</p>
+                <CurrencyDisplay value={account.paymentDueAmount} className="text-xl font-semibold tabular-nums" />
+              </div>}
+              {account.paymentDueDate && <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.dueDate')}</p>
+                <p className="text-base font-medium">{formatLocalDate(account.paymentDueDate)}</p>
+              </div>}
+              {account.rewardPoints != null && <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.miles')}</p>
+                <p className="text-xl font-semibold tabular-nums">{new Intl.NumberFormat(locale).format(account.rewardPoints)}</p>
+              </div>}
+            </div>
+          ) : <>
             <p className="text-xs text-muted-foreground mb-1">{t('accounts.currentBalance')}</p>
-            <CurrencyDisplay
-              value={displayBalance}
-              className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`}
-            />
+            <CurrencyDisplay value={displayBalance} className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`} />
             {showHoldings && account.cashBalance != null && (
               <p className="mt-1 text-xs text-muted-foreground">
                 {t('accounts.cashBalance')}: <CurrencyDisplay value={account.cashBalance} />
@@ -329,7 +338,9 @@ export function AccountDetailPage() {
                 <span className="text-sm text-muted-foreground">{t('dashboard.portfolioPerformance')}</span>
               </div>
             )}
-          </CardContent>
+          </>
+          }
+        </CardContent>
         </Card>
       ) : null}
 
@@ -340,27 +351,6 @@ export function AccountDetailPage() {
       {isRealEstate && account && <PropertyDetailSection account={account} />}
 
       {isScpi && account && <ScpiDetailSection account={account} />}
-
-      {/* History chart */}
-      {!isLoan && showHoldings && pnlData && pnlData.length > 1 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t('dashboard.gainLoss')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <NetWorthChart data={pnlData} range={range} onRangeChange={setRange} />
-          </CardContent>
-        </Card>
-      ) : !isLoan && chartData.length > 1 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t('accounts.history')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <BalanceHistoryChart data={chartData} />
-          </CardContent>
-        </Card>
-      ) : null}
 
       {/* Holdings — grouped by product when the connector reports one (crypto exchanges),
           otherwise the flat table.
@@ -414,31 +404,6 @@ export function AccountDetailPage() {
       ) : (
         overviewSections
       )}
-
-      {/* Transactions */}
-      {!isLoan && (transactions ? (
-        <>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-base font-semibold">{t('accounts.transactions')}</h3>
-            <div className="flex items-center gap-2">
-              {showHoldings && (
-                <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
-                  <Upload className="mr-1.5 size-4" />
-                  {t('import.importCsv')}
-                </Button>
-              )}
-              <Button size="sm" variant="outline" onClick={() => setShowAddTx(true)}>
-                + {t('common.add')}
-              </Button>
-            </div>
-          </div>
-          <TransactionsList
-            transactions={transactions}
-            onDelete={(txId) => deleteTxMutation.mutate(txId)}
-            onEdit={(tx) => setEditingTx(tx)}
-          />
-        </>
-      ) : null)}
 
       {/* Add Transaction modal */}
       {account && (
@@ -510,6 +475,7 @@ export function AccountDetailPage() {
         onClose={() => setShowHistory(false)}
         accountId={accountId}
         history={history}
+        amountOwed={account?.type === 'CREDIT_CARD'}
       />
     </div>
   )

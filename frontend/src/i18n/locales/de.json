@@ -204,6 +204,7 @@
     "logoLedger": "Ledger",
     "total": "Gesamt",
     "currentBalance": "Aktueller Saldo",
+    "currentDebt": "Kreditkartenschuld",
     "cashBalance": "Bargeld im PEA/Wertpapierkonto",
     "snapshots": "Monatliche Stände",
     "addSnapshot": "Speichern",
@@ -242,7 +243,12 @@
     "importSuccessWithSkipped_other": "{{count}} transactions imported ({{skipped}} already present)",
     "importAlreadyDone": "No new transactions — CSV already imported.",
     "importError": "Import error: {{message}}",
-    "uncategorized": "Uncategorized"
+    "uncategorized": "Uncategorized",
+    "amex": {
+      "amountDue": "Zu zahlender Betrag",
+      "dueDate": "Lastschriftdatum",
+      "miles": "In diesem Zeitraum gesammelte Meilen"
+    }
   },
   "analysis": {
     "title": "Analyse",
@@ -390,7 +396,8 @@
     "other": "Sonstiges",
     "employeeSavings": "Mitarbeitersparplan",
     "assuranceVie": "Lebensversicherung",
-    "scpi": "SCPI"
+    "scpi": "SCPI",
+    "creditCard": "Kreditkarte"
   },
   "scpi": {
     "add": {
@@ -693,6 +700,7 @@
       "finary": "Aus Finary importieren",
       "manual": "Konto manuell erstellen",
       "amundi": "PEE, PEG, PERCO, PER bei Amundi",
+      "amex": "American Express Kreditkarte: Kontostand und Transaktionen",
       "property": "Haus, Wohnung, Grundstück…",
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Fortuneo-Konten synchronisieren"
@@ -984,6 +992,41 @@
         "invalidData": "Amundi hat inkonsistente Daten zurückgegeben. Ihre vorhandenen Daten wurden beibehalten.",
         "serverError": "Amundi ist nicht erreichbar. Bitte erneut versuchen."
       }
+    },
+    "amex": {
+      "title": "American Express",
+      "login": "Benutzer-ID",
+      "password": "Passwort",
+      "otpMethod": "Code erhalten per",
+      "otpMethodSms": "SMS",
+      "otpMethodEmail": "E-Mail",
+      "otpCode": "Einmalcode",
+      "otpPrompt": "Geben Sie den von American Express gesendeten Code ein.",
+      "connect": "Verbinden",
+      "connecting": "Verbindung wird hergestellt…",
+      "validate": "Code bestätigen",
+      "validating": "Wird überprüft…",
+      "sync": "Synchronisieren",
+      "queued": "Synchronisierung in Warteschlange…",
+      "syncing": "Synchronisierung läuft…",
+      "syncSuccess": "American Express Karte synchronisiert.",
+      "clearSession": "Trennen",
+      "noSession": "Keine aktive Sitzung",
+      "sessionActive": "Sitzung aktiv",
+      "scope": "Synchronisiert Ihre American Express Kreditkarte: Kontostand und Transaktionshistorie.",
+      "errors": {
+        "tooManyAttempts": "Zu viele Versuche. Bitte warten Sie.",
+        "invalidCredentials": "Ungültige American Express Anmeldedaten.",
+        "invalidCode": "Ungültiger oder abgelaufener Einmalcode. Bitte erneut versuchen.",
+        "authAttemptExpired": "Der Authentifizierungsversuch ist abgelaufen. Bitte verbinden Sie sich erneut.",
+        "sessionExpired": "Die American Express Sitzung ist abgelaufen. Bitte verbinden Sie sich erneut.",
+        "formatChanged": "Das Format der American Express Website hat sich geändert. Ihre vorhandenen Daten wurden beibehalten.",
+        "invalidData": "American Express hat inkonsistente Daten zurückgegeben. Ihre vorhandenen Daten wurden beibehalten.",
+        "serverError": "American Express ist nicht erreichbar. Bitte versuchen Sie es erneut."
+      },
+      "historyLimit": "AMEX begrenzt den Verlauf auf die von der Transaktions-API bereitgestellten Daten; ältere Transaktionen sind möglicherweise nicht verfügbar.",
+      "recoverHistory": "Verfügbaren Verlauf abrufen",
+      "recoveringHistory": "Verlauf wird abgerufen…"
     },
     "revolut": {
       "title": "Revolut",
@@ -2330,7 +2373,8 @@
         "autoConfirmedDesc": "Detected and confirmed automatically",
         "priceChangeDesc": "Price went from {{from}} to {{to}}",
         "acknowledge": "Got it"
-      }
+      },
+      "creditCardPayment": "Kreditkartenzahlung"
     },
     "categorize": {
       "subtitle": "Assign a category to unclassified transactions.",
