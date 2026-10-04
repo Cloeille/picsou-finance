@@ -403,7 +403,8 @@ class BudgetToolsRecurringTriageTest {
         when(transactionRepository.findChangeable(MID)).thenReturn(List.of(match, other));
         grant(Scopes.BUDGET_RULES_READ, Scopes.BUDGET_TRANSACTIONS_READ);
 
-        CategorizationService.RulePreviewResult out = tools.previewBudgetRule(RuleMatchType.KEYWORD, " carrefour ");
+        CategorizationService.RulePreviewResult out =
+            scopeEnforced(tools).previewBudgetRule(RuleMatchType.KEYWORD, " carrefour ");
 
         assertThat(out.matchCount()).isEqualTo(1);
         assertThat(out.transactions()).extracting(CategorizationService.PreviewTransaction::id).containsExactly(1L);
@@ -418,17 +419,13 @@ class BudgetToolsRecurringTriageTest {
     }
 
     @Test
-    void preview_withoutTransactionsRead_returnsTheCountButNoRows() {
-        Transaction match = Transaction.builder().id(1L).date(LocalDate.of(2026, 9, 1))
-            .amount(new BigDecimal("-40")).counterparty("CARREFOUR MARKET").description("CB CARREFOUR").build();
-        when(transactionRepository.findChangeable(MID)).thenReturn(List.of(match));
+    void preview_isRefusedToARulesOnlyKey() {
         grant(Scopes.BUDGET_RULES_READ);
 
-        CategorizationService.RulePreviewResult out =
-            scopeEnforced(tools).previewBudgetRule(RuleMatchType.KEYWORD, "carrefour");
-
-        assertThat(out.matchCount()).isEqualTo(1);
-        assertThat(out.transactions()).isEmpty();
+        assertThatThrownBy(() -> scopeEnforced(tools).previewBudgetRule(RuleMatchType.KEYWORD, "ca"))
+            .isInstanceOf(MissingScopeException.class)
+            .hasMessageContaining(Scopes.BUDGET_TRANSACTIONS_READ);
+        verifyNoInteractions(transactionRepository);
     }
 
     @Test
@@ -461,7 +458,7 @@ class BudgetToolsRecurringTriageTest {
                 t -> t.getSpendingCategoryDetail(1L, null, null)),
             scoped(Scopes.BUDGET_DASHBOARD_READ, "get_cashflow", t -> t.getCashflow(null, null)),
             scoped(Scopes.BUDGET_DASHBOARD_READ, "get_cashflow_flow", t -> t.getCashflowFlow(null, null)),
-            scoped(Scopes.BUDGET_RULES_READ, "preview_budget_rule", t -> t.previewBudgetRule(RuleMatchType.KEYWORD, "x")));
+            scoped(Scopes.BUDGET_TRANSACTIONS_READ, "preview_budget_rule", t -> t.previewBudgetRule(RuleMatchType.KEYWORD, "x")));
     }
 
     @ParameterizedTest

@@ -31,7 +31,7 @@ public class ScopeEnforcementAspect {
 
     /**
      * Whether the current request's key holds {@code scope}. Tools use it to withhold the part of a
-     * response that a second scope covers, e.g. transaction rows behind {@code budget:transactions-read}.
+     * response that a second scope covers, e.g. credit-card payments behind {@code accounts:read}.
      */
     public static boolean isGranted(String scope) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();

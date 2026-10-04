@@ -206,19 +206,15 @@ public class BudgetTools {
 
     @Tool(name = "preview_budget_rule",
         description = "Dry run of a categorization rule before create_budget_rule: returns how many of the authenticated "
-            + "member's transactions it would categorize (uncategorized ones or ones not categorized by hand). Up to 200 "
-            + "of those transactions are listed only when the key also holds budget:transactions-read; otherwise the "
-            + "list is empty and only the count is returned. Writes nothing: no rule is saved and no transaction changes.")
-    @RequiresScope(Scopes.BUDGET_RULES_READ)
+            + "member's transactions it would categorize (uncategorized ones or ones not categorized by hand) and up to "
+            + "200 of them. Requires budget:transactions-read because any pattern is a search over transaction "
+            + "counterparty, description and merchant label. Writes nothing: no rule is saved and no transaction changes.")
+    @RequiresScope(Scopes.BUDGET_TRANSACTIONS_READ)
     public CategorizationService.RulePreviewResult previewBudgetRule(
         @ToolParam(description = "COUNTERPARTY, KEYWORD, KEYWORDS_ALL or KEYWORDS_ANY") RuleMatchType matchType,
         @ToolParam(description = "The pattern to match against counterparty/description/merchant label") String pattern) {
         RulePreviewRequest req = validated(new RulePreviewRequest(matchType, pattern));
-        CategorizationService.RulePreviewResult preview =
-            categorizationService.previewRule(req.matchType(), req.pattern(), userContext.currentMemberId());
-        return ScopeEnforcementAspect.isGranted(Scopes.BUDGET_TRANSACTIONS_READ)
-            ? preview
-            : new CategorizationService.RulePreviewResult(preview.matchCount(), List.of());
+        return categorizationService.previewRule(req.matchType(), req.pattern(), userContext.currentMemberId());
     }
 
     // ─── Transactions (budgeted view) ──────────────────────────────────────

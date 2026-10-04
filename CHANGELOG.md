@@ -17,11 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   detection never suggests it again. The same app can also read the recurring activity
   feed and calendar, spending by category and per category, and cashflow and its money
   flow for the current pay cycle or the year to date. It can dry-run a categorization rule
-  before creating it; the preview writes nothing. Transaction rows stay behind the
-  budgeted-transactions permission. The per-category spending detail requires it, and the
-  rule preview lists matching transactions only when the app holds it. Otherwise the preview
-  shows only how many transactions would match. The calendar includes credit-card payments
-  only for an app that may also read your accounts.
+  before creating it; the preview writes nothing. Both the per-category spending detail and
+  the rule preview require the budgeted-transactions permission, because both reveal your
+  transactions. The calendar includes credit-card payments only for an app that may also
+  read your accounts.
 
 - **The sync page is reachable from the profile menu.** `/sync` had no entry in the
   desktop sidebar; it was only reachable from the dashboard sync dialog or by typing the
