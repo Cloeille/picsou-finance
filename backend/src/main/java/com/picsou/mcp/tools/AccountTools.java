@@ -24,8 +24,10 @@ import java.util.List;
  * MCP tools over a member's accounts, holdings, and balance history. Every method resolves the
  * authenticated key owner's member via {@link UserContext} and delegates to the already
  * member-scoped services (AccountService or AccountConnectionService); an access-key can therefore only ever touch its own
- * owner's accounts. Writes are restricted to <em>manual</em> accounts — {@link #createManualAccount}
- * always sets {@code isManual=true}; synced bank/broker/crypto accounts are managed by their sync.
+ * owner's accounts. Account creation is restricted to <em>manual</em> accounts —
+ * {@link #createManualAccount} always sets {@code isManual=true}. Deletion also supports synced accounts and can remove saved
+ * sessions/credentials, an IBKR connection, or an Enable Banking requisition when it is the last
+ * account. These tools neither create nor expose credentials and do not run authentication flows.
  */
 @Component
 public class AccountTools {
@@ -110,15 +112,13 @@ public class AccountTools {
     }
 
     @Tool(name = "delete_account", description = "Delete (soft-delete) an account of the authenticated member. "
-        + "If it was the last account on its connection the idle connection is removed too; the returned "
-        + "DeletionImpact names the connection label that was removed (or null).")
+        + "This also supports synced accounts. If it was the last account on its connection, saved "
+        + "sessions/credentials and that connection are removed; this can delete an IBKR connection "
+        + "or Enable Banking requisition. Returns the actual DeletionImpact (or null label).")
     @RequiresScope(Scopes.ACCOUNTS_WRITE)
     public DeletionImpact deleteAccount(
         @ToolParam(description = "The account id") Long accountId) {
-        Long memberId = userContext.currentMemberId();
-        DeletionImpact impact = accountConnectionService.describeDeletion(accountId, memberId);
-        accountConnectionService.deleteAccount(accountId, memberId);
-        return impact;
+        return accountConnectionService.deleteAccount(accountId, userContext.currentMemberId());
     }
 
     @Tool(name = "add_balance_snapshot",

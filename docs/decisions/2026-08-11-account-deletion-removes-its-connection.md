@@ -30,6 +30,12 @@ Deleting an account also removes its connection, once no live account is left on
 connection. `AccountConnectionService` owns the rule; `AccountController.delete` and the MCP `delete_account` tool go through it
 rather than through `AccountService.delete`.
 
+`deleteAccount` returns the `DeletionImpact` of its cleanup decision in the same transaction.
+It captures the connection label before removing the connection. The MCP tool returns that
+result directly; the REST delete keeps its existing no-content response. `describeDeletion`
+remains a separate read-only preview for confirmation, which can become stale before deletion
+and must not be reported as the applied result.
+
 "Its connection" is resolved from `external_account_id`, whose namespaces are disjoint —
 `wallet_`, `crypto_exchange_`, `amundi_`, `tr_`, `bd_`, `ibkr_`, `degiro-portfolio` — falling
 back to `account.requisition_id` for Enable Banking, whose ids are the bank's own opaque

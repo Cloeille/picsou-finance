@@ -14,7 +14,6 @@ import com.picsou.service.UserContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -122,14 +121,13 @@ class AccountToolsTest {
     void deleteAccount_delegatesScopedToCurrentMember() {
         when(userContext.currentMemberId()).thenReturn(MID);
         DeletionImpact impact = new DeletionImpact(true, "BoursoBank");
-        when(accountConnectionService.describeDeletion(5L, MID)).thenReturn(impact);
+        when(accountConnectionService.deleteAccount(5L, MID)).thenReturn(impact);
 
         DeletionImpact out = tools.deleteAccount(5L);
 
         assertThat(out).isSameAs(impact);
-        InOrder inOrder = org.mockito.Mockito.inOrder(accountConnectionService);
-        inOrder.verify(accountConnectionService).describeDeletion(5L, MID);
-        inOrder.verify(accountConnectionService).deleteAccount(5L, MID);
+        verify(accountConnectionService).deleteAccount(5L, MID);
+        verify(accountConnectionService, org.mockito.Mockito.never()).describeDeletion(5L, MID);
         verify(accountService, org.mockito.Mockito.never()).delete(
             org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong());
     }
@@ -148,9 +146,14 @@ class AccountToolsTest {
             org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong());
     }
 
-    @Test
-    void deleteAccount_lastAccountRemovesConnection() {
-        when(userContext.currentMemberId()).thenReturn(MID);
+    private record RealServiceFixture(
+        AccountConnectionService service,
+        com.picsou.repository.AccountRepository accountRepository,
+        com.picsou.service.AccountService accountService,
+        com.picsou.service.BoursoSyncService boursoSyncService,
+        com.picsou.service.TradeRepublicSyncService tradeRepublicSyncService) {}
+
+    private static RealServiceFixture realServiceFixture() {
         com.picsou.repository.AccountRepository accountRepository = mock(com.picsou.repository.AccountRepository.class);
         com.picsou.service.AccountService accountServiceForConn = mock(com.picsou.service.AccountService.class);
         com.picsou.repository.WalletAddressRepository walletRepository = mock(com.picsou.repository.WalletAddressRepository.class);
@@ -171,17 +174,81 @@ class AccountToolsTest {
             requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
             fortuneoSyncService, degiroSyncService, ibkrSyncService, syncService);
+        return new RealServiceFixture(realService, accountRepository, accountServiceForConn,
+            boursoSyncService, tradeRepublicSyncService);
+    }
+
+    @Test
+    void deleteAccount_lastAccountRemovesConnection() {
+        when(userContext.currentMemberId()).thenReturn(MID);
+        RealServiceFixture fixture = realServiceFixture();
         com.picsou.model.Account boursoAccount = new com.picsou.model.Account();
         boursoAccount.setId(5L);
         boursoAccount.setExternalAccountId("bourso_123");
-        when(accountRepository.findByIdAndMemberId(5L, MID)).thenReturn(java.util.Optional.of(boursoAccount));
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MID)).thenReturn(java.util.List.of(boursoAccount));
-        AccountTools toolsWithReal = new AccountTools(accountService, userContext, realService);
+        when(fixture.accountRepository().findByIdAndMemberId(5L, MID)).thenReturn(java.util.Optional.of(boursoAccount));
+        when(fixture.accountRepository().findAllByMemberIdOrderByCreatedAtAsc(MID)).thenReturn(java.util.List.of(boursoAccount));
+        AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service());
         DeletionImpact impact = toolsWithReal.deleteAccount(5L);
         assertThat(impact.removesConnection()).isTrue();
         assertThat(impact.connectionLabel()).isEqualTo("BoursoBank");
-        verify(boursoSyncService).clearSession(MID);
-        verify(accountServiceForConn).delete(5L, MID);
+        verify(fixture.boursoSyncService()).clearSession(MID);
+        verify(fixture.accountService()).delete(5L, MID);
+    }
+
+    @Test
+    void deletionReportsConnectionSurvivalWhenSiblingAppearsAfterPreview() {
+        when(userContext.currentMemberId()).thenReturn(MID);
+        RealServiceFixture fixture = realServiceFixture();
+        com.picsou.model.Account cash = new com.picsou.model.Account();
+        cash.setId(5L);
+        cash.setExternalAccountId("tr_cash");
+        com.picsou.model.Account securities = new com.picsou.model.Account();
+        securities.setId(6L);
+        securities.setExternalAccountId("tr_securities");
+        when(fixture.accountRepository().findByIdAndMemberId(5L, MID)).thenReturn(java.util.Optional.of(cash));
+        java.util.concurrent.atomic.AtomicReference<List<com.picsou.model.Account>> liveAccounts =
+            new java.util.concurrent.atomic.AtomicReference<>(List.of(cash));
+        when(fixture.accountRepository().findAllByMemberIdOrderByCreatedAtAsc(MID))
+            .thenAnswer(invocation -> liveAccounts.get());
+        org.mockito.Mockito.doAnswer(invocation -> {
+            liveAccounts.set(List.of(cash, securities));
+            return null;
+        }).when(fixture.accountService()).delete(5L, MID);
+        AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service());
+
+        DeletionImpact impact = toolsWithReal.deleteAccount(5L);
+
+        assertThat(impact.removesConnection()).isFalse();
+        assertThat(impact.connectionLabel()).isNull();
+        verify(fixture.tradeRepublicSyncService(), org.mockito.Mockito.never()).clearSession(MID);
+    }
+
+    @Test
+    void deletionReportsConnectionRemovalWhenSiblingDisappearsAfterPreview() {
+        when(userContext.currentMemberId()).thenReturn(MID);
+        RealServiceFixture fixture = realServiceFixture();
+        com.picsou.model.Account cash = new com.picsou.model.Account();
+        cash.setId(5L);
+        cash.setExternalAccountId("tr_cash");
+        com.picsou.model.Account securities = new com.picsou.model.Account();
+        securities.setId(6L);
+        securities.setExternalAccountId("tr_securities");
+        when(fixture.accountRepository().findByIdAndMemberId(5L, MID)).thenReturn(java.util.Optional.of(cash));
+        java.util.concurrent.atomic.AtomicReference<List<com.picsou.model.Account>> liveAccounts =
+            new java.util.concurrent.atomic.AtomicReference<>(List.of(cash, securities));
+        when(fixture.accountRepository().findAllByMemberIdOrderByCreatedAtAsc(MID))
+            .thenAnswer(invocation -> liveAccounts.get());
+        org.mockito.Mockito.doAnswer(invocation -> {
+            liveAccounts.set(List.of(cash));
+            return null;
+        }).when(fixture.accountService()).delete(5L, MID);
+        AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service());
+
+        DeletionImpact impact = toolsWithReal.deleteAccount(5L);
+
+        assertThat(impact.removesConnection()).isTrue();
+        assertThat(impact.connectionLabel()).isEqualTo("Trade Republic");
+        verify(fixture.tradeRepublicSyncService()).clearSession(MID);
     }
 
     @Test
