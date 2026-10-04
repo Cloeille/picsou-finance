@@ -533,8 +533,9 @@ public class AmundiSyncService {
         } catch (DataAccessException ex) {
             return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         } catch (SyncException ex) {
-            return new SourceSyncResult("amundi", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+            return SourceSyncResult.fromSyncException("amundi", ex);
         } catch (Exception ex) {
+            log.error("Amundi scheduled sync failed unexpectedly for member {}", memberId, ex);
             return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
     }

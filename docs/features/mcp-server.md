@@ -162,9 +162,22 @@ and GDPR data export.
   trigger tools all call `MemberSyncService` and share `mcpMemberSyncBuckets`: one sync per member
   every 15 minutes, and four per day. A blocked call returns `Try again in N min` and does not
   touch the banks. `get_sync_status` (`sync:read`) does not consume the cooldown. The 08:00
-  scheduler does not use the bucket. The store is in-memory, like the other limiters, so a restart
+  scheduler does not use the bucket. This dedicated store expires entries 24 hours after creation,
+  rather than using the other limiters' one-hour idle eviction, so hourly calls cannot reset the
+  daily budget. The store is in-memory, like the other limiters, so a restart
   clears it — it stops an agent loop, it is not a durable PSD2 counter. Trade Republic has no
   last-sync column, so its status line says `lastSync=none`.
+- **The sync summary distinguishes failures from missing connections and expired credentials.**
+  An unconnected Finary source is `SKIPPED_NOT_CONNECTED`, and an IBKR connection in `ERROR`
+  is `FAILED` in `get_sync_status`. A crypto-exchange batch keeps running after a session fails,
+  reports `FAILED`, and names the exchanges that failed. Each exchange runs in its own
+  `REQUIRES_NEW` transaction; both batch entry points suspend any calling transaction so a
+  failed exchange cannot roll back a successful neighbour. Transient connector errors do not ask
+  the user to reconnect; `NEEDS_REAUTH` is reserved for authentication/session-expiry codes.
+- **Sync triggers are still synchronous.** The cooldown token is consumed before the connectors
+  run. A client timeout does not prove that the sync stopped, and a retry can be blocked by the
+  cooldown without receiving the original summary. A background run with a member-scoped run id
+  and readable progress is a separate follow-up; this transport does not provide it yet.
 - **`SyncTools` must be named `@Component("picsouSyncTools")`.** Spring AI's
   `McpServerAutoConfiguration` already defines a bean named `syncTools` (the SYNC server's tool-spec
   list). A `@Component` defaulting to `syncTools` collides with it and aborts the context
@@ -199,6 +212,18 @@ Backend (H2, `mvn test`):
 - `mcp/tools/McpToolCatalogTest` — **curation guard**: pins the exact advertised tool set (no auth/credential/admin tool).
 - `mcp/tools/{Account,Transaction,Goal,Insight}ToolsTest` — delegation + member-scoping per tool.
 - `mcp/tools/SyncToolsTest` — every trigger is a filter over `MemberSyncService`, failures stay visible, and the cooldown blocks a second call.
+- `config/RateLimitConfigTest` — the member-sync bucket survives hourly calls, denies a fifth sync
+  before 24 hours, expires at the daily boundary, and leaves ordinary one-hour limiter stores unchanged.
+- `service/sync/SourceSyncResultTest` — exact authentication signals versus transient and unknown
+  errors for all seven reporting connectors; IBKR invalid-query errors are not token expiry.
+- `service/CryptoExchangeSyncServiceTest` — mixed-success batches keep attempting member-scoped
+  sessions, name failed exchanges, and never expose adapter exception text in that summary.
+- `service/CryptoExchangeSyncTransactionIsolationTest` — real PostgreSQL constraint failure in
+  one exchange does not undo another exchange's committed positions, including the legacy batch
+  entry point invoked inside a caller's transaction.
+- `service/IbkrSyncServiceTest` — unexpected reporting errors retain an exception-bearing server log.
+- `service/TradeRepublicSyncServiceTest`, `service/sync/MemberSyncServiceTest` — session lookup,
+  Finary failures and transaction-proxy exit errors retain their throwable and do not stop later sources.
 - `service/SyncStatusServiceTest` — last sync, status and reauth flag per connection; a secret never appears in the text.
 - `mcp/SyncToolsSseTest` — real SSE transport: `GET /mcp`, then `tools/call trigger_full_sync` with a `sync:trigger` key, and the per-source summary comes back. The sync itself is stubbed so the test does not call a bank.
 - `config/AccessKeyAuthFilterTest` — Property A (key on `/api/**` ⇒ not authenticated; on `/mcp` ⇒ authenticated), Property C (scope authorities only), throttle 429.

@@ -18,13 +18,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -50,6 +54,7 @@ public class CryptoExchangeSyncService {
     private final CryptoExchangePositionRepository positionRepository;
     private final AccountHoldingRepository holdingRepository;
     private final CryptoLogoService cryptoLogoService;
+    private final TransactionTemplate sessionTransaction;
 
     public CryptoExchangeSyncService(
         List<CryptoExchangePort> exchangeAdapters,
@@ -62,7 +67,8 @@ public class CryptoExchangeSyncService {
         CryptoExchangeStatusWriter statusWriter,
         CryptoExchangePositionRepository positionRepository,
         AccountHoldingRepository holdingRepository,
-        CryptoLogoService cryptoLogoService
+        CryptoLogoService cryptoLogoService,
+        PlatformTransactionManager transactionManager
     ) {
         this.exchangeAdapters = exchangeAdapters;
         this.sessionRepository = sessionRepository;
@@ -75,6 +81,8 @@ public class CryptoExchangeSyncService {
         this.positionRepository = positionRepository;
         this.holdingRepository = holdingRepository;
         this.cryptoLogoService = cryptoLogoService;
+        this.sessionTransaction = new TransactionTemplate(transactionManager);
+        this.sessionTransaction.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
     }
 
     public AccountResponse addExchange(ExchangeType type, String apiKey, String apiSecret, Long memberId) {
@@ -287,26 +295,36 @@ public class CryptoExchangeSyncService {
         log.info("Removed exchange session {} and soft-deleted its account", sessionId);
     }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SourceSyncResult resyncAllReporting(Long memberId) {
-        List<CryptoExchangeSession> sessions = sessionRepository.findAllByMemberId(memberId);
+        List<CryptoExchangeSession> sessions;
+        try {
+            sessions = sessionRepository.findAllByMemberId(memberId);
+        } catch (Exception ex) {
+            return new SourceSyncResult("crypto-exchanges", SourceSyncResult.Status.FAILED,
+                shortMessage(ex.getMessage()));
+        }
         if (sessions.isEmpty()) {
             return new SourceSyncResult("crypto-exchanges", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No connected exchange");
         }
-        try {
-            // logic from original resyncAll, wrapped
-            for (CryptoExchangeSession session : sessions) {
-                try {
-                    sync(session.getId(), memberId);
-                } catch (Exception ex) {
-                    log.warn("Crypto exchange resync failed for {}: {}", session.getExchangeType(), ex.getMessage());
-                }
+        List<String> failedExchanges = new ArrayList<>();
+        for (CryptoExchangeSession session : sessions) {
+            try {
+                sessionTransaction.executeWithoutResult(status -> sync(session.getId(), memberId));
+            } catch (Exception ex) {
+                failedExchanges.add(session.getExchangeType().name());
+                // Adapter exception text may include private request details.
+                log.warn("Crypto exchange resync failed for {}", session.getExchangeType());
             }
-            return new SourceSyncResult("crypto-exchanges", SourceSyncResult.Status.SYNCED, "");
-        } catch (Exception ex) {
-            return new SourceSyncResult("crypto-exchanges", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
+        if (!failedExchanges.isEmpty()) {
+            return new SourceSyncResult("crypto-exchanges", SourceSyncResult.Status.FAILED,
+                String.join(", ", failedExchanges));
+        }
+        return new SourceSyncResult("crypto-exchanges", SourceSyncResult.Status.SYNCED, "");
     }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void resyncAll(Long memberId) {
         resyncAllReporting(memberId);
     }

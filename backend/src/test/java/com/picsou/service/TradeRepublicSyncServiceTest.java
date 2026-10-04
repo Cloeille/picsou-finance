@@ -23,6 +23,8 @@ import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -30,6 +32,7 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -71,6 +74,29 @@ class TradeRepublicSyncServiceTest {
     @Mock CategoryRepository categoryRepository;
 
     @InjectMocks TradeRepublicSyncService service;
+
+    @Test
+    void resyncReporting_logsLookupFailureWithThrowableAndReturnsFailed() {
+        Long memberId = 7L;
+        RuntimeException failure = new RuntimeException("repository unavailable");
+        when(sessionRepository.findByMemberId(memberId)).thenThrow(failure);
+        ch.qos.logback.classic.Logger logger =
+            (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(TradeRepublicSyncService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            var result = service.resyncReporting(memberId);
+
+            assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+            assertThat(appender.list).anySatisfy(event -> assertThat(event.getThrowableProxy()).isNotNull());
+            assertThat(appender.list).anySatisfy(event -> assertThat(event.getThrowableProxy().getMessage())
+                .contains("repository unavailable"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
 
     /**
      * When two ISINs resolve to the same ticker, the saved holding's averageBuyIn

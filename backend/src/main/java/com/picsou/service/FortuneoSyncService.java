@@ -951,8 +951,9 @@ public class FortuneoSyncService {
         } catch (DataAccessException ex) {
             return new SourceSyncResult("fortuneo", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         } catch (SyncException ex) {
-            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+            return SourceSyncResult.fromSyncException("fortuneo", ex);
         } catch (Exception ex) {
+            log.error("Fortuneo scheduled sync failed unexpectedly for member {}", memberId, ex);
             return new SourceSyncResult("fortuneo", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
     }

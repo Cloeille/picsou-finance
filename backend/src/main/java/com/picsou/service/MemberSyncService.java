@@ -135,6 +135,7 @@ public class MemberSyncService {
                         // extra wrapper in Member for proxy exit exceptions like UnexpectedRollback
                         if (ex instanceof org.springframework.transaction.UnexpectedRollbackException
                                 || ex.getClass().getName().contains("UnexpectedRollback")) {
+                            log.error("IBKR sync failed unexpectedly for member {}", memberId, ex);
                             return new SourceSyncResult("ibkr", Status.FAILED, "Unexpected rollback");
                         }
                         throw ex;
@@ -155,6 +156,7 @@ public class MemberSyncService {
                         FinaryAutoSyncResponse resp = finaryApiSyncService.autoSync(memberId);
                         return mapFinary(resp);
                     } catch (Exception ex) {
+                        log.error("Finary sync failed unexpectedly for member {}", memberId, ex);
                         return new SourceSyncResult("finary", Status.FAILED, shortMessage(ex.getMessage()));
                     }
                 case "degiro":
@@ -165,6 +167,7 @@ public class MemberSyncService {
             }
         } catch (Exception ex) {
             // never let one source stop others
+            log.error("{} sync failed unexpectedly for member {}", source, memberId, ex);
             return new SourceSyncResult(source, Status.FAILED, shortMessage(ex.getMessage()));
         }
     }
@@ -179,6 +182,9 @@ public class MemberSyncService {
         }
         if ("NEEDS_MAPPING".equals(status)) {
             return new SourceSyncResult("finary", Status.SYNCED, "Manual mapping still required");
+        }
+        if ("NOT_CONNECTED".equals(status)) {
+            return new SourceSyncResult("finary", Status.SKIPPED_NOT_CONNECTED, "No connected Finary session");
         }
         return new SourceSyncResult("finary", Status.FAILED, status != null ? status : "Unknown");
     }

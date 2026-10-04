@@ -134,6 +134,17 @@ class SyncStatusServiceTest {
     }
 
     @Test
+    void ibkrError_isFailedWithoutRequestingReauthentication() {
+        when(ibkrConnectionRepository.findByMemberId(MID)).thenReturn(Optional.of(
+            IbkrConnection.builder().status("ERROR").lastSyncedAt(SYNCED_AT).build()));
+
+        String text = service.describe(MID);
+
+        assertThat(text).contains("ibkr: FAILED lastSync=2026-10-04T06:00:00Z reauth=false");
+        assertThat(text).doesNotContain("ibkr: CONNECTED");
+    }
+
+    @Test
     void oneUnreadableSource_doesNotHideTheNext() {
         when(boursoSyncService.getStatus(MID)).thenThrow(new RuntimeException("db down"));
 

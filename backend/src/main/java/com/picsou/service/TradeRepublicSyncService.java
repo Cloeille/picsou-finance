@@ -194,7 +194,9 @@ public class TradeRepublicSyncService {
                 log.warn("TR session expired -- no refresh token available, clearing session");
                 sessionRepository.findByMemberId(memberId).ifPresent(sessionRepository::delete);
                 throw new SyncException(
-                    "Your Trade Republic session has expired. Please reconnect from the Trade Republic page.");
+                    "Your Trade Republic session has expired. Please reconnect from the Trade Republic page.",
+                    e,
+                    "SESSION_EXPIRED");
             }
             throw e;
         }
@@ -216,7 +218,9 @@ public class TradeRepublicSyncService {
                 log.warn("TR refresh rejected -- clearing session");
                 sessionRepository.findByMemberId(memberId).ifPresent(sessionRepository::delete);
                 throw new SyncException(
-                    "Your Trade Republic session has expired and could not be refreshed. Please reconnect.");
+                    "Your Trade Republic session has expired and could not be refreshed. Please reconnect.",
+                    ex,
+                    "SESSION_EXPIRED");
             }
             // Transient failure (sidecar down, timeout): keep the session so the
             // next sync can retry the refresh instead of forcing a re-auth.
@@ -588,19 +592,19 @@ public class TradeRepublicSyncService {
      * which is the normal path for any sync happening hours after auth.
      */
     public SourceSyncResult resyncReporting(Long memberId) {
-        Optional<TradeRepublicSession> session = sessionRepository.findByMemberId(memberId);
-        if (session.isEmpty()) {
-            return new SourceSyncResult("trade-republic", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
-        }
-
-        TradeRepublicSession s = session.get();
         try {
+            Optional<TradeRepublicSession> session = sessionRepository.findByMemberId(memberId);
+            if (session.isEmpty()) {
+                return new SourceSyncResult("trade-republic", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
+            }
+
+            TradeRepublicSession s = session.get();
             syncWithToken(encryption.decrypt(s.getSessionToken()), s, memberId);
             return new SourceSyncResult("trade-republic", SourceSyncResult.Status.SYNCED, "");
         } catch (SyncException ex) {
-            // session expired or reauth recognized by this service
-            return new SourceSyncResult("trade-republic", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+            return SourceSyncResult.fromSyncException("trade-republic", ex);
         } catch (Exception ex) {
+            log.error("Trade Republic scheduled sync failed unexpectedly for member {}", memberId, ex);
             return new SourceSyncResult("trade-republic", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
     }
@@ -670,8 +674,6 @@ public class TradeRepublicSyncService {
             account = accountRepository.save(account);
             log.info("TR upsertAccount: concurrent insert resolved for externalId={}", data.externalId());
         }
-        accountService.upsertSnapshot(account, data.balanceEur(), LocalDate.now());
-        account = accountRepository.save(account);
 
         // The snapshot comes AFTER the holdings are replaced (both exits below): the 3-arg
         // upsertSnapshot derives the day's investedAmount from the holdings in the table, and

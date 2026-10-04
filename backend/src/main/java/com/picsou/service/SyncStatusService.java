@@ -162,7 +162,7 @@ public class SyncStatusService {
 
     private String ibkrLine(IbkrConnection row) {
         boolean reauth = reauthText(row.getStatus());
-        String status = reauth ? "NEEDS_REAUTH" : "CONNECTED";
+        String status = reauth ? "NEEDS_REAUTH" : "ERROR".equals(row.getStatus()) ? "FAILED" : "CONNECTED";
         return line("ibkr", status, row.getLastSyncedAt(), reauth, null);
     }
 

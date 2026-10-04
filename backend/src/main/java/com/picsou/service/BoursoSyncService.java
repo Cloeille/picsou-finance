@@ -751,8 +751,9 @@ public class BoursoSyncService {
         } catch (DataAccessException ex) {
             return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         } catch (SyncException ex) {
-            return new SourceSyncResult("bourso", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+            return SourceSyncResult.fromSyncException("bourso", ex);
         } catch (Exception ex) {
+            log.error("BoursoBank scheduled sync failed unexpectedly for member {}", memberId, ex);
             return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
     }

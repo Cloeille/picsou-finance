@@ -1,8 +1,10 @@
 package com.picsou.config;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Ticker;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
+import io.github.bucket4j.TimeMeter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,6 +20,7 @@ public class RateLimitConfig {
      * observe — it only reclaims memory from IPs/users that stopped calling.
      */
     private static final Duration BUCKET_STORE_EXPIRE_AFTER_ACCESS = Duration.ofHours(1);
+    private static final Duration MCP_MEMBER_SYNC_BUCKET_STORE_EXPIRE_AFTER_WRITE = Duration.ofHours(24);
 
     /**
      * Ceiling on distinct keys held at once per store. 50k covers a large multiple of any
@@ -34,7 +37,12 @@ public class RateLimitConfig {
      * call sites, no behavior change for any key still within its idle window.
      */
     private static <K> Map<K, Bucket> boundedBucketStore() {
+        return boundedBucketStore(Ticker.systemTicker());
+    }
+
+    static <K> Map<K, Bucket> boundedBucketStore(Ticker ticker) {
         return Caffeine.newBuilder()
+            .ticker(ticker)
             .expireAfterAccess(BUCKET_STORE_EXPIRE_AFTER_ACCESS)
             .maximumSize(BUCKET_STORE_MAX_SIZE)
             .<K, Bucket>build()
@@ -248,7 +256,16 @@ public class RateLimitConfig {
      */
     @Bean("mcpMemberSyncBuckets")
     public Map<Long, Bucket> mcpMemberSyncBuckets() {
-        return boundedBucketStore();
+        return mcpMemberSyncBucketStore(Ticker.systemTicker());
+    }
+
+    static Map<Long, Bucket> mcpMemberSyncBucketStore(Ticker ticker) {
+        return Caffeine.newBuilder()
+            .ticker(ticker)
+            .expireAfterWrite(MCP_MEMBER_SYNC_BUCKET_STORE_EXPIRE_AFTER_WRITE)
+            .maximumSize(BUCKET_STORE_MAX_SIZE)
+            .<Long, Bucket>build()
+            .asMap();
     }
 
     /**
@@ -508,6 +525,10 @@ public class RateLimitConfig {
      * The short window is what an agent loop hits; the daily window is the PSD2-style budget.
      */
     public static Bucket createMcpMemberSyncBucket() {
+        return createMcpMemberSyncBucket(TimeMeter.SYSTEM_NANOTIME);
+    }
+
+    static Bucket createMcpMemberSyncBucket(TimeMeter timeMeter) {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(1)
@@ -517,6 +538,7 @@ public class RateLimitConfig {
                 .capacity(4)
                 .refillIntervally(4, Duration.ofHours(24))
                 .build())
+            .withCustomTimePrecision(timeMeter)
             .build();
     }
 }

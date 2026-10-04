@@ -561,8 +561,9 @@ public class BourseDirectSyncService {
         } catch (DataAccessException ex) {
             return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         } catch (SyncException ex) {
-            return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+            return SourceSyncResult.fromSyncException("bourse-direct", ex);
         } catch (Exception ex) {
+            log.error("Bourse Direct scheduled sync failed unexpectedly for member {}", memberId, ex);
             return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
     }

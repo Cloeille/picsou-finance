@@ -153,9 +153,9 @@ public class IbkrSyncService {
             syncWithConnection(connection.get(), memberId);
             return new SourceSyncResult("ibkr", SourceSyncResult.Status.SYNCED, "");
         } catch (SyncException ex) {
-            // expired token or reauth recognized
-            return new SourceSyncResult("ibkr", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+            return SourceSyncResult.fromSyncException("ibkr", ex);
         } catch (Exception ex) {
+            log.error("IBKR scheduled sync failed unexpectedly for member {}", memberId, ex);
             return new SourceSyncResult("ibkr", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
     }

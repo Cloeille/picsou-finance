@@ -135,7 +135,11 @@ public class RevolutSyncService {
         try {
             harvested = harvest(creds.phone(), creds.passcode(), memberId, allowLogin);
         } catch (SyncException e) {
-            throw new SyncException(friendly(e.getMessage()));
+            String code = e.getCode();
+            if (code == null && "SESSION_EXPIRED".equals(e.getMessage())) {
+                code = "SESSION_EXPIRED";
+            }
+            throw new SyncException(friendly(e.getMessage()), e, code);
         }
 
         // Persist ALL harvested accounts (unattended/scheduler path keeps its auto-import-everything
@@ -379,9 +383,9 @@ public class RevolutSyncService {
             sync(memberId, null, null, true, false);
             return new SourceSyncResult("revolut", SourceSyncResult.Status.SYNCED, "");
         } catch (SyncException ex) {
-            // session expired or reauth recognized by this service
-            return new SourceSyncResult("revolut", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+            return SourceSyncResult.fromSyncException("revolut", ex);
         } catch (Exception ex) {
+            log.error("Revolut scheduled sync failed unexpectedly for member {}", memberId, ex);
             return new SourceSyncResult("revolut", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
     }
