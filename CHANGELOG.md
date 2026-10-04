@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The sync page is reachable from the profile menu.** `/sync` had no entry in the
+  desktop sidebar; it was only reachable from the dashboard sync dialog or by typing the
+  address. The profile menu now lists it beside Administration and Sign out, in both
+  sidebar styles, and highlights it while you are on that page. In the classic style the
+  menu now opens below the profile button when the window is tall enough, and flips
+  above it otherwise; the default style keeps it opening upwards because its profile
+  sits at the bottom of the screen.
+
 - **Crypto holdings show the coin's logo next to their ticker.** A position is easier to
   recognise at a glance than by reading its ticker. The mark comes from CoinGecko, which
   already prices the same coins, and a whole page resolves in a single request — nothing
