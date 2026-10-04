@@ -19,7 +19,7 @@ class SimplefinClientTest {
     private static final String ACCOUNT_SET = """
         {
           "errlist": [{"code": "act.failed", "msg": "One account lagged."}],
-          "connections": [{"conn_id": "CON-1", "name": "Chase"}],
+          "connections": [{"conn_id": "CON-1", "name": "Chase Bank Chase Tom", "org_name": "Chase"}],
           "accounts": [
             {
               "id": "chk",
@@ -112,6 +112,35 @@ class SimplefinClientTest {
     }
 
     @Test
+    void paymentRequiredIsItsOwnMessage() {
+        transport.next = new SimplefinTransport.Response(402, "");
+        assertThatThrownBy(() -> client.fetchAccounts(ACCESS, LocalDate.of(2026, 1, 1)))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("payment");
+    }
+
+    @Test
+    void anUnusablePostedDateIsDroppedAndTheRestAreKept() {
+        transport.next = new SimplefinTransport.Response(200, """
+            {"accounts":[{"id":"chk","name":"Checking","currency":"USD","balance":"1.00","transactions":[
+              {"id":"bad","posted":9223372036854775807,"amount":"1.00","description":"Way out"},
+              {"id":"ok","posted":1767225600,"amount":"-2.00","description":"Coffee"}]}]}
+            """);
+
+        SimplefinAccountSet set = client.fetchAccounts(ACCESS, LocalDate.of(2026, 1, 1));
+
+        assertThat(set.accounts().get(0).transactions()).singleElement()
+            .satisfies(tx -> assertThat(tx.externalId()).isEqualTo("ok"));
+    }
+
+    @Test
+    void aLongAccountIdKeepsTheSimplefinPrefix() {
+        String hashed = SimplefinJson.externalAccountId("c".repeat(200), "a".repeat(200));
+        assertThat(hashed).startsWith("sfin_").hasSize("sfin_".length() + 64);
+        assertThat(SimplefinJson.externalAccountId("CON-1", "chk")).isEqualTo("sfin_CON-1_chk");
+    }
+
+    @Test
     void redirectsAreRefused() {
         transport.next = new SimplefinTransport.Response(302, "");
         assertThatThrownBy(() -> client.claim(token("https://bridge.simplefin.org/simplefin/claim/abc")))
@@ -124,6 +153,7 @@ class SimplefinClientTest {
         assertRejected(token("http://bridge.simplefin.org/simplefin/claim/abc"));
         assertRejected(token("https://localhost/simplefin/claim/abc"));
         assertRejected(token("https://127.0.0.1/simplefin/claim/abc"));
+        assertRejected(token("https://[::1]/simplefin/claim/abc"));
         assertRejected(token("https://10.1.2.3/simplefin/claim/abc"));
         assertRejected(token("https://192.168.0.5/simplefin/claim/abc"));
         assertRejected(token("https://169.254.169.254/latest"));

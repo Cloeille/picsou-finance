@@ -82,18 +82,20 @@ class SimplefinSyncServiceTest {
         SimplefinConnection connection = connection();
         when(connectionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.of(connection));
         when(encryption.decrypt("ciphertext")).thenReturn(ACCESS);
-        when(transactionImportService.sharedHistoryStart()).thenReturn(LocalDate.of(2025, 10, 1));
+        LocalDate start = LocalDate.now().minusDays(30);
+        when(transactionImportService.sharedHistoryStart()).thenReturn(start);
         FamilyMember member = new FamilyMember();
         member.setId(MEMBER_ID);
         when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(member));
-        when(simplefinPort.fetchAccounts(ACCESS, LocalDate.of(2025, 10, 1))).thenReturn(new SimplefinAccountSet(
+        when(simplefinPort.fetchAccounts(ACCESS, start)).thenReturn(new SimplefinAccountSet(
             List.of(),
             List.of(
                 account("sfin_CON-1_chk", "Chase", "Checking", "USD", "10.00",
                     new SimplefinTransaction("tx-1", LocalDate.of(2026, 1, 2), new BigDecimal("-4.50"), "Coffee")),
                 account("sfin_CON-1_sav", "Chase", "Savings", "usd", "80.00"),
                 account("sfin_CON-1_miles", "Chase", "Rewards", "https://example.com/miles", "12"),
-                account("sfin_CON-1_gone", "Chase", "Old", "USD", "1.00")
+                account("sfin_CON-1_gone", "Chase", "Old", "USD", "1.00"),
+                account("sfin_CON-1_huge", "Chase", "Overflow", "USD", "1000000000000")
             )));
         when(accountRepository.findByExternalAccountIdAndMemberId("sfin_CON-1_chk", MEMBER_ID))
             .thenReturn(Optional.empty());
@@ -157,6 +159,10 @@ class SimplefinSyncServiceTest {
     void maskKeepsOnlyTheLastFourCharactersOfTheUsername() {
         assertThat(SimplefinSyncService.mask(ACCESS)).isEqualTo("••••1234");
         assertThat(SimplefinSyncService.accountName("Chase", "Checking")).isEqualTo("Chase — Checking");
+        assertThat(SimplefinSyncService.accountName("", "x".repeat(99) + "\uD83D\uDE00")).isEqualTo("x".repeat(99));
+        LocalDate today = LocalDate.of(2026, 10, 5);
+        assertThat(SimplefinSyncService.bridgeStart(today.minusDays(90), today)).isEqualTo(today.minusDays(89));
+        assertThat(SimplefinSyncService.bridgeStart(today.minusDays(30), today)).isEqualTo(today.minusDays(30));
         assertThat(SimplefinSyncService.detectType("High-yield savings")).isEqualTo(AccountType.SAVINGS);
         assertThat(SimplefinSyncService.isIsoCurrency("https://example.com/miles")).isFalse();
     }

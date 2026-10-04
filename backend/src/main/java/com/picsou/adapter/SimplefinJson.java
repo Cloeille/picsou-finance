@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -52,8 +53,8 @@ final class SimplefinJson {
             for (JsonNode connection : connections) {
                 String id = text(connection, "conn_id");
                 if (id == null) continue;
-                String name = text(connection, "name");
-                if (name == null) name = text(connection, "org_name");
+                String name = text(connection, "org_name");
+                if (name == null) name = text(connection, "name");
                 connectionNames.put(id, name);
             }
         }
@@ -116,13 +117,27 @@ final class SimplefinJson {
         if (amount == null) return null;
         String description = text(node, "description");
         if (description == null) description = "Transaction";
-        LocalDate date = Instant.ofEpochSecond(posted).atZone(ZoneOffset.UTC).toLocalDate();
+        LocalDate date;
+        try {
+            date = Instant.ofEpochSecond(posted).atZone(ZoneOffset.UTC).toLocalDate();
+        } catch (DateTimeException ex) {
+            return null;
+        }
+        // PostgreSQL rejects a date past year 5874897. A bank posting outside this
+        // span is a bad timestamp, including one the milliseconds guess did not fix.
+        if (date.getYear() < 1900 || date.getYear() > 2200) return null;
         return new SimplefinTransaction(fit(text(node, "id")), date, amount, description);
     }
 
+    /**
+     * {@code sfin_} has to survive a hash. Account deletion recognises the connection
+     * by that prefix, and a bare digest would leave the connection syncing forever.
+     */
     static String externalAccountId(String connId, String accountId) {
         String conn = connId == null || connId.isBlank() ? "account" : connId;
-        return fit("sfin_" + conn + "_" + accountId);
+        String raw = "sfin_" + conn + "_" + accountId;
+        if (raw.length() <= MAX_EXTERNAL_ID) return raw;
+        return "sfin_" + sha256(raw);
     }
 
     /** Keep ids inside {@code VARCHAR(255)}. A hash is stable across syncs. */

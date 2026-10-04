@@ -62,6 +62,14 @@ public class BankTransactionImportService {
     /** Marks a key as a locally computed fingerprint rather than a provider reference. */
     private static final String FINGERPRINT_PREFIX = "fp:";
 
+    /** Matches {@code transaction.description}, {@code transaction.category}, and the external id. */
+    private static final int DESCRIPTION_MAX = 255;
+    private static final int CATEGORY_MAX = 100;
+    private static final int EXTERNAL_ID_MAX = 255;
+
+    /** {@code numeric(20,8)} holds twelve digits before the decimal point. */
+    private static final BigDecimal LEDGER_LIMIT = new BigDecimal("1000000000000");
+
     private final BankConnectorPort bankConnector;
     private final TransactionRepository transactionRepository;
     private final int initialHistoryDays;
@@ -197,6 +205,10 @@ public class BankTransactionImportService {
 
         List<Transaction> toInsert = new ArrayList<>();
         for (TransactionData data : fetched) {
+            if (!fitsLedgerAmount(data.amount())) {
+                log.warn("Skipping a transaction on account {} — amount does not fit the ledger", account.getId());
+                continue;
+            }
             String key = dedupKey(data);
             if (!known.add(key)) continue;
             toInsert.add(toEntity(account, data, key));
@@ -209,8 +221,16 @@ public class BankTransactionImportService {
      * sends one, otherwise a fingerprint of the fields a user would call identical.
      */
     static String dedupKey(TransactionData data) {
-        if (data.externalId() != null && !data.externalId().isBlank()) return data.externalId().trim();
+        if (data.externalId() != null && !data.externalId().isBlank()) {
+            String id = data.externalId().trim();
+            return id.length() <= EXTERNAL_ID_MAX ? id : FINGERPRINT_PREFIX + sha256Hex(id);
+        }
         return fingerprint(data.date(), data.amount(), data.description());
+    }
+
+    /** True when {@code value} can be stored in a {@code numeric(20,8)} money column. */
+    static boolean fitsLedgerAmount(BigDecimal value) {
+        return value != null && value.abs().compareTo(LEDGER_LIMIT) < 0;
     }
 
     /**
@@ -261,13 +281,19 @@ public class BankTransactionImportService {
         return Transaction.builder()
             .account(account)
             .date(data.date())
-            .description(data.description() != null ? data.description() : "")
+            .description(clip(data.description() != null ? data.description() : "", DESCRIPTION_MAX))
             .amount(data.amount())
-            .category(data.category())
+            .category(clip(data.category(), CATEGORY_MAX))
             .nativeCurrency(currencyOf(data, account))
             .externalTransactionId(dedupKey)
             .isManual(false)
             .build();
+    }
+
+    private static String clip(String value, int max) {
+        if (value == null || value.length() <= max) return value;
+        int end = Character.isHighSurrogate(value.charAt(max - 1)) ? max - 1 : max;
+        return value.substring(0, Math.max(end, 0));
     }
 
     private static String currencyOf(TransactionData data, Account account) {

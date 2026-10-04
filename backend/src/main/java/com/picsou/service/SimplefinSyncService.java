@@ -139,10 +139,11 @@ public class SimplefinSyncService {
                     + "Connect again with a new setup token.", ex);
         }
 
-        LocalDate start = transactionImportService.sharedHistoryStart();
+        LocalDate start = bridgeStart(transactionImportService.sharedHistoryStart(), LocalDate.now());
         SimplefinAccountSet set = simplefinPort.fetchAccounts(accessUrl, start);
         if (!set.errors().isEmpty()) {
-            log.warn("SimpleFIN reported {} partial error(s) for member {}", set.errors().size(), memberId);
+            log.warn("SimpleFIN reported partial error(s) for member {}: {}",
+                memberId, String.join("; ", set.errors()));
         }
 
         FamilyMember member = familyMemberRepository.findById(memberId)
@@ -152,6 +153,10 @@ public class SimplefinSyncService {
         for (SimplefinAccount data : set.accounts()) {
             if (!isIsoCurrency(data.currency())) {
                 log.info("SimpleFIN: skipping account {} — currency is not ISO 4217", data.externalId());
+                continue;
+            }
+            if (!BankTransactionImportService.fitsLedgerAmount(data.balance())) {
+                log.info("SimpleFIN: skipping account {} — balance does not fit the ledger", data.externalId());
                 continue;
             }
             upsertAccount(data, member).ifPresent(responses::add);
@@ -211,13 +216,29 @@ public class SimplefinSyncService {
         return rows;
     }
 
+    /**
+     * The bridge rejects an inclusive 90-day span ("exceeds limit of 90 days").
+     * A request that starts 89 days ago is the longest window it accepts.
+     */
+    static LocalDate bridgeStart(LocalDate requested, LocalDate today) {
+        LocalDate limit = today.minusDays(89);
+        return requested.isBefore(limit) ? limit : requested;
+    }
+
     static String accountName(String connectionName, String accountName) {
         String account = accountName == null || accountName.isBlank() ? "Account" : accountName.trim();
         String bank = connectionName == null ? "" : connectionName.trim();
         String combined = bank.isEmpty() || account.toLowerCase(Locale.ROOT).contains(bank.toLowerCase(Locale.ROOT))
             ? account
             : bank + " — " + account;
-        return combined.length() <= MAX_NAME_LEN ? combined : combined.substring(0, MAX_NAME_LEN);
+        return clip(combined, MAX_NAME_LEN);
+    }
+
+    /** Stops on a character boundary so a name cut at 100 is still valid text. */
+    private static String clip(String value, int max) {
+        if (value.length() <= max) return value;
+        int end = Character.isHighSurrogate(value.charAt(max - 1)) ? max - 1 : max;
+        return value.substring(0, end);
     }
 
     static AccountType detectType(String name) {
