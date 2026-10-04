@@ -204,9 +204,12 @@ public class DegiroSyncService {
         return new SessionStatusResponse(active, s.getStatus(), s.getLastSyncedAt());
     }
 
-    public void clearSession(Long memberId) {
-        sessionRepository.findByMemberId(memberId).ifPresent(sessionRepository::delete);
+    /** Returns whether a stored session was there to delete. */
+    public boolean clearSession(Long memberId) {
+        var session = sessionRepository.findByMemberId(memberId);
+        session.ifPresent(sessionRepository::delete);
         log.info("DEGIRO session cleared for member {}", memberId);
+        return session.isPresent();
     }
 
     // ─── Upsert ───────────────────────────────────────────────────────────────

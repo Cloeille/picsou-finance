@@ -116,6 +116,21 @@ describe('usePortfolio', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data?.[0]).toMatchObject({ valueEur: 12, pnlEur: 2 })
   })
+
+  it('leaves loans and credit cards out of the Euros cash line', async () => {
+    list.mockResolvedValue([
+      { id: 2, name: 'Checking', type: 'CHECKING', color: '#000', currentBalanceEur: 1500 },
+      { id: 3, name: 'Mortgage', type: 'LOAN', color: '#000', currentBalanceEur: 90000 },
+      { id: 4, name: 'Card', type: 'CREDIT_CARD', color: '#000', currentBalanceEur: -800 },
+    ])
+
+    const { result } = renderHook(() => usePortfolio(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).toEqual([
+      expect.objectContaining({ id: 'cash-aggregated', accountName: 'Checking', valueEur: 1500 }),
+    ])
+  })
 })
 
 describe('useUpdateScpiPosition', () => {

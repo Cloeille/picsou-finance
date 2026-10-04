@@ -28,6 +28,7 @@ public class MemberSyncService {
         "bourse-direct",
         "amundi",
         "fortuneo",
+        "amex",
         "ibkr",
         "crypto-exchanges",
         "wallets",
@@ -42,6 +43,7 @@ public class MemberSyncService {
     private final BourseDirectSyncService bourseDirectSyncService;
     private final AmundiSyncService amundiSyncService;
     private final FortuneoSyncService fortuneoSyncService;
+    private final AmexSyncService amexSyncService;
     private final IbkrSyncService ibkrSyncService;
     private final CryptoExchangeSyncService cryptoExchangeSyncService;
     private final WalletSyncService walletSyncService;
@@ -56,6 +58,7 @@ public class MemberSyncService {
             BourseDirectSyncService bourseDirectSyncService,
             AmundiSyncService amundiSyncService,
             FortuneoSyncService fortuneoSyncService,
+            AmexSyncService amexSyncService,
             IbkrSyncService ibkrSyncService,
             CryptoExchangeSyncService cryptoExchangeSyncService,
             WalletSyncService walletSyncService,
@@ -68,6 +71,7 @@ public class MemberSyncService {
         this.bourseDirectSyncService = bourseDirectSyncService;
         this.amundiSyncService = amundiSyncService;
         this.fortuneoSyncService = fortuneoSyncService;
+        this.amexSyncService = amexSyncService;
         this.ibkrSyncService = ibkrSyncService;
         this.cryptoExchangeSyncService = cryptoExchangeSyncService;
         this.walletSyncService = walletSyncService;
@@ -128,6 +132,8 @@ public class MemberSyncService {
                     return amundiSyncService.resyncReporting(memberId);
                 case "fortuneo":
                     return fortuneoSyncService.resyncReporting(memberId);
+                case "amex":
+                    return amexSyncService.resyncReporting(memberId);
                 case "ibkr":
                     try {
                         return ibkrSyncService.resyncReporting(memberId);

@@ -102,6 +102,13 @@ Picsou publishes pre-built, multi-arch (amd64/arm64) images to the GitHub Contai
 | `ghcr.io/cloeille/picsou-finance/bourso-auth` | BoursoBank login/2FA sidecar |
 | `ghcr.io/cloeille/picsou-finance/fortuneo-auth` | Fortuneo login/2FA and portfolio sidecar |
 
+The app and every `*-auth` sidecar authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`. Compose refuses to start without it, and each sidecar refuses any request that does not carry it. Set it once before the first launch:
+
+```bash
+[ -f docker/.env ] || cp docker/.env.example docker/.env
+printf '\nAPP_SIDECAR_API_KEY=%s\n' "$(openssl rand -base64 32)" >> docker/.env
+```
+
 ```bash
 docker compose -f docker/docker-compose.yml pull    # fetch the published images from GHCR
 docker compose -f docker/docker-compose.yml up -d
@@ -331,6 +338,7 @@ cp docker/.env.example docker/.env
 
 | Variable | When to set | Description |
 |----------|-------------|-------------|
+| `APP_SIDECAR_API_KEY` | Always (required) | `openssl rand -base64 32`. Shared by the app and every `*-auth` sidecar; recreate them together after a rotation |
 | `POSTGRES_PASSWORD` | Override auto-gen | Strong random password |
 | `JWT_SECRET` | Override auto-gen | `openssl rand -base64 48` |
 | `CRYPTO_ENCRYPTION_KEY` | Override auto-gen | `openssl rand -base64 32` |

@@ -31,7 +31,7 @@ public class SyncTools {
 
     static final Set<String> BANK_SOURCES = Set.of("enable-banking", "enable-banking-retry");
     static final Set<String> BROKER_SOURCES = Set.of(
-        "trade-republic", "bourso", "bourse-direct", "amundi", "fortuneo", "ibkr", "degiro");
+        "trade-republic", "bourso", "bourse-direct", "amundi", "fortuneo", "amex", "ibkr", "degiro");
     static final Set<String> EXCHANGE_SOURCES = Set.of("crypto-exchanges");
     static final Set<String> WALLET_SOURCES = Set.of("wallets");
 
@@ -73,7 +73,7 @@ public class SyncTools {
 
     @Tool(name = "trigger_broker_sync",
         description = "Refresh the authenticated member's existing broker connections: Trade Republic, "
-            + "BoursoBank, Bourse Direct, Amundi, Fortuneo, IBKR, and DEGIRO when the session is "
+            + "BoursoBank, Bourse Direct, Amundi, Fortuneo, American Express, IBKR, and DEGIRO when the session is "
             + "still active. Does not re-authenticate. Returns one status line per source.")
     @RequiresScope(Scopes.SYNC_TRIGGER)
     public String triggerBrokerSync() {

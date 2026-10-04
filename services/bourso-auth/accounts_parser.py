@@ -1,12 +1,15 @@
 """Turns BoursoBank's dashboard HTML and trading JSON into the sidecar contract.
 
-Two upstream shapes are parsed here:
+Three upstream shapes are parsed here:
 
 * the account summary at `/dashboard/liste-comptes`, which is HTML grouped into
   `data-summary-bank` / `-savings` / `-trading` / `-loan` / `-insurance` /
   `-assurance` sections;
 * the trading board's `accounts/summary/{id}` JSON, which carries the cash, the
-  portfolio valuation, the account total and every open position.
+  portfolio valuation, the account total and every open position;
+* the identity selector at `/connexion/lister-identites`, which BoursoBank puts
+  in front of the dashboard when one access holds a personal and a business
+  identity.
 
 Kept free of FastAPI and httpx, because these rules are the part that silently
 breaks when BoursoBank reskins a page, and a silent break here would overwrite a
@@ -18,6 +21,7 @@ parse fails the whole sync, so the last known-good data survives.
 import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
+from html import unescape as html_unescape
 from typing import Any, Literal
 
 FORMAT_CHANGED = "UPSTREAM_FORMAT_CHANGED"
@@ -316,6 +320,80 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
     if len(accounts) > MAX_ACCOUNTS:
         raise AccountsFormatError(INCOMPLETE, "Dashboard held more accounts than supported")
     return accounts, third_party
+
+
+# ─── Identity selector ──────────────────────────────────────────────────────
+
+
+IDENTITY_UNSUPPORTED = "IDENTITY_SELECTION_UNSUPPORTED"
+IDENTITY_SWITCH_PATH = "/connexion/changer-identite/"
+
+# The switch token is per-session and acts as a credential for that session's
+# identity switch: it must never reach a log line or an error message.
+_IDENTITY_LINK_RE = re.compile(
+    r"<a\b[^>]*?href=\"(?:https://clients\.boursobank\.com)?"
+    + re.escape(IDENTITY_SWITCH_PATH)
+    + r"(?P<token>[^\"]*)\"[^>]*>(?P<body>.*?)</a>",
+    re.DOTALL | re.IGNORECASE,
+)
+# Every switch link on the page, however it is written, so an identity rendered
+# outside a plain `<a href>` cannot drop out of the choice unnoticed.
+_ANY_IDENTITY_LINK_RE = re.compile(
+    re.escape(IDENTITY_SWITCH_PATH) + r"(?P<token>[^\"'\s<>?#]+)", re.IGNORECASE
+)
+_IDENTITY_TOKEN_RE = re.compile(r"[A-Za-z0-9._~=-]+(?:/[A-Za-z0-9._~=-]+)*")
+
+# Matched against the identity's deaccented, uppercased label. Only the business
+# side is recognised: the one real selector reported (#153) showed a personal
+# identity carrying no marker of its own beside a sole-trader one. A marker
+# missing from this list fails safe: the business identity stays unmarked, so the
+# choice below sees two unmarked identities and refuses. A marker matching a
+# personal label does not: it can leave the business identity as the only
+# unmarked one and pick it. Every marker is therefore a whole word, so a name
+# such as "Liberali" or "Partisan" never reads as LIBERAL or ARTISAN.
+_BUSINESS_IDENTITY_RE = re.compile(
+    r"\b(?:PROS?|PROFESSIONNEL(?:LE)?S?|ENTREPRISES?|ENTREPRENEURS?|ENTREPRENEUSES?"
+    r"|INDEPENDANTE?S?|EIR?L?|SOCIETES?|SAS|SASU|SARL|EURL|SCI|SIRE[NT]"
+    r"|COMMERCANTE?S?|ARTISANE?S?|LIBERALE?S?|LIBERAUX|ASSOCIATIONS?)\b"
+    r"|\bE\.I\."
+)
+
+
+def choose_personal_identity(html: str) -> str:
+    """Return the switch path of the one personal identity on the selector page.
+
+    The page shape is inferred from the #153 report, not from a captured page:
+    each identity is assumed to be an `<a href="/connexion/changer-identite/…">`
+    whose text is its label. The personal identity is the only one whose label
+    carries no business marker, and the choice is refused rather than guessed
+    when that is not exactly one identity, or when no identity reads as
+    business at all: syncing a sole-trader's accounts as personal wealth is
+    worse than a clear error.
+    """
+    labels: dict[str, list[str]] = {}
+    for match in _IDENTITY_LINK_RE.finditer(html):
+        token = html_unescape(match.group("token"))
+        labels.setdefault(token, []).append(html_unescape(text_value(match.group("body"), 200) or ""))
+
+    linked = {html_unescape(match.group("token")) for match in _ANY_IDENTITY_LINK_RE.finditer(html)}
+    if not labels or linked != set(labels):
+        raise AccountsFormatError(FORMAT_CHANGED, "Identity selector links did not parse")
+    if any(not _IDENTITY_TOKEN_RE.fullmatch(token) or ".." in token for token in labels):
+        raise AccountsFormatError(FORMAT_CHANGED, "Identity selector carried a malformed link")
+
+    business = {
+        token
+        for token, texts in labels.items()
+        if _BUSINESS_IDENTITY_RE.search(_deaccent(" ".join(texts)))
+    }
+    personal = [token for token in labels if token not in business]
+    if len(personal) != 1 or not business:
+        raise AccountsFormatError(
+            IDENTITY_UNSUPPORTED,
+            f"Identity selector listed {len(labels)} identities, "
+            f"{len(personal)} without a business marker",
+        )
+    return IDENTITY_SWITCH_PATH + personal[0]
 
 
 # ─── Trading board ──────────────────────────────────────────────────────────

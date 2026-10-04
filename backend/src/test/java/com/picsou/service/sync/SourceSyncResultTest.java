@@ -5,6 +5,7 @@ import com.picsou.port.AmundiErrorCode;
 import com.picsou.port.BoursoErrorCode;
 import com.picsou.port.BourseDirectErrorCode;
 import com.picsou.port.FortuneoErrorCode;
+import com.picsou.port.AmexErrorCode;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,13 +22,14 @@ class SourceSyncResultTest {
         assertStatus("bourse-direct", coded(BourseDirectErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("amundi", coded(AmundiErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("fortuneo", coded(FortuneoErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
+        assertStatus("amex", coded(AmexErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("ibkr", new SyncException("Interactive Brokers: Token has expired. (code 1012)"), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("ibkr", new SyncException("Interactive Brokers: Token is invalid. (code 1015)"), SourceSyncResult.Status.NEEDS_REAUTH);
     }
 
     @Test
     void syncExceptionStatus_keepsTransientUnknownAndNonAuthErrorsFailed() {
-        for (String source : new String[] {"trade-republic", "ibkr", "revolut", "bourso", "bourse-direct", "amundi", "fortuneo"}) {
+        for (String source : new String[] {"trade-republic", "ibkr", "revolut", "bourso", "bourse-direct", "amundi", "fortuneo", "amex"}) {
             assertStatus(source, new SyncException("temporary provider outage"), SourceSyncResult.Status.FAILED);
             assertStatus(source, new SyncException("INTERNAL_ERROR", null, "INTERNAL_ERROR"), SourceSyncResult.Status.FAILED);
             assertStatus(source, new SyncException("failure with no code", null, null), SourceSyncResult.Status.FAILED);
@@ -38,6 +40,8 @@ class SourceSyncResultTest {
         assertStatus("bourse-direct", coded(BourseDirectErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
         assertStatus("amundi", coded(AmundiErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
         assertStatus("fortuneo", coded(FortuneoErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
+        assertStatus("amex", coded(AmexErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
+        assertStatus("amex", coded(AmexErrorCode.AUTH_ATTEMPT_EXPIRED.name()), SourceSyncResult.Status.FAILED);
     }
 
     private static SyncException coded(String code) {

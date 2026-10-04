@@ -215,6 +215,7 @@
     "logoLedger": "Ledger",
     "total": "Total",
     "currentBalance": "Current balance",
+    "currentDebt": "Credit-card debt",
     "tabOverview": "Overview",
     "cashBalance": "Cash in the PEA/securities account",
     "snapshots": "Monthly snapshots",
@@ -253,6 +254,11 @@
       "submit": "Export",
       "success": "Export complete: {{filename}}",
       "empty": "No account to export"
+    },
+    "amex": {
+      "amountDue": "Amount to pay",
+      "dueDate": "Direct debit date",
+      "miles": "Miles earned this cycle"
     }
   },
   "analysis": {
@@ -401,7 +407,8 @@
     "other": "Other",
     "employeeSavings": "Employee savings",
     "assuranceVie": "Life insurance",
-    "scpi": "SCPI"
+    "scpi": "SCPI",
+    "creditCard": "Credit card"
   },
   "scpi": {
     "add": {
@@ -437,7 +444,6 @@
       "hint": "Kept out of the price-per-square-metre estimate. The subscription price is not in this total.",
       "incomplete": "One share still uses its last known balance: the withdrawal price is missing."
     }
-
   },
   "realEstate": {
     "purchasePrice": "Purchase price",
@@ -821,6 +827,7 @@
       "noSeries": "No recurring series detected yet.",
       "noUpcoming": "No upcoming payments",
       "noUpcomingHint": "Upcoming charges will appear here once detected.",
+      "creditCardPayment": "Credit card payment",
       "error": "Couldn't load recurring items.",
       "label": "Label",
       "counterparty": "Counterparty",
@@ -967,6 +974,7 @@
       "finary": "Import from Finary",
       "manual": "Create an account manually",
       "amundi": "PEE, PEG, PERCO, PER held at Amundi",
+      "amex": "American Express credit card: balance and transactions",
       "property": "House, apartment, land…",
       "fortuneo": "Sync your Fortuneo accounts"
     }
@@ -1191,6 +1199,7 @@
         "tooManyAttempts": "Too many attempts. Please wait before retrying.",
         "invalidCredentials": "Invalid BoursoBank client number or password.",
         "fraudAckRequired": "Log in on the BoursoBank website, validate the fraud-prevention notice, then reconnect.",
+        "identitySelectionUnsupported": "This BoursoBank access holds several identities and Picsou could not tell which one is personal. Business identities are not supported yet. Your existing data was kept.",
         "mfaTypeUnsupported": "BoursoBank asked for an SMS or e-mail code, which Picsou cannot handle. Switch to app validation in your BoursoBank security settings.",
         "appValidationTimeout": "The app approval was not confirmed in time. Please start over.",
         "authAttemptExpired": "The authentication attempt expired. Please start over.",
@@ -1353,6 +1362,41 @@
         "formatChanged": "The Sofidy website format changed. Your existing data was kept.",
         "invalidData": "Sofidy returned inconsistent data. Your existing data was kept.",
         "serverError": "Could not reach Sofidy. Please try again."
+      }
+    },
+    "amex": {
+      "title": "American Express",
+      "login": "User ID",
+      "password": "Password",
+      "otpMethod": "Receive the code by",
+      "otpMethodSms": "SMS",
+      "otpMethodEmail": "E-mail",
+      "otpCode": "One-time code",
+      "otpPrompt": "Enter the code American Express sent you.",
+      "connect": "Connect",
+      "recoverHistory": "Recover available history",
+      "recoveringHistory": "Recovering history…",
+      "historyLimit": "AMEX limits history to what its transaction API exposes; older transactions may not be available.",
+      "connecting": "Connecting…",
+      "validate": "Submit code",
+      "validating": "Validating…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "American Express card synced.",
+      "clearSession": "Disconnect",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your American Express credit card: balance and recent posted/pending transactions. Use history recovery to request additional transactions within AMEX's API limits.",
+      "errors": {
+        "tooManyAttempts": "Too many attempts. Please wait.",
+        "invalidCredentials": "Invalid American Express credentials.",
+        "invalidCode": "Invalid or expired one-time code. Please retry.",
+        "authAttemptExpired": "Authentication attempt expired. Please reconnect.",
+        "sessionExpired": "The American Express session has expired. Please reconnect.",
+        "formatChanged": "The American Express website format has changed. Your existing data has been preserved.",
+        "invalidData": "American Express returned inconsistent data. Your existing data has been preserved.",
+        "serverError": "Unable to reach American Express. Please try again."
       }
     },
     "fortuneo": {

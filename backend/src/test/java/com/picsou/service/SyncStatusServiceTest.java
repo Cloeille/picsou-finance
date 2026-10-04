@@ -19,8 +19,12 @@ import com.picsou.model.BoursoSyncStatus;
 import com.picsou.model.AmundiSyncStatus;
 import com.picsou.model.BourseDirectSyncStatus;
 import com.picsou.model.FortuneoSyncStatus;
+import com.picsou.model.AmexSyncStatus;
+import com.picsou.port.AmexErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -46,6 +50,7 @@ class SyncStatusServiceTest {
     @Mock BourseDirectSyncService bourseDirectSyncService;
     @Mock AmundiSyncService amundiSyncService;
     @Mock FortuneoSyncService fortuneoSyncService;
+    @Mock AmexSyncService amexSyncService;
     @Mock IbkrConnectionRepository ibkrConnectionRepository;
     @Mock CryptoExchangeSyncService cryptoExchangeSyncService;
     @Mock WalletAddressRepository walletAddressRepository;
@@ -59,7 +64,7 @@ class SyncStatusServiceTest {
         service = new SyncStatusService(
             revolutSyncService, requisitionRepository, tradeRepublicSyncService, tradeRepublicSessionRepository,
             boursoSyncService, bourseDirectSyncService, amundiSyncService, fortuneoSyncService,
-            ibkrConnectionRepository, cryptoExchangeSyncService, walletAddressRepository,
+            amexSyncService, ibkrConnectionRepository, cryptoExchangeSyncService, walletAddressRepository,
             finarySessionRepository, degiroSessionRepository);
         when(revolutSyncService.getStatus(MID)).thenReturn(new RevolutSyncService.StatusResponse(false, false, null));
         when(requisitionRepository.findAllByMemberId(MID)).thenReturn(List.of());
@@ -74,6 +79,8 @@ class SyncStatusServiceTest {
             new AmundiSyncService.SessionStatusResponse(false, AmundiSyncStatus.IDLE, null, null, null));
         when(fortuneoSyncService.getStatus(MID)).thenReturn(
             new FortuneoSyncService.SessionStatusResponse(false, null, FortuneoSyncStatus.IDLE, null, null, null));
+        when(amexSyncService.getStatus(MID)).thenReturn(
+            new AmexSyncService.SessionStatusResponse(false, AmexSyncStatus.IDLE, null, null, null));
         when(ibkrConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
         when(cryptoExchangeSyncService.getStatus(MID)).thenReturn(List.of());
         when(walletAddressRepository.findAllByMemberId(MID)).thenReturn(List.of());
@@ -82,11 +89,25 @@ class SyncStatusServiceTest {
     }
 
     @Test
+    void amexReportsQueuedCompletionAndReauthenticationTruthfully() {
+        when(amexSyncService.getStatus(MID)).thenReturn(new AmexSyncService.SessionStatusResponse(
+            true, AmexSyncStatus.QUEUED, null, SYNCED_AT, null));
+        String queued = service.describe(MID);
+        assertThat(queued).contains("amex: QUEUED lastSync=2026-10-04T06:00:00Z reauth=false");
+
+        when(amexSyncService.getStatus(MID)).thenReturn(new AmexSyncService.SessionStatusResponse(
+            false, AmexSyncStatus.FAILED, null, SYNCED_AT, AmexErrorCode.SESSION_EXPIRED));
+        String expired = service.describe(MID);
+        assertThat(expired).contains("amex: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — SESSION_EXPIRED");
+    }
+
+    @Test
     void missingConnections_areNamedNotHidden() {
         String text = service.describe(MID);
 
         assertThat(text).contains("revolut: NOT_CONNECTED lastSync=none reauth=false");
         assertThat(text).contains("enable-banking: NOT_CONNECTED lastSync=none reauth=false");
+        assertThat(text).contains("amex: NOT_CONNECTED lastSync=none reauth=false");
         assertThat(text).contains("degiro: NOT_CONNECTED lastSync=none reauth=false");
         assertThat(text).doesNotContain("password");
         assertThat(text).doesNotContain("token");
@@ -142,6 +163,20 @@ class SyncStatusServiceTest {
 
         assertThat(text).contains("ibkr: FAILED lastSync=2026-10-04T06:00:00Z reauth=false");
         assertThat(text).doesNotContain("ibkr: CONNECTED");
+    }
+
+    @ParameterizedTest
+    @EnumSource(AmexErrorCode.class)
+    void amexFailedStatusUsesOnlyTheExactSessionExpiryCodeForReauthentication(AmexErrorCode error) {
+        when(amexSyncService.getStatus(MID)).thenReturn(new AmexSyncService.SessionStatusResponse(
+            false, AmexSyncStatus.FAILED, null, SYNCED_AT, error));
+        boolean reauth = error == AmexErrorCode.SESSION_EXPIRED;
+        String expectedStatus = reauth ? "NEEDS_REAUTH" : "FAILED";
+
+        String text = service.describe(MID);
+
+        assertThat(text).contains("amex: " + expectedStatus + " lastSync=2026-10-04T06:00:00Z reauth="
+            + reauth + " — " + error.name());
     }
 
     @Test

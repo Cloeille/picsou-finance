@@ -20,7 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
+import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/accounts/pnl'
 import { useAppStore } from '@/stores/app-store'
 import type { Account, AccountRequest, AccountType } from '@/types/api'
@@ -37,7 +37,7 @@ const ASSET_FILTER_MAP: Record<AssetFilter, AccountType[] | null> = {
   CHECKING: ['CHECKING'],
   CRYPTO: ['CRYPTO'],
   REAL_ESTATE: ['REAL_ESTATE', 'SCPI'],
-  DEBTS: ['LOAN'],
+  DEBTS: LIABILITY_ACCOUNT_TYPES,
 }
 
 const TYPE_GROUP_META: Record<string, { key: string; labelKey: string; color: string }> = {
@@ -68,6 +68,7 @@ const TYPE_TO_GROUP: Record<AccountType, string> = {
   REAL_ESTATE: 'REAL_ESTATE',
   SCPI: 'REAL_ESTATE',
   LOAN: 'DEBTS',
+  CREDIT_CARD: 'DEBTS',
 }
 
 
@@ -367,7 +368,10 @@ export function AccountsPage() {
       type: editingAccount.type,
       provider: (editingAccount.type === 'LOAN' ? debt?.lenderName : editingAccount.provider) ?? '',
       currency: editingAccount.currency,
-      currentBalance: editingAccount.currentBalance,
+      // The form asks for a card's amount owed; the backend stores it negative.
+      currentBalance: editingAccount.type === 'CREDIT_CARD'
+        ? Math.abs(editingAccount.currentBalance)
+        : editingAccount.currentBalance,
       isManual: editingAccount.isManual,
       color: editingAccount.color,
       ticker: editingAccount.ticker ?? '',

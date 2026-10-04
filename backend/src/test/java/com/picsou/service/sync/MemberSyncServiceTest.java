@@ -2,6 +2,8 @@ package com.picsou.service.sync;
 
 import com.picsou.dto.FinaryAutoSyncResponse;
 import com.picsou.finary.FinaryApiSyncService;
+import com.picsou.exception.SyncException;
+import com.picsou.port.AmexErrorCode;
 import com.picsou.service.*;
 import com.picsou.service.WalletSyncService.ResyncSummary;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -32,6 +34,7 @@ class MemberSyncServiceTest {
     @Mock private BourseDirectSyncService bourseDirectSyncService;
     @Mock private AmundiSyncService amundiSyncService;
     @Mock private FortuneoSyncService fortuneoSyncService;
+    @Mock private AmexSyncService amexSyncService;
     @Mock private IbkrSyncService ibkrSyncService;
     @Mock private CryptoExchangeSyncService cryptoExchangeSyncService;
     @Mock private WalletSyncService walletSyncService;
@@ -44,7 +47,7 @@ class MemberSyncServiceTest {
     void setUp() {
         memberSyncService = new MemberSyncService(
             revolutSyncService, syncService, trSyncService, boursoSyncService,
-            bourseDirectSyncService, amundiSyncService, fortuneoSyncService,
+            bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService,
             ibkrSyncService, cryptoExchangeSyncService, walletSyncService,
             finaryApiSyncService, degiroSyncService
         );
@@ -61,28 +64,31 @@ class MemberSyncServiceTest {
         when(bourseDirectSyncService.resyncReporting(memberId)).thenReturn(success("bourse-direct"));
         when(amundiSyncService.resyncReporting(memberId)).thenReturn(success("amundi"));
         when(fortuneoSyncService.resyncReporting(memberId)).thenReturn(success("fortuneo"));
+        when(amexSyncService.resyncReporting(memberId)).thenReturn(success("amex"));
         when(ibkrSyncService.resyncReporting(memberId)).thenReturn(success("ibkr"));
         when(cryptoExchangeSyncService.resyncAllReporting(memberId)).thenReturn(success("crypto-exchanges"));
         when(walletSyncService.resyncAll(memberId)).thenReturn(new ResyncSummary(1, 1, List.of()));
         when(finaryApiSyncService.autoSync(memberId)).thenReturn(new FinaryAutoSyncResponse("OK", 1, 0));
-        // degiro not called
 
         List<SourceSyncResult> results = memberSyncService.resyncScheduled(memberId);
 
-        assertEquals(13, results.size());
+        assertEquals(14, results.size());
         assertEquals("revolut", results.get(0).source());
         assertEquals("enable-banking", results.get(1).source());
         assertEquals("enable-banking-retry", results.get(2).source());
-        assertEquals("degiro", results.get(12).source());
-        assertEquals(SourceSyncResult.Status.SKIPPED, results.get(12).status());
+        assertEquals("amex", results.get(8).source());
+        assertEquals("ibkr", results.get(9).source());
+        assertEquals("degiro", results.get(13).source());
+        assertEquals(SourceSyncResult.Status.SKIPPED, results.get(13).status());
 
         InOrder inOrder = inOrder(revolutSyncService, syncService, trSyncService, boursoSyncService,
-            bourseDirectSyncService, amundiSyncService, fortuneoSyncService, ibkrSyncService,
+            bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService, ibkrSyncService,
             cryptoExchangeSyncService, walletSyncService, finaryApiSyncService, degiroSyncService);
         inOrder.verify(revolutSyncService).resyncReporting(memberId);
         inOrder.verify(syncService).resyncAllReporting(memberId);
         inOrder.verify(syncService).retryFailedReporting(memberId);
         inOrder.verify(trSyncService).resyncReporting(memberId);
+        inOrder.verify(amexSyncService).resyncReporting(memberId);
         verify(degiroSyncService, never()).userSyncReporting(anyLong());
         verify(degiroSyncService, never()).sync(anyLong());
     }
@@ -123,6 +129,7 @@ class MemberSyncServiceTest {
         when(bourseDirectSyncService.resyncReporting(memberId)).thenReturn(success("bourse-direct"));
         when(amundiSyncService.resyncReporting(memberId)).thenReturn(success("amundi"));
         when(fortuneoSyncService.resyncReporting(memberId)).thenReturn(success("fortuneo"));
+        when(amexSyncService.resyncReporting(memberId)).thenReturn(success("amex"));
         when(ibkrSyncService.resyncReporting(memberId)).thenThrow(new UnexpectedRollbackException("proxy exit"));
         when(cryptoExchangeSyncService.resyncAllReporting(memberId)).thenReturn(success("crypto-exchanges"));
         when(walletSyncService.resyncAll(memberId)).thenReturn(new ResyncSummary(1,1,List.of()));
@@ -222,6 +229,49 @@ class MemberSyncServiceTest {
             assertThat(result.source()).isEqualTo("finary");
             assertThat(result.status()).isEqualTo(SourceSyncResult.Status.SKIPPED_NOT_CONNECTED);
         });
+    }
+
+    @Test
+    void amex_isInScheduledFullAndBrokerFilteredPipelines() {
+        Long memberId = 45L;
+        when(amexSyncService.resyncReporting(memberId)).thenReturn(success("amex"));
+        when(walletSyncService.resyncAll(memberId)).thenReturn(new ResyncSummary(1, 1, List.of()));
+        when(finaryApiSyncService.autoSync(memberId)).thenReturn(new FinaryAutoSyncResponse("OK", 1, 0));
+
+        List<SourceSyncResult> broker = memberSyncService.resyncForUser(memberId, Set.of("amex"));
+        List<SourceSyncResult> full = memberSyncService.resyncForUser(memberId);
+        List<SourceSyncResult> scheduled = memberSyncService.resyncScheduled(memberId);
+
+        assertThat(broker).contains(success("amex"));
+        assertThat(full).contains(success("amex"));
+        assertThat(scheduled).contains(success("amex"));
+        verify(amexSyncService, times(3)).resyncReporting(memberId);
+    }
+
+    @Test
+    void amexFailureDoesNotBlockTheNextCanonicalSource() {
+        Long memberId = 47L;
+        when(amexSyncService.resyncReporting(memberId)).thenThrow(new IllegalStateException("sidecar unavailable"));
+        when(ibkrSyncService.resyncReporting(memberId)).thenReturn(success("ibkr"));
+
+        List<SourceSyncResult> results = memberSyncService.resyncForUser(memberId, Set.of("amex", "ibkr"));
+
+        assertThat(results).extracting(SourceSyncResult::source).containsExactly("amex", "ibkr");
+        assertThat(results.getFirst().status()).isEqualTo(SourceSyncResult.Status.FAILED);
+        assertThat(results.getLast()).isEqualTo(success("ibkr"));
+    }
+
+    @Test
+    void amexSessionExpiryIsReportedAsReauthenticationRequired() {
+        Long memberId = 46L;
+        when(amexSyncService.resyncReporting(memberId))
+            .thenReturn(SourceSyncResult.fromSyncException("amex", new SyncException(
+                "American Express session expired", null, AmexErrorCode.SESSION_EXPIRED.name())));
+
+        List<SourceSyncResult> results = memberSyncService.resyncForUser(memberId, Set.of("amex"));
+
+        assertThat(results).singleElement().extracting(SourceSyncResult::status)
+            .isEqualTo(SourceSyncResult.Status.NEEDS_REAUTH);
     }
 
     @Test

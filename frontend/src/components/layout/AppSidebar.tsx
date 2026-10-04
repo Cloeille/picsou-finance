@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Eye,
   EyeOff,
+  RefreshCw,
   Settings,
   Users,
   LogOut,
@@ -46,8 +47,17 @@ function AccountMenuFooterItems({
   logoutPending: boolean
 }) {
   const { t } = useTranslation()
+  const location = useLocation()
+  const syncActive = location.pathname.startsWith('/sync')
   return (
     <>
+      <DropdownMenuItem asChild className={cn(syncActive && 'bg-muted text-foreground')}>
+        <NavLink to="/sync">
+          <RefreshCw className="size-4" aria-hidden="true" />
+          <span>{t('nav.sync')}</span>
+        </NavLink>
+      </DropdownMenuItem>
+
       {isAdmin && (
         <DropdownMenuItem onClick={onAdminClick}>
           <Shield className="size-4" aria-hidden="true" />
@@ -235,7 +245,7 @@ export function AppSidebar() {
             </Item>
           </DropdownMenuTrigger>
 
-          <DropdownMenuContent side="top" align="start" className="w-64">
+          <DropdownMenuContent side="bottom" align="start" className="w-64">
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col gap-0.5">
                 <p className="text-sm font-medium leading-none">{displayName}</p>

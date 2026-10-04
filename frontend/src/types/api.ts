@@ -1,7 +1,7 @@
 export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'OTHER'
+  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
@@ -280,6 +280,9 @@ export interface Account {
    *  Null / absent for regular accounts. */
   externalAccountId?: string | null
   savingsConfig?: SavingsConfig | null
+  paymentDueAmount?: number
+  paymentDueDate?: string
+  rewardPoints?: number
   /** Display-only visibility flag; hidden account still syncs normally. */
   hidden: boolean
   /** Set only when the member owns less than all of it — the co-ownership badge signal. */
@@ -771,10 +774,13 @@ export type BoursoSessionStatus =
  * surfaces as `MFA_TYPE_UNSUPPORTED` instead. `FRAUD_ACK_REQUIRED` means the
  * login was parked on the bank's fraud-education notice: the credentials work,
  * the holder must tick the notice on the bank's website and retry.
+ * `IDENTITY_SELECTION_UNSUPPORTED` means the access holds several identities
+ * and the personal one could not be singled out.
  */
 export type BoursoErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'FRAUD_ACK_REQUIRED'
+  | 'IDENTITY_SELECTION_UNSUPPORTED'
   | 'MFA_TYPE_UNSUPPORTED'
   | 'APP_VALIDATION_TIMEOUT'
   | 'AUTH_ATTEMPT_EXPIRED'
@@ -914,6 +920,43 @@ export interface AmundiAuthInitResponse {
   processId: string | null
   mfaRequired: boolean
   mfaType: 'APP_PUSH' | 'SMS' | null
+}
+
+// --- American Express ---
+
+interface AmexSessionStatusBase {
+  isActive: boolean
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+}
+
+export type AmexSessionStatus =
+  | (AmexSessionStatusBase & {
+      syncStatus: 'FAILED'
+      lastSyncError: AmexErrorCode
+    })
+  | (AmexSessionStatusBase & {
+      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
+      lastSyncError: null
+    })
+
+export type AmexErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'INVALID_OTP'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INVALID_DATA'
+  | 'INTERNAL_ERROR'
+
+export type AmexOtpMethod = 'sms' | 'email'
+
+/** `mfaType` is always `OTP` when a one-time code was sent (SMS or e-mail). */
+export interface AmexAuthInitResponse {
+  processId: string | null
+  mfaRequired: boolean
+  mfaType: string | null
 }
 
 export type SofidyErrorCode =
@@ -1491,6 +1534,8 @@ export interface RecurringOccurrence {
   categoryName: string | null
   categoryColor: string | null
   categoryIcon: string | null
+  rewardPoints?: number
+  creditCardPayment?: boolean
 }
 
 /**

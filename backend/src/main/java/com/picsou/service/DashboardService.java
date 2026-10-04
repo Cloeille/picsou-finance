@@ -100,6 +100,12 @@ public class DashboardService {
                 // Keeps the hero's liabilities consistent with the chart's today point.
                 accountValue = accountService.liveBalanceEur(account);
                 accountInvested = BigDecimal.ZERO;
+            } else if (account.getType() == AccountType.CREDIT_CARD) {
+                // A card stores its debt signed (negative); a liability here is the positive
+                // amount owed, like a loan's outstanding capital.
+                accountValue = priceService.toEur(account.getCurrentBalance(), account.getCurrency(), account.getTicker())
+                    .negate();
+                accountInvested = BigDecimal.ZERO;
             } else if (holdings.isEmpty()) {
                 accountValue = priceService.toEur(account.getCurrentBalance(), account.getCurrency(), account.getTicker());
                 accountInvested = accountValue;
@@ -124,7 +130,7 @@ public class DashboardService {
 
             accountValues.put(account.getId(), accountValue);
 
-            if (account.getType() == AccountType.LOAN) {
+            if (account.getType().isLiability()) {
                 totalLiabilities = totalLiabilities.add(accountValue);
             } else {
                 totalAssets = totalAssets.add(accountValue);
@@ -216,8 +222,7 @@ public class DashboardService {
             // Pocket sub-accounts are internal transfers from their parent wallet — their balance
             // is already included in the wallet, so including them here would double-count.
             if (account.getParentAccountId() != null) continue;
-            boolean isLoan = account.getType() == AccountType.LOAN;
-            if (liabilitiesOnly != isLoan) continue;
+            if (liabilitiesOnly != account.getType().isLiability()) continue;
 
             List<AccountHolding> holdings = holdingsByAccount.getOrDefault(account.getId(), List.of());
             // Reuse the exact value that fed the hero total. Repricing here could mix two

@@ -116,6 +116,10 @@ See [the ADR](../decisions/2026-08-09-amundi-epargne-salariale-sidecar.md).
 
 ## Gotchas / Pitfalls
 
+- **The sidecar requires `APP_SIDECAR_API_KEY`.** It refuses to start without
+  it and answers every route except `/health` with a 401 `Picsou-Sidecar-Key`
+  challenge unless the backend presents it. That 401 is not an Amundi
+  rejection; see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
 - **Fields must be typed, not filled.** `_type_into` sends real keystrokes.
   The inputs are masked and only register per keystroke: a bulk `fill()` lands
   as a *single* character, so the form stays invalid and the "Connexion" button

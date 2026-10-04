@@ -42,8 +42,8 @@ export function BalanceHistoryChart({ data }: BalanceHistoryChartProps) {
           tickLine={false}
           axisLine={false}
           tickMargin={8}
-          tickFormatter={money.tick((value: number) => `${(value / 1000).toFixed(0)}k`)}
-          width={45}
+          tickFormatter={money.tick((value: number) => money.compact(value, { maximumFractionDigits: 1 }))}
+          width={72}
         />
         <ChartTooltip
           content={<ChartTooltipContent formatter={(value) => money.amount(value as number)} />}

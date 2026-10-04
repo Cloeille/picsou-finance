@@ -36,6 +36,7 @@ public class SyncStatusService {
     private final BourseDirectSyncService bourseDirectSyncService;
     private final AmundiSyncService amundiSyncService;
     private final FortuneoSyncService fortuneoSyncService;
+    private final AmexSyncService amexSyncService;
     private final IbkrConnectionRepository ibkrConnectionRepository;
     private final CryptoExchangeSyncService cryptoExchangeSyncService;
     private final WalletAddressRepository walletAddressRepository;
@@ -50,6 +51,7 @@ public class SyncStatusService {
                              BourseDirectSyncService bourseDirectSyncService,
                              AmundiSyncService amundiSyncService,
                              FortuneoSyncService fortuneoSyncService,
+                             AmexSyncService amexSyncService,
                              IbkrConnectionRepository ibkrConnectionRepository,
                              CryptoExchangeSyncService cryptoExchangeSyncService,
                              WalletAddressRepository walletAddressRepository,
@@ -63,6 +65,7 @@ public class SyncStatusService {
         this.bourseDirectSyncService = bourseDirectSyncService;
         this.amundiSyncService = amundiSyncService;
         this.fortuneoSyncService = fortuneoSyncService;
+        this.amexSyncService = amexSyncService;
         this.ibkrConnectionRepository = ibkrConnectionRepository;
         this.cryptoExchangeSyncService = cryptoExchangeSyncService;
         this.walletAddressRepository = walletAddressRepository;
@@ -91,6 +94,10 @@ public class SyncStatusService {
         add(lines, "fortuneo", () -> {
             FortuneoSyncService.SessionStatusResponse s = fortuneoSyncService.getStatus(memberId);
             return List.of(broker("fortuneo", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
+        });
+        add(lines, "amex", () -> {
+            AmexSyncService.SessionStatusResponse s = amexSyncService.getStatus(memberId);
+            return List.of(broker("amex", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
         });
         add(lines, "ibkr", () -> ibkr(memberId));
         add(lines, "crypto-exchanges", () -> exchanges(memberId));
@@ -224,7 +231,8 @@ public class SyncStatusService {
 
     private static String broker(String source, boolean active, String syncStatus, Instant completed, Enum<?> error) {
         String errorName = error == null ? null : error.name();
-        boolean reauth = reauthText(errorName);
+        boolean reauth = "SESSION_EXPIRED".equals(errorName)
+            || ("bourso".equals(source) && "INVALID_CREDENTIALS".equals(errorName));
         String status;
         if (reauth) {
             status = "NEEDS_REAUTH";

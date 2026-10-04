@@ -17,6 +17,7 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
   { value: 'SCPI', labelKey: 'accountTypes.scpi' },
   { value: 'EMPLOYEE_SAVINGS', labelKey: 'accountTypes.employeeSavings' },
   { value: 'LOAN', labelKey: 'accountTypes.loan' },
+  { value: 'CREDIT_CARD', labelKey: 'accountTypes.creditCard' },
   { value: 'OTHER', labelKey: 'accountTypes.other' },
 ]
 
@@ -32,6 +33,9 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
 export const HOLDING_ACCOUNT_TYPES: AccountType[] = [
   'PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS', 'ASSURANCE_VIE',
 ]
+
+/** Mirrors the backend's `AccountType.isLiability()`: debts, never part of the user's assets. */
+export const LIABILITY_ACCOUNT_TYPES: AccountType[] = ['LOAN', 'CREDIT_CARD']
 
 /** Translation key for an account type's display label. */
 export function accountTypeLabelKey(type: AccountType): string {

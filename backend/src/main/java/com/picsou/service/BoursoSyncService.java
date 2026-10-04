@@ -731,11 +731,18 @@ public class BoursoSyncService {
             .orElseGet(SessionStatusResponse::inactive);
     }
 
-    public void clearSession(Long memberId) {
-        txTemplate.executeWithoutResult(status ->
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete)
-        );
+    /**
+     * Returns whether a stored session was there to delete. A pending login is dropped too but
+     * does not count: it never became a connection.
+     */
+    public boolean clearSession(Long memberId) {
+        boolean removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
+            var session = sessionRepository.findByMemberIdForUpdate(memberId);
+            session.ifPresent(sessionRepository::delete);
+            return session.isPresent();
+        }));
         pendingCredentials.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
+        return removed;
     }
 
     public SourceSyncResult resyncReporting(Long memberId) {

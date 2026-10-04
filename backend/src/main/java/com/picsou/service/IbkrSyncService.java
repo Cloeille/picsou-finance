@@ -119,9 +119,12 @@ public class IbkrSyncService {
         return new IbkrConnectionStatusResponse(true, c.getId(), c.getStatus(), c.getLastSyncedAt(), maskedToken);
     }
 
-    public void deleteConnection(Long memberId) {
-        connectionRepository.findByMemberId(memberId).ifPresent(connectionRepository::delete);
+    /** Returns whether a stored connection was there to delete. */
+    public boolean deleteConnection(Long memberId) {
+        var connection = connectionRepository.findByMemberId(memberId);
+        connection.ifPresent(connectionRepository::delete);
         log.info("IBKR connection cleared for member {}", memberId);
+        return connection.isPresent();
     }
 
     // ---------------------------------------------------------------------------

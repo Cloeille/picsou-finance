@@ -106,12 +106,25 @@ WebApp (Settings) ──cookie──▶ POST /api/access-keys {name, scopes, exp
 
 ## Tool catalogue
 
-Every tool acts only on the key owner's own data; writes are restricted to **manual** records and
-**refresh-existing-sync** triggers. `McpToolCatalogTest` pins this exact set.
+Every tool acts only on the key owner's own data. The curated write surface covers record
+maintenance, **manual account creation**, **refresh-existing-sync** triggers, and account deletion.
+`McpToolCatalogTest` pins this exact set.
+
+With `accounts:write`, `delete_account` can soft-delete both manual and synced accounts. Deleting
+the last account on a connection also removes that connection: it can clear stored provider
+sessions/credentials, remove a wallet or exchange connection, delete an IBKR connection, or delete
+an Enable Banking requisition. A connection still used by another live account is kept.
+The tool returns the `DeletionImpact` of what the deletion actually removed, in the same
+transaction: the removed connection's label, or `false` / `null` when the connection is kept or
+there was nothing left to remove (wallet row or exchange session already gone, unknown exchange
+type, no stored session).
+`get_account_deletion_impact` requires only `accounts:read` and makes no changes. It is a preview,
+a prediction that can become stale before deletion, so callers should report the result returned
+by `delete_account`.
 
 | Scope | Tools |
 |-------|-------|
-| `accounts:read` | `list_accounts`, `get_account`, `get_account_holdings`, `get_account_balance_history` |
+| `accounts:read` | `list_accounts`, `get_account`, `get_account_holdings`, `get_account_balance_history`, `get_account_deletion_impact` |
 | `transactions:read` | `list_account_transactions` |
 | `goals:read` | `list_goals`, `get_goal`, `get_goal_monthly_entries` |
 | `dashboard:read` | `get_dashboard`, `get_net_worth_history`, `get_profit_and_loss` |
@@ -123,9 +136,10 @@ Every tool acts only on the key owner's own data; writes are restricted to **man
 | `sync:read` | `get_sync_status` |
 | `sync:trigger` | `trigger_full_sync`, `trigger_bank_sync`, `trigger_broker_sync`, `trigger_crypto_exchange_sync`, `trigger_crypto_wallet_sync` |
 
-**Never exposed** (no `@Tool` exists, so no scope can reach them): authentication / credential
-flows, connecting a new bank / broker / exchange / wallet, MFA, admin settings, member management,
-and GDPR data export.
+**Never exposed** (no `@Tool` exists, so no scope can initiate them): authentication flows,
+credential submission or retrieval, connecting a new bank / broker / exchange / wallet, MFA,
+admin settings, member management, and GDPR data export. This does not prohibit removing stored
+sessions/credentials as the documented side effect of deleting a connection's last account.
 
 ## Technical choices
 
@@ -136,7 +150,7 @@ and GDPR data export.
 | **SHA-256 + constant-time compare** for key hashes | The secret is high-entropy (~190 bits), so a fast hash is safe; enables O(1) prefix lookup then `MessageDigest.isEqual` | bcrypt (needed for low-entropy passwords; here it only adds latency to the hot auth path) |
 | **HTTP+SSE** transport (`/mcp` stream + `/mcp/message`) | The only transport Spring AI 1.0.3 / MCP SDK 0.10.0 ship; clients reach it via `mcp-remote` | Streamable HTTP (not available on the pinned version — see the ADR) |
 | **Reactor automatic context propagation** to carry the security context to the tool thread | Spring AI runs tools off the servlet thread; this restores the `SecurityContext` there so the existing thread-local check works unchanged | `MODE_INHERITABLETHREADLOCAL` (misses pooled scheduler threads) · making the aspect read auth some other way (leaks the thread concern into every tool) |
-| **Curated** write surface (manual records + resync only) | An AI app should never initiate credential/auth flows or touch admin/MFA/export | Expose the full REST surface as tools (uncontrolled blast radius) |
+| **Curated** write surface (record maintenance, manual account creation, resync, and account deletion with idle-connection cleanup) | No credential submission/retrieval or new authentication flow; deleting the last synced account can remove its stored session/credentials | Expose the full REST surface as tools (uncontrolled blast radius) |
 | Scopes as one **space-delimited column** via `@Convert` | Read in full on every auth, never queried individually; no join table | Join table (a query per auth for data that's always read whole) |
 | Per-key + per-member **in-memory Bucket4j** throttles | Single-instance self-host; matches the existing `RateLimitConfig` pattern | Distributed rate store (unwarranted for a self-hosted single instance) |
 
@@ -167,6 +181,10 @@ and GDPR data export.
   daily budget. The store is in-memory, like the other limiters, so a restart
   clears it — it stops an agent loop, it is not a durable PSD2 counter. Trade Republic has no
   last-sync column, so its status line says `lastSync=none`.
+- **American Express participates in the same pipeline.** Its existing scheduled refresh and
+  broker-tool refresh are preserved through `MemberSyncService`, immediately after Fortuneo and
+  before IBKR. Full sync includes it once; `get_sync_status` exposes its queue/failure state and
+  last completion time. These calls only reuse the stored session, never initiate authentication.
 - **The sync summary distinguishes failures from missing connections and expired credentials.**
   An unconnected Finary source is `SKIPPED_NOT_CONNECTED`, and an IBKR connection in `ERROR`
   is `FAILED` in `get_sync_status`. A crypto-exchange batch keeps running after a session fails,
@@ -210,12 +228,13 @@ Backend (H2, `mvn test`):
 - `mcp/ScopesTest`, `mcp/ScopeSetConverterTest` — vocabulary + converter round-trip.
 - `mcp/ScopeEnforcementAspectTest` — **denial** when the required scope is absent.
 - `mcp/tools/McpToolCatalogTest` — **curation guard**: pins the exact advertised tool set (no auth/credential/admin tool).
-- `mcp/tools/{Account,Transaction,Goal,Insight}ToolsTest` — delegation + member-scoping per tool.
+- `mcp/tools/{Account,Transaction,Goal,Insight}ToolsTest` — delegation + member-scoping per tool;
+  account deletion reports the cleanup decision even when the earlier read-only preview has become stale.
 - `mcp/tools/SyncToolsTest` — every trigger is a filter over `MemberSyncService`, failures stay visible, and the cooldown blocks a second call.
 - `config/RateLimitConfigTest` — the member-sync bucket survives hourly calls, denies a fifth sync
   before 24 hours, expires at the daily boundary, and leaves ordinary one-hour limiter stores unchanged.
 - `service/sync/SourceSyncResultTest` — exact authentication signals versus transient and unknown
-  errors for all seven reporting connectors; IBKR invalid-query errors are not token expiry.
+  errors for the reporting connectors; IBKR invalid-query errors are not token expiry.
 - `service/CryptoExchangeSyncServiceTest` — mixed-success batches keep attempting member-scoped
   sessions, name failed exchanges, and never expose adapter exception text in that summary.
 - `service/CryptoExchangeSyncTransactionIsolationTest` — real PostgreSQL constraint failure in
@@ -226,6 +245,7 @@ Backend (H2, `mvn test`):
   Finary failures and transaction-proxy exit errors retain their throwable and do not stop later sources.
 - `service/SyncStatusServiceTest` — last sync, status and reauth flag per connection; a secret never appears in the text.
 - `mcp/SyncToolsSseTest` — real SSE transport: `GET /mcp`, then `tools/call trigger_full_sync` with a `sync:trigger` key, and the per-source summary comes back. The sync itself is stubbed so the test does not call a bank.
+- `service/AccountConnectionServiceTest` — last-account cleanup, connection preservation, and deletion results with labels captured before the connection is removed.
 - `config/AccessKeyAuthFilterTest` — Property A (key on `/api/**` ⇒ not authenticated; on `/mcp` ⇒ authenticated), Property C (scope authorities only), throttle 429.
 - `service/UserContextTest` — Property B (`AccessKeyAuthentication` ⇒ override returns `null`, even for an admin-owned key).
 - `controller/AccessKeyControllerTest` — create/list/revoke, one-time secret, unknown-scope 400, member isolation, create throttle.

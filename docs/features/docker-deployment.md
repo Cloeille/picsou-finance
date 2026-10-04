@@ -48,8 +48,36 @@ dedicated non-root user and is reached by the backend at
 port. Its API is attached to `fortuneo-auth-net`, an internal network shared
 only with the application, while `fortuneo-egress` gives the sidecar outbound
 provider access without exposing that API to the other containers. Custom
-remote sidecar URLs must use HTTPS; HTTP is accepted only for this isolated
-service name or loopback development.
+remote sidecar URLs must use HTTPS; HTTP is accepted only for a single-label
+Compose service name or loopback development, the rule every sidecar adapter
+applies through `SidecarBaseUrl`.
+
+### Sidecar shared secret — `APP_SIDECAR_API_KEY`
+
+The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank,
+Bourse Direct, Amundi, Fortuneo, DEGIRO, CORUM, Sofidy) share one secret.
+Generate it with `openssl rand -base64 32`. Both Compose files forward it
+explicitly to the app and to every sidecar service they define, and refuse to
+start when it is missing or empty. The root `docker-compose.yml` defines all
+nine sidecars. `docker/docker-compose.yml` defines eight: it has no
+`degiro-auth` service. The
+entrypoint does not generate it: the sidecars run in separate containers and
+cannot read the app's `/data/.secrets/` volume.
+
+- The backend sends it as `X-Picsou-Sidecar-Key` on every sidecar call, through
+  `SidecarWebClientFactory`, and refuses to start when it is blank.
+- Each sidecar refuses to start when it is missing or whitespace-only. Every
+  route except the exact `/health` path, including `/docs` and
+  `/openapi.json`, requires the header. A constant-time comparison
+  (`secrets.compare_digest`) runs in an HTTP middleware, before routing, body
+  parsing or any upstream work.
+- A missing or wrong key returns HTTP 401 `{"detail": "UNAUTHORIZED"}` with
+  `WWW-Authenticate: Picsou-Sidecar-Key`. The backend matches on that challenge
+  and raises `SidecarAuthenticationException` (`SIDECAR_UNAUTHORIZED`), so a key
+  mismatch never reads as a bank-side 401 such as `INVALID_CREDENTIALS` or
+  `SESSION_EXPIRED`.
+- The key is never logged. After rotating it, recreate the backend and every
+  sidecar together.
 
 ### Entrypoint (`docker/entrypoint.sh`)
 
@@ -218,6 +246,47 @@ Tag scheme:
 - other branch push → branch name (e.g. `1.0.0`, `feature-foo`)
 - version tag (`1.0.0` or `v1.0.0`) → `latest` + semver (`1.0.0`, `1.0`, `1`)
 
+### Upgrading a 1.1.0 install that applied the old V80–V88 numbering
+
+Commit 2839c94 renumbered seven 1.1.0 migrations that some databases had already applied
+(V80, V81 and V86–V88 became V93–V99). On those databases the 1.1.0 image failed at boot with a
+Flyway validation error ([#174](https://github.com/Cloeille/picsou-finance/issues/174)), and some
+operators started it with `SPRING_FLYWAY_ENABLED=false` as a workaround.
+
+The backend now repairs the history itself. Before Flyway validates, `LegacyMigrationRenumberingCallback`
+moves each legacy row to its new version, inside Flyway's transaction. A row is moved only when its
+old version, description and checksum all match one of the renamed files, and only when the new
+version is not in the history yet. On a fresh or already repaired database it does nothing. When it
+moves rows it logs them once at INFO:
+
+```
+Renumbered 2 legacy Flyway schema-history row(s) (issue #174): V80 'backfill tr crypto transaction tickers' -> V94, V81 'backfill trade republic valuations' -> V96
+```
+
+Flyway then applies the migrations the database has not run yet (out-of-order is enabled), without
+re-running V93–V99.
+
+**If you disabled Flyway as a workaround:**
+
+1. Back up the database (`pg_dump`).
+2. Pull the fixed image and **remove `SPRING_FLYWAY_ENABLED=false`** from your environment. With
+   Flyway off, no new migration ever runs, and Hibernate refuses to boot as soon as an entity needs
+   a column a skipped migration adds (for example `bourso_session.encrypted_credentials`, V103).
+3. Start the stack and read the backend log. The renumbering line above is expected; the boot
+   should end with the application started.
+
+The callback only renames history rows. It does not reconcile a schema that changed while Flyway
+was off. If objects exist that the history does not record (a table or column created by hand, or
+by an image that ran with Flyway disabled), the first migration that creates them again fails with
+`already exists` and the application does not start. Flyway commits each migration on its own, so
+only the failing one is rolled back. The renumbered rows and every migration that succeeded earlier
+in that start stay applied and recorded. For example, with a history that stops at the old V80/V81
+rows, V80 `widen tr and degiro session tokens` is applied and committed before V82 fails. The log
+names the failing script. Reconcile by hand: either restore the backup taken before the upgrade and
+fix the drift before starting again, or, once you have checked that every object the failing
+migration creates is present and identical, add its row to `flyway_schema_history` yourself. Do not keep
+`SPRING_FLYWAY_ENABLED=false` as a lasting fix.
+
 ### Build version shown in the app
 
 The published Docker workflow computes `APP_VERSION` from the Git ref and passes
@@ -266,6 +335,8 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 
 - No dedicated Docker integration tests. Build validation is manual: `docker build -f docker/Dockerfile .`.
 - Backend unit tests run separately via `./mvnw test` (not in Docker build — skipped with `-DskipTests`).
+- `LegacyMigrationRenumberingTest` (Testcontainers) upgrades databases built under the old V80–V88
+  numbering and a fresh database to head, and checks that a second start changes nothing.
 
 ## Links
 
