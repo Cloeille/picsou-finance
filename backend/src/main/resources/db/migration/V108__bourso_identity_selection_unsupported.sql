@@ -1,4 +1,4 @@
--- V107: Recognise the BoursoBank identity selector refusal (GH issue #153).
+-- V108: Recognise the BoursoBank identity selector refusal (GH issue #153).
 --
 -- An access holding a personal and a business identity is sent to
 -- /connexion/lister-identites before the dashboard. The sidecar switches to
