@@ -27,7 +27,9 @@ import com.picsou.service.budget.CashflowFlowService;
 import com.picsou.service.budget.CashflowService;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.CategoryService;
+import com.picsou.service.budget.RecurringDetectionService;
 import com.picsou.service.budget.RecurringSeriesService;
+import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.ai.tool.ToolCallbackProvider;
@@ -75,17 +77,20 @@ class McpToolCatalogTest {
         "list_budget_categories", "get_budget_category", "create_budget_category",
         "update_budget_category", "delete_budget_category",
         // budget:rules-read / budget:rules-write
-        "list_budget_rules", "get_budget_rule", "create_budget_rule", "update_budget_rule",
+        "list_budget_rules", "get_budget_rule", "preview_budget_rule", "create_budget_rule", "update_budget_rule",
         "delete_budget_rule", "apply_rule_to_transactions",
         // budget:transactions-read / budget:transactions-write
         "list_budget_transactions", "update_budget_transaction",
-        // budget:recurring-read
-        "list_recurring_series", "get_recurring_series",
+        // budget:recurring-read / budget:recurring-write
+        "list_recurring_series", "get_recurring_series", "get_recurring_activity", "get_recurring_calendar",
+        "confirm_recurring_series", "ignore_recurring_series", "undo_recurring_series_change",
+        "create_recurring_series", "update_recurring_series", "delete_recurring_series", "detect_recurring_series",
         // budget:envelopes-read / budget:envelopes-write
         "list_budget_envelopes", "get_budget_envelope", "create_budget_envelope",
         "update_budget_envelope", "delete_budget_envelope", "set_envelope_allocation",
         // budget:dashboard-read
-        "get_budget_dashboard"
+        "get_budget_dashboard", "get_spending_by_category", "get_spending_category_detail",
+        "get_cashflow", "get_cashflow_flow"
     );
 
     private static final List<Class<?>> TOOL_CLASSES = List.of(
@@ -110,8 +115,9 @@ class McpToolCatalogTest {
             mock(AccessKeyService.class), mock(MfaService.class), mock(UserContext.class));
         BudgetTools budget = new BudgetTools(
             mock(CategoryService.class), mock(CategorizationService.class), mock(BudgetService.class),
-            mock(RecurringSeriesService.class), mock(CashflowService.class), mock(CashflowFlowService.class),
-            mock(TransactionRepository.class), mock(UserContext.class));
+            mock(RecurringSeriesService.class), mock(RecurringDetectionService.class), mock(CashflowService.class),
+            mock(CashflowFlowService.class), mock(TransactionRepository.class), mock(UserContext.class),
+            mock(Validator.class));
         return new McpToolConfig().picsouMcpTools(account, tx, goal, insight, sync, oauth2, budget);
     }
 

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An AI app connected over MCP can triage your recurring payments.** It could list the
+  subscriptions the detector found but not act on them. It can now confirm or ignore a
+  suggestion, undo a silent auto-confirm or acknowledge a price change, declare a series
+  the detector missed, correct or delete one, and re-run detection, under a new
+  `budget:recurring-write` permission you grant explicitly. Ignoring keeps the series, so
+  detection never suggests it again. The same app can also read the recurring activity
+  feed and calendar, spending by category and per category, and cashflow and its money
+  flow for the current pay cycle or the year to date. It can dry-run a categorization rule
+  before creating it; the preview writes nothing.
+
 - **The sync page is reachable from the profile menu.** `/sync` had no entry in the
   desktop sidebar; it was only reachable from the dashboard sync dialog or by typing the
   address. The profile menu now lists it beside Administration and Sign out, in both

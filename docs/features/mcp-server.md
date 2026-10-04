@@ -135,6 +135,9 @@ by `delete_account`.
 | `goals:write` | `create_goal`, `update_goal`, `delete_goal`, `set_goal_month_contribution` |
 | `sync:trigger` | `trigger_bank_sync`, `trigger_broker_sync`, `trigger_crypto_exchange_sync`, `trigger_crypto_wallet_sync` |
 
+The `budget:*` and `oauth2:*` scopes (including `budget:recurring-write` for recurring-series
+triage) and their tools are listed in [Budget + OAuth2 tools in MCP](./mcp-budget-oauth2.md).
+
 **Never exposed** (no `@Tool` exists, so no scope can initiate them): authentication flows,
 credential submission or retrieval, connecting a new bank / broker / exchange / wallet, MFA,
 admin settings, member management, and GDPR data export. This does not prohibit removing stored
