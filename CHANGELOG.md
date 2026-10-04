@@ -47,6 +47,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Deleting an account through the MCP assistant now also disconnects the bank, wallet or broker when it was the last account on that connection, and says which one.** ([#176](https://github.com/Cloeille/picsou-finance/issues/176))
+- **A 1.1.0 database that applied migrations before they were renumbered starts again.**
+  The old V80, V81 and V86–V88 rows are moved to V93–V99 before Flyway validates, matched on
+  version, description and checksum, so the boot no longer fails and those migrations do not run
+  twice. **If you set `SPRING_FLYWAY_ENABLED=false` to work around it, remove it after upgrading**:
+  with Flyway off, newer migrations such as V103 never run and the application refuses to start.
+  See the upgrade note in `docs/features/docker-deployment.md`.
+  ([#174](https://github.com/Cloeille/picsou-finance/issues/174))
 
 
 ## [1.1.0] — 2026-06-09

@@ -77,6 +77,14 @@ Note: V8 is absent by design (skipped — never rolled into another migration).
 4. For new enums, use `CREATE TYPE ... AS ENUM (...)` at the top of the file.
 5. Test by running the application (Flyway applies on startup).
 
+**Never rename or renumber a migration that any deployed database may have applied**, even to fix
+a version collision. Flyway resolves applied rows by version: the old row stops matching any file
+and the renamed file runs a second time. When it happened anyway (commit 2839c94 moved 1.1.0's
+V80, V81 and V86–V88 to V93–V99), the repair is a Flyway callback that rewrites those history rows
+before validation, matching old version, description and checksum together; see
+`LegacyMigrationRenumberingCallback` and
+[the upgrade note](../features/docker-deployment.md#upgrading-a-110-install-that-applied-the-old-v80v88-numbering).
+
 Example:
 
 ```sql
