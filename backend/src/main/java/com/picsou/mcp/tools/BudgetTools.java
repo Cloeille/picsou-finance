@@ -19,6 +19,7 @@ import com.picsou.dto.SpendingDetailResponse;
 import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.mcp.RequiresScope;
+import com.picsou.mcp.ScopeEnforcementAspect;
 import com.picsou.mcp.Scopes;
 import com.picsou.model.CategoryKind;
 import com.picsou.model.RecurringCadence;
@@ -205,14 +206,19 @@ public class BudgetTools {
 
     @Tool(name = "preview_budget_rule",
         description = "Dry run of a categorization rule before create_budget_rule: returns how many of the authenticated "
-            + "member's transactions it would categorize (uncategorized ones or ones not categorized by hand) and up to "
-            + "200 of them. Writes nothing: no rule is saved and no transaction changes.")
+            + "member's transactions it would categorize (uncategorized ones or ones not categorized by hand). Up to 200 "
+            + "of those transactions are listed only when the key also holds budget:transactions-read; otherwise the "
+            + "list is empty and only the count is returned. Writes nothing: no rule is saved and no transaction changes.")
     @RequiresScope(Scopes.BUDGET_RULES_READ)
     public CategorizationService.RulePreviewResult previewBudgetRule(
         @ToolParam(description = "COUNTERPARTY, KEYWORD, KEYWORDS_ALL or KEYWORDS_ANY") RuleMatchType matchType,
         @ToolParam(description = "The pattern to match against counterparty/description/merchant label") String pattern) {
         RulePreviewRequest req = validated(new RulePreviewRequest(matchType, pattern));
-        return categorizationService.previewRule(req.matchType(), req.pattern(), userContext.currentMemberId());
+        CategorizationService.RulePreviewResult preview =
+            categorizationService.previewRule(req.matchType(), req.pattern(), userContext.currentMemberId());
+        return ScopeEnforcementAspect.isGranted(Scopes.BUDGET_TRANSACTIONS_READ)
+            ? preview
+            : new CategorizationService.RulePreviewResult(preview.matchCount(), List.of());
     }
 
     // ─── Transactions (budgeted view) ──────────────────────────────────────
@@ -283,13 +289,18 @@ public class BudgetTools {
     }
 
     @Tool(name = "get_recurring_calendar",
-        description = "Projected charges of the authenticated member's confirmed recurring series (plus credit-card "
-            + "payments due) from today through the next horizonDays days, soonest first.")
+        description = "Projected charges of the authenticated member's confirmed recurring series from today through "
+            + "the next horizonDays days, soonest first. Credit-card payments due (card account name, amount due, reward "
+            + "points) are included only when the key also holds accounts:read.")
     @RequiresScope(Scopes.BUDGET_RECURRING_READ)
     public List<RecurringOccurrenceResponse> getRecurringCalendar(
         @ToolParam(description = "How many days ahead to project; defaults to 60", required = false) Integer horizonDays) {
-        return recurringSeriesService.upcoming(userContext.currentMemberId(), LocalDate.now(),
-            horizonDays != null ? horizonDays : 60);
+        List<RecurringOccurrenceResponse> upcoming = recurringSeriesService.upcoming(
+            userContext.currentMemberId(), LocalDate.now(), horizonDays != null ? horizonDays : 60);
+        if (ScopeEnforcementAspect.isGranted(Scopes.ACCOUNTS_READ)) {
+            return upcoming;
+        }
+        return upcoming.stream().filter(o -> !o.creditCardPayment()).toList();
     }
 
     @Tool(name = "confirm_recurring_series",
@@ -471,8 +482,9 @@ public class BudgetTools {
 
     @Tool(name = "get_spending_category_detail",
         description = "Drill into one of the authenticated member's categories for a period: total, per-sub-category "
-            + "split and the transactions of the category and its sub-categories.")
-    @RequiresScope(Scopes.BUDGET_DASHBOARD_READ)
+            + "split and the transactions of the category and its sub-categories. Requires budget:transactions-read "
+            + "because it returns transaction rows, not only aggregates.")
+    @RequiresScope(Scopes.BUDGET_TRANSACTIONS_READ)
     public SpendingDetailResponse getSpendingCategoryDetail(
         @ToolParam(description = "The category id") Long categoryId,
         @ToolParam(description = "CYCLE or YTD; defaults to CYCLE", required = false) CashflowPeriod period,

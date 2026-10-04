@@ -9,6 +9,8 @@ import com.picsou.exception.MissingScopeException;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.mcp.ScopeEnforcementAspect;
 import com.picsou.mcp.Scopes;
+import com.picsou.model.Account;
+import com.picsou.model.AccountType;
 import com.picsou.model.RecurringCadence;
 import com.picsou.model.RecurringSeries;
 import com.picsou.model.RecurringStatus;
@@ -374,12 +376,32 @@ class BudgetToolsRecurringTriageTest {
     }
 
     @Test
+    void calendar_listsCardPaymentsOnlyWithAccountsRead() {
+        LocalDate due = LocalDate.now().plusDays(10);
+        RecurringSeries s = series(1L).status(RecurringStatus.CONFIRMED).nextDueDate(due).build();
+        when(seriesRepository.findAllByMemberIdAndStatusOrderByNextDueDateAsc(MID, RecurringStatus.CONFIRMED))
+            .thenReturn(List.of(s));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MID)).thenReturn(List.of(Account.builder()
+            .id(5L).name("Amex Gold").type(AccountType.CREDIT_CARD)
+            .paymentDueDate(due.plusDays(2)).paymentDueAmount(new BigDecimal("830.50")).build()));
+
+        grant(Scopes.BUDGET_RECURRING_READ);
+        assertThat(tools.getRecurringCalendar(15)).extracting(RecurringOccurrenceResponse::label)
+            .containsExactly("Netflix");
+
+        grant(Scopes.BUDGET_RECURRING_READ, Scopes.ACCOUNTS_READ);
+        assertThat(tools.getRecurringCalendar(15)).extracting(RecurringOccurrenceResponse::label)
+            .containsExactly("Netflix", "Amex Gold");
+    }
+
+    @Test
     void preview_countsMatchesAndWritesNothing() throws NoSuchMethodException {
         Transaction match = Transaction.builder().id(1L).date(LocalDate.of(2026, 9, 1))
             .amount(new BigDecimal("-40")).counterparty("CARREFOUR MARKET").description("CB CARREFOUR").build();
         Transaction other = Transaction.builder().id(2L).date(LocalDate.of(2026, 9, 2))
             .amount(new BigDecimal("-9")).counterparty("SNCF").description("CB SNCF").build();
         when(transactionRepository.findChangeable(MID)).thenReturn(List.of(match, other));
+        grant(Scopes.BUDGET_RULES_READ, Scopes.BUDGET_TRANSACTIONS_READ);
 
         CategorizationService.RulePreviewResult out = tools.previewBudgetRule(RuleMatchType.KEYWORD, " carrefour ");
 
@@ -393,6 +415,30 @@ class BudgetToolsRecurringTriageTest {
             .getMethod("previewRule", RuleMatchType.class, String.class, Long.class)
             .getAnnotation(Transactional.class).readOnly()).isTrue();
         assertThat(match.getCategoryRef()).isNull();
+    }
+
+    @Test
+    void preview_withoutTransactionsRead_returnsTheCountButNoRows() {
+        Transaction match = Transaction.builder().id(1L).date(LocalDate.of(2026, 9, 1))
+            .amount(new BigDecimal("-40")).counterparty("CARREFOUR MARKET").description("CB CARREFOUR").build();
+        when(transactionRepository.findChangeable(MID)).thenReturn(List.of(match));
+        grant(Scopes.BUDGET_RULES_READ);
+
+        CategorizationService.RulePreviewResult out =
+            scopeEnforced(tools).previewBudgetRule(RuleMatchType.KEYWORD, "carrefour");
+
+        assertThat(out.matchCount()).isEqualTo(1);
+        assertThat(out.transactions()).isEmpty();
+    }
+
+    @Test
+    void spendingDetail_isRefusedToADashboardOnlyKey() {
+        grant(Scopes.BUDGET_DASHBOARD_READ);
+
+        assertThatThrownBy(() -> scopeEnforced(tools).getSpendingCategoryDetail(1L, null, null))
+            .isInstanceOf(MissingScopeException.class)
+            .hasMessageContaining(Scopes.BUDGET_TRANSACTIONS_READ);
+        verifyNoInteractions(transactionRepository, categoryRepository);
     }
 
     // ─── Scope enforcement ──────────────────────────────────────────────────
@@ -411,7 +457,7 @@ class BudgetToolsRecurringTriageTest {
             scoped(Scopes.BUDGET_RECURRING_READ, "get_recurring_activity", BudgetTools::getRecurringActivity),
             scoped(Scopes.BUDGET_RECURRING_READ, "get_recurring_calendar", t -> t.getRecurringCalendar(null)),
             scoped(Scopes.BUDGET_DASHBOARD_READ, "get_spending_by_category", t -> t.getSpendingByCategory(null, null)),
-            scoped(Scopes.BUDGET_DASHBOARD_READ, "get_spending_category_detail",
+            scoped(Scopes.BUDGET_TRANSACTIONS_READ, "get_spending_category_detail",
                 t -> t.getSpendingCategoryDetail(1L, null, null)),
             scoped(Scopes.BUDGET_DASHBOARD_READ, "get_cashflow", t -> t.getCashflow(null, null)),
             scoped(Scopes.BUDGET_DASHBOARD_READ, "get_cashflow_flow", t -> t.getCashflowFlow(null, null)),
