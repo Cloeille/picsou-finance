@@ -252,6 +252,6 @@ class DegiroSyncServiceTest {
             null, null, null, false,
             // Ownership shares (this branch): a wholly-owned account carries a null
             // share and is administered by its member.
-            null, true);
+            null, true, null);
     }
 }

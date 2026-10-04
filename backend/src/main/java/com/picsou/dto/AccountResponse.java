@@ -48,16 +48,19 @@ public record AccountResponse(
      * it, but only the owner may edit, revalue or delete it. The UI needs this to hide write
      * actions rather than letting the user discover the rule through a 403.
      */
-    Boolean isOwner
+    Boolean isOwner,
+    /** Present only for a {@code SCPI} account. Null everywhere else. */
+    ScpiPositionResponse scpi
 ) {
     public AccountResponse(Long id, String name, AccountType type, String provider, String currency,
         BigDecimal currentBalance, BigDecimal currentBalanceEur, BigDecimal cashBalance, Instant lastSyncedAt,
         boolean isManual, String color, String ticker, String logoUrl, String logoKey, Instant createdAt,
         LocalDate openedAt, RealEstateMetadataResponse realEstate, DebtResponse debt, SavingsConfigDto savingsConfig,
-        Long parentAccountId, boolean hidden, BigDecimal sharePercent, Boolean isOwner) {
+        Long parentAccountId, boolean hidden, BigDecimal sharePercent, Boolean isOwner,
+        ScpiPositionResponse scpi) {
         this(id, name, type, provider, currency, currentBalance, currentBalanceEur, cashBalance, lastSyncedAt,
             isManual, color, ticker, logoUrl, logoKey, createdAt, openedAt, realEstate, debt, savingsConfig,
-            null, null, null, parentAccountId, hidden, sharePercent, isOwner);
+            null, null, null, parentAccountId, hidden, sharePercent, isOwner, scpi);
     }
 
     public static AccountResponse from(Account a, BigDecimal balanceEur) {
@@ -87,6 +90,7 @@ public record AccountResponse(
             a.getParentAccountId(),
             a.isHidden(),
             null,
+            null,
             null
         );
     }
@@ -94,31 +98,37 @@ public record AccountResponse(
     public AccountResponse withRealEstate(RealEstateMetadataResponse realEstate) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner);
+            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi);
     }
 
     public AccountResponse withDebt(DebtResponse debt) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner);
+            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi);
     }
 
     /** Test and adapter seam; the mapping from the entity already carries it. */
     public AccountResponse withOpenedAt(LocalDate openedAt) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner);
+            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi);
     }
 
     public AccountResponse withSavingsConfig(SavingsConfigDto savingsConfig) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner);
+            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi);
     }
 
     public AccountResponse withViewer(BigDecimal sharePercent, Boolean isOwner) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
-            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner);
+            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi);
+    }
+
+    public AccountResponse withScpi(ScpiPositionResponse scpi) {
+        return new AccountResponse(id, name, type, provider, currency, currentBalance,
+            currentBalanceEur, cashBalance, lastSyncedAt, isManual, color, ticker, logoUrl, logoKey,
+            createdAt, openedAt, realEstate, debt, savingsConfig, paymentDueAmount, paymentDueDate, rewardPoints, parentAccountId, hidden, sharePercent, isOwner, scpi);
     }
 }

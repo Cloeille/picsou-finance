@@ -8,6 +8,7 @@ import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataRequest;
 import com.picsou.dto.RealEstateMetadataResponse;
 import com.picsou.dto.SavingsConfigDto;
+import com.picsou.dto.ScpiPositionResponse;
 import com.picsou.dto.SnapshotRequest;
 import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
@@ -30,6 +31,7 @@ import com.picsou.repository.DebtRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
 import com.picsou.repository.SavingsInterestConfigRepository;
+import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -81,6 +83,7 @@ public class AccountService {
     private final AccountAccessResolver accessResolver;
     private final BankLogoResolver bankLogoResolver;
     private final CryptoLogoService cryptoLogoService;
+    private final ScpiPositionRepository scpiPositionRepository;
 
     public AccountService(
         AccountRepository accountRepository,
@@ -95,7 +98,8 @@ public class AccountService {
         LoanAmortizationService loanAmortizationService,
         AccountAccessResolver accessResolver,
         BankLogoResolver bankLogoResolver,
-        CryptoLogoService cryptoLogoService
+        CryptoLogoService cryptoLogoService,
+        ScpiPositionRepository scpiPositionRepository
     ) {
         this.accountRepository = accountRepository;
         this.snapshotRepository = snapshotRepository;
@@ -110,6 +114,7 @@ public class AccountService {
         this.accessResolver = accessResolver;
         this.bankLogoResolver = bankLogoResolver;
         this.cryptoLogoService = cryptoLogoService;
+        this.scpiPositionRepository = scpiPositionRepository;
     }
 
     /**
@@ -147,14 +152,20 @@ public class AccountService {
 
     @Transactional
     public AccountResponse create(AccountRequest req, FamilyMember member) {
+        boolean scpi = req.type() == AccountType.SCPI;
+        // A typed balance belongs to a cash account. On a SCPI it would be snapshotted as if
+        // it were a withdrawal value, which it is not.
+        BigDecimal opening = scpi
+            ? BigDecimal.ZERO
+            : (req.currentBalance() != null ? signedBalance(req.type(), req.currentBalance()) : BigDecimal.ZERO);
         Account account = Account.builder()
             .member(member)
             .name(req.name())
             .type(req.type())
             .provider(req.provider())
-            .currency(req.currency())
-            .currentBalance(req.currentBalance() != null ? signedBalance(req.type(), req.currentBalance()) : BigDecimal.ZERO)
-            .isManual(req.isManual())
+            .currency(scpi ? "EUR" : req.currency())
+            .currentBalance(opening)
+            .isManual(scpi || req.isManual())
             .color(req.color() != null ? req.color() : "#6366f1")
             .ticker(req.ticker())
             // Nothing stored yet, so nothing survives normalization: a logo key is only ever
@@ -185,6 +196,12 @@ public class AccountService {
         boolean nameChanged = !req.name().equals(account.getName());
         String previousProvider = account.getProvider();
 
+        AccountType previousType = account.getType();
+        if (previousType != AccountType.SCPI && req.type() == AccountType.SCPI
+                && !holdingRepository.findByAccount_Id(account.getId()).isEmpty()) {
+            throw new IllegalArgumentException(
+                "Cannot convert an account that still has holdings to SCPI");
+        }
         account.setName(req.name());
         account.setType(req.type());
         account.setProvider(req.provider());
@@ -206,8 +223,16 @@ public class AccountService {
             account.setOpenedAt(req.openedAt());
         }
 
-        // For manual accounts, allow balance update
-        if (account.isManual() && req.currentBalance() != null) {
+        if (account.getType() == AccountType.SCPI) {
+            account.setManual(true);
+            // The withdrawal price is in euros. Leaving USD here would convert that figure again.
+            account.setCurrency("EUR");
+        }
+        // Converting a current account must not keep its old balance as a paper valuation.
+        // A SCPI that is already a SCPI keeps the figure ScpiPositionService wrote.
+        if (previousType != AccountType.SCPI && account.getType() == AccountType.SCPI) {
+            account.setCurrentBalance(BigDecimal.ZERO);
+        } else if (account.isManual() && req.currentBalance() != null && account.getType() != AccountType.SCPI) {
             BigDecimal oldBalance = account.getCurrentBalance();
             BigDecimal newBalance = signedBalance(account.getType(), req.currentBalance());
             account.setCurrentBalance(newBalance);
@@ -279,6 +304,14 @@ public class AccountService {
     @Transactional
     public void delete(Long id, Long memberId) {
         Account account = getOrThrow(id, memberId);
+        // Soft-delete leaves the row, and the fund-code unique indexes do not
+        // exclude it. Clearing the links is what lets the same fund be attached
+        // to a new account, and what stops a later sync from writing here.
+        scpiPositionRepository.findByAccountIdAndMemberId(id, memberId).ifPresent(position -> {
+            position.setCorumFundCode(null);
+            position.setSofidyFundCode(null);
+            scpiPositionRepository.save(position);
+        });
         account.setDeletedAt(Instant.now());
         accountRepository.save(account);
     }
@@ -763,6 +796,19 @@ public class AccountService {
                 .map(m -> RealEstateMetadataResponse.from(m, lastValuedAt(account.getId())));
             if (meta.isPresent()) {
                 response = response.withRealEstate(meta.get());
+            }
+        }
+
+        if (account.getType() == AccountType.SCPI) {
+            // Owner id, not viewer id: a co-owner must still see the share they do not administer.
+            Long ownerId = account.getMember() != null ? account.getMember().getId() : null;
+            Optional<ScpiPositionResponse> position = ownerId == null
+                ? Optional.empty()
+                : scpiPositionRepository.findByAccountIdAndMemberId(account.getId(), ownerId)
+                .map(p -> ScpiPositionResponse.from(p, ScpiPositionService.withdrawalValue(
+                    p.getShareCount(), p.getWithdrawalPriceEur())));
+            if (position.isPresent()) {
+                response = response.withScpi(position.get());
             }
         }
 

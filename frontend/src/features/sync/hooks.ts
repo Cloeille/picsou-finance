@@ -15,6 +15,8 @@ import {
   amundiApi,
   amexApi,
   fortuneoApi,
+  corumApi,
+  sofidyApi,
   ibkrApi,
 } from './api'
 import type {
@@ -23,6 +25,9 @@ import type {
   FinaryAccountMapping,
   FinaryImportRequest,
   AmexOtpMethod,
+  CorumAuthInitResponse,
+  CorumSessionStatus,
+  SofidyAuthInitResponse,
 } from '@/types/api'
 
 // ---------------------------------------------------------------------------
@@ -42,6 +47,8 @@ export const syncKeys = {
   amundi: () => [...syncKeys.all, 'amundi'] as const,
   amex: () => [...syncKeys.all, 'amex'] as const,
   fortuneo: () => [...syncKeys.all, 'fortuneo'] as const,
+  corum: () => [...syncKeys.all, 'corum'] as const,
+  sofidy: () => [...syncKeys.all, 'sofidy'] as const,
   ibkr: () => [...syncKeys.all, 'ibkr'] as const,
   exchanges: () => [...syncKeys.all, 'exchanges'] as const,
   wallets: () => [...syncKeys.all, 'wallets'] as const,
@@ -77,6 +84,8 @@ function useSidecarSessionStatus<
     if (!succeeded || !completedAt) return
     queryClient.invalidateQueries({ queryKey: ['accounts'] })
     queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    queryClient.invalidateQueries({ queryKey: ['real-estate'] })
+    queryClient.invalidateQueries({ queryKey: ['analysis'] })
   }, [completedAt, queryClient, succeeded])
 
   return query
@@ -612,6 +621,150 @@ export function useClearAmexSession() {
     onSettled: () => queryClient.invalidateQueries({ queryKey: syncKeys.amex() }),
   })
 }
+
+// ---------------------------------------------------------------------------
+// CORUM client space
+// ---------------------------------------------------------------------------
+
+export function useCorumStatus() {
+  return useSidecarSessionStatus(syncKeys.corum(), corumApi.getStatus)
+}
+
+/**
+ * CORUM needs no second factor, so this is the whole exchange: the backend
+ * answers with the session status.
+ *
+ * The result carries both shapes — the status fields the panel polls, and the
+ * `mfaRequired: false` the shared sidecar panel reads to decide it is connected.
+ * Spreading the status into the response is what keeps `SidecarSessionPanel`
+ * reusable here without a provider-specific branch inside it.
+ */
+export function useAuthenticateCorum() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      login,
+      password,
+    }: {
+      login: string
+      password: string
+    }): Promise<CorumSessionStatus & CorumAuthInitResponse> => ({
+      ...(await corumApi.authenticate(login, password)),
+      processId: null,
+      mfaRequired: false as const,
+      mfaType: null,
+    }),
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.corum(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.corum() })
+    },
+  })
+}
+
+/** Never called: CORUM has no second step. Present because the shared panel requires it. */
+export function useCompleteCorumAuth() {
+  return useMutation<CorumSessionStatus, unknown, { processId: string; code?: string }>({
+    mutationFn: () => Promise.reject(new Error('CORUM requires no second factor')),
+  })
+}
+
+export function useSyncCorum() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: corumApi.sync,
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.corum(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.corum() })
+    },
+  })
+}
+
+export function useClearCorumSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: corumApi.clearSession,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.corum() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+/** Exported so the panel's auth-init contract is checkable at compile time. */
+export type { CorumAuthInitResponse }
+
+// ---------------------------------------------------------------------------
+// Sofidy client space
+// ---------------------------------------------------------------------------
+
+export function useSofidyStatus() {
+  return useSidecarSessionStatus(syncKeys.sofidy(), sofidyApi.getStatus)
+}
+
+/**
+ * The portal always asks for a six-digit code by e-mail, so this never opens a
+ * session: it returns the process id the completion call needs. The panel's
+ * `login` field carries the six-digit associate code, not an email address.
+ */
+export function useInitiateSofidyAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      login,
+      password,
+    }: {
+      login: string
+      password: string
+    }) => sofidyApi.initiateAuth(login, password),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.sofidy() })
+    },
+  })
+}
+
+export function useCompleteSofidyAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      processId,
+      code,
+    }: {
+      processId: string
+      code?: string
+    }) => sofidyApi.completeAuth(processId, code ?? ''),
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.sofidy(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.sofidy() })
+    },
+  })
+}
+
+export function useSyncSofidy() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: sofidyApi.sync,
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.sofidy(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.sofidy() })
+    },
+  })
+}
+
+export function useClearSofidySession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: sofidyApi.clearSession,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.sofidy() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+/** Exported so the panel's auth-init contract is checkable at compile time. */
+export type { SofidyAuthInitResponse }
 
 // ---------------------------------------------------------------------------
 // Interactive Brokers

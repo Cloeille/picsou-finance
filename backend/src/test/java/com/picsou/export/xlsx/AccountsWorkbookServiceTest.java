@@ -580,7 +580,7 @@ class AccountsWorkbookServiceTest {
         return new AccountResponse(id, name, type, "BoursoBank", "EUR",
             new BigDecimal("1234.56"), new BigDecimal("1234.56"), null,
             Instant.parse("2026-08-18T06:00:00Z"), false, "#6366f1", null, null, null,
-            Instant.parse("2026-01-01T00:00:00Z"), null, null, null, null, null, false, null, true);
+            Instant.parse("2026-01-01T00:00:00Z"), null, null, null, null, null, false, null, true, null);
     }
 
     private PropertyValuation valuation(LocalDate valuedAt, String estimate) {

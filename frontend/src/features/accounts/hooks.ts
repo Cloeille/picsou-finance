@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, realEstateApi } from './api'
-import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, TransactionImportRequest, TransactionRequest } from '@/types/api'
+import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, ScpiPositionRequest, TransactionImportRequest, TransactionRequest } from '@/types/api'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
 
 export interface HoldingWithAccount extends HoldingResponse {
@@ -340,6 +340,21 @@ export function useUpdateRealEstateMetadata() {
       queryClient.invalidateQueries({ queryKey: ['accounts', variables.id] })
       queryClient.invalidateQueries({ queryKey: ['real-estate'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+export function useUpdateScpiPosition() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: ScpiPositionRequest }) =>
+      accountsApi.updateScpiPosition(id, data),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', variables.id] })
+      queryClient.invalidateQueries({ queryKey: ['real-estate'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['analysis'] })
     },
   })
 }

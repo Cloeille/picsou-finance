@@ -1,19 +1,20 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 
-const { holdings, prices, list } = vi.hoisted(() => ({
+const { holdings, prices, list, updateScpiPosition } = vi.hoisted(() => ({
   holdings: vi.fn(),
   prices: vi.fn(),
   list: vi.fn(),
+  updateScpiPosition: vi.fn(),
 }))
 
 vi.mock('./api', () => ({
-  accountsApi: { holdings, prices, list },
+  accountsApi: { holdings, prices, list, updateScpiPosition },
 }))
 
-const { useHoldingsWithLivePrices, usePortfolio } = await import('./hooks')
+const { useHoldingsWithLivePrices, usePortfolio, useUpdateScpiPosition } = await import('./hooks')
 
 function makeWrapper() {
   const client = new QueryClient({
@@ -129,5 +130,28 @@ describe('usePortfolio', () => {
     expect(result.current.data).toEqual([
       expect.objectContaining({ id: 'cash-aggregated', accountName: 'Checking', valueEur: 1500 }),
     ])
+  })
+})
+
+describe('useUpdateScpiPosition', () => {
+  it('refreshes all account-derived views after a manual SCPI correction', async () => {
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const keys = [
+      ['accounts'], ['accounts', 42], ['real-estate', 'summary'],
+      ['dashboard'], ['analysis', 'wealth-pyramid'],
+    ]
+    keys.forEach(key => client.setQueryData(key, { previous: true }))
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    updateScpiPosition.mockResolvedValue({})
+    const { result } = renderHook(() => useUpdateScpiPosition(), { wrapper })
+    const data = { shareCount: 12, corumFundCode: '', sofidyFundCode: 'DY' }
+    await act(() => result.current.mutateAsync({ id: 42, data }))
+
+    expect(updateScpiPosition).toHaveBeenCalledWith(42, data)
+    for (const key of keys) {
+      expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
+    }
   })
 })
