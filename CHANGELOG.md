@@ -48,6 +48,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Deleting an account through the MCP assistant now also disconnects the bank, wallet or broker when it was the last account on that connection, and says which one.** ([#176](https://github.com/Cloeille/picsou-finance/issues/176))
 
+### Security
+
+- **Every connector sidecar now checks the shared `APP_SIDECAR_API_KEY`.** The
+  Trade Republic, Revolut, BoursoBank, Bourse Direct, Amundi, Fortuneo and DEGIRO
+  sidecars carry bank logins and one-time codes, yet any container on the Compose
+  network could drive them. They now refuse to start without the key and answer
+  every route except `/health` with a 401 unless the backend presents it, as
+  CORUM and Sofidy already did. The Fortuneo and Revolut adapters now send it
+  too. **Upgrade note:** both Compose files forward the key to every sidecar, so
+  a `docker/.env` that already sets it needs no change; recreate the app and all
+  sidecars together. ([#169](https://github.com/Cloeille/picsou-finance/issues/169))
+
 
 ## [1.1.0] — 2026-06-09
 

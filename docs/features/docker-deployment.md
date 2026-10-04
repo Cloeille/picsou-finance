@@ -52,6 +52,30 @@ remote sidecar URLs must use HTTPS; HTTP is accepted only for a single-label
 Compose service name or loopback development, the rule every sidecar adapter
 applies through `SidecarBaseUrl`.
 
+### Sidecar shared secret — `APP_SIDECAR_API_KEY`
+
+The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank,
+Bourse Direct, Amundi, Fortuneo, DEGIRO, CORUM, Sofidy) share one secret.
+Generate it with `openssl rand -base64 32`. Both Compose files forward it to
+each service explicitly and refuse to start when it is missing or empty. The
+entrypoint does not generate it: the sidecars run in separate containers and
+cannot read the app's `/data/.secrets/` volume.
+
+- The backend sends it as `X-Picsou-Sidecar-Key` on every sidecar call, through
+  `SidecarWebClientFactory`, and refuses to start when it is blank.
+- Each sidecar refuses to start when it is missing or whitespace-only. Every
+  route except the exact `/health` path, including `/docs` and
+  `/openapi.json`, requires the header. A constant-time comparison
+  (`secrets.compare_digest`) runs in an HTTP middleware, before routing, body
+  parsing or any upstream work.
+- A missing or wrong key returns HTTP 401 `{"detail": "UNAUTHORIZED"}` with
+  `WWW-Authenticate: Picsou-Sidecar-Key`. The backend matches on that challenge
+  and raises `SidecarAuthenticationException` (`SIDECAR_UNAUTHORIZED`), so a key
+  mismatch never reads as a bank-side 401 such as `INVALID_CREDENTIALS` or
+  `SESSION_EXPIRED`.
+- The key is never logged. After rotating it, recreate the backend and every
+  sidecar together.
+
 ### Entrypoint (`docker/entrypoint.sh`)
 
 On first boot, auto-generates three secrets into `/data/.secrets/` (mounted named volume):

@@ -81,6 +81,8 @@ jobs:
           --volume "${{ github.workspace }}/services/bourse-direct-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/bourse-direct-auth/test_navigation.py:/tests/test_navigation.py:ro"
           --volume "${{ github.workspace }}/services/bourse-direct-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
+          --volume "${{ github.workspace }}/services/bourse-direct-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --env APP_SIDECAR_API_KEY=test-key
           --workdir /tests
           picsou-bourse-direct-auth:test
           python -m unittest discover -v
@@ -100,6 +102,8 @@ jobs:
           --volume "${{ github.workspace }}/services/fortuneo-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/fortuneo-auth/test_navigation.py:/tests/test_navigation.py:ro"
           --volume "${{ github.workspace }}/services/fortuneo-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
+          --volume "${{ github.workspace }}/services/fortuneo-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --env APP_SIDECAR_API_KEY=test-key
           --workdir /tests
           picsou-fortuneo-auth:test
           python -m unittest discover -v
@@ -121,6 +125,8 @@ jobs:
           --volume "${{ github.workspace }}/services/bourso-auth/test_accounts_parser.py:/tests/test_accounts_parser.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
+          --volume "${{ github.workspace }}/services/bourso-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --env APP_SIDECAR_API_KEY=test-key
           --workdir /tests
           picsou-bourso-auth:test
           python -m unittest discover -v
@@ -183,6 +189,8 @@ jobs:
           --env PYTHONPATH=/app
           --volume "${{ github.workspace }}/services/amundi-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/amundi-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
+          --volume "${{ github.workspace }}/services/amundi-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --env APP_SIDECAR_API_KEY=test-key
           --workdir /tests
           picsou-amundi-auth:test
           python -m unittest discover -v

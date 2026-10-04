@@ -18,6 +18,8 @@ from main import (
     app,
 )
 
+SIDECAR_HEADERS = {"X-Picsou-Sidecar-Key": "test-key"}
+
 
 class FakeResource:
     def __init__(self, method: str):
@@ -96,6 +98,11 @@ class PendingAuthenticationLifecycleTest(unittest.IsolatedAsyncioTestCase):
 
 
 class RequestContractTest(unittest.TestCase):
+    def setUp(self):
+        key_patch = patch("main.SIDECAR_API_KEY", "test-key")
+        key_patch.start()
+        self.addCleanup(key_patch.stop)
+
     def test_changed_equipment_shape_is_mapped_to_invalid_data(self):
         playwright = MagicMock()
         browser = MagicMock()
@@ -118,7 +125,7 @@ class RequestContractTest(unittest.TestCase):
             patch("main._restore_session_storage", new=AsyncMock()),
             patch("main._fetch_equipment", new=AsyncMock(return_value={"banking": []})),
             patch("main._close_resources", new=AsyncMock()),
-            TestClient(app) as client,
+            TestClient(app, headers=SIDECAR_HEADERS) as client,
         ):
             response = client.post("/accounts", json={"sessionState": session_state})
 
@@ -126,14 +133,14 @@ class RequestContractTest(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "INVALID_DATA")
 
     def test_accounts_rejects_a_non_object_storage_state(self):
-        with TestClient(app) as client:
+        with TestClient(app, headers=SIDECAR_HEADERS) as client:
             response = client.post("/accounts", json={"sessionState": "[]"})
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "INVALID_DATA")
 
     def test_malformed_otp_is_mapped_to_invalid_otp(self):
-        with TestClient(app) as client:
+        with TestClient(app, headers=SIDECAR_HEADERS) as client:
             response = client.post(
                 "/complete",
                 json={"processId": "process", "code": "12ab"},
@@ -143,7 +150,7 @@ class RequestContractTest(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "INVALID_OTP")
 
     def test_invalid_credentials_contract_is_mapped_to_invalid_data(self):
-        with TestClient(app) as client:
+        with TestClient(app, headers=SIDECAR_HEADERS) as client:
             response = client.post(
                 "/initiate",
                 json={"login": "", "password": "secret"},
@@ -153,7 +160,7 @@ class RequestContractTest(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "INVALID_DATA")
 
     def test_health_reports_ok(self):
-        with TestClient(app) as client:
+        with TestClient(app, headers=SIDECAR_HEADERS) as client:
             response = client.get("/health")
 
         self.assertEqual(response.status_code, 200)
