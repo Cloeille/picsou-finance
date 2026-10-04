@@ -22,6 +22,7 @@ test.describe('Sync page tabs', () => {
       'Interactive Brokers',
       'Amundi',
       'Fortuneo',
+      'American Express',
       'CORUM',
       'Sofidy',
       'Finary',
