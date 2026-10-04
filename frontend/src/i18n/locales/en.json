@@ -1191,6 +1191,7 @@
         "tooManyAttempts": "Too many attempts. Please wait before retrying.",
         "invalidCredentials": "Invalid BoursoBank client number or password.",
         "fraudAckRequired": "Log in on the BoursoBank website, validate the fraud-prevention notice, then reconnect.",
+        "identitySelectionUnsupported": "This BoursoBank access holds several identities and Picsou could not tell which one is personal. Business identities are not supported yet. Your existing data was kept.",
         "mfaTypeUnsupported": "BoursoBank asked for an SMS or e-mail code, which Picsou cannot handle. Switch to app validation in your BoursoBank security settings.",
         "appValidationTimeout": "The app approval was not confirmed in time. Please start over.",
         "authAttemptExpired": "The authentication attempt expired. Please start over.",

@@ -108,6 +108,20 @@ class BoursoAdapterTest {
     }
 
     @Test
+    void fetchAccounts_reportsAnUnresolvedIdentitySelectorRatherThanAFormatChange() {
+        BoursoAdapter adapter = adapterReturning(
+            HttpStatus.BAD_GATEWAY,
+            "{\"detail\":\"IDENTITY_SELECTION_UNSUPPORTED\"}"
+        );
+
+        assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
+            .isInstanceOfSatisfying(SyncException.class, error -> {
+                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.IDENTITY_SELECTION_UNSUPPORTED.name());
+                assertThat(error.getMessage()).contains("several identities");
+            });
+    }
+
+    @Test
     void fetchAccounts_surfacesAnExpiredSessionSoTheUserIsAskedToReconnect() {
         BoursoAdapter adapter = adapterReturning(
             HttpStatus.UNAUTHORIZED,

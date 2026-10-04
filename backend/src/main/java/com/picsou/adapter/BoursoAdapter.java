@@ -120,6 +120,8 @@ public class BoursoAdapter implements BoursoPort {
             case INVALID_CREDENTIALS -> "BoursoBank rejected the customer number or password";
             case FRAUD_ACK_REQUIRED ->
                 "BoursoBank needs you to log in on their website and validate the fraud-prevention notice once, then retry";
+            case IDENTITY_SELECTION_UNSUPPORTED ->
+                "BoursoBank lists several identities on this access and Picsou could not pick the personal one";
             case MFA_TYPE_UNSUPPORTED ->
                 "BoursoBank asked for an SMS or e-mail code, which Picsou cannot handle. "
                     + "Switch your BoursoBank security settings to app validation.";
