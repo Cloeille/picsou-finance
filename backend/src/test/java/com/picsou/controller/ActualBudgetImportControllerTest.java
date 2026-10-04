@@ -1,6 +1,9 @@
 package com.picsou.controller;
 
+import com.picsou.dto.ActualBudgetImportDtos.Plan;
 import com.picsou.dto.ActualBudgetImportDtos.Result;
+import com.picsou.dto.ActualBudgetImportDtos.Warning;
+import com.picsou.dto.ActualBudgetImportDtos.WarningReason;
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.service.ActualBudgetImportService;
 import com.picsou.service.UserContext;
@@ -15,6 +18,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -59,13 +63,27 @@ class ActualBudgetImportControllerTest {
 
     @Test
     void executeImportsForTheCurrentMemberAndAnswers201() throws Exception {
-        when(service.executeImport(any(), eq(MEMBER_ID))).thenReturn(new Result(1, 0, 0, 2, 3, 0));
+        when(service.executeImport(any(), eq(MEMBER_ID))).thenReturn(new Result(1, 0, 0, 2, 3, 0, 0, 0, List.of()));
 
         mockMvc.perform(post("/api/actual/import")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"fileToken\":\"t\",\"currency\":\"EUR\",\"accountMappings\":[],\"categoryMappings\":[]}"))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.transactionsImported").value(3));
+    }
+
+    @Test
+    void planAnswersWhatTheImportWouldChange() throws Exception {
+        when(service.planImport(any(), eq(MEMBER_ID))).thenReturn(
+            new Plan(2, 1, 0, List.of(new Warning(WarningReason.KEPT_MISSING, 3))));
+
+        mockMvc.perform(post("/api/actual/import/plan")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"fileToken\":\"t\",\"currency\":\"EUR\",\"accountMappings\":[],\"categoryMappings\":[]}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.transactionsToDelete").value(1))
+            .andExpect(jsonPath("$.warnings[0].reason").value("KEPT_MISSING"))
+            .andExpect(jsonPath("$.warnings[0].count").value(3));
     }
 
     @Test

@@ -69,6 +69,24 @@ export interface ActualImportRequest {
   categoryMappings: ActualCategoryMapping[]
 }
 
+/**
+ * Rows a re-import leaves on an account the user created: KEPT_MISSING rows no longer exist in
+ * Actual (deleted, or a parent since split), KEPT_MOVED rows now belong to another Actual account.
+ */
+export type ActualWarningReason = 'KEPT_MISSING' | 'KEPT_MOVED'
+export interface ActualImportWarning {
+  reason: ActualWarningReason
+  count: number
+}
+
+/** What an import request would change, computed by the dry run before the user confirms. */
+export interface ActualImportPlan {
+  transactionsToAdd: number
+  transactionsToDelete: number
+  transactionsToMove: number
+  warnings: ActualImportWarning[]
+}
+
 export interface ActualImportResult {
   accountsCreated: number
   accountsMapped: number
@@ -76,4 +94,7 @@ export interface ActualImportResult {
   categoriesCreated: number
   transactionsImported: number
   transactionsSkipped: number
+  transactionsDeleted: number
+  transactionsMoved: number
+  warnings: ActualImportWarning[]
 }

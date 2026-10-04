@@ -2,6 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.config.ClientIp;
 import com.picsou.config.RateLimitConfig;
+import com.picsou.dto.ActualBudgetImportDtos.Plan;
 import com.picsou.dto.ActualBudgetImportDtos.Preview;
 import com.picsou.dto.ActualBudgetImportDtos.Request;
 import com.picsou.dto.ActualBudgetImportDtos.Result;
@@ -25,8 +26,9 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.Map;
 
 /**
- * Two-phase Actual Budget import. Both endpoints are member-scoped (the preview token is bound to
- * the member) and IP-throttled with the shared sync buckets to bound upload abuse.
+ * Two-phase Actual Budget import, with a dry run between the phases. Every endpoint is
+ * member-scoped (the preview token is bound to the member) and IP-throttled with the shared sync
+ * buckets to bound upload abuse.
  */
 @RestController
 @RequestMapping("/api/actual/import")
@@ -53,6 +55,15 @@ public class ActualBudgetImportController {
         }
         Preview preview = importService.preview(file, userContext.currentMemberId());
         return ResponseEntity.ok(preview);
+    }
+
+    @PostMapping(value = "/plan", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> plan(@Valid @RequestBody Request body, HttpServletRequest request) {
+        if (!checkRateLimit(request)) {
+            return tooManyRequests();
+        }
+        Plan plan = importService.planImport(body, userContext.currentMemberId());
+        return ResponseEntity.ok(plan);
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)

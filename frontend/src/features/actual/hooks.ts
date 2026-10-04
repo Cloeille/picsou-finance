@@ -17,6 +17,12 @@ export function usePreviewActualBudget() {
   })
 }
 
+export function usePlanActualImport() {
+  return useMutation({
+    mutationFn: (request: ActualImportRequest) => actualBudgetApi.plan(request),
+  })
+}
+
 export function useImportActualBudget() {
   const queryClient = useQueryClient()
   return useMutation({

@@ -58,7 +58,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Amounts, dates, payees and notes come across as Actual shows them; split
   transactions arrive as their parts, deleted rows stay out, and transfers between
   your accounts and starting balances never count as income or spending. Importing the
-  same file again adds nothing, and a file that fails any check writes nothing.
+  same file again adds nothing, and a file that fails any check writes nothing. Importing
+  a newer export keeps the accounts the import created in step with Actual: transactions
+  you deleted, split or moved there follow, and the confirmation says how many will be
+  added, deleted and moved first. Accounts you created yourself only ever gain new
+  transactions. Loan accounts can't receive an Actual import.
 
 ### Fixed
 

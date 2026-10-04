@@ -1167,9 +1167,16 @@
       "categoriesCreated": "Categories created",
       "transactionsImported": "Transactions imported",
       "transactionsSkipped": "Transactions skipped",
+      "transactionsDeleted": "Transactions deleted",
+      "transactionsMoved": "Transactions moved",
       "done": "Done",
       "confirmTitle": "Confirm Actual Budget import",
-      "confirmDescription": "Transactions are added to the selected accounts. Transactions already imported are skipped, and nothing is written if any check fails.",
+      "planSummary": "This import adds {{added}} transactions, deletes {{deleted}} and moves {{moved}} between accounts.",
+      "confirmDescription": "Accounts created by an Actual import follow the file: transactions deleted or split in Actual are deleted, and transactions moved in Actual follow them. Accounts you created only receive new transactions. Nothing is written if any check fails.",
+      "warnings": {
+        "KEPT_MISSING": "{{count}} transactions deleted or split in Actual stay on accounts you created; remove them by hand if needed.",
+        "KEPT_MOVED": "{{count}} transactions moved to another account in Actual stay where they are, because an account you created is involved."
+      },
       "errors": {
         "invalidPreview": "The preview response is invalid.",
         "previewFailed": "Could not read the Actual Budget file.",

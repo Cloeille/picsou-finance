@@ -104,6 +104,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 
     /** The account a stored external id lives in, without loading the row. */
     interface StoredExternalId {
+        Long getId();
+
         String getExternalId();
 
         Long getAccountId();
@@ -111,11 +113,21 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 
     /** Member-scoped dedup lookup for file imports: finds a row whatever date it was edited to. */
     @Query("""
-        SELECT t.externalId AS externalId, t.account.id AS accountId FROM Transaction t
+        SELECT t.id AS id, t.externalId AS externalId, t.account.id AS accountId FROM Transaction t
         WHERE t.account.member.id = :memberId AND t.externalId IN :externalIds
         """)
     List<StoredExternalId> findStoredExternalIds(@Param("memberId") Long memberId,
                                                  @Param("externalIds") Collection<String> externalIds);
+
+    /** Rows of the given accounts whose external id starts with {@code prefix} (file re-imports). */
+    @Query("""
+        SELECT t.id AS id, t.externalId AS externalId, t.account.id AS accountId FROM Transaction t
+        WHERE t.account.member.id = :memberId AND t.account.id IN :accountIds
+          AND t.externalId LIKE CONCAT(:prefix, '%')
+        """)
+    List<StoredExternalId> findStoredExternalIdsInAccounts(@Param("memberId") Long memberId,
+                                                           @Param("accountIds") Collection<Long> accountIds,
+                                                           @Param("prefix") String prefix);
 
     /** Member-scoped single transaction lookup (categorize endpoint). */
     Optional<Transaction> findByIdAndAccountMemberId(Long id, Long memberId);

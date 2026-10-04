@@ -4,10 +4,13 @@ import com.picsou.dto.ActualBudgetImportDtos.AccountMapping;
 import com.picsou.dto.ActualBudgetImportDtos.AccountPreview;
 import com.picsou.dto.ActualBudgetImportDtos.CategoryMapping;
 import com.picsou.dto.ActualBudgetImportDtos.CategoryMappingAction;
+import com.picsou.dto.ActualBudgetImportDtos.Plan;
 import com.picsou.dto.ActualBudgetImportDtos.Preview;
 import com.picsou.dto.ActualBudgetImportDtos.Request;
 import com.picsou.dto.ActualBudgetImportDtos.Result;
 import com.picsou.dto.ActualBudgetImportDtos.TransactionPreview;
+import com.picsou.dto.ActualBudgetImportDtos.Warning;
+import com.picsou.dto.ActualBudgetImportDtos.WarningReason;
 import com.picsou.dto.FinaryMappingAction;
 import com.picsou.dto.NewAccountDetails;
 import com.picsou.finary.FinaryPersistenceHelper;
@@ -54,6 +57,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -80,6 +84,7 @@ class ActualBudgetImportServiceTest {
     private final MutableClock clock = new MutableClock();
     private final FamilyMember member = FamilyMember.builder().id(MEMBER).build();
     private Category defaultTransfer;
+    private long nextTransactionId;
     private ActualBudgetImportService service;
 
     @BeforeEach
@@ -102,14 +107,37 @@ class ActualBudgetImportServiceTest {
                 categories.stream().filter(c -> c.getId().equals(call.getArgument(0))).findFirst());
         when(transactionRepository.saveAll(any())).thenAnswer(call -> {
             List<Transaction> rows = call.getArgument(0);
-            transactions.addAll(rows);
+            for (Transaction row : rows) {
+                if (row.getId() == null) {
+                    row.setId(5000L + nextTransactionId++);
+                }
+                if (transactions.stream().noneMatch(t -> t == row)) {
+                    transactions.add(row);
+                }
+            }
             return rows;
         });
         when(transactionRepository.findStoredExternalIds(eq(MEMBER), any())).thenAnswer(call -> {
             Collection<String> ids = call.getArgument(1);
-            return transactions.stream().filter(t -> ids.contains(t.getExternalId()))
-                    .map(t -> stored(t.getExternalId(), t.getAccount().getId())).toList();
+            return transactions.stream().filter(t -> ids.contains(t.getExternalId())).map(this::stored).toList();
         });
+        when(transactionRepository.findStoredExternalIdsInAccounts(eq(MEMBER), any(), eq("actual_")))
+                .thenAnswer(call -> {
+                    Collection<Long> accountIds = call.getArgument(1);
+                    return transactions.stream()
+                            .filter(t -> accountIds.contains(t.getAccount().getId())
+                                    && t.getExternalId() != null && t.getExternalId().startsWith("actual"))
+                            .map(this::stored).toList();
+                });
+        when(transactionRepository.findAllById(any())).thenAnswer(call -> {
+            Collection<Long> ids = call.getArgument(0);
+            return transactions.stream().filter(t -> ids.contains(t.getId())).toList();
+        });
+        doAnswer(call -> {
+            Collection<Long> ids = call.getArgument(0);
+            transactions.removeIf(t -> ids.contains(t.getId()));
+            return null;
+        }).when(transactionRepository).deleteAllById(any());
         when(transactionRepository.sumAmountByAccountId(anyLong())).thenAnswer(call -> transactions.stream()
                 .filter(t -> t.getAccount().getId().equals(call.getArgument(0)))
                 .map(Transaction::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
@@ -142,7 +170,7 @@ class ActualBudgetImportServiceTest {
 
         Result result = service.executeImport(createEverything(preview), MEMBER);
 
-        assertThat(result).isEqualTo(new Result(2, 0, 0, 6, 8, 0));
+        assertThat(result).isEqualTo(new Result(2, 0, 0, 6, 8, 0, 0, 0, List.of()));
         Account checking = accountWithExternalId("actual_acc-checking");
         assertThat(checking.getCurrency()).isEqualTo("EUR");
         assertThat(checking.isManual()).isTrue();
@@ -198,7 +226,7 @@ class ActualBudgetImportServiceTest {
 
         Result second = service.executeImport(createEverything(preview()), MEMBER);
 
-        assertThat(second).isEqualTo(new Result(0, 2, 0, 0, 0, 8));
+        assertThat(second).isEqualTo(new Result(0, 2, 0, 0, 0, 8, 0, 0, List.of()));
         assertThat(accounts).hasSize(accountsAfterFirst);
         assertThat(categories).hasSize(categoriesAfterFirst);
         assertThat(transactions).hasSize(8);
@@ -228,7 +256,7 @@ class ActualBudgetImportServiceTest {
 
         Result result = service.executeImport(request, MEMBER);
 
-        assertThat(result).isEqualTo(new Result(0, 2, 0, 0, 1, 8));
+        assertThat(result).isEqualTo(new Result(0, 2, 0, 0, 1, 8, 0, 0, List.of()));
         assertThat(checking.getCurrentBalance()).isEqualByComparingTo("3115.66");
         verify(persistence, times(2)).reconstructSnapshotsFromDb(checking);
     }
@@ -240,7 +268,7 @@ class ActualBudgetImportServiceTest {
 
         Result second = service.executeImport(createEverything(preview()), MEMBER);
 
-        assertThat(second).isEqualTo(new Result(0, 2, 0, 0, 0, 8));
+        assertThat(second).isEqualTo(new Result(0, 2, 0, 0, 0, 8, 0, 0, List.of()));
         assertThat(transactions).hasSize(8);
     }
 
@@ -273,6 +301,152 @@ class ActualBudgetImportServiceTest {
     }
 
     @Test
+    void aSplitAfterImportReplacesTheParentWithItsChildren() {
+        service.executeImport(createEverything(preview()), MEMBER);
+        Preview split = preview(splitLonelyParent(ActualBudgetFixture.household()));
+        Request request = createEverything(split);
+
+        assertThat(service.planImport(request, MEMBER)).isEqualTo(new Plan(2, 1, 0, List.of()));
+        Result result = service.executeImport(request, MEMBER);
+
+        assertThat(result).isEqualTo(new Result(0, 2, 0, 0, 2, 7, 1, 0, List.of()));
+        assertThat(transactionsByExternalId()).doesNotContainKey("actual_t-lonely-parent")
+                .containsKeys("actual_t-lonely-parent/2", "actual_t-lonely-parent/3");
+        assertThat(accountWithExternalId("actual_acc-checking").getCurrentBalance()).isEqualByComparingTo("2915.66");
+    }
+
+    @Test
+    void aRowDeletedInActualIsDeletedFromTheAccountAnImportCreated() {
+        service.executeImport(createEverything(preview()), MEMBER);
+        Account checking = accountWithExternalId("actual_acc-checking");
+
+        Result result = service.executeImport(createEverything(preview(ActualBudgetFixture.household()
+                .sql("UPDATE transactions SET tombstone = 1 WHERE id = 't-groceries'"))), MEMBER);
+
+        assertThat(result).isEqualTo(new Result(0, 2, 0, 0, 0, 7, 1, 0, List.of()));
+        assertThat(transactionsByExternalId()).doesNotContainKey("actual_t-groceries");
+        assertThat(checking.getCurrentBalance()).isEqualByComparingTo("2928.00");
+        verify(persistence, times(2)).reconstructSnapshotsFromDb(checking);
+    }
+
+    @Test
+    void rowsMissingFromActualStayOnAnAccountTheUserCreatedAndAreReported() {
+        Account everyday = userAccount("Everyday");
+        service.executeImport(mapCheckingOnto(everyday, preview()), MEMBER);
+        Preview newer = preview(splitLonelyParent(ActualBudgetFixture.household()
+                .sql("UPDATE transactions SET tombstone = 1 WHERE id = 't-groceries'")));
+        Request request = mapCheckingOnto(everyday, newer);
+        List<Warning> warnings = List.of(new Warning(WarningReason.KEPT_MISSING, 2));
+
+        assertThat(service.planImport(request, MEMBER)).isEqualTo(new Plan(2, 0, 0, warnings));
+        Result result = service.executeImport(request, MEMBER);
+
+        assertThat(result).isEqualTo(new Result(0, 2, 0, 0, 2, 6, 0, 0, warnings));
+        assertThat(transactionsByExternalId()).containsKeys("actual_t-groceries", "actual_t-lonely-parent",
+                "actual_t-lonely-parent/2", "actual_t-lonely-parent/3");
+        assertThat(everyday.getCurrentBalance()).isEqualByComparingTo("12.00");
+    }
+
+    @Test
+    void aRowMovedBetweenAccountsAnImportCreatedFollowsIt() {
+        service.executeImport(createEverything(preview()), MEMBER);
+        Account checking = accountWithExternalId("actual_acc-checking");
+        Account savings = accountWithExternalId("actual_acc-savings");
+        Request request = createEverything(preview(ActualBudgetFixture.household()
+                .sql("UPDATE transactions SET acct = 'acc-savings' WHERE id = 't-groceries'")));
+
+        assertThat(service.planImport(request, MEMBER)).isEqualTo(new Plan(0, 0, 1, List.of()));
+        Result result = service.executeImport(request, MEMBER);
+
+        assertThat(result).isEqualTo(new Result(0, 2, 0, 0, 0, 7, 0, 1, List.of()));
+        assertThat(transactionsByExternalId().get("actual_t-groceries").getAccount()).isSameAs(savings);
+        assertThat(checking.getCurrentBalance()).isEqualByComparingTo("2928.00");
+        assertThat(savings.getCurrentBalance()).isEqualByComparingTo("487.66");
+        verify(persistence, times(2)).reconstructSnapshotsFromDb(savings);
+    }
+
+    @Test
+    void aRowMovedToAnAccountActualGainedFollowsItIntoTheNewAccount() {
+        service.executeImport(createEverything(preview()), MEMBER);
+
+        Result result = service.executeImport(createEverything(preview(ActualBudgetFixture.household()
+                .sql("INSERT INTO accounts (id, name) VALUES ('acc-new', 'New card')")
+                .sql("UPDATE transactions SET acct = 'acc-new' WHERE id = 't-groceries'"))), MEMBER);
+
+        assertThat(result).isEqualTo(new Result(1, 2, 0, 0, 0, 7, 0, 1, List.of()));
+        Account created = accountWithExternalId("actual_acc-new");
+        assertThat(transactionsByExternalId().get("actual_t-groceries").getAccount()).isSameAs(created);
+        assertThat(created.getCurrentBalance()).isEqualByComparingTo("-12.34");
+        assertThat(accountWithExternalId("actual_acc-checking").getCurrentBalance()).isEqualByComparingTo("2928.00");
+    }
+
+    @Test
+    void aRowMovedOutOfAnAccountTheUserCreatedStaysAndIsReported() {
+        Account everyday = userAccount("Everyday");
+        service.executeImport(mapCheckingOnto(everyday, preview()), MEMBER);
+        Request request = mapCheckingOnto(everyday, preview(ActualBudgetFixture.household()
+                .sql("UPDATE transactions SET acct = 'acc-savings' WHERE id = 't-groceries'")));
+        List<Warning> warnings = List.of(new Warning(WarningReason.KEPT_MOVED, 1));
+
+        assertThat(service.planImport(request, MEMBER)).isEqualTo(new Plan(0, 0, 0, warnings));
+        Result result = service.executeImport(request, MEMBER);
+
+        assertThat(result).isEqualTo(new Result(0, 2, 0, 0, 0, 8, 0, 0, warnings));
+        assertThat(transactionsByExternalId().get("actual_t-groceries").getAccount()).isSameAs(everyday);
+        assertThat(accountWithExternalId("actual_acc-savings").getCurrentBalance()).isEqualByComparingTo("500.00");
+    }
+
+    @Test
+    void aRowMovedIntoAnAccountTheUserCreatedStaysAndIsReported() {
+        Account everyday = userAccount("Everyday");
+        service.executeImport(mapCheckingOnto(everyday, preview()), MEMBER);
+        Request request = mapCheckingOnto(everyday, preview(ActualBudgetFixture.household()
+                .sql("UPDATE transactions SET acct = 'acc-checking' WHERE id = 't-transfer-in'")));
+
+        Result result = service.executeImport(request, MEMBER);
+
+        assertThat(result.warnings()).containsExactly(new Warning(WarningReason.KEPT_MOVED, 1));
+        assertThat(transactionsByExternalId().get("actual_t-transfer-in").getAccount())
+                .isSameAs(accountWithExternalId("actual_acc-savings"));
+    }
+
+    @Test
+    void aPlanWritesNothingAndLeavesThePreviewUsable() {
+        Request request = createEverything(preview());
+
+        assertThat(service.planImport(request, MEMBER)).isEqualTo(new Plan(8, 0, 0, List.of()));
+        assertThat(accounts).isEmpty();
+        assertThat(transactions).isEmpty();
+        assertThat(service.executeImport(request, MEMBER).transactionsImported()).isEqualTo(8);
+    }
+
+    @Test
+    void refusesALoanAsANewAccountType() {
+        Preview preview = preview();
+        Request request = withAccount(createEverything(preview), "acc-checking",
+                new AccountMapping("acc-checking", FinaryMappingAction.CREATE_NEW, null,
+                        new NewAccountDetails("Mortgage", AccountType.LOAN, null, "EUR", null)));
+
+        assertThatThrownBy(() -> service.executeImport(request, MEMBER))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Loan accounts cannot receive Actual Budget transactions");
+        assertThat(accounts).isEmpty();
+    }
+
+    @Test
+    void refusesAnExistingLoanAsATarget() {
+        Account loan = save(Account.builder().member(member).name("Mortgage").type(AccountType.LOAN)
+                .currency("EUR").currentBalance(new BigDecimal("150000")).build());
+        Request request = withAccount(createEverything(preview()), "acc-checking",
+                new AccountMapping("acc-checking", FinaryMappingAction.MAP_EXISTING, loan.getId(), null));
+
+        assertThatThrownBy(() -> service.executeImport(request, MEMBER))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Loan accounts cannot receive Actual Budget transactions");
+        assertThat(transactions).isEmpty();
+    }
+
+    @Test
     void skippedAccountsKeepTheirRowsOutButTheOtherTransferLegStaysNeutral() {
         Preview preview = preview();
         Request request = withAccount(createEverything(preview), "acc-savings",
@@ -280,7 +454,7 @@ class ActualBudgetImportServiceTest {
 
         Result result = service.executeImport(request, MEMBER);
 
-        assertThat(result).isEqualTo(new Result(1, 0, 1, 6, 7, 1));
+        assertThat(result).isEqualTo(new Result(1, 0, 1, 6, 7, 1, 0, 0, List.of()));
         assertThat(transactionsByExternalId()).doesNotContainKey("actual_t-transfer-in");
         assertThat(transactionsByExternalId().get("actual_t-transfer-out").getCategoryRef()).isSameAs(defaultTransfer);
     }
@@ -406,16 +580,21 @@ class ActualBudgetImportServiceTest {
         return service.preview(new MockMultipartFile("file", "budget.zip", "application/zip", fixture.zip()), MEMBER);
     }
 
-    private static TransactionRepository.StoredExternalId stored(String externalId, Long accountId) {
+    private TransactionRepository.StoredExternalId stored(Transaction row) {
         return new TransactionRepository.StoredExternalId() {
             @Override
+            public Long getId() {
+                return row.getId();
+            }
+
+            @Override
             public String getExternalId() {
-                return externalId;
+                return row.getExternalId();
             }
 
             @Override
             public Long getAccountId() {
-                return accountId;
+                return row.getAccount().getId();
             }
         };
     }
@@ -434,6 +613,25 @@ class ActualBudgetImportServiceTest {
     private static Request withAccount(Request request, String sourceId, AccountMapping replacement) {
         return new Request(request.fileToken(), request.currency(), request.accountMappings().stream()
                 .map(m -> m.sourceId().equals(sourceId) ? replacement : m).toList(), request.categoryMappings());
+    }
+
+    /** Splits the -42.00 lonely parent into -25.00 and -17.00 children. */
+    private static ActualBudgetFixture splitLonelyParent(ActualBudgetFixture fixture) {
+        return fixture
+                .tx("t-lonely-parent/2", "acc-checking", -2500, 20240125, "cat-restaurants", null, null,
+                        "isChild = 1, parent_id = 't-lonely-parent'")
+                .tx("t-lonely-parent/3", "acc-checking", -1700, 20240125, "cat-groceries", null, null,
+                        "isChild = 1, parent_id = 't-lonely-parent'");
+    }
+
+    private Account userAccount(String name) {
+        return save(Account.builder().member(member).name(name).type(AccountType.CHECKING)
+                .currency("EUR").currentBalance(new BigDecimal("12.00")).build());
+    }
+
+    private static Request mapCheckingOnto(Account account, Preview preview) {
+        return withAccount(createEverything(preview), "acc-checking",
+                new AccountMapping("acc-checking", FinaryMappingAction.MAP_EXISTING, account.getId(), null));
     }
 
     private Account accountWithExternalId(String externalId) {

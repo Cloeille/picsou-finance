@@ -1726,6 +1726,15 @@ See [Actual Budget import](../../docs/features/actual-budget-import.md).
 
 The whole file is validated before a token is returned; preview writes nothing.
 
+#### `POST /api/actual/import/plan`
+
+- **Auth:** Required. **Content-Type:** `application/json`, the same body as
+  `POST /api/actual/import`. **Response `200` — `Plan`:** `transactionsToAdd`,
+  `transactionsToDelete`, `transactionsToMove`, `warnings[]` (`reason`, `count`).
+
+A dry run: it runs every validation of the import and fails with the same `400`s, writes
+nothing and leaves the token usable.
+
 #### `POST /api/actual/import`
 
 - **Auth:** Required. **Content-Type:** `application/json`. **Response `201` — `Result`.**
@@ -1749,14 +1758,19 @@ The whole file is validated before a token is returned; preview writes nothing.
 ```
 
 Every source account and category needs exactly one mapping. `currency` must match the
-budget's when the file records one, and every target account's. Investment and property
-account types are refused (the file holds cash ledgers). `MAP_EXISTING` categories must be
-active and of the same kind (income/expense). Every target account an Actual import created
-gets its balance and snapshots recomputed from its full ledger, whichever action maps it;
-accounts the user created keep their balance.
+budget's when the file records one, and every target account's. Investment, property and
+loan account types are refused (the file holds cash ledgers, and Picsou stores a loan as the
+positive amount owed). `MAP_EXISTING` categories must be active and of the same kind
+(income/expense). On a re-import, accounts an Actual import created follow the file: rows no
+longer in Actual are deleted, rows moved to another import-created account are moved.
+Accounts the user created only receive new rows; rows missing or moved there are kept and
+reported as warnings. Every touched account an Actual import created gets its balance and
+snapshots recomputed from its full ledger, whichever action maps it; accounts the user created
+keep their balance.
 
 **Result:** `accountsCreated`, `accountsMapped`, `accountsSkipped`, `categoriesCreated`,
-`transactionsImported`, `transactionsSkipped`.
+`transactionsImported`, `transactionsSkipped`, `transactionsDeleted`, `transactionsMoved`,
+`warnings[]` (`reason` = `KEPT_MISSING` | `KEPT_MOVED`, `count`).
 
 **Errors:** `400` (RFC 7807) for unsupported/corrupt/unsafe files (including a value over
 1 MiB, a table over its row cap, or a generated column), invalid mappings and expired

@@ -11,19 +11,25 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { useImportActualBudget, usePreviewActualBudget } from '@/features/actual/hooks'
+import { useImportActualBudget, usePlanActualImport, usePreviewActualBudget } from '@/features/actual/hooks'
 import type {
   ActualAccountMapping,
   ActualCategoryMapping,
+  ActualImportPlan,
+  ActualImportRequest,
   ActualImportResult,
+  ActualImportWarning,
   ActualPreviewResponse,
 } from '@/features/actual/types'
 import type { AccountType } from '@/types/api'
 
-/** Actual holds cash ledgers; these types derive their value from positions instead. */
-const NON_LEDGER_TYPES: AccountType[] = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI']
+/**
+ * Actual holds cash ledgers; these types derive their value from positions instead. A loan is
+ * stored as the positive amount owed, so Actual's negative ledger would count as wealth.
+ */
+const NON_LEDGER_TYPES: AccountType[] = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI', 'LOAN']
 const LEDGER_ACCOUNT_TYPES = ACCOUNT_TYPES.filter(({ value }) => !NON_LEDGER_TYPES.includes(value))
-const RESULT_KEYS = ['accountsCreated', 'accountsMapped', 'accountsSkipped', 'categoriesCreated', 'transactionsImported', 'transactionsSkipped'] as const
+const RESULT_KEYS = ['accountsCreated', 'accountsMapped', 'accountsSkipped', 'categoriesCreated', 'transactionsImported', 'transactionsSkipped', 'transactionsDeleted', 'transactionsMoved'] as const
 const SELECT_CLASS = 'h-10 w-full rounded-md border border-input bg-background px-4 text-sm text-foreground outline-none [color-scheme:light] dark:[color-scheme:dark]'
 
 function isPreview(data: unknown): data is ActualPreviewResponse {
@@ -32,6 +38,12 @@ function isPreview(data: unknown): data is ActualPreviewResponse {
     && Array.isArray(value.categories) && Array.isArray(value.existingAccounts)
     && Array.isArray(value.existingCategories) && Array.isArray(value.sampleTransactions)
     && typeof value.totalTransactions === 'number'
+}
+
+function isPlan(data: unknown): data is ActualImportPlan {
+  const value = data as Partial<ActualImportPlan> | null
+  return !!value && typeof value.transactionsToAdd === 'number' && typeof value.transactionsToDelete === 'number'
+    && typeof value.transactionsToMove === 'number' && Array.isArray(value.warnings)
 }
 
 function compatibleAccounts(preview: ActualPreviewResponse, currency: string) {
@@ -74,6 +86,7 @@ export function ActualBudgetTab() {
   const { t } = useTranslation()
   const money = useMoney()
   const previewMutation = usePreviewActualBudget()
+  const planMutation = usePlanActualImport()
   const importMutation = useImportActualBudget()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
@@ -84,9 +97,10 @@ export function ActualBudgetTab() {
   const [categoryMappings, setCategoryMappings] = useState<ActualCategoryMapping[]>([])
   const [error, setError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [plan, setPlan] = useState<ActualImportPlan | null>(null)
   const [result, setResult] = useState<ActualImportResult | null>(null)
 
-  const busy = previewMutation.isPending || importMutation.isPending
+  const busy = previewMutation.isPending || planMutation.isPending || importMutation.isPending
 
   function selectFile(selected: File | undefined) {
     if (!selected || busy) return
@@ -127,27 +141,44 @@ export function ActualBudgetTab() {
     setCategoryMappings((current) => current.map((mapping, i) => (i === index ? { ...mapping, ...patch } : mapping)))
   }
 
+  function buildRequest(fileToken: string): ActualImportRequest {
+    return {
+      fileToken,
+      currency,
+      accountMappings: accountMappings.map((mapping) => ({
+        sourceId: mapping.sourceId,
+        action: mapping.action,
+        ...(mapping.action === 'MAP_EXISTING' && { targetAccountId: mapping.targetAccountId }),
+        ...(mapping.action === 'CREATE_NEW' && { newAccount: mapping.newAccount }),
+      })),
+      categoryMappings: categoryMappings.map((mapping) => ({
+        sourceId: mapping.sourceId,
+        action: mapping.action,
+        ...(mapping.action === 'MAP_EXISTING' && { targetCategoryId: mapping.targetCategoryId }),
+        ...(mapping.action === 'CREATE_NEW' && { name: mapping.name?.trim() }),
+      })),
+    }
+  }
+
+  /** The dry run tells the user what a re-import deletes and moves before they confirm. */
+  async function reviewImport() {
+    if (!preview || busy) return
+    setError(null)
+    try {
+      const data = await planMutation.mutateAsync(buildRequest(preview.fileToken))
+      if (!isPlan(data)) throw new Error(t('sync.actual.errors.importFailed'))
+      setPlan(data)
+      setConfirmOpen(true)
+    } catch (cause) {
+      setError(extractErrorMessage(cause, t('sync.actual.errors.importFailed')))
+    }
+  }
+
   async function executeImport() {
     if (!preview || importMutation.isPending) return
     setError(null)
     try {
-      const request = {
-        fileToken: preview.fileToken,
-        currency,
-        accountMappings: accountMappings.map((mapping) => ({
-          sourceId: mapping.sourceId,
-          action: mapping.action,
-          ...(mapping.action === 'MAP_EXISTING' && { targetAccountId: mapping.targetAccountId }),
-          ...(mapping.action === 'CREATE_NEW' && { newAccount: mapping.newAccount }),
-        })),
-        categoryMappings: categoryMappings.map((mapping) => ({
-          sourceId: mapping.sourceId,
-          action: mapping.action,
-          ...(mapping.action === 'MAP_EXISTING' && { targetCategoryId: mapping.targetCategoryId }),
-          ...(mapping.action === 'CREATE_NEW' && { name: mapping.name?.trim() }),
-        })),
-      }
-      setResult(await importMutation.mutateAsync(request))
+      setResult(await importMutation.mutateAsync(buildRequest(preview.fileToken)))
     } catch (cause) {
       setError(extractErrorMessage(cause, t('sync.actual.errors.importFailed')))
     } finally {
@@ -155,9 +186,14 @@ export function ActualBudgetTab() {
     }
   }
 
+  function warningText(warning: ActualImportWarning) {
+    return t(`sync.actual.warnings.${warning.reason}`, { count: warning.count })
+  }
+
   function reset() {
     if (busy) return
     previewMutation.reset()
+    planMutation.reset()
     importMutation.reset()
     setFile(null)
     setPreview(null)
@@ -233,7 +269,8 @@ export function ActualBudgetTab() {
             </p>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={reset} disabled={busy}>{t('sync.actual.restart')}</Button>
-              <Button onClick={() => setConfirmOpen(true)} disabled={busy || !hasWork || !mappingsValid}>
+              <Button onClick={reviewImport} disabled={busy || !hasWork || !mappingsValid}>
+                {planMutation.isPending && <Loader2 className="size-4 animate-spin" />}
                 {t('sync.actual.import')}
               </Button>
             </div>
@@ -427,6 +464,11 @@ export function ActualBudgetTab() {
               </div>
             ))}
           </div>
+          {result.warnings.map((warning) => (
+            <p key={warning.reason} role="status" className="rounded-lg bg-muted px-4 py-3 text-sm">
+              {warningText(warning)}
+            </p>
+          ))}
           <div className="flex justify-center">
             <Button onClick={reset}>
               <CheckCircle2 />
@@ -440,7 +482,15 @@ export function ActualBudgetTab() {
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title={t('sync.actual.confirmTitle')}
-        description={t('sync.actual.confirmDescription')}
+        description={plan ? [
+          t('sync.actual.planSummary', {
+            added: plan.transactionsToAdd,
+            deleted: plan.transactionsToDelete,
+            moved: plan.transactionsToMove,
+          }),
+          ...plan.warnings.map(warningText),
+          t('sync.actual.confirmDescription'),
+        ].join(' ') : ''}
         confirmLabel={t('common.confirm')}
         onConfirm={executeImport}
         loading={importMutation.isPending}

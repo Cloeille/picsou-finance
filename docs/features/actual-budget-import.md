@@ -24,11 +24,37 @@ Two phases, the same shape as the Finary XLSX and CSV importers:
    `importedAccountId`, the Picsou account an earlier import created for it; the wizard
    pre-selects that account as the target (ahead of a same-name account) and says its balance
    follows the imported history.
-2. **Execute** (`POST /api/actual/import`). Every mapping and every row is validated, then the
-   token is consumed, then one transaction creates accounts, categories and transactions.
-   Every target account an Actual import created (`externalAccountId` starting `actual_`) then
-   gets its balance from its full ledger and rebuilt snapshots, whether this import maps it as
+2. **Plan** (`POST /api/actual/import/plan`). A dry run of execute with the same request: it
+   runs every validation and returns how many rows the import would add, delete and move, plus
+   the warnings below. It writes nothing and does not consume the token. The wizard calls it
+   when the user clicks Import and shows the counts in the confirmation dialog.
+3. **Execute** (`POST /api/actual/import`). Every mapping and every row is validated, then the
+   token is consumed, then one transaction creates accounts and categories, deletes and moves
+   rows per the re-import rules, and adds the new rows. Every account an Actual import created
+   (`externalAccountId` starting `actual_`) that this import maps, or that a moved row left,
+   then gets its balance from its full ledger and rebuilt snapshots, whether it is mapped as
    `CREATE_NEW` or `MAP_EXISTING`. Accounts the user created keep their balance.
+
+### Re-import rules
+
+A re-import synchronises the accounts an import created with the file. A stored row is matched
+to the file by its `actual_<transaction id>`, never by date.
+
+| Stored row | Account kind | Outcome |
+|------------|--------------|---------|
+| Same Actual id, same target account | any | unchanged (counted as skipped) |
+| Actual id no longer emitted (deleted in Actual, or a parent since split into children) | import-created target | **deleted** |
+| | user-created target | kept, warning `KEPT_MISSING` |
+| Actual id now in another Actual account | both import-created | **moved** (`account_id` updated) |
+| | either side user-created | kept where it is, warning `KEPT_MOVED` |
+| Same Actual account, but the user now maps it to another Picsou account, with a user-created account on either side | | **refused** ("already imported into another account") |
+
+Only accounts this import maps are scanned for deletions; a skipped account is never touched.
+Warnings are `{reason, count}` in both the plan and the result. Deletion goes through
+`TransactionRepository`, like manual deletion (`ManualTransactionService.deleteTransaction`):
+no table holds a hard reference to a transaction (`transaction` points at its category and
+recurring series, `ai_call_log.transaction_id` is `ON DELETE SET NULL`), and the balances and
+snapshots of every touched import-created account are recomputed in the same transaction.
 
 ### Reading Actual's tables
 
@@ -53,7 +79,11 @@ A budget is single-currency. When the file records no currency, the wizard asks 
 ### Mapping
 
 - **Accounts**: `CREATE_NEW` (manual account, `externalAccountId = actual_<id>`),
-  `MAP_EXISTING` (the member's ledger account in the same currency), or `SKIP`.
+  `MAP_EXISTING` (the member's ledger account in the same currency), or `SKIP`. Investment,
+  property and **loan** accounts are refused as targets, whether created or mapped. Picsou
+  stores a loan as the positive amount owed and negates it in totals (`signedLiveBalanceEur`,
+  [loans.md](loans.md)), so an Actual mortgage at -150 000 would count as +150 000 of wealth.
+  The wizard leaves `LOAN` out of the type list and the mapping targets.
 - **Categories**: `CREATE_NEW` (under a parent created from the Actual group,
   slug `actual_group_<id>`; the category's slug is `actual_<id>`), `MAP_EXISTING` (an active
   category of the same income/expense kind), or `UNCATEGORIZED` (left for the categorizer).
@@ -83,8 +113,12 @@ upload .zip / db.sqlite ─► signature ─► extract db.sqlite (bounded) ─�
 user maps accounts / categories / currency ◄────────────────────────────────┘
         │
         ▼
-execute ─► validate mappings + dedup ─► consume token ─► @Transactional:
-           accounts ─► categories ─► transfer category ─► saveAll ─► balances + snapshots
+plan ─► validate mappings + sync plan (add / delete / move / warnings) ─► confirmation dialog
+        │
+        ▼
+execute ─► validate mappings + sync plan ─► consume token ─► @Transactional:
+           accounts ─► categories ─► transfer category ─► delete ─► move ─► saveAll
+           ─► balances + snapshots
 ```
 
 ## Technical choices
@@ -97,7 +131,10 @@ execute ─► validate mappings + dedup ─► consume token ─► @Transactio
 | Starting balance as `TRANSFER` | Actual files it under an income category; counting it as income would inflate the first month | Keeping Actual's category |
 | Dedup by `actual_<transaction id>` | Stable across exports; the `(account_id, external_id)` unique index already exists | Date/amount/payee fingerprint (collides on identical same-day rows) |
 | Stored rows looked up by external id (member-scoped, `IN` batches of 1 000) | The user can move an imported row to another date; a date-range lookup missed it, re-inserted it, hit the unique index and rolled back every later re-import | Searching the file's date range |
-| Reject a row already imported into another account | Moving or duplicating it would silently change two ledgers | Skipping it (the user's mapping is inconsistent and should be fixed) |
+| Import-created accounts follow the file: missing rows deleted, moved rows moved | Appending only double-counted a row split or deleted in Actual (a -100 parent split into -60 / -40 became -200), and a row moved in Actual blocked every later re-import | Append-only everywhere |
+| User-created accounts stay append-only, with a warning | Their rows may have been edited or reconciled by the user; the import never removes what it cannot prove it owns | Deleting there too |
+| Refuse a changed mapping when a user-created account is involved | The Actual account did not change, so the user's mapping is inconsistent and should be fixed | Moving rows into or out of an account the user owns |
+| A dry-run endpoint for the counts | Deletions and moves depend on the mappings, which the preview does not know | Estimating them in the preview from default mappings |
 | Accounts an Actual import created follow their ledger on every import | Their balance only ever came from the imported rows, so a re-import that adds rows must update it, whatever the mapping mode | Recomputing only for `CREATE_NEW` (a re-import mapped onto the created account left a stale balance) |
 | Accounts the user created keep their balance | It belongs to the user or another connector | Overwriting it with the Actual ledger sum |
 | Self-contained preview cache | Keeps this importer independent of the shared preview store proposed alongside the HomeBank importer | Depending on an unmerged abstraction |
@@ -156,15 +193,22 @@ execute ─► validate mappings + dedup ─► consume token ─► @Transactio
   rows, neutral transfers, re-import idempotency, a re-import mapped onto the created account
   recomputing its balance and snapshots, a row moved to another date not re-imported, batched
   external-id lookups, cross-account refusal, skipped accounts, mapping onto existing accounts
-  and categories, currency/kind/investment-account rejections, token scope and expiry.
+  and categories, currency/kind/investment-account/loan rejections, token scope and expiry.
+  Re-import rules: split after import and deleted after import on an import-created account
+  (row deleted, balance exact), the same on a user-created account (rows kept, `KEPT_MISSING`),
+  a row moved between import-created accounts and into an account the re-import creates (both
+  balances exact), a row moved out of or into a user-created account (`KEPT_MOVED`, import
+  succeeds), and a plan that writes nothing and leaves the token usable.
 - `features/actual/hooks.test.tsx` — a finished import invalidates accounts, categories,
   budget, dashboard, history and analysis.
-- `ActualBudgetImportControllerTest` — 400 ProblemDetail, 201 result, request validation.
+- `ActualBudgetImportControllerTest` — 400 ProblemDetail, 200 plan, 201 result, request
+  validation.
 - `ActualBudgetImportWiringTest` — Spring picks the production constructors (the service also
   has a test-only one taking a `Clock`).
-- `ActualBudgetTab.test.tsx` — preview, confirmation, request payload, currency choice,
-  compatible targets, the previously imported account pre-selected over a same-name one,
-  validation gating, error display, demo-mode guard.
+- `ActualBudgetTab.test.tsx` — preview, dry run then confirmation with the same request, plan
+  counts and warnings in the dialog and the result, a refused dry run opening no dialog, no
+  `LOAN` type or target, currency choice, compatible targets, the previously imported account
+  pre-selected over a same-name one, validation gating, error display, demo-mode guard.
 - `e2e/sync.spec.ts` — the tab is listed and opens on its upload step.
 
 ## Links

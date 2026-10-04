@@ -865,9 +865,16 @@
       "categoriesCreated": "Kategorien erstellt",
       "transactionsImported": "Transaktionen importiert",
       "transactionsSkipped": "Transaktionen übersprungen",
+      "transactionsDeleted": "Transaktionen gelöscht",
+      "transactionsMoved": "Transaktionen verschoben",
       "done": "Fertig",
       "confirmTitle": "Actual-Budget-Import bestätigen",
-      "confirmDescription": "Die Transaktionen werden den ausgewählten Konten hinzugefügt. Bereits importierte werden übersprungen, und bei einem Prüffehler wird nichts geschrieben.",
+      "planSummary": "Dieser Import fügt {{added}} Transaktionen hinzu, löscht {{deleted}} und verschiebt {{moved}} zwischen Konten.",
+      "confirmDescription": "Von einem Actual-Import erstellte Konten folgen der Datei: In Actual gelöschte oder aufgeteilte Transaktionen werden gelöscht, in Actual verschobene folgen ihrem Konto. Von Ihnen erstellte Konten erhalten nur neue Transaktionen. Bei einem Prüffehler wird nichts geschrieben.",
+      "warnings": {
+        "KEPT_MISSING": "{{count}} in Actual gelöschte oder aufgeteilte Transaktionen bleiben auf von Ihnen erstellten Konten; löschen Sie sie bei Bedarf von Hand.",
+        "KEPT_MOVED": "{{count}} in Actual auf ein anderes Konto verschobene Transaktionen bleiben, wo sie sind, da ein von Ihnen erstelltes Konto betroffen ist."
+      },
       "errors": {
         "invalidPreview": "Die Vorschauantwort ist ungültig.",
         "previewFailed": "Die Actual-Budget-Datei konnte nicht gelesen werden.",

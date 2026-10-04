@@ -46,6 +46,20 @@ public final class ActualBudgetImportDtos {
                           @NotNull @Size(max = 100) List<@NotNull @Valid AccountMapping> accountMappings,
                           @NotNull @Size(max = 500) List<@NotNull @Valid CategoryMapping> categoryMappings) { }
 
+    /**
+     * Rows a re-import leaves in place on an account the user created: {@code KEPT_MISSING} rows
+     * no longer exist in Actual (deleted, or a parent since split), {@code KEPT_MOVED} rows now
+     * belong to another Actual account.
+     */
+    public enum WarningReason { KEPT_MISSING, KEPT_MOVED }
+
+    public record Warning(WarningReason reason, int count) { }
+
+    /** What {@link Request} would do, computed without writing so the user can confirm it. */
+    public record Plan(int transactionsToAdd, int transactionsToDelete, int transactionsToMove,
+                       List<Warning> warnings) { }
+
     public record Result(int accountsCreated, int accountsMapped, int accountsSkipped, int categoriesCreated,
-                         int transactionsImported, int transactionsSkipped) { }
+                         int transactionsImported, int transactionsSkipped, int transactionsDeleted,
+                         int transactionsMoved, List<Warning> warnings) { }
 }

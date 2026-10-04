@@ -1167,9 +1167,16 @@
       "categoriesCreated": "Catégories créées",
       "transactionsImported": "Transactions importées",
       "transactionsSkipped": "Transactions ignorées",
+      "transactionsDeleted": "Transactions supprimées",
+      "transactionsMoved": "Transactions déplacées",
       "done": "Terminé",
       "confirmTitle": "Confirmer l'import Actual Budget",
-      "confirmDescription": "Les transactions seront ajoutées aux comptes sélectionnés. Celles déjà importées sont ignorées, et rien n'est écrit si une vérification échoue.",
+      "planSummary": "Cet import ajoute {{added}} transactions, en supprime {{deleted}} et en déplace {{moved}} entre comptes.",
+      "confirmDescription": "Les comptes créés par un import Actual suivent le fichier : les transactions supprimées ou ventilées dans Actual sont supprimées, et celles déplacées dans Actual les suivent. Les comptes que vous avez créés ne reçoivent que les nouvelles transactions. Rien n'est écrit si une vérification échoue.",
+      "warnings": {
+        "KEPT_MISSING": "{{count}} transactions supprimées ou ventilées dans Actual restent sur des comptes que vous avez créés ; supprimez-les à la main si besoin.",
+        "KEPT_MOVED": "{{count}} transactions déplacées vers un autre compte dans Actual restent en place, car un compte que vous avez créé est concerné."
+      },
       "errors": {
         "invalidPreview": "La réponse de prévisualisation est invalide.",
         "previewFailed": "Impossible de lire le fichier Actual Budget.",
