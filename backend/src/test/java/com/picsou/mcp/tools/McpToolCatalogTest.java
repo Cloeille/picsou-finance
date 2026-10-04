@@ -6,6 +6,7 @@ import com.picsou.mcp.AccessKeyService;
 import com.picsou.mcp.RequiresScope;
 import com.picsou.mcp.Scopes;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.AccountConnectionService;
 import com.picsou.service.AccountService;
 import com.picsou.service.BoursoSyncService;
 import com.picsou.service.CryptoExchangeSyncService;
@@ -55,7 +56,7 @@ class McpToolCatalogTest {
      */
     private static final Set<String> EXPECTED_TOOLS = Set.of(
         // accounts:read / accounts:write
-        "list_accounts", "get_account", "get_account_holdings", "get_account_balance_history",
+        "list_accounts", "get_account", "get_account_holdings", "get_account_balance_history", "get_account_deletion_impact",
         "create_manual_account", "update_account", "delete_account", "add_balance_snapshot",
         "upsert_holding", "delete_holding",
         // transactions:read / transactions:write
@@ -92,7 +93,7 @@ class McpToolCatalogTest {
 
     /** Build the provider exactly as production does, with mocked services (never invoked during catalog build). */
     private ToolCallbackProvider buildProvider() {
-        AccountTools account = new AccountTools(mock(AccountService.class), mock(UserContext.class));
+        AccountTools account = new AccountTools(mock(AccountService.class), mock(UserContext.class), mock(AccountConnectionService.class));
         TransactionTools tx = new TransactionTools(
             mock(AccountService.class), mock(ManualTransactionService.class), mock(UserContext.class));
         GoalTools goal = new GoalTools(mock(GoalService.class), mock(UserContext.class));

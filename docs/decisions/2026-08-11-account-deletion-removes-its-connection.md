@@ -27,7 +27,7 @@ survives is a row that syncs forever, costs an outbound call per run, and can on
 ## Decision
 
 Deleting an account also removes its connection, once no live account is left on that
-connection. `AccountConnectionService` owns the rule; `AccountController.delete` goes through it
+connection. `AccountConnectionService` owns the rule; `AccountController.delete` and the MCP `delete_account` tool go through it
 rather than through `AccountService.delete`.
 
 "Its connection" is resolved from `external_account_id`, whose namespaces are disjoint —

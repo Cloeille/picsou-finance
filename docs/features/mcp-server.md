@@ -107,11 +107,11 @@ WebApp (Settings) ──cookie──▶ POST /api/access-keys {name, scopes, exp
 ## Tool catalogue
 
 Every tool acts only on the key owner's own data; writes are restricted to **manual** records and
-**refresh-existing-sync** triggers. `McpToolCatalogTest` pins this exact set.
+**refresh-existing-sync** triggers. `McpToolCatalogTest` pins this exact set. delete_account also removes the idle connection when it is the last account on that connection and returns what was removed.
 
 | Scope | Tools |
 |-------|-------|
-| `accounts:read` | `list_accounts`, `get_account`, `get_account_holdings`, `get_account_balance_history` |
+| `accounts:read` | `list_accounts`, `get_account`, `get_account_holdings`, `get_account_balance_history`, `get_account_deletion_impact` |
 | `transactions:read` | `list_account_transactions` |
 | `goals:read` | `list_goals`, `get_goal`, `get_goal_monthly_entries` |
 | `dashboard:read` | `get_dashboard`, `get_net_worth_history`, `get_profit_and_loss` |

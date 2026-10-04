@@ -7,11 +7,14 @@ import com.picsou.dto.SnapshotRequest;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
 import com.picsou.model.FamilyMember;
+import com.picsou.service.AccountConnectionService;
 import com.picsou.service.AccountService;
+import com.picsou.service.AccountConnectionService.DeletionImpact;
 import com.picsou.service.UserContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -27,7 +30,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Every tool must resolve {@link UserContext#currentMemberId()} (or {@code currentMember()}) and
- * delegate to the already member-scoped {@link AccountService} — never reaching across members.
+ * delegate to the already member-scoped services (AccountService or AccountConnectionService) — never reaching across members.
  * These tests pin that delegation; member isolation itself is enforced (and tested) in the service.
  */
 @ExtendWith(MockitoExtension.class)
@@ -37,6 +40,7 @@ class AccountToolsTest {
 
     @Mock AccountService accountService;
     @Mock UserContext userContext;
+    @Mock AccountConnectionService accountConnectionService;
     @InjectMocks AccountTools tools;
 
     @Test
@@ -117,10 +121,67 @@ class AccountToolsTest {
     @Test
     void deleteAccount_delegatesScopedToCurrentMember() {
         when(userContext.currentMemberId()).thenReturn(MID);
+        DeletionImpact impact = new DeletionImpact(true, "BoursoBank");
+        when(accountConnectionService.describeDeletion(5L, MID)).thenReturn(impact);
 
-        tools.deleteAccount(5L);
+        DeletionImpact out = tools.deleteAccount(5L);
 
-        verify(accountService).delete(5L, MID);
+        assertThat(out).isSameAs(impact);
+        InOrder inOrder = org.mockito.Mockito.inOrder(accountConnectionService);
+        inOrder.verify(accountConnectionService).describeDeletion(5L, MID);
+        inOrder.verify(accountConnectionService).deleteAccount(5L, MID);
+        verify(accountService, org.mockito.Mockito.never()).delete(
+            org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void getAccountDeletionImpact_delegatesScopedToCurrentMember() {
+        when(userContext.currentMemberId()).thenReturn(MID);
+        DeletionImpact impact = new DeletionImpact(false, null);
+        when(accountConnectionService.describeDeletion(5L, MID)).thenReturn(impact);
+
+        DeletionImpact out = tools.getAccountDeletionImpact(5L);
+
+        assertThat(out).isSameAs(impact);
+        verify(accountConnectionService).describeDeletion(5L, MID);
+        verify(accountConnectionService, org.mockito.Mockito.never()).deleteAccount(
+            org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void deleteAccount_lastAccountRemovesConnection() {
+        when(userContext.currentMemberId()).thenReturn(MID);
+        com.picsou.repository.AccountRepository accountRepository = mock(com.picsou.repository.AccountRepository.class);
+        com.picsou.service.AccountService accountServiceForConn = mock(com.picsou.service.AccountService.class);
+        com.picsou.repository.WalletAddressRepository walletRepository = mock(com.picsou.repository.WalletAddressRepository.class);
+        com.picsou.repository.CryptoExchangeSessionRepository exchangeSessionRepository = mock(com.picsou.repository.CryptoExchangeSessionRepository.class);
+        com.picsou.repository.RequisitionRepository requisitionRepository = mock(com.picsou.repository.RequisitionRepository.class);
+        com.picsou.service.WalletSyncService walletSyncService = mock(com.picsou.service.WalletSyncService.class);
+        com.picsou.service.CryptoExchangeSyncService cryptoExchangeSyncService = mock(com.picsou.service.CryptoExchangeSyncService.class);
+        com.picsou.service.AmundiSyncService amundiSyncService = mock(com.picsou.service.AmundiSyncService.class);
+        com.picsou.service.TradeRepublicSyncService tradeRepublicSyncService = mock(com.picsou.service.TradeRepublicSyncService.class);
+        com.picsou.service.BourseDirectSyncService bourseDirectSyncService = mock(com.picsou.service.BourseDirectSyncService.class);
+        com.picsou.service.BoursoSyncService boursoSyncService = mock(com.picsou.service.BoursoSyncService.class);
+        com.picsou.service.FortuneoSyncService fortuneoSyncService = mock(com.picsou.service.FortuneoSyncService.class);
+        com.picsou.service.DegiroSyncService degiroSyncService = mock(com.picsou.service.DegiroSyncService.class);
+        com.picsou.service.IbkrSyncService ibkrSyncService = mock(com.picsou.service.IbkrSyncService.class);
+        com.picsou.service.SyncService syncService = mock(com.picsou.service.SyncService.class);
+        AccountConnectionService realService = new AccountConnectionService(
+            accountRepository, accountServiceForConn, walletRepository, exchangeSessionRepository,
+            requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService,
+            tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
+            fortuneoSyncService, degiroSyncService, ibkrSyncService, syncService);
+        com.picsou.model.Account boursoAccount = new com.picsou.model.Account();
+        boursoAccount.setId(5L);
+        boursoAccount.setExternalAccountId("bourso_123");
+        when(accountRepository.findByIdAndMemberId(5L, MID)).thenReturn(java.util.Optional.of(boursoAccount));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MID)).thenReturn(java.util.List.of(boursoAccount));
+        AccountTools toolsWithReal = new AccountTools(accountService, userContext, realService);
+        DeletionImpact impact = toolsWithReal.deleteAccount(5L);
+        assertThat(impact.removesConnection()).isTrue();
+        assertThat(impact.connectionLabel()).isEqualTo("BoursoBank");
+        verify(boursoSyncService).clearSession(MID);
+        verify(accountServiceForConn).delete(5L, MID);
     }
 
     @Test
