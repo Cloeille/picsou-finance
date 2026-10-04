@@ -102,6 +102,21 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     /** Dedup guard for synced ingestion (account-scoped). */
     boolean existsByAccountIdAndExternalId(Long accountId, String externalId);
 
+    /** The account a stored external id lives in, without loading the row. */
+    interface StoredExternalId {
+        String getExternalId();
+
+        Long getAccountId();
+    }
+
+    /** Member-scoped dedup lookup for file imports: finds a row whatever date it was edited to. */
+    @Query("""
+        SELECT t.externalId AS externalId, t.account.id AS accountId FROM Transaction t
+        WHERE t.account.member.id = :memberId AND t.externalId IN :externalIds
+        """)
+    List<StoredExternalId> findStoredExternalIds(@Param("memberId") Long memberId,
+                                                 @Param("externalIds") Collection<String> externalIds);
+
     /** Member-scoped single transaction lookup (categorize endpoint). */
     Optional<Transaction> findByIdAndAccountMemberId(Long id, Long memberId);
 

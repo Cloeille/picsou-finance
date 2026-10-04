@@ -842,6 +842,7 @@
       "createNew": "Konto erstellen",
       "targetAccount": "Zielkonto für {{name}}",
       "chooseAccount": "Konto auswählen",
+      "previouslyImported": "Von einem früheren Actual-Import angelegtes Konto: Sein Saldo wird aus dem importierten Verlauf neu berechnet.",
       "accountName": "Kontoname",
       "accountType": "Kontotyp",
       "categories": "Kategorien",

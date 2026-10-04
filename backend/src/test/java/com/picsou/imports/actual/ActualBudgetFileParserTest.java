@@ -173,6 +173,77 @@ class ActualBudgetFileParserTest {
     }
 
     @Test
+    void rejectsAValueOverTheLengthLimitInsideSqlite() {
+        byte[] file = ActualBudgetFixture.household()
+                .sql("INSERT INTO payees (id, name) VALUES ('p-huge', printf('%.*c', 2000000, 'x'))")
+                .sqlite();
+
+        assertThatThrownBy(() -> parser.parse(file))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("The Actual Budget file holds a value larger than 1 MiB");
+    }
+
+    @Test
+    void rejectsATableOverItsRowCapBeforeReadingIt() {
+        byte[] file = ActualBudgetFixture.household()
+                .sql("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i <= 50000)"
+                        + " INSERT INTO payee_mapping SELECT 'pm-' || i, 'p-market' FROM n")
+                .sqlite();
+
+        assertThatThrownBy(() -> parser.parse(file))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("The Actual Budget file has more than 50000 rows in 'payee_mapping'");
+    }
+
+    @Test
+    void rejectsAGeneratedColumnThatCouldSynthesiseData() {
+        byte[] file = ActualBudgetFixture.empty()
+                .sql("DROP TABLE payees")
+                .sql("CREATE TABLE payees (id TEXT PRIMARY KEY, tombstone INTEGER DEFAULT 0, transfer_acct TEXT,"
+                        + " name TEXT GENERATED ALWAYS AS (printf('%.*c', 1000, id)) VIRTUAL)")
+                .sql("INSERT INTO accounts (id, name) VALUES ('a', 'Cash')")
+                .sqlite();
+
+        assertThatThrownBy(() -> parser.parse(file))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Unsupported Actual Budget database: column 'payees.name' is generated");
+    }
+
+    @Test
+    void rejectsAViewStandingInForATable() {
+        byte[] file = ActualBudgetFixture.empty()
+                .sql("ALTER TABLE payees RENAME TO payees_data")
+                .sql("CREATE VIEW payees AS SELECT * FROM payees_data")
+                .sql("INSERT INTO accounts (id, name) VALUES ('a', 'Cash')")
+                .sqlite();
+
+        assertThatThrownBy(() -> parser.parse(file))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Unsupported Actual Budget database: 'payees' is not a plain table");
+    }
+
+    @Test
+    void cutsLongNotesToTheStoredWidth() {
+        byte[] file = ActualBudgetFixture.empty()
+                .sql("INSERT INTO accounts (id, name) VALUES ('a', 'Cash')")
+                .tx("t", "a", 100, 20240101, null, null, "n".repeat(10_000), null)
+                .sqlite();
+
+        assertThat(parser.parse(file).transactions().getFirst().notes()).isEqualTo("n".repeat(255));
+    }
+
+    @Test
+    void rejectsAnOverlongPayeeId() {
+        byte[] file = ActualBudgetFixture.household()
+                .sql("INSERT INTO payees (id, name) VALUES ('" + "p".repeat(81) + "', 'Long')")
+                .sqlite();
+
+        assertThatThrownBy(() -> parser.parse(file))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Unsupported identifier in the Actual Budget file");
+    }
+
+    @Test
     void rejectsAZipWithoutADatabase() {
         byte[] zip = ActualBudgetFixture.zip(Map.of("metadata.json", "{}".getBytes(StandardCharsets.UTF_8)));
 

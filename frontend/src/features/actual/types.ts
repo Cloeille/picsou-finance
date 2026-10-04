@@ -8,6 +8,8 @@ export interface ActualAccountPreview {
   suggestedType: AccountType
   balance: number
   transactionCount: number
+  /** The Picsou account an earlier import created for this source, if any. */
+  importedAccountId: number | null
 }
 
 export interface ActualCategoryPreview {

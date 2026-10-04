@@ -1144,6 +1144,7 @@
       "createNew": "Créer un compte",
       "targetAccount": "Compte cible pour {{name}}",
       "chooseAccount": "Choisir un compte",
+      "previouslyImported": "Compte créé par un import Actual précédent : son solde sera recalculé depuis l’historique importé.",
       "accountName": "Nom du compte",
       "accountType": "Type de compte",
       "categories": "Catégories",

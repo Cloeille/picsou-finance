@@ -842,6 +842,7 @@
       "createNew": "Crear cuenta",
       "targetAccount": "Cuenta destino para {{name}}",
       "chooseAccount": "Elegir una cuenta",
+      "previouslyImported": "Cuenta creada por una importación anterior de Actual: su saldo se recalcula a partir del historial importado.",
       "accountName": "Nombre de la cuenta",
       "accountType": "Tipo de cuenta",
       "categories": "Categorías",

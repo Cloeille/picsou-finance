@@ -34,10 +34,16 @@ function isPreview(data: unknown): data is ActualPreviewResponse {
     && typeof value.totalTransactions === 'number'
 }
 
+function compatibleAccounts(preview: ActualPreviewResponse, currency: string) {
+  return preview.existingAccounts.filter((item) => item.currency === currency && !NON_LEDGER_TYPES.includes(item.type))
+}
+
 function initialAccountMappings(preview: ActualPreviewResponse, currency: string): ActualAccountMapping[] {
+  const compatible = compatibleAccounts(preview, currency)
   return preview.accounts.map((account, index) => {
-    const match = preview.existingAccounts.find((item) =>
-      item.name === account.name && item.currency === currency && !NON_LEDGER_TYPES.includes(item.type))
+    // The account an earlier import created wins over a same-name account the user made.
+    const match = compatible.find((item) => item.id === account.importedAccountId)
+      ?? compatible.find((item) => item.name === account.name)
     // newAccount is kept even when mapping to an existing account, so switching back to
     // "create" restores the suggested details; the request strips it for other actions.
     return {
@@ -258,7 +264,7 @@ export function ActualBudgetTab() {
             <h3 className="font-semibold">{t('sync.actual.accounts')}</h3>
             {preview.accounts.map((account, index) => {
               const mapping = accountMappings[index]
-              const compatible = preview.existingAccounts.filter((item) => item.currency === currency && !NON_LEDGER_TYPES.includes(item.type))
+              const compatible = compatibleAccounts(preview, currency)
               return (
                 <Card key={account.sourceId} size="sm">
                   <CardContent className="space-y-3 pt-0">
@@ -295,6 +301,10 @@ export function ActualBudgetTab() {
                         <option value="">{t('sync.actual.chooseAccount')}</option>
                         {compatible.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.currency})</option>)}
                       </select>
+                    )}
+                    {mapping.action === 'MAP_EXISTING' && account.importedAccountId != null
+                      && mapping.targetAccountId === account.importedAccountId && (
+                      <p className="text-xs text-muted-foreground">{t('sync.actual.previouslyImported')}</p>
                     )}
                     {mapping.action === 'CREATE_NEW' && mapping.newAccount && (
                       <div className="grid gap-3 sm:grid-cols-2">

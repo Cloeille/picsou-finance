@@ -1717,7 +1717,8 @@ See [Actual Budget import](../../docs/features/actual-budget-import.md).
 - **Response `200` — `ActualBudgetImportDtos.Preview`:** `fileToken` (member-bound, single-use,
   30-minute TTL), `currency` (the budget's `defaultCurrencyCode`, or `null` when the file has
   none), `accounts[]` (`sourceId`, `name`, `offBudget`, `closed`, `suggestedType`, `balance`,
-  `transactionCount`), `categories[]` (`sourceId`, `name`, `groupName`, `income`,
+  `transactionCount`, `importedAccountId` = the account an earlier import created for this
+  source, or `null`), `categories[]` (`sourceId`, `name`, `groupName`, `income`,
   `transactionCount`), `existingAccounts[]`, `existingCategories[]`, `sampleTransactions[]`
   (newest 20: `sourceId`, `accountSourceId`, `date`, `amount`, `payee`, `notes`,
   `categorySourceId`, `kind` = `REGULAR` | `TRANSFER` | `STARTING_BALANCE`),
@@ -1750,13 +1751,16 @@ The whole file is validated before a token is returned; preview writes nothing.
 Every source account and category needs exactly one mapping. `currency` must match the
 budget's when the file records one, and every target account's. Investment and property
 account types are refused (the file holds cash ledgers). `MAP_EXISTING` categories must be
-active and of the same kind (income/expense).
+active and of the same kind (income/expense). Every target account an Actual import created
+gets its balance and snapshots recomputed from its full ledger, whichever action maps it;
+accounts the user created keep their balance.
 
 **Result:** `accountsCreated`, `accountsMapped`, `accountsSkipped`, `categoriesCreated`,
 `transactionsImported`, `transactionsSkipped`.
 
-**Errors:** `400` (RFC 7807) for unsupported/corrupt/unsafe files, invalid mappings and
-expired previews — nothing is written; `429` when the shared sync/import rate limit trips.
+**Errors:** `400` (RFC 7807) for unsupported/corrupt/unsafe files (including a value over
+1 MiB, a table over its row cap, or a generated column), invalid mappings and expired
+previews — nothing is written; `429` when the shared sync/import rate limit trips.
 
 ---
 

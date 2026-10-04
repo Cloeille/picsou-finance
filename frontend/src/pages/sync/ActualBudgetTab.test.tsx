@@ -25,7 +25,7 @@ const preview = {
   currency: 'EUR',
   accounts: [{
     sourceId: 'acc-1', name: 'Everyday', offBudget: false, closed: false,
-    suggestedType: 'CHECKING', balance: 2915.66, transactionCount: 7,
+    suggestedType: 'CHECKING', balance: 2915.66, transactionCount: 7, importedAccountId: null,
   }],
   categories: [{ sourceId: 'cat-1', name: 'Groceries', groupName: 'Food', income: false, transactionCount: 2 }],
   existingAccounts: [],
@@ -150,6 +150,28 @@ describe('ActualBudgetTab', () => {
     const [, request] = await confirmImport()
     expect(request.accountMappings).toEqual([{ sourceId: 'acc-1', action: 'MAP_EXISTING', targetAccountId: 31 }])
     expect(request.categoryMappings).toEqual([{ sourceId: 'cat-1', action: 'MAP_EXISTING', targetCategoryId: 41 }])
+  })
+
+  it('targets the account an earlier import created over a same-name account', async () => {
+    renderTab()
+    await uploadPreview({
+      ...preview,
+      accounts: [{ ...preview.accounts[0], importedAccountId: 35 }],
+      existingAccounts: [
+        { id: 31, name: 'Everyday', currency: 'EUR', type: 'CHECKING' },
+        { id: 35, name: 'Everyday (Actual)', currency: 'EUR', type: 'CHECKING' },
+      ],
+    })
+
+    const account = await screen.findByLabelText('sync.actual.targetAccount')
+    expect(account).toHaveValue('35')
+    expect(screen.getByText('sync.actual.previouslyImported')).toBeInTheDocument()
+    fireEvent.change(account, { target: { value: '31' } })
+    expect(screen.queryByText('sync.actual.previouslyImported')).not.toBeInTheDocument()
+    fireEvent.change(account, { target: { value: '35' } })
+
+    const [, request] = await confirmImport()
+    expect(request.accountMappings).toEqual([{ sourceId: 'acc-1', action: 'MAP_EXISTING', targetAccountId: 35 }])
   })
 
   it('blocks the import until a mapped category has a target', async () => {

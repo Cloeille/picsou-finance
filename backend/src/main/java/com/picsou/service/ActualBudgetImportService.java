@@ -75,6 +75,8 @@ public class ActualBudgetImportService {
     static final String PREVIEW_EXPIRED = "Preview expired or invalid -- please upload the file again";
     private static final Duration PREVIEW_TTL = Duration.ofMinutes(30);
     private static final int SAMPLE_ROWS = 20;
+    /** Keeps each IN list well under PostgreSQL's bind-parameter limit. */
+    private static final int LOOKUP_BATCH = 1_000;
     private static final int MAX_NAME = 100;
     private static final int MAX_DESCRIPTION = 255;
     private static final String DEFAULT_COLOR = "#6366f1";
@@ -141,17 +143,22 @@ public class ActualBudgetImportService {
                 categoryCounts.merge(tx.categoryId(), 1, Integer::sum);
             }
         }
+        List<Account> memberAccounts = accounts.findAllByMemberIdOrderByCreatedAtAsc(memberId);
+        Map<String, Long> importedAccounts = memberAccounts.stream()
+                .filter(account -> account.getExternalAccountId() != null
+                        && account.getExternalAccountId().startsWith(PREFIX))
+                .collect(Collectors.toMap(Account::getExternalAccountId, Account::getId, (first, ignored) -> first));
         List<AccountPreview> accountPreviews = budget.accounts().stream()
                 .map(account -> new AccountPreview(account.id(), account.name(), account.offBudget(), account.closed(),
                         account.offBudget() ? AccountType.OTHER : AccountType.CHECKING,
                         balances.getOrDefault(account.id(), BigDecimal.ZERO.setScale(2)),
-                        accountCounts.getOrDefault(account.id(), 0)))
+                        accountCounts.getOrDefault(account.id(), 0), importedAccounts.get(PREFIX + account.id())))
                 .toList();
         List<CategoryPreview> categoryPreviews = budget.categories().stream()
                 .map(category -> new CategoryPreview(category.id(), category.name(), category.groupName(),
                         category.income(), categoryCounts.getOrDefault(category.id(), 0)))
                 .toList();
-        List<AccountResponse> existingAccounts = accounts.findAllByMemberIdOrderByCreatedAtAsc(memberId).stream()
+        List<AccountResponse> existingAccounts = memberAccounts.stream()
                 .map(account -> AccountResponse.from(account, account.getCurrentBalance()))
                 .toList();
         List<CategoryResponse> existingCategories = categories
@@ -215,8 +222,7 @@ public class ActualBudgetImportService {
 
         FamilyMember member = members.findById(memberId).orElseThrow(() -> bad("Family member not found"));
         Counts counts = new Counts();
-        List<Account> ledgerAccounts = createAccounts(budget, accountMappings, targetAccounts, member,
-                request.currency(), counts);
+        createAccounts(budget, accountMappings, targetAccounts, member, request.currency(), counts);
         createCategories(budget, categoryMappings, targetCategories, groupParents, member, counts);
         Category transferCategory = !needsTransfer ? null
                 : existingTransfer != null ? existingTransfer : createTransferCategory(member);
@@ -237,7 +243,7 @@ public class ActualBudgetImportService {
         transactions.saveAll(rows);
         counts.transactionsImported = rows.size();
 
-        for (Account account : ledgerAccounts) {
+        for (Account account : ledgerAccounts(budget, targetAccounts)) {
             account.setCurrentBalance(transactions.sumAmountByAccountId(account.getId()));
             accounts.save(account);
             persistence.reconstructSnapshotsFromDb(account);
@@ -382,38 +388,44 @@ public class ActualBudgetImportService {
     }
 
     /**
-     * External ids of rows already stored. A row stored in another account than the one it maps
+     * External ids of rows already stored, looked up by id rather than by date: the user may have
+     * moved an imported row to another date. A row stored in another account than the one it maps
      * to now is refused rather than duplicated or moved.
      */
     private Set<String> alreadyImported(List<SourceTransaction> importable, Map<String, Account> targets,
             Long memberId) {
-        if (importable.isEmpty()) {
-            return Set.of();
-        }
         Map<String, String> accountByExternalId = new HashMap<>();
         importable.forEach(tx -> accountByExternalId.put(PREFIX + tx.id(), tx.accountId()));
-        var from = importable.stream().map(SourceTransaction::date).min(Comparable::compareTo).orElseThrow();
-        var to = importable.stream().map(SourceTransaction::date).max(Comparable::compareTo).orElseThrow();
+        List<String> externalIds = List.copyOf(accountByExternalId.keySet());
         Set<String> stored = new HashSet<>();
-        for (Transaction existing : transactions.searchByMember(memberId, from, to, null, null)) {
-            String sourceAccount = accountByExternalId.get(existing.getExternalId());
-            if (sourceAccount == null) {
-                continue;
+        for (int from = 0; from < externalIds.size(); from += LOOKUP_BATCH) {
+            List<String> batch = externalIds.subList(from, Math.min(from + LOOKUP_BATCH, externalIds.size()));
+            for (TransactionRepository.StoredExternalId existing : transactions.findStoredExternalIds(memberId, batch)) {
+                Account target = targets.get(accountByExternalId.get(existing.getExternalId()));
+                if (target == null || !Objects.equals(target.getId(), existing.getAccountId())) {
+                    throw bad("Some transactions were already imported into another account; "
+                            + "map the Actual account to the account it was imported into");
+                }
+                stored.add(existing.getExternalId());
             }
-            Account target = targets.get(sourceAccount);
-            if (target == null || !Objects.equals(target.getId(), existing.getAccount().getId())) {
-                throw bad("Some transactions were already imported into another account; "
-                        + "map the Actual account to the account it was imported into");
-            }
-            stored.add(existing.getExternalId());
         }
         return stored;
     }
 
-    /** Creates the CREATE_NEW accounts and returns every account whose balance follows its ledger. */
-    private List<Account> createAccounts(ParsedActualBudget budget, Map<String, AccountMapping> mappings,
+    /**
+     * Accounts an Actual import created follow their ledger, whichever mapping a re-import uses;
+     * accounts the user created keep the balance they set.
+     */
+    private static List<Account> ledgerAccounts(ParsedActualBudget budget, Map<String, Account> targets) {
+        return budget.accounts().stream()
+                .map(source -> targets.get(source.id()))
+                .filter(account -> account != null && account.getExternalAccountId() != null
+                        && account.getExternalAccountId().startsWith(PREFIX))
+                .toList();
+    }
+
+    private void createAccounts(ParsedActualBudget budget, Map<String, AccountMapping> mappings,
             Map<String, Account> targets, FamilyMember member, String currency, Counts counts) {
-        List<Account> ledgerAccounts = new ArrayList<>();
         for (SourceAccount source : budget.accounts()) {
             AccountMapping mapping = mappings.get(source.id());
             switch (mapping.action()) {
@@ -433,11 +445,9 @@ public class ActualBudgetImportService {
                     } else {
                         counts.accountsMapped++;
                     }
-                    ledgerAccounts.add(account);
                 }
             }
         }
-        return ledgerAccounts;
     }
 
     private void createCategories(ParsedActualBudget budget, Map<String, CategoryMapping> mappings,

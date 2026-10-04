@@ -40,6 +40,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -53,7 +54,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -103,10 +105,10 @@ class ActualBudgetImportServiceTest {
             transactions.addAll(rows);
             return rows;
         });
-        when(transactionRepository.searchByMember(eq(MEMBER), any(), any(), isNull(), isNull())).thenAnswer(call -> {
-            LocalDate from = call.getArgument(1);
-            LocalDate to = call.getArgument(2);
-            return transactions.stream().filter(t -> !t.getDate().isBefore(from) && !t.getDate().isAfter(to)).toList();
+        when(transactionRepository.findStoredExternalIds(eq(MEMBER), any())).thenAnswer(call -> {
+            Collection<String> ids = call.getArgument(1);
+            return transactions.stream().filter(t -> ids.contains(t.getExternalId()))
+                    .map(t -> stored(t.getExternalId(), t.getAccount().getId())).toList();
         });
         when(transactionRepository.sumAmountByAccountId(anyLong())).thenAnswer(call -> transactions.stream()
                 .filter(t -> t.getAccount().getId().equals(call.getArgument(0)))
@@ -124,9 +126,9 @@ class ActualBudgetImportServiceTest {
         assertThat(preview.transferTransactions()).isEqualTo(3);
         assertThat(preview.accounts()).containsExactly(
                 new AccountPreview("acc-checking", "Everyday", false, false, AccountType.CHECKING,
-                        new BigDecimal("2915.66"), 7),
+                        new BigDecimal("2915.66"), 7, null),
                 new AccountPreview("acc-savings", "Rainy day", true, false, AccountType.OTHER,
-                        new BigDecimal("500.00"), 1));
+                        new BigDecimal("500.00"), 1, null));
         assertThat(preview.sampleTransactions()).extracting(TransactionPreview::sourceId)
                 .startsWith("t-salary", "t-lonely-parent");
         assertThat(preview.existingCategories()).hasSize(1);
@@ -200,6 +202,59 @@ class ActualBudgetImportServiceTest {
         assertThat(accounts).hasSize(accountsAfterFirst);
         assertThat(categories).hasSize(categoriesAfterFirst);
         assertThat(transactions).hasSize(8);
+    }
+
+    @Test
+    void previewPointsEachSourceAccountAtTheAccountAnEarlierImportCreated() {
+        service.executeImport(createEverything(preview()), MEMBER);
+        save(Account.builder().member(member).name("Everyday").type(AccountType.CHECKING)
+                .currency("EUR").currentBalance(BigDecimal.ZERO).build());
+
+        Preview second = preview();
+
+        assertThat(second.accounts()).extracting(AccountPreview::importedAccountId).containsExactly(
+                accountWithExternalId("actual_acc-checking").getId(),
+                accountWithExternalId("actual_acc-savings").getId());
+    }
+
+    @Test
+    void reimportingOntoTheAccountAnImportCreatedRecomputesItsBalance() {
+        service.executeImport(createEverything(preview()), MEMBER);
+        Account checking = accountWithExternalId("actual_acc-checking");
+        Preview newer = preview(ActualBudgetFixture.household()
+                .tx("t-refund", "acc-checking", 20000, 20240205, "cat-groceries", "p-market", null, null));
+        Request request = withAccount(createEverything(newer), "acc-checking",
+                new AccountMapping("acc-checking", FinaryMappingAction.MAP_EXISTING, checking.getId(), null));
+
+        Result result = service.executeImport(request, MEMBER);
+
+        assertThat(result).isEqualTo(new Result(0, 2, 0, 0, 1, 8));
+        assertThat(checking.getCurrentBalance()).isEqualByComparingTo("3115.66");
+        verify(persistence, times(2)).reconstructSnapshotsFromDb(checking);
+    }
+
+    @Test
+    void aRowMovedToAnotherDateIsNotImportedAgain() {
+        service.executeImport(createEverything(preview()), MEMBER);
+        transactionsByExternalId().get("actual_t-groceries").setDate(LocalDate.of(2030, 6, 1));
+
+        Result second = service.executeImport(createEverything(preview()), MEMBER);
+
+        assertThat(second).isEqualTo(new Result(0, 2, 0, 0, 0, 8));
+        assertThat(transactions).hasSize(8);
+    }
+
+    @Test
+    void lookupsOfStoredRowsAreBatched() {
+        ActualBudgetFixture fixture = ActualBudgetFixture.household();
+        for (int i = 0; i < 1_500; i++) {
+            fixture.tx("t-bulk-" + i, "acc-checking", -100, 20240301, null, "p-market", null, null);
+        }
+
+        service.executeImport(createEverything(preview(fixture)), MEMBER);
+
+        verify(transactionRepository, times(2)).findStoredExternalIds(eq(MEMBER), any());
+        assertThat(transactions).hasSize(1_508);
     }
 
     @Test
@@ -344,8 +399,25 @@ class ActualBudgetImportServiceTest {
     }
 
     private Preview preview() {
-        return service.preview(new MockMultipartFile("file", "budget.zip", "application/zip",
-                ActualBudgetFixture.household().zip()), MEMBER);
+        return preview(ActualBudgetFixture.household());
+    }
+
+    private Preview preview(ActualBudgetFixture fixture) {
+        return service.preview(new MockMultipartFile("file", "budget.zip", "application/zip", fixture.zip()), MEMBER);
+    }
+
+    private static TransactionRepository.StoredExternalId stored(String externalId, Long accountId) {
+        return new TransactionRepository.StoredExternalId() {
+            @Override
+            public String getExternalId() {
+                return externalId;
+            }
+
+            @Override
+            public Long getAccountId() {
+                return accountId;
+            }
+        };
     }
 
     private static Request createEverything(Preview preview) {

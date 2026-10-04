@@ -1144,6 +1144,7 @@
       "createNew": "Create account",
       "targetAccount": "Target account for {{name}}",
       "chooseAccount": "Choose an account",
+      "previouslyImported": "Account created by an earlier Actual import: its balance is recomputed from the imported history.",
       "accountName": "Account name",
       "accountType": "Account type",
       "categories": "Categories",

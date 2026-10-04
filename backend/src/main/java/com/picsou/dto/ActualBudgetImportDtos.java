@@ -16,8 +16,10 @@ import java.util.List;
 public final class ActualBudgetImportDtos {
     private ActualBudgetImportDtos() { }
 
+    /** {@code importedAccountId} is the Picsou account an earlier import created for this source, if any. */
     public record AccountPreview(String sourceId, String name, boolean offBudget, boolean closed,
-                                 AccountType suggestedType, BigDecimal balance, int transactionCount) { }
+                                 AccountType suggestedType, BigDecimal balance, int transactionCount,
+                                 Long importedAccountId) { }
 
     public record CategoryPreview(String sourceId, String name, String groupName, boolean income,
                                   int transactionCount) { }
