@@ -67,8 +67,10 @@ Banking stays as a fallback for the current account.
   (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent + same-currency sum);
   run `.venv/bin/python tests/test_*.py` (anyio, no pytest).
 - `services/revolut-auth/Dockerfile` — Camoufox image (Firefox deps + Xvfb + `camoufox fetch`).
-- `backend/.../adapter/RevolutAdapter.java` — WebClient → sidecar `/sync` (480 s timeout) + a best-effort
-  `/progress` poll side-channel relayed into `SyncProgressService`; maps `401`/`408`/`409`/`503`.
+- `backend/.../adapter/RevolutAdapter.java` — `SidecarWebClientFactory` client → sidecar `/sync` (480 s
+  timeout) + a best-effort `/progress` poll side-channel relayed into `SyncProgressService`; maps
+  `401`/`408`/`409`/`503`. A 401 carrying the `Picsou-Sidecar-Key` challenge is a key mismatch
+  (`SIDECAR_UNAUTHORIZED`), never `SESSION_EXPIRED`.
 - `backend/.../service/sync/SyncProgressService.java` — per-member+provider live progress (single-flight
   guard, phase/countdown/count, + Revolut's harvested-but-unpersisted discovery held in memory between
   discover and confirm). `dto/{SyncProgress,DiscoveredRevolutAccount}.java`, `service/sync/{SyncProvider,

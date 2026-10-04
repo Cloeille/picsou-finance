@@ -48,8 +48,9 @@ dedicated non-root user and is reached by the backend at
 port. Its API is attached to `fortuneo-auth-net`, an internal network shared
 only with the application, while `fortuneo-egress` gives the sidecar outbound
 provider access without exposing that API to the other containers. Custom
-remote sidecar URLs must use HTTPS; HTTP is accepted only for this isolated
-service name or loopback development.
+remote sidecar URLs must use HTTPS; HTTP is accepted only for a single-label
+Compose service name or loopback development, the rule every sidecar adapter
+applies through `SidecarBaseUrl`.
 
 ### Entrypoint (`docker/entrypoint.sh`)
 

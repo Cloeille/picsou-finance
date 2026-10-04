@@ -1,5 +1,7 @@
 package com.picsou.adapter;
 
+import com.picsou.adapter.sidecar.SidecarAuthenticationException;
+import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.service.sync.SyncProgressService;
 import com.sun.net.httpserver.HttpExchange;
@@ -22,16 +24,45 @@ class RevolutAdapterTest {
     @Test
     void sync_sendsAllowLoginFalseToSidecar() throws Exception {
         List<String> bodies = new CopyOnWriteArrayList<>();
+        List<String> keys = new CopyOnWriteArrayList<>();
         try (TestServer server = TestServer.start(exchange -> {
             bodies.add(readBody(exchange));
+            keys.add(exchange.getRequestHeaders().getFirst(SidecarWebClientFactory.API_KEY_HEADER));
             respond(exchange, 200, "{\"accounts\":[]}");
         })) {
-            RevolutAdapter adapter = new RevolutAdapter(server.baseUrl(), mock(SyncProgressService.class));
+            RevolutAdapter adapter = adapter(server);
 
             adapter.sync("+33600000000", "123456", 5L, false);
 
             assertThat(bodies).hasSize(1);
             assertThat(bodies.getFirst()).contains("\"allowLogin\":false");
+            assertThat(keys).containsExactly("test-key");
+        }
+    }
+
+    @Test
+    void sync_reportsARejectedKeyAsADeploymentFaultRatherThanAnExpiredSession() throws Exception {
+        try (TestServer server = TestServer.start(exchange -> {
+            exchange.getResponseHeaders().add("WWW-Authenticate", SidecarWebClientFactory.AUTH_CHALLENGE);
+            respond(exchange, 401, "{\"detail\":\"UNAUTHORIZED\"}");
+        })) {
+            RevolutAdapter adapter = adapter(server);
+
+            assertThatThrownBy(() -> adapter.sync("+33600000000", "123456", 5L))
+                .isInstanceOfSatisfying(SidecarAuthenticationException.class, error ->
+                    assertThat(error.getCode()).isEqualTo(SidecarAuthenticationException.CODE));
+        }
+    }
+
+    @Test
+    void sync_stillMapsTheSidecarsOwnUnchallenged401ToSessionExpired() throws Exception {
+        try (TestServer server = TestServer.start(exchange ->
+            respond(exchange, 401, "{\"error\":\"SESSION_EXPIRED\"}"))) {
+            RevolutAdapter adapter = adapter(server);
+
+            assertThatThrownBy(() -> adapter.sync("+33600000000", "123456", 5L, false))
+                .isInstanceOf(SyncException.class)
+                .hasMessage("SESSION_EXPIRED");
         }
     }
 
@@ -39,12 +70,17 @@ class RevolutAdapterTest {
     void sync_mapsBrowserLaunchFailureToSyncException() throws Exception {
         try (TestServer server = TestServer.start(exchange ->
             respond(exchange, 503, "{\"error\":\"BROWSER_LAUNCH_FAILED\"}"))) {
-            RevolutAdapter adapter = new RevolutAdapter(server.baseUrl(), mock(SyncProgressService.class));
+            RevolutAdapter adapter = adapter(server);
 
             assertThatThrownBy(() -> adapter.sync("+33600000000", "123456", 5L))
                 .isInstanceOf(SyncException.class)
                 .hasMessage("BROWSER_LAUNCH_FAILED");
         }
+    }
+
+    private static RevolutAdapter adapter(TestServer server) {
+        return new RevolutAdapter(
+            new SidecarWebClientFactory("test-key"), server.baseUrl(), mock(SyncProgressService.class));
     }
 
     private static String readBody(HttpExchange exchange) {

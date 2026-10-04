@@ -46,9 +46,10 @@ recorded in the [Fortuneo ADR](../decisions/2026-07-26-fortuneo-isolated-atomic-
 The sidecar is not exposed publicly by Docker Compose. Its inbound interface is
 on a dedicated internal network shared only with the backend; a separate
 sidecar-only egress network lets Chromium reach Fortuneo without making the
-credential-bearing API reachable by the rest of the stack. A custom remote
-sidecar URL must use HTTPS; plain HTTP is accepted only for the isolated
-`fortuneo-auth` service name or loopback development.
+credential-bearing API reachable by the rest of the stack. `FortuneoAdapter`
+builds its client through `SidecarWebClientFactory`, like every other sidecar
+adapter. A custom remote sidecar URL must use HTTPS; plain HTTP is accepted
+only for a single-label Compose service name or loopback development.
 
 ## Authentication and session security
 
