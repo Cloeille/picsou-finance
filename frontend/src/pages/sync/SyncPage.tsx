@@ -18,6 +18,7 @@ import { CorumTab } from './CorumTab'
 import { SofidyTab } from './SofidyTab'
 import { BoursoTab } from './BoursoTab'
 import { FortuneoTab } from './FortuneoTab'
+import { ActualBudgetTab } from './ActualBudgetTab'
 
 export function SyncPage() {
   const { t } = useTranslation()
@@ -43,6 +44,7 @@ export function SyncPage() {
           <TabsTrigger value="amex" className="flex-none">{t('sync.amex.title')}</TabsTrigger>
           <TabsTrigger value="corum" className="flex-none">{t('sync.corum.title')}</TabsTrigger>
           <TabsTrigger value="sofidy" className="flex-none">{t('sync.sofidy.title')}</TabsTrigger>
+          <TabsTrigger value="actual" className="flex-none">{t('sync.actual.title')}</TabsTrigger>
           <TabsTrigger value="finary" className="flex-none">{t('sync.finary.title')}</TabsTrigger>
           <TabsTrigger value="visibility" className="flex-none">{t('sync.visibility.title')}</TabsTrigger>
         </TabsList>
@@ -87,6 +89,9 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="sofidy" className="mt-6">
           <SofidyTab />
+        </TabsContent>
+        <TabsContent value="actual" className="mt-6">
+          <ActualBudgetTab />
         </TabsContent>
         <TabsContent value="finary" className="mt-6">
           <FinaryTab />

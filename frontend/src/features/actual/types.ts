@@ -1,0 +1,77 @@
+import type { Account, AccountType, Category } from '@/types/api'
+
+export interface ActualAccountPreview {
+  sourceId: string
+  name: string
+  offBudget: boolean
+  closed: boolean
+  suggestedType: AccountType
+  balance: number
+  transactionCount: number
+}
+
+export interface ActualCategoryPreview {
+  sourceId: string
+  name: string
+  groupName: string | null
+  income: boolean
+  transactionCount: number
+}
+
+export type ActualTransactionKind = 'REGULAR' | 'TRANSFER' | 'STARTING_BALANCE'
+
+export interface ActualSampleTransaction {
+  sourceId: string
+  accountSourceId: string
+  date: string
+  amount: number
+  payee: string | null
+  notes: string | null
+  categorySourceId: string | null
+  kind: ActualTransactionKind
+}
+
+export interface ActualPreviewResponse {
+  fileToken: string
+  /** The budget's own currency, or null when the file does not record one. */
+  currency: string | null
+  accounts: ActualAccountPreview[]
+  categories: ActualCategoryPreview[]
+  existingAccounts: Account[]
+  existingCategories: Category[]
+  sampleTransactions: ActualSampleTransaction[]
+  totalTransactions: number
+  transferTransactions: number
+}
+
+export type ActualAccountMappingAction = 'CREATE_NEW' | 'MAP_EXISTING' | 'SKIP'
+export interface ActualAccountMapping {
+  sourceId: string
+  action: ActualAccountMappingAction
+  targetAccountId?: number
+  newAccount?: { name: string; type: AccountType; currency: string; color?: string }
+}
+
+export type ActualCategoryMappingAction = 'CREATE_NEW' | 'MAP_EXISTING' | 'UNCATEGORIZED'
+export interface ActualCategoryMapping {
+  sourceId: string
+  action: ActualCategoryMappingAction
+  targetCategoryId?: number
+  name?: string
+}
+
+export interface ActualImportRequest {
+  fileToken: string
+  currency: string
+  accountMappings: ActualAccountMapping[]
+  categoryMappings: ActualCategoryMapping[]
+}
+
+export interface ActualImportResult {
+  accountsCreated: number
+  accountsMapped: number
+  accountsSkipped: number
+  categoriesCreated: number
+  transactionsImported: number
+  transactionsSkipped: number
+}
