@@ -43,9 +43,12 @@ Picsou now handles this with a two-pronged strategy:
    - New column: `account.iban VARCHAR(34)`, added by `V46__account_iban.sql`.
 
 2. **Per-account failure isolation in `fetchBalances()`.** Previously, a single failing account
-   would surface an exception that zeroed the entire balance batch. Failures are now caught
-   per-account: the adapter logs the error and skips that account, letting the rest of the batch
-   succeed. When every account fails, the first failure is rethrown instead: that is a bank- or
+   would surface an exception that zeroed the entire balance batch. Expected per-account failures
+   are now caught: a `SyncException` (every provider-call failure, such as the 404 after a uid
+   rotation, is mapped to it) and a `NumberFormatException` from a malformed balance amount. The
+   adapter logs the error and skips that account, letting the rest of the batch succeed. Any other
+   exception is a bug and propagates, so the scheduled resync marks the requisition `FAILED` instead
+   of saving a partial result. When every account fails, the first failure is rethrown instead: that is a bank- or
    consent-level outage (5xx, 429, expired consent), and an empty list would read upstream as
    "accounts still linking".
 
