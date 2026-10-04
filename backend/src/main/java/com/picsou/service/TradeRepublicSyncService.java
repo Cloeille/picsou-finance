@@ -25,6 +25,7 @@ import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -586,20 +587,31 @@ public class TradeRepublicSyncService {
      * SESSION_EXPIRED through refreshAndRetry using the stored refresh token,
      * which is the normal path for any sync happening hours after auth.
      */
-    public void resyncIfSessionActive(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         Optional<TradeRepublicSession> session = sessionRepository.findByMemberId(memberId);
-        if (session.isEmpty()) return;
+        if (session.isEmpty()) {
+            return new SourceSyncResult("trade-republic", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
+        }
 
         TradeRepublicSession s = session.get();
         try {
             syncWithToken(encryption.decrypt(s.getSessionToken()), s, memberId);
+            return new SourceSyncResult("trade-republic", SourceSyncResult.Status.SYNCED, "");
         } catch (SyncException ex) {
-            // Expected upstream flakiness (expired session, sidecar down) — WARN, as elsewhere.
-            log.warn("Trade Republic auto-sync failed for member {}: {}", memberId, ex.getMessage());
-        } catch (RuntimeException ex) {
-            // Anything else is a bug: the message alone is "null" for an NPE, so log the trace.
-            log.error("Unexpected Trade Republic auto-sync failure for member {}", memberId, ex);
+            // session expired or reauth recognized by this service
+            return new SourceSyncResult("trade-republic", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+        } catch (Exception ex) {
+            return new SourceSyncResult("trade-republic", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
+    }
+
+    public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId); // ignore return
+    }
+
+    private String shortMessage(String msg) {
+        if (msg == null) return "";
+        return msg.length() > 120 ? msg.substring(0, 120) : msg;
     }
 
     // --- Private ---

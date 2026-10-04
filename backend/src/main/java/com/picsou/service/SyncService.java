@@ -11,6 +11,7 @@ import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.RecurringDetectionService;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -280,23 +281,38 @@ public class SyncService {
         log.info("Deleted requisition {}", id);
     }
 
-    /** Retry all FAILED Enable Banking sessions for a member (called by scheduler). */
-    public void retryAllFailed(Long memberId) {
+    public SourceSyncResult retryFailedReporting(Long memberId) {
         List<Requisition> failed = requisitionRepository
             .findByStatusAndMemberIdOrderByCreatedAtDesc(RequisitionStatus.FAILED, memberId);
+        if (failed.isEmpty()) {
+            return new SourceSyncResult("enable-banking-retry", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No FAILED requisition");
+        }
+        boolean hadFailure = false;
         for (Requisition req : failed) {
             try {
                 retrySync(req.getId(), memberId);
             } catch (Exception ex) {
                 log.warn("Scheduled retry failed for {} (requisition #{}): {}",
                     req.getInstitutionName(), req.getId(), ex.getMessage());
+                hadFailure = true;
             }
         }
+        if (hadFailure) {
+            return new SourceSyncResult("enable-banking-retry", SourceSyncResult.Status.FAILED, "One or more retries failed");
+        }
+        return new SourceSyncResult("enable-banking-retry", SourceSyncResult.Status.SYNCED, "");
     }
 
-    /** Re-sync all LINKED requisitions for a specific member (called by scheduler). */
-    public void resyncAll(Long memberId) {
+    public void retryAllFailed(Long memberId) {
+        retryFailedReporting(memberId);
+    }
+
+    public SourceSyncResult resyncAllReporting(Long memberId) {
         List<Requisition> linked = requisitionRepository.findByStatusAndMemberIdOrderByCreatedAtDesc(RequisitionStatus.LINKED, memberId);
+        if (linked.isEmpty()) {
+            return new SourceSyncResult("enable-banking", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No linked requisition");
+        }
+        boolean hadFailure = false;
         for (Requisition req : linked) {
             try {
                 ensureLogoUrl(req);
@@ -314,8 +330,17 @@ public class SyncService {
                 req.setStatus(RequisitionStatus.FAILED);
                 requisitionRepository.save(req);
                 log.warn("Auto-resync failed for {}: {}", req.getInstitutionName(), ex.getMessage());
+                hadFailure = true;
             }
         }
+        if (hadFailure) {
+            return new SourceSyncResult("enable-banking", SourceSyncResult.Status.FAILED, "One or more syncs failed");
+        }
+        return new SourceSyncResult("enable-banking", SourceSyncResult.Status.SYNCED, "");
+    }
+
+    public void resyncAll(Long memberId) {
+        resyncAllReporting(memberId);
     }
 
     /**

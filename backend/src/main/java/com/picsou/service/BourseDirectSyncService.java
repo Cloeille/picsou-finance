@@ -16,6 +16,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -547,27 +548,32 @@ public class BourseDirectSyncService {
         );
     }
 
-    public void resyncIfSessionActive(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                return;
+                return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
             }
             queueSync(memberId);
+            return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.QUEUED, "");
         } catch (ResourceNotFoundException ex) {
-            log.debug("Member disappeared before scheduled Bourse Direct sync (member={})", memberId);
+            return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
-            log.error("Database error during scheduled Bourse Direct sync (member={})", memberId, ex);
+            return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         } catch (SyncException ex) {
-            log.warn(
-                "Could not queue scheduled Bourse Direct sync (member={}; code={})",
-                memberId,
-                codeOf(ex),
-                ex
-            );
-        } catch (RuntimeException ex) {
-            log.error("Unexpected scheduled Bourse Direct sync failure (member={})", memberId, ex);
+            return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+        } catch (Exception ex) {
+            return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
+    }
+
+    public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId); // ignore return
+    }
+
+    private String shortMessage(String msg) {
+        if (msg == null) return "";
+        return msg.length() > 120 ? msg.substring(0, 120) : msg;
     }
 
     private SessionStatusResponse toStatus(BourseDirectSession session) {

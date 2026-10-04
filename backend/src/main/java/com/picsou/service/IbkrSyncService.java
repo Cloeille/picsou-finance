@@ -19,6 +19,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.IbkrConnectionRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -143,21 +144,29 @@ public class IbkrSyncService {
      * Spring throws {@code UnexpectedRollbackException} at THIS method's proxy exit,
      * after the catch below. Call sites must wrap accordingly (SchedulerService does).
      */
-    public void resyncIfConnected(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
             Optional<IbkrConnection> connection = connectionRepository.findByMemberId(memberId);
             if (connection.isEmpty()) {
-                return;
+                return new SourceSyncResult("ibkr", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No connection");
             }
             syncWithConnection(connection.get(), memberId);
+            return new SourceSyncResult("ibkr", SourceSyncResult.Status.SYNCED, "");
         } catch (SyncException ex) {
-            // Expected operational failures (expired token, IBKR down, non-EUR guard):
-            // the message is the whole story, status is already ERROR.
-            log.warn("IBKR auto-sync failed for member {}: {}", memberId, ex.getMessage());
-        } catch (RuntimeException ex) {
-            // Anything else is a bug or infrastructure problem — keep the stack trace.
-            log.error("IBKR auto-sync hit an unexpected error for member {}", memberId, ex);
+            // expired token or reauth recognized
+            return new SourceSyncResult("ibkr", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+        } catch (Exception ex) {
+            return new SourceSyncResult("ibkr", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
+    }
+
+    public void resyncIfConnected(Long memberId) {
+        resyncReporting(memberId); // ignore return
+    }
+
+    private String shortMessage(String msg) {
+        if (msg == null) return "";
+        return msg.length() > 120 ? msg.substring(0, 120) : msg;
     }
 
     private List<AccountResponse> syncWithConnection(IbkrConnection connection, Long memberId) {

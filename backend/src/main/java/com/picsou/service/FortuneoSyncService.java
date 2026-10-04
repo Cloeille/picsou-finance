@@ -19,6 +19,7 @@ import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.FortuneoSessionRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -937,27 +938,32 @@ public class FortuneoSyncService {
         );
     }
 
-    public void resyncIfSessionActive(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                return;
+                return new SourceSyncResult("fortuneo", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
             }
             queueSync(memberId);
+            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.QUEUED, "");
         } catch (ResourceNotFoundException ex) {
-            log.debug("Member disappeared before scheduled Fortuneo sync (member={})", memberId);
+            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
-            log.error("Database error during scheduled Fortuneo sync (member={})", memberId, ex);
+            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         } catch (SyncException ex) {
-            log.warn(
-                "Could not queue scheduled Fortuneo sync (member={}; code={})",
-                memberId,
-                codeOf(ex),
-                ex
-            );
-        } catch (RuntimeException ex) {
-            log.error("Unexpected scheduled Fortuneo sync failure (member={})", memberId, ex);
+            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+        } catch (Exception ex) {
+            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
+    }
+
+    public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId); // ignore return
+    }
+
+    private String shortMessage(String msg) {
+        if (msg == null) return "";
+        return msg.length() > 120 ? msg.substring(0, 120) : msg;
     }
 
     private SessionStatusResponse toStatus(FortuneoSession session) {

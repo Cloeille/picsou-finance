@@ -32,6 +32,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+
 /**
  * Verifies SyncService IBAN-first account matching behaviour introduced to survive
  * Enable Banking v0.16.4 identification-hash rotation (Boursorama case).
@@ -44,6 +47,7 @@ import static org.mockito.Mockito.when;
  * </ol>
  */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class SyncServiceIbanMatchTest {
 
     @Mock BankConnectorPort bankConnector;

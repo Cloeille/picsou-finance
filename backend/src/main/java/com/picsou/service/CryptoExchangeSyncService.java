@@ -13,6 +13,7 @@ import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CryptoExchangePositionRepository;
 import com.picsou.repository.CryptoExchangeSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -286,15 +287,33 @@ public class CryptoExchangeSyncService {
         log.info("Removed exchange session {} and soft-deleted its account", sessionId);
     }
 
-    public void resyncAll(Long memberId) {
+    public SourceSyncResult resyncAllReporting(Long memberId) {
         List<CryptoExchangeSession> sessions = sessionRepository.findAllByMemberId(memberId);
-        for (CryptoExchangeSession session : sessions) {
-            try {
-                sync(session.getId(), memberId);
-            } catch (Exception ex) {
-                log.warn("Crypto exchange resync failed for {}: {}", session.getExchangeType(), ex.getMessage());
-            }
+        if (sessions.isEmpty()) {
+            return new SourceSyncResult("crypto-exchanges", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No connected exchange");
         }
+        try {
+            // logic from original resyncAll, wrapped
+            for (CryptoExchangeSession session : sessions) {
+                try {
+                    sync(session.getId(), memberId);
+                } catch (Exception ex) {
+                    log.warn("Crypto exchange resync failed for {}: {}", session.getExchangeType(), ex.getMessage());
+                }
+            }
+            return new SourceSyncResult("crypto-exchanges", SourceSyncResult.Status.SYNCED, "");
+        } catch (Exception ex) {
+            return new SourceSyncResult("crypto-exchanges", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
+        }
+    }
+
+    public void resyncAll(Long memberId) {
+        resyncAllReporting(memberId);
+    }
+
+    private String shortMessage(String msg) {
+        if (msg == null) return "";
+        return msg.length() > 120 ? msg.substring(0, 120) : msg;
     }
 
     /**

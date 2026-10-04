@@ -20,6 +20,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -282,6 +283,33 @@ public class DegiroSyncService {
         accountService.upsertSnapshot(account, totalValueEur, LocalDate.now());
 
         return accountService.toResponse(account);
+    }
+
+    public SourceSyncResult userSyncReporting(Long memberId) {
+        Optional<DegiroSession> sessionOpt = sessionRepository.findByMemberId(memberId);
+        if (sessionOpt.isEmpty()) {
+            return new SourceSyncResult("degiro", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No session");
+        }
+        DegiroSession s = sessionOpt.get();
+        if (s.getStatus() == DegiroSessionStatus.REAUTH_REQUIRED) {
+            return new SourceSyncResult("degiro", SourceSyncResult.Status.NEEDS_REAUTH, "Reauth required");
+        }
+        if (s.getStatus() != DegiroSessionStatus.ACTIVE) {
+            return new SourceSyncResult("degiro", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Session not active");
+        }
+        try {
+            sync(memberId);
+            return new SourceSyncResult("degiro", SourceSyncResult.Status.SYNCED, "");
+        } catch (DegiroSessionExpiredException ex) {
+            return new SourceSyncResult("degiro", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+        } catch (Exception ex) {
+            return new SourceSyncResult("degiro", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
+        }
+    }
+
+    private String shortMessage(String msg) {
+        if (msg == null) return "";
+        return msg.length() > 120 ? msg.substring(0, 120) : msg;
     }
 
     // ─── Response records ─────────────────────────────────────────────────────

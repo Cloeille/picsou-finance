@@ -21,6 +21,7 @@ import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.sync.SyncProgressService;
 import com.picsou.service.sync.SyncProvider;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -368,17 +369,31 @@ public class RevolutSyncService {
      * for a voluntary reconnect, or it would silently resurrect accounts the user deliberately
      * deleted. See docs/lessons/soft-delete-resurrection-guard-voluntary-reconnect.md.
      */
-    public void resyncIfSessionActive(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         Optional<RevolutSession> session = sessionRepository.findByMemberId(memberId);
         if (session.isEmpty() || !session.get().isRememberCredentials()) {
-            return;
+            return new SourceSyncResult("revolut", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No remembered credentials");
         }
 
         try {
             sync(memberId, null, null, true, false);
+            return new SourceSyncResult("revolut", SourceSyncResult.Status.SYNCED, "");
+        } catch (SyncException ex) {
+            // session expired or reauth recognized by this service
+            return new SourceSyncResult("revolut", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
         } catch (Exception ex) {
-            log.warn("Revolut auto-sync failed for member {}: {}", memberId, ex.getMessage());
+            return new SourceSyncResult("revolut", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
         }
+    }
+
+    public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId); // ignore return; no rethrow to keep existing callers/tests
+    }
+
+    private String shortMessage(String msg) {
+        if (msg == null) return "";
+        // keep short, secrets already avoided in getMessage paths
+        return msg.length() > 120 ? msg.substring(0, 120) : msg;
     }
 
     // ─── Credentials (optional, member opt-in) ───────────────────────────────────
