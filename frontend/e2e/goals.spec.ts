@@ -83,6 +83,6 @@ test.describe('Goals page', () => {
     await expect(page.getByText("Taux d'épargne")).toBeVisible()
     // The benchmark is indicative only, so it is quoted in a tooltip rather than as a verdict.
     await page.getByRole('button', { name: 'À propos de la moyenne française' }).hover()
-    await expect(page.getByRole('tooltip')).toContainText('ménages en France')
+    await expect(page.getByRole('tooltip')).toContainText(/ménages en France.*17[.,]5\s%/)
   })
 })
