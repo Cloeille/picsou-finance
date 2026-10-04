@@ -45,7 +45,9 @@ Picsou now handles this with a two-pronged strategy:
 2. **Per-account failure isolation in `fetchBalances()`.** Previously, a single failing account
    would surface an exception that zeroed the entire balance batch. Failures are now caught
    per-account: the adapter logs the error and skips that account, letting the rest of the batch
-   succeed.
+   succeed. When every account fails, the first failure is rethrown instead: that is a bank- or
+   consent-level outage (5xx, 429, expired consent), and an empty list would read upstream as
+   "accounts still linking".
 
 3. **Missing currency tolerance.** Some ASPSPs omit the per-account currency field. The adapter now
    defaults to `EUR` rather than throwing, matching the most common case for French current accounts.
