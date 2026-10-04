@@ -12,7 +12,7 @@ A setup token is a Base64-encoded claim URL. Picsou POSTs it once and receives a
 
 Sync calls `GET /accounts?version=2&start-date=` with the credentials in an `Authorization` header, not in the request URI. Each account becomes a Picsou account with provider `SimpleFIN` and external id `sfin_{connId}_{accountId}`. The institution's `org_name` is prefixed onto the account name (`Chase — Checking`). The connection `name` often includes the member and is only used when `org_name` is absent. A name containing "saving" or "épargne" is stored as `SAVINGS`; everything else is `CHECKING`. The reported balance is snapshotted in EUR through the existing FX path. Posted transactions from the same response go through `BankTransactionImportService.importProvided`, which dedups on the provider id and cuts a description longer than 255 characters to fit the ledger column. The download always asks for the shared history window, clamped to 89 days because the bridge rejects an inclusive 90-day span. Every account shares that one response; rows already stored are dropped.
 
-The claim URL and the access URL must be public HTTPS. Loopback, link-local, private, carrier-grade NAT (`100.64.0.0/10`), "this network" (`0.0.0.0/8`), and NAT64 (`64:ff9b::/96`) literals are refused, as are the names `localhost` and `metadata.google.internal`. Redirects are refused. A hostname that merely resolves to a private address is not blocked. A literal `+` in the access username or password stays a plus. Response bodies are capped while they are read (8 KiB for a claim, 2 MiB for accounts).
+The claim URL and the access URL must be https. Picsou fetches the host the member pasted and does not inspect whether that host is private. Redirects are refused, because the next URL would be chosen by the remote server. A literal `+` in the access username or password stays a plus. Response bodies are capped while they are read (8 KiB for a claim, 2 MiB for accounts).
 
 Connect stores the access URL even when the first download fails, because the setup token cannot be claimed twice. A later Sync retries it. HTTP 403 on sync means the access was revoked. Disconnect deletes the connection row and leaves the accounts. Deleting the last SimpleFIN account also deletes the connection, same rule as the other connectors.
 
@@ -63,7 +63,7 @@ upsert Account + EUR snapshot + ledger rows
 
 ## Tests
 
-- `SimplefinClientTest` — claim URL rejection including IPv6 loopback, CGNAT, and NAT64, a literal `+` kept in the access password, Basic auth without userinfo in the URI, pending rows dropped, an unusable posted date dropped, a hashed account id keeping `sfin_`, partial errors, 402, 403 and redirects
+- `SimplefinClientTest` — a non-https claim is refused, a literal `+` kept in the access password, Basic auth without userinfo in the URI, pending rows dropped, an unusable posted date dropped, a hashed account id keeping `sfin_`, partial errors, 402, 403 and redirects
 - `SimplefinSyncServiceTest` — upsert, savings vs checking, non-ISO skip, balance that does not fit the ledger, soft-delete skip, error status, name cut on a character boundary
 - `BankTransactionImportServiceTest` — a description longer than the ledger column is stored clipped, a repeated id and an oversized amount are dropped, a second import of the same id inserts nothing
 - `AccountConnectionServiceTest` — the connection is removed only with its last account

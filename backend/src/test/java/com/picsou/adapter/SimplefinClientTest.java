@@ -154,31 +154,11 @@ class SimplefinClientTest {
     }
 
     @Test
-    void privateAndNonHttpsClaimUrlsNeverLeaveTheProcess() {
+    void aClaimThatIsNotHttpsNeverLeavesTheProcess() {
         assertRejected(token("http://bridge.simplefin.org/simplefin/claim/abc"));
-        assertRejected(token("https://localhost/simplefin/claim/abc"));
-        assertRejected(token("https://127.0.0.1/simplefin/claim/abc"));
-        assertRejected(token("https://[::1]/simplefin/claim/abc"));
-        assertRejected(token("https://10.1.2.3/simplefin/claim/abc"));
-        assertRejected(token("https://192.168.0.5/simplefin/claim/abc"));
-        assertRejected(token("https://169.254.169.254/latest"));
-        assertRejected(token("https://0.1.2.3/simplefin/claim/abc"));
-        assertRejected(token("https://100.64.0.1/simplefin/claim/abc"));
-        assertRejected(token("https://100.127.255.255/simplefin/claim/abc"));
-        assertRejected(token("https://[64:ff9b::7f00:1]/simplefin/claim/abc"));
         assertRejected(token("https://user:pass@bridge.simplefin.org/simplefin/claim/abc"));
         assertRejected("not base64!!!");
         assertThat(transport.calls).isZero();
-    }
-
-    @Test
-    void aPublicAddressOutsideThoseRangesIsAccepted() {
-        assertThat(SimplefinUrls.claimUri(token("https://8.8.8.8/simplefin/claim/abc")).getHost())
-            .isEqualTo("8.8.8.8");
-        assertThat(SimplefinUrls.claimUri(token("https://100.128.0.1/simplefin/claim/abc")).getHost())
-            .isEqualTo("100.128.0.1");
-        assertThat(SimplefinUrls.claimUri(token("https://[64:ff9b:1::1]/simplefin/claim/abc")).getHost())
-            .contains("64:ff9b:1");
     }
 
     @Test
