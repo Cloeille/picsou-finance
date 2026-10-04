@@ -74,7 +74,9 @@ public class AccountTools {
         return accountService.getHistory(accountId, userContext.currentMemberId(), from, to);
     }
 
-    @Tool(name = "get_account_deletion_impact", description = "Ask before a destructive delete_account; returns what connection would be removed (if any) but does not delete.")
+    @Tool(name = "get_account_deletion_impact", description = "Ask before a destructive delete_account; "
+        + "previews what connection would be removed (if any) but does not delete. A prediction: "
+        + "delete_account returns what was actually removed.")
     @RequiresScope(Scopes.ACCOUNTS_READ)
     public DeletionImpact getAccountDeletionImpact(
         @ToolParam(description = "The account id") Long accountId) {
@@ -114,7 +116,8 @@ public class AccountTools {
     @Tool(name = "delete_account", description = "Delete (soft-delete) an account of the authenticated member. "
         + "This also supports synced accounts. If it was the last account on its connection, saved "
         + "sessions/credentials and that connection are removed; this can delete an IBKR connection "
-        + "or Enable Banking requisition. Returns the actual DeletionImpact (or null label).")
+        + "or Enable Banking requisition. Returns the actual DeletionImpact: removesConnection is true only "
+        + "when something was removed (otherwise false with a null label).")
     @RequiresScope(Scopes.ACCOUNTS_WRITE)
     public DeletionImpact deleteAccount(
         @ToolParam(description = "The account id") Long accountId) {

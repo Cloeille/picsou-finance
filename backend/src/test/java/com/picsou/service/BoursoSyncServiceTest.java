@@ -73,6 +73,27 @@ class BoursoSyncServiceTest {
     }
 
     @Test
+    void clearSessionReportsTheSessionItDeleted() {
+        BoursoSession session = activeSession(member());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+
+        assertThat(service.clearSession(7L)).isTrue();
+        verify(sessionRepository).delete(session);
+    }
+
+    /** A 2FA login still in flight never became a connection, so dropping it removes nothing. */
+    @Test
+    void clearSessionReportsNothingWhenOnlyAPendingLoginExists() {
+        when(port.initiateAuth("12345678", "123456"))
+            .thenReturn(new BoursoPort.InitiateResult("p1", true, "APP_PUSH", null));
+        service.initiateAuth("12345678", "123456", 7L);
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+
+        assertThat(service.clearSession(7L)).isFalse();
+        verify(sessionRepository, never()).delete(any());
+    }
+
+    @Test
     void queueSync_writesEveryAccountWithItsOwnEnvelope() {
         arrangeCommittableSync(checkingAccount(), savingsAccount(), peaAccount());
 

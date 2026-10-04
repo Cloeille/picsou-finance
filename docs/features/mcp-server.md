@@ -1,6 +1,6 @@
 # Feature: Embedded MCP server + scoped access-keys
 
-> Last updated: 2026-06-26
+> Last updated: 2026-10-04
 
 ## Context
 
@@ -114,10 +114,13 @@ With `accounts:write`, `delete_account` can soft-delete both manual and synced a
 the last account on a connection also removes that connection: it can clear stored provider
 sessions/credentials, remove a wallet or exchange connection, delete an IBKR connection, or delete
 an Enable Banking requisition. A connection still used by another live account is kept.
-The tool returns the `DeletionImpact` from the deletion service's cleanup decision in the same
-transaction, with the removed connection's label (or `false` / `null` if the connection is kept).
-`get_account_deletion_impact` requires only `accounts:read` and makes no changes; its preview can
-become stale before deletion, so callers should report the result returned by `delete_account`.
+The tool returns the `DeletionImpact` of what the deletion actually removed, in the same
+transaction: the removed connection's label, or `false` / `null` when the connection is kept or
+there was nothing left to remove (wallet row or exchange session already gone, unknown exchange
+type, no stored session).
+`get_account_deletion_impact` requires only `accounts:read` and makes no changes. It is a preview,
+a prediction that can become stale before deletion, so callers should report the result returned
+by `delete_account`.
 
 | Scope | Tools |
 |-------|-------|

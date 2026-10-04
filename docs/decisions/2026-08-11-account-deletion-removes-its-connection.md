@@ -30,8 +30,9 @@ Deleting an account also removes its connection, once no live account is left on
 connection. `AccountConnectionService` owns the rule; `AccountController.delete` and the MCP `delete_account` tool go through it
 rather than through `AccountService.delete`.
 
-`deleteAccount` returns the `DeletionImpact` of its cleanup decision in the same transaction.
-It captures the connection label before removing the connection. The MCP tool returns that
+`deleteAccount` returns the `DeletionImpact` of what it actually removed in the same transaction:
+a removal is reported only when a wallet row, exchange session, stored session or requisition was
+there to delete. It captures the connection label before removing the connection. The MCP tool returns that
 result directly; the REST delete keeps its existing no-content response. `describeDeletion`
 remains a separate read-only preview for confirmation, which can become stale before deletion
 and must not be reported as the applied result.
@@ -92,9 +93,13 @@ Enable Banking requisition costs a full OAuth round trip through the bank.
 ## Consequences
 
 - `AccountConnectionService` is the only caller of the connectors' removal methods on this path
-  (`removeWallet`, `removeExchange`, each `clearSession`, `deleteConnection`,
-  `deleteRequisition`). It sits outside `AccountService` because the connectors already depend
-  on it, and calling them from there would close a Spring dependency cycle.
+  (`removeWallet`, `removeExchange`, each `clearSession`, `deleteConnection`). It sits outside
+  `AccountService` because the connectors already depend on it, and calling them from there
+  would close a Spring dependency cycle.
+- An Enable Banking requisition is removed with a single member-scoped `DELETE` that returns
+  its row count, not through `SyncService.deleteRequisition`. That method throws when the
+  requisition is missing. A requisition deleted concurrently from the sync page would then roll
+  back the whole account deletion. With the count, it just reports that nothing was removed.
 - Deletion order is fixed: the account is soft-deleted first, so a connector running
   concurrently finds the soft-deleted row and refuses to rebuild it rather than racing the
   removal.

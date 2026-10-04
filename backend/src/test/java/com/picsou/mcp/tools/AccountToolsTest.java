@@ -168,12 +168,11 @@ class AccountToolsTest {
         com.picsou.service.FortuneoSyncService fortuneoSyncService = mock(com.picsou.service.FortuneoSyncService.class);
         com.picsou.service.DegiroSyncService degiroSyncService = mock(com.picsou.service.DegiroSyncService.class);
         com.picsou.service.IbkrSyncService ibkrSyncService = mock(com.picsou.service.IbkrSyncService.class);
-        com.picsou.service.SyncService syncService = mock(com.picsou.service.SyncService.class);
         AccountConnectionService realService = new AccountConnectionService(
             accountRepository, accountServiceForConn, walletRepository, exchangeSessionRepository,
             requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
-            fortuneoSyncService, degiroSyncService, ibkrSyncService, syncService);
+            fortuneoSyncService, degiroSyncService, ibkrSyncService);
         return new RealServiceFixture(realService, accountRepository, accountServiceForConn,
             boursoSyncService, tradeRepublicSyncService);
     }
@@ -187,6 +186,7 @@ class AccountToolsTest {
         boursoAccount.setExternalAccountId("bourso_123");
         when(fixture.accountRepository().findByIdAndMemberId(5L, MID)).thenReturn(java.util.Optional.of(boursoAccount));
         when(fixture.accountRepository().findAllByMemberIdOrderByCreatedAtAsc(MID)).thenReturn(java.util.List.of(boursoAccount));
+        when(fixture.boursoSyncService().clearSession(MID)).thenReturn(true);
         AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service());
         DeletionImpact impact = toolsWithReal.deleteAccount(5L);
         assertThat(impact.removesConnection()).isTrue();
@@ -242,6 +242,7 @@ class AccountToolsTest {
             liveAccounts.set(List.of(cash));
             return null;
         }).when(fixture.accountService()).delete(5L, MID);
+        when(fixture.tradeRepublicSyncService().clearSession(MID)).thenReturn(true);
         AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service());
 
         DeletionImpact impact = toolsWithReal.deleteAccount(5L);
