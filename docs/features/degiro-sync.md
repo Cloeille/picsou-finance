@@ -119,6 +119,7 @@ position. Holdings that resolve to the same ticker are merged with
 | No scheduled background resync | Session lifetime (~30 min) makes a daily job pointless without a stored secret | Wiring into `SchedulerService` like every other integration |
 | Single fixed-ID account per member | DEGIRO's unofficial API exposes one portfolio per login | Per-sub-account modeling (not exposed by the API used here) |
 | Sidecar resolves ISIN before Java sees positions | Reuses the sidecar-owns-provider-quirks pattern; Java stays a typed contract | Passing raw `productId` to Java and resolving there |
+| Shared `APP_SIDECAR_API_KEY` on every route except `/health`, checked before routing; missing key refuses startup | Same contract as every `*-auth` sidecar, see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key) | Trusting the Compose network alone |
 
 ## Known limitations
 

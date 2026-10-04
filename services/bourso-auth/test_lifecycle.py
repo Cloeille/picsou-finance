@@ -6,9 +6,11 @@ those is how a sidecar dies of memory rather than of a bug.
 
 import time
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+import main
 from main import (
     MAX_PENDING,
     PENDING_TTL_SECONDS,
@@ -102,7 +104,10 @@ class PendingAuthenticationLifecycleTest(unittest.IsolatedAsyncioTestCase):
 
 class ContractTest(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(app)
+        key_patch = patch.object(main, "SIDECAR_API_KEY", "test-key")
+        key_patch.start()
+        self.addCleanup(key_patch.stop)
+        self.client = TestClient(app, headers={"X-Picsou-Sidecar-Key": "test-key"})
 
     def test_health_is_unauthenticated(self):
         self.assertEqual(self.client.get("/health").json(), {"status": "ok"})

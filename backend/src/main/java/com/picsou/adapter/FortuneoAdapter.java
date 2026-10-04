@@ -3,6 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.port.FortuneoErrorCode;
 import com.picsou.port.FortuneoPort;
@@ -15,12 +16,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
-import java.net.URI;
 import java.time.Duration;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeoutException;
 
 @Component
@@ -28,9 +26,6 @@ public class FortuneoAdapter implements FortuneoPort {
     private static final Logger log = LoggerFactory.getLogger(FortuneoAdapter.class);
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
     private static final Duration DEFAULT_PORTFOLIO_TIMEOUT = Duration.ofSeconds(120);
-    private static final Set<String> TRUSTED_HTTP_HOSTS = Set.of(
-        "fortuneo-auth", "localhost", "127.0.0.1", "::1", "[::1]"
-    );
 
     private final WebClient client;
     private final ObjectMapper objectMapper;
@@ -39,36 +34,15 @@ public class FortuneoAdapter implements FortuneoPort {
 
     @Autowired
     public FortuneoAdapter(
+        SidecarWebClientFactory clients,
         @Value("${app.fortuneo-auth.url:http://fortuneo-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            WebClient.builder().baseUrl(validateBaseUrl(url)).build(),
+            clients.create("Fortuneo", url),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_PORTFOLIO_TIMEOUT
-        );
-    }
-
-    private static String validateBaseUrl(String url) {
-        URI uri;
-        try {
-            uri = URI.create(url);
-        } catch (IllegalArgumentException ex) {
-            throw new IllegalArgumentException("Invalid Fortuneo sidecar URL", ex);
-        }
-        String scheme = uri.getScheme();
-        String host = uri.getHost();
-        if ("https".equalsIgnoreCase(scheme)) {
-            return url;
-        }
-        if ("http".equalsIgnoreCase(scheme)
-            && host != null
-            && TRUSTED_HTTP_HOSTS.contains(host.toLowerCase(Locale.ROOT))) {
-            return url;
-        }
-        throw new IllegalArgumentException(
-            "Fortuneo sidecar URL must use HTTPS unless it targets the isolated Compose service or loopback"
         );
     }
 
