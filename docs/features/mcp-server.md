@@ -143,7 +143,7 @@ real-estate summary) need `analysis:read`, a scope separate from `accounts:read`
 summary-only scope: each tool returns the same payload as its analysis page, so granting it shares
 everything those pages show. That includes account names and current values, position lines
 (ticker, name, account, value), flow figures derived from transactions (net contributions per
-account, average monthly spending, declared essential expenses) and full property and loan details
+account, average monthly spending), the essential expenses the member declared and full property and loan details
 (names, city, costs, rents, area, SCPI manager and shares, lender, monthly payment, end date). It
 returns no individual transaction and no balance history. Tools that take an account id read one account, so they stay under
 `accounts:read` like `get_account_holdings`. An account of another member gets the same not-found
