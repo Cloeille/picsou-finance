@@ -1407,6 +1407,10 @@
         "label": "Transacciones presupuestadas",
         "desc": "Cambiar la categoría de las transacciones"
       },
+      "budget_recurring-write": {
+        "label": "Suscripciones recurrentes",
+        "desc": "Confirmar, ignorar, declarar, editar y eliminar series recurrentes; volver a ejecutar la detección"
+      },
       "budget_envelopes-write": {
         "label": "Sobres de presupuesto",
         "desc": "Crear, editar y eliminar sobres de presupuesto"

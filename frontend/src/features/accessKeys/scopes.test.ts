@@ -51,6 +51,7 @@ describe('scopeGroup', () => {
       'budget:categories-write',
       'budget:rules-write',
       'budget:transactions-write',
+      'budget:recurring-write',
       'budget:envelopes-write',
     ]) {
       expect(scopeGroup(s)).toBe('write')
@@ -92,6 +93,7 @@ describe('scope vocabulary', () => {
         'budget:categories-write',
         'budget:rules-write',
         'budget:transactions-write',
+        'budget:recurring-write',
         'budget:envelopes-write',
       ].sort(),
     )
@@ -133,6 +135,7 @@ describe('scope vocabulary', () => {
         'budget:categories-write',
         'budget:rules-write',
         'budget:transactions-write',
+        'budget:recurring-write',
         'budget:envelopes-write',
       ].sort(),
     )

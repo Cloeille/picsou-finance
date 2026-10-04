@@ -1679,6 +1679,10 @@
         "label": "Budgeted transactions",
         "desc": "Change transactions' category"
       },
+      "budget_recurring-write": {
+        "label": "Recurring subscriptions",
+        "desc": "Confirm, ignore, declare, edit and delete recurring series; re-run detection"
+      },
       "budget_envelopes-write": {
         "label": "Budget envelopes",
         "desc": "Create, edit and delete budget envelopes"

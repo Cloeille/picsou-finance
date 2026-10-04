@@ -17,7 +17,7 @@ class ScopesTest {
             "oauth2:discover", "oauth2:session-status",
             "accounts:write", "transactions:write", "goals:write", "sync:trigger",
             "budget:categories-write", "budget:rules-write", "budget:transactions-write",
-            "budget:envelopes-write"
+            "budget:recurring-write", "budget:envelopes-write"
         );
     }
 
@@ -33,5 +33,6 @@ class ScopesTest {
         assertThat(Scopes.ACCOUNTS_READ).isEqualTo("accounts:read");
         assertThat(Scopes.TRANSACTIONS_WRITE).isEqualTo("transactions:write");
         assertThat(Scopes.SYNC_TRIGGER).isEqualTo("sync:trigger");
+        assertThat(Scopes.BUDGET_RECURRING_WRITE).isEqualTo("budget:recurring-write");
     }
 }
