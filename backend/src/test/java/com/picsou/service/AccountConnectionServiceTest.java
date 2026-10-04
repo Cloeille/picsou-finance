@@ -81,11 +81,12 @@ class AccountConnectionServiceTest {
     @Test
     void deletingAWalletAccountRemovesTheWallet() {
         given(account(10L, "wallet_bitcoin_2"));
-        WalletAddress wallet = WalletAddress.builder().id(2L).chain(Chain.BITCOIN).address("bc1q").build();
+        WalletAddress wallet = WalletAddress.builder().id(2L).chain(Chain.BITCOIN).address("bc1q").label("Ledger BTC").build();
         when(walletRepository.findByIdAndMemberId(2L, MEMBER_ID)).thenReturn(Optional.of(wallet));
 
-        service().deleteAccount(10L, MEMBER_ID);
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
 
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(true, "Ledger BTC"));
         verify(accountService).delete(10L, MEMBER_ID);
         verify(walletSyncService).removeWallet(2L, MEMBER_ID);
     }
@@ -153,8 +154,9 @@ class AccountConnectionServiceTest {
     void keepsTheTradeRepublicSessionWhileTheOtherHalfRemains() {
         given(account(10L, "tr_cash"), account(11L, "tr_securities"));
 
-        service().deleteAccount(10L, MEMBER_ID);
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
 
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
         verify(tradeRepublicSyncService, never()).clearSession(anyLong());
     }
 
@@ -205,8 +207,9 @@ class AccountConnectionServiceTest {
     void deletesAccountsWithNoConnectionWithoutTouchingAnyConnector() {
         given(account(10L, null));
 
-        service().deleteAccount(10L, MEMBER_ID);
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
 
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
         verify(accountService).delete(10L, MEMBER_ID);
         verify(walletSyncService, never()).removeWallet(anyLong(), anyLong());
         verify(syncService, never()).deleteRequisition(anyLong(), anyLong());
@@ -280,6 +283,22 @@ class AccountConnectionServiceTest {
 
         assertThat(service().describeDeletion(10L, MEMBER_ID).connectionLabel())
             .isEqualTo("Boursorama Banque");
+    }
+
+    @Test
+    void deletingLastBankAccountReturnsItsInstitutionBeforeRemovingTheRequisition() {
+        Account target = account(10L, "uuid-a");
+        target.setRequisitionId(3L);
+        given(target);
+        when(requisitionRepository.findByIdAndMemberId(3L, MEMBER_ID)).thenReturn(Optional.of(
+            Requisition.builder().id(3L).institutionName("Boursorama Banque").build()));
+
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
+
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(true, "Boursorama Banque"));
+        var inOrder = org.mockito.Mockito.inOrder(requisitionRepository, syncService);
+        inOrder.verify(requisitionRepository).findByIdAndMemberId(3L, MEMBER_ID);
+        inOrder.verify(syncService).deleteRequisition(3L, MEMBER_ID);
     }
 
     /** Reading the impact must not change anything — it backs a dialog the user may cancel. */

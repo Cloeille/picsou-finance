@@ -44,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a sold position is written at a zero balance even when no withdrawal price is
   published for it.
 
+### Fixed
+
+- **Deleting an account through the MCP assistant now also disconnects the bank, wallet or broker when it was the last account on that connection, and says which one.** ([#176](https://github.com/Cloeille/picsou-finance/issues/176))
+
 
 ## [1.1.0] — 2026-06-09
 

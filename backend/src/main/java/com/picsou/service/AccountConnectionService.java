@@ -54,7 +54,7 @@ public class AccountConnectionService {
 
     public enum Kind { WALLET, EXCHANGE, AMUNDI, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, DEGIRO, ENABLE_BANKING }
 
-    /** What deleting an account is about to cost, for the confirmation dialog. */
+    /** What deleting an account would cost in a preview, or what it actually removed. */
     public record DeletionImpact(boolean removesConnection, String connectionLabel) {}
 
     private final AccountRepository accountRepository;
@@ -113,15 +113,21 @@ public class AccountConnectionService {
      * <p>Order matters: the account is deleted first so a connector that runs concurrently
      * finds the soft-deleted row and refuses to rebuild it, rather than racing the removal.
      */
-    public void deleteAccount(Long accountId, Long memberId) {
+    public DeletionImpact deleteAccount(Long accountId, Long memberId) {
         Account account = accountRepository.findByIdAndMemberId(accountId, memberId)
             .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
         Optional<ConnectionRef> connection = resolve(account);
 
         accountService.delete(accountId, memberId);
 
-        connection.filter(ref -> !hasOtherLiveAccount(ref, accountId, memberId))
-            .ifPresent(ref -> removeConnection(ref, memberId));
+        if (connection.isEmpty() || hasOtherLiveAccount(connection.get(), accountId, memberId)) {
+            return new DeletionImpact(false, null);
+        }
+
+        ConnectionRef ref = connection.get();
+        String connectionLabel = label(ref, account, memberId);
+        removeConnection(ref, memberId);
+        return new DeletionImpact(true, connectionLabel);
     }
 
     /** Whether deleting this account would also remove its connection, and which one. */

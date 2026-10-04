@@ -8,6 +8,8 @@ import com.picsou.mcp.RequiresScope;
 import com.picsou.mcp.Scopes;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
+import com.picsou.service.AccountConnectionService;
+import com.picsou.service.AccountConnectionService.DeletionImpact;
 import com.picsou.service.AccountService;
 import com.picsou.service.UserContext;
 import org.springframework.ai.tool.annotation.Tool;
@@ -21,19 +23,23 @@ import java.util.List;
 /**
  * MCP tools over a member's accounts, holdings, and balance history. Every method resolves the
  * authenticated key owner's member via {@link UserContext} and delegates to the already
- * member-scoped {@link AccountService}; an access-key can therefore only ever touch its own
- * owner's accounts. Writes are restricted to <em>manual</em> accounts — {@link #createManualAccount}
- * always sets {@code isManual=true}; synced bank/broker/crypto accounts are managed by their sync.
+ * member-scoped services (AccountService or AccountConnectionService); an access-key can therefore only ever touch its own
+ * owner's accounts. Account creation is restricted to <em>manual</em> accounts —
+ * {@link #createManualAccount} always sets {@code isManual=true}. Deletion also supports synced accounts and can remove saved
+ * sessions/credentials, an IBKR connection, or an Enable Banking requisition when it is the last
+ * account. These tools neither create nor expose credentials and do not run authentication flows.
  */
 @Component
 public class AccountTools {
 
     private final AccountService accountService;
     private final UserContext userContext;
+    private final AccountConnectionService accountConnectionService;
 
-    public AccountTools(AccountService accountService, UserContext userContext) {
+    public AccountTools(AccountService accountService, UserContext userContext, AccountConnectionService accountConnectionService) {
         this.accountService = accountService;
         this.userContext = userContext;
+        this.accountConnectionService = accountConnectionService;
     }
 
     @Tool(name = "list_accounts",
@@ -68,6 +74,13 @@ public class AccountTools {
         return accountService.getHistory(accountId, userContext.currentMemberId(), from, to);
     }
 
+    @Tool(name = "get_account_deletion_impact", description = "Ask before a destructive delete_account; returns what connection would be removed (if any) but does not delete.")
+    @RequiresScope(Scopes.ACCOUNTS_READ)
+    public DeletionImpact getAccountDeletionImpact(
+        @ToolParam(description = "The account id") Long accountId) {
+        return accountConnectionService.describeDeletion(accountId, userContext.currentMemberId());
+    }
+
     @Tool(name = "create_manual_account",
         description = "Create a new MANUAL account for the authenticated member (a non-synced account whose "
             + "balance you maintain yourself). Returns the created account.")
@@ -98,12 +111,14 @@ public class AccountTools {
         return accountService.update(accountId, req, userContext.currentMemberId());
     }
 
-    @Tool(name = "delete_account", description = "Delete (soft-delete) an account of the authenticated member.")
+    @Tool(name = "delete_account", description = "Delete (soft-delete) an account of the authenticated member. "
+        + "This also supports synced accounts. If it was the last account on its connection, saved "
+        + "sessions/credentials and that connection are removed; this can delete an IBKR connection "
+        + "or Enable Banking requisition. Returns the actual DeletionImpact (or null label).")
     @RequiresScope(Scopes.ACCOUNTS_WRITE)
-    public String deleteAccount(
+    public DeletionImpact deleteAccount(
         @ToolParam(description = "The account id") Long accountId) {
-        accountService.delete(accountId, userContext.currentMemberId());
-        return "Deleted account " + accountId;
+        return accountConnectionService.deleteAccount(accountId, userContext.currentMemberId());
     }
 
     @Tool(name = "add_balance_snapshot",
