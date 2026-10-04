@@ -162,14 +162,19 @@ been described in the issue, never captured. Each identity is assumed to be an
 `<a href="/connexion/changer-identite/…">` whose text is its label. A label
 carrying a business marker (`EI`, `Pro`, `Professionnel`, `Entreprise`,
 `Entrepreneur`, `SARL`, `SAS`, `SIRET`…) is business; the personal identity is
-the only one without. The reporter's page showed exactly that shape: one
+the only one without. Markers match whole words only, inflected forms included
+(`Professionnelle`, `Sociétés`, `Libéraux`…), so a personal name such as
+"Dominique Liberali" or "Camille Partisan" is not read as `Libéral` or `Artisan`. The reporter's page showed exactly that shape: one
 unmarked personal identity beside one sole-trader identity.
 
 Everything else is refused rather than guessed, with
 `IDENTITY_SELECTION_UNSUPPORTED`: a selector holding only business identities,
 two or more unmarked identities, or a lone unmarked one with no business identity
-beside it. A business marker missing from the list can therefore only fail the
-sync, never pick a business identity. A switch link written outside a plain
+beside it. A business marker missing from the list therefore fails safe: the
+business identity stays unmarked beside the personal one, and the choice is
+refused. The opposite mistake is not safe. A marker matching a personal label
+can leave the business identity as the only unmarked one and pick it, which is
+why markers are whole words. A switch link written outside a plain
 `<a href>`, a selector with no link at all, or a token that could leave the
 switch path fails with `UPSTREAM_FORMAT_CHANGED`, so an identity cannot drop out
 of the choice unnoticed.
@@ -417,18 +422,19 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Verification boundaries
 
-`services/bourso-auth` — 128 tests, run inside the built image in CI: pad decoding
+`services/bourso-auth` — 130 tests, run inside the built image in CI: pad decoding
 against the real SVGs (and its refusal on an unknown one), password encoding, the
 dashboard parsed from a real captured page including the third-party filter and
 the loan exclusion, a card that stops parsing failing the sync, reconciliation
 accepted and refused either side of the tolerance, the ISIN read off the position and its
 absent/malformed fallbacks, the account and positions found in either section,
 the single-fund contract and each of its refusals, the identity selector (personal
-identity chosen, business-only and ambiguous selectors refused, a selector that
+identity chosen, inflected business markers recognised, a marker inside a
+personal name ignored, business-only and ambiguous selectors refused, a selector that
 comes back after the switch refused, the token kept out of the logs), cookie
 round-tripping with per-cookie domains, pending TTL, and the HTTP contract.
 
-Backend — `BoursoAdapterTest` (16), `BoursoSyncServiceTest` (23),
+Backend — `BoursoAdapterTest` (18), `BoursoSyncServiceTest` (29),
 `BoursoControllerTest` (11), `BoursoAdapterWiringTest`, `BoursoSyncRecoveryTest`,
 plus the BoursoBank cases added to `AccountServiceTest`,
 `AccountConnectionServiceTest` and `IntegrationsServiceTest`.

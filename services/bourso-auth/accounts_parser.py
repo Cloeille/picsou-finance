@@ -345,13 +345,17 @@ _IDENTITY_TOKEN_RE = re.compile(r"[A-Za-z0-9._~=-]+(?:/[A-Za-z0-9._~=-]+)*")
 
 # Matched against the identity's deaccented, uppercased label. Only the business
 # side is recognised: the one real selector reported (#153) showed a personal
-# identity carrying no marker of its own beside a sole-trader one. A word missing
-# here can only fail the sync, never pick the wrong identity, because the choice
-# below requires exactly one unmarked identity.
+# identity carrying no marker of its own beside a sole-trader one. A marker
+# missing from this list fails safe: the business identity stays unmarked, so the
+# choice below sees two unmarked identities and refuses. A marker matching a
+# personal label does not: it can leave the business identity as the only
+# unmarked one and pick it. Every marker is therefore a whole word, so a name
+# such as "Liberali" or "Partisan" never reads as LIBERAL or ARTISAN.
 _BUSINESS_IDENTITY_RE = re.compile(
-    r"\bPROS?\b|PROFESSIONN|ENTREPRISE|ENTREPRENEUR|INDEPENDANT|\bEIR?L?\b|\bE\.I\."
-    r"|SOCIETE|\bSAS\b|\bSASU\b|\bSARL\b|\bEURL\b|\bSCI\b|\bSIRE[NT]\b|COMMERCANT"
-    r"|ARTISAN|LIBERAL|ASSOCIATION"
+    r"\b(?:PROS?|PROFESSIONNEL(?:LE)?S?|ENTREPRISES?|ENTREPRENEURS?|ENTREPRENEUSES?"
+    r"|INDEPENDANTE?S?|EIR?L?|SOCIETES?|SAS|SASU|SARL|EURL|SCI|SIRE[NT]"
+    r"|COMMERCANTE?S?|ARTISANE?S?|LIBERALE?S?|LIBERAUX|ASSOCIATIONS?)\b"
+    r"|\bE\.I\."
 )
 
 

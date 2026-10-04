@@ -665,6 +665,33 @@ class IdentitySelectorTest(unittest.TestCase):
                 )
                 self.assertTrue(choose_personal_identity(html).endswith(PERSONAL_TOKEN))
 
+    def test_recognises_inflected_business_markers(self):
+        kinds = (
+            "Professionnelle", "Professionnels", "Professionnelles", "Entreprises",
+            "Entrepreneurs", "Entrepreneuse", "Société", "Sociétés", "Association",
+            "Associations", "Artisane", "Artisans", "Commerçante", "Commerçants",
+            "Indépendante", "Indépendants", "Libérale", "Libéraux", "Profession libérale",
+            "Micro-entrepreneur", "E.I.", "EIRL",
+        )
+        for kind in kinds:
+            with self.subTest(kind=kind):
+                html = identity_selector_html(
+                    identity_card(BUSINESS_TOKEN, "Camille Exemple", kind),
+                    identity_card(PERSONAL_TOKEN, "Camille Exemple"),
+                )
+                self.assertTrue(choose_personal_identity(html).endswith(PERSONAL_TOKEN))
+
+    def test_a_marker_inside_a_personal_name_does_not_mark_it_business(self):
+        for name in ("Dominique Liberali", "Camille Partisan", "Sasha Prost", "Eli Societano"):
+            with self.subTest(name=name):
+                self.assert_refused(
+                    identity_selector_html(
+                        identity_card(PERSONAL_TOKEN, name),
+                        identity_card(BUSINESS_TOKEN, "Atelier Bois Flotté"),
+                    ),
+                    "IDENTITY_SELECTION_UNSUPPORTED",
+                )
+
     def test_an_absolute_link_and_a_repeated_link_count_as_one_identity(self):
         html = identity_selector_html(
             identity_card(PERSONAL_TOKEN, "Camille Exemple"),
