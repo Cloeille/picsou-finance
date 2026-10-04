@@ -30,6 +30,7 @@ import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CategoryRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -97,6 +98,7 @@ public class ActualBudgetImportService {
     private final Clock clock;
     private final ConcurrentHashMap<String, CachedPreview> previews = new ConcurrentHashMap<>();
 
+    @Autowired
     public ActualBudgetImportService(ActualBudgetFileParser parser, AccountRepository accounts,
             CategoryRepository categories, TransactionRepository transactions, FamilyMemberRepository members,
             FinaryPersistenceHelper persistence) {

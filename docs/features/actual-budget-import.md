@@ -131,6 +131,8 @@ execute ─► validate mappings + dedup ─► consume token ─► @Transactio
   re-import idempotency, cross-account refusal, skipped accounts, mapping onto existing
   accounts and categories, currency/kind/investment-account rejections, token scope and expiry.
 - `ActualBudgetImportControllerTest` — 400 ProblemDetail, 201 result, request validation.
+- `ActualBudgetImportWiringTest` — Spring picks the production constructors (the service also
+  has a test-only one taking a `Clock`).
 - `ActualBudgetTab.test.tsx` — preview, confirmation, request payload, currency choice,
   compatible targets, validation gating, error display, demo-mode guard.
 - `e2e/sync.spec.ts` — the tab is listed and opens on its upload step.
