@@ -1580,6 +1580,8 @@ Prices are in EUR. Results are cached for 15 minutes.
 
 Two import modes: **file-based** (XLSX upload) and **API-based** (direct sync). Both use a two-phase flow: preview then execute with account mappings.
 
+For native HomeBank iOS exports, see [HomeBank history import](#homebank-ios-history-import--apihomebankimport) below. Its account/category mappings are separate from the Finary XLSX contract.
+
 #### `POST /api/finary/preview` (file-based)
 
 - **Auth:** Required
@@ -2032,3 +2034,97 @@ Null fields are omitted from the JSON, as everywhere else in this API.
 **Response `200` — `MemberProfileResponse`** (same shape as above).
 
 **Errors:** 422
+
+---
+
+### HomeBank iOS history import — `/api/homebank/import`
+
+Two-phase, member-scoped file import from **HomeBank iOS**. Supported files are
+native `.hbk` (raw-DEFLATE JSON, schema version 3) and password-protected
+`.hbexport` (authenticated encrypted container version 1). Actual Budget, GNU
+HomeBank desktop `.xhb`, allocations, scheduled transactions and attachments are
+not part of this endpoint. Unsupported split rows reject the whole file.
+
+#### `POST /api/homebank/import/preview`
+
+- **Auth:** Required; reads only the authenticated member's targets.
+- **Content-Type:** `multipart/form-data`.
+- **Fields:** `file` (required, at most 10 MiB), `password` (required only for
+  `.hbexport`). The password is used for decoding only and is not retained.
+- **Response:** `200`, `HomeBankImportDtos.Preview`.
+
+Preview fields:
+
+- `fileToken`: opaque confirmation token, member-bound, single-use, 30-minute TTL.
+- `accounts`: source accounts with `sourceId`, `name`, `institution`, `sourceType`,
+  `suggestedType`, `currency`, `initialBalance`, `balance`, `transactionCount`,
+  `closed`.
+- `categories`: source categories with `sourceId`, `name`, optional
+  `parentSourceId`, `income`, `transactionCount`.
+- `existingAccounts`: this member's `AccountResponse[]`.
+- `existingCategories`: this member's `CategoryResponse[]`.
+- `sampleTransactions`: sample source rows with `sourceId`, `accountSourceId`,
+  `date` (ISO calendar date), `amount`, `currency`, `payee`, `notes`, optional
+  `categorySourceId`, `transfer`.
+- `totalTransactions`, `forecastTransactions`: source counts; forecast rows will
+  be skipped, not committed.
+
+The entire file is validated before a token is returned. Preview writes no
+accounts, transactions or categories. Signed amounts and currencies are not
+converted; source calendar dates are not shifted through timezones.
+
+#### `POST /api/homebank/import`
+
+- **Auth:** Required; the token must belong to this member.
+- **Content-Type:** `application/json`.
+- **Response:** `201`, `HomeBankImportDtos.Result`.
+
+Request fields:
+
+- `fileToken`: token from preview.
+- `accountMappings`: exactly one entry per source account:
+  - `sourceId` and `action`: `CREATE_NEW`, `MAP_EXISTING` or `SKIP`.
+  - `targetAccountId`: required for `MAP_EXISTING`.
+  - `newAccount`: required for `CREATE_NEW`, using `NewAccountDetails`
+    (`name`, `type`, optional `provider`/`color`, original `currency`).
+- `categoryMappings`: exactly one entry per source category:
+  - `sourceId` and `action`: `CREATE_NEW`, `MAP_EXISTING` or `UNCATEGORIZED`.
+  - `targetCategoryId`: required for `MAP_EXISTING`; the target must be an active
+    budget category owned by this member with the appropriate income/expense kind.
+  - `name`: the category name for `CREATE_NEW`.
+
+Targets must belong to the current member; existing-account currency must match
+the export. Investment account types are unsupported because the source contains
+cash history, not instrument trades. Multiple source accounts cannot map to one
+target. An existing source transaction cannot be remapped to another account:
+the import rejects that mapping rather than creating a duplicate. Archived
+source-derived category slugs must be restored or mapped differently by the
+user; import never reactivates them implicitly. All mappings are validated
+before persistence.
+Creating a child category requires its source parent to have the same
+income/expense kind. HomeBank permits mixed-kind hierarchies, but Picsou rejects
+their creation; explicitly map the child to an existing category of its own
+kind instead. Import never silently flattens the source hierarchy or changes
+the child's kind.
+
+Result fields are integer counts: `accountsCreated`, `accountsMapped`,
+`accountsSkipped`, `categoriesCreated`, `transactionsImported`,
+`transactionsSkipped`. Original-row counts exclude the synthetic opening-balance
+row of newly created accounts. Skipped transactions include forecasts, rows of
+skipped accounts and already imported source IDs.
+
+Import is additive and atomic. Repeating an export into the same targets reuses
+HomeBank-created accounts/categories and skips stable source transaction UUIDs,
+including across clear/encrypted exports. Existing mapped accounts keep their
+provider identity, owned balance and snapshots. HomeBank-created accounts receive
+ledger-backed opening amounts and reconstructed history. Source internal-transfer
+legs and opening amounts use managed `TRANSFER` categories and do not count as
+cashflow income/expense. No extra mirror leg is generated.
+
+**Errors:** `400` RFC 7807 for invalid files/passwords, unsupported formats, invalid
+or incomplete mappings and expired/invalid previews; `404` for unavailable scoped
+resources; `429` for shared sync/import IP rate limits. Failure writes nothing;
+after database rollback a still-live preview can be retried.
+
+See [HomeBank import](../../docs/features/homebank-import.md) for decoding,
+deduplication and testing details.

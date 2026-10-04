@@ -50,6 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   above it otherwise; the default style keeps it opening upwards because its profile
   sits at the bottom of the screen.
 
+- **Import HomeBank iOS history from `.hbk` or password-protected `.hbexport`.**
+  Review the source accounts, transactions, payees and notes, then map accounts and
+  budget categories before confirming. Amounts, currencies and calendar dates are
+  kept as exported. The import is atomic, repeated source IDs are skipped, and
+  internal transfers and opening balances do not inflate spending or income.
+  Actual Budget and GNU HomeBank desktop XML are not included in this change.
+
+
 - **Crypto holdings show the coin's logo next to their ticker.** A position is easier to
   recognise at a glance than by reading its ticker. The mark comes from CoinGecko, which
   already prices the same coins, and a whole page resolves in a single request — nothing
