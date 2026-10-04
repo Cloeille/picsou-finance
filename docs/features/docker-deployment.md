@@ -56,8 +56,11 @@ applies through `SidecarBaseUrl`.
 
 The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank,
 Bourse Direct, Amundi, Fortuneo, DEGIRO, CORUM, Sofidy) share one secret.
-Generate it with `openssl rand -base64 32`. Both Compose files forward it to
-each service explicitly and refuse to start when it is missing or empty. The
+Generate it with `openssl rand -base64 32`. Both Compose files forward it
+explicitly to the app and to every sidecar service they define, and refuse to
+start when it is missing or empty. The root `docker-compose.yml` defines all
+nine sidecars. `docker/docker-compose.yml` defines eight: it has no
+`degiro-auth` service. The
 entrypoint does not generate it: the sidecars run in separate containers and
 cannot read the app's `/data/.secrets/` volume.
 

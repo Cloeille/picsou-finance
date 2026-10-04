@@ -56,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   network could drive them. They now refuse to start without the key and answer
   every route except `/health` with a 401 unless the backend presents it, as
   CORUM and Sofidy already did. The Fortuneo and Revolut adapters now send it
-  too. **Upgrade note:** both Compose files forward the key to every sidecar, so
+  too. **Upgrade note:** both Compose files forward the key to every sidecar they define, so
   a `docker/.env` that already sets it needs no change; recreate the app and all
   sidecars together. ([#169](https://github.com/Cloeille/picsou-finance/issues/169))
 
