@@ -54,6 +54,7 @@ class SyncServiceIbanMatchTest {
     @Mock TransactionRepository transactionRepository;
     @Mock CategorizationService categorizationService;
     @Mock RecurringDetectionService recurringDetectionService;
+    @Mock BankTransactionImportService bankTransactionImportService;
 
     @InjectMocks SyncService syncService;
 
@@ -102,8 +103,12 @@ class SyncServiceIbanMatchTest {
             .thenReturn(Optional.of(existing));
 
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(accountService.toResponse(any())).thenReturn(mock(AccountResponse.class));
 
         syncService.resyncAll(MEMBER_ID);
+
+        // resyncAll swallows any exception into FAILED, so this is what proves the sync completed.
+        assertThat(linkedReq.getStatus()).isEqualTo(RequisitionStatus.LINKED);
 
         // The existing account was updated in-place
         ArgumentCaptor<Account> saved = ArgumentCaptor.forClass(Account.class);
@@ -173,9 +178,11 @@ class SyncServiceIbanMatchTest {
             if (a.getId() == null) a.setId(99L);
             return a;
         });
+        when(accountService.toResponse(any())).thenReturn(mock(AccountResponse.class));
 
         syncService.resyncAll(MEMBER_ID);
 
+        assertThat(linkedReq.getStatus()).isEqualTo(RequisitionStatus.LINKED);
         ArgumentCaptor<Account> saved = ArgumentCaptor.forClass(Account.class);
         verify(accountRepository).save(saved.capture());
         assertThat(saved.getValue().getCurrency()).isEqualTo("EUR");

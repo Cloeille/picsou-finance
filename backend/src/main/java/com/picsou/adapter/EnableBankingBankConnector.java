@@ -191,9 +191,10 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         for (String accountId : accounts) {
             try {
                 fetched.add(fetchAccountData(accountId));
-            } catch (RuntimeException ex) {
-                // An account uid can rotate independently after a successful session link.
-                // Keep the remaining accounts syncable; the next session refresh supplies its uid.
+            } catch (SyncException | NumberFormatException ex) {
+                // An account uid can rotate independently after a successful session link,
+                // and one ASPSP may send a malformed balance amount. Keep the remaining accounts
+                // syncable; anything else is a bug and must fail the whole sync.
                 log.warn("Failed to fetch account {} from Enable Banking; skipping it for this sync",
                     LogSanitizer.fingerprint(accountId), ex);
                 if (firstFailure == null) firstFailure = ex;
