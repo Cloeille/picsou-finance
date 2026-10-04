@@ -40,6 +40,8 @@ export interface ActualPreviewResponse {
   accounts: ActualAccountPreview[]
   categories: ActualCategoryPreview[]
   existingAccounts: Account[]
+  /** Existing accounts any Actual import created; never pre-selected by name. */
+  actualAccountIds: number[]
   existingCategories: Category[]
   sampleTransactions: ActualSampleTransaction[]
   totalTransactions: number
@@ -67,11 +69,15 @@ export interface ActualImportRequest {
   currency: string
   accountMappings: ActualAccountMapping[]
   categoryMappings: ActualCategoryMapping[]
+  /** Confirms a plan's largeDeletion; the import is refused without it. */
+  acknowledgeLargeDeletion: boolean
 }
 
 /**
- * Rows a re-import leaves on an account the user created: KEPT_MISSING rows no longer exist in
- * Actual (deleted, or a parent since split), KEPT_MOVED rows now belong to another Actual account.
+ * Rows a re-import leaves on an append-only account (one the user created, or one an import
+ * created for another source): KEPT_MISSING rows no longer exist in Actual (deleted, or a parent
+ * since split), KEPT_MOVED rows now belong to another Actual account or were imported into an
+ * account this request does not target.
  */
 export type ActualWarningReason = 'KEPT_MISSING' | 'KEPT_MOVED'
 export interface ActualImportWarning {
@@ -85,6 +91,8 @@ export interface ActualImportPlan {
   transactionsToDelete: number
   transactionsToMove: number
   warnings: ActualImportWarning[]
+  /** The deletions exceed the safety threshold; the user must acknowledge them. */
+  largeDeletion: boolean
 }
 
 export interface ActualImportResult {

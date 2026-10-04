@@ -4,11 +4,14 @@ import type { ActualImportRequest } from './types'
 
 /**
  * Every cache an import can change: accounts and balances (['accounts'] also covers each
- * account's transaction ledger), categories, budget figures, the dashboard, the net-worth
- * history rebuilt from snapshots, and the analysis built on balances and spending.
+ * account's transaction ledger), categories, budget figures, the dashboard and its intraday
+ * net worth, the net-worth history and P&L rebuilt from snapshots, the analysis built on
+ * balances and spending, goal progress (as on account deletion), and the savings suggestions
+ * that list candidate accounts.
  */
 const ACTUAL_IMPORT_INVALIDATIONS = [
-  ['accounts'], ['categories'], ['budget'], ['dashboard'], ['history'], ['analysis'],
+  ['accounts'], ['categories'], ['budget'], ['dashboard'], ['net-worth-intraday'], ['history'], ['pnl'],
+  ['analysis'], ['goals'], ['savings'],
 ] as const
 
 export function usePreviewActualBudget() {

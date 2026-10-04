@@ -36,14 +36,15 @@ function isPreview(data: unknown): data is ActualPreviewResponse {
   const value = data as Partial<ActualPreviewResponse> | null
   return !!value && typeof value.fileToken === 'string' && Array.isArray(value.accounts)
     && Array.isArray(value.categories) && Array.isArray(value.existingAccounts)
-    && Array.isArray(value.existingCategories) && Array.isArray(value.sampleTransactions)
-    && typeof value.totalTransactions === 'number'
+    && Array.isArray(value.actualAccountIds) && Array.isArray(value.existingCategories)
+    && Array.isArray(value.sampleTransactions) && typeof value.totalTransactions === 'number'
 }
 
 function isPlan(data: unknown): data is ActualImportPlan {
   const value = data as Partial<ActualImportPlan> | null
   return !!value && typeof value.transactionsToAdd === 'number' && typeof value.transactionsToDelete === 'number'
     && typeof value.transactionsToMove === 'number' && Array.isArray(value.warnings)
+    && typeof value.largeDeletion === 'boolean'
 }
 
 function compatibleAccounts(preview: ActualPreviewResponse, currency: string) {
@@ -52,10 +53,13 @@ function compatibleAccounts(preview: ActualPreviewResponse, currency: string) {
 
 function initialAccountMappings(preview: ActualPreviewResponse, currency: string): ActualAccountMapping[] {
   const compatible = compatibleAccounts(preview, currency)
+  const actualAccountIds = new Set(preview.actualAccountIds)
   return preview.accounts.map((account, index) => {
-    // The account an earlier import created wins over a same-name account the user made.
+    // The account an earlier import created for this very source wins. An account an import
+    // created for another source or budget is never matched by name: the re-import would treat
+    // it as that source's ledger.
     const match = compatible.find((item) => item.id === account.importedAccountId)
-      ?? compatible.find((item) => item.name === account.name)
+      ?? compatible.find((item) => item.name === account.name && !actualAccountIds.has(item.id))
     // newAccount is kept even when mapping to an existing account, so switching back to
     // "create" restores the suggested details; the request strips it for other actions.
     return {
@@ -141,10 +145,11 @@ export function ActualBudgetTab() {
     setCategoryMappings((current) => current.map((mapping, i) => (i === index ? { ...mapping, ...patch } : mapping)))
   }
 
-  function buildRequest(fileToken: string): ActualImportRequest {
+  function buildRequest(fileToken: string, acknowledgeLargeDeletion: boolean): ActualImportRequest {
     return {
       fileToken,
       currency,
+      acknowledgeLargeDeletion,
       accountMappings: accountMappings.map((mapping) => ({
         sourceId: mapping.sourceId,
         action: mapping.action,
@@ -165,7 +170,7 @@ export function ActualBudgetTab() {
     if (!preview || busy) return
     setError(null)
     try {
-      const data = await planMutation.mutateAsync(buildRequest(preview.fileToken))
+      const data = await planMutation.mutateAsync(buildRequest(preview.fileToken, false))
       if (!isPlan(data)) throw new Error(t('sync.actual.errors.importFailed'))
       setPlan(data)
       setConfirmOpen(true)
@@ -178,7 +183,8 @@ export function ActualBudgetTab() {
     if (!preview || importMutation.isPending) return
     setError(null)
     try {
-      setResult(await importMutation.mutateAsync(buildRequest(preview.fileToken)))
+      // The dialog only confirms a large deletion once the user typed its row count.
+      setResult(await importMutation.mutateAsync(buildRequest(preview.fileToken, !!plan?.largeDeletion)))
     } catch (cause) {
       setError(extractErrorMessage(cause, t('sync.actual.errors.importFailed')))
     } finally {
@@ -483,6 +489,7 @@ export function ActualBudgetTab() {
         onOpenChange={setConfirmOpen}
         title={t('sync.actual.confirmTitle')}
         description={plan ? [
+          ...(plan.largeDeletion ? [t('sync.actual.largeDeletion', { count: plan.transactionsToDelete })] : []),
           t('sync.actual.planSummary', {
             added: plan.transactionsToAdd,
             deleted: plan.transactionsToDelete,
@@ -494,7 +501,8 @@ export function ActualBudgetTab() {
         confirmLabel={t('common.confirm')}
         onConfirm={executeImport}
         loading={importMutation.isPending}
-        variant="default"
+        variant={plan?.largeDeletion ? 'destructive' : 'default'}
+        confirmPhrase={plan?.largeDeletion ? String(plan.transactionsToDelete) : undefined}
       />
     </div>
   )

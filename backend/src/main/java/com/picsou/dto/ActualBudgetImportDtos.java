@@ -27,11 +27,16 @@ public final class ActualBudgetImportDtos {
     public record TransactionPreview(String sourceId, String accountSourceId, LocalDate date, BigDecimal amount,
                                      String payee, String notes, String categorySourceId, Kind kind) { }
 
-    /** {@code currency} is the budget's own currency when the file records it, otherwise null. */
+    /**
+     * {@code currency} is the budget's own currency when the file records it, otherwise null.
+     * {@code actualAccountIds} are the existing accounts any Actual import created, whatever the
+     * budget: the wizard pre-selects one only for the source it was created for, never by name.
+     */
     public record Preview(String fileToken, String currency, List<AccountPreview> accounts,
                           List<CategoryPreview> categories, List<AccountResponse> existingAccounts,
-                          List<CategoryResponse> existingCategories, List<TransactionPreview> sampleTransactions,
-                          int totalTransactions, int transferTransactions) { }
+                          List<Long> actualAccountIds, List<CategoryResponse> existingCategories,
+                          List<TransactionPreview> sampleTransactions, int totalTransactions,
+                          int transferTransactions) { }
 
     public record AccountMapping(@NotBlank String sourceId, @NotNull FinaryMappingAction action,
                                  Long targetAccountId, @Valid NewAccountDetails newAccount) { }
@@ -41,23 +46,29 @@ public final class ActualBudgetImportDtos {
     public record CategoryMapping(@NotBlank String sourceId, @NotNull CategoryMappingAction action,
                                   Long targetCategoryId, @Size(max = 100) String name) { }
 
+    /** {@code acknowledgeLargeDeletion} confirms a {@link Plan#largeDeletion}; execute refuses one without it. */
     public record Request(@NotBlank String fileToken,
                           @NotNull @Pattern(regexp = "[A-Z]{3}") String currency,
                           @NotNull @Size(max = 100) List<@NotNull @Valid AccountMapping> accountMappings,
-                          @NotNull @Size(max = 500) List<@NotNull @Valid CategoryMapping> categoryMappings) { }
+                          @NotNull @Size(max = 500) List<@NotNull @Valid CategoryMapping> categoryMappings,
+                          boolean acknowledgeLargeDeletion) { }
 
     /**
-     * Rows a re-import leaves in place on an account the user created: {@code KEPT_MISSING} rows
-     * no longer exist in Actual (deleted, or a parent since split), {@code KEPT_MOVED} rows now
-     * belong to another Actual account.
+     * Rows a re-import leaves in place on an append-only account (one the user created, or one an
+     * import created for another source): {@code KEPT_MISSING} rows no longer exist in Actual
+     * (deleted, or a parent since split), {@code KEPT_MOVED} rows now belong to another Actual
+     * account or sit in an account this request does not target.
      */
     public enum WarningReason { KEPT_MISSING, KEPT_MOVED }
 
     public record Warning(WarningReason reason, int count) { }
 
-    /** What {@link Request} would do, computed without writing so the user can confirm it. */
+    /**
+     * What {@link Request} would do, computed without writing so the user can confirm it.
+     * {@code largeDeletion}: the deletions exceed the safety threshold and must be acknowledged.
+     */
     public record Plan(int transactionsToAdd, int transactionsToDelete, int transactionsToMove,
-                       List<Warning> warnings) { }
+                       List<Warning> warnings, boolean largeDeletion) { }
 
     public record Result(int accountsCreated, int accountsMapped, int accountsSkipped, int categoriesCreated,
                          int transactionsImported, int transactionsSkipped, int transactionsDeleted,

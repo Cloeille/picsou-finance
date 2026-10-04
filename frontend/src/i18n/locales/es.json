@@ -870,10 +870,11 @@
       "done": "Hecho",
       "confirmTitle": "Confirmar la importación de Actual Budget",
       "planSummary": "Esta importación añade {{added}} transacciones, elimina {{deleted}} y mueve {{moved}} entre cuentas.",
-      "confirmDescription": "Las cuentas creadas por una importación de Actual siguen el archivo: las transacciones eliminadas o divididas en Actual se eliminan, y las movidas en Actual las siguen. Las cuentas que creaste solo reciben transacciones nuevas. No se escribe nada si falla alguna comprobación.",
+      "largeDeletion": "Atención: esta importación elimina {{count}} transacciones, una gran parte del historial de una cuenta. Comprueba que cada cuenta de Actual está asociada a la cuenta de Picsou correcta.",
+      "confirmDescription": "Una cuenta creada por una importación de Actual para una de las cuentas de este archivo sigue el archivo: las transacciones eliminadas o divididas en Actual se eliminan, y las movidas en Actual las siguen. Las demás cuentas (las tuyas, o las creadas para otro presupuesto) solo reciben transacciones nuevas. No se escribe nada si falla alguna comprobación.",
       "warnings": {
-        "KEPT_MISSING": "{{count}} transacciones eliminadas o divididas en Actual se quedan en cuentas que creaste; elimínalas a mano si hace falta.",
-        "KEPT_MOVED": "{{count}} transacciones movidas a otra cuenta en Actual se quedan donde están, porque interviene una cuenta que creaste."
+        "KEPT_MISSING": "{{count}} transacciones eliminadas o divididas en Actual se quedan en cuentas que no pertenecen a este archivo; elimínalas a mano si hace falta.",
+        "KEPT_MOVED": "{{count}} transacciones ya importadas en otra cuenta se quedan donde están, porque esa cuenta no sigue este archivo."
       },
       "errors": {
         "invalidPreview": "La respuesta de previsualización no es válida.",

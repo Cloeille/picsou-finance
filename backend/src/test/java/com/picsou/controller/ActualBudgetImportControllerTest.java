@@ -75,7 +75,7 @@ class ActualBudgetImportControllerTest {
     @Test
     void planAnswersWhatTheImportWouldChange() throws Exception {
         when(service.planImport(any(), eq(MEMBER_ID))).thenReturn(
-            new Plan(2, 1, 0, List.of(new Warning(WarningReason.KEPT_MISSING, 3))));
+            new Plan(2, 1, 0, List.of(new Warning(WarningReason.KEPT_MISSING, 3)), false));
 
         mockMvc.perform(post("/api/actual/import/plan")
                 .contentType(MediaType.APPLICATION_JSON)

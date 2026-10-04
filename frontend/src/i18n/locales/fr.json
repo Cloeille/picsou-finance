@@ -1172,10 +1172,11 @@
       "done": "Terminé",
       "confirmTitle": "Confirmer l'import Actual Budget",
       "planSummary": "Cet import ajoute {{added}} transactions, en supprime {{deleted}} et en déplace {{moved}} entre comptes.",
-      "confirmDescription": "Les comptes créés par un import Actual suivent le fichier : les transactions supprimées ou ventilées dans Actual sont supprimées, et celles déplacées dans Actual les suivent. Les comptes que vous avez créés ne reçoivent que les nouvelles transactions. Rien n'est écrit si une vérification échoue.",
+      "largeDeletion": "Attention : cet import supprime {{count}} transactions, une grande partie de l’historique d’un compte. Vérifiez que chaque compte Actual est associé au bon compte Picsou.",
+      "confirmDescription": "Un compte créé par un import Actual pour un des comptes de ce fichier suit le fichier : les transactions supprimées ou ventilées dans Actual sont supprimées, et celles déplacées dans Actual les suivent. Les autres comptes (les vôtres, ou ceux créés pour un autre budget) ne reçoivent que les nouvelles transactions. Rien n'est écrit si une vérification échoue.",
       "warnings": {
-        "KEPT_MISSING": "{{count}} transactions supprimées ou ventilées dans Actual restent sur des comptes que vous avez créés ; supprimez-les à la main si besoin.",
-        "KEPT_MOVED": "{{count}} transactions déplacées vers un autre compte dans Actual restent en place, car un compte que vous avez créé est concerné."
+        "KEPT_MISSING": "{{count}} transactions supprimées ou ventilées dans Actual restent sur des comptes qui n’appartiennent pas à ce fichier ; supprimez-les à la main si besoin.",
+        "KEPT_MOVED": "{{count}} transactions déjà importées dans un autre compte restent en place, car ce compte ne suit pas ce fichier."
       },
       "errors": {
         "invalidPreview": "La réponse de prévisualisation est invalide.",

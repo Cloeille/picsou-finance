@@ -870,10 +870,11 @@
       "done": "Fertig",
       "confirmTitle": "Actual-Budget-Import bestätigen",
       "planSummary": "Dieser Import fügt {{added}} Transaktionen hinzu, löscht {{deleted}} und verschiebt {{moved}} zwischen Konten.",
-      "confirmDescription": "Von einem Actual-Import erstellte Konten folgen der Datei: In Actual gelöschte oder aufgeteilte Transaktionen werden gelöscht, in Actual verschobene folgen ihrem Konto. Von Ihnen erstellte Konten erhalten nur neue Transaktionen. Bei einem Prüffehler wird nichts geschrieben.",
+      "largeDeletion": "Achtung: Dieser Import löscht {{count}} Transaktionen, einen großen Teil des Verlaufs eines Kontos. Prüfen Sie, ob jedes Actual-Konto dem richtigen Picsou-Konto zugeordnet ist.",
+      "confirmDescription": "Ein Konto, das ein Actual-Import für ein Konto dieser Datei erstellt hat, folgt der Datei: In Actual gelöschte oder aufgeteilte Transaktionen werden gelöscht, in Actual verschobene folgen ihrem Konto. Andere Konten (Ihre eigenen oder für ein anderes Budget erstellte) erhalten nur neue Transaktionen. Bei einem Prüffehler wird nichts geschrieben.",
       "warnings": {
-        "KEPT_MISSING": "{{count}} in Actual gelöschte oder aufgeteilte Transaktionen bleiben auf von Ihnen erstellten Konten; löschen Sie sie bei Bedarf von Hand.",
-        "KEPT_MOVED": "{{count}} in Actual auf ein anderes Konto verschobene Transaktionen bleiben, wo sie sind, da ein von Ihnen erstelltes Konto betroffen ist."
+        "KEPT_MISSING": "{{count}} in Actual gelöschte oder aufgeteilte Transaktionen bleiben auf Konten, die nicht zu dieser Datei gehören; löschen Sie sie bei Bedarf von Hand.",
+        "KEPT_MOVED": "{{count}} bereits in ein anderes Konto importierte Transaktionen bleiben, wo sie sind, da dieses Konto der Datei nicht folgt."
       },
       "errors": {
         "invalidPreview": "Die Vorschauantwort ist ungültig.",

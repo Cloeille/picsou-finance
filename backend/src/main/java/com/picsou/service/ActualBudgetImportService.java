@@ -70,10 +70,10 @@ import java.util.stream.Collectors;
  *
  * <p>Re-imports converge: accounts, categories and transactions carry the Actual id
  * ({@code actual_<id>}), so a second import reuses what the first created, skips rows it already
- * stored, and synchronises the accounts an import created with the file (see {@link #syncPlan}).
- * {@link #planImport} reports those changes before the user confirms. Transfer legs and starting
- * balances land in a {@link CategoryKind#TRANSFER} category, so they never count as income or
- * spending.
+ * stored, and synchronises with the file the accounts an import created for its source accounts
+ * (see {@link #syncPlan}). {@link #planImport} reports those changes before the user confirms.
+ * Transfer legs and starting balances land in a {@link CategoryKind#TRANSFER} category, so they
+ * never count as income or spending.
  */
 @Service
 public class ActualBudgetImportService {
@@ -90,6 +90,13 @@ public class ActualBudgetImportService {
     private static final String PREFIX = "actual_";
     private static final String TRANSFER_SLUG = "virement-interne";
     private static final String ACTUAL_TRANSFER_SLUG = "actual-transfer";
+    /**
+     * A re-import deleting more than this many rows, or more than this share of an account's
+     * imported rows, needs {@link Request#acknowledgeLargeDeletion}: a wrong mapping must not
+     * silently wipe a history.
+     */
+    private static final int LARGE_DELETION_ROWS = 200;
+    private static final int LARGE_DELETION_PERCENT = 20;
     /** Actual holds cash ledgers; holding-based accounts derive their value from positions instead. */
     private static final Set<AccountType> NON_LEDGER_TYPES = Set.of(AccountType.PEA, AccountType.COMPTE_TITRES,
             AccountType.CRYPTO, AccountType.ASSURANCE_VIE, AccountType.EMPLOYEE_SAVINGS,
@@ -107,7 +114,7 @@ public class ActualBudgetImportService {
      * it now belongs to; {@code moveSources} are the accounts those rows leave.
      */
     private record SyncPlan(List<SourceTransaction> toAdd, List<Long> toDelete, Map<Long, String> toMove,
-            Set<Long> moveSources, int unchanged, int keptMoved, int keptMissing) {
+            Set<Long> moveSources, int unchanged, int keptMoved, int keptMissing, boolean largeDeletion) {
 
         boolean needsTransfer() {
             return toAdd.stream().anyMatch(tx -> tx.kind() != Kind.REGULAR);
@@ -208,6 +215,7 @@ public class ActualBudgetImportService {
         Collections.reverse(sample);
         int transfers = (int) all.stream().filter(tx -> tx.kind() != Kind.REGULAR).count();
         return new Preview(token, budget.currency(), accountPreviews, categoryPreviews, existingAccounts,
+                memberAccounts.stream().filter(ActualBudgetImportService::importCreated).map(Account::getId).toList(),
                 existingCategories, sample, all.size(), transfers);
     }
 
@@ -217,12 +225,17 @@ public class ActualBudgetImportService {
     @Transactional(readOnly = true)
     public Plan planImport(Request request, Long memberId) {
         SyncPlan plan = resolve(request, memberId).plan();
-        return new Plan(plan.toAdd().size(), plan.toDelete().size(), plan.toMove().size(), plan.warnings());
+        return new Plan(plan.toAdd().size(), plan.toDelete().size(), plan.toMove().size(), plan.warnings(),
+                plan.largeDeletion());
     }
 
     @Transactional
     public Result executeImport(Request request, Long memberId) {
         Resolved resolved = resolve(request, memberId);
+        if (resolved.plan().largeDeletion() && !request.acknowledgeLargeDeletion()) {
+            throw bad("This import would delete " + resolved.plan().toDelete().size()
+                    + " transactions; review the plan and confirm the deletion");
+        }
         CachedPreview cached = resolved.cached();
         ParsedActualBudget budget = cached.budget();
         Map<String, AccountMapping> accountMappings = resolved.accountMappings();
@@ -459,19 +472,25 @@ public class ActualBudgetImportService {
 
     /**
      * Reconciles the file with the rows earlier imports stored, matched by Actual id rather than
-     * by date since the user may have moved an imported row to another date. An account an import
-     * created follows the file: rows Actual no longer emits are deleted, rows Actual moved to
-     * another import-created account follow them. An account the user created is append-only:
-     * such rows stay and are reported. A row whose Actual account did not change but whose target
-     * did, with a user-created account on either side, means the mapping changed and is refused.
+     * by date since the user may have moved an imported row to another date.
+     *
+     * <p>Only a <em>synchronised</em> account follows the file: one an import created for a
+     * source account of this file ({@code actual_<source id>}) and mapped from that same source.
+     * There, rows Actual no longer emits are deleted and rows Actual moved to another synchronised
+     * account follow them. Every other target is append-only, whoever created it: an account the
+     * user made, or one an import created for another source or another budget. Its rows stay and
+     * are reported. A row still in the account an import created for its own Actual account,
+     * while that Actual account now maps elsewhere, means the mapping changed and is refused.
      *
      * @param targets the existing target of each mapped source account; a source absent from it
-     *                gets an account this import creates
+     *                gets an account this import creates, synchronised by construction
      */
     private SyncPlan syncPlan(ParsedActualBudget budget, List<SourceTransaction> importable,
             Map<String, Account> targets, Map<Long, Account> memberAccounts, Long memberId) {
-        Map<Long, String> sourceByTarget = new HashMap<>();
-        targets.forEach((sourceId, account) -> sourceByTarget.put(account.getId(), sourceId));
+        Set<Long> synchronised = targets.entrySet().stream()
+                .filter(entry -> (PREFIX + entry.getKey()).equals(entry.getValue().getExternalAccountId()))
+                .map(entry -> entry.getValue().getId())
+                .collect(Collectors.toSet());
         Map<String, StoredExternalId> stored = storedRows(importable, memberId);
 
         List<SourceTransaction> toAdd = new ArrayList<>();
@@ -490,39 +509,51 @@ public class ActualBudgetImportService {
                 unchanged++;
                 continue;
             }
-            Account current = memberAccounts.get(row.getAccountId());
-            if (current != null && importCreated(current) && (target == null || importCreated(target))) {
+            if (synchronised.contains(row.getAccountId())
+                    && (target == null || synchronised.contains(target.getId()))) {
                 toMove.put(row.getId(), tx.accountId());
-                moveSources.add(current.getId());
+                moveSources.add(row.getAccountId());
                 continue;
             }
-            String previousSource = current == null ? null
-                    : importCreated(current) ? current.getExternalAccountId().substring(PREFIX.length())
-                    : sourceByTarget.get(current.getId());
-            if (previousSource == null || previousSource.equals(tx.accountId())) {
-                throw bad("Some transactions were already imported into another account; "
-                        + "map the Actual account to the account it was imported into");
+            Account current = memberAccounts.get(row.getAccountId());
+            if (current != null && (PREFIX + tx.accountId()).equals(current.getExternalAccountId())) {
+                throw bad("The Actual account '" + sourceName(budget, tx.accountId()) + "' was imported into '"
+                        + current.getName() + "' before; map it to that account to update it");
             }
             keptMoved++;
         }
 
         Set<String> emitted = budget.transactions().stream().map(tx -> PREFIX + tx.id()).collect(Collectors.toSet());
         List<Long> toDelete = new ArrayList<>();
+        Map<Long, Integer> storedByAccount = new HashMap<>();
+        Map<Long, Integer> deletedByAccount = new HashMap<>();
         int keptMissing = 0;
         List<Long> targetIds = targets.values().stream().map(Account::getId).toList();
         if (!targetIds.isEmpty()) {
             for (StoredExternalId row : transactions.findStoredExternalIdsInAccounts(memberId, targetIds, PREFIX)) {
-                if (!row.getExternalId().startsWith(PREFIX) || emitted.contains(row.getExternalId())) {
+                if (!row.getExternalId().startsWith(PREFIX)) {
                     continue;
                 }
-                if (importCreated(memberAccounts.get(row.getAccountId()))) {
+                storedByAccount.merge(row.getAccountId(), 1, Integer::sum);
+                if (emitted.contains(row.getExternalId())) {
+                    continue;
+                }
+                if (synchronised.contains(row.getAccountId())) {
                     toDelete.add(row.getId());
+                    deletedByAccount.merge(row.getAccountId(), 1, Integer::sum);
                 } else {
                     keptMissing++;
                 }
             }
         }
-        return new SyncPlan(toAdd, toDelete, toMove, moveSources, unchanged, keptMoved, keptMissing);
+        boolean largeDeletion = toDelete.size() > LARGE_DELETION_ROWS || deletedByAccount.entrySet().stream()
+                .anyMatch(entry -> entry.getValue() * 100 > storedByAccount.get(entry.getKey()) * LARGE_DELETION_PERCENT);
+        return new SyncPlan(toAdd, toDelete, toMove, moveSources, unchanged, keptMoved, keptMissing, largeDeletion);
+    }
+
+    private static String sourceName(ParsedActualBudget budget, String sourceId) {
+        return budget.accounts().stream().filter(account -> account.id().equals(sourceId))
+                .map(SourceAccount::name).findFirst().orElse(sourceId);
     }
 
     private Map<String, StoredExternalId> storedRows(List<SourceTransaction> importable, Long memberId) {

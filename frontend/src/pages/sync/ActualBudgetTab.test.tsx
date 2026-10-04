@@ -32,6 +32,7 @@ const preview = {
   }],
   categories: [{ sourceId: 'cat-1', name: 'Groceries', groupName: 'Food', income: false, transactionCount: 2 }],
   existingAccounts: [],
+  actualAccountIds: [],
   existingCategories: [],
   sampleTransactions: [
     {
@@ -47,7 +48,7 @@ const preview = {
   transferTransactions: 3,
 }
 
-const plan = { transactionsToAdd: 8, transactionsToDelete: 0, transactionsToMove: 0, warnings: [] }
+const plan = { transactionsToAdd: 8, transactionsToDelete: 0, transactionsToMove: 0, warnings: [], largeDeletion: false }
 
 const result = {
   accountsCreated: 1, accountsMapped: 0, accountsSkipped: 0, categoriesCreated: 2,
@@ -113,6 +114,7 @@ describe('ActualBudgetTab', () => {
     expect(request).toEqual({
       fileToken: 'token-1',
       currency: 'EUR',
+      acknowledgeLargeDeletion: false,
       accountMappings: [{
         sourceId: 'acc-1', action: 'CREATE_NEW',
         newAccount: { name: 'Everyday', type: 'CHECKING', currency: 'EUR', color: '#6366f1' },
@@ -126,7 +128,7 @@ describe('ActualBudgetTab', () => {
     await uploadPreview()
     await screen.findByText('Weekly shop')
     const warnings = [{ reason: 'KEPT_MISSING', count: 2 }, { reason: 'KEPT_MOVED', count: 1 }]
-    apiPost.mockResolvedValueOnce({ data: { transactionsToAdd: 3, transactionsToDelete: 1, transactionsToMove: 4, warnings } })
+    apiPost.mockResolvedValueOnce({ data: { ...plan, transactionsToAdd: 3, transactionsToDelete: 1, transactionsToMove: 4, warnings } })
 
     fireEvent.click(screen.getByRole('button', { name: 'sync.actual.import' }))
 
@@ -138,6 +140,27 @@ describe('ActualBudgetTab', () => {
     expect(screen.getByText('sync.actual.transactionsMoved')).toBeInTheDocument()
     expect(screen.getAllByRole('status').map((node) => node.textContent)).toEqual(
       expect.arrayContaining(['sync.actual.warnings.KEPT_MISSING', 'sync.actual.warnings.KEPT_MOVED']))
+  })
+
+  it('makes the user type the row count before confirming a large deletion, then acknowledges it', async () => {
+    renderTab()
+    await uploadPreview()
+    await screen.findByText('Weekly shop')
+    apiPost.mockResolvedValueOnce({ data: { ...plan, transactionsToAdd: 0, transactionsToDelete: 250, largeDeletion: true } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'sync.actual.import' }))
+
+    expect(await screen.findByText('sync.actual.largeDeletion sync.actual.planSummary 0/250/0 '
+      + 'sync.actual.confirmDescription')).toBeInTheDocument()
+    const confirm = screen.getByRole('button', { name: 'common.confirm' })
+    expect(confirm).toBeDisabled()
+    fireEvent.change(screen.getByPlaceholderText('250'), { target: { value: '250' } })
+    expect(confirm).toBeEnabled()
+    apiPost.mockResolvedValueOnce({ data: { ...result, transactionsDeleted: 250 } })
+    fireEvent.click(confirm)
+    await screen.findByText('sync.actual.transactionsDeleted')
+    expect(apiPost.mock.calls[1][1].acknowledgeLargeDeletion).toBe(false)
+    expect(apiPost.mock.calls[2][1].acknowledgeLargeDeletion).toBe(true)
   })
 
   it('shows the backend reason when the dry run refuses the mappings and opens no confirmation', async () => {
@@ -223,6 +246,36 @@ describe('ActualBudgetTab', () => {
 
     const [, request] = await confirmImport()
     expect(request.accountMappings).toEqual([{ sourceId: 'acc-1', action: 'MAP_EXISTING', targetAccountId: 35 }])
+  })
+
+  it('never pre-selects by name an account an import created for another Actual account', async () => {
+    renderTab()
+    await uploadPreview({
+      ...preview,
+      existingAccounts: [
+        { id: 36, name: 'Everyday', currency: 'EUR', type: 'CHECKING' },
+        { id: 31, name: 'Everyday', currency: 'EUR', type: 'CHECKING' },
+      ],
+      actualAccountIds: [36],
+    })
+
+    expect(await screen.findByLabelText('sync.actual.targetAccount')).toHaveValue('31')
+  })
+
+  it('creates a new account rather than reuse another budget\'s imported account of the same name', async () => {
+    renderTab()
+    await uploadPreview({
+      ...preview,
+      existingAccounts: [{ id: 36, name: 'Everyday', currency: 'EUR', type: 'CHECKING' }],
+      actualAccountIds: [36],
+    })
+    await screen.findByText('Weekly shop')
+
+    const [, request] = await confirmImport()
+    expect(request.accountMappings).toEqual([{
+      sourceId: 'acc-1', action: 'CREATE_NEW',
+      newAccount: { name: 'Everyday', type: 'CHECKING', currency: 'EUR', color: '#6366f1' },
+    }])
   })
 
   it('blocks the import until a mapped category has a target', async () => {

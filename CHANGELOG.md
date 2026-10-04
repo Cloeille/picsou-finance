@@ -61,8 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same file again adds nothing, and a file that fails any check writes nothing. Importing
   a newer export keeps the accounts the import created in step with Actual: transactions
   you deleted, split or moved there follow, and the confirmation says how many will be
-  added, deleted and moved first. Accounts you created yourself only ever gain new
-  transactions. Loan accounts can't receive an Actual import.
+  added, deleted and moved first. A large deletion has to be confirmed by typing its count.
+  Accounts you created yourself, and accounts created for another Actual budget, only ever
+  gain new transactions. Loan accounts can't receive an Actual import.
 
 ### Fixed
 

@@ -19,10 +19,13 @@ describe('useImportActualBudget', () => {
     )
     const { result } = renderHook(() => useImportActualBudget(), { wrapper })
 
-    await act(() => result.current.mutateAsync({ fileToken: 't', currency: 'EUR', accountMappings: [], categoryMappings: [] }))
+    await act(() => result.current.mutateAsync({
+      fileToken: 't', currency: 'EUR', accountMappings: [], categoryMappings: [], acknowledgeLargeDeletion: false,
+    }))
 
     expect(invalidations.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
-      ['accounts'], ['categories'], ['budget'], ['dashboard'], ['history'], ['analysis'],
+      ['accounts'], ['categories'], ['budget'], ['dashboard'], ['net-worth-intraday'], ['history'], ['pnl'],
+      ['analysis'], ['goals'], ['savings'],
     ])
   })
 })
