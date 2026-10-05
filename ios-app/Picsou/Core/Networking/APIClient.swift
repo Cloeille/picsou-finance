@@ -144,12 +144,28 @@ actor TokenRefresher {
             guard let refreshToken = tokenStore.load()?.refreshToken, !refreshToken.isEmpty else {
                 throw APIError.unauthorized
             }
-            let fresh = try await oauth.refresh(refreshToken)
+            let fresh: TokenSet
+            do {
+                fresh = try await oauth.refresh(refreshToken)
+            } catch let APIError.http(status, body) where Self.isRefusal(status: status, body: body) {
+                throw APIError.unauthorized
+            }
             tokenStore.save(fresh)
             return fresh
         }
         inFlight = task
         defer { inFlight = nil }
         return try await task.value
+    }
+
+    /// The server rejected the refresh token itself (revoked from the web, reuse detected, absolute
+    /// lifetime over): retrying can never succeed, so the caller must sign out. A network error or a
+    /// 5xx is transient and keeps the tokens.
+    static func isRefusal(status: Int, body: String?) -> Bool {
+        guard status == 400 || status == 401,
+              let data = body?.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = json["error"] as? String else { return false }
+        return code == "invalid_grant" || code == "invalid_client"
     }
 }

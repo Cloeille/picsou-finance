@@ -82,6 +82,95 @@ final class APIClientTests: XCTestCase {
         XCTAssertTrue(ping.ok)
         XCTAssertEqual(tokenStore.load()?.accessToken, "fresh")
     }
+
+    func testRefreshRefusedByServerSignsOutExactlyOnce() async {
+        let (api, _) = makeClient(tokens: TokenSet(
+            accessToken: "revoked",
+            refreshToken: "refresh-1",
+            accessTokenExpiry: Date().addingTimeInterval(3600)
+        ))
+        let lost = Counter()
+        api.onAuthenticationLost = { lost.increment() }
+        let tokenCalls = Counter()
+        MockURLProtocol.handler = { request in
+            if request.url?.path == "/oauth2/token" {
+                tokenCalls.increment()
+                return MockURLProtocol.status(request, 400, json: #"{"error":"invalid_grant"}"#)
+            }
+            return MockURLProtocol.status(request, 401)
+        }
+
+        do {
+            let _: Ping = try await api.get("api/ping")
+            XCTFail("expected the request to fail")
+        } catch {
+            XCTAssertEqual(error as? APIError, .unauthorized)
+        }
+        XCTAssertEqual(lost.value, 1)
+        XCTAssertEqual(tokenCalls.value, 1)
+    }
+
+    func testRefreshRefusedByServerReturnsAppToLoginAndClearsTokens() async {
+        let suite = UserDefaults(suiteName: "test-\(UUID().uuidString)")!
+        suite.set("https://test.local", forKey: ServerConfig.baseURLDefaultsKey)
+        let tokenStore = InMemoryTokenStore()
+        tokenStore.save(TokenSet(accessToken: "revoked", refreshToken: "refresh-1",
+                                 accessTokenExpiry: Date().addingTimeInterval(3600)))
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let appState = AppState(serverConfig: ServerConfig(defaults: suite), tokenStore: tokenStore,
+                                session: URLSession(configuration: config))
+        MockURLProtocol.handler = { request in
+            request.url?.path == "/oauth2/token"
+                ? MockURLProtocol.status(request, 401, json: #"{"error":"invalid_client"}"#)
+                : MockURLProtocol.status(request, 401)
+        }
+
+        let _: Ping? = try? await appState.api.get("api/ping")
+        for _ in 0..<50 where appState.phase != .loggedOut { await Task.yield() }
+
+        XCTAssertEqual(appState.phase, .loggedOut)
+        XCTAssertNil(tokenStore.load())
+    }
+
+    func testRefreshServerErrorKeepsTheUserSignedIn() async {
+        let (api, tokenStore) = makeClient(tokens: TokenSet(
+            accessToken: "old",
+            refreshToken: "refresh-1",
+            accessTokenExpiry: Date().addingTimeInterval(3600)
+        ))
+        let lost = Counter()
+        api.onAuthenticationLost = { lost.increment() }
+        MockURLProtocol.handler = { request in
+            request.url?.path == "/oauth2/token"
+                ? MockURLProtocol.status(request, 503)
+                : MockURLProtocol.status(request, 401)
+        }
+
+        do {
+            let _: Ping = try await api.get("api/ping")
+            XCTFail("expected the request to fail")
+        } catch {
+            XCTAssertEqual(error as? APIError, .http(status: 503, body: ""))
+        }
+        XCTAssertEqual(lost.value, 0)
+        XCTAssertEqual(tokenStore.load()?.refreshToken, "refresh-1")
+    }
+}
+
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.lock(); defer { lock.unlock() }
+        return count
+    }
+
+    func increment() {
+        lock.lock(); defer { lock.unlock() }
+        count += 1
+    }
 }
 
 /// Hermetic token store for tests — no Keychain, no host-signing requirement.
