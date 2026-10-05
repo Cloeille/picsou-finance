@@ -26,7 +26,7 @@ final class OAuthService {
     /// calls are gated by role, not by this value.
     private let scope = "read"
 
-    init(serverConfig: ServerConfig, session: URLSession = .shared) {
+    init(serverConfig: ServerConfig, session: URLSession = .cookieless) {
         self.serverConfig = serverConfig
         self.session = session
     }

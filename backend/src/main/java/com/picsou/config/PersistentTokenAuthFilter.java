@@ -70,8 +70,11 @@ public class PersistentTokenAuthFilter extends OncePerRequestFilter {
         FilterChain chain
     ) throws ServletException, IOException {
 
-        // Already authenticated by JwtAuthenticationFilter — bail out, no DB hit.
-        if (SecurityContextHolder.getContext().getAuthentication() != null) {
+        // Already authenticated by JwtAuthenticationFilter — bail out, no DB hit. A request that
+        // chose a Bearer identity never falls back to this browser cookie, even when that Bearer
+        // was rejected (see JwtAuthenticationFilter).
+        if (SecurityContextHolder.getContext().getAuthentication() != null
+                || JwtAuthenticationFilter.extractBearerToken(request) != null) {
             chain.doFilter(request, response);
             return;
         }

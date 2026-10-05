@@ -40,7 +40,7 @@ final class AppState {
         serverConfig: ServerConfig = ServerConfig(),
         tokenStore: TokenStoring = TokenStore(),
         biometric: BiometricGate = BiometricGate(),
-        session: URLSession = .shared
+        session: URLSession = .cookieless
     ) {
         self.serverConfig = serverConfig
         self.tokenStore = tokenStore

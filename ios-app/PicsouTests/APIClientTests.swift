@@ -29,6 +29,33 @@ final class APIClientTests: XCTestCase {
         return (api, tokenStore)
     }
 
+    /// Sends two requests through `config` to a real local server whose responses set the cookie the
+    /// backend sets on a username change. Returns the `Cookie` header the second request carried.
+    private func cookieOnFollowUpRequest(config: URLSessionConfiguration) async throws -> String? {
+        let server = try LocalHTTPServer(responseHeaders: ["Set-Cookie": "access_token=web-jwt; Path=/; HttpOnly"])
+        defer { server.stop() }
+        let base = try await server.start()
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+
+        _ = try await session.data(for: URLRequest(url: base.appendingPathComponent("api/auth/username")))
+        _ = try await session.data(for: URLRequest(url: base.appendingPathComponent("api/dashboard")))
+
+        XCTAssertEqual(server.cookieHeaders.count, 2)
+        return server.cookieHeaders.last ?? nil
+    }
+
+    func testCookieSetByTheServerIsNeverSentBack() async throws {
+        let cookie = try await cookieOnFollowUpRequest(config: .cookieless)
+        XCTAssertNil(cookie)
+    }
+
+    func testDefaultSessionWouldSendTheCookieBack() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        let cookie = try await cookieOnFollowUpRequest(config: config)
+        XCTAssertEqual(cookie, "access_token=web-jwt", "control: proves the cookieless test can see a leaked cookie")
+    }
+
     func testRefreshesOn401ThenRetriesAndPersistsRotatedTokens() async throws {
         let (api, tokenStore) = makeClient(tokens: TokenSet(
             accessToken: "old",

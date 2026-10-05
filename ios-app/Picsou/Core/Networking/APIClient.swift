@@ -1,5 +1,22 @@
 import Foundation
 
+extension URLSessionConfiguration {
+    /// For every API and token call. The backend answers a username or password change with web
+    /// `access_token` cookies; a stored copy would ride along on later requests long after it
+    /// expired or after another account signed in, so the app never keeps or sends cookies.
+    static var cookieless: URLSessionConfiguration {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        config.httpCookieStorage = nil
+        return config
+    }
+}
+
+extension URLSession {
+    static let cookieless = URLSession(configuration: .cookieless)
+}
+
 /// Thin JSON client for the Picsou REST API. Injects the Bearer access token, refreshes it once when
 /// the server rejects it (and proactively when it's about to expire), and asks `AppState` to sign out
 /// when refresh ultimately fails.
@@ -12,7 +29,7 @@ final class APIClient: @unchecked Sendable {
     /// Invoked (possibly off the main actor) when a request can no longer be authenticated.
     var onAuthenticationLost: (@Sendable () -> Void)?
 
-    init(serverConfig: ServerConfig, tokenStore: TokenStoring, oauth: OAuthService, session: URLSession = .shared) {
+    init(serverConfig: ServerConfig, tokenStore: TokenStoring, oauth: OAuthService, session: URLSession = .cookieless) {
         self.serverConfig = serverConfig
         self.tokenStore = tokenStore
         self.session = session

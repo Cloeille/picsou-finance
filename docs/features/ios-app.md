@@ -39,7 +39,11 @@ backend gained a second, higher-priority `SecurityFilterChain` (`AuthorizationSe
   `OctetSequenceKey` JWKSource) and an `OAuth2TokenCustomizer` stamps the exact claims the existing
   resource server expects (`type=access`, `uid`, `tv`, `sub`, `role`). The resource-server
   validation is unchanged; `JwtAuthenticationFilter` only gained an `Authorization: Bearer`
-  transport for `/api/**`.
+  transport for `/api/**`. When a request sends a JWT Bearer, the filter uses it and never reads
+  the `access_token` cookie, even if the Bearer is rejected; `PersistentTokenAuthFilter` likewise
+  never falls back to the Remember-Me cookie. A stale or other-user cookie can't override the
+  identity the client chose, and a rejected Bearer still surfaces as the 401 the app refreshes on.
+  Browsers send no `Authorization` header, so the web flow is unchanged.
 - The app never renders a login UI: `ASWebAuthenticationSession` opens `/oauth2/authorize`; when the
   request isn't already authenticated, `CookieBridgeAuthenticationFilter` + an entry point redirect
   the in-app browser to the SPA login (`/login?redirect=…`), which runs the untouched password +
@@ -89,6 +93,10 @@ with XcodeGen (not committed).
 - `ServerConfig` stores the instance URL (validated via `/actuator/health`).
 - `OAuthService` runs the PKCE flow and token/refresh grants; `TokenStore` persists the `TokenSet`
   in the Keychain (device-only); `BiometricGate` gates entry with Face ID.
+- Every API and token call goes through `URLSession.cookieless` (no cookie storage, accept or
+  send). The backend answers a username or password change with web `access_token` cookies; a
+  stored copy would otherwise ride along on every later request. `ASWebAuthenticationSession`
+  keeps its own browser cookies for the login flow.
 - `APIClient` injects the Bearer token and refreshes once when the server rejects it (and
   proactively near expiry) via an actor-based single-flight (`TokenRefresher`); on terminal failure
   it asks `AppState` to sign out. "Rejected" means a 401 whose ProblemDetail `type` is
