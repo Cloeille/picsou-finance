@@ -204,6 +204,7 @@
     "logoLedger": "Ledger",
     "total": "Total",
     "currentBalance": "Saldo actual",
+    "currentDebt": "Deuda de tarjeta",
     "cashBalance": "Efectivo en la cuenta PEA/de valores",
     "snapshots": "Registros mensuales",
     "addSnapshot": "Guardar",
@@ -242,7 +243,12 @@
     "importSuccessWithSkipped_other": "{{count}} transactions imported ({{skipped}} already present)",
     "importAlreadyDone": "No new transactions — CSV already imported.",
     "importError": "Import error: {{message}}",
-    "uncategorized": "Uncategorized"
+    "uncategorized": "Uncategorized",
+    "amex": {
+      "amountDue": "Importe a pagar",
+      "dueDate": "Fecha de domiciliación",
+      "miles": "Millas ganadas este ciclo"
+    }
   },
   "analysis": {
     "title": "Análisis",
@@ -390,7 +396,8 @@
     "other": "Otro",
     "employeeSavings": "Ahorro salarial",
     "assuranceVie": "Seguro de vida",
-    "scpi": "SCPI"
+    "scpi": "SCPI",
+    "creditCard": "Tarjeta de crédito"
   },
   "scpi": {
     "add": {
@@ -693,6 +700,7 @@
       "finary": "Importar desde Finary",
       "manual": "Crear una cuenta manualmente",
       "amundi": "PEE, PEG, PERCO, PER en Amundi",
+      "amex": "Tarjeta de crédito American Express: saldo y transacciones",
       "property": "Casa, piso, terreno…",
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Sincronizar tus cuentas Fortuneo"
@@ -812,6 +820,68 @@
       "description": "Elige qué cuentas aparecen en la aplicación. Una cuenta oculta sigue sincronizándose con normalidad — solo se retira de la pantalla.",
       "manualGroup": "Manual"
     },
+    "actual": {
+      "title": "Actual Budget",
+      "upload": "Importar una exportación de Actual Budget",
+      "uploadHint": "El .zip del presupuesto exportado desde Actual (Ajustes → Exportar datos) o su db.sqlite",
+      "chooseFile": "Elegir un archivo",
+      "file": "Archivo de Actual Budget",
+      "preview": "Previsualizar la importación",
+      "previewSummary": "{{accounts}} cuentas, {{categories}} categorías y {{transactions}} transacciones",
+      "restart": "Empezar de nuevo",
+      "import": "Importar datos",
+      "transfersNeutral": "{{count}} transferencias y saldos iniciales se clasificarán como transferencias internas: nunca contarán como ingresos ni gastos.",
+      "currency": "Moneda del presupuesto",
+      "currencyHint": "Este archivo no indica su moneda. Elige la de tu presupuesto.",
+      "accounts": "Cuentas",
+      "transactions": "transacciones",
+      "offBudget": "Fuera del presupuesto",
+      "closed": "Cerrada",
+      "skip": "Omitir",
+      "mapExisting": "Asociar a una cuenta existente",
+      "createNew": "Crear cuenta",
+      "targetAccount": "Cuenta destino para {{name}}",
+      "chooseAccount": "Elegir una cuenta",
+      "previouslyImported": "Cuenta creada por una importación anterior de Actual: su saldo se recalcula a partir del historial importado.",
+      "accountName": "Nombre de la cuenta",
+      "accountType": "Tipo de cuenta",
+      "categories": "Categorías",
+      "income": "Ingreso",
+      "expense": "Gasto",
+      "categoryAction": "Acción para {{name}}",
+      "createCategory": "Crear categoría",
+      "mapExistingCategory": "Asociar a una categoría existente",
+      "uncategorized": "Dejar sin categoría",
+      "categoryName": "Nombre de la categoría {{name}}",
+      "targetCategory": "Categoría destino para {{name}}",
+      "chooseCategory": "Elegir una categoría",
+      "sampleTransactions": "Últimas transacciones",
+      "noPayee": "Sin beneficiario",
+      "transfer": "Transferencia",
+      "startingBalance": "Saldo inicial",
+      "accountsCreated": "Cuentas creadas",
+      "accountsMapped": "Cuentas asociadas",
+      "accountsSkipped": "Cuentas omitidas",
+      "categoriesCreated": "Categorías creadas",
+      "transactionsImported": "Transacciones importadas",
+      "transactionsSkipped": "Transacciones omitidas",
+      "transactionsDeleted": "Transacciones eliminadas",
+      "transactionsMoved": "Transacciones movidas",
+      "done": "Hecho",
+      "confirmTitle": "Confirmar la importación de Actual Budget",
+      "planSummary": "Esta importación añade {{added}} transacciones, elimina {{deleted}} y mueve {{moved}} entre cuentas.",
+      "largeDeletion": "Atención: esta importación elimina {{count}} transacciones, una gran parte del historial de una cuenta. Comprueba que cada cuenta de Actual está asociada a la cuenta de Picsou correcta.",
+      "confirmDescription": "Una cuenta creada por una importación de Actual para una de las cuentas de este archivo sigue el archivo: las transacciones eliminadas o divididas en Actual se eliminan, y las movidas en Actual las siguen. Las demás cuentas (las tuyas, o las creadas para otro presupuesto) solo reciben transacciones nuevas. No se escribe nada si falla alguna comprobación.",
+      "warnings": {
+        "KEPT_MISSING": "{{count}} transacciones importadas antes en estas cuentas no están en este archivo. Pueden venir de otro archivo o haberse eliminado en Actual. No se ha cambiado nada.",
+        "KEPT_MOVED": "{{count}} transacciones ya importadas en otra cuenta se quedan donde están, porque esa cuenta no sigue este archivo."
+      },
+      "errors": {
+        "invalidPreview": "La respuesta de previsualización no es válida.",
+        "previewFailed": "No se pudo leer el archivo de Actual Budget.",
+        "importFailed": "La importación de Actual Budget ha fallado."
+      }
+    },
     "finary": {
       "title": "Finary",
       "uploadFile": "Importar archivo Finary (.xlsx)",
@@ -889,6 +959,7 @@
         "tooManyAttempts": "Demasiados intentos. Espere antes de reintentar.",
         "invalidCredentials": "Número de cliente o contraseña de BoursoBank no válidos.",
         "fraudAckRequired": "Inicie sesión en el sitio web de BoursoBank, valide el aviso antifraude y vuelva a conectarse.",
+        "identitySelectionUnsupported": "Este acceso de BoursoBank reúne varias identidades y Picsou no pudo determinar cuál es la personal. Las identidades profesionales aún no son compatibles. Se han conservado sus datos existentes.",
         "mfaTypeUnsupported": "BoursoBank pide un código por SMS o correo electrónico, que Picsou no puede gestionar. Active la validación por aplicación en sus ajustes de seguridad de BoursoBank.",
         "appValidationTimeout": "La validación en la aplicación no se confirmó a tiempo. Vuelva a empezar.",
         "authAttemptExpired": "El intento de autenticación ha caducado. Vuelva a empezar.",
@@ -983,6 +1054,41 @@
         "invalidData": "Amundi devolvió datos incoherentes. Se han conservado sus datos existentes.",
         "serverError": "No se puede contactar con Amundi. Inténtelo de nuevo."
       }
+    },
+    "amex": {
+      "title": "American Express",
+      "login": "Identificador",
+      "password": "Contraseña",
+      "otpMethod": "Recibir el código por",
+      "otpMethodSms": "SMS",
+      "otpMethodEmail": "Correo electrónico",
+      "otpCode": "Código de un solo uso",
+      "otpPrompt": "Introduzca el código enviado por American Express.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "validate": "Validar código",
+      "validating": "Validando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Tarjeta American Express sincronizada.",
+      "clearSession": "Desconectar",
+      "noSession": "Sin sesión activa",
+      "sessionActive": "Sesión activa",
+      "scope": "Sincroniza su tarjeta de crédito American Express: saldo e historial de transacciones.",
+      "errors": {
+        "tooManyAttempts": "Demasiados intentos. Por favor, espere.",
+        "invalidCredentials": "Credenciales de American Express inválidas.",
+        "invalidCode": "Código de un solo uso inválido o caducado. Vuelva a intentarlo.",
+        "authAttemptExpired": "El intento de autenticación expiró. Vuelva a conectarse.",
+        "sessionExpired": "La sesión de American Express ha expirado. Vuelva a conectarse.",
+        "formatChanged": "El formato del sitio de American Express ha cambiado. Sus datos existentes se han conservado.",
+        "invalidData": "American Express devolvió datos incoherentes. Sus datos existentes se han conservado.",
+        "serverError": "No se pudo conectar con American Express. Inténtelo de nuevo."
+      },
+      "historyLimit": "AMEX limita el historial a las transacciones que expone su API; puede que las más antiguas no estén disponibles.",
+      "recoverHistory": "Recuperar historial disponible",
+      "recoveringHistory": "Recuperando historial…"
     },
     "revolut": {
       "title": "Revolut",
@@ -1302,6 +1408,10 @@
       "family_read": {
         "label": "Familia",
         "desc": "Ver el panel familiar compartido"
+      },
+      "analysis_read": {
+        "label": "Análisis patrimonial",
+        "desc": "Consultar la asignación, la diversificación, las proyecciones y el resumen inmobiliario"
       },
       "accounts_write": {
         "label": "Cuentas",
@@ -2329,7 +2439,8 @@
         "autoConfirmedDesc": "Detected and confirmed automatically",
         "priceChangeDesc": "Price went from {{from}} to {{to}}",
         "acknowledge": "Got it"
-      }
+      },
+      "creditCardPayment": "Pago con tarjeta de crédito"
     },
     "categorize": {
       "subtitle": "Assign a category to unclassified transactions.",

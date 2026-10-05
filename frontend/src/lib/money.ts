@@ -127,7 +127,7 @@ export function makeMoneyFormatter({ hidden, locale }: { hidden: boolean; locale
       if (digits == null) return formatCurrencyIntl(value, currency, locale)
       try {
         return new Intl.NumberFormat(normalizeIntlLocale(locale), {
-          style: 'currency', currency, notation: 'compact', maximumFractionDigits: digits,
+          style: 'currency', currency, notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: digits,
         }).format(value)
       } catch {
         // An invalid currency or locale throws a RangeError; the full format degrades gracefully.

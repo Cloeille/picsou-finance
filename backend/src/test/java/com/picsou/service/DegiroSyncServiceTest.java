@@ -239,9 +239,18 @@ class DegiroSyncServiceTest {
         DegiroSession session = DegiroSession.builder().build();
         when(sessionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.of(session));
 
-        service.clearSession(MEMBER_ID);
+        assertThat(service.clearSession(MEMBER_ID)).isTrue();
 
         verify(sessionRepository, times(1)).delete(session);
+    }
+
+    @Test
+    void clearSession_reportsNothingWhenNoSessionIsStored() {
+        when(sessionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.empty());
+
+        assertThat(service.clearSession(MEMBER_ID)).isFalse();
+
+        verify(sessionRepository, never()).delete(any());
     }
 
     private AccountResponse mockResponse() {

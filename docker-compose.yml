@@ -36,6 +36,7 @@ services:
       BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001
       AMUNDI_AUTH_URL: http://amundi-auth:8001
       FORTUNEO_AUTH_URL: http://fortuneo-auth:8001
+      AMEX_AUTH_URL: http://amex-auth:8001
       CORUM_AUTH_URL: http://corum-auth:8001
       SOFIDY_AUTH_URL: http://sofidy-auth:8001
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -52,6 +53,8 @@ services:
         condition: service_started
       fortuneo-auth:
         condition: service_started
+      amex-auth:
+        condition: service_started
       corum-auth:
         condition: service_started
       sofidy-auth:
@@ -65,6 +68,8 @@ services:
       context: ./services/tr-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     networks:
       - picsou-net
 
@@ -73,6 +78,8 @@ services:
       context: ./services/revolut-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     networks:
       - picsou-net
     volumes:
@@ -83,6 +90,8 @@ services:
       context: ./services/bourse-direct-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
     networks:
@@ -93,6 +102,8 @@ services:
       context: ./services/amundi-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
     networks:
@@ -103,6 +114,8 @@ services:
       context: ./services/fortuneo-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
     networks:
@@ -138,8 +151,22 @@ services:
       context: ./services/bourso-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
+    networks:
+      - picsou-net
+
+  amex-auth:
+    build:
+      context: ./services/amex-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8001"
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?APP_SIDECAR_API_KEY is required}
     networks:
       - picsou-net
 
@@ -148,6 +175,8 @@ services:
       context: ./services/degiro-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     networks:
       - picsou-net
 

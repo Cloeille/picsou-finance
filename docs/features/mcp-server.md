@@ -1,6 +1,6 @@
 # Feature: Embedded MCP server + scoped access-keys
 
-> Last updated: 2026-06-26
+> Last updated: 2026-10-04
 
 ## Context
 
@@ -48,7 +48,7 @@ Three security properties are guaranteed structurally (not by per-call checks):
 
 **Backend — MCP surface**
 - `backend/src/main/java/com/picsou/config/McpToolConfig.java` — the single `ToolCallbackProvider` bean; the one place tools are wired.
-- `backend/src/main/java/com/picsou/mcp/tools/{Account,Transaction,Goal,Insight,Sync}Tools.java` — the `@Tool` methods, each gated by `@RequiresScope`.
+- `backend/src/main/java/com/picsou/mcp/tools/{Account,Transaction,Goal,Insight,Sync,Analysis}Tools.java` — the `@Tool` methods, each gated by `@RequiresScope`.
 - `backend/src/main/java/com/picsou/mcp/RequiresScope.java` + `backend/src/main/java/com/picsou/mcp/ScopeEnforcementAspect.java` + `backend/src/main/java/com/picsou/exception/MissingScopeException.java` — scope enforcement (AOP) and its clean error.
 - `backend/src/main/java/com/picsou/controller/AccessKeyController.java` + `dto/AccessKey{CreateRequest,Response,CreatedResponse}.java` — self-service management REST API under `/api/access-keys`.
 - `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — `mcpKeyBuckets`, `accessKeyCreateBuckets`, and the bucket factories.
@@ -106,25 +106,57 @@ WebApp (Settings) ──cookie──▶ POST /api/access-keys {name, scopes, exp
 
 ## Tool catalogue
 
-Every tool acts only on the key owner's own data; writes are restricted to **manual** records and
-**refresh-existing-sync** triggers. `McpToolCatalogTest` pins this exact set.
+Every tool acts only on the key owner's own data. The curated write surface covers record
+maintenance, **manual account creation**, **refresh-existing-sync** triggers, and account deletion.
+`McpToolCatalogTest` pins this exact set.
+
+With `accounts:write`, `delete_account` can soft-delete both manual and synced accounts. Deleting
+the last account on a connection also removes that connection: it can clear stored provider
+sessions/credentials, remove a wallet or exchange connection, delete an IBKR connection, or delete
+an Enable Banking requisition. A connection still used by another live account is kept.
+The tool returns the `DeletionImpact` of what the deletion actually removed, in the same
+transaction: the removed connection's label, or `false` / `null` when the connection is kept or
+there was nothing left to remove (wallet row or exchange session already gone, unknown exchange
+type, no stored session).
+`get_account_deletion_impact` requires only `accounts:read` and makes no changes. It is a preview,
+a prediction that can become stale before deletion, so callers should report the result returned
+by `delete_account`.
 
 | Scope | Tools |
 |-------|-------|
-| `accounts:read` | `list_accounts`, `get_account`, `get_account_holdings`, `get_account_balance_history` |
+| `accounts:read` | `list_accounts`, `get_account`, `get_account_holdings`, `get_account_balance_history`, `get_account_deletion_impact`, `get_savings_interest`, `get_property_valuations`, `get_loan_summary`, `get_realized_pnl`, `get_exchange_positions` |
 | `transactions:read` | `list_account_transactions` |
 | `goals:read` | `list_goals`, `get_goal`, `get_goal_monthly_entries` |
 | `dashboard:read` | `get_dashboard`, `get_net_worth_history`, `get_profit_and_loss` |
 | `family:read` | `get_family_dashboard` |
-| `prices:read` | `get_price` |
+| `analysis:read` | `get_allocation`, `get_wealth_pyramid`, `get_portfolio_diversification`, `get_wealth_projection`, `get_allocation_targets`, `get_essential_expense_estimate`, `get_savings_suggestions`, `get_real_estate_summary` |
+| `prices:read` | `get_price`, `get_security_insight` |
 | `accounts:write` | `create_manual_account`, `update_account`, `delete_account`, `add_balance_snapshot`, `upsert_holding`, `delete_holding` |
 | `transactions:write` | `add_transaction`, `update_transaction`, `delete_transaction` |
 | `goals:write` | `create_goal`, `update_goal`, `delete_goal`, `set_goal_month_contribution` |
 | `sync:trigger` | `trigger_bank_sync`, `trigger_broker_sync`, `trigger_crypto_exchange_sync`, `trigger_crypto_wallet_sync` |
 
-**Never exposed** (no `@Tool` exists, so no scope can reach them): authentication / credential
-flows, connecting a new bank / broker / exchange / wallet, MFA, admin settings, member management,
-and GDPR data export.
+The wealth-analysis tools (`AnalysisTools`) are read-only. Each calls the service behind its REST
+counterpart with the caller's member and returns the same payload. Whole-wealth judgements
+(allocation, pyramid, diversification, projection, targets, expense estimate, savings suggestions,
+real-estate summary) need `analysis:read`, a scope separate from `accounts:read`. It is not a
+summary-only scope: each tool returns the same payload as its analysis page, so granting it shares
+everything those pages show. That includes account names and current values, position lines
+(ticker, name, account, value), flow figures derived from transactions (net contributions per
+account, average monthly spending), the essential expenses the member declared and full property and loan details
+(names, city, costs, rents, area, SCPI manager and shares, lender, monthly payment, end date). It
+returns no individual transaction and no balance history. Tools that take an account id read one account, so they stay under
+`accounts:read` like `get_account_holdings`. An account of another member gets the same not-found
+error as every other account tool. `get_security_insight` is market reference data, not member
+data, so it sits next to `get_price` under `prices:read`. `get_wealth_projection` keeps the REST
+default of 20 years and the service's 1 to 40 clamp. Deliberately not exposed: the security-profile
+refresh (a rate-limited fan-out to external providers) and every analysis write (allocation
+targets, savings config, real-estate, debt, ownership and visibility settings).
+
+**Never exposed** (no `@Tool` exists, so no scope can initiate them): authentication flows,
+credential submission or retrieval, connecting a new bank / broker / exchange / wallet, MFA,
+admin settings, member management, and GDPR data export. This does not prohibit removing stored
+sessions/credentials as the documented side effect of deleting a connection's last account.
 
 ## Technical choices
 
@@ -135,7 +167,7 @@ and GDPR data export.
 | **SHA-256 + constant-time compare** for key hashes | The secret is high-entropy (~190 bits), so a fast hash is safe; enables O(1) prefix lookup then `MessageDigest.isEqual` | bcrypt (needed for low-entropy passwords; here it only adds latency to the hot auth path) |
 | **HTTP+SSE** transport (`/mcp` stream + `/mcp/message`) | The only transport Spring AI 1.0.3 / MCP SDK 0.10.0 ship; clients reach it via `mcp-remote` | Streamable HTTP (not available on the pinned version — see the ADR) |
 | **Reactor automatic context propagation** to carry the security context to the tool thread | Spring AI runs tools off the servlet thread; this restores the `SecurityContext` there so the existing thread-local check works unchanged | `MODE_INHERITABLETHREADLOCAL` (misses pooled scheduler threads) · making the aspect read auth some other way (leaks the thread concern into every tool) |
-| **Curated** write surface (manual records + resync only) | An AI app should never initiate credential/auth flows or touch admin/MFA/export | Expose the full REST surface as tools (uncontrolled blast radius) |
+| **Curated** write surface (record maintenance, manual account creation, resync, and account deletion with idle-connection cleanup) | No credential submission/retrieval or new authentication flow; deleting the last synced account can remove its stored session/credentials | Expose the full REST surface as tools (uncontrolled blast radius) |
 | Scopes as one **space-delimited column** via `@Convert` | Read in full on every auth, never queried individually; no join table | Join table (a query per auth for data that's always read whole) |
 | Per-key + per-member **in-memory Bucket4j** throttles | Single-instance self-host; matches the existing `RateLimitConfig` pattern | Distributed rate store (unwarranted for a self-hosted single instance) |
 
@@ -189,14 +221,16 @@ Backend (H2, `mvn test`):
 - `mcp/ScopesTest`, `mcp/ScopeSetConverterTest` — vocabulary + converter round-trip.
 - `mcp/ScopeEnforcementAspectTest` — **denial** when the required scope is absent.
 - `mcp/tools/McpToolCatalogTest` — **curation guard**: pins the exact advertised tool set (no auth/credential/admin tool).
-- `mcp/tools/{Account,Transaction,Goal,Insight,Sync}ToolsTest` — delegation + member-scoping per tool.
+- `mcp/tools/{Account,Transaction,Goal,Insight,Sync}ToolsTest` — delegation + member-scoping per tool; account deletion reports the cleanup decision even when the earlier read-only preview has become stale.
+- `mcp/tools/AnalysisToolsTest` — delegation per tool, another member's account surfaces the service's not-found, the scope each tool carries, and every tool rejected through the real `ScopeEnforcementAspect` proxy when its scope is missing.
+- `service/AccountConnectionServiceTest` — last-account cleanup, connection preservation, and deletion results with labels captured before the connection is removed.
 - `config/AccessKeyAuthFilterTest` — Property A (key on `/api/**` ⇒ not authenticated; on `/mcp` ⇒ authenticated), Property C (scope authorities only), throttle 429.
 - `service/UserContextTest` — Property B (`AccessKeyAuthentication` ⇒ override returns `null`, even for an admin-owned key).
 - `controller/AccessKeyControllerTest` — create/list/revoke, one-time secret, unknown-scope 400, member isolation, create throttle.
 - `model/AccessKeyTest` — `isUsable` (revoked / expired / live).
 
 Frontend (`bunx vitest run`):
-- `frontend/src/features/accessKeys/scopes.test.ts` — scope grouping, i18n-key mapping, and a **vocabulary guard** asserting the frontend list equals backend `Scopes.ALL`.
+- `frontend/src/features/accessKeys/scopes.test.ts` — scope grouping, i18n-key mapping, a **vocabulary guard** asserting the frontend list equals backend `Scopes.ALL`, and a label guard so no scope reaches the consent screen as a raw key.
 - `frontend/src/features/accessKeys/status.test.ts` — `keyStatus` (revoked > expired > active, boundary at "now").
 
 **Not covered by unit tests** (they run on a single thread, so they can't reproduce it): the

@@ -6,6 +6,9 @@ import com.picsou.dto.RecurringSeriesRequest;
 import com.picsou.dto.RecurringSeriesResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.Category;
+import com.picsou.model.Account;
+import com.picsou.model.AccountType;
+import com.picsou.repository.AccountRepository;
 import com.picsou.model.RecurringSeries;
 import com.picsou.model.RecurringStatus;
 import com.picsou.repository.CategoryRepository;
@@ -35,15 +38,18 @@ public class RecurringSeriesService {
     private final RecurringSeriesRepository seriesRepository;
     private final CategoryRepository categoryRepository;
     private final FamilyMemberRepository familyMemberRepository;
+    private final AccountRepository accountRepository;
 
     public RecurringSeriesService(
         RecurringSeriesRepository seriesRepository,
         CategoryRepository categoryRepository,
-        FamilyMemberRepository familyMemberRepository
+        FamilyMemberRepository familyMemberRepository,
+        AccountRepository accountRepository
     ) {
         this.seriesRepository = seriesRepository;
         this.categoryRepository = categoryRepository;
         this.familyMemberRepository = familyMemberRepository;
+        this.accountRepository = accountRepository;
     }
 
     /**
@@ -196,6 +202,15 @@ public class RecurringSeriesService {
                 due = series.getCadence().next(due);
             }
         }
+        for (Account account : accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId)) {
+            if (account.getType() == AccountType.CREDIT_CARD && account.getPaymentDueDate() != null
+                && !account.getPaymentDueDate().isBefore(today) && !account.getPaymentDueDate().isAfter(end)
+                && account.getPaymentDueAmount() != null && account.getPaymentDueAmount().signum() > 0) {
+                occurrences.add(new RecurringOccurrenceResponse(-account.getId(), account.getName(), account.getName(),
+                    account.getPaymentDueAmount().negate(), account.getPaymentDueDate(), null, null, null, null,
+                    account.getRewardPoints(), true));
+            }
+        }
         occurrences.sort(java.util.Comparator.comparing(RecurringOccurrenceResponse::dueDate));
         return occurrences;
     }
@@ -211,7 +226,9 @@ public class RecurringSeriesService {
             category != null ? category.getId() : null,
             category != null ? category.getName() : null,
             category != null ? category.getColor() : null,
-            category != null ? category.getIcon() : null
+            category != null ? category.getIcon() : null,
+            null,
+            false
         );
     }
 

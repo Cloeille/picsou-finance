@@ -1,0 +1,322 @@
+import '@testing-library/jest-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ReactNode } from 'react'
+
+const { apiPost } = vi.hoisted(() => ({ apiPost: vi.fn() }))
+
+vi.mock('@/lib/api-client', () => ({
+  api: { post: apiPost },
+}))
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: Record<string, unknown>) =>
+      options && 'added' in options ? `${key} ${options.added}/${options.deleted}/${options.moved}` : key,
+  }),
+}))
+
+vi.mock('@/hooks/use-money', () => ({
+  useMoney: () => ({ amount: (value: number, currency: string) => `${value} ${currency}` }),
+}))
+
+const { ActualBudgetTab } = await import('./ActualBudgetTab')
+
+const preview = {
+  fileToken: 'token-1',
+  currency: 'EUR',
+  accounts: [{
+    sourceId: 'acc-1', name: 'Everyday', offBudget: false, closed: false,
+    suggestedType: 'CHECKING', balance: 2915.66, transactionCount: 7, importedAccountId: null,
+  }],
+  categories: [{ sourceId: 'cat-1', name: 'Groceries', groupName: 'Food', income: false, transactionCount: 2 }],
+  existingAccounts: [],
+  actualAccountIds: [],
+  existingCategories: [],
+  sampleTransactions: [
+    {
+      sourceId: 'tx-1', accountSourceId: 'acc-1', date: '2024-01-02', amount: -12.34,
+      payee: 'Market', notes: 'Weekly shop', categorySourceId: 'cat-1', kind: 'REGULAR',
+    },
+    {
+      sourceId: 'tx-2', accountSourceId: 'acc-1', date: '2024-01-15', amount: -500,
+      payee: 'Rainy day', notes: null, categorySourceId: null, kind: 'TRANSFER',
+    },
+  ],
+  totalTransactions: 8,
+  transferTransactions: 3,
+}
+
+const plan = { transactionsToAdd: 8, transactionsToDelete: 0, transactionsToMove: 0, warnings: [], largeDeletion: false }
+
+const result = {
+  accountsCreated: 1, accountsMapped: 0, accountsSkipped: 0, categoriesCreated: 2,
+  transactionsImported: 8, transactionsSkipped: 0, transactionsDeleted: 0, transactionsMoved: 0, warnings: [],
+}
+
+function renderTab() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  function Wrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  }
+  render(<ActualBudgetTab />, { wrapper: Wrapper })
+}
+
+async function uploadPreview(response: unknown = preview) {
+  apiPost.mockResolvedValueOnce({ data: response })
+  const file = new File(['PK'], 'My Budget.zip', { type: 'application/zip' })
+  fireEvent.change(screen.getByLabelText('sync.actual.file'), { target: { files: [file] } })
+  fireEvent.click(screen.getByRole('button', { name: 'sync.actual.preview' }))
+  return file
+}
+
+async function confirmImport() {
+  apiPost.mockResolvedValueOnce({ data: plan }).mockResolvedValueOnce({ data: result })
+  fireEvent.click(screen.getByRole('button', { name: 'sync.actual.import' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'common.confirm' }))
+  await screen.findByText('sync.actual.transactionsImported')
+  return apiPost.mock.calls[2]
+}
+
+describe('ActualBudgetTab', () => {
+  beforeEach(() => {
+    apiPost.mockReset()
+  })
+
+  it('previews the file, then imports only after confirmation with the chosen mappings', async () => {
+    renderTab()
+    const file = await uploadPreview()
+    await screen.findByText('Weekly shop')
+
+    const [url, body] = apiPost.mock.calls[0]
+    expect(url).toBe('/actual/import/preview')
+    expect(body.get('file')).toBe(file)
+    expect(screen.getByText('-12.34 EUR')).toBeInTheDocument()
+    expect(screen.getByText('2915.66 EUR')).toBeInTheDocument()
+    expect(screen.getByText('sync.actual.transfer')).toBeInTheDocument()
+    expect(screen.getByText('sync.actual.transfersNeutral')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'sync.actual.currency' })).not.toBeInTheDocument()
+
+    apiPost.mockResolvedValueOnce({ data: plan })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.actual.import' }))
+    expect(await screen.findByText('sync.actual.planSummary 8/0/0 sync.actual.confirmDescription')).toBeInTheDocument()
+    expect(apiPost).toHaveBeenCalledTimes(2)
+    const [planUrl, planRequest] = apiPost.mock.calls[1]
+    expect(planUrl).toBe('/actual/import/plan')
+
+    apiPost.mockResolvedValueOnce({ data: result })
+    fireEvent.click(screen.getByRole('button', { name: 'common.confirm' }))
+    await screen.findByText('sync.actual.transactionsImported')
+    const [executeUrl, request] = apiPost.mock.calls[2]
+    expect(executeUrl).toBe('/actual/import')
+    expect(request).toEqual(planRequest)
+    expect(request).toEqual({
+      fileToken: 'token-1',
+      currency: 'EUR',
+      acknowledgeLargeDeletion: false,
+      accountMappings: [{
+        sourceId: 'acc-1', action: 'CREATE_NEW',
+        newAccount: { name: 'Everyday', type: 'CHECKING', currency: 'EUR', color: '#6366f1' },
+      }],
+      categoryMappings: [{ sourceId: 'cat-1', action: 'CREATE_NEW', name: 'Groceries' }],
+    })
+  })
+
+  it('shows what a re-import deletes, moves and keeps before confirming, then reports it', async () => {
+    renderTab()
+    await uploadPreview()
+    await screen.findByText('Weekly shop')
+    const warnings = [{ reason: 'KEPT_MISSING', count: 2 }, { reason: 'KEPT_MOVED', count: 1 }]
+    apiPost.mockResolvedValueOnce({ data: { ...plan, transactionsToAdd: 3, transactionsToDelete: 1, transactionsToMove: 4, warnings } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'sync.actual.import' }))
+
+    expect(await screen.findByText('sync.actual.planSummary 3/1/4 sync.actual.warnings.KEPT_MISSING '
+      + 'sync.actual.warnings.KEPT_MOVED sync.actual.confirmDescription')).toBeInTheDocument()
+    apiPost.mockResolvedValueOnce({ data: { ...result, transactionsDeleted: 1, transactionsMoved: 4, warnings } })
+    fireEvent.click(screen.getByRole('button', { name: 'common.confirm' }))
+    expect(await screen.findByText('sync.actual.transactionsDeleted')).toBeInTheDocument()
+    expect(screen.getByText('sync.actual.transactionsMoved')).toBeInTheDocument()
+    expect(screen.getAllByRole('status').map((node) => node.textContent)).toEqual(
+      expect.arrayContaining(['sync.actual.warnings.KEPT_MISSING', 'sync.actual.warnings.KEPT_MOVED']))
+  })
+
+  it('makes the user type the row count before confirming a large deletion, then acknowledges it', async () => {
+    renderTab()
+    await uploadPreview()
+    await screen.findByText('Weekly shop')
+    apiPost.mockResolvedValueOnce({ data: { ...plan, transactionsToAdd: 0, transactionsToDelete: 250, largeDeletion: true } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'sync.actual.import' }))
+
+    expect(await screen.findByText('sync.actual.largeDeletion sync.actual.planSummary 0/250/0 '
+      + 'sync.actual.confirmDescription')).toBeInTheDocument()
+    const confirm = screen.getByRole('button', { name: 'common.confirm' })
+    expect(confirm).toBeDisabled()
+    fireEvent.change(screen.getByPlaceholderText('250'), { target: { value: '250' } })
+    expect(confirm).toBeEnabled()
+    apiPost.mockResolvedValueOnce({ data: { ...result, transactionsDeleted: 250 } })
+    fireEvent.click(confirm)
+    await screen.findByText('sync.actual.transactionsDeleted')
+    expect(apiPost.mock.calls[1][1].acknowledgeLargeDeletion).toBe(false)
+    expect(apiPost.mock.calls[2][1].acknowledgeLargeDeletion).toBe(true)
+  })
+
+  it('shows the backend reason when the dry run refuses the mappings and opens no confirmation', async () => {
+    renderTab()
+    await uploadPreview()
+    await screen.findByText('Weekly shop')
+    apiPost.mockRejectedValueOnce({
+      response: { status: 400, data: { detail: 'Loan accounts cannot receive Actual Budget transactions' } },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'sync.actual.import' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Loan accounts cannot receive Actual Budget transactions')
+    expect(screen.queryByRole('button', { name: 'common.confirm' })).not.toBeInTheDocument()
+  })
+
+  it('never offers a loan as a new account type', async () => {
+    renderTab()
+    await uploadPreview()
+    const type = await screen.findByLabelText('sync.actual.accountType')
+
+    expect(Array.from(type.querySelectorAll('option')).map((option) => option.value)).not.toContain('LOAN')
+  })
+
+  it('asks for the currency when the budget does not record one', async () => {
+    renderTab()
+    await uploadPreview({ ...preview, currency: null })
+    const currency = await screen.findByLabelText('sync.actual.currency')
+
+    fireEvent.change(currency, { target: { value: 'USD' } })
+    const [, request] = await confirmImport()
+
+    expect(request.currency).toBe('USD')
+    expect(request.accountMappings[0].newAccount.currency).toBe('USD')
+  })
+
+  it('pre-maps exact matches and only offers compatible targets', async () => {
+    renderTab()
+    await uploadPreview({
+      ...preview,
+      existingAccounts: [
+        { id: 31, name: 'Everyday', currency: 'EUR', type: 'CHECKING' },
+        { id: 32, name: 'Everyday', currency: 'USD', type: 'CHECKING' },
+        { id: 33, name: 'PEA', currency: 'EUR', type: 'PEA' },
+        { id: 34, name: 'Mortgage', currency: 'EUR', type: 'LOAN' },
+      ],
+      existingCategories: [
+        { id: 41, name: 'Groceries', kind: 'EXPENSE', archived: false },
+        { id: 42, name: 'Groceries', kind: 'INCOME', archived: false },
+        { id: 43, name: 'Old groceries', kind: 'EXPENSE', archived: true },
+      ],
+    })
+
+    const account = await screen.findByLabelText('sync.actual.targetAccount')
+    expect(account).toHaveValue('31')
+    expect(Array.from(account.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '31'])
+    const category = screen.getByLabelText('sync.actual.targetCategory')
+    expect(category).toHaveValue('41')
+    expect(Array.from(category.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '41'])
+
+    const [, request] = await confirmImport()
+    expect(request.accountMappings).toEqual([{ sourceId: 'acc-1', action: 'MAP_EXISTING', targetAccountId: 31 }])
+    expect(request.categoryMappings).toEqual([{ sourceId: 'cat-1', action: 'MAP_EXISTING', targetCategoryId: 41 }])
+  })
+
+  it('targets the account an earlier import created over a same-name account', async () => {
+    renderTab()
+    await uploadPreview({
+      ...preview,
+      accounts: [{ ...preview.accounts[0], importedAccountId: 35 }],
+      existingAccounts: [
+        { id: 31, name: 'Everyday', currency: 'EUR', type: 'CHECKING' },
+        { id: 35, name: 'Everyday (Actual)', currency: 'EUR', type: 'CHECKING' },
+      ],
+      actualAccountIds: [35],
+    })
+
+    const account = await screen.findByLabelText('sync.actual.targetAccount')
+    expect(account).toHaveValue('35')
+    expect(Array.from(account.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '31', '35'])
+    expect(screen.getByText('sync.actual.previouslyImported')).toBeInTheDocument()
+    fireEvent.change(account, { target: { value: '31' } })
+    expect(screen.queryByText('sync.actual.previouslyImported')).not.toBeInTheDocument()
+    fireEvent.change(account, { target: { value: '35' } })
+
+    const [, request] = await confirmImport()
+    expect(request.accountMappings).toEqual([{ sourceId: 'acc-1', action: 'MAP_EXISTING', targetAccountId: 35 }])
+  })
+
+  it('offers an account an import created only to the Actual account it was created for', async () => {
+    renderTab()
+    await uploadPreview({
+      ...preview,
+      accounts: [
+        { ...preview.accounts[0], importedAccountId: 36 },
+        { ...preview.accounts[0], sourceId: 'b2-checking', importedAccountId: null },
+      ],
+      existingAccounts: [
+        { id: 36, name: 'Everyday', currency: 'EUR', type: 'CHECKING' },
+        { id: 31, name: 'Everyday', currency: 'EUR', type: 'CHECKING' },
+      ],
+      actualAccountIds: [36],
+    })
+
+    const [own, other] = await screen.findAllByLabelText('sync.actual.targetAccount')
+    expect(own).toHaveValue('36')
+    expect(Array.from(own.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '36', '31'])
+    expect(other).toHaveValue('31')
+    expect(Array.from(other.querySelectorAll('option')).map((option) => option.value)).toEqual(['', '31'])
+  })
+
+  it('creates a new account rather than reuse another budget\'s imported account of the same name', async () => {
+    renderTab()
+    await uploadPreview({
+      ...preview,
+      existingAccounts: [{ id: 36, name: 'Everyday', currency: 'EUR', type: 'CHECKING' }],
+      actualAccountIds: [36],
+    })
+    await screen.findByText('Weekly shop')
+
+    const [, request] = await confirmImport()
+    expect(request.accountMappings).toEqual([{
+      sourceId: 'acc-1', action: 'CREATE_NEW',
+      newAccount: { name: 'Everyday', type: 'CHECKING', currency: 'EUR', color: '#6366f1' },
+    }])
+  })
+
+  it('blocks the import until a mapped category has a target', async () => {
+    renderTab()
+    await uploadPreview()
+    const action = await screen.findByLabelText('sync.actual.categoryAction')
+
+    fireEvent.change(action, { target: { value: 'MAP_EXISTING' } })
+    expect(screen.getByRole('button', { name: 'sync.actual.import' })).toBeDisabled()
+    fireEvent.change(action, { target: { value: 'UNCATEGORIZED' } })
+    expect(screen.getByRole('button', { name: 'sync.actual.import' })).toBeEnabled()
+
+    const [, request] = await confirmImport()
+    expect(request.categoryMappings).toEqual([{ sourceId: 'cat-1', action: 'UNCATEGORIZED' }])
+  })
+
+  it('shows the backend reason when a file is rejected', async () => {
+    renderTab()
+    apiPost.mockRejectedValueOnce({
+      response: { status: 400, data: { detail: 'The Actual Budget archive contains an unsafe path' } },
+    })
+    fireEvent.change(screen.getByLabelText('sync.actual.file'), { target: { files: [new File(['PK'], 'evil.zip')] } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.actual.preview' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The Actual Budget archive contains an unsafe path')
+  })
+
+  it('refuses an empty demo-mode response instead of rendering it', async () => {
+    renderTab()
+    await uploadPreview({})
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('sync.actual.errors.invalidPreview')
+  })
+})

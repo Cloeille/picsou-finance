@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Category, Transaction } from '@/types/api'
 import { TransactionRow } from '@/components/shared/TransactionRow'
@@ -16,6 +16,8 @@ interface TransactionsListProps {
   logoUrlFor?: (brandId: number | null | undefined) => string | null
   categories?: Category[]
   onCategorize?: (txId: number, categoryId: number) => void
+  /** Buttons rendered in the card header (add, import). The card stays visible when empty if set. */
+  actions?: ReactNode
 }
 
 export function TransactionsList({
@@ -25,6 +27,7 @@ export function TransactionsList({
   logoUrlFor,
   categories,
   onCategorize,
+  actions,
 }: TransactionsListProps) {
   const { t, i18n } = useTranslation()
   const [search, setSearch] = useState('')
@@ -52,21 +55,22 @@ export function TransactionsList({
 
   const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a))
 
-  if (transactions.length === 0) return null
+  if (transactions.length === 0 && !actions) return null
 
   return (
     <>
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle className="text-base">{t('accounts.transactions')}</CardTitle>
+          {actions && <div className="flex items-center gap-2">{actions}</div>}
         </CardHeader>
         <CardContent className="space-y-0">
-          <Input
+          {transactions.length > 0 && <Input
             placeholder={t('common.search')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="mb-4"
-          />
+          />}
           {sortedDates.map((date, dateIdx) => (
             <div key={date}>
               {dateIdx > 0 && <Separator className="my-3" />}

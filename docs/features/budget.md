@@ -472,3 +472,4 @@ Enable Banking sync ─▶ SyncService.fetchTransactions ─▶ dedup ─▶ per
   (1.1.0 redesign), [budget-cycle-and-categorization](../decisions/2026-06-02-budget-cycle-and-categorization.md)
   (original foundation)
 - Updated: [bank-sync](./bank-sync.md) (transaction ingestion now included)
+- American Express card payments appear as one-off upcoming charges when an amount and due date are available; see [amex-sidecar](./amex-sidecar.md).

@@ -46,9 +46,13 @@ recorded in the [Fortuneo ADR](../decisions/2026-07-26-fortuneo-isolated-atomic-
 The sidecar is not exposed publicly by Docker Compose. Its inbound interface is
 on a dedicated internal network shared only with the backend; a separate
 sidecar-only egress network lets Chromium reach Fortuneo without making the
-credential-bearing API reachable by the rest of the stack. A custom remote
-sidecar URL must use HTTPS; plain HTTP is accepted only for the isolated
-`fortuneo-auth` service name or loopback development.
+credential-bearing API reachable by the rest of the stack. `FortuneoAdapter`
+builds its client through `SidecarWebClientFactory`, like every other sidecar
+adapter. A custom remote sidecar URL must use HTTPS; plain HTTP is accepted
+only for a single-label Compose service name or loopback development. Every
+call carries the shared `APP_SIDECAR_API_KEY`, and the sidecar answers any other
+call with a 401 challenge; see
+[docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
 
 ## Authentication and session security
 
@@ -262,7 +266,8 @@ scheduled work cannot recreate a deliberately deleted account.
 Both Compose definitions include the `fortuneo-auth` service and its isolated
 inbound and egress networks. Relevant settings are documented in `.env.example`
 and use non-secret defaults where possible. Secrets remain runtime environment
-values and must not be committed.
+values and must not be committed. Both Compose files forward
+`APP_SIDECAR_API_KEY` to the sidecar, which refuses to start without it.
 
 The standard health check verifies the sidecar process. CI builds the sidecar
 image, runs its unit tests and validates both Compose configurations.

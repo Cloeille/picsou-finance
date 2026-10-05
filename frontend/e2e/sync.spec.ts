@@ -22,8 +22,10 @@ test.describe('Sync page tabs', () => {
       'Interactive Brokers',
       'Amundi',
       'Fortuneo',
+      'American Express',
       'CORUM',
       'Sofidy',
+      'Actual Budget',
       'Finary',
       'Comptes',
     ]
@@ -62,6 +64,12 @@ test.describe('Sync page tabs', () => {
     await expect(page.getByText('Se connecter à Finary')).toBeVisible()
     // Upload area should be visible
     await expect(page.getByText('Importer un fichier Finary (.xlsx)').first()).toBeVisible()
+  })
+
+  test('should switch to Actual Budget tab and show the file import', async ({ page }) => {
+    await page.getByRole('tab', { name: 'Actual Budget', exact: true }).click()
+    await expect(page.getByText('Importer un export Actual Budget')).toBeVisible()
+    await expect(page.getByRole('button', { name: "Prévisualiser l'import" })).toBeDisabled()
   })
 
   test('should open a tab directly via the ?tab= query param', async ({ page }) => {

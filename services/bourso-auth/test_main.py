@@ -23,8 +23,16 @@ from main import (
     extract_brs_config,
     extract_form_token,
     is_fraud_education_page,
+    redirects_to_identity_selector,
     restore_cookies,
     serialize_cookies,
+)
+from test_accounts_parser import (
+    BUSINESS_TOKEN,
+    PERSONAL_AND_BUSINESS,
+    PERSONAL_TOKEN,
+    identity_card,
+    identity_selector_html,
 )
 
 API_URL = "https://api.boursobank.com/services/api/v1.7"
@@ -298,6 +306,113 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(AccountsFormatError) as raised:
                 await _collect_accounts(client)
         self.assertEqual(raised.exception.code, "PORTFOLIO_INCOMPLETE")
+
+
+def multi_identity_handler(selector, requested, *, switch_sticks=True):
+    """The #153 flow: the dashboard 302s to the selector until the switch link,
+    which chains through /feature-redirect, has picked an identity."""
+    chosen = []
+    fallback = default_handler()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        requested.append(path)
+        if path == "/dashboard/liste-comptes" and not chosen:
+            return httpx.Response(302, headers={"Location": "/connexion/lister-identites"})
+        if path == "/connexion/lister-identites":
+            return httpx.Response(200, text=selector)
+        if path.startswith("/connexion/changer-identite/"):
+            if switch_sticks:
+                chosen.append(path)
+            return httpx.Response(
+                302, headers={"Location": "/feature-redirect?featureId=customer.dashboard_home"}
+            )
+        if path == "/feature-redirect":
+            return httpx.Response(302, headers={"Location": "/"})
+        return fallback(request)
+
+    return handler
+
+
+class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
+    async def test_switches_to_the_personal_identity_then_reads_the_dashboard(self):
+        requested = []
+        with self.assertLogs(level="INFO") as logs:
+            async with build_client(multi_identity_handler(PERSONAL_AND_BUSINESS, requested)) as client:
+                accounts = await _collect_accounts(client)
+
+        self.assertEqual(len(accounts), 3)
+        self.assertEqual(
+            requested[:7],
+            [
+                "/",
+                "/dashboard/liste-comptes",
+                "/connexion/lister-identites",
+                f"/connexion/changer-identite/{PERSONAL_TOKEN}",
+                "/feature-redirect",
+                "/",
+                "/dashboard/liste-comptes",
+            ],
+        )
+        self.assertNotIn(f"/connexion/changer-identite/{BUSINESS_TOKEN}", requested)
+        self.assertNotIn(PERSONAL_TOKEN, "\n".join(logs.output))
+
+    async def test_a_business_only_selector_is_refused_without_switching(self):
+        requested = []
+        selector = identity_selector_html(identity_card(BUSINESS_TOKEN, "Exemple SARL"))
+        async with build_client(multi_identity_handler(selector, requested)) as client:
+            with self.assertRaises(AccountsFormatError) as raised:
+                await _collect_accounts(client)
+
+        self.assertEqual(raised.exception.code, "IDENTITY_SELECTION_UNSUPPORTED")
+        self.assertFalse(any(path.startswith("/connexion/changer-identite/") for path in requested))
+
+    async def test_a_selector_that_comes_back_after_the_switch_is_not_retried(self):
+        requested = []
+        handler = multi_identity_handler(PERSONAL_AND_BUSINESS, requested, switch_sticks=False)
+        async with build_client(handler) as client:
+            with self.assertRaises(AccountsFormatError) as raised:
+                await _collect_accounts(client)
+
+        self.assertEqual(raised.exception.code, "UPSTREAM_FORMAT_CHANGED")
+        switches = [path for path in requested if path.startswith("/connexion/changer-identite/")]
+        self.assertEqual(switches, [f"/connexion/changer-identite/{PERSONAL_TOKEN}"])
+
+    async def test_a_single_identity_access_never_sees_the_selector(self):
+        requested = []
+        handler = default_handler()
+
+        def recording(request: httpx.Request) -> httpx.Response:
+            requested.append(request.url.path)
+            return handler(request)
+
+        async with build_client(recording) as client:
+            await _collect_accounts(client)
+
+        self.assertEqual(
+            requested,
+            [
+                "/",
+                "/dashboard/liste-comptes",
+                f"/services/api/v1.7/_user_/_{USER_HASH}_/trading/accounts/summary/{PEA_ID}",
+            ],
+        )
+
+    def test_only_a_redirect_to_the_selector_counts_as_one(self):
+        def redirect(location):
+            return httpx.Response(302, headers={"Location": location})
+
+        self.assertTrue(redirects_to_identity_selector(redirect("/connexion/lister-identites")))
+        self.assertTrue(
+            redirects_to_identity_selector(
+                redirect("https://clients.boursobank.com/connexion/lister-identites/")
+            )
+        )
+        self.assertFalse(redirects_to_identity_selector(redirect("/connexion/")))
+        self.assertFalse(
+            redirects_to_identity_selector(redirect("https://evil.example/connexion/lister-identites"))
+        )
+        self.assertFalse(redirects_to_identity_selector(httpx.Response(200, text="<html></html>")))
 
 
 class FraudEducationPageTest(unittest.TestCase):

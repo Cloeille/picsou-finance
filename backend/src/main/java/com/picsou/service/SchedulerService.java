@@ -40,6 +40,7 @@ public class SchedulerService {
     private final BourseDirectSyncService bourseDirectSyncService;
     private final AmundiSyncService amundiSyncService;
     private final FortuneoSyncService fortuneoSyncService;
+    private final AmexSyncService amexSyncService;
     /**
      * How many profiles one weekly pass will resolve. Each one is up to three requests against
      * an unofficial page and a rate-limited free tier, so the pass is bounded rather than
@@ -70,6 +71,7 @@ public class SchedulerService {
         BourseDirectSyncService bourseDirectSyncService,
         AmundiSyncService amundiSyncService,
         FortuneoSyncService fortuneoSyncService,
+        AmexSyncService amexSyncService,
         PriceService priceService,
         CryptoExchangeSyncService cryptoExchangeSyncService,
         WalletSyncService walletSyncService,
@@ -90,6 +92,7 @@ public class SchedulerService {
         this.bourseDirectSyncService = bourseDirectSyncService;
         this.amundiSyncService = amundiSyncService;
         this.fortuneoSyncService = fortuneoSyncService;
+        this.amexSyncService = amexSyncService;
         this.priceService = priceService;
         this.cryptoExchangeSyncService = cryptoExchangeSyncService;
         this.walletSyncService = walletSyncService;
@@ -162,6 +165,7 @@ public class SchedulerService {
             bourseDirectSyncService.resyncIfSessionActive(memberId);
             amundiSyncService.resyncIfSessionActive(memberId);
             fortuneoSyncService.resyncIfSessionActive(memberId);
+            amexSyncService.resyncIfSessionActive(memberId);
 
             try {
                 ibkrSyncService.resyncIfConnected(memberId);

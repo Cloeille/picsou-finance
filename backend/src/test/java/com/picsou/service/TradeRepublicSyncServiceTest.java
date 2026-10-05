@@ -72,6 +72,23 @@ class TradeRepublicSyncServiceTest {
 
     @InjectMocks TradeRepublicSyncService service;
 
+    @Test
+    void clearSessionReportsTheSessionItDeleted() {
+        TradeRepublicSession session = TradeRepublicSession.builder().build();
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+
+        assertThat(service.clearSession(7L)).isTrue();
+        verify(sessionRepository).delete(session);
+    }
+
+    @Test
+    void clearSessionReportsNothingWhenNoSessionIsStored() {
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+
+        assertThat(service.clearSession(7L)).isFalse();
+        verify(sessionRepository, never()).delete(any());
+    }
+
     /**
      * When two ISINs resolve to the same ticker, the saved holding's averageBuyIn
      * must be the VWAP -- not whichever position HashMap iteration happens to yield first.

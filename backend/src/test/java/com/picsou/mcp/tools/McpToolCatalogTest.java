@@ -6,20 +6,33 @@ import com.picsou.mcp.AccessKeyService;
 import com.picsou.mcp.RequiresScope;
 import com.picsou.mcp.Scopes;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.AccountConnectionService;
 import com.picsou.service.AccountService;
+import com.picsou.service.AllocationTargetService;
+import com.picsou.service.AmexSyncService;
 import com.picsou.service.BoursoSyncService;
 import com.picsou.service.CryptoExchangeSyncService;
 import com.picsou.service.DashboardService;
+import com.picsou.service.EssentialExpenseEstimator;
 import com.picsou.service.FamilyViewService;
 import com.picsou.service.GoalService;
 import com.picsou.service.HistoryService;
 import com.picsou.service.ManualTransactionService;
 import com.picsou.service.MfaService;
+import com.picsou.service.PortfolioDiversificationService;
 import com.picsou.service.PriceService;
+import com.picsou.service.ProjectionService;
+import com.picsou.service.PropertyValuationService;
+import com.picsou.service.RealEstateSummaryService;
+import com.picsou.service.RealizedPnlService;
+import com.picsou.service.SavingsService;
+import com.picsou.service.SecurityInsightService;
 import com.picsou.service.SyncService;
 import com.picsou.service.TradeRepublicSyncService;
 import com.picsou.service.UserContext;
 import com.picsou.service.WalletSyncService;
+import com.picsou.service.WealthPyramidService;
+import com.picsou.service.budget.AllocationService;
 import com.picsou.service.budget.BudgetService;
 import com.picsou.service.budget.CashflowFlowService;
 import com.picsou.service.budget.CashflowService;
@@ -55,7 +68,7 @@ class McpToolCatalogTest {
      */
     private static final Set<String> EXPECTED_TOOLS = Set.of(
         // accounts:read / accounts:write
-        "list_accounts", "get_account", "get_account_holdings", "get_account_balance_history",
+        "list_accounts", "get_account", "get_account_holdings", "get_account_balance_history", "get_account_deletion_impact",
         "create_manual_account", "update_account", "delete_account", "add_balance_snapshot",
         "upsert_holding", "delete_holding",
         // transactions:read / transactions:write
@@ -83,16 +96,25 @@ class McpToolCatalogTest {
         "list_budget_envelopes", "get_budget_envelope", "create_budget_envelope",
         "update_budget_envelope", "delete_budget_envelope", "set_envelope_allocation",
         // budget:dashboard-read
-        "get_budget_dashboard"
+        "get_budget_dashboard",
+        // analysis:read (whole-wealth analysis)
+        "get_allocation", "get_wealth_pyramid", "get_portfolio_diversification", "get_wealth_projection",
+        "get_allocation_targets", "get_essential_expense_estimate", "get_savings_suggestions",
+        "get_real_estate_summary",
+        // accounts:read (per-account analysis)
+        "get_savings_interest", "get_property_valuations", "get_loan_summary", "get_realized_pnl",
+        "get_exchange_positions",
+        // prices:read (security reference data)
+        "get_security_insight"
     );
 
     private static final List<Class<?>> TOOL_CLASSES = List.of(
         AccountTools.class, TransactionTools.class, GoalTools.class, InsightTools.class, SyncTools.class,
-        OAuth2Tools.class, BudgetTools.class);
+        OAuth2Tools.class, BudgetTools.class, AnalysisTools.class);
 
     /** Build the provider exactly as production does, with mocked services (never invoked during catalog build). */
     private ToolCallbackProvider buildProvider() {
-        AccountTools account = new AccountTools(mock(AccountService.class), mock(UserContext.class));
+        AccountTools account = new AccountTools(mock(AccountService.class), mock(UserContext.class), mock(AccountConnectionService.class));
         TransactionTools tx = new TransactionTools(
             mock(AccountService.class), mock(ManualTransactionService.class), mock(UserContext.class));
         GoalTools goal = new GoalTools(mock(GoalService.class), mock(UserContext.class));
@@ -101,6 +123,7 @@ class McpToolCatalogTest {
             mock(FamilyViewService.class), mock(AccountService.class), mock(UserContext.class));
         SyncTools sync = new SyncTools(
             mock(SyncService.class), mock(TradeRepublicSyncService.class), mock(BoursoSyncService.class),
+            mock(AmexSyncService.class),
             mock(CryptoExchangeSyncService.class), mock(WalletSyncService.class), mock(UserContext.class));
         OAuth2Tools oauth2 = new OAuth2Tools(
             mock(AuthorizationServerSettings.class), mock(OAuthClientProperties.class),
@@ -109,7 +132,15 @@ class McpToolCatalogTest {
             mock(CategoryService.class), mock(CategorizationService.class), mock(BudgetService.class),
             mock(RecurringSeriesService.class), mock(CashflowService.class), mock(CashflowFlowService.class),
             mock(TransactionRepository.class), mock(UserContext.class));
-        return new McpToolConfig().picsouMcpTools(account, tx, goal, insight, sync, oauth2, budget);
+        AnalysisTools analysis = new AnalysisTools(
+            mock(AllocationService.class), mock(WealthPyramidService.class),
+            mock(PortfolioDiversificationService.class), mock(ProjectionService.class),
+            mock(AllocationTargetService.class), mock(EssentialExpenseEstimator.class),
+            mock(SavingsService.class), mock(SecurityInsightService.class),
+            mock(RealEstateSummaryService.class), mock(PropertyValuationService.class),
+            mock(AccountService.class), mock(RealizedPnlService.class),
+            mock(CryptoExchangeSyncService.class), mock(UserContext.class));
+        return new McpToolConfig().picsouMcpTools(account, tx, goal, insight, sync, oauth2, budget, analysis);
     }
 
     private Set<String> registeredToolNames() {

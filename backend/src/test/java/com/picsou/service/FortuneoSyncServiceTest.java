@@ -86,6 +86,23 @@ class FortuneoSyncServiceTest {
     }
 
     @Test
+    void clearSessionReportsTheSessionItDeleted() {
+        FortuneoSession session = activeSession(member());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+
+        assertThat(service.clearSession(7L)).isTrue();
+        verify(sessionRepository).delete(session);
+    }
+
+    @Test
+    void clearSessionReportsNothingWhenNoSessionIsStored() {
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+
+        assertThat(service.clearSession(7L)).isFalse();
+        verify(sessionRepository, never()).delete(any());
+    }
+
+    @Test
     void queueSync_commitsCompletePortfolioThenWritesSnapshotFromCurrentPositions() {
         FamilyMember member = member();
         FortuneoSession session = activeSession(member);

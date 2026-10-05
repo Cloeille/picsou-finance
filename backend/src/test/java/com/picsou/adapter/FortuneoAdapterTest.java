@@ -1,9 +1,12 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarAuthenticationException;
+import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
 import com.picsou.port.FortuneoErrorCode;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -12,7 +15,10 @@ import org.springframework.web.reactive.function.client.ExchangeFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.net.InetSocketAddress;
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -22,8 +28,36 @@ class FortuneoAdapterTest {
 
     @Test
     void constructor_acceptsBracketedIpv6LoopbackOverHttp() {
-        assertThatCode(() -> new FortuneoAdapter("http://[::1]:8001", new ObjectMapper()))
+        assertThatCode(() -> new FortuneoAdapter(
+            new SidecarWebClientFactory("test-key"), "http://[::1]:8001", new ObjectMapper()))
             .doesNotThrowAnyException();
+    }
+
+    @Test
+    void initiateAuth_presentsTheSharedKeyAndReportsItsRejectionAsADeploymentFault() throws Exception {
+        List<String> keys = new CopyOnWriteArrayList<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/initiate", exchange -> {
+            keys.add(exchange.getRequestHeaders().getFirst(SidecarWebClientFactory.API_KEY_HEADER));
+            exchange.getResponseHeaders().add("WWW-Authenticate", SidecarWebClientFactory.AUTH_CHALLENGE);
+            exchange.sendResponseHeaders(401, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            FortuneoAdapter adapter = new FortuneoAdapter(
+                new SidecarWebClientFactory("test-key"),
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                new ObjectMapper()
+            );
+
+            assertThatThrownBy(() -> adapter.initiateAuth("login", "password"))
+                .isInstanceOfSatisfying(SidecarAuthenticationException.class, error ->
+                    assertThat(error.getCode()).isEqualTo(SidecarAuthenticationException.CODE));
+            assertThat(keys).containsExactly("test-key");
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test

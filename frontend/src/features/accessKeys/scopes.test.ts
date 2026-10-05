@@ -6,6 +6,7 @@ import {
   scopeGroup,
   scopeI18nKey,
 } from './scopes'
+import en from '@/i18n/locales/en.json'
 
 describe('scopeGroup', () => {
   it('classifies every :read scope as read', () => {
@@ -16,6 +17,7 @@ describe('scopeGroup', () => {
       'dashboard:read',
       'prices:read',
       'family:read',
+      'analysis:read',
     ]) {
       expect(scopeGroup(s)).toBe('read')
     }
@@ -77,6 +79,7 @@ describe('scope vocabulary', () => {
         'dashboard:read',
         'prices:read',
         'family:read',
+        'analysis:read',
         'budget:categories-read',
         'budget:rules-read',
         'budget:transactions-read',
@@ -97,6 +100,15 @@ describe('scope vocabulary', () => {
     )
   })
 
+  // Locale parity is checked elsewhere, so English having the entry covers every locale.
+  it('gives every scope a label and description, so the consent screen never shows a raw key', () => {
+    const labels: Record<string, { label?: string; desc?: string }> = en.accessKeys.scopes
+    for (const s of ALL_SCOPES) {
+      expect(labels[scopeI18nKey(s)]?.label, s).toBeTruthy()
+      expect(labels[scopeI18nKey(s)]?.desc, s).toBeTruthy()
+    }
+  })
+
   it('partitions ALL_SCOPES into read and write with no overlap or omission', () => {
     expect([...READ_SCOPES, ...WRITE_SCOPES].sort()).toEqual([...ALL_SCOPES].sort())
     expect(READ_SCOPES.some((s) => WRITE_SCOPES.includes(s))).toBe(false)
@@ -114,6 +126,7 @@ describe('scope vocabulary', () => {
         'dashboard:read',
         'prices:read',
         'family:read',
+        'analysis:read',
         'budget:categories-read',
         'budget:rules-read',
         'budget:transactions-read',

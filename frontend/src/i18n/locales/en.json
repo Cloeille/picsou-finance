@@ -215,6 +215,7 @@
     "logoLedger": "Ledger",
     "total": "Total",
     "currentBalance": "Current balance",
+    "currentDebt": "Credit-card debt",
     "tabOverview": "Overview",
     "cashBalance": "Cash in the PEA/securities account",
     "snapshots": "Monthly snapshots",
@@ -253,6 +254,11 @@
       "submit": "Export",
       "success": "Export complete: {{filename}}",
       "empty": "No account to export"
+    },
+    "amex": {
+      "amountDue": "Amount to pay",
+      "dueDate": "Direct debit date",
+      "miles": "Miles earned this cycle"
     }
   },
   "analysis": {
@@ -401,7 +407,8 @@
     "other": "Other",
     "employeeSavings": "Employee savings",
     "assuranceVie": "Life insurance",
-    "scpi": "SCPI"
+    "scpi": "SCPI",
+    "creditCard": "Credit card"
   },
   "scpi": {
     "add": {
@@ -437,7 +444,6 @@
       "hint": "Kept out of the price-per-square-metre estimate. The subscription price is not in this total.",
       "incomplete": "One share still uses its last known balance: the withdrawal price is missing."
     }
-
   },
   "realEstate": {
     "purchasePrice": "Purchase price",
@@ -821,6 +827,7 @@
       "noSeries": "No recurring series detected yet.",
       "noUpcoming": "No upcoming payments",
       "noUpcomingHint": "Upcoming charges will appear here once detected.",
+      "creditCardPayment": "Credit card payment",
       "error": "Couldn't load recurring items.",
       "label": "Label",
       "counterparty": "Counterparty",
@@ -967,6 +974,7 @@
       "finary": "Import from Finary",
       "manual": "Create an account manually",
       "amundi": "PEE, PEG, PERCO, PER held at Amundi",
+      "amex": "American Express credit card: balance and transactions",
       "property": "House, apartment, land…",
       "fortuneo": "Sync your Fortuneo accounts"
     }
@@ -1114,6 +1122,68 @@
       "description": "Choose which accounts appear in app. A hidden account keeps syncing normally — it's just removed from display.",
       "manualGroup": "Manual"
     },
+    "actual": {
+      "title": "Actual Budget",
+      "upload": "Import an Actual Budget export",
+      "uploadHint": "The budget .zip from Actual (Settings → Export data) or its db.sqlite",
+      "chooseFile": "Choose a file",
+      "file": "Actual Budget file",
+      "preview": "Preview import",
+      "previewSummary": "{{accounts}} accounts, {{categories}} categories and {{transactions}} transactions",
+      "restart": "Start over",
+      "import": "Import data",
+      "transfersNeutral": "{{count}} transfers and starting balances will be filed as internal transfers, so they never count as income or spending.",
+      "currency": "Budget currency",
+      "currencyHint": "This file does not record its currency. Choose the one your budget uses.",
+      "accounts": "Accounts",
+      "transactions": "transactions",
+      "offBudget": "Off budget",
+      "closed": "Closed",
+      "skip": "Skip",
+      "mapExisting": "Map to existing",
+      "createNew": "Create account",
+      "targetAccount": "Target account for {{name}}",
+      "chooseAccount": "Choose an account",
+      "previouslyImported": "Account created by an earlier Actual import: its balance is recomputed from the imported history.",
+      "accountName": "Account name",
+      "accountType": "Account type",
+      "categories": "Categories",
+      "income": "Income",
+      "expense": "Expense",
+      "categoryAction": "Action for {{name}}",
+      "createCategory": "Create category",
+      "mapExistingCategory": "Map to existing category",
+      "uncategorized": "Leave uncategorized",
+      "categoryName": "Category name for {{name}}",
+      "targetCategory": "Target category for {{name}}",
+      "chooseCategory": "Choose a category",
+      "sampleTransactions": "Latest transactions",
+      "noPayee": "No payee",
+      "transfer": "Transfer",
+      "startingBalance": "Starting balance",
+      "accountsCreated": "Accounts created",
+      "accountsMapped": "Accounts mapped",
+      "accountsSkipped": "Accounts skipped",
+      "categoriesCreated": "Categories created",
+      "transactionsImported": "Transactions imported",
+      "transactionsSkipped": "Transactions skipped",
+      "transactionsDeleted": "Transactions deleted",
+      "transactionsMoved": "Transactions moved",
+      "done": "Done",
+      "confirmTitle": "Confirm Actual Budget import",
+      "planSummary": "This import adds {{added}} transactions, deletes {{deleted}} and moves {{moved}} between accounts.",
+      "largeDeletion": "Warning: this import deletes {{count}} transactions, a large part of an account's history. Check that each Actual account maps to the right Picsou account.",
+      "confirmDescription": "An account an Actual import created for one of this file's accounts follows the file: transactions deleted or split in Actual are deleted, and transactions moved in Actual follow them. Other accounts (yours, or created for another budget) only receive new transactions. Nothing is written if any check fails.",
+      "warnings": {
+        "KEPT_MISSING": "{{count}} transactions imported earlier into these accounts are not in this file. They may come from another file or have been deleted in Actual. Nothing was changed.",
+        "KEPT_MOVED": "{{count}} transactions already imported into another account stay where they are, because that account does not follow this file."
+      },
+      "errors": {
+        "invalidPreview": "The preview response is invalid.",
+        "previewFailed": "Could not read the Actual Budget file.",
+        "importFailed": "The Actual Budget import failed."
+      }
+    },
     "finary": {
       "title": "Finary",
       "uploadFile": "Import Finary file (.xlsx)",
@@ -1191,6 +1261,7 @@
         "tooManyAttempts": "Too many attempts. Please wait before retrying.",
         "invalidCredentials": "Invalid BoursoBank client number or password.",
         "fraudAckRequired": "Log in on the BoursoBank website, validate the fraud-prevention notice, then reconnect.",
+        "identitySelectionUnsupported": "This BoursoBank access holds several identities and Picsou could not tell which one is personal. Business identities are not supported yet. Your existing data was kept.",
         "mfaTypeUnsupported": "BoursoBank asked for an SMS or e-mail code, which Picsou cannot handle. Switch to app validation in your BoursoBank security settings.",
         "appValidationTimeout": "The app approval was not confirmed in time. Please start over.",
         "authAttemptExpired": "The authentication attempt expired. Please start over.",
@@ -1353,6 +1424,41 @@
         "formatChanged": "The Sofidy website format changed. Your existing data was kept.",
         "invalidData": "Sofidy returned inconsistent data. Your existing data was kept.",
         "serverError": "Could not reach Sofidy. Please try again."
+      }
+    },
+    "amex": {
+      "title": "American Express",
+      "login": "User ID",
+      "password": "Password",
+      "otpMethod": "Receive the code by",
+      "otpMethodSms": "SMS",
+      "otpMethodEmail": "E-mail",
+      "otpCode": "One-time code",
+      "otpPrompt": "Enter the code American Express sent you.",
+      "connect": "Connect",
+      "recoverHistory": "Recover available history",
+      "recoveringHistory": "Recovering history…",
+      "historyLimit": "AMEX limits history to what its transaction API exposes; older transactions may not be available.",
+      "connecting": "Connecting…",
+      "validate": "Submit code",
+      "validating": "Validating…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "American Express card synced.",
+      "clearSession": "Disconnect",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your American Express credit card: balance and recent posted/pending transactions. Use history recovery to request additional transactions within AMEX's API limits.",
+      "errors": {
+        "tooManyAttempts": "Too many attempts. Please wait.",
+        "invalidCredentials": "Invalid American Express credentials.",
+        "invalidCode": "Invalid or expired one-time code. Please retry.",
+        "authAttemptExpired": "Authentication attempt expired. Please reconnect.",
+        "sessionExpired": "The American Express session has expired. Please reconnect.",
+        "formatChanged": "The American Express website format has changed. Your existing data has been preserved.",
+        "invalidData": "American Express returned inconsistent data. Your existing data has been preserved.",
+        "serverError": "Unable to reach American Express. Please try again."
       }
     },
     "fortuneo": {
@@ -1574,6 +1680,10 @@
       "family_read": {
         "label": "Family",
         "desc": "View the shared family dashboard"
+      },
+      "analysis_read": {
+        "label": "Wealth analysis",
+        "desc": "View allocation, diversification, projections and property summary"
       },
       "accounts_write": {
         "label": "Accounts",

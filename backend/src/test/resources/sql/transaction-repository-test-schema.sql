@@ -26,12 +26,15 @@ DROP TABLE IF EXISTS account;
 
 CREATE TABLE account (
     id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+    member_id  BIGINT  NOT NULL DEFAULT 1,
     is_manual  BOOLEAN NOT NULL DEFAULT TRUE,
     deleted_at TIMESTAMP
 );
 
 INSERT INTO account (id, is_manual) VALUES (1, TRUE);
 INSERT INTO account (id, is_manual) VALUES (2, FALSE);
+-- Soft-deleted: the file-import lookups must not see its rows.
+INSERT INTO account (id, is_manual, deleted_at) VALUES (3, TRUE, TIMESTAMP '2026-01-01 00:00:00');
 
 CREATE TABLE transaction (
     id                       BIGINT AUTO_INCREMENT PRIMARY KEY,
