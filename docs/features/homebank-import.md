@@ -8,6 +8,8 @@ Users migrating from the native **HomeBank iOS** app can bring their accounts, t
 
 GNU HomeBank desktop **`.qif` exports** also use this wizard. Desktop `.xhb` XML remains unsupported. Actual Budget has its own separate import tab and endpoint.
 
+This covers the full HomeBank export scope requested in issue #173: native iOS `.hbk`/`.hbexport` and GNU desktop QIF. QIF is the desktop export available to the requesting user; support for its native `.xhb` data file is not required for this export-import workflow.
+
 ## How it works
 
 The HomeBank tab on the Sync page uses the same two-phase import pattern as the existing Finary and CSV importers:

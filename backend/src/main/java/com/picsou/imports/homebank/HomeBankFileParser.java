@@ -149,7 +149,7 @@ public final class HomeBankFileParser {
     private byte[] inflate(byte[] compressed) throws DataFormatException {
         Inflater inflater = new Inflater(true);
         inflater.setInput(compressed);
-        ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(compressed.length * 4, 1024 * 1024));
+        ByteArrayOutputStream output = new ByteArrayOutputStream(8192);
         byte[] buffer = new byte[8192];
         try {
             while (!inflater.finished()) {

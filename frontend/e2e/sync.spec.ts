@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { login } from './helpers'
+import { Buffer } from 'node:buffer'
 
 test.describe('Sync page tabs', () => {
   test.beforeEach(async ({ page }) => {
@@ -27,6 +28,7 @@ test.describe('Sync page tabs', () => {
       'Sofidy',
       'Actual Budget',
       'Finary',
+      'Import HomeBank',
       'Comptes',
     ]
 
@@ -34,6 +36,44 @@ test.describe('Sync page tabs', () => {
       await expect(page.getByRole('tab', { name, exact: true })).toBeVisible()
     }
     await expect(page.getByRole('tab')).toHaveCount(providerNames.length)
+  })
+
+  test('should require a currency for QIF files and reset it for HomeBank backups', async ({ page }) => {
+    await page.getByRole('tab', { name: 'Import HomeBank', exact: true }).click()
+    const fileInput = page.getByLabel('Fichier HomeBank')
+    const qif = Buffer.from('!Account\nNSynthetic Checking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT-12.34\nPTest transaction\n^\n')
+    await fileInput.setInputFiles({
+      name: 'sample.qif',
+      mimeType: 'text/plain',
+      buffer: qif,
+    })
+
+    const previewButton = page.getByRole('button', { name: "Prévisualiser l'import" })
+    const currencyInput = page.getByLabel('Devise du QIF (ISO 4217)')
+    await expect(currencyInput).toBeVisible()
+    await expect(page.getByLabel('Mot de passe du fichier (si nécessaire)')).toHaveCount(0)
+    await expect(previewButton).toBeDisabled()
+
+    await currencyInput.fill('ABC')
+    await expect(previewButton).toBeDisabled()
+    await currencyInput.fill('EUR')
+    await expect(previewButton).toBeEnabled()
+
+    await fileInput.setInputFiles({
+      name: 'sample.hbexport',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from('synthetic HomeBank backup fixture'),
+    })
+    await expect(page.getByLabel('Mot de passe du fichier (si nécessaire)')).toBeVisible()
+    await expect(page.getByLabel('Devise du QIF (ISO 4217)')).toHaveCount(0)
+
+    await fileInput.setInputFiles({
+      name: 'sample.qif',
+      mimeType: 'text/plain',
+      buffer: qif,
+    })
+    await expect(page.getByLabel('Devise du QIF (ISO 4217)')).toHaveValue('')
+    await expect(page.getByLabel('Mot de passe du fichier (si nécessaire)')).toHaveCount(0)
   })
 
   test('should show the disconnected Fortuneo panel without a contract error', async ({ page }) => {
