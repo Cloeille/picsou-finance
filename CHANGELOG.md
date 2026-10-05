@@ -155,6 +155,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The backend log now replaces line breaks and control characters with `?` in every message
   and in exception messages, and the values an outsider controls are also cleaned where they
   are logged. The log layout is unchanged; the backend logs to the console only, as before.
+  The Trade Republic, DEGIRO and Revolut sidecars escape line breaks and control characters
+  in each log record too, so a multi-line browser error or traceback now prints on one line
+  with `\n` markers.
 
 
 ## [1.1.0] — 2026-06-09
