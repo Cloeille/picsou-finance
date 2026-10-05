@@ -945,6 +945,14 @@ public class FortuneoSyncService {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
+                if (status.lastSyncError() == FortuneoErrorCode.SESSION_EXPIRED) {
+                    return new SourceSyncResult("fortuneo", SourceSyncResult.Status.NEEDS_REAUTH,
+                        status.lastSyncError().name());
+                }
+                if (status.lastSyncError() != null) {
+                    return new SourceSyncResult("fortuneo", SourceSyncResult.Status.FAILED,
+                        status.lastSyncError().name());
+                }
                 return new SourceSyncResult("fortuneo", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
             }
             queueSync(memberId);
@@ -952,12 +960,16 @@ public class FortuneoSyncService {
         } catch (ResourceNotFoundException ex) {
             return new SourceSyncResult("fortuneo", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
-            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
+            log.error("Database error during scheduled Fortuneo sync (member={})", memberId, ex);
+            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.FAILED, "Database error");
         } catch (SyncException ex) {
-            return SourceSyncResult.fromSyncException("fortuneo", ex);
+            log.warn("Could not queue scheduled Fortuneo sync (member={}; code={})", memberId, ex.getCode(), ex);
+            SourceSyncResult classified = SourceSyncResult.fromSyncException("fortuneo", ex);
+            return new SourceSyncResult("fortuneo", classified.status(),
+                classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
         } catch (Exception ex) {
             log.error("Fortuneo scheduled sync failed unexpectedly for member {}", memberId, ex);
-            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
+            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
 
@@ -965,10 +977,6 @@ public class FortuneoSyncService {
         resyncReporting(memberId); // ignore return
     }
 
-    private String shortMessage(String msg) {
-        if (msg == null) return "";
-        return msg.length() > 120 ? msg.substring(0, 120) : msg;
-    }
 
     private SessionStatusResponse toStatus(FortuneoSession session) {
         return new SessionStatusResponse(

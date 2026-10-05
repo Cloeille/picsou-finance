@@ -14,6 +14,7 @@ import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -73,7 +74,7 @@ public class SyncStatusService {
         this.degiroSessionRepository = degiroSessionRepository;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public String describe(Long memberId) {
         List<String> lines = new ArrayList<>();
         add(lines, "revolut", () -> revolut(memberId));
@@ -226,7 +227,8 @@ public class SyncStatusService {
             case FAILED -> reauth ? "NEEDS_REAUTH" : "FAILED";
             case ACTIVE -> "CONNECTED";
         };
-        return line("degiro", status, row.getLastSyncedAt(), reauth, row.getLastError());
+        String detail = row.getLastError() == null ? null : reauth ? "Reauthentication required" : "Sync failed";
+        return line("degiro", status, row.getLastSyncedAt(), reauth, detail);
     }
 
     private static String broker(String source, boolean active, String syncStatus, Instant completed, Enum<?> error) {

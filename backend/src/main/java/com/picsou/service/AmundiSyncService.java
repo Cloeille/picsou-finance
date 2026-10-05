@@ -527,6 +527,14 @@ public class AmundiSyncService {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
+                if (status.lastSyncError() == AmundiErrorCode.SESSION_EXPIRED) {
+                    return new SourceSyncResult("amundi", SourceSyncResult.Status.NEEDS_REAUTH,
+                        status.lastSyncError().name());
+                }
+                if (status.lastSyncError() != null) {
+                    return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED,
+                        status.lastSyncError().name());
+                }
                 return new SourceSyncResult("amundi", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
             }
             queueSync(memberId);
@@ -534,12 +542,16 @@ public class AmundiSyncService {
         } catch (ResourceNotFoundException ex) {
             return new SourceSyncResult("amundi", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
-            return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
+            log.error("Database error during scheduled Amundi sync (member={})", memberId, ex);
+            return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED, "Database error");
         } catch (SyncException ex) {
-            return SourceSyncResult.fromSyncException("amundi", ex);
+            log.warn("Could not queue scheduled Amundi sync (member={}; code={})", memberId, ex.getCode(), ex);
+            SourceSyncResult classified = SourceSyncResult.fromSyncException("amundi", ex);
+            return new SourceSyncResult("amundi", classified.status(),
+                classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
         } catch (Exception ex) {
             log.error("Amundi scheduled sync failed unexpectedly for member {}", memberId, ex);
-            return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
+            return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
 
@@ -547,10 +559,6 @@ public class AmundiSyncService {
         resyncReporting(memberId); // ignore return
     }
 
-    private String shortMessage(String msg) {
-        if (msg == null) return "";
-        return msg.length() > 120 ? msg.substring(0, 120) : msg;
-    }
 
     private SessionStatusResponse toStatus(AmundiSession session) {
         return new SessionStatusResponse(

@@ -44,6 +44,7 @@ public class SchedulerService {
     private final PriceService priceService;
     private final SecurityProfileService securityProfileService;
     private final PropertyValuationService propertyValuationService;
+    private final InstrumentLogoService instrumentLogoService;
 
     public SchedulerService(
         AccountRepository accountRepository,
@@ -54,7 +55,8 @@ public class SchedulerService {
         MemberSyncService memberSyncService,
         PriceService priceService,
         SecurityProfileService securityProfileService,
-        PropertyValuationService propertyValuationService) {
+        PropertyValuationService propertyValuationService,
+        InstrumentLogoService instrumentLogoService) {
         this.accountRepository = accountRepository;
         this.holdingRepository = holdingRepository;
         this.snapshotRepository = snapshotRepository;
@@ -64,6 +66,7 @@ public class SchedulerService {
         this.priceService = priceService;
         this.securityProfileService = securityProfileService;
         this.propertyValuationService = propertyValuationService;
+        this.instrumentLogoService = instrumentLogoService;
     }
 
     /**
@@ -226,6 +229,10 @@ public class SchedulerService {
             // reach here, so this is a bug worth surfacing.
             log.error("Price refresh failed -- skipping this cycle", ex);
         }
+        // After the prices, never before: a ticker becomes a logo candidate only once this pass
+        // has recorded a price for it, and the lookup runs on its own thread so it cannot delay
+        // the next price cycle.
+        instrumentLogoService.requestResolution();
     }
 
     /**

@@ -114,11 +114,24 @@ class SyncToolsTest {
         tools.triggerFullSync();
         String blocked = tools.triggerBankSync();
 
-        assertThat(blocked).startsWith("Sync already ran for this member. Try again in ");
+        assertThat(blocked).startsWith("MCP sync cooldown is shared by all trigger tools for this member. Try again in ");
         assertThat(blocked).endsWith(" min.");
         assertThat(blocked).containsPattern("Try again in \\d+ min\\.");
         verify(memberSyncService).resyncForUser(MID);
         verify(memberSyncService, never()).resyncForUser(eq(MID), any());
+    }
+
+    @Test
+    void bankThenBrokerTrigger_explainsTheSharedCooldownWithoutRunningBrokers() {
+        when(memberSyncService.resyncForUser(MID, SyncTools.BANK_SOURCES))
+            .thenReturn(List.of(new SourceSyncResult("enable-banking", Status.SYNCED, "")));
+
+        tools.triggerBankSync();
+        String blocked = tools.triggerBrokerSync();
+
+        assertThat(blocked).contains("shared by all trigger tools", "Try again in");
+        verify(memberSyncService).resyncForUser(MID, SyncTools.BANK_SOURCES);
+        verify(memberSyncService, never()).resyncForUser(MID, SyncTools.BROKER_SOURCES);
     }
 
     @Test

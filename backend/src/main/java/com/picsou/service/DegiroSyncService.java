@@ -289,30 +289,27 @@ public class DegiroSyncService {
     }
 
     public SourceSyncResult userSyncReporting(Long memberId) {
-        Optional<DegiroSession> sessionOpt = sessionRepository.findByMemberId(memberId);
-        if (sessionOpt.isEmpty()) {
-            return new SourceSyncResult("degiro", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No session");
-        }
-        DegiroSession s = sessionOpt.get();
-        if (s.getStatus() == DegiroSessionStatus.REAUTH_REQUIRED) {
-            return new SourceSyncResult("degiro", SourceSyncResult.Status.NEEDS_REAUTH, "Reauth required");
-        }
-        if (s.getStatus() != DegiroSessionStatus.ACTIVE) {
-            return new SourceSyncResult("degiro", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Session not active");
-        }
         try {
+            Optional<DegiroSession> sessionOpt = sessionRepository.findByMemberId(memberId);
+            if (sessionOpt.isEmpty()) {
+                return new SourceSyncResult("degiro", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No session");
+            }
+            DegiroSession s = sessionOpt.get();
+            if (s.getStatus() == DegiroSessionStatus.REAUTH_REQUIRED) {
+                return new SourceSyncResult("degiro", SourceSyncResult.Status.NEEDS_REAUTH, "Reauth required");
+            }
+            if (s.getStatus() != DegiroSessionStatus.ACTIVE) {
+                return new SourceSyncResult("degiro", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Session not active");
+            }
             sync(memberId);
             return new SourceSyncResult("degiro", SourceSyncResult.Status.SYNCED, "");
         } catch (DegiroSessionExpiredException ex) {
-            return new SourceSyncResult("degiro", SourceSyncResult.Status.NEEDS_REAUTH, shortMessage(ex.getMessage()));
+            log.warn("DEGIRO session expired during user sync for member {}", memberId, ex);
+            return new SourceSyncResult("degiro", SourceSyncResult.Status.NEEDS_REAUTH, "Reauthentication required");
         } catch (Exception ex) {
-            return new SourceSyncResult("degiro", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
+            log.error("DEGIRO user sync failed for member {}", memberId, ex);
+            return new SourceSyncResult("degiro", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
-    }
-
-    private String shortMessage(String msg) {
-        if (msg == null) return "";
-        return msg.length() > 120 ? msg.substring(0, 120) : msg;
     }
 
     // ─── Response records ─────────────────────────────────────────────────────

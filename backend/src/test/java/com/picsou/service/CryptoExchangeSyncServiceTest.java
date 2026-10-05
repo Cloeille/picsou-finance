@@ -102,6 +102,17 @@ class CryptoExchangeSyncServiceTest {
     // ── Credential validation, before any network call ────────────────────────
 
     @Test
+    void reportingLookupFailureDoesNotExposePrivateDatabaseDetails() {
+        when(sessionRepository.findAllByMemberId(MEMBER_ID)).thenThrow(
+            new org.springframework.dao.DataAccessResourceFailureException("private SQL password=private-marker"));
+
+        var result = serviceWith().resyncAllReporting(MEMBER_ID);
+
+        assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+        assertThat(result.message()).isEqualTo("Unexpected sync error").doesNotContain("private-marker");
+    }
+
+    @Test
     void addExchange_rejectsABlankApiKey() {
         CryptoExchangePort adapter = singleKeyAdapter();
 

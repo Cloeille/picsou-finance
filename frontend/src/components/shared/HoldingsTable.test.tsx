@@ -49,8 +49,13 @@ const BTC: HoldingResponse = holding({
   averageBuyIn: 80, currentPrice: 100, currentValueEur: 50, costBasisEur: 40, pnlEur: 10, pnlPercent: 25,
 })
 
-// An equity, which is what every holding of a PEA looks like today: no source resolves a URL.
+// An equity whose mark has not been stored (yet, or ever): exactly the pre-logo rendering.
 const AAPL: HoldingResponse = { ...BTC, ticker: 'AAPL', name: 'Apple', logoUrl: null }
+
+const MC_LOGO = '/api/instrument-logos/MC.PA?v=1759400000'
+
+// An equity whose mark the backend stored: the URL is Picsou's own endpoint, never Yahoo's.
+const MC: HoldingResponse = { ...BTC, ticker: 'MC.PA', name: 'LVMH', logoUrl: MC_LOGO }
 
 /** The tickers in render order — the first cell of every body row. */
 function renderedTickers(): string[] {
@@ -150,10 +155,20 @@ describe('HoldingsTable logos', () => {
     })
   })
 
+  it('shows a stock row with its stored mark beside the ticker', async () => {
+    render(<HoldingsTable holdings={[MC]} />)
+
+    expect(screen.getAllByText('MC.PA')).toHaveLength(1)
+    await waitFor(() => {
+      expect(rowFor('MC.PA').getByRole('img')).toHaveAttribute('src', MC_LOGO)
+    })
+    expect(rowFor('MC.PA').getByRole('img')).toHaveAttribute('alt', 'MC.PA')
+  })
+
   it('renders an equity row on its ticker alone, with the empty disc in place of a mark', () => {
-    // The shape of a whole PEA: every line is an equity, so this is the case that decides what
-    // an unresolvable mark looks like. The disc stays, so the column does not jump when a
-    // crypto line joins the table later.
+    // A share with no stored mark decides what an unresolvable mark looks like, and it must be
+    // exactly the rendering from before share logos existed. The disc stays, so the column does
+    // not jump when a line with a mark sits next to it.
     render(<HoldingsTable holdings={[AAPL]} />)
 
     expect(rowFor('AAPL').queryByRole('img')).not.toBeInTheDocument()

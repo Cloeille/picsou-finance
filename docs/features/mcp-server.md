@@ -48,7 +48,7 @@ Three security properties are guaranteed structurally (not by per-call checks):
 
 **Backend — MCP surface**
 - `backend/src/main/java/com/picsou/config/McpToolConfig.java` — the single `ToolCallbackProvider` bean; the one place tools are wired.
-- `backend/src/main/java/com/picsou/mcp/tools/{Account,Transaction,Goal,Insight,Sync}Tools.java` — the `@Tool` methods, each gated by `@RequiresScope`.
+- `backend/src/main/java/com/picsou/mcp/tools/{Account,Transaction,Goal,Insight,Sync,Analysis}Tools.java` — the `@Tool` methods, each gated by `@RequiresScope`.
 - `backend/src/main/java/com/picsou/mcp/RequiresScope.java` + `backend/src/main/java/com/picsou/mcp/ScopeEnforcementAspect.java` + `backend/src/main/java/com/picsou/exception/MissingScopeException.java` — scope enforcement (AOP) and its clean error.
 - `backend/src/main/java/com/picsou/controller/AccessKeyController.java` + `dto/AccessKey{CreateRequest,Response,CreatedResponse}.java` — self-service management REST API under `/api/access-keys`.
 - `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — `mcpKeyBuckets`, `accessKeyCreateBuckets`, and the bucket factories.
@@ -124,17 +124,38 @@ by `delete_account`.
 
 | Scope | Tools |
 |-------|-------|
-| `accounts:read` | `list_accounts`, `get_account`, `get_account_holdings`, `get_account_balance_history`, `get_account_deletion_impact` |
+| `accounts:read` | `list_accounts`, `get_account`, `get_account_holdings`, `get_account_balance_history`, `get_account_deletion_impact`, `get_savings_interest`, `get_property_valuations`, `get_loan_summary`, `get_realized_pnl`, `get_exchange_positions` |
 | `transactions:read` | `list_account_transactions` |
 | `goals:read` | `list_goals`, `get_goal`, `get_goal_monthly_entries` |
 | `dashboard:read` | `get_dashboard`, `get_net_worth_history`, `get_profit_and_loss` |
 | `family:read` | `get_family_dashboard` |
-| `prices:read` | `get_price` |
+| `analysis:read` | `get_allocation`, `get_wealth_pyramid`, `get_portfolio_diversification`, `get_wealth_projection`, `get_allocation_targets`, `get_essential_expense_estimate`, `get_savings_suggestions`, `get_real_estate_summary` |
+| `sync:read` | `get_sync_status` |
+| `prices:read` | `get_price`, `get_security_insight` |
 | `accounts:write` | `create_manual_account`, `update_account`, `delete_account`, `add_balance_snapshot`, `upsert_holding`, `delete_holding` |
 | `transactions:write` | `add_transaction`, `update_transaction`, `delete_transaction` |
 | `goals:write` | `create_goal`, `update_goal`, `delete_goal`, `set_goal_month_contribution` |
-| `sync:read` | `get_sync_status` |
 | `sync:trigger` | `trigger_full_sync`, `trigger_bank_sync`, `trigger_broker_sync`, `trigger_crypto_exchange_sync`, `trigger_crypto_wallet_sync` |
+
+The wealth-analysis tools (`AnalysisTools`) are read-only. Each calls the service behind its REST
+counterpart with the caller's member and returns the same payload. Whole-wealth judgements
+(allocation, pyramid, diversification, projection, targets, expense estimate, savings suggestions,
+real-estate summary) need `analysis:read`, a scope separate from `accounts:read`. It is not a
+summary-only scope: each tool returns the same payload as its analysis page, so granting it shares
+everything those pages show. That includes account names and current values, position lines
+(ticker, name, account, value), flow figures derived from transactions (net contributions per
+account, average monthly spending), the essential expenses the member declared and full property and loan details
+(names, city, costs, rents, area, SCPI manager and shares, lender, monthly payment, end date). It
+returns no individual transaction and no balance history. Tools that take an account id read one account, so they stay under
+`accounts:read` like `get_account_holdings`. An account of another member gets the same not-found
+error as every other account tool. `get_security_insight` is market reference data, not member
+data, so it sits next to `get_price` under `prices:read`. `get_wealth_projection` keeps the REST
+default of 20 years and the service's 1 to 40 clamp. Deliberately not exposed: the security-profile
+refresh (a rate-limited fan-out to external providers) and every analysis write (allocation
+targets, savings config, real-estate, debt, ownership and visibility settings).
+
+The `budget:*` and `oauth2:*` scopes (including `budget:recurring-write` for recurring-series
+triage) and their tools are listed in [Budget + OAuth2 tools in MCP](./mcp-budget-oauth2.md).
 
 **Never exposed** (no `@Tool` exists, so no scope can initiate them): authentication flows,
 credential submission or retrieval, connecting a new bank / broker / exchange / wallet, MFA,
@@ -174,7 +195,9 @@ sessions/credentials as the documented side effect of deleting a connection's la
   fallback, an HTML page) on `/mcp` while the backend is perfectly healthy on `:8080/mcp`.
 - **MCP sync triggers share one per-member cooldown.** `trigger_full_sync` and the four older
   trigger tools all call `MemberSyncService` and share `mcpMemberSyncBuckets`: one sync per member
-  every 15 minutes, and four per day. A blocked call returns `Try again in N min` and does not
+  every 15 minutes, and four per day. Every advertised trigger description and the blocked-call
+  response explain that this cooldown is shared across tools: a bank-only trigger can therefore
+  block a subsequent broker-only trigger. The response includes `Try again in N min` and does not
   touch the banks. `get_sync_status` (`sync:read`) does not consume the cooldown. The 08:00
   scheduler does not use the bucket. This dedicated store expires entries 24 hours after creation,
   rather than using the other limiters' one-hour idle eviction, so hourly calls cannot reset the
@@ -192,6 +215,18 @@ sessions/credentials as the documented side effect of deleting a connection's la
   `REQUIRES_NEW` transaction; both batch entry points suspend any calling transaction so a
   failed exchange cannot roll back a successful neighbour. Transient connector errors do not ask
   the user to reconnect; `NEEDS_REAUTH` is reserved for authentication/session-expiry codes.
+- **Inactive browser sessions preserve their stored failure reason.** BoursoBank, Bourse Direct,
+  Amundi and Fortuneo report `NEEDS_REAUTH` for `SESSION_EXPIRED` (also `INVALID_CREDENTIALS` for
+  BoursoBank), `FAILED` for another stored error, and `SKIPPED_NOT_CONNECTED` only when no error is
+  recorded. Database failures and sync exceptions retain their throwable in server logs; raw
+  database messages are never returned in their MCP summary.
+- **Exception details stay server-side across all trigger paths.** The shared exception classifier,
+  member-level fallback, DEGIRO, Revolut, Trade Republic, IBKR and crypto-exchange reporting return
+  fixed failure labels rather than truncated exception text. DEGIRO's stored last error is also
+  omitted from `get_sync_status`; its failure/reauthentication flag remains visible.
+- **Status reads do not share a transaction.** `SyncStatusService.describe` suspends a caller's
+  transaction with `NOT_SUPPORTED`. Each reader owns its transaction, so one caught database
+  failure cannot mark the whole report rollback-only or roll back an unrelated caller's writes.
 - **Sync triggers are still synchronous.** The cooldown token is consumed before the connectors
   run. A client timeout does not prove that the sync stopped, and a retry can be blocked by the
   cooldown without receiving the original summary. A background run with a member-scoped run id
@@ -228,9 +263,13 @@ Backend (H2, `mvn test`):
 - `mcp/ScopesTest`, `mcp/ScopeSetConverterTest` — vocabulary + converter round-trip.
 - `mcp/ScopeEnforcementAspectTest` — **denial** when the required scope is absent.
 - `mcp/tools/McpToolCatalogTest` — **curation guard**: pins the exact advertised tool set (no auth/credential/admin tool).
-- `mcp/tools/{Account,Transaction,Goal,Insight}ToolsTest` — delegation + member-scoping per tool;
-  account deletion reports the cleanup decision even when the earlier read-only preview has become stale.
+- `mcp/tools/{Account,Transaction,Goal,Insight,Sync}ToolsTest` — delegation + member-scoping per tool; account deletion reports the cleanup decision even when the earlier read-only preview has become stale.
+- `mcp/tools/AnalysisToolsTest` — delegation per tool, another member's account surfaces the service's not-found, the scope each tool carries, and every tool rejected through the real `ScopeEnforcementAspect` proxy when its scope is missing.
 - `mcp/tools/SyncToolsTest` — every trigger is a filter over `MemberSyncService`, failures stay visible, and the cooldown blocks a second call.
+- `service/BrokerSyncReportingTest` — all four browser brokers preserve inactive-session errors,
+  queue active sessions, retain exception-bearing logs and hide database details.
+- `service/SyncStatusTransactionIsolationTest` — real Spring transaction proxies and H2 reproduce
+  a rollback-only reader while preserving the report and an outer transaction's committed writes.
 - `config/RateLimitConfigTest` — the member-sync bucket survives hourly calls, denies a fifth sync
   before 24 hours, expires at the daily boundary, and leaves ordinary one-hour limiter stores unchanged.
 - `service/sync/SourceSyncResultTest` — exact authentication signals versus transient and unknown
@@ -252,7 +291,7 @@ Backend (H2, `mvn test`):
 - `model/AccessKeyTest` — `isUsable` (revoked / expired / live).
 
 Frontend (`bunx vitest run`):
-- `frontend/src/features/accessKeys/scopes.test.ts` — scope grouping, i18n-key mapping, and a **vocabulary guard** asserting the frontend list equals backend `Scopes.ALL`.
+- `frontend/src/features/accessKeys/scopes.test.ts` — scope grouping, i18n-key mapping, a **vocabulary guard** asserting the frontend list equals backend `Scopes.ALL`, and a label guard so no scope reaches the consent screen as a raw key.
 - `frontend/src/features/accessKeys/status.test.ts` — `keyStatus` (revoked > expired > active, boundary at "now").
 
 **Not covered by unit tests** (they run on a single thread, so they can't reproduce it): the

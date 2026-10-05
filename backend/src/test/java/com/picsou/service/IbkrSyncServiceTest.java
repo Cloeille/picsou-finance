@@ -151,7 +151,7 @@ class IbkrSyncServiceTest {
 
     @Test
     void resyncReporting_logsUnexpectedExceptionWithThrowable() {
-        IllegalStateException failure = new IllegalStateException("repository unavailable");
+        IllegalStateException failure = new IllegalStateException("private SQL password=private-marker");
         when(connectionRepository.findByMemberId(7L)).thenThrow(failure);
         ch.qos.logback.classic.Logger logger =
             (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(IbkrSyncService.class);
@@ -160,15 +160,17 @@ class IbkrSyncServiceTest {
         logger.addAppender(appender);
 
         try {
-            assertThat(service.resyncReporting(7L).status()).isEqualTo(
-                com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+            var result = service.resyncReporting(7L);
+            assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+            assertThat(result.message()).isEqualTo("Unexpected sync error").doesNotContain("private-marker");
             assertThat(appender.list).anySatisfy(event -> {
                 assertThat(event.getLevel()).isEqualTo(Level.ERROR);
                 assertThat(event.getThrowableProxy()).isNotNull();
-                assertThat(event.getThrowableProxy().getMessage()).isEqualTo("repository unavailable");
+                assertThat(event.getThrowableProxy().getMessage()).isEqualTo(failure.getMessage());
             });
         } finally {
             logger.detachAppender(appender);
+            appender.stop();
         }
     }
 

@@ -749,6 +749,15 @@ public class BoursoSyncService {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
+                if (status.lastSyncError() == BoursoErrorCode.SESSION_EXPIRED
+                    || status.lastSyncError() == BoursoErrorCode.INVALID_CREDENTIALS) {
+                    return new SourceSyncResult("bourso", SourceSyncResult.Status.NEEDS_REAUTH,
+                        status.lastSyncError().name());
+                }
+                if (status.lastSyncError() != null) {
+                    return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED,
+                        status.lastSyncError().name());
+                }
                 return new SourceSyncResult("bourso", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
             }
             queueSync(memberId);
@@ -756,22 +765,21 @@ public class BoursoSyncService {
         } catch (ResourceNotFoundException ex) {
             return new SourceSyncResult("bourso", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
-            return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
+            log.error("Database error during scheduled BoursoBank sync (member={})", memberId, ex);
+            return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED, "Database error");
         } catch (SyncException ex) {
-            return SourceSyncResult.fromSyncException("bourso", ex);
+            log.warn("Could not queue scheduled BoursoBank sync (member={}; code={})", memberId, ex.getCode(), ex);
+            SourceSyncResult classified = SourceSyncResult.fromSyncException("bourso", ex);
+            return new SourceSyncResult("bourso", classified.status(),
+                classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
         } catch (Exception ex) {
             log.error("BoursoBank scheduled sync failed unexpectedly for member {}", memberId, ex);
-            return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
+            return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
 
     public void resyncIfSessionActive(Long memberId) {
         resyncReporting(memberId); // ignore return
-    }
-
-    private String shortMessage(String msg) {
-        if (msg == null) return "";
-        return msg.length() > 120 ? msg.substring(0, 120) : msg;
     }
 
     private SessionStatusResponse toStatus(BoursoSession session) {

@@ -45,8 +45,10 @@ describe('a chart scale', () => {
     ]} />)
 
     // 350 000 renders as a compact amount ("350 k €") — the order of magnitude is exactly what a
-    // curve plus its axis discloses.
-    expect(screen.getByTestId('y-ticks').textContent).toMatch(/350\s?k/)
+    // curve plus its axis discloses. ICU builds disagree on the spaces (U+202F, U+00A0) and some
+    // keep a ",0" despite minimumFractionDigits: 0, so neither is part of the assertion.
+    const tick = screen.getByTestId('y-ticks').textContent?.replace(/[\u202f\u00a0]/g, ' ')
+    expect(tick).toMatch(/^350(,0)? ?k ?€$/)
 
     act(() => { useAppStore.getState().setHideAmounts(true) })
 

@@ -820,6 +820,68 @@
       "description": "Elige qué cuentas aparecen en la aplicación. Una cuenta oculta sigue sincronizándose con normalidad — solo se retira de la pantalla.",
       "manualGroup": "Manual"
     },
+    "actual": {
+      "title": "Actual Budget",
+      "upload": "Importar una exportación de Actual Budget",
+      "uploadHint": "El .zip del presupuesto exportado desde Actual (Ajustes → Exportar datos) o su db.sqlite",
+      "chooseFile": "Elegir un archivo",
+      "file": "Archivo de Actual Budget",
+      "preview": "Previsualizar la importación",
+      "previewSummary": "{{accounts}} cuentas, {{categories}} categorías y {{transactions}} transacciones",
+      "restart": "Empezar de nuevo",
+      "import": "Importar datos",
+      "transfersNeutral": "{{count}} transferencias y saldos iniciales se clasificarán como transferencias internas: nunca contarán como ingresos ni gastos.",
+      "currency": "Moneda del presupuesto",
+      "currencyHint": "Este archivo no indica su moneda. Elige la de tu presupuesto.",
+      "accounts": "Cuentas",
+      "transactions": "transacciones",
+      "offBudget": "Fuera del presupuesto",
+      "closed": "Cerrada",
+      "skip": "Omitir",
+      "mapExisting": "Asociar a una cuenta existente",
+      "createNew": "Crear cuenta",
+      "targetAccount": "Cuenta destino para {{name}}",
+      "chooseAccount": "Elegir una cuenta",
+      "previouslyImported": "Cuenta creada por una importación anterior de Actual: su saldo se recalcula a partir del historial importado.",
+      "accountName": "Nombre de la cuenta",
+      "accountType": "Tipo de cuenta",
+      "categories": "Categorías",
+      "income": "Ingreso",
+      "expense": "Gasto",
+      "categoryAction": "Acción para {{name}}",
+      "createCategory": "Crear categoría",
+      "mapExistingCategory": "Asociar a una categoría existente",
+      "uncategorized": "Dejar sin categoría",
+      "categoryName": "Nombre de la categoría {{name}}",
+      "targetCategory": "Categoría destino para {{name}}",
+      "chooseCategory": "Elegir una categoría",
+      "sampleTransactions": "Últimas transacciones",
+      "noPayee": "Sin beneficiario",
+      "transfer": "Transferencia",
+      "startingBalance": "Saldo inicial",
+      "accountsCreated": "Cuentas creadas",
+      "accountsMapped": "Cuentas asociadas",
+      "accountsSkipped": "Cuentas omitidas",
+      "categoriesCreated": "Categorías creadas",
+      "transactionsImported": "Transacciones importadas",
+      "transactionsSkipped": "Transacciones omitidas",
+      "transactionsDeleted": "Transacciones eliminadas",
+      "transactionsMoved": "Transacciones movidas",
+      "done": "Hecho",
+      "confirmTitle": "Confirmar la importación de Actual Budget",
+      "planSummary": "Esta importación añade {{added}} transacciones, elimina {{deleted}} y mueve {{moved}} entre cuentas.",
+      "largeDeletion": "Atención: esta importación elimina {{count}} transacciones, una gran parte del historial de una cuenta. Comprueba que cada cuenta de Actual está asociada a la cuenta de Picsou correcta.",
+      "confirmDescription": "Una cuenta creada por una importación de Actual para una de las cuentas de este archivo sigue el archivo: las transacciones eliminadas o divididas en Actual se eliminan, y las movidas en Actual las siguen. Las demás cuentas (las tuyas, o las creadas para otro presupuesto) solo reciben transacciones nuevas. No se escribe nada si falla alguna comprobación.",
+      "warnings": {
+        "KEPT_MISSING": "{{count}} transacciones importadas antes en estas cuentas no están en este archivo. Pueden venir de otro archivo o haberse eliminado en Actual. No se ha cambiado nada.",
+        "KEPT_MOVED": "{{count}} transacciones ya importadas en otra cuenta se quedan donde están, porque esa cuenta no sigue este archivo."
+      },
+      "errors": {
+        "invalidPreview": "La respuesta de previsualización no es válida.",
+        "previewFailed": "No se pudo leer el archivo de Actual Budget.",
+        "importFailed": "La importación de Actual Budget ha fallado."
+      }
+    },
     "finary": {
       "title": "Finary",
       "uploadFile": "Importar archivo Finary (.xlsx)",
@@ -1347,6 +1409,10 @@
         "label": "Familia",
         "desc": "Ver el panel familiar compartido"
       },
+      "analysis_read": {
+        "label": "Análisis patrimonial",
+        "desc": "Consultar la asignación, la diversificación, las proyecciones y el resumen inmobiliario"
+      },
       "accounts_write": {
         "label": "Cuentas",
         "desc": "Crear y editar cuentas manuales, saldos y posiciones"
@@ -1410,6 +1476,10 @@
       "budget_transactions-write": {
         "label": "Transacciones presupuestadas",
         "desc": "Cambiar la categoría de las transacciones"
+      },
+      "budget_recurring-write": {
+        "label": "Suscripciones recurrentes",
+        "desc": "Confirmar, ignorar, declarar, editar y eliminar series recurrentes; volver a ejecutar la detección"
       },
       "budget_envelopes-write": {
         "label": "Sobres de presupuesto",

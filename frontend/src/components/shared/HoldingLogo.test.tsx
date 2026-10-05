@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { act, render, waitFor } from '@testing-library/react'
 import { HoldingLogo } from './HoldingLogo'
 import { StubImage } from '@/test/stubImage'
 
@@ -27,8 +27,8 @@ describe('HoldingLogo', () => {
   })
 
   it('renders an empty mark when there is no logo', () => {
-    // The equity case: no source resolves a URL today. The caller renders the ticker as text
-    // beside this, so the fallback must not repeat it.
+    // A share whose mark was never stored. The caller renders the ticker as text beside this, so
+    // the fallback must not repeat it.
     const { container } = render(<HoldingLogo logoUrl={null} ticker="AAPL" />)
 
     expect(container.querySelector('img')).not.toBeInTheDocument()
@@ -55,5 +55,47 @@ describe('HoldingLogo', () => {
       expect(container.querySelector('img')).toBeInTheDocument()
     })
     expect(container.querySelector('img')).toHaveAttribute('alt', 'GOOGL')
+  })
+})
+
+describe('HoldingLogo with a stored share mark', () => {
+  const LIGHT = '/api/instrument-logos/AAPL?v=1759400000'
+  const DARK = '/api/instrument-logos/AAPL?v=1759400000&variant=dark'
+
+  afterEach(() => {
+    document.documentElement.classList.remove('dark')
+  })
+
+  it('loads the mark from Picsou itself', async () => {
+    const { container } = render(<HoldingLogo logoUrl={LIGHT} ticker="AAPL" />)
+
+    await waitFor(() => {
+      expect(container.querySelector('img')).toHaveAttribute('src', LIGHT)
+    })
+  })
+
+  it('uses the dark variant under the dark palette, and follows a theme switch', async () => {
+    document.documentElement.classList.add('dark')
+    const { container } = render(<HoldingLogo logoUrl={LIGHT} logoUrlDark={DARK} ticker="AAPL" />)
+
+    await waitFor(() => {
+      expect(container.querySelector('img')).toHaveAttribute('src', DARK)
+    })
+
+    act(() => {
+      document.documentElement.classList.remove('dark')
+    })
+    await waitFor(() => {
+      expect(container.querySelector('img')).toHaveAttribute('src', LIGHT)
+    })
+  })
+
+  it('keeps the light mark under the dark palette when there is no dark variant', async () => {
+    document.documentElement.classList.add('dark')
+    const { container } = render(<HoldingLogo logoUrl={LIGHT} logoUrlDark={null} ticker="AAPL" />)
+
+    await waitFor(() => {
+      expect(container.querySelector('img')).toHaveAttribute('src', LIGHT)
+    })
   })
 })

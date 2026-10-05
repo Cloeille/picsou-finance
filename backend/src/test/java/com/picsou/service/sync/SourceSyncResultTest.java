@@ -44,6 +44,25 @@ class SourceSyncResultTest {
         assertStatus("amex", coded(AmexErrorCode.AUTH_ATTEMPT_EXPIRED.name()), SourceSyncResult.Status.FAILED);
     }
 
+    @Test
+    void syncExceptionResult_neverExposesProviderMessagesOrUnknownCodes() {
+        String secret = "provider-secret-token-123";
+
+        SourceSyncResult reauth = SourceSyncResult.fromSyncException("revolut",
+            new SyncException(secret, null, "SESSION_EXPIRED"));
+        SourceSyncResult failed = SourceSyncResult.fromSyncException("ibkr",
+            new SyncException(secret + " (code 9999)"));
+        SourceSyncResult arbitraryCode = SourceSyncResult.fromSyncException("bourso",
+            new SyncException(secret, null, secret));
+
+        assertThat(reauth.status()).isEqualTo(SourceSyncResult.Status.NEEDS_REAUTH);
+        assertThat(reauth.message()).isEqualTo("Reauthentication required").doesNotContain(secret);
+        assertThat(failed.status()).isEqualTo(SourceSyncResult.Status.FAILED);
+        assertThat(failed.message()).isEqualTo("Sync failed").doesNotContain(secret);
+        assertThat(arbitraryCode.status()).isEqualTo(SourceSyncResult.Status.FAILED);
+        assertThat(arbitraryCode.message()).isEqualTo("Sync failed").doesNotContain(secret);
+    }
+
     private static SyncException coded(String code) {
         return new SyncException("provider failure", null, code);
     }

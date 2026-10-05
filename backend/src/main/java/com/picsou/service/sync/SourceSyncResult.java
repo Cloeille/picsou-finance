@@ -20,8 +20,8 @@ public record SourceSyncResult(String source, Status status, String message) {
       case "bourse-direct", "amundi", "fortuneo", "amex" -> "SESSION_EXPIRED".equals(code);
       default -> false;
     };
-    String shortMessage = message == null ? "" : message.length() > 120 ? message.substring(0, 120) : message;
-    return new SourceSyncResult(source, needsReauth ? Status.NEEDS_REAUTH : Status.FAILED, shortMessage);
+    return new SourceSyncResult(source, needsReauth ? Status.NEEDS_REAUTH : Status.FAILED,
+        needsReauth ? "Reauthentication required" : "Sync failed");
   }
 
   private static boolean endsWithProviderCode(String message, String code) {

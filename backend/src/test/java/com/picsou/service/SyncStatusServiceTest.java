@@ -89,6 +89,21 @@ class SyncStatusServiceTest {
     }
 
     @Test
+    void degiroStatusDoesNotExposeStoredExceptionDetails() {
+        for (String error : List.of("private SQL password=private-marker", "SESSION_EXPIRED token=private-marker")) {
+            when(degiroSessionRepository.findByMemberId(MID)).thenReturn(Optional.of(
+                DegiroSession.builder().status(DegiroSessionStatus.FAILED).lastError(error).build()));
+
+            String text = service.describe(MID);
+
+            assertThat(text).doesNotContain("private-marker", "password=", "token=");
+            assertThat(text).contains(error.startsWith("SESSION_EXPIRED")
+                ? "degiro: NEEDS_REAUTH lastSync=none reauth=true"
+                : "degiro: FAILED lastSync=none reauth=false");
+        }
+    }
+
+    @Test
     void amexReportsQueuedCompletionAndReauthenticationTruthfully() {
         when(amexSyncService.getStatus(MID)).thenReturn(new AmexSyncService.SessionStatusResponse(
             true, AmexSyncStatus.QUEUED, null, SYNCED_AT, null));

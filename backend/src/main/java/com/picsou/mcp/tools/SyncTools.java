@@ -29,6 +29,9 @@ import java.util.Set;
 @Component("picsouSyncTools")
 public class SyncTools {
 
+    private static final String SHARED_COOLDOWN_DESCRIPTION = " Cooldown is shared by all MCP trigger tools for this member: "
+        + "one sync every 15 minutes, and four per day.";
+
     static final Set<String> BANK_SOURCES = Set.of("enable-banking", "enable-banking-retry");
     static final Set<String> BROKER_SOURCES = Set.of(
         "trade-republic", "bourso", "bourse-direct", "amundi", "fortuneo", "amex", "ibkr", "degiro");
@@ -55,7 +58,7 @@ public class SyncTools {
             + "as the 08:00 scheduler. DEGIRO is included because this call is user-initiated. "
             + "Does not connect a new source or re-authenticate. Returns one status line per source; "
             + "a failure or a source that needs reauthentication is named, not hidden. "
-            + "At most one MCP sync per member every 15 minutes, and four per day.")
+            + SHARED_COOLDOWN_DESCRIPTION)
     @RequiresScope(Scopes.SYNC_TRIGGER)
     public String triggerFullSync() {
         return trigger(null);
@@ -65,7 +68,7 @@ public class SyncTools {
         description = "Refresh the authenticated member's existing Enable Banking connections, including "
             + "the retry of connections that failed last time. Does not include Revolut — use "
             + "trigger_full_sync for every source. Does not connect a new bank. Returns one status "
-            + "line per source; a failure is named, not hidden.")
+            + "line per source; a failure is named, not hidden." + SHARED_COOLDOWN_DESCRIPTION)
     @RequiresScope(Scopes.SYNC_TRIGGER)
     public String triggerBankSync() {
         return trigger(BANK_SOURCES);
@@ -74,7 +77,7 @@ public class SyncTools {
     @Tool(name = "trigger_broker_sync",
         description = "Refresh the authenticated member's existing broker connections: Trade Republic, "
             + "BoursoBank, Bourse Direct, Amundi, Fortuneo, American Express, IBKR, and DEGIRO when the session is "
-            + "still active. Does not re-authenticate. Returns one status line per source.")
+            + "still active. Does not re-authenticate. Returns one status line per source." + SHARED_COOLDOWN_DESCRIPTION)
     @RequiresScope(Scopes.SYNC_TRIGGER)
     public String triggerBrokerSync() {
         return trigger(BROKER_SOURCES);
@@ -82,7 +85,7 @@ public class SyncTools {
 
     @Tool(name = "trigger_crypto_exchange_sync",
         description = "Refresh the authenticated member's existing crypto-exchange connections. "
-            + "Does not add an exchange. Returns one status line per source.")
+            + "Does not add an exchange. Returns one status line per source." + SHARED_COOLDOWN_DESCRIPTION)
     @RequiresScope(Scopes.SYNC_TRIGGER)
     public String triggerCryptoExchangeSync() {
         return trigger(EXCHANGE_SOURCES);
@@ -90,7 +93,7 @@ public class SyncTools {
 
     @Tool(name = "trigger_crypto_wallet_sync",
         description = "Refresh the authenticated member's existing on-chain wallets. "
-            + "Does not add a wallet. Returns one status line per source.")
+            + "Does not add a wallet. Returns one status line per source." + SHARED_COOLDOWN_DESCRIPTION)
     @RequiresScope(Scopes.SYNC_TRIGGER)
     public String triggerCryptoWalletSync() {
         return trigger(WALLET_SOURCES);
@@ -123,7 +126,7 @@ public class SyncTools {
             return null;
         }
         long minutes = Math.max(1, (probe.getNanosToWaitForRefill() + 59_999_999_999L) / 60_000_000_000L);
-        return "Sync already ran for this member. Try again in " + minutes + " min.";
+        return "MCP sync cooldown is shared by all trigger tools for this member. Try again in " + minutes + " min.";
     }
 
     static String formatSummary(List<SourceSyncResult> results) {

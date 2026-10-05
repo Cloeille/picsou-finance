@@ -163,7 +163,7 @@ public class MemberSyncService {
                         return mapFinary(resp);
                     } catch (Exception ex) {
                         log.error("Finary sync failed unexpectedly for member {}", memberId, ex);
-                        return new SourceSyncResult("finary", Status.FAILED, shortMessage(ex.getMessage()));
+                        return new SourceSyncResult("finary", Status.FAILED, "Unexpected sync error");
                     }
                 case "degiro":
                     // for scheduled we handled above; for user path
@@ -174,7 +174,7 @@ public class MemberSyncService {
         } catch (Exception ex) {
             // never let one source stop others
             log.error("{} sync failed unexpectedly for member {}", source, memberId, ex);
-            return new SourceSyncResult(source, Status.FAILED, shortMessage(ex.getMessage()));
+            return new SourceSyncResult(source, Status.FAILED, "Unexpected sync error");
         }
     }
 
@@ -192,11 +192,6 @@ public class MemberSyncService {
         if ("NOT_CONNECTED".equals(status)) {
             return new SourceSyncResult("finary", Status.SKIPPED_NOT_CONNECTED, "No connected Finary session");
         }
-        return new SourceSyncResult("finary", Status.FAILED, status != null ? status : "Unknown");
-    }
-
-    private String shortMessage(String msg) {
-        if (msg == null) return "";
-        return msg.length() > 120 ? msg.substring(0, 120) : msg;
+        return new SourceSyncResult("finary", Status.FAILED, "Sync failed");
     }
 }

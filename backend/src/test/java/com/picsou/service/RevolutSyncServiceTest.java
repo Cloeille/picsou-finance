@@ -95,6 +95,22 @@ class RevolutSyncServiceTest {
 
     private static BigDecimal bd(String v) { return new BigDecimal(v); }
 
+    @Test
+    void reportingProviderFailureDoesNotExposePrivateRequestDetails() throws Exception {
+        RevolutSession stored = RevolutSession.builder().member(member())
+            .credentialsEnc("enc-blob").rememberCredentials(true).build();
+        when(sessionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.of(stored));
+        String credentials = objectMapper.writeValueAsString(Map.of("phone", PHONE, "passcode", PASSCODE));
+        when(encryption.decrypt("enc-blob")).thenReturn(credentials);
+        when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID, false))
+            .thenThrow(new IllegalStateException("private response token=private-marker"));
+
+        var result = service.resyncReporting(MEMBER_ID);
+
+        assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+        assertThat(result.message()).isEqualTo("Unexpected sync error").doesNotContain("private-marker");
+    }
+
     private FamilyMember member() {
         return FamilyMember.builder().id(MEMBER_ID).build();
     }

@@ -159,7 +159,7 @@ public class IbkrSyncService {
             return SourceSyncResult.fromSyncException("ibkr", ex);
         } catch (Exception ex) {
             log.error("IBKR scheduled sync failed unexpectedly for member {}", memberId, ex);
-            return new SourceSyncResult("ibkr", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
+            return new SourceSyncResult("ibkr", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
 
@@ -167,10 +167,6 @@ public class IbkrSyncService {
         resyncReporting(memberId); // ignore return
     }
 
-    private String shortMessage(String msg) {
-        if (msg == null) return "";
-        return msg.length() > 120 ? msg.substring(0, 120) : msg;
-    }
 
     private List<AccountResponse> syncWithConnection(IbkrConnection connection, Long memberId) {
         try {

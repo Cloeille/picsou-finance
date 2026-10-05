@@ -277,7 +277,8 @@ class MemberSyncServiceTest {
     @Test
     void connectorFailure_logsThrowableAndContinuesToNextSource() {
         Long memberId = 42L;
-        RuntimeException failure = new RuntimeException("connector failed");
+        String secret = "connector-secret-token-123";
+        RuntimeException failure = new RuntimeException(secret);
         when(boursoSyncService.resyncReporting(memberId)).thenThrow(failure);
         when(bourseDirectSyncService.resyncReporting(memberId)).thenReturn(success("bourse-direct"));
         var logger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(MemberSyncService.class);
@@ -291,10 +292,11 @@ class MemberSyncServiceTest {
             assertThat(results).anySatisfy(result -> {
                 assertThat(result.source()).isEqualTo("bourso");
                 assertThat(result.status()).isEqualTo(SourceSyncResult.Status.FAILED);
+                assertThat(result.message()).isEqualTo("Unexpected sync error").doesNotContain(secret);
             });
             verify(bourseDirectSyncService).resyncReporting(memberId);
             assertThat(appender.list).anySatisfy(event -> assertThat(event.getThrowableProxy().getMessage())
-                .contains("connector failed"));
+                .contains(secret));
         } finally {
             logger.detachAppender(appender);
         }
@@ -329,7 +331,8 @@ class MemberSyncServiceTest {
     @Test
     void finaryFailure_logsThrowableAndPreservesFailureResult() {
         Long memberId = 44L;
-        RuntimeException failure = new RuntimeException("Finary unavailable");
+        String secret = "finary-secret-token-123";
+        RuntimeException failure = new RuntimeException(secret);
         when(finaryApiSyncService.autoSync(memberId)).thenThrow(failure);
         var logger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(MemberSyncService.class);
         var appender = new ListAppender<ILoggingEvent>();
@@ -342,12 +345,27 @@ class MemberSyncServiceTest {
             assertThat(results).singleElement().satisfies(result -> {
                 assertThat(result.source()).isEqualTo("finary");
                 assertThat(result.status()).isEqualTo(SourceSyncResult.Status.FAILED);
+                assertThat(result.message()).isEqualTo("Unexpected sync error").doesNotContain(secret);
             });
             assertThat(appender.list).anySatisfy(event -> assertThat(event.getThrowableProxy().getMessage())
-                .contains("Finary unavailable"));
+                .contains(secret));
         } finally {
             logger.detachAppender(appender);
         }
+    }
+
+    @Test
+    void finaryUnknownStatus_isGenericAndDoesNotExposeProviderValue() {
+        String secret = "provider-secret-status-123";
+        when(finaryApiSyncService.autoSync(45L))
+            .thenReturn(new FinaryAutoSyncResponse(secret, 0, 0));
+
+        List<SourceSyncResult> results = memberSyncService.resyncForUser(45L, Set.of("finary"));
+
+        assertThat(results).singleElement().satisfies(result -> {
+            assertThat(result.status()).isEqualTo(SourceSyncResult.Status.FAILED);
+            assertThat(result.message()).isEqualTo("Sync failed").doesNotContain(secret);
+        });
     }
 
     private SourceSyncResult success(String source) {

@@ -1,5 +1,9 @@
 package com.picsou.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.picsou.adapter.OpenFigiIsinConverter;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.dto.AccountResponse;
@@ -19,6 +23,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +31,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -221,6 +228,70 @@ class DegiroSyncServiceTest {
         assertThatThrownBy(() -> service.sync(MEMBER_ID)).isInstanceOf(SyncException.class);
 
         verify(statusWriter, never()).markReauthRequired(any());
+    }
+
+    @Test
+    void userSyncReporting_sessionLookupFailureHidesSensitiveMessageAndLogsThrowable() {
+        DataAccessResourceFailureException failure = new DataAccessResourceFailureException(
+            "database password=secret-token");
+        when(sessionRepository.findByMemberId(MEMBER_ID)).thenThrow(failure);
+        CapturedLogs logs = captureLogs();
+        try {
+            SourceSyncResult result = service.userSyncReporting(MEMBER_ID);
+
+            assertThat(result.status()).isEqualTo(SourceSyncResult.Status.FAILED);
+            assertThat(result.message()).isEqualTo("Unexpected sync error")
+                .doesNotContain("password", "secret-token", "database");
+            assertLoggedThrowable(logs, Level.ERROR, failure);
+        } finally {
+            logs.close();
+        }
+    }
+
+    @Test
+    void userSyncReporting_expiredSessionUsesGenericReauthMessageAndLogsThrowable() {
+        DegiroSession session = DegiroSession.builder()
+            .status(DegiroSessionStatus.ACTIVE).sessionBlob("enc").build();
+        when(sessionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("enc")).thenReturn("plain");
+        DegiroSessionExpiredException failure = new DegiroSessionExpiredException();
+        when(port.fetchPortfolio("plain")).thenThrow(failure);
+        CapturedLogs logs = captureLogs();
+        try {
+            SourceSyncResult result = service.userSyncReporting(MEMBER_ID);
+
+            assertThat(result.status()).isEqualTo(SourceSyncResult.Status.NEEDS_REAUTH);
+            assertThat(result.message()).isEqualTo("Reauthentication required")
+                .doesNotContain(failure.getMessage());
+            assertLoggedThrowable(logs, Level.WARN, failure);
+        } finally {
+            logs.close();
+        }
+    }
+
+    private CapturedLogs captureLogs() {
+        Logger logger = (Logger) LoggerFactory.getLogger(DegiroSyncService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        return new CapturedLogs(logger, appender);
+    }
+
+    private void assertLoggedThrowable(CapturedLogs logs, Level level, Exception failure) {
+        assertThat(logs.appender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(level);
+            assertThat(event.getFormattedMessage()).contains(MEMBER_ID.toString());
+            assertThat(event.getThrowableProxy()).isNotNull();
+            assertThat(event.getThrowableProxy().getClassName()).isEqualTo(failure.getClass().getName());
+            assertThat(event.getThrowableProxy().getMessage()).isEqualTo(failure.getMessage());
+        });
+    }
+
+    private record CapturedLogs(Logger logger, ListAppender<ILoggingEvent> appender) {
+        private void close() {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     // ─── Status / clear ────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import com.picsou.dto.AccountRequest;
 import com.picsou.dto.AccountResponse;
 import com.picsou.dto.DebtRequest;
 import com.picsou.dto.DebtResponse;
+import com.picsou.dto.HoldingLogoUrls;
 import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataRequest;
 import com.picsou.dto.RealEstateMetadataResponse;
@@ -40,6 +41,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -83,6 +85,7 @@ public class AccountService {
     private final AccountAccessResolver accessResolver;
     private final BankLogoResolver bankLogoResolver;
     private final CryptoLogoService cryptoLogoService;
+    private final InstrumentLogoService instrumentLogoService;
     private final ScpiPositionRepository scpiPositionRepository;
 
     public AccountService(
@@ -99,6 +102,7 @@ public class AccountService {
         AccountAccessResolver accessResolver,
         BankLogoResolver bankLogoResolver,
         CryptoLogoService cryptoLogoService,
+        InstrumentLogoService instrumentLogoService,
         ScpiPositionRepository scpiPositionRepository
     ) {
         this.accountRepository = accountRepository;
@@ -114,6 +118,7 @@ public class AccountService {
         this.accessResolver = accessResolver;
         this.bankLogoResolver = bankLogoResolver;
         this.cryptoLogoService = cryptoLogoService;
+        this.instrumentLogoService = instrumentLogoService;
         this.scpiPositionRepository = scpiPositionRepository;
     }
 
@@ -345,7 +350,7 @@ public class AccountService {
         Map<String, PriceService.Quote> quotes = quotesFor(account, holdings);
         // Both lookups are batched outside the stream: calling either inside it would issue one
         // provider request per holding instead of one per page.
-        Map<String, String> logos = logosFor(account, holdings);
+        Map<String, HoldingLogoUrls> logos = logosFor(account, holdings);
         return holdings.stream()
             .map(holding -> toHoldingResponse(holding, quotes, logos))
             .toList();
@@ -714,18 +719,20 @@ public class AccountService {
     }
 
     /**
-     * Logo URLs for an account's holdings, in one call — and only for a crypto account.
+     * Logo URLs for an account's holdings, in one call.
      *
-     * <p>Mirrors {@link #quotesFor}: the provider that can answer for a symbol decides, and only
-     * CoinGecko can today, so a non-crypto account resolves to nothing and its holdings keep
-     * showing their ticker. Batched for the same reason the prices are — one request per page
-     * rather than one per line.
+     * <p>Mirrors {@link #quotesFor}: a crypto account asks CoinGecko, batched like the prices.
+     * Any other account reads the marks already stored for its shares and funds — one query, no
+     * network, since {@link InstrumentLogoService} fetches them in the background, never on a
+     * render. A ticker with nothing stored is absent and keeps showing its ticker alone.
      */
-    private Map<String, String> logosFor(Account account, List<AccountHolding> holdings) {
-        if (account.getType() != AccountType.CRYPTO) return Map.of();
+    private Map<String, HoldingLogoUrls> logosFor(Account account, List<AccountHolding> holdings) {
         Set<String> tickers = tickersOf(holdings);
         if (tickers.isEmpty()) return Map.of();
-        return cryptoLogoService.getLogoUrls(tickers);
+        if (account.getType() != AccountType.CRYPTO) return instrumentLogoService.storedUrls(tickers);
+        Map<String, HoldingLogoUrls> logos = new HashMap<>();
+        cryptoLogoService.getLogoUrls(tickers).forEach((ticker, url) -> logos.put(ticker, HoldingLogoUrls.of(url)));
+        return logos;
     }
 
     /**
@@ -1001,7 +1008,7 @@ public class AccountService {
 
     private HoldingResponse toHoldingResponse(AccountHolding holding,
                                               Map<String, PriceService.Quote> quotes,
-                                              Map<String, String> logos) {
+                                              Map<String, HoldingLogoUrls> logos) {
         BigDecimal currentPrice = holding.getCurrentPrice();
         BigDecimal currentPriceEur = null;
         Instant priceUpdatedAt = null;
@@ -1050,10 +1057,12 @@ public class AccountService {
             ? pnlEur.divide(costBasis.abs(), 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
             : null;
 
+        HoldingLogoUrls logo = tickerKey == null ? null : logos.get(tickerKey);
         return new HoldingResponse(
             holding.getTicker(),
             holding.getName(),
-            tickerKey == null ? null : logos.get(tickerKey),
+            logo == null ? null : logo.light(),
+            logo == null ? null : logo.dark(),
             quantity,
             averageBuyIn,
             currentPrice,

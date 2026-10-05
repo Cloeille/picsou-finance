@@ -8,23 +8,36 @@ import com.picsou.mcp.Scopes;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.AccountConnectionService;
 import com.picsou.service.AccountService;
-
+import com.picsou.service.AllocationTargetService;
+import com.picsou.service.CryptoExchangeSyncService;
 import com.picsou.service.DashboardService;
-import com.picsou.service.MemberSyncService;
-import com.picsou.service.SyncStatusService;
-import com.picsou.service.UserContext;
+import com.picsou.service.EssentialExpenseEstimator;
 import com.picsou.service.FamilyViewService;
 import com.picsou.service.GoalService;
 import com.picsou.service.HistoryService;
 import com.picsou.service.ManualTransactionService;
+import com.picsou.service.MemberSyncService;
 import com.picsou.service.MfaService;
+import com.picsou.service.PortfolioDiversificationService;
 import com.picsou.service.PriceService;
+import com.picsou.service.ProjectionService;
+import com.picsou.service.PropertyValuationService;
+import com.picsou.service.RealEstateSummaryService;
+import com.picsou.service.RealizedPnlService;
+import com.picsou.service.SavingsService;
+import com.picsou.service.SecurityInsightService;
+import com.picsou.service.SyncStatusService;
+import com.picsou.service.UserContext;
+import com.picsou.service.WealthPyramidService;
+import com.picsou.service.budget.AllocationService;
 import com.picsou.service.budget.BudgetService;
 import com.picsou.service.budget.CashflowFlowService;
 import com.picsou.service.budget.CashflowService;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.CategoryService;
+import com.picsou.service.budget.RecurringDetectionService;
 import com.picsou.service.budget.RecurringSeriesService;
+import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.ai.tool.ToolCallbackProvider;
@@ -74,22 +87,34 @@ class McpToolCatalogTest {
         "list_budget_categories", "get_budget_category", "create_budget_category",
         "update_budget_category", "delete_budget_category",
         // budget:rules-read / budget:rules-write
-        "list_budget_rules", "get_budget_rule", "create_budget_rule", "update_budget_rule",
+        "list_budget_rules", "get_budget_rule", "preview_budget_rule", "create_budget_rule", "update_budget_rule",
         "delete_budget_rule", "apply_rule_to_transactions",
         // budget:transactions-read / budget:transactions-write
         "list_budget_transactions", "update_budget_transaction",
-        // budget:recurring-read
-        "list_recurring_series", "get_recurring_series",
+        // budget:recurring-read / budget:recurring-write
+        "list_recurring_series", "get_recurring_series", "get_recurring_activity", "get_recurring_calendar",
+        "confirm_recurring_series", "ignore_recurring_series", "undo_recurring_series_change",
+        "create_recurring_series", "update_recurring_series", "delete_recurring_series", "detect_recurring_series",
         // budget:envelopes-read / budget:envelopes-write
         "list_budget_envelopes", "get_budget_envelope", "create_budget_envelope",
         "update_budget_envelope", "delete_budget_envelope", "set_envelope_allocation",
         // budget:dashboard-read
-        "get_budget_dashboard"
+        "get_budget_dashboard", "get_spending_by_category", "get_spending_category_detail",
+        "get_cashflow", "get_cashflow_flow",
+        // analysis:read (whole-wealth analysis)
+        "get_allocation", "get_wealth_pyramid", "get_portfolio_diversification", "get_wealth_projection",
+        "get_allocation_targets", "get_essential_expense_estimate", "get_savings_suggestions",
+        "get_real_estate_summary",
+        // accounts:read (per-account analysis)
+        "get_savings_interest", "get_property_valuations", "get_loan_summary", "get_realized_pnl",
+        "get_exchange_positions",
+        // prices:read (security reference data)
+        "get_security_insight"
     );
 
     private static final List<Class<?>> TOOL_CLASSES = List.of(
         AccountTools.class, TransactionTools.class, GoalTools.class, InsightTools.class, SyncTools.class,
-        OAuth2Tools.class, BudgetTools.class);
+        OAuth2Tools.class, BudgetTools.class, AnalysisTools.class);
 
     /** Build the provider exactly as production does, with mocked services (never invoked during catalog build). */
     private ToolCallbackProvider buildProvider() {
@@ -107,15 +132,36 @@ class McpToolCatalogTest {
             mock(AccessKeyService.class), mock(MfaService.class), mock(UserContext.class));
         BudgetTools budget = new BudgetTools(
             mock(CategoryService.class), mock(CategorizationService.class), mock(BudgetService.class),
-            mock(RecurringSeriesService.class), mock(CashflowService.class), mock(CashflowFlowService.class),
-            mock(TransactionRepository.class), mock(UserContext.class));
-        return new McpToolConfig().picsouMcpTools(account, tx, goal, insight, sync, oauth2, budget);
+            mock(RecurringSeriesService.class), mock(RecurringDetectionService.class), mock(CashflowService.class),
+            mock(CashflowFlowService.class), mock(TransactionRepository.class), mock(UserContext.class),
+            mock(Validator.class));
+        AnalysisTools analysis = new AnalysisTools(
+            mock(AllocationService.class), mock(WealthPyramidService.class),
+            mock(PortfolioDiversificationService.class), mock(ProjectionService.class),
+            mock(AllocationTargetService.class), mock(EssentialExpenseEstimator.class),
+            mock(SavingsService.class), mock(SecurityInsightService.class),
+            mock(RealEstateSummaryService.class), mock(PropertyValuationService.class),
+            mock(AccountService.class), mock(RealizedPnlService.class),
+            mock(CryptoExchangeSyncService.class), mock(UserContext.class));
+        return new McpToolConfig().picsouMcpTools(account, tx, goal, insight, sync, oauth2, budget, analysis);
     }
 
     private Set<String> registeredToolNames() {
         return Arrays.stream(buildProvider().getToolCallbacks())
             .map(c -> c.getToolDefinition().name())
             .collect(Collectors.toSet());
+    }
+
+    @Test
+    void everyTriggerDescription_explainsTheSharedMemberCooldown() {
+        var triggers = Arrays.stream(buildProvider().getToolCallbacks())
+            .map(callback -> callback.getToolDefinition())
+            .filter(tool -> tool.name().startsWith("trigger_"))
+            .toList();
+
+        assertThat(triggers).hasSize(5);
+        assertThat(triggers).allSatisfy(tool -> assertThat(tool.description())
+            .contains("shared by all MCP trigger tools for this member", "15 minutes", "four per day"));
     }
 
     @Test

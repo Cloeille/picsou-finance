@@ -119,7 +119,7 @@ class AmexSyncServiceTest {
         when(sessionRepository.findByMemberIdForUpdate(9L)).thenReturn(Optional.of(expired));
         var reauth = service.resyncReporting(9L);
         assertThat(reauth.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.NEEDS_REAUTH);
-        assertThat(reauth.message()).contains("session expired");
+        assertThat(reauth.message()).isEqualTo("Reauthentication required");
     }
 
     @Test

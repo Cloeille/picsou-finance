@@ -17,6 +17,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minutes to wait and does not call the banks. `get_sync_status` (`sync:read`) reports the last
   sync time and the reauthentication flag without starting a sync.
 
+- **An AI app connected over MCP can triage your recurring payments.** It could list the
+  subscriptions the detector found but not act on them. It can now confirm or ignore a
+  suggestion, undo a silent auto-confirm or acknowledge a price change, declare a series
+  the detector missed, correct or delete one, and re-run detection, under a new
+  `budget:recurring-write` permission you grant explicitly. Ignoring keeps the series, so
+  detection never suggests it again. The same app can also read the recurring activity
+  feed and calendar, spending by category and per category, and cashflow and its money
+  flow for the current pay cycle or the year to date. It can dry-run a categorization rule
+  before creating it; the preview writes nothing. Both the per-category spending detail and
+  the rule preview require the budgeted-transactions permission, because both reveal your
+  transactions. The calendar includes credit-card payments only for an app that may also
+  read your accounts.
+
+- **An AI app connected over MCP can read your wealth analysis.** It could list accounts
+  and balances, but had to recompute allocation, diversification or a loan schedule from
+  raw data, and could get them wrong. Fourteen read-only tools now return what the
+  analysis pages show: allocation, wealth pyramid, diversification, projection,
+  allocation targets, essential-expense estimate, savings suggestions and interest,
+  real-estate summary and valuations, loan summary, realized P&L, crypto exchange
+  positions and ETF composition. Whole-wealth views need the new **Wealth analysis**
+  (`analysis:read`) permission on the access key; views of a single account use the
+  existing accounts permission, and ETF composition the prices one. Nothing can be
+  changed through these tools
+  ([#177](https://github.com/Cloeille/picsou-finance/issues/177)).
+
 - **The sync page is reachable from the profile menu.** `/sync` had no entry in the
   desktop sidebar; it was only reachable from the dashboard sync dialog or by typing the
   address. The profile menu now lists it beside Administration and Sign out, in both
@@ -30,9 +55,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already prices the same coins, and a whole page resolves in a single request — nothing
   is stored and no account is required. A coin with no logo, a provider that is down, or
   an image that fails to load all leave the ticker exactly as it was, so nothing
-  disappears when a mark cannot be fetched. Stocks and ETFs are unchanged for now: they
-  have no logo source to draw from, and the search for one is tracked in
-  [#162](https://github.com/Cloeille/picsou-finance/issues/162).
+  disappears when a mark cannot be fetched.
+- **Stocks and ETFs show their company or fund logo next to their ticker too**
+  ([#162](https://github.com/Cloeille/picsou-finance/issues/162)). Each mark is read once per
+  ticker from its Yahoo Finance quote page, in the background after the hourly price refresh,
+  and stored in the database, so the browser only ever loads it from Picsou and a rebuild
+  loses nothing. It never runs while a page renders and never gets ahead of the prices: if
+  Yahoo answers with a rate limit, the logo pass stops and waits. A share with no logo shows
+  its ticker exactly as before, and a logo is kept when a position is sold, since another
+  account or member may hold the same share. Set `INSTRUMENT_LOGOS_ENABLED=false` to stop new
+  lookups; logos already stored keep showing.
 
 - **SCPI positions can be synced from a CORUM real-estate contract.** A CORUM
   contract now fills the SCPI accounts you created by hand, through a Chromium
@@ -60,7 +92,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a sold position is written at a zero balance even when no withdrawal price is
   published for it.
 
+- **Bring your history over from Actual Budget.** Upload the budget `.zip` exported
+  from Actual (or its `db.sqlite`) on the sync page, review its accounts, categories and
+  latest transactions, choose where each account and category goes, then confirm.
+  Amounts, dates, payees and notes come across as Actual shows them; split
+  transactions arrive as their parts, deleted rows stay out, and transfers between
+  your accounts and starting balances never count as income or spending. Importing the
+  same file again adds nothing, and a file that fails any check writes nothing. Importing
+  a newer export keeps the accounts the import created in step with Actual: transactions
+  you deleted, split or moved there follow, and the confirmation says how many will be
+  added, deleted and moved first. A large deletion has to be confirmed by typing its count.
+  Accounts you created yourself, and accounts created for another Actual budget, only ever
+  gain new transactions. Loan accounts can't receive an Actual import.
+
 ### Fixed
+
+- **MCP sync no longer hides an expired browser session or loses the status report after a database error.**
+  BoursoBank, Bourse Direct, Amundi and Fortuneo distinguish an inactive session requiring a new login
+  from another recorded failure and from no connection. Exceptions retain server-side diagnostics
+  without exposing database details. Status reads isolate each reader's transaction, and every
+  sync trigger explains that its cooldown is shared with the other trigger tools.
 
 - **Deleting an account through the MCP assistant now also disconnects the bank, wallet or broker when it was the last account on that connection, and says which one.** ([#176](https://github.com/Cloeille/picsou-finance/issues/176))
 - **A BoursoBank access with a personal and a business identity now syncs the personal one.** BoursoBank shows such an access an identity selector before the dashboard, which the connector used to report as a site format change. It now switches to the personal identity on each sync, and says so plainly when it cannot tell which identity is personal. Business identities are not synced. ([#153](https://github.com/Cloeille/picsou-finance/issues/153))

@@ -386,7 +386,7 @@ public class RevolutSyncService {
             return SourceSyncResult.fromSyncException("revolut", ex);
         } catch (Exception ex) {
             log.error("Revolut scheduled sync failed unexpectedly for member {}", memberId, ex);
-            return new SourceSyncResult("revolut", SourceSyncResult.Status.FAILED, shortMessage(ex.getMessage()));
+            return new SourceSyncResult("revolut", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
 
@@ -394,11 +394,6 @@ public class RevolutSyncService {
         resyncReporting(memberId); // ignore return; no rethrow to keep existing callers/tests
     }
 
-    private String shortMessage(String msg) {
-        if (msg == null) return "";
-        // keep short, secrets already avoided in getMessage paths
-        return msg.length() > 120 ? msg.substring(0, 120) : msg;
-    }
 
     // ─── Credentials (optional, member opt-in) ───────────────────────────────────
 

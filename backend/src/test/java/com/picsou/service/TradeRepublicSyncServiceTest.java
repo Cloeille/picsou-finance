@@ -78,7 +78,7 @@ class TradeRepublicSyncServiceTest {
     @Test
     void resyncReporting_logsLookupFailureWithThrowableAndReturnsFailed() {
         Long memberId = 7L;
-        RuntimeException failure = new RuntimeException("repository unavailable");
+        RuntimeException failure = new RuntimeException("private SQL password=private-marker");
         when(sessionRepository.findByMemberId(memberId)).thenThrow(failure);
         ch.qos.logback.classic.Logger logger =
             (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(TradeRepublicSyncService.class);
@@ -90,11 +90,13 @@ class TradeRepublicSyncServiceTest {
             var result = service.resyncReporting(memberId);
 
             assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+            assertThat(result.message()).isEqualTo("Unexpected sync error").doesNotContain("private-marker");
             assertThat(appender.list).anySatisfy(event -> assertThat(event.getThrowableProxy()).isNotNull());
             assertThat(appender.list).anySatisfy(event -> assertThat(event.getThrowableProxy().getMessage())
-                .contains("repository unavailable"));
+                .isEqualTo(failure.getMessage()));
         } finally {
             logger.detachAppender(appender);
+            appender.stop();
         }
     }
 

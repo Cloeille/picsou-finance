@@ -24,12 +24,19 @@ public class ScopeEnforcementAspect {
     @Before("@annotation(requiresScope)")
     public void enforce(RequiresScope requiresScope) {
         String required = requiresScope.value();
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        boolean granted = auth != null && auth.getAuthorities().stream()
-            .map(GrantedAuthority::getAuthority)
-            .anyMatch(required::equals);
-        if (!granted) {
+        if (!isGranted(required)) {
             throw new MissingScopeException(required);
         }
+    }
+
+    /**
+     * Whether the current request's key holds {@code scope}. Tools use it to withhold the part of a
+     * response that a second scope covers, e.g. credit-card payments behind {@code accounts:read}.
+     */
+    public static boolean isGranted(String scope) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.getAuthorities().stream()
+            .map(GrantedAuthority::getAuthority)
+            .anyMatch(scope::equals);
     }
 }

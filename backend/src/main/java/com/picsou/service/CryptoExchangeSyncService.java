@@ -301,8 +301,9 @@ public class CryptoExchangeSyncService {
         try {
             sessions = sessionRepository.findAllByMemberId(memberId);
         } catch (Exception ex) {
+            log.error("Crypto exchange session lookup failed for member {}", memberId, ex);
             return new SourceSyncResult("crypto-exchanges", SourceSyncResult.Status.FAILED,
-                shortMessage(ex.getMessage()));
+                "Unexpected sync error");
         }
         if (sessions.isEmpty()) {
             return new SourceSyncResult("crypto-exchanges", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No connected exchange");
@@ -329,10 +330,6 @@ public class CryptoExchangeSyncService {
         resyncAllReporting(memberId);
     }
 
-    private String shortMessage(String msg) {
-        if (msg == null) return "";
-        return msg.length() > 120 ? msg.substring(0, 120) : msg;
-    }
 
     /**
      * The account's per-product breakdown, valued at live crypto prices.
