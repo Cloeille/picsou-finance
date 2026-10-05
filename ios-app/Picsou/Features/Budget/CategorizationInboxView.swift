@@ -308,9 +308,9 @@ private struct TransactionCard: View {
             }
             .accessibilityElement(children: .combine)
 
-            if let suggestedId = transaction.aiSuggestedCategoryId,
-               let suggested = categories.first(where: { $0.id == suggestedId }) {
-                AISuggestionChip(categoryColor: suggested.color, categoryName: suggested.name, confidence: transaction.aiConfidence)
+            if let suggestion = CategorySuggestion(aiSuggestionFor: transaction, in: categories) {
+                let suggested = suggestion.category
+                AISuggestionChip(categoryColor: suggested.color, categoryName: suggested.name, confidence: suggestion.confidence)
                 Button {
                     onAccept(suggested.id)
                 } label: {
@@ -324,7 +324,7 @@ private struct TransactionCard: View {
                 .accessibilityLabel("Catégoriser comme \(suggested.name)")
                 .accessibilityHint("Accepte la suggestion IA")
                 NavigationLink {
-                    CategoryPickerView(categories: categories, current: nil) { picked in onAccept(picked.id) }
+                    CategoryPickerView(categories: categories, current: nil, suggestion: suggestion) { picked in onAccept(picked.id) }
                 } label: {
                     Text("Autre catégorie").font(Theme.font(13, .semibold)).foregroundStyle(Theme.mutedForeground)
                 }

@@ -209,7 +209,8 @@ struct TransactionDetailSheet: View {
 
     private var categoryRow: some View {
         NavigationLink {
-            CategoryPickerView(categories: categories, current: tx.categoryId) { picked in
+            CategoryPickerView(categories: categories, current: tx.categoryId,
+                               suggestion: CategorySuggestion(aiSuggestionFor: tx, in: categories)) { picked in
                 recategorize(to: picked)
             }
         } label: {

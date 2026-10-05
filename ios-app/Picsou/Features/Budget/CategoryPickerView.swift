@@ -1,11 +1,18 @@
 import SwiftUI
 
 /// A category suggestion pinned at the top of `CategoryPickerView`, above the alphabetical list.
-struct CategorySuggestion {
-    let categoryId: Int64
-    let categoryName: String
-    let categoryColor: String
+struct CategorySuggestion: Equatable {
+    let category: Category
     let confidence: Int?
+
+    /// The AI suggestion the backend attached to `transaction` (`aiSuggestedCategoryId`, set while
+    /// it is uncategorized), when that category is still offered and isn't already the current one.
+    init?(aiSuggestionFor transaction: Transaction, in categories: [Category]) {
+        guard let id = transaction.aiSuggestedCategoryId, id != transaction.categoryId,
+              let category = categories.first(where: { $0.id == id && $0.pickable }) else { return nil }
+        self.category = category
+        self.confidence = transaction.aiConfidence
+    }
 }
 
 /// Reusable single-select category picker, pushed (never presented as a nested sheet — see
@@ -35,11 +42,11 @@ struct CategoryPickerView: View {
             if let suggestion, query.isEmpty {
                 Section {
                     Button {
-                        pick(id: suggestion.categoryId, name: suggestion.categoryName)
+                        pick(suggestion.category)
                     } label: {
                         HStack {
-                            AISuggestionChip(categoryColor: suggestion.categoryColor,
-                                              categoryName: suggestion.categoryName,
+                            AISuggestionChip(categoryColor: suggestion.category.color,
+                                              categoryName: suggestion.category.name,
                                               confidence: suggestion.confidence)
                             Spacer()
                             Text("Utiliser").font(Theme.font(13, .semibold)).foregroundStyle(Theme.brand)
@@ -52,7 +59,7 @@ struct CategoryPickerView: View {
             Section {
                 ForEach(filtered) { category in
                     Button {
-                        pick(id: category.id, name: category.name)
+                        pick(category)
                     } label: {
                         HStack {
                             Circle().fill(Color.account(category.color)).frame(width: 10, height: 10)
@@ -72,8 +79,7 @@ struct CategoryPickerView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func pick(id: Int64, name: String) {
-        guard let category = categories.first(where: { $0.id == id }) else { return }
+    private func pick(_ category: Category) {
         onPick(category)
         dismiss()
     }
