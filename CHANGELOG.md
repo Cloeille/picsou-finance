@@ -158,6 +158,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The Trade Republic, DEGIRO and Revolut sidecars escape line breaks and control characters
   in each log record too, so a multi-line browser error or traceback now prints on one line
   with `\n` markers.
+- **The Trade Republic and DEGIRO sidecars only put well-formed values in their upstream
+  URLs.** The Trade Republic process id and code, and the DEGIRO account number and session
+  id, were pasted into the request path as received, so a crafted value could point the
+  sidecar at another path on the broker's API. They are now checked against their real
+  shape first and refused otherwise.
 
 
 ## [1.1.0] — 2026-06-09

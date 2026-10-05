@@ -25,7 +25,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from playwright.async_api import async_playwright
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # C0/C1 controls (CR, LF, ESC, NEL...) and the Unicode line/paragraph separators.
 _LOG_UNSAFE = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
@@ -200,9 +200,26 @@ class InitiateRequest(BaseModel):
     pin: str
 
 
+# Both values become URL path segments on api.traderepublic.com. TR's processId is a
+# UUID and the TAN is the 4-digit app/SMS code; the patterns leave some slack but
+# exclude every character that could leave the segment (/ ? # . @ % ...).
+PROCESS_ID_PATTERN = r"[A-Za-z0-9-]{1,64}"
+TAN_PATTERN = r"[0-9]{4,8}"
+
+
 class CompleteRequest(BaseModel):
-    processId: str
-    tan: str
+    processId: str = Field(pattern=f"^{PROCESS_ID_PATTERN}$")
+    tan: str = Field(pattern=f"^{TAN_PATTERN}$")
+
+
+def login_complete_url(process_id: str, tan: str) -> str:
+    # CompleteRequest already answers 422 for anything else; checked again so the
+    # URL builder is safe on its own.
+    if not re.fullmatch(PROCESS_ID_PATTERN, process_id):
+        raise ValueError("processId is not a valid path segment")
+    if not re.fullmatch(TAN_PATTERN, tan):
+        raise ValueError("tan is not a valid path segment")
+    return f"{TR_API}/api/v1/auth/web/login/{process_id}/{tan}"
 
 
 @app.post("/initiate")
@@ -243,7 +260,7 @@ async def complete(req: CompleteRequest):
     async with httpx.AsyncClient(timeout=15) as client:
         try:
             resp = await client.post(
-                f"{TR_API}/api/v1/auth/web/login/{req.processId}/{req.tan}",
+                login_complete_url(req.processId, req.tan),
                 headers=tr_headers(waf_token),
             )
             log.info("TR /login/complete → %d  set-cookie names: %s",

@@ -119,6 +119,10 @@ async def authenticate_sidecar_request(request: Request, call_next):
 
 DEGIRO_BASE = "https://trader.degiro.nl"
 
+# The JSESSIONID cookie value is opaque, so the pattern only keeps characters that stay
+# inside a URL path segment: no / ? # % ; @ \, whitespace or controls.
+SESSION_ID_PATTERN = r"[A-Za-z0-9._~!*+=,:-]{1,256}"
+
 # In-memory auth state: processId → {username, password, created_at}
 # Cleaned up after /complete or after TTL. Credentials are held only long
 # enough to retry the login with a TOTP code — never logged, never persisted.
@@ -256,7 +260,10 @@ async def _fetch_int_account(client: httpx.AsyncClient, session_id: str) -> int:
         # this is likely that state, not a different account-resolution bug. The logged
         # body above is what tells us for sure.
         raise HTTPException(status_code=502, detail="DEGIRO login succeeded but no account was returned")
-    return int_account
+    try:
+        return int(int_account)
+    except (TypeError, ValueError) as ex:
+        raise HTTPException(status_code=502, detail="DEGIRO returned an invalid account number") from ex
 
 
 async def _fetch_portfolio(client: httpx.AsyncClient, session_id: str, int_account: int) -> dict:
@@ -382,12 +389,18 @@ async def portfolio(req: PortfolioRequest):
     try:
         parsed = json.loads(req.sessionBlob)
         session_id = parsed["sessionId"]
-        int_account = parsed["intAccount"]
+        int_account = int(parsed["intAccount"])
     # TypeError too: json.loads happily returns a scalar or a list for a blob like "5"
     # or "[1]", and subscripting that raises TypeError, which would escape as a 500
-    # instead of the 400 this is meant to be.
-    except (json.JSONDecodeError, KeyError, TypeError) as ex:
+    # instead of the 400 this is meant to be. ValueError covers a non-numeric
+    # intAccount (and is JSONDecodeError's base class).
+    except (ValueError, KeyError, TypeError) as ex:
         raise HTTPException(status_code=400, detail="Invalid sessionBlob format") from ex
+    # Both values end up in the portfolio URL path; nothing that can leave the segment.
+    if not isinstance(session_id, str):
+        raise HTTPException(status_code=400, detail="Invalid sessionBlob format")
+    if not re.fullmatch(SESSION_ID_PATTERN, session_id):
+        raise HTTPException(status_code=400, detail="Invalid sessionBlob format")
 
     client = _client()
     client.cookies.set("JSESSIONID", session_id, domain="trader.degiro.nl")
