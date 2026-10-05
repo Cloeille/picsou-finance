@@ -193,19 +193,22 @@ export function RecurringTab() {
                       .format(new Date(`${ym}-01T00:00:00`))}
                   </p>
                   <div className="space-y-2">
-                    {(occs ?? []).map((occ) => (
+                    {(occs ?? []).map((occ) => {
+                      const displayLabel = `${occ.label}${occ.creditCardPayment && occ.rewardPoints != null ? ` · ${occ.rewardPoints.toLocaleString()} ${t('accounts.amex.miles')}` : ''}`
+                      return (
                       <div key={`${occ.seriesId}-${occ.dueDate}`}
                         className="flex items-center gap-3 text-sm">
                         <span className="w-10 shrink-0 text-center text-muted-foreground">
                           {new Date(`${occ.dueDate}T00:00:00`).getDate()}
                         </span>
                         <ColorDot color={occ.categoryColor} />
-                        <span className="min-w-0 flex-1 truncate">{occ.label}</span>
+                        <span className="min-w-0 flex-1 truncate" title={displayLabel} aria-label={displayLabel}>{displayLabel}</span>
                         <span className="shrink-0 tabular-nums">
                           <CurrencyDisplay value={occ.expectedAmount} showSign />
                         </span>
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               ))}

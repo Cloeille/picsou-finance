@@ -36,6 +36,8 @@ Bucket4j (`io.github.bucket4j`) enforces per-IP rate limits. Buckets are created
 | `POST /api/mfa/verify`, `/api/mfa/challenge`  | Throttled (anti-bruteforce on 6-digit code) |
 | `POST /api/sync/initiate`                     | Throttled                                   |
 | `POST /api/tr/auth/initiate`                  | Throttled                                   |
+| `POST /api/bourse-direct/auth/initiate`, `/complete` | Throttled                            |
+| `POST /api/degiro/auth/initiate`, `/complete` | Throttled (anti-bruteforce on 6-digit code) |
 | `GET /api/me/export`                          | Throttled (GDPR export)                     |
 
 When a limit is exceeded, the controller returns a 429 ProblemDetail directly (not via the exception handler).
@@ -46,6 +48,7 @@ When a limit is exceeded, the controller returns a 429 ProblemDetail directly (n
 |--------|-------|
 | `200 OK` | GET, PUT, POST (non-creation) |
 | `201 Created` | POST that creates a resource (annotated `@ResponseStatus(HttpStatus.CREATED)`) |
+| `202 Accepted` | POST that queues asynchronous work |
 | `204 No Content` | DELETE, logout |
 
 ## Error format
@@ -78,6 +81,10 @@ Validation errors (422) include an `errors` map with field-level messages:
 
 Stack traces are never exposed (`server.error.include-stacktrace: never`).
 
+Domain-specific failures may add a stable machine-readable `code` property.
+Clients translate this code and must not infer a cause from localized or
+human-readable `detail` text.
+
 ## Validation
 
 - Jakarta Validation annotations on DTO records (`@NotBlank`, `@NotNull`, `@Size`, `@DecimalMin`, `@Future`, etc.)
@@ -97,6 +104,21 @@ spring.jackson:
   default-property-inclusion: non_null      # omit null fields
   deserialization.fail-on-unknown-properties: false
 ```
+
+### A nullable field arrives as `undefined`, never as `null`
+
+`non_null` does not send `"targetPercent": null` — it omits the key. On the TypeScript side that
+is `undefined`, so **`x === null` is false for every null the backend ever produces**. Rules:
+
+- **Compare with `== null`** (or `??`) on any field the backend declares nullable. This is the one
+  place the codebase prefers loose equality, and it is not a style preference.
+- **Write fixtures the way the wire looks.** A test fixture that spells out `targetPercent: null`
+  describes the DTO, not the response — it will pass while the browser throws. Omit the key.
+
+Both halves were learned the hard way: `AllocationTrajectory` called `.toFixed()` on an omitted
+`targetPercent` and took the whole Analyse → Répartition tab down with a `TypeError`, while every
+test stayed green. Quieter cousins in the same payload printed `NaN` in a progress bar and the
+literal string `"undefined"` in a form field.
 
 ## Reference
 

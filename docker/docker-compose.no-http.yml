@@ -1,0 +1,24 @@
+# Optional hardening overlay — removes the app's plain-HTTP :8080 publish so the
+# Caddy proxy from the `tls` profile is the only way in from other devices.
+#
+#   docker compose -f docker/docker-compose.yml \
+#                  -f docker/docker-compose.no-http.yml \
+#                  --profile tls up -d
+#
+# Use it once HTTPS is confirmed working from every device you care about.
+# Until then, leave it off: :8080 is the fallback that lets you reach the app
+# (and the Admin page) if the certificate is not yet trusted.
+#
+# Why a separate file rather than an env var: Compose cannot vary a service's
+# `ports` by profile, and interpolating a host-address prefix into the port
+# string turns a missing trailing colon into an opaque "invalid published port"
+# that aborts the entire stack — db and tr-auth included.
+#
+# `!reset` requires Compose v2.24+. On older versions, comment out the `ports:`
+# block in docker/docker-compose.yml by hand instead.
+#
+# The container still listens on 8080 inside the Docker network, which is how
+# the proxy reaches it (`reverse_proxy app:8080`). Only the host publish is gone.
+services:
+  app:
+    ports: !reset []

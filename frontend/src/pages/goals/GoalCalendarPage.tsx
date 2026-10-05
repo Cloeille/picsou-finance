@@ -15,7 +15,8 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
 import { ArrowLeft, Calendar, LayoutGrid, Clock, Loader2, Plus } from 'lucide-react'
-import { cn, formatCurrency, localeFromLanguage, parseAmount } from '@/lib/utils'
+import { cn, localeFromLanguage, parseAmount } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 import type { GoalMonthEntry } from '@/types/api'
 
 // ---------------------------------------------------------------------------
@@ -112,25 +113,6 @@ function getProgressColor(entry: GoalMonthEntry, isPast: boolean): { color: stri
   return { color: COLORS.destructive, pct: ratio, label: `${Math.round(ratio * 100)}%`, textColor: COLORS.destructive }
 }
 
-// ---------------------------------------------------------------------------
-// Compact currency formatter (for inner donut text)
-// ---------------------------------------------------------------------------
-
-function formatCompact(value: number, locale: string, currency: string): string {
-  const abs = Math.abs(value)
-  try {
-    if (abs >= 1_000_000)
-      return new Intl.NumberFormat(locale, { style: 'currency', currency, notation: 'compact', maximumFractionDigits: 2 }).format(value)
-    if (abs >= 10_000)
-      return new Intl.NumberFormat(locale, { style: 'currency', currency, notation: 'compact', maximumFractionDigits: 0 }).format(value)
-    if (abs >= 1_000)
-      return new Intl.NumberFormat(locale, { style: 'currency', currency, notation: 'compact', maximumFractionDigits: 1 }).format(value)
-  } catch {
-    // Invalid currency/locale makes Intl.NumberFormat throw a RangeError —
-    // fall through to formatCurrency, which degrades gracefully.
-  }
-  return formatCurrency(value, currency, locale)
-}
 
 // ---------------------------------------------------------------------------
 // View: Year Grid (default)
@@ -141,6 +123,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
   onAddPreviousMonth: () => void; isAddingMonth: boolean
 }) {
   const { t, i18n } = useTranslation()
+  const money = useMoney()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const currency = 'EUR'
   const years = useMemo(() => groupByYear((months ?? []).filter(e => isPastOrCurrent(e.yearMonth))), [months])
@@ -178,7 +161,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
                   const hasOverride = entry.override != null
                   const hasManual = entry.manualActual != null
                   const { color, pct, textColor } = getProgressColor(entry, true)
-                  const effectiveText = entry.effective != null ? formatCompact(entry.effective, locale, currency) : null
+                  const effectiveText = entry.effective != null ? money.compact(entry.effective, { currency }) : null
                   const percentLabel = effectiveText != null
                     ? (pct > 1 ? `+${Math.round((pct - 1) * 100)}%` : `${Math.round(pct * 100)}%`)
                     : null
@@ -220,7 +203,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
                         </div>
                       </div>
                       <span className="text-[10px] text-muted-foreground leading-none">
-                        obj.&nbsp;{formatCompact(entry.objective, locale, currency)}
+                        obj.&nbsp;{money.compact(entry.objective, { currency })}
                       </span>
                     </button>
                   )
@@ -361,6 +344,7 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
   goalId: number; entry: GoalMonthEntry; onClose: () => void; className?: string
 }) {
   const { t, i18n } = useTranslation()
+  const money = useMoney()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const setOverride = useSetMonthOverride()
   const deleteOverride = useDeleteMonthOverride()
@@ -403,7 +387,7 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
               <NumericInput
                 value={overrideValue}
                 onChange={e => setOverrideValue(e.target.value)}
-                placeholder={String(entry.objective)}
+                placeholder={money.quantity(entry.objective)}
                 className="pr-8"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">€</span>
@@ -451,7 +435,7 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
               <NumericInput
                 value={manualValue}
                 onChange={e => setManualValue(e.target.value)}
-                placeholder={entry.actual?.toString() ?? ''}
+                placeholder={entry.actual != null ? money.quantity(entry.actual) : ''}
                 className="pr-8"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">€</span>
@@ -587,7 +571,7 @@ export function GoalCalendarPage() {
       {/* Summary bar */}
       <div className="flex items-center gap-3 text-sm">
         <span className="text-muted-foreground">
-          {t('goals.monthlyObjective')}: <CurrencyDisplay value={goal.monthlyNeeded} />
+          {t('goals.monthlyObjective')}: <CurrencyDisplay value={goal.monthlyNeeded ?? 0} />
         </span>
         {pastMonths.length > 0 && (
           <Badge variant="secondary">

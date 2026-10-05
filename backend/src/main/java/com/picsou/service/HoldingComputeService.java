@@ -28,7 +28,7 @@ public class HoldingComputeService {
     @Transactional
     public void recomputeHoldings(Account account) {
         List<Transaction> transactions = transactionRepository
-                .findByAccountIdAndTxTypeInOrderByDateAsc(
+                .findByAccountIdAndTxTypeInOrderByDateAscIdAsc(
                         account.getId(),
                         List.of(TransactionType.BUY, TransactionType.SELL));
 

@@ -1,6 +1,6 @@
 # Feature: CORS & Cookie Security
 
-> Last updated: 2026-06-02 (forward-headers-strategy — fixes 403 behind HTTPS reverse proxy)
+> Last updated: 2026-07-20 (client IP trust — rate-limit keys use X-Real-IP, not the XFF-spoofable getRemoteAddr())
 
 ## Context
 
@@ -53,6 +53,52 @@ chain must carry the headers end to end:
   are passed through **only when present** — never synthesized — so the backend derives the port
   from the scheme (443 for https) on the common standard-port deployment.
 
+### Client IP trust (rate-limit keys)
+
+`server.forward-headers-strategy: framework` fixes CORS (above) but has a side effect nothing
+about CORS warns you of: Spring's `ForwardedHeaderFilter` also rewrites
+`request.getRemoteAddr()` from the **leftmost** entry of `X-Forwarded-For`. Both nginx configs
+set `X-Forwarded-For` via `proxy_add_x_forwarded_for`, which **appends** to whatever the client
+already sent rather than replacing it — so a raw HTTP client can put anything it wants as the
+first entry and `getRemoteAddr()` reflects that client-chosen value, not the real TCP peer. Every
+per-IP Bucket4j limiter (login, MFA verify/enroll, setup wizard, BoursoBank/TR/IBKR/sync auth)
+used to key its bucket on `getRemoteAddr()` — meaning a client could rotate the header on every
+request and get a fresh bucket each time, nullifying the limiter entirely.
+
+The trustworthy signal is `X-Real-IP`: both nginx configs unconditionally set it to
+`$remote_addr` — the address nginx itself observed the connection from — on every proxied
+request (`docker/nginx.conf`, `frontend/nginx.conf`), so a client cannot inject or override it
+through our proxy the way it can with `X-Forwarded-For`.
+
+`com.picsou.config.ClientIp#resolve(HttpServletRequest)` is the single helper every rate-limit
+call site now uses instead of `getRemoteAddr()`:
+
+1. Prefer `X-Real-IP`, but only if it parses as a plain IPv4/IPv6 literal — defense in depth
+   against a directly-exposed backend (no nginx in front) where the header would otherwise be
+   attacker-supplied. The literal check is pure regex, deliberately not
+   `InetAddress.getByName()`, which falls through to a DNS/hosts lookup for anything that isn't
+   already a literal — network I/O driven by an untrusted header value.
+2. Otherwise fall back to `getRemoteAddr()`. Correct for local dev / unit tests: with no
+   `X-Forwarded-*` headers on the request, `ForwardedHeaderFilter` is a no-op and that value is
+   the genuine socket address.
+
+This trust chain assumes the backend is reachable **only** through our own nginx (the same
+assumption `forward-headers-strategy: framework` itself already makes — see Technical choices
+below). It does not defend against an attacker who can reach the backend port directly *and*
+supply their own `X-Forwarded-For`; that would need trusted-proxy IP ranges (`native` strategy,
+rejected below) rather than a request-local header check.
+
+Left out of scope, worth a follow-up: `SetupAuditService` and the admin-recovery audit trail
+still log `getRemoteAddr()` rather than `ClientIp.resolve()` for their `ip=` fields — honest
+audit logs would want the same fix, but audit logging is a different concern from rate-limit
+key derivation and the two weren't bundled. If a second proxy layer is ever added in front of
+the container (e.g. a reverse proxy in front of Docker), `X-Real-IP` must be set by the
+**outermost** trusted hop — document that in the compose README when it happens.
+
+`RateLimitConfig`'s bucket-store beans are also Caffeine-backed
+(`expireAfterAccess(1h)` + `maximumSize(50_000)`) rather than plain `ConcurrentHashMap`s, so a
+key an attacker fully controls (their own resolved IP) can no longer grow the map without bound.
+
 ### Cookies
 
 Auth tokens are HttpOnly cookies written by `AuthCookieWriter`:
@@ -68,13 +114,15 @@ access_token=...; Max-Age=900; Path=/; HttpOnly; SameSite=Lax[; Secure]
 
 | File | Role |
 |------|------|
-| `config/DynamicCorsConfigurationSource.java` | Per-request origin resolution (DB → env → fail closed), wildcard stripping |
-| `config/SecurityConfig.java` | `.cors()`, explicit `CorsFilter` bean, CSRF disabled, filter chain |
-| `config/LoggingCorsProcessor.java` | Logs origin on CORS rejection |
-| `config/AuthCookieWriter.java` / `SecureCookieProvider.java` | Cookie construction + `Secure` flag |
-| `resources/application.yml` | `server.forward-headers-strategy: framework`, `app.cors.allowed-origins`, `app.secure-cookies` |
-| `docker/nginx.conf`, `frontend/nginx.conf` | Preserve upstream `X-Forwarded-Proto/Host/Port` |
-| `controller/SetupController.java` (`/api/setup/security`) | Persists wizard's allowed origins |
+| `backend/src/main/java/com/picsou/config/DynamicCorsConfigurationSource.java` | Per-request origin resolution (DB → env → fail closed), wildcard stripping |
+| `backend/src/main/java/com/picsou/config/SecurityConfig.java` | `.cors()`, explicit `CorsFilter` bean, CSRF disabled, filter chain |
+| `backend/src/main/java/com/picsou/config/LoggingCorsProcessor.java` | Logs origin on CORS rejection |
+| `backend/src/main/java/com/picsou/config/AuthCookieWriter.java` / `SecureCookieProvider.java` | Cookie construction + `Secure` flag |
+| `backend/src/main/resources/application.yml` | `server.forward-headers-strategy: framework`, `app.cors.allowed-origins`, `app.secure-cookies` |
+| `docker/nginx.conf`, `frontend/nginx.conf` | Preserve upstream `X-Forwarded-Proto/Host/Port`; always set `X-Real-IP: $remote_addr` |
+| `backend/src/main/java/com/picsou/config/ClientIp.java` | Trusted client IP for rate-limit keys (`X-Real-IP`, validated, else `getRemoteAddr()`) |
+| `backend/src/main/java/com/picsou/config/RateLimitConfig.java` | Bucket4j bucket definitions; bounded Caffeine-backed bucket-store beans |
+| `backend/src/main/java/com/picsou/controller/SetupController.java` (`/api/setup/security`) | Persists wizard's allowed origins |
 
 ## Technical choices
 
@@ -85,6 +133,8 @@ access_token=...; Max-Age=900; Path=/; HttpOnly; SameSite=Lax[; Secure]
 | Fail-closed empty default + wildcard stripping | `*` with credentials is unsafe and illegal in Spring | `ALLOWED_ORIGINS=*` default (previous behavior) |
 | `setAllowedOrigins` (exact) | Credentialed CORS; origins come from the wizard | `setAllowedOriginPatterns("*")` |
 | `SameSite=Lax` | Safari iOS compatibility | `SameSite=Strict` |
+| Rate-limit keys read `X-Real-IP`, not `getRemoteAddr()` | `getRemoteAddr()` is XFF-tainted under `framework`; `X-Real-IP` is nginx-owned and not client-injectable | Switching to `native` + Tomcat `RemoteIpValve` (bigger blast radius; only justified if forwarded Host/Proto/Port ever stop being needed) |
+| Bucket stores are Caffeine-backed (`expireAfterAccess(1h)`, `maximumSize(50_000)`) | Plain `ConcurrentHashMap` bucket maps never shrink; the key is attacker-controlled for the per-IP ones | Leaving them unbounded (memory-growth DoS) |
 
 ## Gotchas / Pitfalls
 
@@ -111,6 +161,14 @@ access_token=...; Max-Age=900; Path=/; HttpOnly; SameSite=Lax[; Secure]
   cross-origin request is still rejected.
 - `config/DynamicCorsConfigurationSourceTest` — origin resolution (DB → env fallback, empty CSV, non-API routes).
 - `config/SecureCookieProviderTest` — `Secure` flag resolution.
+- `config/ClientIpTest` — `X-Real-IP` preferred over a spoofed `X-Forwarded-For`; falls back to
+  `getRemoteAddr()` when `X-Real-IP` is absent, blank, multi-valued, oversized, or not a plain
+  IPv4/IPv6 literal; accepts well-formed literals at their boundaries (`0.0.0.0`, `255.255.255.255`,
+  `::1`, IPv4-mapped IPv6, ...).
+- `config/RateLimitConfigTest` — a bucket-store bean evicts back down to `maximumSize` after being
+  overfilled.
+- `controller/AuthControllerTest#login_ratelimitKey_isXRealIp_notSpoofableXForwardedFor` — two
+  calls with different spoofed `X-Forwarded-For` but the same `X-Real-IP` resolve to one bucket key.
 
 ## Links
 

@@ -10,8 +10,7 @@ import {
 } from '@/components/ui/card'
 import { useToggleIntegration } from '@/features/admin/hooks'
 
-// 'boursobank' hidden for 1.0.0 — sidecar integration not finished.
-const INTEGRATION_KEYS = ['enablebanking', 'traderepublic', 'finary', 'crypto'] as const
+const INTEGRATION_KEYS = ['enablebanking', 'boursobank', 'boursedirect', 'fortuneo', 'traderepublic', 'finary', 'crypto'] as const
 
 export function IntegrationsSection({ integrations }: { integrations: Record<string, boolean> }) {
   const { t } = useTranslation()

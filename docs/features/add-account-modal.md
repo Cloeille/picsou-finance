@@ -1,6 +1,6 @@
 # Feature: Add Account Modal
 
-> Last updated: 2026-07-07
+> Last updated: 2026-09-03
 
 ## Context
 
@@ -10,15 +10,16 @@ Creating a new account or connecting a sync provider required two separate entry
 
 The `AddAccountModal` is a state-machine dialog with two levels:
 
-1. **Selector screen** — 6 buttons in a grid (Banks, Exchanges, Wallets, Trade Republic, Finary, Manual). Each sync button enters its wizard; the Manual button opens the existing `AccountForm` in a separate dialog.
+1. **Selector screen** — buttons in a grid (Banks, Exchanges, Wallets, Trade Republic, BoursoBank, Bourse Direct, DEGIRO, Interactive Brokers, Amundi, Finary, Property, Manual). Each sync button enters its wizard or panel; the Manual button opens the existing `AccountForm` in a separate dialog.
 2. **Wizard screens** — Each sync type has its own compact wizard with a back button. Each wizard manages its own loading and error state inline.
 
 ### Key files
 
-- `frontend/src/components/shared/AddAccountModal.tsx` — main component (contains all sub-wizards)
+- `frontend/src/components/shared/AddAccountModal.tsx` — main component (contains all sub-wizards; `SOURCES` array drives the selector grid)
 - `frontend/src/pages/accounts/AccountsPage.tsx` — wires `AddAccountModal` for create, keeps `AccountForm` for edit
 - `frontend/src/features/sync/hooks.ts` — all sync mutation hooks reused by the wizards
 - `frontend/src/components/ui/input-otp.tsx` — shadcn InputOTP component (installed for TR PIN and verification code)
+- `frontend/src/components/sync/IbkrPanel.tsx` — extracted IBKR connection panel (source of truth shared with `IbkrTab`)
 
 ### Flow
 
@@ -31,6 +32,9 @@ AccountsPage → "Add account" button
        │    └─ pick type → API key + secret → add → success
        ├─ Wallets → WalletWizard
        │    └─ pick chain → address + label → add → success
+       ├─ DEGIRO → DegiroPanel (onConnected → handleDone)
+       ├─ Interactive Brokers → IbkrPanel (onConnected → handleDone)
+       ├─ Amundi → AmundiPanel (onConnected → handleDone)
        ├─ Trade Republic → TradeRepublicWizard
        │    └─ phone + PIN (InputOTP 4-digit) → verification code (InputOTP 4-digit) → success
        ├─ Finary → FinaryWizard (3-step)
@@ -74,6 +78,31 @@ Validation is layered:
 This closed issue #9: a free-text code like `AMAT` used to throw a `RangeError` from
 `Intl.NumberFormat`, bubble to the root `ErrorBoundary`, and make the account unreachable/undeletable.
 
+### Bank field (manual form)
+
+The manual `AccountForm`'s provider field is a `BankPicker`: free text that also searches the
+institution catalog as you type. Picking a bank sets the field to the institution's name and
+sends its catalog id alongside, which is what lets the backend resolve a logo for an account no
+connector syncs — see [bank-logos.md](./bank-logos.md#the-bank-a-manual-account-names). A loan's
+lender field is the same control on the same form value: a loan's provider *is* its bank.
+
+It never blocks on the search. An unconfigured or failing catalog simply shows no suggestions,
+and the typed name is saved as before.
+
+### Account type labels
+
+`ACCOUNT_TYPES` and `accountTypeLabelKey()` (`frontend/src/lib/constants.ts`) are the only
+list of account types and the only way to get one's translation key. Five call sites used to
+carry their own copy — the two type dropdowns (this modal's manual form and its Finary mapping
+step), `AccountTypeBadge`, `HoldingsCard`, `PortfolioView` and `HoldingDetailModal` — and three
+of them derived the key from the type name (`type.toLowerCase()`, with special cases bolted on
+for `COMPTE_TITRES` and `REAL_ESTATE`).
+
+That derivation only held while every key was the lowercased value. Adding `LIVRET_A` broke it
+immediately: the badge beside the account name rendered the literal string
+`accountTypes.livret_a`. `constants.test.ts` now pins every type to a key that exists in all
+four locales, and the partial maps are gone.
+
 ### SyncPage integration
 
 `SyncPage` reads `?tab=` from the URL query params to set the initial tab. This was added for forward-compatibility; the modal does not redirect there — all wizards are inline.
@@ -87,6 +116,14 @@ This closed issue #9: a free-text code like `AMAT` used to throw a `RangeError` 
 | `AccountForm` reused for manual | Already existed, handles validation and color picking | Inline form in the modal |
 | Per-wizard error state (no global overlay) | Global `isPending` unmounts the wizard, losing error state (React no-op on unmounted setter) | Global `onPending` callback |
 | `mutation.isPending` on buttons for loading | Keeps the wizard mounted throughout; spinner is inline on the submit button | Parent-level overlay |
+
+## Account types
+
+`ASSURANCE_VIE` and `SCPI` joined the picker on 2026-08-13 for the investment pyramid
+(see [wealth-pyramid.md](./wealth-pyramid.md)). Both need an entry in `ACCOUNT_TYPES`,
+in `AccountForm`'s zod enum, in `AccountsPage`'s `ASSET_FILTER_MAP`/`TYPE_TO_GROUP`, and
+an `accountTypes.*` label in all four locales — `src/lib/constants.test.ts` fails if
+`ACCOUNT_TYPES` misses one, and the locale parity test fails if a label does.
 
 ## Gotchas / Pitfalls
 
@@ -106,7 +143,7 @@ This closed issue #9: a free-text code like `AMAT` used to throw a `RangeError` 
 
 - `frontend/src/lib/utils.test.ts` — `formatCurrency` regression case: an invalid code does not throw
   and the raw code appears in the output (issue #9).
-- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases for initiation failure staying on credentials and TAN completion failure staying on the code step.
+- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases; Bourse Direct, Amundi, and IBKR wizard flow tests (mock panel → `onOpenChange(false)`).
 - `backend/src/test/java/com/picsou/validation/CurrencyValidatorTest.java` — accepts valid ISO 4217
   codes, rejects unknown ones, leaves null/blank to `@NotBlank`.
 

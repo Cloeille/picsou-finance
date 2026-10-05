@@ -1,6 +1,12 @@
 # Feature: Goals
 
-> Last updated: 2026-06-02 (month-by-month backfill alongside yearly backfill)
+> Last updated: 2026-08-13 (goals gained a type; see goal-recurring-investment.md)
+
+> **Goals now have a type.** This note describes `SAVINGS_TARGET`, which is what every goal was
+> and still is by default. The second shape — a monthly investment with no target and no deadline
+> — is documented in [goal-recurring-investment.md](./goal-recurring-investment.md), along with
+> the removal of `chk_goal_deadline`, a V2 constraint that had been silently blocking every
+> update to an expired goal.
 
 ## Context
 
@@ -53,17 +59,17 @@ Users often start a goal in Picsou after they've already been saving for it. The
 
 ### Key files
 
-- `service/GoalService.java` -- Business logic: CRUD, progress calculation, monthly tracking, overrides
-- `controller/GoalController.java` -- REST endpoints under `/api/goals/`
-- `model/Goal.java` -- JPA entity: name, targetAmount, deadline, M:N accounts, `historyStartMonth`
-- `db/migration/V32__goal_history_start.sql` -- adds the nullable `history_start_month` column
-- `model/GoalMonthOverride.java` -- Per-month objective override (goal_id, yearMonth, amount)
-- `model/GoalManualContribution.java` -- Per-month actual override (goal_id, yearMonth, amount)
-- `repository/GoalRepository.java` -- `findAllWithAccounts()` for eager fetching
-- `repository/GoalMonthOverrideRepository.java` -- Override lookup by goal + month
-- `repository/GoalManualContributionRepository.java` -- Contribution lookup by goal + month
-- `pages/goals/GoalsPage.tsx` -- Goal list with cards, CRUD dialog, status badges, account chips
-- `pages/goals/GoalCalendarPage.tsx` -- Monthly calendar view with donut rings, overrides, manual contributions
+- `backend/src/main/java/com/picsou/service/GoalService.java` -- Business logic: CRUD, progress calculation, monthly tracking, overrides
+- `backend/src/main/java/com/picsou/controller/GoalController.java` -- REST endpoints under `/api/goals/`
+- `backend/src/main/java/com/picsou/model/Goal.java` -- JPA entity: name, targetAmount, deadline, M:N accounts, `historyStartMonth`
+- `backend/src/main/resources/db/migration/V32__goal_history_start.sql` -- adds the nullable `history_start_month` column
+- `backend/src/main/java/com/picsou/model/GoalMonthOverride.java` -- Per-month objective override (goal_id, yearMonth, amount)
+- `backend/src/main/java/com/picsou/model/GoalManualContribution.java` -- Per-month actual override (goal_id, yearMonth, amount)
+- `backend/src/main/java/com/picsou/repository/GoalRepository.java` -- `findAllWithAccounts()` for eager fetching
+- `backend/src/main/java/com/picsou/repository/GoalMonthOverrideRepository.java` -- Override lookup by goal + month
+- `backend/src/main/java/com/picsou/repository/GoalManualContributionRepository.java` -- Contribution lookup by goal + month
+- `frontend/src/pages/goals/GoalsPage.tsx` -- Goal list with cards, CRUD dialog, status badges, account chips
+- `frontend/src/pages/goals/GoalCalendarPage.tsx` -- Monthly calendar view with donut rings, overrides, manual contributions
 
 ### Flow
 
@@ -116,6 +122,8 @@ GoalService.setMonthOverride(goalId, yearMonth, amount)
 
 ## Gotchas / Pitfalls
 
+- **A `GoalMonthOverride` changes the month's *objective*, never the amount saved.** `getMonthlyEntries` used to put the override into `effective` (the amount saved) while leaving `objective` at the computed value, so a month whose target was lowered to 200 showed "200 saved of 500" whatever the real contribution. `effective` is now `manualActual ?? actual` and `objective` is `override ?? monthlyNeeded`, the semantics `isOnTrackFromPastMonths` always had.
+- **`avgMonthlyContribution` is a sum over the linked accounts**, each averaged over its own months. It is compared with the goal-level `monthlyNeeded` (`surplus`), so a per-account mean (three accounts saving 100 each reported 100) understated progress by the number of accounts.
 - **Accounts can belong to multiple goals**: If an account is linked to two goals, its full balance counts toward both goals' `currentTotal`. There is no "partial allocation."
 - **Monthly actual is computed from snapshots, not transactions**: The actual savings for a month is the delta between end-of-month snapshot balances. If snapshots are missing (e.g. new account, no sync), that month will have `null` actual.
 - **Override does not recalculate monthlyNeeded**: Setting a month override changes the display value for that month but does not affect the computed `monthlyNeeded`. The auto-computed objective is always based on `(target - current) / monthsLeft`.

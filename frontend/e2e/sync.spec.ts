@@ -9,9 +9,39 @@ test.describe('Sync page tabs', () => {
     await page.waitForURL('**/sync')
   })
 
-  test('should show 5 tabs', async ({ page }) => {
-    const tabs = page.locator('[role="tablist"] [role="tab"]')
-    await expect(tabs).toHaveCount(5)
+  test('should expose every supported provider tab', async ({ page }) => {
+    const providerNames = [
+      'Banques',
+      'Exchanges',
+      'Wallets',
+      'Trade Republic',
+      'Revolut',
+      'BoursoBank',
+      'Bourse Direct',
+      'DEGIRO',
+      'Interactive Brokers',
+      'Amundi',
+      'Fortuneo',
+      'American Express',
+      'CORUM',
+      'Sofidy',
+      'Actual Budget',
+      'Finary',
+      'Comptes',
+    ]
+
+    for (const name of providerNames) {
+      await expect(page.getByRole('tab', { name, exact: true })).toBeVisible()
+    }
+    await expect(page.getByRole('tab')).toHaveCount(providerNames.length)
+  })
+
+  test('should show the disconnected Fortuneo panel without a contract error', async ({ page }) => {
+    await page.getByRole('tab', { name: 'Fortuneo', exact: true }).click()
+
+    await expect(page.getByText('Aucune session active')).toBeVisible()
+    await expect(page.getByLabel('Identifiant')).toBeVisible()
+    await expect(page.getByText(/Invalid input|syncStatus|ZodError/)).toHaveCount(0)
   })
 
   // Switching tabs no longer rewrites the URL (?tab= is only read as the
@@ -34,6 +64,12 @@ test.describe('Sync page tabs', () => {
     await expect(page.getByText('Se connecter à Finary')).toBeVisible()
     // Upload area should be visible
     await expect(page.getByText('Importer un fichier Finary (.xlsx)').first()).toBeVisible()
+  })
+
+  test('should switch to Actual Budget tab and show the file import', async ({ page }) => {
+    await page.getByRole('tab', { name: 'Actual Budget', exact: true }).click()
+    await expect(page.getByText('Importer un export Actual Budget')).toBeVisible()
+    await expect(page.getByRole('button', { name: "Prévisualiser l'import" })).toBeDisabled()
   })
 
   test('should open a tab directly via the ?tab= query param', async ({ page }) => {

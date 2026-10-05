@@ -63,12 +63,15 @@ Banking stays as a fallback for the current account.
 - `services/revolut-auth/main.py` — sidecar: `/sync`, `/progress/{memberId}`, Camoufox launch, login
   auto-fill, harvest + synthetic wallet-parent emission (`_with_wallet_parents`), per-member
   serialization + stale profile-lock clearing.
-- `services/revolut-auth/tests/{test_profile_lock.py,test_harvest_shape.py}` — regression tests
-  (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent + same-currency sum);
+- `services/revolut-auth/tests/{test_profile_lock.py,test_harvest_shape.py,test_sidecar_auth.py}` —
+  regression tests (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent +
+  same-currency sum; shared-key 401 challenge, `/health` exemption, startup refusal);
   run `.venv/bin/python tests/test_*.py` (anyio, no pytest).
 - `services/revolut-auth/Dockerfile` — Camoufox image (Firefox deps + Xvfb + `camoufox fetch`).
-- `backend/.../adapter/RevolutAdapter.java` — WebClient → sidecar `/sync` (480 s timeout) + a best-effort
-  `/progress` poll side-channel relayed into `SyncProgressService`; maps `401`/`408`/`409`/`503`.
+- `backend/.../adapter/RevolutAdapter.java` — `SidecarWebClientFactory` client → sidecar `/sync` (480 s
+  timeout) + a best-effort `/progress` poll side-channel relayed into `SyncProgressService`; maps
+  `401`/`408`/`409`/`503`. A 401 carrying the `Picsou-Sidecar-Key` challenge is a key mismatch
+  (`SIDECAR_UNAUTHORIZED`), never `SESSION_EXPIRED`.
 - `backend/.../service/sync/SyncProgressService.java` — per-member+provider live progress (single-flight
   guard, phase/countdown/count, + Revolut's harvested-but-unpersisted discovery held in memory between
   discover and confirm). `dto/{SyncProgress,DiscoveredRevolutAccount}.java`, `service/sync/{SyncProvider,
@@ -116,6 +119,9 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 
 ## Gotchas / Pitfalls
 
+- **The sidecar requires `APP_SIDECAR_API_KEY`.** It refuses to start without it and answers every
+  route except `/health`, `/progress` included, with a 401 `Picsou-Sidecar-Key` challenge unless the
+  backend presents it. See [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
 - **Don't hammer logins.** Many rapid logins get the account flagged (captchas, "Mauvais code" on web
   while the mobile app still works, short-lived sessions). Sessions are a rare, deliberate action.
 - **Session longevity is unknown.** With active keep-alive the session still died in ~6 min — but that

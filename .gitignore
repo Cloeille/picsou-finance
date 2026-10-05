@@ -27,6 +27,11 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 
+# Python services
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
 # IDE
 .idea/
 *.iml
@@ -85,3 +90,4 @@ ds-bundle/
 .design-sync/.cache/
 .design-sync/learnings/
 .design-sync/node_modules
+.claude/

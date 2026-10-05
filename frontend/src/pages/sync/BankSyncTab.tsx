@@ -1,36 +1,35 @@
-import { useState, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/BankCountrySelect'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
 import {
   Search,
   RefreshCw,
-  Link2,
   Trash2,
   Landmark,
   Loader2,
   CheckCircle,
   AlertTriangle,
+  ExternalLink,
 } from 'lucide-react'
-import type { Institution } from '@/types/api'
-import { extractErrorMessage } from '@/lib/errors'
+import { extractErrorMessage, formatApiError } from '@/lib/errors'
+import {
+  useBankSyncStatus,
+  useCompleteBankSync,
+  useDeleteBankConnection,
+  useInitiateBankSync,
+  useReconnectBankSync,
+  useRetryBankSync,
+  useSearchInstitutions,
+} from '@/features/sync/hooks'
 
 type CallbackStatus = 'completing' | 'done' | 'error'
-
-interface BankConnection {
-  id: number
-  institutionId: string
-  institutionName: string
-  status: string
-  lastSyncedAt: string | null
-}
 
 function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (status) {
@@ -60,101 +59,107 @@ function cleanBankCallbackUrl() {
 
 export function BankSyncTab() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
 
   const [searchQuery, setSearchQuery] = useState('')
+  const [country, setCountry] = useState(DEFAULT_BANK_COUNTRY)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [callbackStatus, setCallbackStatus] = useState<CallbackStatus | null>(null)
   const [callbackError, setCallbackError] = useState<string | null>(null)
   const [initiateError, setInitiateError] = useState<string | null>(null)
+  const [retryError, setRetryError] = useState<string | null>(null)
+  const [retryingIds, setRetryingIds] = useState<Set<number>>(() => new Set())
   const handledCode = useRef<string | null>(null)
 
-  const { mutate: completeSync } = useMutation({
-    mutationFn: (code: string) => api.get('/sync/complete', { params: { code } }).then(r => r.data),
-    onSuccess: () => {
-      setCallbackStatus('done')
-      cleanBankCallbackUrl()
-      queryClient.invalidateQueries({ queryKey: ['sync', 'connections'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
-    onError: (err: unknown) => {
-      setCallbackStatus('error')
-      setCallbackError(extractErrorMessage(err))
-    },
-  })
+  const { mutate: completeSync } = useCompleteBankSync()
+
+  const completeCallback = useCallback((code: string, state: string | null) => {
+    completeSync({ code, state }, {
+      onSuccess: () => {
+        setCallbackStatus('done')
+        cleanBankCallbackUrl()
+      },
+      onError: (err: unknown) => {
+        setCallbackStatus('error')
+        setCallbackError(extractErrorMessage(err))
+      },
+    })
+  }, [completeSync])
 
   useEffect(() => {
     const code = searchParams.get('code')
     if (code && code !== handledCode.current) {
       handledCode.current = code
       setCallbackStatus('completing')
-      completeSync(code)
+      completeCallback(code, searchParams.get('state'))
     }
-  }, [searchParams, completeSync])
+  }, [searchParams, completeCallback])
 
   const searchEnabled = searchQuery.trim().length >= 2
 
-  const { data: institutions, isLoading: searchLoading } = useQuery<Institution[]>({
-    queryKey: ['sync', 'institutions', searchQuery],
-    queryFn: () =>
-      api
-        .get<Institution[]>('/sync/institutions', { params: { query: searchQuery.trim() } })
-        .then(r => r.data),
-    enabled: searchEnabled,
-  })
+  const {
+    data: institutions,
+    isError: searchFailed,
+    isLoading: searchLoading,
+    error: searchError,
+  } = useSearchInstitutions(searchQuery.trim(), country)
+  const { data: connections, isLoading: connectionsLoading } = useBankSyncStatus()
+  const initiateMutation = useInitiateBankSync()
+  const retryMutation = useRetryBankSync()
 
-  const { data: connections, isLoading: connectionsLoading } = useQuery<BankConnection[]>({
-    queryKey: ['sync', 'connections'],
-    queryFn: () => api.get<BankConnection[]>('/sync/status').then(r => r.data),
-    refetchInterval: 30_000,
-  })
+  function handleInitiate(institutionId: string, institutionName: string) {
+    initiateMutation.mutate({ institutionId, institutionName }, {
+      onSuccess: (data) => {
+        setInitiateError(null)
+        window.location.href = data.authLink
+      },
+      onError: (err: unknown) => {
+        setInitiateError(extractErrorMessage(err, t('sync.banks.initiateError')))
+      },
+    })
+  }
 
-  const initiateMutation = useMutation({
-    mutationFn: (params: { institutionId: string; institutionName: string }) =>
-      api.post<{ authLink: string }>('/sync/initiate', params).then(r => r.data),
-    onSuccess: (data) => {
-      setInitiateError(null)
-      window.location.href = data.authLink
-    },
-    onError: (err: unknown) => {
-      setInitiateError(extractErrorMessage(err, t('sync.banks.initiateError')))
-    },
-  })
+  async function handleRetry(id: number) {
+    setRetryingIds((previous) => new Set(previous).add(id))
+    try {
+      await retryMutation.mutateAsync(id, {
+        onSuccess: () => setRetryError(null),
+        onError: (err: unknown) => {
+          setRetryError(formatApiError(err, t, 'sync.banks.callbackError'))
+        },
+      })
+    } catch {
+      // The mutation's onError handler renders the translated failure banner.
+    } finally {
+      setRetryingIds((previous) => {
+        const next = new Set(previous)
+        next.delete(id)
+        return next
+      })
+    }
+  }
 
-  const retryMutation = useMutation({
-    mutationFn: (id: number) =>
-      api.post(`/sync/${id}/retry`).then(r => r.data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sync', 'connections'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
-  })
+  // Re-initiates the OAuth flow for a dead requisition (failed code exchange,
+  // expired PSD2 consent) — a plain retry can never fix those.
+  const reconnectMutation = useReconnectBankSync()
 
-  const reconnectMutation = useMutation({
-    mutationFn: (id: number) =>
-      api.post<{ authLink: string }>(`/sync/${id}/reconnect`).then(r => r.data),
-    onSuccess: ({ authLink }) => {
-      window.location.href = authLink
-    },
-  })
+  function handleReconnect(id: number) {
+    reconnectMutation.mutate(id, {
+      onSuccess: (data) => {
+        setRetryError(null)
+        if (data.authLink) window.location.href = data.authLink
+      },
+      onError: (err: unknown) => {
+        setRetryError(formatApiError(err, t, 'sync.banks.initiateError'))
+      },
+    })
+  }
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) =>
-      api.delete(`/sync/${id}`).then(r => r.data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sync', 'connections'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      setDeleteId(null)
-    },
-  })
+  const deleteMutation = useDeleteBankConnection()
 
   function handleDelete() {
     if (deleteId !== null) {
-      deleteMutation.mutate(deleteId)
+      deleteMutation.mutate(deleteId, { onSuccess: () => setDeleteId(null) })
     }
   }
 
@@ -201,25 +206,47 @@ export function BankSyncTab() {
         </Card>
       )}
 
+      {/* Retry error */}
+      {retryError && (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="flex items-center gap-3 py-3">
+            <AlertTriangle className="size-4 shrink-0 text-destructive" />
+            <span className="flex-1 text-sm font-medium text-destructive">{retryError}</span>
+            <Button variant="ghost" size="sm" onClick={() => setRetryError(null)}>
+              {t('common.close')}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Search section */}
       <div className="space-y-3">
         <label className="text-sm font-medium">{t('sync.banks.search')}</label>
-        <div className="relative">
-          <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
-          />
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t('sync.banks.searchPlaceholder')}
-            className="pl-10"
-          />
+        <div className="flex items-start gap-2">
+          <div className="relative flex-1">
+            <Search
+              className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
+            />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t('sync.banks.searchPlaceholder')}
+              className="pl-10"
+            />
+          </div>
+          <BankCountrySelect value={country} onChange={setCountry} />
         </div>
 
         {/* Search results */}
         {searchLoading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
 
-        {searchEnabled && institutions && institutions.length > 0 && (
+        {searchEnabled && searchFailed && !searchLoading && (
+          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <span className="flex-1">{formatApiError(searchError, t, 'sync.banks.searchError')}</span>
+          </div>
+        )}
+
+        {searchEnabled && !searchFailed && institutions && institutions.length > 0 && (
           <div className="space-y-2">
             {institutions.map(inst => (
               <Card key={inst.id} size="sm">
@@ -227,13 +254,18 @@ export function BankSyncTab() {
                   <div className="flex min-w-0 items-center gap-3">
                     <Landmark className="size-5 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 text-sm font-medium leading-5">{inst.name}</span>
+                    {inst.psuType === 'business' && (
+                      <Badge variant="outline" title={t('sync.banks.proBadgeTitle')}>
+                        {t('sync.banks.proBadge')}
+                      </Badge>
+                    )}
                   </div>
                   <span className="justify-self-center text-xs text-muted-foreground">{inst.country}</span>
                   <Button
                     size="sm"
                     className="justify-self-end"
                     onClick={() =>
-                      initiateMutation.mutate({ institutionId: inst.id, institutionName: inst.name })
+                      handleInitiate(inst.id, inst.name)
                     }
                     disabled={initiateMutation.isPending}
                   >
@@ -245,7 +277,7 @@ export function BankSyncTab() {
           </div>
         )}
 
-        {searchEnabled && institutions && institutions.length === 0 && !searchLoading && (
+        {searchEnabled && !searchFailed && institutions && institutions.length === 0 && !searchLoading && (
           <p className="text-sm text-muted-foreground">{t('sync.banks.noConnections')}</p>
         )}
       </div>
@@ -268,8 +300,12 @@ export function BankSyncTab() {
             <p className="text-xs text-muted-foreground">
               {t('sync.banks.psd2ScopeNote')}
             </p>
-            {connections.map(conn => (
-              <Card key={conn.id} size="sm">
+            {connections.map(conn => {
+              const isRetrying = retryingIds.has(conn.id)
+              const isReconnecting =
+                reconnectMutation.isPending && reconnectMutation.variables === conn.id
+
+              return <Card key={conn.id} size="sm">
                 <CardContent className="flex items-center justify-between py-2">
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-medium">{conn.institutionName}</span>
@@ -286,24 +322,24 @@ export function BankSyncTab() {
                         <Button
                           size="icon-sm"
                           variant="ghost"
-                          onClick={() => reconnectMutation.mutate(conn.id)}
-                          disabled={reconnectMutation.isPending}
-                          title="Re-authorize bank connection"
+                          title={t('sync.banks.retry')}
+                          onClick={() => void handleRetry(conn.id)}
+                          disabled={isRetrying || isReconnecting}
                         >
-                          {reconnectMutation.isPending ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : (
-                            <Link2 className="size-4" />
-                          )}
+                          {isRetrying
+                            ? <Loader2 className="size-4 animate-spin" />
+                            : <RefreshCw className="size-4" />}
                         </Button>
                         <Button
                           size="icon-sm"
                           variant="ghost"
-                          onClick={() => retryMutation.mutate(conn.id)}
-                          disabled={retryMutation.isPending}
-                          title="Retry polling existing session"
+                          title={t('sync.banks.reconnect')}
+                          onClick={() => handleReconnect(conn.id)}
+                          disabled={isRetrying || isReconnecting}
                         >
-                          <RefreshCw className="size-4" />
+                          {isReconnecting
+                            ? <Loader2 className="size-4 animate-spin" />
+                            : <ExternalLink className="size-4" />}
                         </Button>
                       </>
                     )}
@@ -317,7 +353,7 @@ export function BankSyncTab() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            })}
           </div>
         )}
       </div>

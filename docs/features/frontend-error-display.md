@@ -7,7 +7,7 @@
 Sync flows used to surface raw payloads to the user — e.g. *"Enable Banking auth
 failed: {"code":400,"message":"Redirect URI not allowed",...}"* — because every
 caller did its own ad-hoc message extraction (`err.message`, `err.response.data`,
-or a hand-written regex). Helpers in `lib/errors.ts` now normalise Axios errors
+or a hand-written regex). Helpers in `frontend/src/lib/errors.ts` now normalise Axios errors
 into a friendly, **leak-free, translated** string.
 
 Two later additions hardened this:

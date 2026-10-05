@@ -1,7 +1,20 @@
 app:
+  auth:
+    login-rate-limit:
+      enabled: false   # Allow repeated login attempts during local development only
   secure-cookies: false   # HTTP in dev — no Secure flag needed
   tr-auth:
     url: ${TR_AUTH_URL:http://127.0.0.1:8001}
+  bourse-direct-auth:
+    url: ${BOURSE_DIRECT_AUTH_URL:http://127.0.0.1:8002}
+  bourso-auth:
+    url: ${BOURSO_AUTH_URL:http://127.0.0.1:8004}
+  fortuneo-auth:
+    url: ${FORTUNEO_AUTH_URL:http://127.0.0.1:8005}
+  corum-auth:
+    url: ${CORUM_AUTH_URL:http://127.0.0.1:8006}
+  sofidy-auth:
+    url: ${SOFIDY_AUTH_URL:http://127.0.0.1:8007}
   enablebanking:
     private-key-path: ${ENABLEBANKING_PRIVATE_KEY_PATH:.local/keys/enablebanking-private.pem}
 

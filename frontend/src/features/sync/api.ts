@@ -1,9 +1,11 @@
 import { api } from '@/lib/api-client'
+import { z } from 'zod'
 import type {
   Account,
   ExchangeType,
   ChainType,
   ExchangeStatus,
+  Institution,
   WalletStatus,
   FinaryPreviewResponse,
   FinaryConnectionStatus,
@@ -15,26 +17,42 @@ import type {
   BoursoAuthInitResponse,
   RevolutSessionStatus,
   SyncProgress,
+  BourseDirectSessionStatus,
+  BourseDirectAuthInitResponse,
+  DegiroSessionStatus,
+  DegiroAuthInitResponse,
+  AmundiSessionStatus,
+  AmundiAuthInitResponse,
+  AmexSessionStatus,
+  AmexAuthInitResponse,
+  AmexOtpMethod,
+  FortuneoSessionStatus,
+  FortuneoAuthInitResponse,
+  CorumSessionStatus,
+  SofidySessionStatus,
+  SofidyAuthInitResponse,
+  IbkrConnectionStatus,
 } from '@/types/api'
 
 // --- Bank Sync (Enable Banking) ---
 
 export const bankSyncApi = {
-  searchInstitutions: (query: string) =>
+  searchInstitutions: (query: string, country: string) =>
     api
-      .get<{ id: string; name: string; bic: string | null; logoUrl?: string | null; country: string }[]>(
-        '/sync/institutions',
-        { params: { query }, skipGlobalErrorRedirect: true },
-      )
+      .get<Institution[]>('/sync/institutions', { params: { query, country }, skipGlobalErrorRedirect: true })
       .then(r => r.data),
+
+  listCountries: () => api.get<string[]>('/sync/countries', { skipGlobalErrorRedirect: true }).then(r => r.data),
 
   initiate: (institutionId: string, institutionName: string) =>
     api
       .post<{ requisitionId: string; authLink: string }>('/sync/initiate', { institutionId, institutionName })
       .then(r => r.data),
 
-  complete: (code: string) =>
-    api.post<Account[]>('/sync/complete', { code }).then(r => r.data),
+  complete: (code: string, state?: string | null) =>
+    api
+      .get<Account[]>('/sync/complete', { params: { code, state: state ?? undefined } })
+      .then(r => r.data),
 
   getStatus: () =>
     api
@@ -55,7 +73,7 @@ export const bankSyncApi = {
     api.post<Account[]>(`/sync/${id}/retry`).then(r => r.data),
 
   reconnect: (id: number) =>
-    api.post<{ authLink: string }>(`/sync/${id}/reconnect`).then(r => r.data),
+    api.post<{ requisitionId: string; authLink: string }>(`/sync/${id}/reconnect`).then(r => r.data),
 
   deleteConnection: (id: number) =>
     api.delete(`/sync/${id}`),
@@ -94,13 +112,15 @@ export const trApi = {
   },
 
   clearSession: () =>
-    api.post('/tr/logout'),
+    api.delete('/tr/session'),
 }
 
 // --- Crypto Exchanges ---
 
 export const cryptoExchangeApi = {
-  add: (type: ExchangeType, apiKey: string, apiSecret: string) =>
+  // apiSecret is optional: single-key exchanges (Meria) must not send one, and axios drops an
+  // undefined field from the JSON body entirely.
+  add: (type: ExchangeType, apiKey: string, apiSecret?: string) =>
     api
       .post<Account>('/crypto/exchange', { type, apiKey, apiSecret })
       .then(r => r.data),
@@ -145,28 +165,26 @@ export const boursoApi = {
       .post<BoursoAuthInitResponse>('/bourso/auth/initiate', { customerId, password })
       .then(r => r.data),
 
-  completeAuth: (processId: string, code: string) =>
+  // No code: the user approves the push in the BoursoBank app, and the request
+  // stays open until they do.
+  completeAuth: (processId: string) =>
     api
-      .post<BoursoSessionStatus>('/bourso/auth/complete', { processId, code })
+      .post<BoursoSessionStatus>('/bourso/auth/complete', { processId })
       .then(r => r.data),
 
   sync: () =>
-    api.post<Account[]>('/bourso/sync').then(r => r.data),
+    api.post<BoursoSessionStatus>('/bourso/sync').then(r => r.data),
 
   getStatus: () =>
-    api.get<BoursoSessionStatus>('/bourso/status').then(r => r.data),
+    api
+      .get<BoursoSessionStatus>('/bourso/status', { skipGlobalErrorRedirect: true })
+      .then(r => r.data),
 
   clearSession: () =>
     api.delete('/bourso/session'),
 }
 
 // --- Revolut ---
-// On-demand phone+passcode sync: discovery (login + harvest, up to ~5 minutes waiting
-// on the mobile approval) now runs as a 202 background job reported via getSyncProgress
-// (no more long per-request timeout — that's what used to 504 behind nginx's 60s proxy
-// timeout). phoneNumber/passcode may be omitted once credentials were previously
-// remembered. `remember` is no longer sent at discovery time: it only takes effect once
-// the user confirms which discovered accounts to import.
 
 export const revolutApi = {
   getSessionStatus: () =>
@@ -183,6 +201,264 @@ export const revolutApi = {
 
   clearSession: () =>
     api.delete('/revolut/session'),
+}
+
+// --- DEGIRO ---
+
+export const degiroApi = {
+  initiateAuth: (username: string, password: string) =>
+    api
+      .post<DegiroAuthInitResponse>('/degiro/auth/initiate', { username, password })
+      .then(r => r.data),
+
+  completeAuth: (processId: string, code: string) =>
+    api
+      .post<DegiroSessionStatus>('/degiro/auth/complete', { processId, code })
+      .then(r => r.data),
+
+  sync: () =>
+    api.post<Account>('/degiro/sync').then(r => r.data),
+
+  getStatus: () =>
+    api.get<DegiroSessionStatus>('/degiro/status').then(r => r.data),
+
+  clearSession: () =>
+    api.delete('/degiro/session'),
+}
+
+// --- Bourse Direct ---
+
+export const bourseDirectApi = {
+  initiateAuth: (login: string, password: string) =>
+    api
+      .post<BourseDirectAuthInitResponse>('/bourse-direct/auth/initiate', { login, password })
+      .then(r => r.data),
+
+  completeAuth: (processId: string, code?: string) =>
+    api
+      .post<BourseDirectSessionStatus>('/bourse-direct/auth/complete', { processId, code })
+      .then(r => r.data),
+
+  sync: () =>
+    api.post<BourseDirectSessionStatus>('/bourse-direct/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<BourseDirectSessionStatus>('/bourse-direct/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete('/bourse-direct/session'),
+}
+
+// --- Amundi Épargne Salariale ---
+
+export const amundiApi = {
+  initiateAuth: (login: string, password: string) =>
+    api
+      .post<AmundiAuthInitResponse>('/amundi/auth/initiate', { login, password })
+      .then(r => r.data),
+
+  // `code` is omitted for an app push: the user approves on their phone.
+  completeAuth: (processId: string, code?: string) =>
+    api
+      .post<AmundiSessionStatus>('/amundi/auth/complete', { processId, code })
+      .then(r => r.data),
+
+  sync: () => api.post<AmundiSessionStatus>('/amundi/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<AmundiSessionStatus>('/amundi/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete('/amundi/session'),
+}
+
+// --- American Express ---
+
+export const amexApi = {
+  initiateAuth: (login: string, password: string, method: AmexOtpMethod) =>
+    api
+      .post<AmexAuthInitResponse>('/amex/auth/initiate', { login, password, method })
+      .then(r => r.data),
+
+  completeAuth: (processId: string, code: string) =>
+    api
+      .post<AmexSessionStatus>('/amex/auth/complete', { processId, otp: code })
+      .then(r => r.data),
+
+  sync: () => api.post<AmexSessionStatus>('/amex/sync').then(r => r.data),
+
+  recoverHistory: () => api.post<AmexSessionStatus>('/amex/history-recovery').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<AmexSessionStatus>('/amex/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete('/amex/session'),
+}
+
+// --- Fortuneo ---
+
+const fortuneoErrorCodeSchema = z.enum([
+  'INVALID_CREDENTIALS',
+  'INVALID_OTP',
+  'AUTH_ATTEMPT_EXPIRED',
+  'SESSION_EXPIRED',
+  'INVESTOR_PROFILE_REQUIRED',
+  'PORTFOLIO_INCOMPLETE',
+  'UPSTREAM_FORMAT_CHANGED',
+  'UPSTREAM_UNAVAILABLE',
+  'INVALID_DATA',
+  'INTERNAL_ERROR',
+])
+
+const nullableFortuneoInstantSchema = z
+  .string()
+  .datetime({ offset: true })
+  .nullish()
+  .transform(value => value ?? null)
+
+const fortuneoStatusBaseSchema = z.object({
+  isActive: z.boolean(),
+  expiresAt: nullableFortuneoInstantSchema,
+  lastSyncStartedAt: nullableFortuneoInstantSchema,
+  lastSyncCompletedAt: nullableFortuneoInstantSchema,
+})
+
+const fortuneoSessionStatusSchema = z.discriminatedUnion('syncStatus', [
+  fortuneoStatusBaseSchema.extend({
+    syncStatus: z.literal('FAILED'),
+    lastSyncError: fortuneoErrorCodeSchema,
+  }),
+  fortuneoStatusBaseSchema.extend({
+    syncStatus: z.enum(['IDLE', 'QUEUED', 'RUNNING', 'SUCCESS']),
+    lastSyncError: z.null().optional().transform(() => null),
+  }),
+])
+
+const fortuneoAuthInitResponseSchema = z.discriminatedUnion('mfaRequired', [
+  z.object({
+    processId: z.string().min(1),
+    mfaRequired: z.literal(true),
+    mfaType: z.string().min(1),
+  }),
+  z.object({
+    // Spring serializes with `default-property-inclusion: non_null`, so the
+    // backend omits these keys entirely rather than sending them as null.
+    // Requiring a literal null made every no-MFA login surface a validation
+    // error even though the session had been stored and the sync queued.
+    // Same treatment as `lastSyncError` above.
+    processId: z.null().optional().transform(() => null),
+    mfaRequired: z.literal(false),
+    mfaType: z.null().optional().transform(() => null),
+  }),
+])
+
+const parseFortuneoStatus = (data: unknown): FortuneoSessionStatus =>
+  fortuneoSessionStatusSchema.parse(data)
+
+const parseFortuneoAuthInit = (data: unknown): FortuneoAuthInitResponse =>
+  fortuneoAuthInitResponseSchema.parse(data)
+
+export const fortuneoApi = {
+  initiateAuth: (login: string, password: string) =>
+    api
+      .post<unknown>('/fortuneo/auth/initiate', { login, password })
+      .then(r => parseFortuneoAuthInit(r.data)),
+
+  completeAuth: (processId: string, code: string) =>
+    api
+      .post<unknown>('/fortuneo/auth/complete', { processId, code })
+      .then(r => parseFortuneoStatus(r.data)),
+
+  sync: () =>
+    api.post<unknown>('/fortuneo/sync').then(r => parseFortuneoStatus(r.data)),
+
+  getStatus: () =>
+    api
+      .get<unknown>('/fortuneo/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => parseFortuneoStatus(r.data)),
+
+  clearSession: () => api.delete('/fortuneo/session'),
+}
+
+// --- CORUM client space ---
+
+/**
+ * CORUM asks for no second factor, so `authenticate` is the whole exchange and
+ * answers with the session status directly. The panel reads it as "no MFA
+ * required" -- see `SidecarSessionPanel`'s `TInit` contract.
+ */
+export const corumApi = {
+  authenticate: (login: string, password: string) =>
+    api
+      .post<CorumSessionStatus>('/corum/auth', { login, password })
+      .then(r => r.data),
+
+  sync: () => api.post<CorumSessionStatus>('/corum/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<CorumSessionStatus>('/corum/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete('/corum/session'),
+
+}
+
+// --- Sofidy client space ---
+
+/**
+ * Sofidy always asks for a verification code by e-mail after the password, so
+ * the login is two calls: this one starts it, `completeAuth` opens the session.
+ */
+export const sofidyApi = {
+  initiateAuth: (associateCode: string, password: string) =>
+    api
+      .post<SofidyAuthInitResponse>('/sofidy/auth/initiate', {
+        associateCode,
+        password,
+      })
+      .then(r => r.data),
+
+  completeAuth: (processId: string, code: string) =>
+    api
+      .post<SofidySessionStatus>('/sofidy/auth/complete', { processId, code })
+      .then(r => r.data),
+
+  sync: () => api.post<SofidySessionStatus>('/sofidy/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<SofidySessionStatus>('/sofidy/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete('/sofidy/session'),
+}
+
+export const ibkrApi = {
+  getStatus: () => api.get<IbkrConnectionStatus>('/ibkr/status').then(r => r.data),
+
+  connect: (token: string, queryId: string) =>
+    api.post('/ibkr/connect', { token, queryId }).then(r => r.data),
+
+  sync: () => api.post<Account[]>('/ibkr/sync').then(r => r.data),
+
+  disconnect: () => api.delete('/ibkr/connection').then(r => r.data),
 }
 
 // --- Finary ---

@@ -1,6 +1,6 @@
 # Feature: Demo mode
 
-> Last updated: 2026-04-08
+> Last updated: 2026-08-13
 
 ## Context
 
@@ -24,7 +24,7 @@ VITE_DEMO_MODE=true
 
 ### Auth guard
 
-`RequireAuth` (in `features/auth/guards.tsx`) reads `demoMode` from the store. In demo mode, it passes through without checking `isAuthenticated`. `PublicOnly` (login) redirects to `/` if `demoMode` is active.
+`RequireAuth` (in `frontend/src/features/auth/guards.tsx`) reads `demoMode` from the store. In demo mode, it passes through without checking `isAuthenticated`. `PublicOnly` (login) redirects to `/` if `demoMode` is active.
 
 ### State management
 
@@ -35,7 +35,7 @@ VITE_DEMO_MODE=true
 - `frontend/.env` — `VITE_DEMO_MODE=true`
 - `frontend/src/lib/api-client.ts` — mock adapter injection
 - `frontend/src/demo/index.ts` — `createDemoAdapter()`, route handler table
-- `frontend/src/demo/data/` — mock data (accounts, goals, dashboard, transactions, holdings, sync-status)
+- `frontend/src/demo/data/` — mock data (accounts, goals, dashboard, transactions, holdings, sync-status, analysis)
 - `frontend/src/stores/app-store.ts` — `demoMode` state, not persisted
 - `frontend/src/features/auth/guards.tsx` — auth bypass in demo mode
 
@@ -49,7 +49,7 @@ VITE_DEMO_MODE=true
 ## Gotchas / Pitfalls
 
 - **`/login` redirects to `/` in demo mode** — `PublicOnly` redirects immediately. To see the login page, disable `VITE_DEMO_MODE`.
-- **Mock handlers are keyed by exact route** — the key is `METHOD /path` with no query string or trailing slash. Any new API route needs a handler added in `demo/index.ts`, otherwise the call returns `{}` silently — and components that `.map()`/`.filter()` the payload crash the page. This bit the dashboard (`GET /history`), `GET /history/pnl`, intraday, access keys, MFA status, sessions, and family members until handlers were added (2026-07-07). Query params (e.g. `?split=true` on `/history`) are read from `config.params` inside the handler.
+- **Mock handlers are keyed by exact route** — the key is `METHOD /path` with no query string or trailing slash. Any new API route needs a handler added in `frontend/src/demo/index.ts`, otherwise the call returns `{}` silently — and components that `.map()`/`.filter()` the payload crash the page. This bit the dashboard (`GET /history`), `GET /history/pnl`, intraday, access keys, MFA status, sessions, and family members until handlers were added (2026-07-07). Query params (e.g. `?split=true` on `/history`) are read from `config.params` inside the handler.
 - **Artificial delay of 200–600 ms** — intentional, to simulate network latency. Do not remove it for visual testing.
 - **`demoMode` is not persisted** — intentional. Do not add it to `partialize` without understanding the implications (see above).
 

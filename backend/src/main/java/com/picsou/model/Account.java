@@ -6,6 +6,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "account")
@@ -45,8 +46,21 @@ public class Account extends AuditableEntity {
     @Builder.Default
     private BigDecimal currentBalance = BigDecimal.ZERO;
 
+    /** Cash held inside an investment envelope (PEA/CTO); null for other providers. */
+    @Column(name = "cash_balance", precision = 20, scale = 8)
+    private BigDecimal cashBalance;
+
     @Column(name = "last_synced_at")
     private Instant lastSyncedAt;
+
+    @Column(name = "payment_due_amount", precision = 20, scale = 8)
+    private BigDecimal paymentDueAmount;
+
+    @Column(name = "payment_due_date")
+    private LocalDate paymentDueDate;
+
+    @Column(name = "reward_points")
+    private Long rewardPoints;
 
     @Column(name = "external_account_id", length = 100)
     private String externalAccountId;
@@ -74,6 +88,36 @@ public class Account extends AuditableEntity {
     /** Bank logo URL, captured from Enable Banking institution search. Null falls back to {@link #color}. */
     @Column(name = "logo_url", columnDefinition = "TEXT")
     private String logoUrl;
+
+    /**
+     * Which bundled frontend asset this account shows, e.g. {@code "ledger"}. Set by
+     * {@link com.picsou.service.WalletSyncService} for on-chain wallets (whose {@code provider}
+     * is a ticker, so nothing stable to key a logo on) and overridable by the user. The key is
+     * opaque here -- the frontend owns the key -> asset mapping and falls back to
+     * {@link #logoUrl}, then {@link #color}, when it is null or unknown.
+     */
+    @Column(name = "logo_key", length = 32)
+    private String logoKey;
+
+    /**
+     * The Enable Banking connection this account came from, or null for every other origin
+     * (manual, on-chain wallet, broker sidecar...) and for rows the V76 backfill could not
+     * attribute with certainty. Mapped as a plain id rather than a {@code @ManyToOne}: nothing
+     * needs to navigate to the requisition from here, and the association would drag a lazy
+     * proxy through every account read for a column only the deletion path consults.
+     */
+    @Column(name = "requisition_id")
+    private Long requisitionId;
+
+    /**
+     * When the wrapper was opened, as the member states it — not when Picsou learned of it.
+     *
+     * <p>Load-bearing for anything fiscal: a PEA's exemption turns on its fifth anniversary, an
+     * assurance-vie's on its eighth. {@code createdAt} cannot stand in — a plan opened in 2014
+     * and typed in last month has ten years between the two.
+     */
+    @Column(name = "opened_at")
+    private LocalDate openedAt;
 
     @Column(name = "deleted_at")
     private Instant deletedAt;

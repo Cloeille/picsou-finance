@@ -1,0 +1,288 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-28T00:00:00Z",
+  "title": "Design System: Picsou",
+  "extensions": {
+    "colorMeta": {
+      "vault-light": {
+        "role": "neutral",
+        "displayName": "Vault Light",
+        "canonical": "oklch(1 0 0)",
+        "tonalRamp": [
+          "oklch(0.985 0 0)",
+          "oklch(0.97 0 0)",
+          "oklch(0.922 0 0)",
+          "oklch(0.87 0 0)",
+          "oklch(0.708 0 0)",
+          "oklch(0.556 0 0)",
+          "oklch(0.45 0 0)",
+          "oklch(0.145 0 0)"
+        ]
+      },
+      "coffre-blue": {
+        "role": "primary",
+        "displayName": "Coffre Blue",
+        "canonical": "oklch(0.488 0.243 264.376)",
+        "tonalRamp": [
+          "oklch(0.97 0.014 254.604)",
+          "oklch(0.85 0.06 264)",
+          "oklch(0.7 0.14 264)",
+          "oklch(0.6 0.2 264)",
+          "oklch(0.488 0.243 264.376)",
+          "oklch(0.424 0.199 265.638)",
+          "oklch(0.35 0.16 265)",
+          "oklch(0.25 0.1 265)"
+        ]
+      },
+      "ledger-ink": {
+        "role": "neutral",
+        "displayName": "Ledger Ink",
+        "canonical": "oklch(0.145 0 0)",
+        "tonalRamp": [
+          "oklch(1 0 0)",
+          "oklch(0.87 0 0)",
+          "oklch(0.708 0 0)",
+          "oklch(0.556 0 0)",
+          "oklch(0.45 0 0)",
+          "oklch(0.32 0 0)",
+          "oklch(0.205 0 0)",
+          "oklch(0.145 0 0)"
+        ]
+      },
+      "quiet-slate": {
+        "role": "neutral",
+        "displayName": "Quiet Slate",
+        "canonical": "oklch(0.45 0 0)",
+        "tonalRamp": [
+          "oklch(0.9 0 0)",
+          "oklch(0.8 0 0)",
+          "oklch(0.7 0 0)",
+          "oklch(0.6 0 0)",
+          "oklch(0.5 0 0)",
+          "oklch(0.45 0 0)",
+          "oklch(0.35 0 0)",
+          "oklch(0.25 0 0)"
+        ]
+      },
+      "alert-red": {
+        "role": "tertiary",
+        "displayName": "Alert Red",
+        "canonical": "oklch(0.577 0.245 27.325)",
+        "tonalRamp": [
+          "oklch(0.95 0.04 27)",
+          "oklch(0.85 0.1 27)",
+          "oklch(0.7 0.18 27)",
+          "oklch(0.6 0.22 27)",
+          "oklch(0.577 0.245 27.325)",
+          "oklch(0.5 0.22 25)",
+          "oklch(0.4 0.18 24)",
+          "oklch(0.3 0.12 23)"
+        ]
+      },
+      "growth-green-1": {
+        "role": "tertiary",
+        "displayName": "Growth Green 1",
+        "canonical": "oklch(0.845 0.143 164.978)",
+        "tonalRamp": [
+          "oklch(0.95 0.05 165)",
+          "oklch(0.9 0.09 165)",
+          "oklch(0.845 0.143 164.978)",
+          "oklch(0.75 0.15 163)",
+          "oklch(0.696 0.17 162.48)",
+          "oklch(0.596 0.145 163.225)",
+          "oklch(0.508 0.118 165.612)",
+          "oklch(0.432 0.095 166.913)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The single most prominent figure on a screen — a net-worth headline or dashboard total. Never more than one per view."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default reading size for tables, descriptions, transaction rows. text-sm/relaxed."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Button text, nav labels, form labels. Medium weight reads as affordance."
+      },
+      "card-title": {
+        "displayName": "Card Title",
+        "purpose": "Small and bold (0.875rem / 700) — the cn-card-title utility. Card headers label, they do not shout."
+      }
+    },
+    "shadows": [
+      {
+        "name": "floating-popover",
+        "value": "0 10px 38px -10px rgba(0,0,0,0.18), 0 10px 20px -15px rgba(0,0,0,0.12)",
+        "purpose": "Tailwind shadow-lg equivalent. Reserved for elements that physically detach: dialogs, sheets, dropdown menus, popovers, tooltips. Never on cards or buttons at rest."
+      }
+    ],
+    "motion": [
+      {
+        "name": "press-scale",
+        "value": "transform: scale(0.96); transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "The 'posé et vivant' press feedback on non-popover buttons. Active state only — springs back on release."
+      },
+      {
+        "name": "state-color",
+        "value": "transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1), color 150ms, border-color 150ms",
+        "purpose": "Default state-transition for hover/focus color shifts on buttons, badges, nav items."
+      },
+      {
+        "name": "sheet-slide",
+        "value": "transition: transform 200ms cubic-bezier(0.32, 0.72, 0, 1)",
+        "purpose": "Sheet and dialog entrance/exit. Ease-out-expo feel for surfaces that detach and reattach."
+      },
+      {
+        "name": "reduced-motion-fallback",
+        "value": "animation-duration: 0.01ms !important; transition-duration: 0.01ms !important",
+        "purpose": "Global prefers-reduced-motion net in index.css neutralizes all motion. Feature motion must work inside this."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "coffre-blue",
+      "description": "The default action button — Coffre Blue, settled hover, press-scale feedback. Used for the one primary action per region.",
+      "html": "<button class=\"ds-btn-primary\">Sync accounts</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 2.5rem; padding: 0 2rem; gap: 0.5rem; background: var(--primary); color: var(--primary-foreground); font-size: 0.875rem; font-weight: 500; border: 1px solid transparent; border-radius: 0.5rem; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4,0,0.2,1), transform 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-primary:hover { background: color-mix(in oklab, var(--primary) 80%, transparent); } .ds-btn-primary:active { transform: scale(0.96); } .ds-btn-primary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 20%, transparent); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "soft-secondary",
+      "description": "Soft Secondary surface, same shape and motion as Primary. Used for the fallback or secondary action.",
+      "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; height: 2.5rem; padding: 0 2rem; gap: 0.5rem; background: var(--secondary); color: var(--secondary-foreground); font-size: 0.875rem; font-weight: 500; border: 1px solid transparent; border-radius: 0.5rem; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4,0,0.2,1), transform 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-secondary:hover { background: color-mix(in oklab, var(--secondary) 80%, transparent); } .ds-btn-secondary:active { transform: scale(0.96); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 20%, transparent); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "muted-surface",
+      "description": "Transparent at rest, picks up Muted Surface on hover. The lowest-affordance button — for tertiary actions that should not compete.",
+      "html": "<button class=\"ds-btn-ghost\">Filter</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; height: 2.5rem; padding: 0 2rem; gap: 0.5rem; background: transparent; color: var(--foreground); font-size: 0.875rem; font-weight: 500; border: 1px solid transparent; border-radius: 0.5rem; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4,0,0.2,1), color 150ms, transform 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-ghost:hover { background: var(--muted); color: var(--foreground); } .ds-btn-ghost:active { transform: scale(0.96); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 20%, transparent); }"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "alert-red",
+      "description": "Tinted Alert Red (10% opacity), not solid — danger legible without shouting. Darkens on hover.",
+      "html": "<button class=\"ds-btn-destructive\">Delete account</button>",
+      "css": ".ds-btn-destructive { display: inline-flex; align-items: center; justify-content: center; height: 2.5rem; padding: 0 2rem; gap: 0.5rem; background: color-mix(in oklab, var(--destructive) 10%, transparent); color: var(--destructive); font-size: 0.875rem; font-weight: 500; border: 1px solid transparent; border-radius: 0.5rem; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4,0,0.2,1), transform 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-destructive:hover { background: color-mix(in oklab, var(--destructive) 20%, transparent); } .ds-btn-destructive:active { transform: scale(0.96); } .ds-btn-destructive:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 20%, transparent); }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "hairline-border",
+      "description": "Hairline-bordered input, faintly tinted background. Focus transitions border and glow together; invalid rings Alert Red.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Search transactions\" />",
+      "css": ".ds-input { height: 2.5rem; width: 100%; padding: 0.5rem 1rem; background: color-mix(in oklab, var(--input) 20%, transparent); border: 1px solid var(--input); border-radius: 0.5rem; color: var(--foreground); font-size: 0.875rem; font-family: 'Geist Variable', sans-serif; outline: none; transition: border-color 150ms cubic-bezier(0.4,0,0.2,1), box-shadow 150ms; } .ds-input::placeholder { color: color-mix(in oklab, var(--muted-foreground) 80%, transparent); } .ds-input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 20%, transparent); } .ds-input:aria-invalid { border-color: var(--destructive); box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive) 20%, transparent); }"
+    },
+    {
+      "name": "Dashboard Card",
+      "kind": "card",
+      "refersTo": "card-light",
+      "description": "The soft container of the dashboard. Generous radius (rounded-4xl), hairline ring, no shadow at rest. Small bold title per the Small-Bold Rule.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-header\"><span class=\"ds-card-title\">Net worth</span></div><div class=\"ds-card-body\"><span class=\"ds-card-value\">€42,180.50</span></div></div>",
+      "css": ".ds-card { display: flex; flex-direction: column; gap: 1rem; padding: 1rem 1rem 1rem 1rem; background: var(--card); color: var(--card-foreground); border-radius: 1.625rem; box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent); } .ds-card-header { padding: 0 1rem; } .ds-card-title { font-size: 0.875rem; font-weight: 700; font-family: 'Geist Variable', sans-serif; color: var(--card-foreground); } .ds-card-body { padding: 0 1rem; } .ds-card-value { font-size: 1.5rem; font-weight: 700; color: var(--foreground); font-family: 'Geist Variable', sans-serif; }"
+    },
+    {
+      "name": "Badge",
+      "kind": "chip",
+      "refersTo": "coffre-blue",
+      "description": "Rounded-full chip, the smallest typographic element (0.625rem). Same tonal logic as buttons, miniaturized. For status labels and tags.",
+      "html": "<span class=\"ds-badge ds-badge-primary\">Active</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; justify-content: center; height: 1.25rem; padding: 0.125rem 0.5rem; gap: 0.25rem; border: 1px solid transparent; border-radius: 9999px; font-size: 0.625rem; font-weight: 500; font-family: 'Geist Variable', sans-serif; line-height: 1; white-space: nowrap; } .ds-badge-primary { background: var(--primary); color: var(--primary-foreground); } .ds-badge-secondary { background: var(--secondary); color: var(--secondary-foreground); } .ds-badge-destructive { background: color-mix(in oklab, var(--destructive) 10%, transparent); color: var(--destructive); } .ds-badge-outline { background: color-mix(in oklab, var(--input) 20%, transparent); color: var(--foreground); border-color: var(--border); }"
+    },
+    {
+      "name": "Sidebar Nav Item",
+      "kind": "nav",
+      "refersTo": "quiet-slate",
+      "description": "Desktop sidebar navigation item. Quiet Slate at rest, Ledger Ink on hover, Coffre Blue accent when active.",
+      "html": "<a class=\"ds-nav-item ds-nav-item-active\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"9\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"5\"/><rect x=\"14\" y=\"12\" width=\"7\" height=\"9\"/><rect x=\"3\" y=\"16\" width=\"7\" height=\"5\"/></svg><span>Dashboard</span></a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.75rem; border-radius: 0.5rem; color: var(--muted-foreground); font-size: 0.875rem; font-weight: 500; font-family: 'Geist Variable', sans-serif; text-decoration: none; transition: background-color 150ms cubic-bezier(0.4,0,0.2,1), color 150ms; cursor: pointer; } .ds-nav-item svg { flex-shrink: 0; } .ds-nav-item:hover { background: var(--muted); color: var(--foreground); } .ds-nav-item-active { background: color-mix(in oklab, var(--sidebar-primary) 12%, transparent); color: var(--sidebar-primary); font-weight: 600; } .ds-nav-item-active:hover { background: color-mix(in oklab, var(--sidebar-primary) 18%, transparent); color: var(--sidebar-primary); } .ds-nav-item:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Le Coffre Lumineux",
+    "overview": "Picsou is a strongbox that does not need to look austere. The interface carries real financial data — balances, holdings, net worth — and treats it with the calm seriousness of a private ledger, lit from within rather than bolted shut. The light is the point: the user opens the app to see where they stand, and every surface is arranged so the answer arrives in one glance, without flash, without noise.\n\nThe system rejects four traps: generic fintech flash (violet gradients, neon), cold technical dashboards (jargon, forgetting the human), hollow marketing (animated numbers without real data), and traditional banking apps (product catalog over patrimony). What sits between these rejections is the register: credible without being cold, warm without being childish, composed enough that the data breathes.\n\nDensity is earned, never default. A surface earns its whitespace; a figure earns its presence. The palette is restrained — one confident blue carries the brand, neutrals carry everything else, and a green family reserved for growth-positive charts. Components are flat by default: depth is conveyed by tonal layering and a hairline ring, never by drop shadows.",
+    "keyCharacteristics": [
+      "Restrained palette — one confident blue, honest neutrals, reserved green for growth",
+      "Flat surfaces with hairline rings — no shadows at rest",
+      "Single-sans typographic hierarchy — Geist Variable, weight and size only",
+      "Calm motion — feedback where it carries meaning, silence elsewhere",
+      "WCAG AA with AAA on every figure the user came to read"
+    ],
+    "rules": [
+      {
+        "name": "The One Voice Rule",
+        "body": "Coffre Blue is the only saturated color permitted on interactive chrome. It appears on ≤10% of any given screen. Its rarity is what makes it read as confidence rather than decoration.",
+        "section": "colors"
+      },
+      {
+        "name": "The Green Is For Growth Rule",
+        "body": "The Growth Green family never appears on buttons, text, or chrome. It is reserved for charts and positive financial movement. Mixing it into the UI vocabulary dilutes both the brand voice and the semantic.",
+        "section": "colors"
+      },
+      {
+        "name": "The Critical Ink Rule",
+        "body": "Amounts, balances, and alerts — any figure the user came to read — render in Ledger Ink (oklch(0.145 0 0)), never in Quiet Slate. Quiet Slate is for supporting prose only. This is how the system meets AAA on critical content.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Family Rule",
+        "body": "No second typeface. Hierarchy is built from weight and size, never from a contrasting face. A serif or display face would break the instrument register; the calm comes from consistency.",
+        "section": "typography"
+      },
+      {
+        "name": "The Small-Bold Rule",
+        "body": "Card titles are 0.875rem and 700 weight — small and bold. Resist the urge to enlarge them. The grid of confident small labels is what makes the dashboard scannable; oversized titles fragment the rhythm.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-By-Default Rule",
+        "body": "Surfaces are flat at rest. A ring or a tonal step separates them from the canvas. Shadows appear only on elements that float above the page (dialogs, sheets, popovers, tooltips) — never on cards, inputs, or buttons in their resting state.",
+        "section": "elevation"
+      },
+      {
+        "name": "The No-Glow Rule",
+        "body": "No colored glows, no neon drop shadows, no box-shadow used as decoration. A shadow that exists is structural: it tells the user 'this floats.' If it does not tell them that, it does not exist.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep Coffre Blue to ≤10% of any screen. It marks interactive identity and nothing else.",
+      "Do render every amount, balance, and alert in Ledger Ink (oklch(0.145 0 0)). Critical figures meet AAA this way.",
+      "Do use the Growth Green family only in charts and for positive financial movement.",
+      "Do keep cards flat at rest — a hairline ring (ring-1 ring-foreground/10) defines the edge, no shadow.",
+      "Do reserve shadows for elements that physically float (dialogs, sheets, popovers, tooltips), and keep them soft and diffuse.",
+      "Do use a single typeface (Geist Variable) and build hierarchy from weight and size alone.",
+      "Do respect prefers-reduced-motion — it is enforced globally in the base stylesheet, and feature motion must work inside that net.",
+      "Do make charts distinguishable beyond hue: the Growth Green ramp steps lightness, never relying on hue alone."
+    ],
+    "donts": [
+      "Don't use violet gradients, neon accents, or flat-design illustrations — Picsou is not generic fintech flash.",
+      "Don't make the interface look like Datadog, Grafana, or a generic analytics tool — cold technical dashboards forget the human behind the numbers.",
+      "Don't ship big animated numbers, testimonials, or reassurance without real data — Picsou is not hollow fintech marketing.",
+      "Don't prioritize a product catalog over the user's patrimony — Picsou is not a traditional banking app.",
+      "Don't use colored drop shadows or glows as decoration. A shadow that does not say 'this floats' does not exist.",
+      "Don't use border-left or border-right greater than 1px as a colored stripe accent. Full borders or background tints only.",
+      "Don't apply background-clip: text with a gradient. Emphasis comes from weight or size, never from gradient text.",
+      "Don't pair Geist with a similar geometric sans to 'add variety.' One family, weights and sizes — that is the hierarchy.",
+      "Don't enlarge card titles past 0.875rem. The grid of confident small labels is what makes the dashboard scannable.",
+      "Don't put Quiet Slate on critical figures. It is for supporting prose only."
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 # Feature: Security Insight (asset type + ETF composition)
 
-> Last updated: 2026-06-02
+> Last updated: 2026-08-13
 
 ## Context
 
@@ -67,25 +67,25 @@ Boursorama's labels are French. To keep the API locale-agnostic:
 ### Key files
 
 Backend:
-- `controller/SecurityController.java` — `GET /api/securities/{ticker}/insight`, optional `name` query param. Not member-scoped (market data, like `PriceController`).
-- `service/SecurityInsightService.java` — type classification, provider orchestration, in-memory cache. No aggregation (providers return pre-aggregated data).
-- `port/EtfCompositionProvider.java` — port: `supports(ticker, name)` + `fetch(ticker, name) → Optional<EtfComposition>`.
-- `adapter/BoursoramaCompositionProvider.java` — **the** composition adapter (symbol resolution → composition page → parse). WebClient with `followRedirect(false)` and a 16 MB in-memory limit.
-- `adapter/BoursoramaLabels.java` — FR→key maps for ~11 sectors and the common countries; accent-insensitive normalisation; verbatim passthrough on miss.
-- `adapter/YahooFinancePriceProvider.java` — `getInstrumentType(ticker)` + `instrumentType` on the `Meta` record.
-- `dto/SecurityInsightResponse.java`, `dto/EtfComposition.java` (adds `source` + `asOf`), `dto/WeightedSlice.java`.
+- `backend/src/main/java/com/picsou/controller/SecurityController.java` — `GET /api/securities/{ticker}/insight`, optional `name` query param. Not member-scoped (market data, like `PriceController`).
+- `backend/src/main/java/com/picsou/service/SecurityInsightService.java` — type classification, provider orchestration, in-memory cache. No aggregation (providers return pre-aggregated data).
+- `backend/src/main/java/com/picsou/port/EtfCompositionProvider.java` — port: `supports(ticker, name)` + `fetch(ticker, name) → Optional<EtfComposition>`.
+- `backend/src/main/java/com/picsou/adapter/BoursoramaCompositionProvider.java` — **the** composition adapter (symbol resolution → composition page → parse). WebClient with `followRedirect(false)` and a 16 MB in-memory limit.
+- `backend/src/main/java/com/picsou/adapter/BoursoramaLabels.java` — FR→key maps for ~11 sectors and the common countries; accent-insensitive normalisation; verbatim passthrough on miss.
+- `backend/src/main/java/com/picsou/adapter/YahooFinancePriceProvider.java` — `getInstrumentType(ticker)` + `instrumentType` on the `Meta` record.
+- `backend/src/main/java/com/picsou/dto/SecurityInsightResponse.java`, `backend/src/main/java/com/picsou/dto/EtfComposition.java` (adds `source` + `asOf`), `backend/src/main/java/com/picsou/dto/WeightedSlice.java`.
 
 Frontend:
-- `components/ui/partition-bar.tsx` — partition-bar primitive (proportional flex segments).
-- `components/shared/HoldingInsightSection.tsx` — type badge + three breakdowns (Companies / Countries / Sectors), with a **view toggle** (segmented control, default **line**) switching all three between two renderings of the same `PartitionBar`:
+- `frontend/src/components/ui/partition-bar.tsx` — partition-bar primitive (proportional flex segments).
+- `frontend/src/components/shared/HoldingInsightSection.tsx` — type badge + three breakdowns (Companies / Countries / Sectors), with a **view toggle** (segmented control, default **line**) switching all three between two renderings of the same `PartitionBar`:
   - **block** — labelled segments *inside* one proportional bar (variant-cycled colours; rich on a wide screen).
   - **line** — a slim colour-only bar above a **wrapping legend** (swatch + label + %); labels are *not* inside the segments, so it stays readable on a phone regardless of slice count.
 
   Both share the `Others` remainder; both translate country/sector keys (`labelNs`) and render company names verbatim. A `source · asOf` footnote sits below. View state is component-local (resets when the modal closes).
-- `components/shared/HoldingDetailModal.tsx` — renders `<HoldingInsightSection>` after the stats grid; gated on the modal being open.
-- `features/accounts/api.ts` (`securityInsight`) and `features/accounts/hooks.ts` (`useSecurityInsight`).
-- `i18n/locales/{en,fr}.json` — `holdings.insight.sectorNames` + `holdings.insight.countryNames` key maps.
-- `demo/index.ts` — mock handlers for the demo holdings (stocks, crypto, and two ETFs whose countries/sectors use the same keys, `source: 'Boursorama'`).
+- `frontend/src/components/shared/HoldingDetailModal.tsx` — renders `<HoldingInsightSection>` after the stats grid; gated on the modal being open.
+- `frontend/src/features/accounts/api.ts` (`securityInsight`) and `frontend/src/features/accounts/hooks.ts` (`useSecurityInsight`).
+- `frontend/src/i18n/locales/{en,fr}.json` — `holdings.insight.sectorNames` + `holdings.insight.countryNames` key maps.
+- `frontend/src/demo/index.ts` — mock handlers for the demo holdings (stocks, crypto, and two ETFs whose countries/sectors use the same keys, `source: 'Boursorama'`).
 
 ### Flow
 
@@ -167,6 +167,22 @@ HoldingDetailModal (open)
   remainder, country/sector key translation (with verbatim fallback), the **block/line view
   toggle** (both views render the three bars + labels), stock fallback (badge only),
   unavailable ETF note, empty-response no-render, loading spinner.
+
+## What builds on this
+
+The portfolio-wide breakdown ([portfolio-diversification.md](./portfolio-diversification.md), 2026-08-13)
+reuses this pipeline and adds two things it deliberately does not have:
+
+- **Persistence.** The `ConcurrentHashMap` here is right for one user-initiated lookup and wrong
+  for N of them on a page render, so `security_profile` stores what gets resolved and
+  `SchedulerService` warms it weekly. This service keeps its own cache; merging the two is a
+  separate change.
+- **Equity coverage.** A `STOCK` gets no composition here. `EquityProfileProvider` answers its
+  sector (Yahoo search) and country (the ISIN on the Boursorama quote page), merged field by
+  field — deliberately unlike `resolveComposition`, which stops at the first provider with data.
+
+`BoursoramaCompositionProvider` no longer owns its `WebClient`: symbol resolution moved to
+`BoursoramaClient`, shared with the equity provider so a change at Boursorama is one repair.
 
 ## Links
 

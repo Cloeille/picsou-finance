@@ -4,6 +4,9 @@ import com.picsou.dto.AccountResponse;
 import com.picsou.model.ExchangeType;
 import com.picsou.service.CryptoExchangeSyncService;
 import com.picsou.service.UserContext;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,7 +25,7 @@ public class CryptoExchangeController {
     }
 
     @PostMapping
-    public AccountResponse addExchange(@RequestBody AddExchangeRequest req) {
+    public AccountResponse addExchange(@Valid @RequestBody AddExchangeRequest req) {
         return exchangeService.addExchange(req.type(), req.apiKey(), req.apiSecret(), userContext.currentMemberId());
     }
 
@@ -42,5 +45,23 @@ public class CryptoExchangeController {
         return ResponseEntity.noContent().build();
     }
 
-    record AddExchangeRequest(ExchangeType type, String apiKey, String apiSecret) {}
+    /**
+     * Whether {@code apiSecret} is required, forbidden or ignored depends on the exchange's
+     * adapter ({@code CryptoExchangePort.requiresApiSecret()}), which bean validation cannot
+     * reach — {@code CryptoExchangeSyncService.addExchange} enforces that rule and returns 400.
+     *
+     * <p>Deliberately no {@code @NotBlank} on {@code apiKey}: bean validation failures map to a
+     * 422 whose ProblemDetail carries an {@code errors} map but no {@code detail}, and the
+     * frontend only reads {@code detail} — so a blank key would surface as an unexplained error
+     * instead of the service's "An API key is required." 400.
+     *
+     * <p>The {@code @Size} bounds are on the <em>plaintext</em>, while the columns hold the
+     * AES-GCM ciphertext: Base64 turns n bytes into roughly {@code 4/3 * (n + 28)} characters, so
+     * 200 &rarr; ~304 and 300 &rarr; ~437, both inside {@code varchar(500)}. Raising either bound
+     * without widening the column turns a long-but-valid credential into a 500 at INSERT.
+     */
+    record AddExchangeRequest(
+        @NotNull ExchangeType type,
+        @Size(max = 200) String apiKey,
+        @Size(max = 300) String apiSecret) {}
 }

@@ -15,19 +15,24 @@ import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.PriceSnapshotRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -41,7 +46,27 @@ class HistoryServiceTest {
     @Mock PriceSnapshotRepository priceSnapshotRepository;
     @Mock AccountService accountService;
 
+    @Mock AccountAccessResolver accessResolver;
+
     @InjectMocks HistoryService historyService;
+
+    @BeforeEach
+    void stubOwnershipShares() {
+        // Every fixture account is wholly owned, so each resolves to 100%. Weighting is then
+        // the identity, which keeps these tests measuring what they were written to measure.
+        lenient().when(accessResolver.sharesFor(any(), any())).thenAnswer(inv -> {
+            java.util.Collection<Account> accounts = inv.getArgument(0);
+            Long viewer = inv.getArgument(1);
+            java.util.Map<Long, java.math.BigDecimal> shares = new java.util.HashMap<>();
+            for (Account a : accounts) {
+                // Mirrors the real resolver: no split rows, so the owner holds everything and
+                // anyone else holds nothing. A zero share is what makes a foreign account 404.
+                boolean owns = a.getMember() != null && a.getMember().getId().equals(viewer);
+                shares.put(a.getId(), owns ? new java.math.BigDecimal("100") : java.math.BigDecimal.ZERO);
+            }
+            return shares;
+        });
+    }
 
     private static final long MEMBER_ID = 99L;
     private static final FamilyMember MEMBER = FamilyMember.builder().id(MEMBER_ID).build();
@@ -58,6 +83,26 @@ class HistoryServiceTest {
             .build();
     }
 
+    /**
+     * The live point takes its value and its cost basis from one {@code valuation(account)} call,
+     * so both are stubbed together — which is the point: two separate lookups could straddle a
+     * price change and print a P&L computed over two different sets of assets.
+     */
+    private void stubValuation(Account account, String live, String invested) {
+        when(accountService.valuation(account)).thenReturn(new AccountService.Valuation(
+            new BigDecimal(live), new BigDecimal(invested), true, true, false));
+        // The intraday path still asks for the value alone; stubbed here so a test states what an
+        // account is worth once, whichever accessor the production code reaches for.
+        lenient().when(accountService.liveBalanceEur(account)).thenReturn(new BigDecimal(live));
+    }
+
+    /** {@link #stubValuation} for accounts a given test may not end up valuing. */
+    private void stubValuationLenient(Account account, String live, String invested) {
+        lenient().when(accountService.valuation(account)).thenReturn(new AccountService.Valuation(
+            new BigDecimal(live), new BigDecimal(invested), true, true, false));
+        lenient().when(accountService.liveBalanceEur(account)).thenReturn(new BigDecimal(live));
+    }
+
     @Test
     void buildHistory_invested_readsSnapshotPerDate() {
         LocalDate today = LocalDate.now();
@@ -70,8 +115,7 @@ class HistoryServiceTest {
                 new Object[]{1L, today.minusDays(5),  new BigDecimal("5500"), new BigDecimal("5000")},
                 new Object[]{1L, today.minusDays(1),  new BigDecimal("6200"), new BigDecimal("5400")}
             ));
-        when(accountService.liveBalanceEur(account)).thenReturn(new BigDecimal("6200"));
-        when(accountService.calculateInvestedAmount(account)).thenReturn(new BigDecimal("5400"));
+        stubValuation(account, "6200", "5400");
 
         List<NetWorthPoint> result = historyService.buildHistory(List.of(1L), 1, false, MEMBER_ID);
 
@@ -101,8 +145,7 @@ class HistoryServiceTest {
                 // Stale snapshot for today: balance and invested both behind reality.
                 new Object[]{1L, today, new BigDecimal("5000"), new BigDecimal("4500")}
             ));
-        when(accountService.liveBalanceEur(account)).thenReturn(new BigDecimal("5100"));
-        when(accountService.calculateInvestedAmount(account)).thenReturn(new BigDecimal("4800"));
+        stubValuation(account, "5100", "4800");
 
         List<NetWorthPoint> result = historyService.buildHistory(List.of(1L), 1, false, MEMBER_ID);
 
@@ -130,10 +173,8 @@ class HistoryServiceTest {
                 new Object[]{1L, date, new BigDecimal("10000"), new BigDecimal("10000")},
                 new Object[]{2L, date, new BigDecimal("2000"),  new BigDecimal("2000")}
             ));
-        lenient().when(accountService.liveBalanceEur(loan)).thenReturn(new BigDecimal("10000"));
-        lenient().when(accountService.liveBalanceEur(checking)).thenReturn(new BigDecimal("2000"));
-        lenient().when(accountService.calculateInvestedAmount(loan)).thenReturn(new BigDecimal("10000"));
-        lenient().when(accountService.calculateInvestedAmount(checking)).thenReturn(new BigDecimal("2000"));
+        stubValuationLenient(loan, "10000", "10000");
+        stubValuationLenient(checking, "2000", "2000");
 
         List<NetWorthPoint> result = historyService.buildHistory(List.of(1L, 2L), 1, true, MEMBER_ID);
 
@@ -157,6 +198,35 @@ class HistoryServiceTest {
     }
 
     @Test
+    void buildHistory_creditCard_contributesZeroToInvested_signedDebtToTotal() {
+        LocalDate date = LocalDate.now().minusDays(2);
+        Account card = creditCard(1L, "-800");
+        Account checking = checking(2L, "2000");
+
+        when(accountRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(card, checking));
+        when(snapshotRepository.findForwardFillDataByAccountIds(any(LocalDate.class), eq(List.of(1L, 2L))))
+            .thenReturn(List.of(
+                new Object[]{1L, date, new BigDecimal("-800"), new BigDecimal("-800")},
+                new Object[]{2L, date, new BigDecimal("2000"), new BigDecimal("2000")}
+            ));
+        stubValuation(card, "-800", "-800");
+        stubValuation(checking, "2000", "2000");
+
+        List<NetWorthPoint> result = historyService.buildHistory(List.of(1L, 2L), 1, true, MEMBER_ID);
+
+        NetWorthPoint past = result.stream().filter(p -> p.date().equals(date)).findFirst().orElseThrow();
+        NetWorthPoint today = result.getLast();
+        for (NetWorthPoint point : List.of(past, today)) {
+            // The card stores its debt signed: 2000 − 800, never invested, never P&L.
+            assertThat(point.total()).isEqualByComparingTo("1200");
+            assertThat(point.invested()).isEqualByComparingTo("2000");
+            assertThat(point.pnl()).isEqualByComparingTo("0");
+            assertThat(point.accounts().get(1L).total()).isEqualByComparingTo("-800");
+            assertThat(point.accounts().get(1L).invested()).isEqualByComparingTo("0");
+        }
+    }
+
+    @Test
     void buildHistory_forwardFill_carriesLastInvestedAcrossGap() {
         LocalDate today = LocalDate.now();
         Account brokerage = brokerage(1L, "CT");
@@ -173,10 +243,8 @@ class HistoryServiceTest {
                 // Checking: snapshot at D-5 (inside the brokerage gap) — injects this date into ffData.dates.
                 new Object[]{2L, today.minusDays(5), new BigDecimal("1000"), new BigDecimal("1000")}
             ));
-        lenient().when(accountService.liveBalanceEur(brokerage)).thenReturn(new BigDecimal("3200"));
-        lenient().when(accountService.liveBalanceEur(checking)).thenReturn(new BigDecimal("1000"));
-        lenient().when(accountService.calculateInvestedAmount(brokerage)).thenReturn(new BigDecimal("3200"));
-        lenient().when(accountService.calculateInvestedAmount(checking)).thenReturn(new BigDecimal("1000"));
+        stubValuationLenient(brokerage, "3200", "3200");
+        stubValuationLenient(checking, "1000", "1000");
 
         List<NetWorthPoint> result = historyService.buildHistory(List.of(1L, 2L), 1, false, MEMBER_ID);
 
@@ -202,10 +270,8 @@ class HistoryServiceTest {
                 new Object[]{1L, date, new BigDecimal("1200"), new BigDecimal("1000")},
                 new Object[]{2L, date, new BigDecimal("2800"), new BigDecimal("2500")}
             ));
-        lenient().when(accountService.liveBalanceEur(acc1)).thenReturn(new BigDecimal("1200"));
-        lenient().when(accountService.liveBalanceEur(acc2)).thenReturn(new BigDecimal("2800"));
-        lenient().when(accountService.calculateInvestedAmount(acc1)).thenReturn(new BigDecimal("1000"));
-        lenient().when(accountService.calculateInvestedAmount(acc2)).thenReturn(new BigDecimal("2500"));
+        stubValuationLenient(acc1, "1200", "1000");
+        stubValuationLenient(acc2, "2800", "2500");
 
         List<NetWorthPoint> result = historyService.buildHistory(List.of(1L, 2L), 1, true, MEMBER_ID);
 
@@ -230,6 +296,38 @@ class HistoryServiceTest {
     }
 
     @Test
+    void buildHistory_letsTheOwnerReadAnAccountTheyHoldNoShareOf() {
+        // An owner may legitimately hold none of their own account -- they can transfer their
+        // whole share away, and the resolver reports that as 0 rather than inventing 100%.
+        // Reading is still theirs: they administer it. Rejecting the request instead 404'd the
+        // *whole batch*, and DashboardService sends every readable id at once, so one such
+        // account took the entire dashboard history down with it.
+        Account transferred = brokerage(1L, "Maison");
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(transferred));
+        // doReturn, not when(...): the lenient @BeforeEach answer would run against the matcher
+        // call itself and NPE on a null collection.
+        doReturn(java.util.Map.of(1L, java.math.BigDecimal.ZERO))
+            .when(accessResolver).sharesFor(any(), any());
+        stubValuation(transferred, "0", "0");
+
+        assertThatCode(() -> historyService.buildHistory(List.of(1L), 1, false, MEMBER_ID))
+            .doesNotThrowAnyException();
+    }
+
+    @Test
+    void buildHistory_stillRejectsAZeroShareForANonOwner() {
+        // The relaxation is for the owner only: a zero share is still the "not yours" signal
+        // for everyone else, including a co-owner written out of the split.
+        Account othersAccount = brokerage(1L, "CT");
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(othersAccount));
+        doReturn(java.util.Map.of(1L, java.math.BigDecimal.ZERO))
+            .when(accessResolver).sharesFor(any(), any());
+
+        assertThatThrownBy(() -> historyService.buildHistory(List.of(1L), 1, false, 7L))
+            .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
     void buildHistory_rejectsNullMemberId() {
         Account account = brokerage(1L, "CT");
         when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(account));
@@ -248,6 +346,12 @@ class HistoryServiceTest {
             .currentBalance(new BigDecimal(balance)).color("#ef4444").member(MEMBER).build();
     }
 
+    private static Account creditCard(long id, String balance) {
+        return Account.builder()
+            .id(id).name("Card").type(AccountType.CREDIT_CARD).currency("EUR")
+            .currentBalance(new BigDecimal(balance)).color("#2563eb").member(MEMBER).build();
+    }
+
     private static Account checking(long id, String balance) {
         return Account.builder()
             .id(id).name("Checking").type(AccountType.CHECKING).currency("EUR")
@@ -262,9 +366,8 @@ class HistoryServiceTest {
         when(accountRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(loanAcc, brokerageAcc));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
         when(holdingRepository.findByAccount_Id(2L)).thenReturn(List.of());
-        when(accountService.liveBalanceEur(loanAcc)).thenReturn(new BigDecimal("10000"));
-        when(accountService.liveBalanceEur(brokerageAcc)).thenReturn(new BigDecimal("5100"));
-        when(accountService.calculateInvestedAmount(brokerageAcc)).thenReturn(new BigDecimal("4800"));
+        stubValuation(loanAcc, "10000", "10000");
+        stubValuation(brokerageAcc, "5100", "4800");
 
         PnlResponse result = historyService.buildPnl(List.of(1L, 2L), MEMBER_ID);
 
@@ -277,12 +380,30 @@ class HistoryServiceTest {
     }
 
     @Test
+    void buildPnl_creditCardCountsInTotal_excludedFromInvestedAndPnl() {
+        Account card = creditCard(1L, "-800");
+        Account brokerageAcc = brokerage(2L, "CT");
+
+        when(accountRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(card, brokerageAcc));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        when(holdingRepository.findByAccount_Id(2L)).thenReturn(List.of());
+        stubValuation(card, "-800", "-800");
+        stubValuation(brokerageAcc, "5100", "4800");
+
+        PnlResponse result = historyService.buildPnl(List.of(1L, 2L), MEMBER_ID);
+
+        assertThat(result.total()).isEqualByComparingTo("4300");
+        assertThat(result.invested()).isEqualByComparingTo("4800");
+        assertThat(result.pnl()).isEqualByComparingTo("300");
+    }
+
+    @Test
     void buildPnl_zeroInvested_returnsNullPercent() {
         Account loanAcc = loan(1L, "10000");
 
         when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(loanAcc));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
-        when(accountService.liveBalanceEur(loanAcc)).thenReturn(new BigDecimal("10000"));
+        stubValuation(loanAcc, "10000", "10000");
 
         PnlResponse result = historyService.buildPnl(List.of(1L), MEMBER_ID);
 
@@ -302,8 +423,7 @@ class HistoryServiceTest {
 
         when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(brokerageAcc));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(holding));
-        when(accountService.liveBalanceEur(brokerageAcc)).thenReturn(new BigDecimal("5100"));
-        when(accountService.calculateInvestedAmount(brokerageAcc)).thenReturn(new BigDecimal("4800"));
+        stubValuation(brokerageAcc, "5100", "4800");
         when(priceSnapshotRepository.findLatestByTickerBeforeOrOnDate("AAPL", fromDate))
             .thenReturn(Optional.empty());
 
@@ -330,10 +450,8 @@ class HistoryServiceTest {
         when(accountRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(brokerageAcc, cashAcc));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(holding));
         when(holdingRepository.findByAccount_Id(2L)).thenReturn(List.of());
-        when(accountService.liveBalanceEur(brokerageAcc)).thenReturn(new BigDecimal("5100"));
-        when(accountService.liveBalanceEur(cashAcc)).thenReturn(new BigDecimal("2000"));
-        when(accountService.calculateInvestedAmount(brokerageAcc)).thenReturn(new BigDecimal("4800"));
-        when(accountService.calculateInvestedAmount(cashAcc)).thenReturn(new BigDecimal("2000"));
+        stubValuation(brokerageAcc, "5100", "4800");
+        stubValuation(cashAcc, "2000", "2000");
         when(priceSnapshotRepository.findLatestByTickerBeforeOrOnDate("AAPL", fromDate))
             .thenReturn(Optional.of(PriceSnapshot.builder()
                 .ticker("AAPL").date(fromDate).priceEur(new BigDecimal("90")).build()));
@@ -361,8 +479,7 @@ class HistoryServiceTest {
 
         when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(brokerageAcc));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(matched, unmatched));
-        when(accountService.liveBalanceEur(brokerageAcc)).thenReturn(new BigDecimal("6300"));
-        when(accountService.calculateInvestedAmount(brokerageAcc)).thenReturn(new BigDecimal("1800"));
+        stubValuation(brokerageAcc, "6300", "1800");
         when(priceSnapshotRepository.findLatestByTickerBeforeOrOnDate("AAPL", fromDate))
             .thenReturn(Optional.of(PriceSnapshot.builder()
                 .ticker("AAPL").date(fromDate).priceEur(new BigDecimal("90")).build()));
@@ -415,8 +532,9 @@ class HistoryServiceTest {
         when(holdingRepository.findByAccount_Id(2L)).thenReturn(List.of());
         when(snapshotRepository.findByAccountIdAndDate(eq(1L), any(LocalDate.class))).thenReturn(Optional.empty());
         when(snapshotRepository.findByAccountIdAndDate(eq(2L), any(LocalDate.class))).thenReturn(Optional.empty());
-        when(accountService.liveBalanceEur(loanAcc)).thenReturn(new BigDecimal("10000"));
-        when(accountService.liveBalanceEur(cashAcc)).thenReturn(new BigDecimal("2000"));
+        // Lenient: the intraday path needs the value only, so it never asks for a cost basis.
+        stubValuationLenient(loanAcc, "10000", "10000");
+        stubValuationLenient(cashAcc, "2000", "2000");
 
         List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L, 2L), MEMBER_ID);
 
@@ -425,6 +543,68 @@ class HistoryServiceTest {
             // Every hourly point: total = cash 2000 − loan 10000; loan excluded from invested.
             assertThat(point.total()).isEqualByComparingTo("-8000");
             assertThat(point.invested()).isEqualByComparingTo("2000");
+        }
+    }
+
+    @Test
+    void buildIntradayHistory_creditCardSigned_excludedFromInvested() {
+        Account card = creditCard(1L, "-800");
+        Account cashAcc = checking(2L, "2000");
+
+        when(accountRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(card, cashAcc));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        when(holdingRepository.findByAccount_Id(2L)).thenReturn(List.of());
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any(LocalDate.class))).thenReturn(Optional.empty());
+        when(snapshotRepository.findByAccountIdAndDate(eq(2L), any(LocalDate.class))).thenReturn(Optional.empty());
+        stubValuationLenient(card, "-800", "-800");
+        stubValuationLenient(cashAcc, "2000", "2000");
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L, 2L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty().allSatisfy(point -> {
+            assertThat(point.total()).isEqualByComparingTo("1200");
+            assertThat(point.invested()).isEqualByComparingTo("2000");
+        });
+    }
+
+    @Test
+    void buildIntradayHistory_cashPocketCountsOnBothSides() {
+        // 10 AAPL bought at 100, quoted 120 all day, plus 500 of idle cash in the envelope.
+        Account pea = brokerage(1L, "PEA");
+        pea.setCashBalance(new BigDecimal("500"));
+        AccountHolding aapl = AccountHolding.builder()
+            .ticker("AAPL").quantity(new BigDecimal("10")).averageBuyIn(new BigDecimal("100")).build();
+
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(pea));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(aapl));
+        when(priceService.toEur(new BigDecimal("100"), "EUR", null)).thenReturn(new BigDecimal("100"));
+        // An hourly series inside the requested window, the shape the providers return: from
+        // 23 hours ago up to now, on the hour, so only the very first bucket (24 hours ago)
+        // predates the first quote.
+        LocalDateTime thisHour = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime firstQuote = thisHour.minusHours(23);
+        Map<LocalDateTime, BigDecimal> quotes = new java.util.HashMap<>();
+        for (LocalDateTime t = firstQuote; !t.isAfter(thisHour); t = t.plusHours(1)) {
+            quotes.put(t, new BigDecimal("120"));
+        }
+        when(priceService.getIntradayPricesEur(eq("AAPL"), any(), any())).thenReturn(quotes);
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty();
+        assertThat(result).anyMatch(p -> !p.timestamp().isBefore(firstQuote));
+        for (NetWorthIntradayPoint point : result) {
+            // invested = 10 x 100 + 500 of cash at every hour: the pocket is worth what it cost.
+            assertThat(point.invested()).isEqualByComparingTo("1500");
+            if (point.timestamp().isBefore(firstQuote)) {
+                // No quote yet: the positions are worth nothing at that hour, the pocket remains.
+                assertThat(point.total()).isEqualByComparingTo("500");
+            } else {
+                // total = 10 x 120 + 500 of cash: the pocket moves both sides by the same 500, so
+                // the gain stays 200, and the total is the one the daily chart's today point
+                // reports through valuation() rather than 500 below it.
+                assertThat(point.total()).isEqualByComparingTo("1700");
+            }
         }
     }
 }

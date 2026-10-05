@@ -45,10 +45,53 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 
     void deleteByAccountIdAndIsManualFalse(Long accountId);
 
+    /**
+     * Deletes only the synced (non-manual) rows inside a date window, leaving older
+     * history untouched. Preferred over deleting every non-manual row and re-saving
+     * the ones to keep: those are managed entities whose rows have just been deleted,
+     * so re-saving them merges onto a missing row and fails with
+     * {@code StaleObjectStateException}.
+     */
+    void deleteByAccountIdAndIsManualFalseAndDateGreaterThanEqual(Long accountId, LocalDate date);
+
+    /**
+     * Every synced (non-manual) row of an account, used to reconcile a full provider history
+     * against what is already stored without deleting user-entered rows.
+     */
+    List<Transaction> findByAccountIdAndIsManualFalse(Long accountId);
+
     @Query("SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t WHERE t.account.id = :accountId AND t.date > :date")
     BigDecimal sumAmountByAccountIdAndDateAfter(@Param("accountId") Long accountId, @Param("date") LocalDate date);
 
-    List<Transaction> findByAccountIdAndTxTypeInOrderByDateAsc(Long accountId, List<TransactionType> types);
+    /**
+     * Rows a bank importer must compare a freshly fetched window against. Manual rows are
+     * excluded: a user who typed a transaction the bank also reports owns their own row, and
+     * silently treating the import as a duplicate of it (or the reverse) would edit their ledger.
+     *
+     * <p>No {@code member_id} predicate — the account id is resolved from a member-scoped
+     * lookup by the only caller ({@code BankTransactionImportService}, reached from
+     * {@code SyncService.upsertAccount}), the same shape as the other per-account queries here.
+     */
+    List<Transaction> findByAccountIdAndIsManualFalseAndDateGreaterThanEqual(Long accountId, LocalDate date);
+
+    /**
+     * Newest already-imported entry for an account, which anchors the next sync's fetch window.
+     * Null when nothing was ever imported — the caller then falls back to a full first-sync window.
+     */
+    @Query("SELECT MAX(t.date) FROM Transaction t WHERE t.account.id = :accountId AND t.isManual = false")
+    LocalDate findLatestSyncedDateByAccountId(@Param("accountId") Long accountId);
+
+    List<Transaction> findByAccountIdAndTxTypeInOrderByDateAscIdAsc(Long accountId, List<TransactionType> types);
+
+    /**
+     * Every transaction on a set of accounts over a date window.
+     *
+     * <p>Member scoping is the caller's: it passes the ids it already resolved through
+     * {@code AccountAccessResolver.readableAccounts}, which is the only place allowed to decide
+     * what a member may see. Ordering by date keeps the counterparty-matching pass linear.
+     */
+    List<Transaction> findByAccountIdInAndDateBetweenOrderByDateAsc(
+        Collection<Long> accountIds, LocalDate from, LocalDate to);
 
     /** Earliest transaction date across all accounts */
     @Query("SELECT MIN(t.date) FROM Transaction t")
@@ -58,6 +101,33 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 
     /** Dedup guard for synced ingestion (account-scoped). */
     boolean existsByAccountIdAndExternalId(Long accountId, String externalId);
+
+    /** The account a stored external id lives in, without loading the row. */
+    interface StoredExternalId {
+        Long getId();
+
+        String getExternalId();
+
+        Long getAccountId();
+    }
+
+    /** Member-scoped dedup lookup for file imports: finds a row whatever date it was edited to. */
+    @Query("""
+        SELECT t.id AS id, t.externalId AS externalId, t.account.id AS accountId FROM Transaction t
+        WHERE t.account.member.id = :memberId AND t.externalId IN :externalIds
+        """)
+    List<StoredExternalId> findStoredExternalIds(@Param("memberId") Long memberId,
+                                                 @Param("externalIds") Collection<String> externalIds);
+
+    /** Rows of the given accounts whose external id starts with {@code prefix} (file re-imports). */
+    @Query("""
+        SELECT t.id AS id, t.externalId AS externalId, t.account.id AS accountId FROM Transaction t
+        WHERE t.account.member.id = :memberId AND t.account.id IN :accountIds
+          AND t.externalId LIKE CONCAT(:prefix, '%')
+        """)
+    List<StoredExternalId> findStoredExternalIdsInAccounts(@Param("memberId") Long memberId,
+                                                           @Param("accountIds") Collection<Long> accountIds,
+                                                           @Param("prefix") String prefix);
 
     /** Member-scoped single transaction lookup (categorize endpoint). */
     Optional<Transaction> findByIdAndAccountMemberId(Long id, Long memberId);
@@ -240,4 +310,34 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
         @Param("accountId") Long accountId,
         org.springframework.data.domain.Pageable pageable
     );
+
+    /**
+     * Manually entered transactions of manual accounts whose ticker is 12 characters long — the
+     * length of an ISIN, which the caller confirms with {@code OpenFigiIsinConverter.isIsin}
+     * before touching anything. Such a ticker is one an earlier ISIN resolution failed to convert:
+     * it can never be priced, since the Yahoo provider rejects ISIN-shaped strings outright.
+     *
+     * <p>Synced transactions and synced accounts are excluded on purpose: their adapters re-resolve
+     * every ISIN on each sync, so they repair themselves without rewriting rows a provider owns.
+     *
+     * <p>No {@code member_id} predicate, unlike every request-scoped query: this feeds a startup
+     * maintenance pass with no caller and no member context, in the same family as
+     * {@code PriceFxCleanupRunner} (purges {@code price_snapshot} wholesale) and
+     * {@code SchedulerService.dailySnapshots} (iterates every member). The tenant-isolation rule
+     * protects paths where a caller's identity decides what may be read; a member loop here would
+     * iterate all members and touch exactly the same rows.
+     */
+    @Query("SELECT t FROM Transaction t "
+        + "WHERE t.isManual = true AND t.account.isManual = true AND LENGTH(t.ticker) = 12")
+    List<Transaction> findManualTransactionsWithIsinLengthTicker();
+
+    /**
+     * Accounts holding the given manual tickers. Read before a repair pass rewrites those tickers,
+     * so the accounts whose holdings need recomputing are known while they can still be found by
+     * the old value. Ids rather than entities: the caller runs outside a transaction, where a lazy
+     * {@code t.account} would not be readable.
+     */
+    @Query("SELECT DISTINCT t.account.id FROM Transaction t "
+        + "WHERE t.isManual = true AND t.account.isManual = true AND t.ticker IN :tickers")
+    List<Long> findManualAccountIdsByTickerIn(@Param("tickers") Collection<String> tickers);
 }

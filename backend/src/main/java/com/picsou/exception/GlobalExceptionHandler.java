@@ -3,6 +3,7 @@ package com.picsou.exception;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -38,7 +39,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(SyncException.class)
     ProblemDetail handleSync(SyncException ex) {
         log.warn("Sync error: {}", ex.getMessage());
-        return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+        if (ex.getCode() != null) {
+            detail.setProperty("code", ex.getCode());
+        }
+        return detail;
+    }
+
+    // Defense-in-depth: WalletSyncService.sync() already catches WalletRpcException and
+    // re-wraps it into a SyncException with a friendly per-chain message. This backstop
+    // only fires if some future WalletPort caller forgets to wrap it -- so a bad RPC
+    // response can never surface as a raw 500 with a leaked technical message.
+    @ExceptionHandler(WalletRpcException.class)
+    ProblemDetail handleWalletRpc(WalletRpcException ex) {
+        log.warn("Wallet RPC error: {}", ex.getMessage());
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY,
+            "Could not reach the blockchain network. Please try again later.");
     }
 
     @ExceptionHandler(BadCredentialsException.class)
@@ -54,6 +70,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(MfaException.class)
     ProblemDetail handleMfa(MfaException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    ProblemDetail handleAccessDenied(AccessDeniedException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
     }
 
     @ExceptionHandler(MissingScopeException.class)

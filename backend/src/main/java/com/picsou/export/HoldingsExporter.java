@@ -35,7 +35,8 @@ class HoldingsExporter implements EntityExporter {
     public List<String> csvHeader() {
         return List.of(
             "id", "account_id", "ticker", "name", "quantity", "average_buy_in",
-            "current_price", "last_synced_at", "created_at", "updated_at"
+            "current_price", "quote_currency", "provider_value_eur", "provider_pnl_eur",
+            "last_synced_at", "created_at", "updated_at"
         );
     }
 
@@ -50,6 +51,9 @@ class HoldingsExporter implements EntityExporter {
                 nullSafe(h.getQuantity() == null ? null : h.getQuantity().toPlainString()),
                 nullSafe(h.getAverageBuyIn() == null ? null : h.getAverageBuyIn().toPlainString()),
                 nullSafe(h.getCurrentPrice() == null ? null : h.getCurrentPrice().toPlainString()),
+                nullSafe(h.getQuoteCurrency()),
+                nullSafe(h.getProviderValueEur() == null ? null : h.getProviderValueEur().toPlainString()),
+                nullSafe(h.getProviderPnlEur() == null ? null : h.getProviderPnlEur().toPlainString()),
                 nullSafe(h.getLastSyncedAt() == null ? null : h.getLastSyncedAt().toString()),
                 nullSafe(h.getCreatedAt() == null ? null : h.getCreatedAt().toString()),
                 nullSafe(h.getUpdatedAt() == null ? null : h.getUpdatedAt().toString())
@@ -69,6 +73,9 @@ class HoldingsExporter implements EntityExporter {
             writeBigDecimal(json, "quantity", h.getQuantity());
             writeBigDecimal(json, "average_buy_in", h.getAverageBuyIn());
             writeBigDecimal(json, "current_price", h.getCurrentPrice());
+            json.writeStringField("quote_currency", h.getQuoteCurrency());
+            writeBigDecimal(json, "provider_value_eur", h.getProviderValueEur());
+            writeBigDecimal(json, "provider_pnl_eur", h.getProviderPnlEur());
             writeInstant(json, "last_synced_at", h.getLastSyncedAt());
             writeInstant(json, "created_at", h.getCreatedAt());
             writeInstant(json, "updated_at", h.getUpdatedAt());

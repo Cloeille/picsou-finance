@@ -1,96 +1,112 @@
 package com.picsou.controller;
 
+import com.picsou.config.ClientIp;
 import com.picsou.config.RateLimitConfig;
-import com.picsou.dto.AccountResponse;
 import com.picsou.service.BoursoSyncService;
-import com.picsou.service.BoursoSyncService.AuthInitResponse;
-import com.picsou.service.BoursoSyncService.SessionStatusResponse;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ProblemDetail;
-import org.springframework.http.ResponseEntity;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/bourso")
 public class BoursoController {
-
-    private final BoursoSyncService   boursoService;
-    private final UserContext          userContext;
-    private final Map<String, Bucket>  boursoAuthBuckets;
+    private final BoursoSyncService service;
+    private final UserContext userContext;
+    private final Map<String, Bucket> authBuckets;
+    private final Map<String, Bucket> syncBuckets;
 
     public BoursoController(
-        BoursoSyncService boursoService,
+        BoursoSyncService service,
         UserContext userContext,
-        @org.springframework.beans.factory.annotation.Qualifier("boursoAuthBuckets") Map<String, Bucket> boursoAuthBuckets
+        @Qualifier("boursoAuthBuckets") Map<String, Bucket> authBuckets,
+        @Qualifier("syncBuckets") Map<String, Bucket> syncBuckets
     ) {
-        this.boursoService     = boursoService;
-        this.userContext       = userContext;
-        this.boursoAuthBuckets = boursoAuthBuckets;
+        this.service = service;
+        this.userContext = userContext;
+        this.authBuckets = authBuckets;
+        this.syncBuckets = syncBuckets;
     }
 
-    /**
-     * Step 1: Authenticate with BoursoBank.
-     * - No MFA: session is stored immediately, returns {mfaRequired: false}.
-     * - MFA required: returns {mfaRequired: true, processId, mfaType, contact}.
-     */
     @PostMapping("/auth/initiate")
-    public ResponseEntity<?> initiateAuth(
-        @RequestBody InitiateAuthRequest req,
-        HttpServletRequest request
-    ) {
-        if (!checkRateLimit(request)) {
-            ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
-            detail.setDetail("Too many authentication attempts. Please wait a moment and try again.");
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
-        }
-
-        AuthInitResponse init = boursoService.initiateAuth(req.customerId(), req.password(), userContext.currentMemberId());
-        return ResponseEntity.ok(init);
+    public ResponseEntity<?> initiate(@Valid @RequestBody InitiateRequest req, HttpServletRequest request) {
+        if (!consumeAuthToken(request)) return rateLimited();
+        return ResponseEntity.ok(
+            service.initiateAuth(req.customerId(), req.password(), userContext.currentMemberId())
+        );
     }
 
     /**
-     * Step 2 (MFA only): Submit the OTP code to complete authentication.
-     * Not called when mfaRequired was false.
+     * Blocks while the customer approves the push on their phone — up to two
+     * minutes. There is no code to submit: BoursoBank's app validation is the
+     * only second factor this connector drives.
      */
     @PostMapping("/auth/complete")
-    public SessionStatusResponse completeAuth(@RequestBody CompleteAuthRequest req) {
-        return boursoService.completeAuth(req.processId(), req.code(), userContext.currentMemberId());
+    public ResponseEntity<?> complete(@Valid @RequestBody CompleteRequest req, HttpServletRequest request) {
+        if (!consumeAuthToken(request)) return rateLimited();
+        return ResponseEntity.ok(service.completeAuth(req.processId(), userContext.currentMemberId()));
     }
 
-    /** Manually trigger a sync using the stored session. */
+    /**
+     * Throttled like every other sync entry point: queueing takes a row lock and
+     * decrypts the stored session. {@code queueSync} already refuses to stack
+     * jobs, but nothing otherwise stops a caller re-queueing the moment each one
+     * finishes.
+     */
     @PostMapping("/sync")
-    public List<AccountResponse> sync() {
-        return boursoService.sync(userContext.currentMemberId());
+    public ResponseEntity<?> sync(HttpServletRequest request) {
+        if (!consumeSyncToken(request)) {
+            return rateLimited("Too many BoursoBank synchronization requests. Please wait before retrying.");
+        }
+        return ResponseEntity.accepted().body(service.queueSync(userContext.currentMemberId()));
     }
 
-    /** Return session status (active, expiry). */
     @GetMapping("/status")
-    public SessionStatusResponse getStatus() {
-        return boursoService.getSessionStatus(userContext.currentMemberId());
+    public BoursoSyncService.SessionStatusResponse status() {
+        return service.getStatus(userContext.currentMemberId());
     }
 
-    /** Clear the stored session (forces re-authentication). */
     @DeleteMapping("/session")
-    public ResponseEntity<Void> clearSession() {
-        boursoService.clearSession(userContext.currentMemberId());
+    public ResponseEntity<Void> clear() {
+        service.clearSession(userContext.currentMemberId());
         return ResponseEntity.noContent().build();
     }
 
-    // ─── Rate limiting ────────────────────────────────────────────────────────
-
-    private boolean checkRateLimit(HttpServletRequest request) {
-        String ip = request.getRemoteAddr();
-        Bucket bucket = boursoAuthBuckets.computeIfAbsent(ip, k -> RateLimitConfig.createBoursoAuthBucket());
-        return bucket.tryConsume(1);
+    private boolean consumeAuthToken(HttpServletRequest request) {
+        return authBuckets.computeIfAbsent(
+            ClientIp.resolve(request),
+            key -> RateLimitConfig.createBoursoAuthBucket()
+        ).tryConsume(1);
     }
 
-    record InitiateAuthRequest(String customerId, String password) {}
+    private boolean consumeSyncToken(HttpServletRequest request) {
+        return syncBuckets.computeIfAbsent(
+            ClientIp.resolve(request),
+            key -> RateLimitConfig.createSyncBucket()
+        ).tryConsume(1);
+    }
 
-    record CompleteAuthRequest(String processId, String code) {}
+    private ResponseEntity<ProblemDetail> rateLimited() {
+        return rateLimited("Too many BoursoBank authentication attempts. Please wait before retrying.");
+    }
+
+    private ResponseEntity<ProblemDetail> rateLimited(String message) {
+        ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
+        detail.setDetail(message);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
+    }
+
+    record InitiateRequest(
+        @NotBlank @Size(max = 100) String customerId,
+        @NotBlank @Size(max = 100) String password
+    ) {}
+
+    record CompleteRequest(@NotBlank @Size(max = 100) String processId) {}
 }

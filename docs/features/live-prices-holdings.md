@@ -1,6 +1,6 @@
 # Feature: Live Prices in Holdings
 
-> Last updated: 2026-05-19
+> Last updated: 2026-08-10
 
 ## Context
 
@@ -30,32 +30,44 @@ Recalculate: currentValueEur, pnlEur, pnlPercent
 HoldingsTable renders with live prices
 ```
 
-If the prices API fails (network error, provider down), the hook falls back to the DB prices gracefully.
+If the prices API fails, the hook keeps the backend response. For Bourse Direct
+holdings that response can include the last reconciled broker valuation in EUR,
+even when Yahoo cannot resolve the native quote.
+
+The two failure modes are deliberately not symmetric. `usePortfolio` fetches
+holdings per account in a `Promise.all`, and a rejected holdings call fails the
+whole query: `PortfolioView` and `HoldingsCard` render `ErrorState` with
+`formatApiError` and a retry. Swallowing it per account (the previous
+`catch { return [] }`) silently dropped that account from the portfolio total,
+allocation and P&L, with a "no holdings" empty state as the only hint.
 
 ### Live-price recompute formula (single source of truth)
 
 Both `usePortfolio` (portfolio view across all accounts) and `useHoldingsWithLivePrices` (single account holdings table) share a single helper, `recomputeWithLivePrice`, in `frontend/src/features/accounts/hooks.ts`:
 
 ```
-costBasisEur    = quantity * averageBuyIn      (null if averageBuyIn unknown)
+costBasisEur    = backend costBasisEur         (null if the basis is unknown)
 currentValueEur = quantity * livePrice
 pnlEur          = currentValueEur - costBasisEur
 pnlPercent      = pnlEur / costBasisEur * 100  (null if costBasisEur == 0)
 ```
 
-All four numbers are derived from the same `livePrice` snapshot, so the header badge (`pnlPercent`), Gain/Loss display (`pnlEur`), and total value (`currentValueEur`) cannot drift out of sync with each other.
+The backend cost basis is retained because a broker can provide an authoritative
+EUR P&L for a foreign-currency position. Reconstructing it from a native price
+would introduce FX errors. Value and P&L are recomputed from the same
+`livePrice` snapshot, so the header badge (`pnlPercent`), Gain/Loss display
+(`pnlEur`), and total value (`currentValueEur`) cannot drift out of sync.
 
 The previous implementation in `usePortfolio` updated only `valueEur`/`pnlEur` via delta-add (`l.pnlEur + (newVal - oldVal)`) and left `pnlPercent` at the backend's stored ratio, producing badge-vs-display incoherence on every live-price refresh.
 
 ### Frontend data flow (AccountDetail balance)
 
-For holding accounts (PEA, COMPTE_TITRES, CRYPTO), the balance card shows the live total from holdings with live prices, not the stored `account.currentBalanceEur`:
+The balance card renders `account.currentBalanceEur`. The backend owns that
+aggregate so cash, live EUR prices and the all-or-nothing Bourse Direct fallback
+are applied once rather than reconstructed differently in each frontend view:
 
 ```
-liveTotal = SUM(holding.currentValueEur)  // from merged holdings with live prices
-displayBalance = showHoldings && holdings.length > 0 && liveTotal > 0
-    ? liveTotal
-    : account.currentBalanceEur           // fallback for non-holding accounts
+displayBalance = account.currentBalanceEur
 ```
 
 ### Backend data flow (Goals & Dashboard)
@@ -71,12 +83,18 @@ AccountService.liveBalanceEur(account)
         |
         +-- If holdings: for each holding:
         |       +-- priceService.getPriceEur(ticker)  (live cache, 15-min TTL — EUR-denominated)
-        |       +-- if no live price: skip the holding (no fallback to stored native price)
+        |       +-- if no live price: never multiply an unqualified native quote as EUR
         |       +-- accumulate qty * livePrice
         |
         v
 Return live portfolio value in EUR
 ```
+
+For Bourse Direct, if any position lacks a live EUR price, the method returns
+the last complete broker account total instead of a partial
+`cash + priced symbols` sum. `HoldingResponse` follows the same rule per
+position: Yahoo EUR value when available, otherwise the broker's reconciled EUR
+value. `currentPrice` remains tagged with its explicit `quoteCurrency`.
 
 Used by:
 - `GoalService.toProgressResponse()` — sums `liveBalanceEur()` across linked accounts for `currentTotal`
@@ -100,20 +118,23 @@ For each past date, both `total` and `invested` are read from `balance_snapshot`
 
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
-| Two separate API calls (holdings + prices) | Clean separation of concerns; prices API is reusable; backend unchanged | Backend-side price refresh in `getHoldings()` (slower page load, couples concerns) |
-| Client-side merge | No backend change needed; works with existing `HoldingResponse` shape | New dedicated endpoint returning enriched holdings (more backend work) |
+| Two separate API calls (holdings + prices) | Prices API is reusable and navigation can refresh a cached backend value | A dedicated enriched-holdings endpoint |
+| Client-side merge | Refreshes the existing currency-explicit `HoldingResponse` without another domain DTO | New dedicated endpoint returning enriched holdings |
 | Graceful degradation on price failure | Better UX than showing errors for non-critical price data | Throwing error / blocking page render |
+| Holdings failure propagates instead | A missing *price* leaves the position visible with a stale value; a missing *holdings* response removes the position from every total | Returning `[]` for the failed account |
 
 ## Gotchas / Pitfalls
 
 - **Prices are not persisted**: Live prices are only used for display. The DB `current_price` in `account_holding` is not updated — that still happens during sync.
 - **`useAccountHoldings` still exists**: The old hook is kept for the `usePortfolio` hook which fetches holdings for all accounts (portfolio view). Switching it to live prices would trigger many price API calls at once.
 - **No polling**: Prices refresh only on navigation (TanStack Query stale time of 2 min). There is no auto-refresh or polling interval.
-- **Yahoo Finance is unofficial**: See [price-service.md](./price-service.md) gotchas. If Yahoo is down, the live-price API returns no entry for that ticker and the frontend / `liveBalanceEur` show `null` for the affected rows rather than stale DB values — this is intentional after [ADR 2026-05-19](../decisions/2026-05-19-yahoo-fx-conversion.md): the stored `AccountHolding.currentPrice` has no currency tag and cannot be trusted as EUR.
-- **No fallback to stored native price**: `AccountService.toHoldingResponse` returns `currentValueEur = pnlEur = pnlPercent = null` when the live EUR price is missing. The frontend `recomputeWithLivePrice` helper already tolerates `null` live prices.
-- **`AccountService.toResponse()` uses stored balance**: This is intentional — it returns `currentBalanceEur` (stale but fast). Use `liveBalanceEur()` when you need the current portfolio value with PnL.
+- **Yahoo Finance is unofficial**: See [price-service.md](./price-service.md) gotchas. A stored quote is displayed only with its explicit `quoteCurrency`; it is never multiplied as EUR when that currency is unknown.
+- **Bourse Direct and Trade Republic write an EUR fallback**: `provider_value_eur` is accepted only from a broker that quotes in EUR — Bourse Direct as part of a fully reconciled snapshot, Trade Republic because its portfolio stream is EUR-denominated by construction (the same assumption already behind `TrAccountData.balanceEur`). Connectors that expose native-currency values without an explicit `quoteCurrency` still return `null`.
+- **`liveBalanceEur()` falls back per holding**: when Yahoo has no live price, the holding is valued at `provider_value_eur` before being dropped. Dropping it is the last resort, and it is what makes the dashboard P&L wrong (see the asymmetry gotcha below).
+- **Value and invested must cover the same holdings**: `liveBalanceEur` may drop an unpriced holding, but `DashboardService` and `AccountService.calculateInvestedAmount` still count its full cost basis. Any holding dropped from the value side while its cost basis remains understates P&L by exactly that cost basis (GH issue #76). The `provider_value_eur` fallback closes this for Bourse Direct and Trade Republic; a connector that populates neither can still hit it.
+- **`AccountService.toResponse()` computes a live balance**: for Bourse Direct it falls back to the complete stored broker total if even one Yahoo price is unavailable.
 - **`liveBalanceEur()` triggers price lookups**: Each call fetches holdings then queries `PriceService` per ticker. Don't call in tight loops. The Dashboard pre-loads holdings into a map to avoid N+1; Goals calls it per-account in the goal's account list (typically small).
-- **`AccountDetailPage.displayBalance` only applies to holding accounts with live data**: If holdings are empty or `liveTotal == 0`, it falls back to `account.currentBalanceEur`. Non-holding accounts always show the stored balance.
+- **The account detail page does not re-sum holdings**: it displays the backend's `currentBalanceEur`, avoiding disagreement with cash and broker fallback rules.
 
 ## Tests
 

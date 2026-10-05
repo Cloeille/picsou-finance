@@ -22,6 +22,9 @@
         <java.version>21</java.version>
         <jjwt.version>0.12.6</jjwt.version>
         <bucket4j.version>8.10.1</bucket4j.version>
+        <!-- Ahead of the Boot 3.4.9 BOM (1.20.6): its bundled docker-java negotiates down to
+             Docker API 1.32, which engines >= 28 refuse ("minimum supported API version is 1.40"). -->
+        <testcontainers.version>1.21.3</testcontainers.version>
         <!-- Spring AI 1.0.x targets Spring Boot 3.4.x (Spring 6.2) — matches this project.
              Do NOT bump to 1.1.x: it targets Boot 3.5 / Spring 6.3 and conflicts with the pins below. -->
         <spring-ai.version>1.0.3</spring-ai.version>
@@ -30,10 +33,11 @@
         <netty.version>4.1.132.Final</netty.version>
         <spring-security.version>6.4.10</spring-security.version>
         <!-- docker-java (bundled with Testcontainers) defaults to Docker Engine API 1.32, which
-             Docker Engine 25+ rejects (it requires >= 1.40). Pin a safe floor read by docker-java's
-             `api.version` system property so the Testcontainers IT works under `mvn test` with a
-             modern daemon. Overridable, e.g. `mvn test -Ddocker.api.version=1.44`. -->
-        <docker.api.version>1.40</docker.api.version>
+             Docker Engine 25+ rejects (it requires >= 1.40; Engine >= 28 refuses outright). Pin a
+             safe floor read by docker-java's `api.version` system property so the Testcontainers
+             ITs work under `mvn test` with a modern daemon. 1.44 is satisfied by Engine >= 25.0
+             (Jan 2024). Overridable, e.g. `mvn test -Ddocker.api.version=1.40` for an older engine. -->
+        <docker.api.version>1.44</docker.api.version>
     </properties>
 
     <dependencyManagement>
@@ -153,7 +157,7 @@
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.84</version>
+            <version>1.86</version>
         </dependency>
 
         <!-- Rate limiting -->
@@ -161,6 +165,12 @@
             <groupId>com.bucket4j</groupId>
             <artifactId>bucket4j-core</artifactId>
             <version>${bucket4j.version}</version>
+        </dependency>
+
+        <!-- Bounded, self-evicting rate-limit bucket stores (RateLimitConfig) -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
         </dependency>
 
         <!-- TOTP (RFC 6238) for 2FA: secret generation, QR code, code verification -->
@@ -181,6 +191,12 @@
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
             <version>5.4.0</version>
+        </dependency>
+
+        <!-- SQLite JDBC - reads Actual Budget exports (db.sqlite), read-only. Version managed by Spring Boot. -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
         </dependency>
 
         <!-- Lombok -->
@@ -215,9 +231,11 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Testcontainers: real Postgres for write-on-read / tx-propagation tests
-             (H2 masks Postgres' rejection of INSERTs in a read-only transaction).
-             Versions are managed by the Spring Boot parent BOM. -->
+        <!-- Testcontainers: real Postgres for write-on-read / tx-propagation tests (H2 masks
+             Postgres' rejection of INSERTs in a read-only transaction) and for data-mutating
+             Flyway migrations (PostgreSQL-flavoured: enum types, split_part...), which can only
+             be verified against real PostgreSQL, not H2. Version comes from the
+             testcontainers.version property above, which overrides the Spring Boot parent's BOM. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-testcontainers</artifactId>
@@ -225,12 +243,12 @@
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>postgresql</artifactId>
+            <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -242,8 +260,13 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <!-- Force docker-java's API version (see docker.api.version above). Harmless
-                         for the pure-Mockito tests; consumed only by the Testcontainers IT, which
-                         self-skips when no Docker daemon is present. -->
+                         for the pure-Mockito tests; consumed only by the Testcontainers ITs, which
+                         self-skip when no Docker daemon is present. Set process-wide so it applies
+                         before ANY Testcontainers class initializes, not just the ones that carry
+                         a static block for IDE runs. Without it docker-java negotiates down to
+                         Docker API 1.32, which Engine >= 28 refuses; that error is indistinguishable
+                         from "no Docker installed", so a migration test's availability guard would
+                         silently skip on a capable host. -->
                     <systemPropertyVariables>
                         <api.version>${docker.api.version}</api.version>
                     </systemPropertyVariables>

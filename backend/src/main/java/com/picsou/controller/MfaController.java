@@ -1,5 +1,6 @@
 package com.picsou.controller;
 
+import com.picsou.config.ClientIp;
 import com.picsou.config.RateLimitConfig;
 import com.picsou.dto.MfaDtos.DisableMfaRequest;
 import com.picsou.dto.MfaDtos.EnrollInitRequest;
@@ -61,7 +62,7 @@ public class MfaController {
         @Valid @RequestBody EnrollInitRequest req,
         HttpServletRequest httpReq
     ) {
-        String ip = httpReq.getRemoteAddr();
+        String ip = ClientIp.resolve(httpReq);
         Bucket bucket = mfaEnrollBuckets.computeIfAbsent(ip, k -> RateLimitConfig.createMfaEnrollBucket());
         if (!bucket.tryConsume(1)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();

@@ -1,7 +1,5 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api-client'
 import { formatDate } from '@/lib/utils'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -18,60 +16,23 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react'
-import type { ExchangeStatus, ExchangeType } from '@/types/api'
+import type { ExchangeType } from '@/types/api'
+import { SUPPORTED_EXCHANGES, exchangeRequiresApiSecret } from '@/types/api'
+import {
+  useCryptoExchangeStatuses,
+  useAddCryptoExchange,
+  useSyncCryptoExchange,
+  useRemoveCryptoExchange,
+} from '@/features/sync/hooks'
 import { extractErrorMessage } from '@/lib/errors'
-
-function useExchanges() {
-  return useQuery<ExchangeStatus[]>({
-    queryKey: ['crypto', 'exchanges'],
-    queryFn: () => api.get('/crypto/exchange/status').then(r => r.data),
-    refetchInterval: 60_000,
-  })
-}
-
-function useAddExchange() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (body: { type: ExchangeType; apiKey: string; apiSecret: string }) =>
-      api.post('/crypto/exchange', body),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['crypto', 'exchanges'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
-  })
-}
-
-function useSyncExchange() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (id: number) => api.post(`/crypto/exchange/${id}/sync`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['crypto', 'exchanges'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
-  })
-}
-
-function useRemoveExchange() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (id: number) => api.delete(`/crypto/exchange/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['crypto', 'exchanges'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
-  })
-}
+import { EXCHANGE_API_KEY_MAX_LENGTH, EXCHANGE_API_SECRET_MAX_LENGTH } from '@/lib/constants'
 
 export function CryptoExchangeTab() {
   const { t } = useTranslation()
-  const { data: exchanges, isLoading, error, refetch } = useExchanges()
-  const addMutation = useAddExchange()
-  const syncMutation = useSyncExchange()
-  const removeMutation = useRemoveExchange()
+  const { data: exchanges, isLoading, error, refetch } = useCryptoExchangeStatuses()
+  const addMutation = useAddCryptoExchange()
+  const syncMutation = useSyncCryptoExchange()
+  const removeMutation = useRemoveCryptoExchange()
 
   const [showAddForm, setShowAddForm] = useState(false)
   const [exchangeType, setExchangeType] = useState<ExchangeType>('BINANCE')
@@ -79,12 +40,32 @@ export function CryptoExchangeTab() {
   const [apiSecret, setApiSecret] = useState('')
   const [showSecret, setShowSecret] = useState(false)
   const [removingId, setRemovingId] = useState<number | null>(null)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  const requiresSecret = exchangeRequiresApiSecret(exchangeType)
+
+  function selectExchange(type: ExchangeType) {
+    setExchangeType(type)
+    // Drop anything typed under the previous exchange: sending a secret to a single-key exchange
+    // is a 400, and it would be entirely self-inflicted.
+    setApiSecret('')
+    setShowSecret(false)
+    setAddError(null)
+  }
 
   function handleAdd(e: React.FormEvent) {
     e.preventDefault()
+    setAddError(null)
     addMutation.mutate(
-      { type: exchangeType, apiKey, apiSecret },
+      { type: exchangeType, apiKey, apiSecret: requiresSecret ? apiSecret : undefined },
       {
+        // Without this the backend's rejections (a wrong key, a missing or stray secret) leave
+        // the form sitting there with no explanation at all.
+        // The fallback names only the credentials this exchange actually takes: telling a Meria
+        // user to check a secret they were never asked for sends them looking for a field that
+        // does not exist.
+        onError: (err: unknown) => setAddError(extractErrorMessage(err)
+          || t(requiresSecret ? 'sync.exchanges.connectError' : 'sync.exchanges.connectErrorKeyOnly')),
         onSuccess: () => {
           setApiKey('')
           setApiSecret('')
@@ -138,26 +119,31 @@ export function CryptoExchangeTab() {
     <div className="space-y-4">
       {/* Add exchange */}
       {!showAddForm ? (
-        <Button onClick={() => setShowAddForm(true)}>
+        <Button onClick={() => { setAddError(null); setShowAddForm(true) }}>
           <Plus />
           {t('sync.exchanges.add')}
         </Button>
       ) : (
         <Card size="sm">
           <CardContent className="space-y-4 p-4">
+            {addError && (
+              <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {addError}
+              </p>
+            )}
             <form onSubmit={handleAdd} className="space-y-4">
               <div className="space-y-2">
                 <Label>{t('sync.exchanges.type')}</Label>
-                <div className="flex gap-2">
-                  {(['BINANCE', 'KRAKEN'] as ExchangeType[]).map(type => (
+                <div className="flex flex-wrap gap-2">
+                  {SUPPORTED_EXCHANGES.map(exchange => (
                     <Button
-                      key={type}
+                      key={exchange.type}
                       type="button"
-                      variant={exchangeType === type ? 'default' : 'outline'}
+                      variant={exchangeType === exchange.type ? 'default' : 'outline'}
                       size="sm"
-                      onClick={() => setExchangeType(type)}
+                      onClick={() => selectExchange(exchange.type)}
                     >
-                      {type}
+                      {exchange.type}
                     </Button>
                   ))}
                 </div>
@@ -171,30 +157,38 @@ export function CryptoExchangeTab() {
                   onChange={e => setApiKey(e.target.value)}
                   placeholder={t('sync.exchanges.apiKey')}
                   required
+                  maxLength={EXCHANGE_API_KEY_MAX_LENGTH}
                 />
+                {!requiresSecret && (
+                  <p className="text-xs text-muted-foreground">{t('sync.exchanges.apiKeyOnly')}</p>
+                )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="exchange-api-secret">{t('sync.exchanges.apiSecret')}</Label>
-                <div className="relative">
-                  <Input
-                    id="exchange-api-secret"
-                    type={showSecret ? 'text' : 'password'}
-                    value={apiSecret}
-                    onChange={e => setApiSecret(e.target.value)}
-                    placeholder={t('sync.exchanges.apiSecret')}
-                    required
-                    className="pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSecret(prev => !prev)}
-                    className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    {showSecret ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </button>
+              {requiresSecret && (
+                <div className="space-y-2">
+                  <Label htmlFor="exchange-api-secret">{t('sync.exchanges.apiSecret')}</Label>
+                  <div className="relative">
+                    <Input
+                      id="exchange-api-secret"
+                      type={showSecret ? 'text' : 'password'}
+                      value={apiSecret}
+                      onChange={e => setApiSecret(e.target.value)}
+                      placeholder={t('sync.exchanges.apiSecret')}
+                      required
+                      maxLength={EXCHANGE_API_SECRET_MAX_LENGTH}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSecret(prev => !prev)}
+                      aria-label={t(showSecret ? 'sync.exchanges.hideSecret' : 'sync.exchanges.showSecret')}
+                      className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showSecret ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="flex gap-2">
                 <Button type="submit" disabled={addMutation.isPending}>
@@ -208,6 +202,7 @@ export function CryptoExchangeTab() {
                     setApiKey('')
                     setApiSecret('')
                     setShowSecret(false)
+                    setAddError(null)
                   }}
                 >
                   {t('common.cancel')}
@@ -227,7 +222,7 @@ export function CryptoExchangeTab() {
               ? undefined
               : {
                   label: t('sync.exchanges.add'),
-                  onClick: () => setShowAddForm(true),
+                  onClick: () => { setAddError(null); setShowAddForm(true) },
                 }
           }
         />

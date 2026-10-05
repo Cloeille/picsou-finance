@@ -47,7 +47,7 @@ public class RealizedPnlService {
         Account account = accountRepository.findByIdAndMemberId(accountId, memberId)
             .orElseThrow(() -> ResourceNotFoundException.account(accountId));
 
-        List<Transaction> stream = transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(
+        List<Transaction> stream = transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(
             accountId, List.of(TransactionType.BUY, TransactionType.SELL));
 
         // Moving-average state per ticker.

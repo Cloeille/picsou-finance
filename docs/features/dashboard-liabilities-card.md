@@ -1,6 +1,6 @@
 # Feature: Dashboard Liabilities Card
 
-> Last updated: 2026-06-28
+> Last updated: 2026-10-05
 
 ## Context
 
@@ -17,8 +17,9 @@ This feature addresses both issues (GitHub issue #18):
 - The PnL indicator already excludes loans — only the label was wrong. No logic change needed on the hero card.
 - A dedicated Liabilities card was preferred over expanding the hero card KPIs, to avoid mixing portfolio metrics with debt metrics in a single zone.
 - Dashboard data is enriched server-side (Approach 2) rather than N+1 per-loan calls, to keep the dashboard a single round-trip.
-- The Liabilities card is shown only when at least one `LOAN` account exists.
+- The Liabilities card is shown only when at least one liability (`LOAN` or `CREDIT_CARD`) exists.
 - Loans without a `Debt` row (e.g., Finary-imported loans that have only a balance) display their balance with a subtle "parameters not configured" hint — no CTA button.
+- A credit card has no amortisation, so it never shows the repayment line or the hint. It shows its next statement instead (amount due, payment date) when the provider reports it, and nothing extra otherwise (issue #197).
 
 ## Changes
 
@@ -40,6 +41,8 @@ BigDecimal totalMonthlyPayment  // null if no loan has a Debt row
 ```java
 BigDecimal monthlyPayment  // null if no Debt row
 Double percentPaid         // null if no Debt row — (borrowedAmount - abs(balance)) / borrowedAmount * 100
+BigDecimal paymentDueAmountEur  // CREDIT_CARD only: account.paymentDueAmount in EUR, weighted by the member's share
+LocalDate paymentDueDate        // CREDIT_CARD only: account.paymentDueDate
 ```
 
 **`DashboardService` changes:**
@@ -56,7 +59,7 @@ No `LoanAmortizationService.compute()` call — full schedule computation is too
 
 **File:** `frontend/src/components/shared/LiabilitiesCard.tsx`
 
-**Props:** `liabilities: DashboardData['liabilities']`, `totalMonthlyPayment: number | null`
+**Props:** `liabilities: DashboardLiability[]`, `totalMonthlyPayment?: number | null`
 
 **Layout (shadcn `Card`):**
 ```
@@ -75,8 +78,15 @@ No `LoanAmortizationService.compute()` call — full schedule computation is too
 </Card>
 ```
 
-**`LoanRow` sub-component (inline in same file):**
-- Configured loan (`percentPaid !== null`):
+**Row detail, chosen by `accountType`:**
+- `CREDIT_CARD` → `CardStatement`:
+  ```
+  [dot] Name                          −X €
+  Amount due 912,40 € · Due 5 November 2026
+  ```
+  Each half renders only when known; with neither, the row is the name and balance alone.
+- Anything else → `LoanProgress`.
+- Configured loan (`percentPaid != null`):
   ```
   [dot] Name                          −X €
   [====------] 32% · 1 050 €/month
@@ -103,24 +113,10 @@ Inserted between the Goals card and `<HoldingsCard />`.
 
 ### 4. TypeScript types
 
-In `frontend/src/types/api.ts`, extend `DashboardData`:
-```ts
-interface DashboardData {
-  // ...existing fields...
-  totalMonthlyPayment: number | null
-  liabilities: {
-    accountId: number
-    name: string
-    color: string
-    balanceEur: number
-    percentage: number
-    accountType: string
-    hasHoldings: boolean
-    monthlyPayment: number | null    // new
-    percentPaid: number | null       // new
-  }[]
-}
-```
+In `frontend/src/types/api.ts`, `DashboardData.liabilities` is `DashboardLiability[]`. Every
+field the backend can leave null is typed optional and nullable (`?: number | null`), because
+`spring.jackson.default-property-inclusion: non_null` drops it from the JSON:
+`totalMonthlyPayment`, `monthlyPayment`, `percentPaid`, `paymentDueAmountEur`, `paymentDueDate`.
 
 ## Data flow
 
@@ -138,9 +134,10 @@ DashboardService.buildDashboard()
 DashboardData arrives with enriched liabilities
   ↓
 LiabilitiesCard renders if liabilities.length > 0
-  └─ LoanRow per entry:
-       percentPaid !== null → Progress + monthly
-       percentPaid === null → balance + hint
+  └─ per entry:
+       CREDIT_CARD          → amount due / due date when known, else nothing
+       percentPaid != null  → Progress + monthly
+       percentPaid == null  → balance + hint
 ```
 
 ## Key files
@@ -167,4 +164,5 @@ LiabilitiesCard renders if liabilities.length > 0
 - **`totalLiabilities` is already negative** in the existing DTO (loan balances are stored negative). `totalMonthlyPayment` is a positive absolute value (payment amount).
 - **`percentPaid` formula uses stored balance**, not the amortization schedule. For Finary loans with manually-updated balances this is accurate enough. For loans with a Debt row, the stored balance is the computed remaining capital (updated daily by the snapshot job), so the formula is consistent.
 - **Monthly payment may be stored or computed.** Check `debt.monthlyPayment != null` first; if null, apply `M = P·r / (1−(1+r)^-n)`. This mirrors `LoanAmortizationService` — do not duplicate, extract to a shared method or call the service's helper.
+- **Check nullable fields with `!= null`, never `!== null`.** The API omits null fields, so they arrive as `undefined`. A strict `!== null` once sent a credit card down the configured-loan branch and rendered `NaN% · NaN €/mo` (issue #197).
 - **`LiabilitiesCard` is a pure presentational component** — it receives data from `DashboardPage`, no API call of its own.

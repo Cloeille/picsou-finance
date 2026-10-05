@@ -34,7 +34,7 @@ const MAPPING_FIELDS: { key: MappingField; optional: boolean }[] = [
 ]
 
 const SELECT_CLASS =
-  'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring'
+  'flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring [color-scheme:light] dark:[color-scheme:dark]'
 
 export function ImportTransactionsModal({ open, onOpenChange, accountId }: ImportTransactionsModalProps) {
   const { t } = useTranslation()

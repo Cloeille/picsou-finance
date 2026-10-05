@@ -3,67 +3,74 @@ package com.picsou.port;
 import com.picsou.model.AccountType;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.List;
 
+/**
+ * The domain's typed contract onto BoursoBank. Everything that knows about
+ * BoursoBank's HTML, its virtual keyboard or its app-push choreography lives in
+ * the sidecar behind {@code BoursoAdapter}; this interface does not change when
+ * BoursoBank redesigns.
+ */
 public interface BoursoPort {
 
     /**
-     * Step 1: Authenticates with BoursoBank using the virtual keyboard challenge.
+     * Signs in with the customer number and the numeric password.
      *
-     * @param customerId BoursoBank client number
-     * @param password   numeric password
-     * @return result indicating whether MFA is required; if not, sessionCookies is populated
+     * <p>Either completes outright — {@code mfaRequired == false} and
+     * {@code sessionState} populated — or reports that BoursoBank pushed a
+     * validation to the customer's phone.
      */
     InitiateResult initiateAuth(String customerId, String password);
 
     /**
-     * Step 2 (MFA only): Completes the MFA flow with the received OTP code.
+     * Waits for the customer to approve the push, then returns the session.
      *
-     * @param processId returned by {@link #initiateAuth}
-     * @param code      OTP code (from SMS, email, or app notification)
-     * @return serialized session cookies to store in DB
+     * <p>Takes no code: the app push is the only second factor supported, and
+     * an SMS/e-mail prompt is reported as {@link BoursoErrorCode#MFA_TYPE_UNSUPPORTED}
+     * during {@link #initiateAuth} rather than half-driven here.
      */
-    String completeAuth(String processId, String code);
+    String completeAuth(String processId);
 
     /**
-     * Fetches all accounts with current balances, positions (for PEA/CTO),
-     * and recent transactions (last 90 days).
-     *
-     * @param sessionCookies serialized cookies returned by auth flow
+     * Reads every in-scope account: current accounts, livrets and the securities
+     * accounts with their positions. Aggregated third-party accounts and loans
+     * are filtered out by the sidecar.
      */
-    List<BoursoAccountData> fetchAccounts(String sessionCookies);
+    List<AccountData> fetchAccounts(String sessionState);
 
     record InitiateResult(
         String processId,
         boolean mfaRequired,
         String mfaType,
-        String contact,
-        String sessionCookies   // populated only when mfaRequired == false
+        /** Populated only when {@code mfaRequired == false}. */
+        String sessionState
     ) {}
 
-    record BoursoPosition(
+    /**
+     * One open position. {@code currentPrice} is expressed in
+     * {@code quoteCurrency}; {@code buyingPriceEur}, {@code currentValueEur} and
+     * {@code pnlEur} are always EUR.
+     */
+    record Position(
         String isin,
         String symbol,
         String label,
         BigDecimal quantity,
-        BigDecimal buyingPrice,
-        BigDecimal currentPrice
+        BigDecimal buyingPriceEur,
+        BigDecimal currentPrice,
+        String quoteCurrency,
+        BigDecimal currentValueEur,
+        BigDecimal pnlEur
     ) {}
 
-    record BoursoTransaction(
-        LocalDate date,
-        String label,
-        BigDecimal amount,
-        String category
-    ) {}
-
-    record BoursoAccountData(
+    record AccountData(
         String externalId,
         String name,
         AccountType type,
         BigDecimal balanceEur,
-        List<BoursoPosition> positions,
-        List<BoursoTransaction> transactions
+        /** Non-null for securities accounts only; a livret has no cash leg. */
+        BigDecimal cashBalance,
+        List<Position> positions,
+        boolean snapshotComplete
     ) {}
 }

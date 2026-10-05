@@ -74,7 +74,7 @@ public class IntegrationsHealthService {
         try {
             String jwt = buildJwt(appId.get(), keyId.get(), privateKey.get());
             ebClient.get()
-                .uri(uri -> uri.path("/aspsps").queryParam("psu_type", "personal").queryParam("country", "FR").build())
+                .uri(uri -> uri.path("/aspsps").queryParam("country", "FR").build())
                 .header("Authorization", "Bearer " + jwt)
                 .retrieve()
                 .toBodilessEntity()

@@ -91,7 +91,7 @@ class HoldingComputeServiceTest {
         Account account = account(1L);
         Transaction buy = buyTx("AAPL", "10", "150.00");
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(buy));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of());
@@ -117,7 +117,7 @@ class HoldingComputeServiceTest {
         Transaction buy1 = buyTx("ETH", "10", "100.00");
         Transaction buy2 = buyTx("ETH", "20", "200.00");
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(buy1, buy2));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of());
@@ -140,7 +140,7 @@ class HoldingComputeServiceTest {
         // Buy 10 @ 100 with 5 fees → averageBuyIn = (10*100 + 5) / 10 = 100.5 (French PEA PMP convention)
         Transaction buy = buyTxWithFees("AAPL", "10", "100.00", "5.00");
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(buy));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of());
@@ -163,7 +163,7 @@ class HoldingComputeServiceTest {
         Transaction buy1 = buyTxWithFees("ETH", "10", "100.00", "5.00");
         Transaction buy2 = buyTxWithFees("ETH", "10", "200.00", "5.00");
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(buy1, buy2));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of());
@@ -185,7 +185,7 @@ class HoldingComputeServiceTest {
         // No fees recorded → averageBuyIn = plain VWAP = 100
         Transaction buy = buyTxWithFees("BTC", "10", "100.00", null);
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(buy));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of());
@@ -206,7 +206,7 @@ class HoldingComputeServiceTest {
         Transaction buy = buyTx("BTC", "5", "30000.00");
         Transaction sell = sellTx("BTC", "2");
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(buy, sell));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of());
@@ -237,7 +237,7 @@ class HoldingComputeServiceTest {
                 .quantity(new BigDecimal("10"))
                 .build();
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(buy, sell));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of(existing));
@@ -269,7 +269,7 @@ class HoldingComputeServiceTest {
                 .pricePerUnit(new BigDecimal("100"))
                 .build();
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(buy));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of());
@@ -290,7 +290,7 @@ class HoldingComputeServiceTest {
         Transaction buyAapl = buyTx("AAPL", "10", "150.00");
         Transaction buyMsft = buyTx("MSFT", "5", "300.00");
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(buyAapl, buyMsft));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of());
@@ -328,7 +328,7 @@ class HoldingComputeServiceTest {
             .pricePerUnit(new BigDecimal("50000"))
             .build();
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
             .thenReturn(List.of(tx));
         when(accountHoldingRepository.findByAccount_Id(1L))
             .thenReturn(List.of());
@@ -345,7 +345,7 @@ class HoldingComputeServiceTest {
         // Buy 10 with no price — should use 0 for VWAP computation
         Transaction buy = buyTx("XRP", "10", null);
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(buy));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of());
@@ -375,7 +375,7 @@ class HoldingComputeServiceTest {
                 .averageBuyIn(new BigDecimal("300.00"))
                 .build();
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(buy));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of(existing));
@@ -404,7 +404,7 @@ class HoldingComputeServiceTest {
         Transaction newer = buyTxWithName("IWDA.AS", "5", "90.00",
                 "iShares Core MSCI World UCITS ETF", LocalDate.of(2024, 3, 1));
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(older, newer));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of());
@@ -434,7 +434,7 @@ class HoldingComputeServiceTest {
                 .quantity(new BigDecimal("1"))
                 .build();
 
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
                 .thenReturn(List.of(buy));
         when(accountHoldingRepository.findByAccount_Id(1L))
                 .thenReturn(List.of(existing));

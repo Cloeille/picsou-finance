@@ -1,5 +1,6 @@
 package com.picsou.controller;
 
+import com.picsou.config.ClientIp;
 import com.picsou.config.RateLimitConfig;
 import com.picsou.dto.BoursoBankHealthResponse;
 import com.picsou.dto.CryptoKeyGenerateResponse;
@@ -52,9 +53,13 @@ import java.util.Map;
  * <h3>Rate limiting</h3>
  * 10 mutating requests per minute per client IP (see {@code setupBuckets} in
  * {@link RateLimitConfig}). {@code GET /status} is polled by the frontend
- * and is exempt. IP is read from {@code RemoteAddr} only — never
- * {@code X-Forwarded-For} — since the deployment contract is nginx on the
- * docker bridge, so the only legitimate remote is the reverse-proxy IP.
+ * and is exempt. The key is {@link com.picsou.config.ClientIp#resolve}, never
+ * {@code request.getRemoteAddr()} directly and never {@code X-Forwarded-For}:
+ * under {@code server.forward-headers-strategy: framework} (the deployment
+ * contract is nginx on the docker bridge), {@code getRemoteAddr()} itself is
+ * rewritten from the client-suppliable leftmost X-Forwarded-For entry, so it
+ * is no safer than trusting the header outright. {@code ClientIp} reads
+ * nginx's {@code X-Real-IP} instead, which a client cannot inject.
  */
 @RestController
 @RequestMapping("/api/setup")
@@ -245,9 +250,10 @@ public class SetupController {
         if (!consumeRateLimitToken(httpRequest)) return rateLimited();
         requireNotComplete();
 
-        if (!"traderepublic".equals(key) && !"finary".equals(key)) {
+        if (!"traderepublic".equals(key) && !"finary".equals(key) && !"boursedirect".equals(key)
+            && !"fortuneo".equals(key)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                "This step only applies to the Trade Republic and Finary integrations.");
+                "This step only applies to integrations configured after signing in.");
         }
         integrationsService.enable(key);
         auditService.record("setup.integration.enabled", null, httpRequest, "key=" + key);
@@ -276,7 +282,7 @@ public class SetupController {
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private boolean consumeRateLimitToken(HttpServletRequest request) {
-        String ip = request.getRemoteAddr();
+        String ip = ClientIp.resolve(request);
         Bucket bucket = setupBuckets.computeIfAbsent(ip, k -> RateLimitConfig.createSetupBucket());
         return bucket.tryConsume(1);
     }

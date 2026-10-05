@@ -59,6 +59,14 @@ public class PriceController {
 
     /**
      * Intraday hourly prices for a single ticker (last 24h) from external providers.
+     *
+     * <p>Deliberately does <em>not</em> catch and degrade, unlike
+     * {@code HistoryService.buildIntradayHistory}. That method loops over many tickers, so
+     * swallowing one failure still leaves a useful chart; here the single ticker <em>is</em>
+     * the whole response, and returning an empty list would be indistinguishable from "this
+     * ticker genuinely has no intraday data". The price providers already swallow expected
+     * upstream failures and return no prices, so anything propagating here is a real bug and
+     * a 500 is the honest answer.
      */
     @GetMapping("/{ticker}/intraday")
     public List<Map<String, Object>> getPriceIntraday(@PathVariable String ticker) {

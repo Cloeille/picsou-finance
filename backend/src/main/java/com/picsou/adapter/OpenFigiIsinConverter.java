@@ -1,12 +1,14 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.picsou.port.SymbolCatalogPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -17,6 +19,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * Trade Republic returns ISIN codes (e.g. IE00BYVQ9F29) but Yahoo Finance expects
  * ticker symbols (e.g. IWDA.AS, MC.PA). This adapter fills that gap.
+ *
+ * OpenFIGI answers with every listing of an instrument, not with the one Yahoo quotes,
+ * so the pick is verified against Yahoo before it is returned — see {@link #priceable}.
  *
  * OpenFIGI API: https://www.openfigi.com/api
  * No authentication required. Rate limit: 25 requests/min without API key.
@@ -33,6 +38,21 @@ public class OpenFigiIsinConverter {
     /** ISIN format: 2-letter country code + 9 alphanumerics + 1 check digit. */
     private static final java.util.regex.Pattern ISIN_PATTERN =
         java.util.regex.Pattern.compile("[A-Z]{2}[A-Z0-9]{9}[A-Z0-9]");
+
+    private static final java.util.regex.Pattern SYMBOL_PATTERN =
+        java.util.regex.Pattern.compile("[A-Z0-9][A-Z0-9.-]{0,14}");
+
+    /** How many of Yahoo's own matches for an ISIN are probed before giving up — see {@link #priceable}. */
+    private static final int MAX_VERIFIED_CANDIDATES = 3;
+
+    /**
+     * Wall-clock ceiling on verifying one ISIN. {@code resolve()} runs on the write path, inside
+     * the transaction of a user saving a transaction or importing a CSV — a bound on the number of
+     * probes is not a bound on the time they take. Verification is an improvement, never a
+     * requirement: when the budget runs out the OpenFIGI pick is returned as it would have been
+     * without any of this.
+     */
+    private static final Duration VERIFY_BUDGET = Duration.ofSeconds(10);
 
     /**
      * Whether {@code s} looks like an ISIN (2-letter country code + 9 alphanumerics
@@ -132,11 +152,18 @@ public class OpenFigiIsinConverter {
 
     private final WebClient webClient;
     private final CoinGeckoPriceProvider coinGecko;
+    /**
+     * The catalog the resolved symbol is verified against — {@link YahooFinancePriceProvider} in
+     * production, behind {@link SymbolCatalogPort} because the only thing this class needs from it
+     * is "do you carry this symbol", not a price source.
+     */
+    private final SymbolCatalogPort symbolCatalog;
     // Cache: ISIN → TickerResult. Null value means conversion failed.
     private final Map<String, TickerResult> cache = new ConcurrentHashMap<>();
 
-    public OpenFigiIsinConverter(CoinGeckoPriceProvider coinGecko) {
+    public OpenFigiIsinConverter(CoinGeckoPriceProvider coinGecko, SymbolCatalogPort symbolCatalog) {
         this.coinGecko = coinGecko;
+        this.symbolCatalog = symbolCatalog;
         this.webClient = WebClient.builder()
             .baseUrl("https://api.openfigi.com")
             .defaultHeader("Content-Type", "application/json")
@@ -185,26 +212,99 @@ public class OpenFigiIsinConverter {
                      normalized, symbol);
         }
 
+        TickerResult figi;
         try {
-            TickerResult result = fetchFromOpenFigi(normalized);
-            if (result != null) {
-                cache.put(normalized, result);
-                log.info("ISIN {} resolved via OpenFIGI -> {} ({})", normalized, result.ticker, result.name);
-                return result;
-            } else {
-                // Cache a fallback result so we don't retry
-                TickerResult fallback = new TickerResult(normalized, null);
-                cache.put(normalized, fallback);
-                log.warn("OpenFIGI returned no ticker for ISIN {}, will use ISIN as-is", normalized);
-                return fallback;
-            }
+            figi = fetchFromOpenFigi(normalized);
         } catch (Exception ex) {
-            TickerResult fallback = new TickerResult(normalized, null);
-            cache.put(normalized, fallback);
-            log.warn("Failed to convert ISIN {} via OpenFIGI: {}, will use ISIN as-is",
-                     normalized, ex.getMessage());
-            return fallback;
+            figi = null;
+            log.warn("Failed to convert ISIN {} via OpenFIGI: {}", normalized, ex.getMessage());
         }
+
+        TickerResult result = priceable(normalized, figi);
+        if (result == null) {
+            // Cache the fallback too so we don't retry every call
+            result = new TickerResult(normalized, null);
+            log.warn("No Yahoo-quotable ticker for ISIN {} (OpenFIGI: {}), will use ISIN as-is",
+                     normalized, figi == null ? "no result" : figi.ticker());
+        } else if (figi != null && result.ticker.equals(figi.ticker)) {
+            log.info("ISIN {} resolved via OpenFIGI -> {} ({})", normalized, result.ticker, result.name);
+        }
+        cache.put(normalized, result);
+        return result;
+    }
+
+    /**
+     * The ticker to actually persist for {@code isin}: OpenFIGI's pick when Yahoo quotes it, else
+     * the first symbol Yahoo's own search returns for the ISIN that Yahoo quotes, else the
+     * OpenFIGI pick unverified (null when there was none).
+     *
+     * <p>OpenFIGI knows every listing of an instrument but not which one Yahoo carries, and there
+     * is no exchange-code heuristic that predicts it — {@link #pickBest} documents an attempt that
+     * fixed one holding and broke two others. So instead of guessing better, verify: an Irish
+     * UCITS ETF whose US OTC listing is delisted ({@code IE000BI8OT95} → {@code MWRDF}, no Yahoo
+     * data) now resolves to the Paris listing Yahoo does quote ({@code MWRD.PA}), while the two
+     * holdings that the reordering broke keep the US OTC tickers that work for them. Without this,
+     * every position of an all-ETF account can end up unquotable, and since an unpriced holding is
+     * excluded from its account's value, the account itself reads 0 € (GH issues #74, #78).
+     *
+     * <p>The OpenFIGI pick is only ever replaced on a <em>positive</em> quote for a different
+     * symbol, never on a failure to quote the pick: a rate-limited or unreachable Yahoo leaves the
+     * result exactly as it was before this validation existed.
+     *
+     * <p>Cost, per ISIN and once per process (the caller caches): <b>1</b> Yahoo request when the
+     * pick quotes, which is the common case; <b>at most 5</b> otherwise — the probe, the search,
+     * and up to {@link #MAX_VERIFIED_CANDIDATES} candidate probes. Yahoo returns its matches in
+     * relevance order, so a listing that is not in the first few is not the one being looked for,
+     * and probing the whole list would turn a miss into eight requests.
+     */
+    TickerResult priceable(String isin, TickerResult figi) {
+        Instant deadline = Instant.now().plus(VERIFY_BUDGET);
+        if (figi != null && symbolCatalog.hasQuote(figi.ticker)) {
+            return figi;
+        }
+        int probed = 0;
+        for (SymbolCatalogPort.SymbolMatch match : symbolCatalog.searchSymbols(isin)) {
+            if (figi != null && match.symbol().equals(figi.ticker)) {
+                continue; // already probed above, and it did not quote
+            }
+            if (probed == MAX_VERIFIED_CANDIDATES || Instant.now().isAfter(deadline)) {
+                log.debug("ISIN {}: giving up on the remaining Yahoo matches ({})", isin,
+                          probed == MAX_VERIFIED_CANDIDATES ? "candidate limit" : "verification budget spent");
+                break;
+            }
+            probed++;
+            if (symbolCatalog.hasQuote(match.symbol())) {
+                // OpenFIGI's name is the instrument's official one; Yahoo's is a display label
+                // truncated to ~32 chars ("ISHARES III PLC ISHRS CORE MSCI"), so it is only a
+                // fallback for when OpenFIGI resolved nothing at all.
+                String name = figi != null && figi.name != null ? figi.name : match.name();
+                log.info("ISIN {} -> {} via Yahoo search ({})", isin, match.symbol(),
+                         figi == null ? "OpenFIGI returned nothing" : figi.ticker + " has no Yahoo quote");
+                return new TickerResult(match.symbol(), name);
+            }
+        }
+        return figi;
+    }
+
+    /**
+     * Resolves a broker position that carries an ISIN <em>or</em> only the broker's own
+     * symbol (BoursoBank, DEGIRO). The ISIN wins because it prices through Yahoo; the
+     * symbol is the fallback. The broker's label is kept unless OpenFIGI knows a name,
+     * which is more descriptive than the abbreviations brokers ship.
+     *
+     * @param isin         the position's ISIN, possibly null/blank
+     * @param symbol       the broker's own symbol, used when there is no ISIN
+     * @param providerName the broker's label for the instrument
+     */
+    public TickerResult resolveIsinOrSymbol(String isin, String symbol, String providerName) {
+        if (isin == null || isin.isBlank()) {
+            return new TickerResult(symbol, providerName);
+        }
+        TickerResult resolved = resolve(isin);
+        return new TickerResult(
+            resolved.ticker(),
+            resolved.name() != null ? resolved.name() : providerName
+        );
     }
 
     private TickerResult fetchFromOpenFigi(String isin) {
@@ -250,18 +350,37 @@ public class OpenFigiIsinConverter {
      * Picks the best Yahoo Finance ticker + name from OpenFIGI results.
      * Strategy:
      * 1. Home exchange (based on ISIN country) — best Yahoo coverage
-     * 2. US OTC/ADR — good Yahoo coverage for international stocks
+     * 2. US OTC/ADR — for non-US ISINs, US listings often have best Yahoo coverage
      * 3. EU exchanges — EUR pricing
      * 4. Any known exchange
+     *
+     * Tried reversing 2 and 3 (2026-08-05) on the theory that Irish/Luxembourg-
+     * domiciled UCITS ETFs — which have no {@code HOME_EXCHANGE} entry — would
+     * be better served by their real European listing than a thin US OTC ticker.
+     * That was true for one holding (IE000BI8OT95 "MWRD" — OTC "MWRDF" has no
+     * live Yahoo quote, EU "WRDU.AS" does) but **broke two others on the same
+     * live portfolio**: IE00BGSF1X88 and IE00BD6FTQ80 resolve to Yahoo-unlisted
+     * EU tickers (`IB01.AS`, `SC0L.DE` — both confirmed "No data found, symbol
+     * may be delisted"), while their original US OTC tickers (`ISHUF`,
+     * `IBBCF`) are confirmed live and priced. Reverted: there is no exchange-
+     * code heuristic that reliably predicts which specific ticker variant
+     * actually has a live Yahoo quote for a given Irish/Luxembourg ISIN — it
+     * varies per instrument, and swapping the global order traded one broken
+     * holding for two different ones.
+     *
+     * <p>Which is why the order below is no longer the last word: {@link #priceable}
+     * verifies the pick against Yahoo and falls back to Yahoo's own search for the
+     * ISIN when it has no quote. This method stays a pure, offline heuristic — it
+     * still decides which listing is <em>preferred</em> among those that work.
      */
-    private TickerResult pickBest(String isin, List<Map<String, Object>> entries) {
+    TickerResult pickBest(String isin, List<Map<String, Object>> entries) {
         // Build a map: exchCode → (yahooTicker, name)
         Map<String, String[]> byExchange = new java.util.LinkedHashMap<>();
         for (Map<String, Object> entry : entries) {
-            String ticker = (String) entry.get("ticker");
+            String ticker = normalizeSymbol((String) entry.get("ticker"));
             String exchCode = (String) entry.get("exchCode");
             String name = (String) entry.get("name");
-            if (ticker == null || ticker.isBlank() || exchCode == null) continue;
+            if (ticker == null || exchCode == null) continue;
 
             String suffix = EXCHANGE_SUFFIX.get(exchCode);
             if (suffix != null && !byExchange.containsKey(exchCode)) {
@@ -304,14 +423,22 @@ public class OpenFigiIsinConverter {
 
         // 5. Raw ticker from first entry
         for (Map<String, Object> entry : entries) {
-            String ticker = (String) entry.get("ticker");
+            String ticker = normalizeSymbol((String) entry.get("ticker"));
             String name = (String) entry.get("name");
-            if (ticker != null && !ticker.isBlank()) {
+            if (ticker != null) {
                 return new TickerResult(ticker, name);
             }
         }
 
         return null;
+    }
+
+    private static String normalizeSymbol(String ticker) {
+        if (ticker == null) {
+            return null;
+        }
+        String normalized = ticker.trim().toUpperCase(Locale.ROOT);
+        return SYMBOL_PATTERN.matcher(normalized).matches() ? normalized : null;
     }
 
     record MappingJob(

@@ -1,12 +1,12 @@
 # Feature: Realized P&L on closed positions
 
-> Last updated: 2026-07-11
+> Last updated: 2026-07-20
 
 ## Context
 
 The portfolio view only shows **open** holdings, so once a position is fully sold it disappears and
 its gain/loss is invisible — you could only infer it from the raw transaction list
-([issue #38](https://github.com/Zoeille/picsou-finance/issues/38)). This adds a realized P&L series
+([issue #38](https://github.com/Cloeille/picsou-finance/issues/38)). This adds a realized P&L series
 computed from the transaction stream, surfaced as a "realized gains" section on the account page.
 
 ## How it works
@@ -17,6 +17,16 @@ order and maintains a **moving-average (PMP) cost basis** per ticker:
 - **BUY**: `costPool += qty·price + fees`, `qtyHeld += qty` (buy fees are part of the cost).
 - **SELL**: `avgCost = costPool / qtyHeld`; `proceeds = qty·price − fees`;
   `realized = proceeds − avgCost·qtySold`; then draw the pool down by `avgCost·qtySold`.
+
+This pass is **order-sensitive**: a same-day SELL walked before its BUY sees `held = 0`, costs the
+sale at zero, and reports the full proceeds as realized gain (plus a spurious over-sell warning).
+`TransactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc` therefore orders by
+`(date, id)`, not `date` alone — `Transaction.date` is a day-granularity `LocalDate`, so two
+same-day rows would otherwise come back in undefined database order. `id` is a deterministic
+tiebreaker equal to insertion order (auto-increment), so **same-day transactions are processed in
+the order they were entered/imported**. This is a stable-processing guarantee, not a semantic
+reordering: a genuinely out-of-order same-day entry (e.g. a sale keyed in before its matching buy)
+still — correctly and visibly — triggers the over-sell warning below.
 
 An over-sell (selling more than is held, or with no prior buy) clamps the costed quantity to what's
 held — no fabricated negative cost — and flags a per-ticker `warning`. Everything is in the
@@ -60,11 +70,16 @@ See ADR [2026-07-11-realized-pnl-average-cost-on-the-fly](../decisions/2026-07-1
 ## Tests
 
 - `RealizedPnlServiceTest` — partial/full close, fee folding, over-sell (clamp + warning),
-  sell-without-buy, account currency, buys-only (empty).
+  sell-without-buy, account currency, buys-only (empty), and the same-day ordering behavioral
+  contract: BUY-then-SELL in insertion order realizes the correct gain with no warning, while the
+  reversed order documents the over-sell-warning failure mode that DB ordering must prevent.
+- `TransactionRepositoryTest` (`@DataJpaTest` + H2) — persists a SELL then a BUY on the same date
+  and asserts `findByAccountIdAndTxTypeInOrderByDateAscIdAsc` returns them in insertion order
+  (`(date, id)`), consistently across repeated calls.
 - `RealizedPnlSection.test.tsx` — green/red total, hidden when no lots.
 
 ## Links
 
 - ADR: [realized-pnl-average-cost-on-the-fly](../decisions/2026-07-11-realized-pnl-average-cost-on-the-fly.md)
 - [live-prices-holdings.md](live-prices-holdings.md) · [dashboard-liabilities-separation.md](dashboard-liabilities-separation.md)
-- Ticket: [issue #38](https://github.com/Zoeille/picsou-finance/issues/38)
+- Ticket: [issue #38](https://github.com/Cloeille/picsou-finance/issues/38)

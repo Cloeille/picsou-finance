@@ -21,6 +21,7 @@ import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.sync.SyncProgressService;
 import com.picsou.service.sync.SyncProvider;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -134,7 +135,11 @@ public class RevolutSyncService {
         try {
             harvested = harvest(creds.phone(), creds.passcode(), memberId, allowLogin);
         } catch (SyncException e) {
-            throw new SyncException(friendly(e.getMessage()));
+            String code = e.getCode();
+            if (code == null && "SESSION_EXPIRED".equals(e.getMessage())) {
+                code = "SESSION_EXPIRED";
+            }
+            throw new SyncException(friendly(e.getMessage()), e, code);
         }
 
         // Persist ALL harvested accounts (unattended/scheduler path keeps its auto-import-everything
@@ -368,18 +373,27 @@ public class RevolutSyncService {
      * for a voluntary reconnect, or it would silently resurrect accounts the user deliberately
      * deleted. See docs/lessons/soft-delete-resurrection-guard-voluntary-reconnect.md.
      */
-    public void resyncIfSessionActive(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         Optional<RevolutSession> session = sessionRepository.findByMemberId(memberId);
         if (session.isEmpty() || !session.get().isRememberCredentials()) {
-            return;
+            return new SourceSyncResult("revolut", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No remembered credentials");
         }
 
         try {
             sync(memberId, null, null, true, false);
+            return new SourceSyncResult("revolut", SourceSyncResult.Status.SYNCED, "");
+        } catch (SyncException ex) {
+            return SourceSyncResult.fromSyncException("revolut", ex);
         } catch (Exception ex) {
-            log.warn("Revolut auto-sync failed for member {}: {}", memberId, ex.getMessage());
+            log.error("Revolut scheduled sync failed unexpectedly for member {}", memberId, ex);
+            return new SourceSyncResult("revolut", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
+
+    public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId); // ignore return; no rethrow to keep existing callers/tests
+    }
+
 
     // ─── Credentials (optional, member opt-in) ───────────────────────────────────
 

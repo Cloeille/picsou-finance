@@ -1,6 +1,8 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.picsou.adapter.util.JsonRpcResponse;
+import com.picsou.model.Chain;
 import com.picsou.port.WalletPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,15 +38,20 @@ public class SolanaWalletAdapter implements WalletPort {
     private final WebClient webClient;
 
     public SolanaWalletAdapter() {
-        this.webClient = WebClient.builder()
+        this(WebClient.builder()
             .baseUrl(RPC_URL)
             .defaultHeader("Content-Type", "application/json")
-            .build();
+            .build());
+    }
+
+    // Package-private seam for tests: inject a WebClient backed by an ExchangeFunction.
+    SolanaWalletAdapter(WebClient webClient) {
+        this.webClient = webClient;
     }
 
     @Override
-    public String chain() {
-        return "SOLANA";
+    public Chain chain() {
+        return Chain.SOLANA;
     }
 
     @Override
@@ -70,12 +77,8 @@ public class SolanaWalletAdapter implements WalletPort {
             .timeout(Duration.ofSeconds(10))
             .block();
 
-        if (response == null) {
-            log.warn("Solana RPC returned null for address {}", address);
-            return new WalletBalance("SOL", BigDecimal.ZERO);
-        }
-
-        long lamports = response.path("result").path("value").asLong(0);
+        JsonNode result = JsonRpcResponse.requireResult(response, "Solana getBalance");
+        long lamports = result.path("value").asLong(0);
         BigDecimal sol = new BigDecimal(lamports).divide(LAMPORTS_PER_SOL, 9, RoundingMode.HALF_UP);
 
         log.info("Solana balance for {}: {} SOL", address, sol);
@@ -106,13 +109,11 @@ public class SolanaWalletAdapter implements WalletPort {
             .timeout(Duration.ofSeconds(10))
             .block();
 
-        if (response == null) {
-            log.warn("Solana SPL RPC returned null for address {}", address);
-            return List.of();
-        }
-
-        JsonNode accounts = response.path("result").path("value");
+        JsonNode accounts = JsonRpcResponse
+            .requireResult(response, "Solana getTokenAccountsByOwner")
+            .path("value");
         if (!accounts.isArray()) {
+            log.warn("Solana getTokenAccountsByOwner returned non-array 'value': {}", accounts);
             return List.of();
         }
 
@@ -128,6 +129,11 @@ public class SolanaWalletAdapter implements WalletPort {
             try {
                 amount = new BigDecimal(uiAmount);
             } catch (NumberFormatException ex) {
+                // Corrupt balance from the RPC: skip this one token but log
+                // loudly rather than dropping it silently. Failing the whole
+                // sync over one bad field would also hide the SOL balance and
+                // every other token.
+                log.error("Failed to parse SPL token balance for mint {}: '{}'", mint, uiAmount, ex);
                 continue;
             }
             if (amount.signum() <= 0) continue;

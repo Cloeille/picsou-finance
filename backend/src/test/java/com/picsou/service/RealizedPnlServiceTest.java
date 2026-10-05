@@ -61,7 +61,7 @@ class RealizedPnlServiceTest {
 
     private RealizedPnlResponse compute(Account account, Transaction... txs) {
         when(accountRepository.findByIdAndMemberId(1L, 10L)).thenReturn(Optional.of(account));
-        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAsc(eq(1L), anyList()))
+        when(transactionRepository.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(1L), anyList()))
             .thenReturn(List.of(txs));
         return service.compute(1L, 10L);
     }
@@ -132,5 +132,77 @@ class RealizedPnlServiceTest {
 
         assertThat(r.currency()).isEqualTo("USD");
         assertThat(r.realizedTotal()).isEqualByComparingTo("10");
+    }
+
+    /**
+     * Pins the behavioral contract that the repository's {@code (date, id)} ordering exists to
+     * protect. A same-day BUY-then-SELL stream, returned by the (mocked) repository in insertion
+     * order: BUY 10 @ 100 -> avg cost 100; SELL 10 @ 110 fees 0 -> proceeds 1100, cost 1000,
+     * realized 100. No warning, because quantity sold (10) never exceeds quantity held (10).
+     */
+    @Test
+    void sameDayBuyThenSell_inInsertionOrder_realizesGainNoWarning() {
+        LocalDate sameDay = LocalDate.of(2026, 7, 1);
+        Transaction buy = Transaction.builder()
+            .account(account("EUR"))
+            .date(sameDay)
+            .txType(TransactionType.BUY)
+            .ticker("AAPL").name("AAPL")
+            .quantity(new BigDecimal("10"))
+            .pricePerUnit(new BigDecimal("100"))
+            .amount(BigDecimal.ZERO)
+            .build();
+        Transaction sell = Transaction.builder()
+            .account(account("EUR"))
+            .date(sameDay)
+            .txType(TransactionType.SELL)
+            .ticker("AAPL").name("AAPL")
+            .quantity(new BigDecimal("10"))
+            .pricePerUnit(new BigDecimal("110"))
+            .fees(BigDecimal.ZERO)
+            .amount(BigDecimal.ZERO)
+            .build();
+
+        RealizedPnlResponse r = compute(account("EUR"), buy, sell);
+
+        assertThat(r.realizedTotal()).isEqualByComparingTo("100");
+        assertThat(r.byTicker().get(0).warning()).isFalse();
+    }
+
+    /**
+     * Same two same-day transactions, repository order reversed (SELL before BUY) -- exactly what
+     * an undefined date-only DB order could hand back. RealizedPnlService never reorders same-day
+     * rows itself (that is the repository's job), so the SELL is walked against a still-empty
+     * pool: held=0 -> avgCost=0, costed quantity clamped to 0, realized = full proceeds (1100),
+     * and the over-sell warning fires. This is the silent-wrong-money failure mode that the
+     * repository's (date, id) ordering guarantee must prevent from happening on real data.
+     */
+    @Test
+    void sameDaySellThenBuy_reversedOrder_documentsOverSellWarningContract() {
+        LocalDate sameDay = LocalDate.of(2026, 7, 1);
+        Transaction buy = Transaction.builder()
+            .account(account("EUR"))
+            .date(sameDay)
+            .txType(TransactionType.BUY)
+            .ticker("AAPL").name("AAPL")
+            .quantity(new BigDecimal("10"))
+            .pricePerUnit(new BigDecimal("100"))
+            .amount(BigDecimal.ZERO)
+            .build();
+        Transaction sell = Transaction.builder()
+            .account(account("EUR"))
+            .date(sameDay)
+            .txType(TransactionType.SELL)
+            .ticker("AAPL").name("AAPL")
+            .quantity(new BigDecimal("10"))
+            .pricePerUnit(new BigDecimal("110"))
+            .fees(BigDecimal.ZERO)
+            .amount(BigDecimal.ZERO)
+            .build();
+
+        RealizedPnlResponse r = compute(account("EUR"), sell, buy);
+
+        assertThat(r.realizedTotal()).isEqualByComparingTo("1100");
+        assertThat(r.byTicker().get(0).warning()).isTrue();
     }
 }

@@ -1,760 +1,808 @@
-"""
-BoursoBank Auth & Sync Sidecar
-------------------------------
-Handles BoursoBank authentication (virtual keyboard challenge + optional MFA)
-and account/position/transaction data fetching.
+"""Read-only BoursoBank authentication and accounts sidecar.
+
+BoursoBank has no public API. This service speaks its web front end over plain
+HTTPS -- no browser is needed, because there is no JavaScript challenge to
+execute: the one anti-bot token (`__brs_mit`) is handed out by the server and
+echoed back. The endpoint shapes and the login choreography are taken from the
+reference implementation (https://github.com/azerpas/bourso-api) rather than
+guessed.
 
 Auth flow:
-  POST /initiate  {customerId, password}
-    → no MFA:  {processId, mfaRequired: false, sessionCookies: "..."}
-    → MFA:     {processId, mfaRequired: true, mfaType, contact}
+  POST /initiate {customerId, password}
+    → no second factor: {processId: null, mfaRequired: false, sessionState}
+    → app push:        {processId, mfaRequired: true, mfaType: "APP_PUSH"}
+  POST /complete {processId}
+    → holds open while the user approves in the BoursoBank app → {sessionState}
+  POST /accounts {sessionState}
+    → [{externalId, name, type, balanceEur, cashBalance, positions[], snapshotComplete}]
 
-  POST /complete  {processId, code}  (only when mfaRequired)
-    → {sessionCookies: "..."}
+Only the session cookies are returned to Java, which encrypts them before
+storage. Credentials are held in memory for the length of one request and are
+never logged; neither are cookies or raw financial responses.
 
-  POST /accounts  {sessionCookies: "..."}
-    → [{id, name, type, balance, positions: [...], transactions: [...]}]
-
-Session state is stored in memory only during the auth flow (keyed by processId).
-After auth completes, serialized cookies are returned to Java for encrypted storage.
+SMS and e-mail second factors are deliberately not implemented: only the app
+push is proven upstream, and a half-working OTP path that silently burns login
+attempts is worse than a clear MFA_TYPE_UNSUPPORTED.
 """
 
 import asyncio
-import csv
-import io
+import html as html_module
 import json
 import logging
+import os
 import re
+import secrets
 import time
 import uuid
-from datetime import date, timedelta
-from typing import Optional
+from contextlib import asynccontextmanager
+from decimal import Decimal
+from typing import Any, Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from accounts_parser import (
+    FORMAT_CHANGED,
+    AccountKind,
+    AccountsFormatError,
+    choose_personal_identity,
+    guard_symbol_collisions,
+    parse_dashboard,
+    parse_trading_summary,
+)
+from virtual_pad import VirtualPadError, encode_password, extract_challenge, parse_virtual_pad
 
 logging.basicConfig(level=logging.INFO)
+# httpx logs every request URL at INFO, and the identity-switch URL embeds a
+# per-session token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("bourso-auth")
+SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
 
-app = FastAPI()
+BASE_URL = "https://clients.boursobank.com"
+LOGIN_PATH = "/connexion/"
+VIRTUAL_PAD_PATH = "/connexion/clavier-virtuel?_hinclude=1"
+PASSWORD_PATH = "/connexion/saisie-mot-de-passe"
+SECURISATION_PATH = "/securisation"
+# BoursoBank periodically parks a successful login on an anti-fraud education
+# page ("/infos-profil/pedagogie-fraude/...") until the account holder ticks the
+# acknowledgment on the real website. The login POST already returned 302, so
+# the credentials are valid -- this must never read as INVALID_CREDENTIALS.
+FRAUD_EDUCATION_PATH = "/infos-profil/pedagogie-fraude"
+VALIDATION_PATH = "/securisation/validation"
+ACCOUNTS_PATH = "/dashboard/liste-comptes?rumroute=dashboard.new_accounts&_hinclude=1"
+# An access holding several identities (personal and sole-trader) answers the
+# dashboard with a 302 here until one identity is chosen for the session.
+IDENTITY_SELECTOR_PATH = "/connexion/lister-identites"
 
-# BoursoBank endpoints
-BOURSO_BASE = "https://clients.boursobank.com"
-BOURSO_API  = "https://api.boursobank.com/services/api/v1.7"
+PENDING_TTL_SECONDS = 600
+PENDING_SWEEP_SECONDS = 30
+# A push has to be approved by a human on their phone. Stay under the Java
+# adapter's 150 s validation timeout so the sidecar is always the one to give up.
+APP_VALIDATION_TIMEOUT_SECONDS = 120
+APP_VALIDATION_POLL_SECONDS = 2.0
+REQUEST_TIMEOUT_SECONDS = 30.0
+# Every pending second factor pins an httpx client and its cookie jar. Cheap
+# next to a browser, but the backend's per-IP throttle does not bound this
+# service in aggregate.
+MAX_PENDING = 16
 
-# In-memory auth state: processId → {client, user_hash, mfa_state}
-# Cleaned up after /complete or after TTL
-_pending: dict[str, dict] = {}
-_PENDING_TTL = 600  # 10 minutes
-
-_USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+_pending: dict[str, dict[str, Any]] = {}
+_pending_lock = asyncio.Lock()
 
-def _base_headers() -> dict:
-    return {
-        "User-Agent": _USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
-    }
-
-
-def _make_client(cookies: dict | None = None) -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        base_url=BOURSO_BASE,
-        follow_redirects=True,
-        timeout=httpx.Timeout(30.0),
-        headers=_base_headers(),
-        cookies=cookies or {},
-    )
-
-
-def _extract_form_token(html: str) -> Optional[str]:
-    """Extract _token hidden input value from a BoursoBank (Symfony) form.
-
-    Symfony renders the CSRF field as name="form[_token]" (with brackets)
-    and id="form__token". We try several patterns in order of specificity.
-    """
-    # 1. Symfony: name="form[_token]"  (most common)
-    m = re.search(r'(<input[^>]+name="form\[_token\]"[^>]*>)', html)
-    # 2. Plain: name="_token"
-    if not m:
-        m = re.search(r'(<input[^>]+name="_token"[^>]*>)', html)
-    # 3. Symfony id convention: id="form__token"
-    if not m:
-        m = re.search(r'(<input[^>]+id="form__token"[^>]*>)', html)
-    # 4. Any hidden input whose name contains "_token"
-    if not m:
-        m = re.search(r'(<input[^>]+name="[^"]*_token[^"]*"[^>]*>)', html)
-    if not m:
-        return None
-    tag = m.group(1)
-    v = re.search(r'value="([^"]*)"', tag)
-    return v.group(1) if v else None
+_BRS_MIT_RE = re.compile(r"__brs_mit=(?P<value>[^;\"'\s]+)")
+_FORM_TOKEN_RE = re.compile(
+    r'name="form\[_token\]"[^>]*?value="(?P<token>[^"]*)"'
+    r'|value="(?P<token_first>[^"]*)"[^>]*?name="form\[_token\]"'
+)
+_API_URL_RE = re.compile(r'"API_URL"\s*:\s*"(?P<url>[^"]+)"')
+_USER_HASH_RE = re.compile(r'"USER_HASH"\s*:\s*"(?P<hash>[^"]+)"')
+_STRONG_AUTH_RE = re.compile(r'data-strong-authentication-payload="(?P<payload>[^"]*)"')
+_LOGGED_IN_MARKER = 'href="/se-deconnecter"'
+_BAD_CREDENTIALS_MARKERS = (
+    "Identifiant ou mot de passe invalide",
+    "Erreur d&#039;authentification",
+    "Erreur d'authentification",
+)
 
 
-def _extract_challenge(html: str) -> str:
-    """Extract matrixRandomChallenge from login page or keyboard fragment."""
-    # Attribute on the keyboard container: data-matrix-random-challenge="..."
-    m = re.search(r'data-matrix-random-challenge="([^"]+)"', html)
-    if m:
-        return m.group(1)
-    # Hidden input: name="form[matrixRandomChallenge]" or id containing challenge
-    m = re.search(r'<input[^>]+name="form\[matrixRandomChallenge\]"[^>]*>', html)
-    if m:
-        v = re.search(r'value="([^"]*)"', m.group(0))
-        if v:
-            return v.group(1)
-    return ""
+# ─── Lifecycle ──────────────────────────────────────────────────────────────
 
 
-def _extract_user_hash(html: str) -> Optional[str]:
-    """Extract USER_HASH from window.BRS_CONFIG embedded in page HTML."""
-    m = re.search(r'"USER_HASH"\s*:\s*"([^"]+)"', html)
-    if not m:
-        m = re.search(r"USER_HASH['\"]?\s*:\s*['\"]([^'\"]+)['\"]", html)
-    return m.group(1) if m else None
-
-
-def _parse_vpad(html: str) -> dict[str, str]:
-    """
-    Build a digit → key-code mapping from the virtual keyboard HTML.
-
-    BoursoBank renders 10 shuffled buttons:
-        <button ... data-matrix-key="XYZ" ...>5</button>
-    The button text is the digit; data-matrix-key is what gets submitted.
-    """
-    digit_map: dict[str, str] = {}
-    for m in re.finditer(
-        r'<button[^>]+data-matrix-key="([A-Z]+)"[^>]*>\s*(\d)\s*</button>',
-        html,
-    ):
-        digit_map[m.group(2)] = m.group(1)
-
-    if not digit_map:
-        # Fallback: assume DOM order is 0-9 (older keyboard format)
-        keys = re.findall(r'data-matrix-key="([A-Z]+)"', html)
-        digit_map = {str(i): k for i, k in enumerate(keys)}
-
-    return digit_map
-
-
-def _encode_password(password: str, digit_map: dict[str, str]) -> str:
-    """Encode password using the digit→key map from the virtual keyboard."""
-    return "|".join(digit_map[ch] for ch in password if ch in digit_map)
-
-
-def _serialize_cookies(client: httpx.AsyncClient) -> str:
-    """Serialize client cookies to a JSON string for storage in Java."""
-    cookies = {}
-    for cookie in client.cookies.jar:
-        cookies[cookie.name] = cookie.value
-    return json.dumps(cookies)
-
-
-def _account_type(name_lower: str, kind: str) -> str:
-    """Map BoursoBank account name/kind to Picsou AccountType."""
-    if "pea" in name_lower:
-        return "PEA"
-    if "compte titre" in name_lower or "cto" in name_lower or "titres" in name_lower:
-        return "COMPTE_TITRES"
-    if "lep" in name_lower:
-        return "LEP"
-    if "livret" in name_lower or "savings" in kind.lower():
-        return "SAVINGS"
-    if kind.lower() in ("savings",):
-        return "SAVINGS"
-    if kind.lower() in ("loans",):
-        return "LOAN"
-    return "CHECKING"
-
-
-def _clean_pending():
-    """Remove expired pending sessions."""
-    now = time.time()
-    expired = [k for k, v in _pending.items() if now - v.get("created_at", 0) > _PENDING_TTL]
-    for k in expired:
+async def _pending_sweeper() -> None:
+    while True:
+        await asyncio.sleep(PENDING_SWEEP_SECONDS)
         try:
-            asyncio.get_event_loop().create_task(_pending.pop(k)["client"].aclose())
+            await _cleanup_expired()
         except Exception:
-            _pending.pop(k, None)
+            # One bad sweep must not end the task: without it, expired pending
+            # states keep their client and cookie jar until shutdown and
+            # MAX_PENDING eventually rejects every new login.
+            log.warning("BoursoBank pending sweep failed", exc_info=True)
 
 
-# ─── Auth flow ────────────────────────────────────────────────────────────────
-
-async def _resolve_js_cookie_challenge(client: httpx.AsyncClient, resp: httpx.Response) -> httpx.Response:
-    """
-    BoursoBank serves a JS-only page before the real login page that sets __brs_mit
-    via document.cookie and calls window.location.reload(). httpx doesn't execute JS,
-    so we detect this page, extract the cookie value from the script, set it manually,
-    then re-fetch the original URL.
-    """
-    m = re.search(r'document\.cookie\s*=\s*"(__brs_mit=([^;]+));', resp.text)
-    if not m:
-        return resp  # Not a challenge page — already the real page
-
-    cookie_value = m.group(2)
-    log.info("BoursoBank JS cookie challenge detected — setting __brs_mit manually")
-    client.cookies.set("__brs_mit", cookie_value, domain="clients.boursobank.com")
-
-    real_resp = await client.get("/connexion/")
-    real_resp.raise_for_status()
-    return real_resp
-
-
-async def _initiate_auth(customer_id: str, password: str) -> dict:
-    """
-    Executes the BoursoBank login flow up to the MFA decision point.
-
-    Returns a dict with:
-      - client: the authenticated httpx.AsyncClient (cookie jar intact)
-      - user_hash: extracted USER_HASH (may be None before MFA)
-      - mfa_required: bool
-      - mfa_type: "EMAIL" | "SMS" | "APP" | None
-      - mfa_contact: partial contact info (e.g., "j**@ex**.com")
-      - mfa_state: {otp_id, form_state, token, user_hash} (for MFA completion)
-    """
-    client = _make_client()
-
-    # Step 1: GET /connexion/ — may return a JS cookie challenge first
-    resp = await client.get("/connexion/")
-    resp.raise_for_status()
-    resp = await _resolve_js_cookie_challenge(client, resp)
-
-    login_html = resp.text
-    form_token = _extract_form_token(login_html)
-    if not form_token:
-        snippet = login_html[:500].replace("\n", " ")
-        token_ctx = ""
-        ti = login_html.find("_token")
-        if ti >= 0:
-            token_ctx = " | _token context: " + login_html[max(0, ti-100):ti+200].replace("\n", " ")
-        log.warning("Could not find _token in login page. Head: %s%s", snippet, token_ctx)
-        await client.aclose()
-        raise HTTPException(status_code=502, detail="Could not extract form token from BoursoBank login page")
-
-    # Challenge lives on the main login page, not the keyboard fragment
-    challenge = _extract_challenge(login_html)
-
-    # Step 2: GET virtual keyboard (key-code mapping only)
-    vpad_resp = await client.get(
-        "/connexion/clavier-virtuel",
-        params={"_hinclude": "1"},
-        headers={"X-Requested-With": "XMLHttpRequest", "Accept": "application/json, text/javascript, */*"},
-    )
-    vpad_resp.raise_for_status()
-
-    vpad_html = vpad_resp.text
-    # Also check keyboard fragment in case challenge moved there
-    if not challenge:
-        challenge = _extract_challenge(vpad_html)
-
-    digit_map = _parse_vpad(vpad_html)
-
-    if len(digit_map) < 10:
-        # Fallback: JSON response format
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    if not SIDECAR_API_KEY.strip():
+        raise RuntimeError("APP_SIDECAR_API_KEY must be configured and non-blank")
+    sweeper = asyncio.create_task(_pending_sweeper())
+    try:
+        yield
+    finally:
+        sweeper.cancel()
         try:
-            vpad_json = vpad_resp.json()
-            pad_keys_raw = vpad_json.get("keyPadContent", [])
-            if pad_keys_raw:
-                digit_map = {str(i): k.get("id", "") for i, k in enumerate(pad_keys_raw)}
-                if not challenge:
-                    challenge = vpad_json.get("matrixRandomChallenge", "")
-        except Exception:
+            await sweeper
+        except asyncio.CancelledError:
             pass
-
-    if len(digit_map) < 10:
-        await client.aclose()
-        raise HTTPException(status_code=502, detail=f"Virtual keyboard parsing failed: got {len(digit_map)} keys")
-
-    encoded_pwd = _encode_password(password, digit_map)
-    log.info("Virtual keyboard: %d keys mapped, encoded %d password digits, challenge=%s",
-             len(digit_map), len(encoded_pwd.split("|")), challenge[:8] if challenge else "MISSING")
-
-    # Step 3: POST credentials
-    login_resp = await client.post(
-        "/connexion/saisie-mot-de-passe",
-        data={
-            "form[_token]": form_token,
-            "form[clientNumber]": customer_id,
-            "form[password]": encoded_pwd,
-            "form[matrixRandomChallenge]": challenge,
-            "form[fakePassword]": "••••••••",
-            "form[ajx]": "1",
-            "form[passwordAck]": '{"ry":[],"pt":[],"js":true}',
-            "form[platformAuthenticatorAvailable]": "1",
-        },
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-
-    final_html = login_resp.text
-    final_url  = str(login_resp.url)
-
-    log.info("Login POST → url=%s status=%d", final_url, login_resp.status_code)
-    log.debug("Login POST response snippet: %s", final_html[:1000].replace("\n", " "))
-
-    # MFA required?
-    if "securisation" in final_url or "securisation" in final_html:
-        return await _parse_mfa_page(client, final_html, final_url)
-
-    # Check for successful login
-    if "se-deconnecter" in final_html:
-        user_hash = _extract_user_hash(final_html)
-        return {"client": client, "user_hash": user_hash, "mfa_required": False}
-
-    # Bad credentials — log a snippet to see the actual error message
-    log.warning("Login failed. URL=%s snippet=%s", final_url, final_html[:2000].replace("\n", " "))
-    await client.aclose()
-    if "identifiant" in final_html.lower() or "mot de passe" in final_html.lower() or "erreur" in final_html.lower():
-        raise HTTPException(status_code=401, detail="Invalid BoursoBank credentials")
-    raise HTTPException(status_code=502, detail="Unexpected response from BoursoBank login")
+        await _close_all_pending()
 
 
-async def _parse_mfa_page(client: httpx.AsyncClient, html: str, url: str) -> dict:
-    """Parse the MFA securisation page to extract challenge parameters."""
-    # Fetch /securisation/validation if not already there
-    if "validation" not in url:
-        resp = await client.get("/securisation/validation")
-        resp.raise_for_status()
-        html = resp.text
+app = FastAPI(lifespan=lifespan)
 
-    user_hash = _extract_user_hash(html)
 
-    # Extract strong authentication payload from data attribute
-    m = re.search(r'data-strong-authentication-payload="([^"]+)"', html)
-    if not m:
-        await client.aclose()
-        raise HTTPException(status_code=502, detail="Could not find MFA payload in BoursoBank securisation page")
-
-    payload_raw = m.group(1).replace("&quot;", '"')
-    try:
-        payload = json.loads(payload_raw)
-    except json.JSONDecodeError:
-        await client.aclose()
-        raise HTTPException(status_code=502, detail="Could not parse BoursoBank MFA payload")
-
-    # Navigate the payload to find otp_id, form_state, check/start paths
-    # Expected: payload["challenges"][0]["parameters"]["formScreen"]["actions"]
-    try:
-        challenge_params = payload["challenges"][0]["parameters"]["formScreen"]
-        actions = challenge_params["actions"]
-        check_action = actions.get("check", {})
-        start_action = actions.get("start", {})
-        form_state = challenge_params.get("formState", "")
-        otp_id = check_action.get("api", {}).get("params", {}).get("id", "")
-        if not otp_id:
-            otp_id = start_action.get("api", {}).get("params", {}).get("id", "")
-        check_path = check_action.get("api", {}).get("path", "")
-        start_path = start_action.get("api", {}).get("path", "")
-    except (KeyError, IndexError, TypeError) as e:
-        await client.aclose()
-        raise HTTPException(status_code=502, detail=f"Could not extract MFA parameters: {e}")
-
-    # Determine MFA type
-    mfa_type_raw = payload.get("challenges", [{}])[0].get("type", "").upper()
-    mfa_type = "SMS" if "SMS" in mfa_type_raw else ("EMAIL" if "EMAIL" in mfa_type_raw else "APP")
-
-    # Extract contact (partial email/phone shown to user)
-    contact = ""
-    m2 = re.search(r'data-confirm-contact="([^"]+)"', html)
-    if m2:
-        contact = m2.group(1)
-
-    # Extract form token for the validation POST
-    token_form = _extract_form_token(html) or ""
-
-    # Trigger MFA code delivery via API
-    if user_hash and start_path and otp_id:
-        try:
-            api_url = f"{BOURSO_API}/_user__{user_hash}__/session/challenge/{start_path}/{otp_id}"
-            api_resp = await client.post(
-                api_url,
-                json={"formState": form_state},
-                headers={"Accept": "application/json", "Content-Type": "application/json"},
+@app.middleware("http")
+async def authenticate_sidecar_request(request: Request, call_next):
+    if request.url.path != "/health":
+        supplied_key = request.headers.get("X-Picsou-Sidecar-Key", "")
+        # Starlette exposes wire header bytes through Latin-1, not UTF-8.
+        if (
+            not SIDECAR_API_KEY.strip()
+            or not secrets.compare_digest(
+                supplied_key.encode("latin-1"), SIDECAR_API_KEY.encode("utf-8")
             )
-            log.info("MFA start %s → %d", start_path, api_resp.status_code)
-        except Exception as e:
-            log.warning("MFA trigger failed: %s", e)
-
-    return {
-        "client": client,
-        "user_hash": user_hash,
-        "mfa_required": True,
-        "mfa_type": mfa_type,
-        "mfa_contact": contact,
-        "mfa_state": {
-            "otp_id": otp_id,
-            "form_state": form_state,
-            "check_path": check_path,
-            "token_form": token_form,
-        },
-    }
-
-
-async def _complete_mfa(state: dict, code: str) -> dict:
-    """
-    Complete the MFA flow by polling until validation succeeds, then
-    submitting the OTP code and confirming the session.
-    """
-    client     = state["client"]
-    user_hash  = state.get("user_hash", "")
-    mfa        = state["mfa_state"]
-    otp_id     = mfa["otp_id"]
-    form_state = mfa["form_state"]
-    check_path = mfa["check_path"]
-    token_form = mfa["token_form"]
-
-    # Check MFA validation status
-    if user_hash and check_path and otp_id:
-        check_url = f"{BOURSO_API}/_user__{user_hash}__/session/challenge/{check_path}/{otp_id}"
-        for _ in range(10):
-            try:
-                resp = await client.post(
-                    check_url,
-                    json={"formState": form_state, "otp": code},
-                    headers={"Accept": "application/json", "Content-Type": "application/json"},
-                )
-                data = resp.json()
-                log.info("MFA check → %d %s", resp.status_code, data)
-                if data.get("success"):
-                    break
-            except Exception as e:
-                log.warning("MFA check error: %s", e)
-            await asyncio.sleep(2)
-
-    # POST /securisation/validation to finalize
-    final_resp = await client.post(
-        "/securisation/validation",
-        data={"form[_token]": token_form, "form[otp]": code},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-
-    final_html = final_resp.text
-    if "se-deconnecter" not in final_html:
-        # One more attempt: GET /
-        home = await client.get("/")
-        final_html = home.text
-
-    if "se-deconnecter" not in final_html:
-        await client.aclose()
-        raise HTTPException(status_code=401, detail="MFA validation failed — invalid or expired code")
-
-    user_hash = _extract_user_hash(final_html) or user_hash
-    return {"client": client, "user_hash": user_hash}
-
-
-# ─── Account fetching ─────────────────────────────────────────────────────────
-
-async def _fetch_accounts(client: httpx.AsyncClient, user_hash: Optional[str]) -> list[dict]:
-    """Fetch all BoursoBank accounts with balances, positions (for trading accounts), and transactions."""
-    resp = await client.get(
-        "/dashboard/liste-comptes",
-        params={"rumroute": "dashboard.new_accounts", "_hinclude": "1"},
-        headers={"X-Requested-With": "XMLHttpRequest"},
-    )
-    resp.raise_for_status()
-    accounts_html = resp.text
-
-    accounts = _parse_accounts_html(accounts_html)
-    log.info("BoursoBank: found %d accounts", len(accounts))
-
-    # Fetch positions + transactions concurrently per account
-    tasks = [_enrich_account(client, acc, user_hash) for acc in accounts]
-    enriched = await asyncio.gather(*tasks, return_exceptions=True)
-
-    result = []
-    for acc, enriched_acc in zip(accounts, enriched):
-        if isinstance(enriched_acc, Exception):
-            log.warning("Enrichment failed for account %s: %s", acc["id"], enriched_acc)
-            acc["positions"] = []
-            acc["transactions"] = []
-            result.append(acc)
-        else:
-            result.append(enriched_acc)
-
-    return result
-
-
-def _parse_accounts_html(html: str) -> list[dict]:
-    """
-    Parse the accounts list HTML.
-    Each account block contains: data-account-id (or id attr), name, balance, kind.
-    """
-    accounts = []
-    # BoursoBank account rows: look for data-account attributes or known HTML structure
-    # Pattern: <li ... data-account-label="..." data-account-id="..." data-account-balance="..." data-account-kind="...">
-    for m in re.finditer(
-        r'data-account-label="([^"]*)"[^>]*data-account-id="([^"]*)"[^>]*'
-        r'data-account-balance="([^"]*)"[^>]*data-account-kind="([^"]*)"',
-        html,
-    ):
-        name, acc_id, balance_str, kind = m.group(1), m.group(2), m.group(3), m.group(4)
-        accounts.append(_make_account(acc_id, name, balance_str, kind))
-
-    if not accounts:
-        # Fallback: more permissive pattern — look for account data in any order
-        for m in re.finditer(
-            r'data-account-id="([^"]*)".*?data-account-label="([^"]*)".*?'
-            r'data-account-balance="([^"]*)".*?data-account-kind="([^"]*)"',
-            html, re.DOTALL,
         ):
-            acc_id, name, balance_str, kind = m.group(1), m.group(2), m.group(3), m.group(4)
-            accounts.append(_make_account(acc_id, name, balance_str, kind))
-
-    return accounts
-
-
-def _make_account(acc_id: str, name: str, balance_str: str, kind: str) -> dict:
-    balance = _parse_amount(balance_str)
-    acc_type = _account_type(name.lower(), kind)
-    return {
-        "id": f"bourso_{acc_id}",
-        "rawId": acc_id,
-        "name": name,
-        "type": acc_type,
-        "balance": balance,
-        "positions": [],
-        "transactions": [],
-    }
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "UNAUTHORIZED"},
+                headers={"WWW-Authenticate": "Picsou-Sidecar-Key"},
+            )
+    return await call_next(request)
 
 
-def _parse_amount(s: str) -> float:
-    """Parse BoursoBank amount string: '1 234,56' or '1234.56' → float."""
-    s = s.strip().replace("\xa0", "").replace(" ", "").replace(",", ".")
-    s = s.replace("+", "").replace("€", "")
+@app.middleware("http")
+async def log_request_duration(request: Request, call_next):
+    started_at = time.monotonic()
     try:
-        return float(s)
-    except ValueError:
-        return 0.0
+        return await call_next(request)
+    finally:
+        if request.url.path != "/health":
+            # Uvicorn percent-decodes the path, so a caller can plant CR/LF in it
+            # and forge log lines. Strip controls and bound the length.
+            log.info(
+                "BoursoBank request completed (path=%s; duration=%.2fs)",
+                _log_safe(request.url.path),
+                time.monotonic() - started_at,
+            )
 
 
-async def _enrich_account(client: httpx.AsyncClient, acc: dict, user_hash: Optional[str]) -> dict:
-    """Add positions (for trading accounts) and recent transactions to an account."""
-    acc_type = acc["type"]
-    raw_id   = acc["rawId"]
-
-    # Positions: only for investment accounts
-    if acc_type in ("PEA", "COMPTE_TITRES") and user_hash:
-        acc["positions"] = await _fetch_positions(client, user_hash, raw_id)
-
-    # Transactions: last 90 days
-    acc["transactions"] = await _fetch_transactions(client, raw_id)
-
-    return acc
+def _log_safe(value: str) -> str:
+    return "".join(char for char in value if char.isprintable())[:200]
 
 
-async def _fetch_positions(client: httpx.AsyncClient, user_hash: str, account_id: str) -> list[dict]:
-    """Fetch portfolio positions for a trading account via the trading summary API."""
-    url = f"{BOURSO_API}/_user__{user_hash}__/trading/accounts/summary/{account_id}"
-    try:
-        resp = await client.get(
-            url,
-            params={"_host": "tradingboard.boursorama.com", "position": "ACCOUNTING", "responseFormat": "true"},
-            headers={"Accept": "application/json"},
-        )
-        if resp.status_code == 404:
-            return []
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        log.warning("Positions fetch failed for %s: %s", account_id, e)
-        return []
+# ─── Contract ───────────────────────────────────────────────────────────────
 
-    positions = []
-    for item in data if isinstance(data, list) else data.get("list", []):
-        symbol   = item.get("symbol", "")
-        label    = item.get("label", "")
-        quantity = _safe_float(item.get("quantity", {}).get("value", 0))
-        buy_price = _safe_float(item.get("buyingPrice", item.get("buying_price", {}) if isinstance(item.get("buying_price"), dict) else {"value": 0}).get("value", 0))
-        last_price = _safe_float(item.get("last", {}).get("value", 0))
-
-        if not symbol or quantity == 0:
-            continue
-
-        # Fetch ISIN via instrument quote endpoint
-        isin = await _fetch_isin(client, symbol)
-
-        positions.append({
-            "isin": isin,
-            "symbol": symbol,
-            "label": label,
-            "quantity": quantity,
-            "buyingPrice": buy_price,
-            "currentPrice": last_price,
-        })
-
-    return positions
-
-
-async def _fetch_isin(client: httpx.AsyncClient, symbol: str) -> Optional[str]:
-    """Fetch ISIN for a BoursoBank symbol via the public instrument quote API."""
-    url = f"{BOURSO_API}/_public_/feed/instrument/quote/{symbol}"
-    try:
-        resp = await client.get(
-            url,
-            params={"_host": "tradingboard.boursorama.com"},
-            headers={"Accept": "application/json"},
-        )
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-        return data.get("isin") or data.get("d", {}).get("isin")
-    except Exception as e:
-        log.debug("ISIN fetch failed for %s: %s", symbol, e)
-        return None
-
-
-async def _fetch_transactions(client: httpx.AsyncClient, account_id: str) -> list[dict]:
-    """Fetch the last 90 days of transactions via BoursoBank CSV export."""
-    to_date   = date.today()
-    from_date = to_date - timedelta(days=90)
-    try:
-        resp = await client.get(
-            "/budget/exporter-mouvements",
-            params={
-                "movementSearch[selectedAccount]": account_id,
-                "movementSearch[startDate]": from_date.strftime("%d/%m/%Y"),
-                "movementSearch[endDate]": to_date.strftime("%d/%m/%Y"),
-                "movementSearch[format]": "CSV",
-                "movementSearch[fullTime]": "0",
-            },
-            follow_redirects=True,
-        )
-        if resp.status_code not in (200, 302):
-            return []
-        content = resp.content
-        # Strip BOM
-        if content.startswith(b"\xef\xbb\xbf"):
-            content = content[3:]
-        text = content.decode("utf-8", errors="replace")
-    except Exception as e:
-        log.warning("Transactions fetch failed for %s: %s", account_id, e)
-        return []
-
-    transactions = []
-    reader = csv.DictReader(io.StringIO(text), delimiter=";")
-    for row in reader:
-        date_str  = row.get("dateOp", row.get("Date opération", "")).strip()
-        label     = row.get("label", row.get("Libellé", "")).strip()
-        amount_s  = row.get("amount", row.get("Montant", "")).strip()
-        category  = row.get("category", row.get("Catégorie", "")).strip()
-
-        try:
-            # Parse DD/MM/YYYY
-            d = date(*reversed([int(x) for x in date_str.split("/")]))
-        except Exception:
-            continue
-
-        try:
-            amount = float(amount_s.replace(",", ".").replace(" ", "").replace("\xa0", ""))
-        except ValueError:
-            continue
-
-        transactions.append({
-            "date": d.isoformat(),
-            "label": label,
-            "amount": amount,
-            "category": category,
-        })
-
-    return transactions
-
-
-def _safe_float(val) -> float:
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-# ─── Endpoints ────────────────────────────────────────────────────────────────
 
 class InitiateRequest(BaseModel):
-    customerId: str
-    password: str
+    model_config = ConfigDict(extra="forbid")
+
+    customerId: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=100)
 
 
 class CompleteRequest(BaseModel):
-    processId: str
-    code: str
+    model_config = ConfigDict(extra="forbid")
+
+    processId: str = Field(min_length=1, max_length=100)
+    # Present for contract symmetry with the other connectors and always null:
+    # an app push has nothing to type. A code that is sent anyway is refused
+    # rather than ignored, so a future SMS path cannot ship half-wired.
+    code: None = None
 
 
 class AccountsRequest(BaseModel):
-    sessionCookies: str
+    model_config = ConfigDict(extra="forbid")
+
+    sessionState: str = Field(min_length=2, max_length=2_000_000)
 
 
-@app.post("/initiate")
-async def initiate(req: InitiateRequest):
-    _clean_pending()
-    log.info("BoursoBank auth initiate for customer %s***", req.customerId[:3])
+class PositionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-    state = await _initiate_auth(req.customerId, req.password)
-    process_id = str(uuid.uuid4())
-    state["created_at"] = time.time()
-    _pending[process_id] = state
+    isin: str | None = Field(default=None, max_length=12)
+    symbol: str = Field(min_length=1, max_length=100)
+    label: str = Field(min_length=1, max_length=200)
+    quantity: Decimal
+    buyingPriceEur: Decimal | None = None
+    currentPrice: Decimal | None = None
+    quoteCurrency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    currentValueEur: Decimal
+    pnlEur: Decimal | None = None
 
-    if state["mfa_required"]:
-        return {
-            "processId": process_id,
-            "mfaRequired": True,
-            "mfaType": state.get("mfa_type", "UNKNOWN"),
-            "contact": state.get("mfa_contact", ""),
+
+class AccountPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    externalId: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
+    type: AccountKind
+    balanceEur: Decimal
+    cashBalance: Decimal | None = None
+    positions: list[PositionPayload]
+    # A type-level assertion that a partial read can never be serialised.
+    snapshotComplete: Literal[True]
+
+
+class InitiateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    processId: str | None
+    mfaRequired: bool
+    mfaType: str | None
+    sessionState: str | None
+
+
+class SessionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sessionState: str
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+    fields = {str(error["loc"][-1]) for error in exc.errors() if error.get("loc")}
+    detail = "MFA_TYPE_UNSUPPORTED" if "code" in fields else "INVALID_DATA"
+    return JSONResponse(status_code=400, content={"detail": detail})
+
+
+# ─── Pending second factors ─────────────────────────────────────────────────
+
+
+async def _dispose_pending_state(state: dict[str, Any]) -> None:
+    client: httpx.AsyncClient | None = state.get("client")
+    if client is None:
+        return
+    try:
+        await client.aclose()
+    except Exception:
+        log.warning("BoursoBank client cleanup failed", exc_info=True)
+
+
+async def _take_pending(process_id: str) -> dict[str, Any] | None:
+    async with _pending_lock:
+        return _pending.pop(process_id, None)
+
+
+async def _cleanup_expired() -> None:
+    cutoff = time.time() - PENDING_TTL_SECONDS
+    async with _pending_lock:
+        expired = [pid for pid, state in _pending.items() if state["created_at"] < cutoff]
+        states = [_pending.pop(pid) for pid in expired]
+    for state in states:
+        await _dispose_pending_state(state)
+
+
+async def _close_all_pending() -> None:
+    async with _pending_lock:
+        states = list(_pending.values())
+        _pending.clear()
+    for state in states:
+        await _dispose_pending_state(state)
+
+
+async def _store_pending(process_id: str, state: dict[str, Any]) -> None:
+    async with _pending_lock:
+        if len(_pending) >= MAX_PENDING:
+            raise HTTPException(status_code=503, detail="UPSTREAM_UNAVAILABLE")
+        _pending[process_id] = state
+
+
+# ─── HTTP plumbing ──────────────────────────────────────────────────────────
+
+
+def _new_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        base_url=BASE_URL,
+        timeout=httpx.Timeout(REQUEST_TIMEOUT_SECONDS),
+        # The login POST is only recognised as successful by its 302, and the
+        # export/validation steps rely on seeing redirects rather than chasing them.
+        follow_redirects=False,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept-Language": "fr-FR,fr;q=0.9",
+        },
+    )
+
+
+def serialize_cookies(client: httpx.AsyncClient) -> str:
+    """Persist the cookie jar with each cookie's own domain and path.
+
+    The trading board lives on `api.boursobank.com` while the login is on
+    `clients.boursobank.com`; the session cookies are set on the shared parent
+    domain. Re-setting them all on one host would silently stop authenticating
+    the trading calls.
+    """
+    cookies = [
+        {
+            "name": cookie.name,
+            "value": cookie.value or "",
+            "domain": cookie.domain or "",
+            "path": cookie.path or "/",
         }
+        for cookie in client.cookies.jar
+    ]
+    return json.dumps({"cookies": cookies}, separators=(",", ":"))
 
-    # No MFA — auth complete, return cookies immediately
-    cookies_str = _serialize_cookies(state["client"])
-    _pending.pop(process_id, None)
+
+def restore_cookies(client: httpx.AsyncClient, raw: str) -> None:
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="INVALID_DATA") from exc
+    if not isinstance(decoded, dict):
+        raise HTTPException(status_code=400, detail="INVALID_DATA")
+    cookies = decoded.get("cookies")
+    if not isinstance(cookies, list) or not cookies:
+        raise HTTPException(status_code=400, detail="INVALID_DATA")
+    for cookie in cookies:
+        if not isinstance(cookie, dict) or not isinstance(cookie.get("name"), str):
+            raise HTTPException(status_code=400, detail="INVALID_DATA")
+        client.cookies.set(
+            cookie["name"],
+            str(cookie.get("value", "")),
+            domain=str(cookie.get("domain") or ""),
+            path=str(cookie.get("path") or "/"),
+        )
+
+
+def _first_group(match: re.Match | None, *names: str) -> str | None:
+    if match is None:
+        return None
+    for name in names:
+        value = match.group(name)
+        if value:
+            return value.strip()
+    return None
+
+
+def extract_form_token(page: str) -> str:
+    token = _first_group(_FORM_TOKEN_RE.search(page), "token", "token_first")
+    if not token:
+        raise AccountsFormatError("UPSTREAM_FORMAT_CHANGED", "Login page carried no form token")
+    return token
+
+
+def extract_brs_config(page: str) -> tuple[str, str]:
+    """Read `API_URL` and `USER_HASH` out of the inline `window.BRS_CONFIG`.
+
+    Only the two fields that matter are pulled out; parsing the whole object
+    would make an unrelated new field able to break the connector. The JSON
+    escapes its slashes, hence the unescape.
+    """
+    api_url = _first_group(_API_URL_RE.search(page), "url")
+    user_hash = _first_group(_USER_HASH_RE.search(page), "hash")
+    if not api_url or not user_hash:
+        raise AccountsFormatError(
+            "UPSTREAM_FORMAT_CHANGED", "Home page carried no API_URL/USER_HASH"
+        )
+    return api_url.replace("\\/", "/").rstrip("/"), user_hash
+
+
+async def _bootstrap(client: httpx.AsyncClient) -> str:
+    """Clear the `__brs_mit` cookie gate and return the real login page.
+
+    BoursoBank first serves a page that sets `__brs_mit` from JavaScript and
+    reloads. There is nothing to execute -- the value is right there in the body
+    -- so it is read, set as a cookie, and the page re-requested.
+    """
+    response = await client.get(LOGIN_PATH)
+    body = response.text
+    if _LOGGED_IN_MARKER in body:
+        return body
+
+    token = _first_group(_BRS_MIT_RE.search(body), "value")
+    if token is None and "__brs_mit" in client.cookies:
+        token = client.cookies["__brs_mit"]
+    if token is None:
+        raise AccountsFormatError(
+            "UPSTREAM_FORMAT_CHANGED", "Login page did not hand out a __brs_mit token"
+        )
+
+    client.cookies.set("__brs_mit", token, domain=".boursobank.com", path="/")
+    client.cookies.set("brsDomainMigration", "migrated", domain=".boursobank.com", path="/")
+    return (await client.get(LOGIN_PATH)).text
+
+
+async def _login(client: httpx.AsyncClient, customer_id: str, password: str) -> None:
+    login_page = await _bootstrap(client)
+    form_token = extract_form_token(login_page)
+
+    pad_page = (await client.get(VIRTUAL_PAD_PATH)).text
+    keys = parse_virtual_pad(pad_page)
+    challenge = extract_challenge(pad_page)
+
+    fields = {
+        "form[clientNumber]": customer_id,
+        "form[password]": encode_password(password, keys),
+        "form[matrixRandomChallenge]": challenge,
+        "form[_token]": form_token,
+        "form[fakePassword]": "•" * len(password),
+        "form[passwordAck]": '{"ry":[],"pt":[],"js":true}',
+        "form[platformAuthenticatorAvailable]": "1",
+        "form[ajx]": "1",
+    }
+    # BoursoBank's login form is submitted as multipart, not urlencoded.
+    response = await client.post(
+        PASSWORD_PATH,
+        files={name: (None, value) for name, value in fields.items()},
+    )
+    if response.status_code != 302:
+        body = response.text
+        if any(marker in body for marker in _BAD_CREDENTIALS_MARKERS):
+            raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+        log.warning("BoursoBank login returned HTTP %s instead of a redirect", response.status_code)
+        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+
+
+async def _home(client: httpx.AsyncClient) -> str:
+    return (await client.get("/", follow_redirects=True)).text
+
+
+def is_fraud_education_page(home: str) -> bool:
+    """True when BoursoBank parked the login on its fraud-education notice.
+
+    Pure so the initiate() branch ordering stays unit-testable without driving
+    the login flow: a fraud landing is neither the dashboard marker nor the
+    securisation path, and must not fall through to INVALID_CREDENTIALS.
+    """
+    return FRAUD_EDUCATION_PATH in home
+
+
+def _strong_auth_params(page: str) -> tuple[str, str]:
+    """Pull `resourceId` and `formState` out of the securisation payload."""
+    raw = _first_group(_STRONG_AUTH_RE.search(page), "payload")
+    if not raw:
+        raise AccountsFormatError(
+            "UPSTREAM_FORMAT_CHANGED", "Securisation page carried no authentication payload"
+        )
+    try:
+        payload = json.loads(html_module.unescape(raw))
+        params = payload["challenges"][0]["parameters"]["formScreen"]["actions"]["check"]["api"][
+            "params"
+        ]
+        resource_id = params["resourceId"]
+        form_state = params["formState"]
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+        raise AccountsFormatError(
+            "UPSTREAM_FORMAT_CHANGED", "Authentication challenge payload has an unknown shape"
+        ) from exc
+    if not isinstance(resource_id, str) or not isinstance(form_state, str):
+        raise AccountsFormatError(
+            "UPSTREAM_FORMAT_CHANGED", "Authentication challenge is missing resourceId/formState"
+        )
+    return resource_id, form_state
+
+
+async def _start_app_push(client: httpx.AsyncClient) -> dict[str, Any]:
+    """Ask BoursoBank to push a validation to the customer's phone."""
+    await client.get(SECURISATION_PATH, follow_redirects=True)
+    page = (await client.get(VALIDATION_PATH, follow_redirects=True)).text
+
+    if "brs-otp-webtoapp" not in page:
+        other = re.search(r"brs-otp-(?P<kind>sms|email)", page)
+        if other:
+            log.info("BoursoBank asked for an unsupported second factor: %s", other.group("kind"))
+            raise HTTPException(status_code=501, detail="MFA_TYPE_UNSUPPORTED")
+        raise AccountsFormatError(
+            "UPSTREAM_FORMAT_CHANGED", "Securisation page offered no known second factor"
+        )
+
+    api_url, user_hash = extract_brs_config(page)
+    resource_id, form_state = _strong_auth_params(page)
+    validation_token = extract_form_token(page)
+
+    response = await client.post(
+        f"{api_url}/fr-FR/_user_/_{user_hash}_/session/challenge/startwebtoapp/{resource_id}",
+        content=json.dumps({"formState": form_state}),
+        headers={"Content-Type": "application/json; charset=utf-8"},
+    )
+    if response.status_code != 200 or not _json_success(response):
+        log.warning("BoursoBank refused to send the app push (HTTP %s)", response.status_code)
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+
     return {
-        "processId": process_id,
-        "mfaRequired": False,
-        "sessionCookies": cookies_str,
+        "apiUrl": api_url,
+        "userHash": user_hash,
+        "resourceId": resource_id,
+        "formState": form_state,
+        "validationToken": validation_token,
     }
 
 
-@app.post("/complete")
-async def complete(req: CompleteRequest):
-    state = _pending.get(req.processId)
-    if not state:
-        raise HTTPException(status_code=404, detail="processId not found or expired — please re-authenticate")
-
-    if not state.get("mfa_required"):
-        raise HTTPException(status_code=400, detail="MFA was not required for this session")
-
-    log.info("BoursoBank MFA complete for processId %s", req.processId)
-    result = await _complete_mfa(state, req.code)
-    state.update(result)
-
-    cookies_str = _serialize_cookies(state["client"])
-    _pending.pop(req.processId, None)
-    return {"sessionCookies": cookies_str}
-
-
-@app.post("/accounts")
-async def accounts(req: AccountsRequest):
+def _json_success(response: httpx.Response) -> bool:
     try:
-        cookies_dict = json.loads(req.sessionCookies)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid sessionCookies format")
+        payload = response.json()
+    except ValueError:
+        return False
+    return isinstance(payload, dict) and payload.get("success") is True
 
-    client = _make_client(cookies_dict)
+
+async def _await_app_push(client: httpx.AsyncClient, state: dict[str, Any]) -> bool:
+    """Poll the challenge endpoint the way BoursoBank's own page does."""
+    deadline = time.monotonic() + APP_VALIDATION_TIMEOUT_SECONDS
+    check_url = (
+        f"{state['apiUrl']}/_user_/_{state['userHash']}_"
+        f"/session/challenge/checkwebtoapp/{state['resourceId']}"
+    )
+    while time.monotonic() < deadline:
+        response = await client.post(
+            check_url,
+            content=json.dumps({"formState": state["formState"]}),
+            headers={"Content-Type": "application/json; charset=utf-8"},
+        )
+        if response.status_code == 200 and _json_success(response):
+            return True
+        await asyncio.sleep(APP_VALIDATION_POLL_SECONDS)
+    return False
+
+
+async def _confirm_validation(client: httpx.AsyncClient, validation_token: str) -> None:
+    """Submit the securisation form once the push has been approved."""
+    await client.post(
+        VALIDATION_PATH,
+        data={"form[_token]": validation_token},
+        headers={
+            "Origin": BASE_URL,
+            "Referer": f"{BASE_URL}{VALIDATION_PATH}",
+        },
+    )
+
+
+# ─── Accounts ───────────────────────────────────────────────────────────────
+
+
+async def _fetch_trading_account(
+    client: httpx.AsyncClient, api_url: str, user_hash: str, account_id: str
+) -> dict[str, Any]:
+    response = await client.get(
+        f"{api_url}/_user_/_{user_hash}_/trading/accounts/summary/{account_id}",
+        params={
+            "_host": "tradingboard.boursobank.com",
+            "position": "ACCOUNTING",
+            "responseFormat": "true",
+        },
+        headers={"Accept": "application/json"},
+    )
+    if response.status_code in (401, 403):
+        raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+    if response.status_code != 200:
+        log.warning(
+            "BoursoBank trading summary failed for account %s… (HTTP %s)",
+            account_id[:8],
+            response.status_code,
+        )
+        if response.status_code == 429 or response.status_code >= 500:
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
     try:
-        # Verify session is still valid
-        home = await client.get("/")
-        if "se-deconnecter" not in home.text:
-            raise HTTPException(status_code=401, detail="BoursoBank session expired — please re-authenticate")
+        payload = response.json()
+    except ValueError as exc:
+        raise AccountsFormatError(
+            "UPSTREAM_FORMAT_CHANGED", "Trading summary was not JSON"
+        ) from exc
+    return parse_trading_summary(payload, account_id)
 
-        user_hash = _extract_user_hash(home.text)
-        result = await _fetch_accounts(client, user_hash)
-    finally:
-        await client.aclose()
 
-    return result
+def redirects_to_identity_selector(response: httpx.Response) -> bool:
+    if not response.is_redirect:
+        return False
+    target = httpx.URL(BASE_URL).join(response.headers.get("location", ""))
+    return target.host == httpx.URL(BASE_URL).host and target.path.rstrip("/") == IDENTITY_SELECTOR_PATH
+
+
+async def _get_dashboard(client: httpx.AsyncClient) -> httpx.Response:
+    return await client.get(ACCOUNTS_PATH, headers={"X-Requested-With": "XMLHttpRequest"})
+
+
+async def _dashboard(client: httpx.AsyncClient) -> tuple[str, bool]:
+    """Return the dashboard HTML and whether an identity switch was needed.
+
+    At most one switch per call: the switch link chains through
+    `/feature-redirect` back to the dashboard, so a selector served again after
+    it means the flow is not the one this was written against.
+    """
+    response = await _get_dashboard(client)
+    if not redirects_to_identity_selector(response):
+        return response.text, False
+
+    selector = (await client.get(IDENTITY_SELECTOR_PATH, follow_redirects=True)).text
+    await client.get(choose_personal_identity(selector), follow_redirects=True)
+    response = await _get_dashboard(client)
+    if redirects_to_identity_selector(response):
+        raise AccountsFormatError(
+            FORMAT_CHANGED, "Identity selector was served again after switching identity"
+        )
+    log.info("BoursoBank: switched to the personal identity before reading the dashboard")
+    return response.text, True
+
+
+async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
+    home = await _home(client)
+    if _LOGGED_IN_MARKER not in home:
+        raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+
+    dashboard, switched = await _dashboard(client)
+    if switched:
+        # BRS_CONFIG is re-read from the switched session: nothing says its
+        # USER_HASH is shared across identities, and the trading calls use it.
+        home = await _home(client)
+    api_url, user_hash = extract_brs_config(home)
+
+    accounts, third_party = parse_dashboard(dashboard)
+    if third_party:
+        log.info(
+            "BoursoBank: skipped %d aggregated third-party account(s) -- out of scope", third_party
+        )
+
+    payloads: list[dict[str, Any]] = []
+    for account in accounts:
+        entry: dict[str, Any] = {
+            "externalId": f"bourso_{account['id']}",
+            "name": account["name"],
+            "type": account["type"],
+            "balanceEur": account["balanceEur"],
+            "cashBalance": None,
+            "positions": [],
+            "snapshotComplete": True,
+        }
+        if account["section"] == "trading":
+            summary = await _fetch_trading_account(client, api_url, user_hash, account["id"])
+            # The trading board is authoritative over the dashboard tile: it is
+            # the figure the two reconciliations above were run against.
+            entry["balanceEur"] = summary["totalEur"]
+            entry["cashBalance"] = summary["cashEur"]
+            entry["positions"] = summary["positions"]
+            guard_symbol_collisions(entry["positions"])
+        payloads.append(entry)
+
+    unresolved = sum(
+        1 for entry in payloads for position in entry["positions"] if not position["isin"]
+    )
+    if unresolved:
+        log.info("BoursoBank: %d instrument(s) kept their symbol as ticker", unresolved)
+    return [AccountPayload.model_validate(entry) for entry in payloads]
+
+
+# ─── Routes ─────────────────────────────────────────────────────────────────
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.post("/initiate", response_model=InitiateResponse)
+async def initiate(req: InitiateRequest) -> dict:
+    await _cleanup_expired()
+    process_id = str(uuid.uuid4())
+    client = _new_client()
+    keep_client = False
+    try:
+        await _login(client, req.customerId, req.password)
+        home = await _home(client)
+
+        if _LOGGED_IN_MARKER in home:
+            return {
+                "processId": None,
+                "mfaRequired": False,
+                "mfaType": None,
+                "sessionState": serialize_cookies(client),
+            }
+
+        if SECURISATION_PATH not in home:
+            if is_fraud_education_page(home):
+                # The password was accepted (login POST 302) but BoursoBank
+                # wants the account holder to acknowledge its fraud-prevention
+                # notice on the real website first. Never auto-tick it: it is
+                # a legal notice only the holder can accept.
+                raise HTTPException(status_code=401, detail="FRAUD_ACK_REQUIRED")
+            # The login POST redirected somewhere that is neither the dashboard
+            # nor a second factor. BoursoBank answers a wrong password this way
+            # once the form has already been accepted.
+            raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+
+        state = await _start_app_push(client)
+        state["client"] = client
+        state["created_at"] = time.time()
+        await _store_pending(process_id, state)
+        keep_client = True
+        return {
+            "processId": process_id,
+            "mfaRequired": True,
+            "mfaType": "APP_PUSH",
+            "sessionState": None,
+        }
+    except AccountsFormatError as exc:
+        log.warning("BoursoBank login rejected (code=%s): %s", exc.code, exc)
+        raise HTTPException(status_code=502, detail=exc.code) from exc
+    except VirtualPadError as exc:
+        log.warning("BoursoBank virtual keyboard could not be decoded: %s", exc)
+        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED") from exc
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        log.warning("BoursoBank authentication initiation failed", exc_info=True)
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
+    except Exception as exc:
+        log.exception("Unexpected BoursoBank authentication initiation failure")
+        raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
+    finally:
+        if not keep_client:
+            await client.aclose()
+
+
+@app.post("/complete", response_model=SessionResponse)
+async def complete(req: CompleteRequest) -> dict:
+    await _cleanup_expired()
+    state = await _take_pending(req.processId)
+    if not state:
+        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
+    if state["created_at"] < time.time() - PENDING_TTL_SECONDS:
+        await _dispose_pending_state(state)
+        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
+
+    client: httpx.AsyncClient = state["client"]
+    try:
+        if not await _await_app_push(client, state):
+            raise HTTPException(status_code=408, detail="APP_VALIDATION_TIMEOUT")
+        await _confirm_validation(client, state["validationToken"])
+        if _LOGGED_IN_MARKER not in await _home(client):
+            raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+        return {"sessionState": serialize_cookies(client)}
+    except AccountsFormatError as exc:
+        log.warning("BoursoBank validation rejected (code=%s): %s", exc.code, exc)
+        raise HTTPException(status_code=502, detail=exc.code) from exc
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        log.warning("BoursoBank authentication completion failed", exc_info=True)
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
+    except Exception as exc:
+        log.exception("Unexpected BoursoBank authentication completion failure")
+        raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
+    finally:
+        await _dispose_pending_state(state)
+
+
+@app.post("/accounts", response_model=list[AccountPayload])
+async def accounts(req: AccountsRequest) -> list[AccountPayload]:
+    client = _new_client()
+    try:
+        # Inside the try, not before it: a malformed session raises, and a
+        # client created outside would never reach the `finally` that closes it
+        # -- one leaked connection pool per bad request.
+        restore_cookies(client, req.sessionState)
+        return await _collect_accounts(client)
+    except AccountsFormatError as exc:
+        log.warning("BoursoBank accounts payload rejected (code=%s): %s", exc.code, exc)
+        raise HTTPException(status_code=502, detail=exc.code) from exc
+    except ValidationError as exc:
+        log.warning("BoursoBank accounts payload failed validation: %s", exc.error_count())
+        raise HTTPException(status_code=502, detail="INVALID_DATA") from exc
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        log.warning("BoursoBank accounts fetch failed", exc_info=True)
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
+    except Exception as exc:
+        log.exception("Unexpected BoursoBank accounts failure")
+        raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
+    finally:
+        await client.aclose()

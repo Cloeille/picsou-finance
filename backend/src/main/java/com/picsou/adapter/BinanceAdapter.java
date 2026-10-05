@@ -1,6 +1,7 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.picsou.exception.SyncException;
 import com.picsou.port.CryptoExchangePort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,7 +38,7 @@ public class BinanceAdapter implements CryptoExchangePort {
     }
 
     @Override
-    public List<CryptoHolding> fetchHoldings(String apiKey, String apiSecret) {
+    public List<ExchangePosition> fetchPositions(String apiKey, String apiSecret) {
         long timestamp = System.currentTimeMillis();
         String queryString = "timestamp=" + timestamp;
         String signature = hmacSha256(apiSecret, queryString);
@@ -53,9 +54,15 @@ public class BinanceAdapter implements CryptoExchangePort {
             .timeout(TIMEOUT)
             .block();
 
-        if (response == null) return List.of();
+        // Never an empty list for an unreadable response: the caller sums holdings into one
+        // account balance and stamps it into a daily snapshot, so "no body" read as "no coins"
+        // would write a EUR 0 cliff into the net-worth history (CryptoExchangePort#fetchPositions).
+        if (response == null) {
+            throw new SyncException("Binance returned an empty response for /api/v3/account.");
+        }
 
-        List<CryptoHolding> holdings = new ArrayList<>();
+        // Spot only: this adapter reads /api/v3/account, which does not cover Binance Earn.
+        List<ExchangePosition> holdings = new ArrayList<>();
         JsonNode balances = response.path("balances");
         if (balances.isArray()) {
             for (JsonNode balance : balances) {
@@ -64,7 +71,7 @@ public class BinanceAdapter implements CryptoExchangePort {
                 BigDecimal locked = new BigDecimal(balance.path("locked").asText("0"));
                 BigDecimal total = free.add(locked);
                 if (total.compareTo(BigDecimal.ZERO) > 0) {
-                    holdings.add(new CryptoHolding(asset.toUpperCase(), total));
+                    holdings.add(ExchangePosition.spot(asset.toUpperCase(), total));
                 }
             }
         }

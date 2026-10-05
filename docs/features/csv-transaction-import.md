@@ -1,13 +1,14 @@
 # Feature: CSV transaction import (investment accounts)
 
-> Last updated: 2026-07-11
+> Last updated: 2026-08-31
 
 ## Context
 
 Users want to seed a PEA/CTO (or crypto) account with their broker's trade history without
-re-keying every line ([issue #38](https://github.com/Zoeille/picsou-finance/issues/38)). This
-adds a two-phase, per-account CSV importer that accepts any broker layout — the user maps the
-columns — and writes manual BUY/SELL transactions, folding per-trade fees into the cost basis.
+re-keying every line ([issue #38](https://github.com/Cloeille/picsou-finance/issues/38)). This
+adds a two-phase CSV importer for **manual investment accounts**. It accepts any broker layout
+because the user maps the columns. It writes manual BUY/SELL transactions and folds per-trade fees
+into the cost basis.
 
 ## How it works
 
@@ -47,7 +48,7 @@ upload CSV ─► preview() ─► detect dialect + guess mapping ─► cache r
 user adjusts mapping/dialect ◄───────────────────────────────────────┘
         │
         ▼
-execute(token, mapping, dialect) ─► re-parse ─► map rows ─► saveAll(is_manual) ─► recomputeHoldings()
+execute(token, mapping, dialect) ─► consume token (atomic) ─► re-parse ─► map rows ─► saveAll(is_manual) ─► recomputeHoldings()
 ```
 
 ## Technical choices
@@ -58,6 +59,7 @@ execute(token, mapping, dialect) ─► re-parse ─► map rows ─► saveAll(
 | Column-mapping wizard | Works for any broker export without a per-broker parser | Fixed template · per-broker native parsers |
 | Cache the **raw file**, re-parse on execute | The user can change the delimiter after preview; caching parsed rows would be stale | Cache parsed rows |
 | Token bound to the account | A preview cannot be replayed against another account | Bare token |
+| Token consumed atomically **before** the write | Two executes racing on one preview (a double click, a client retry after a timeout) import once; a failed import hands the token back, since its transaction rolled back | Remove the token after `saveAll` (the window was the whole import, and the file went in twice) |
 | Tolerant per-row errors | One bad line shouldn't sink a multi-year import | All-or-nothing transaction |
 
 ## Gotchas / Pitfalls
@@ -69,7 +71,9 @@ execute(token, mapping, dialect) ─► re-parse ─► map rows ─► saveAll(
 - **Amount signing lives in one place** (`TransactionAmountCalculator`, mirrored in the TS modal):
   BUY `= −(qty·price + fees)`, SELL `= +(qty·price − fees)`. Fees also fold into the PMP — see
   [manual-transactions.md](manual-transactions.md).
-- The importer only accepts **investment** accounts (PEA / COMPTE_TITRES / CRYPTO); anything else → 400.
+- The importer only accepts **manual investment** accounts (PEA, COMPTE_TITRES, and CRYPTO). Synced
+  investment accounts are rejected before preview data is cached or transactions are saved, so a
+  CSV cannot replace provider-owned positions.
 - Multipart limit was raised to **10 MB** (`application.yml`) for multi-year histories; the endpoint
   is member-scoped and throttled.
 - Demo mode returns `{}` for unhandled endpoints — UI consumers must guard accordingly.
@@ -79,11 +83,13 @@ execute(token, mapping, dialect) ─► re-parse ─► map rows ─► saveAll(
 - `CsvReaderTest`, `CsvDialectDetectorTest`, `CsvValueParserTest` — parsing / sniffing.
 - `TransactionRowMapperTest` — sign+fees, ISIN resolution, amount-derived price, bad rows.
 - `TransactionImportServiceTest` — happy path, expired token, **token↔account binding**,
-  non-investment (400), foreign account (404), per-row error reporting.
+  non-investment or synced investment account rejection (400), foreign account (404), per-row
+  error reporting, two executes racing on one preview import once, a failed import hands the
+  preview back.
 - `ImportTransactionsModal.test.tsx` — preview → mapping → import request → result.
 
 ## Links
 
 - Sibling importer: [finary-import.md](finary-import.md) · [trade-republic.md](trade-republic.md)
 - [manual-transactions.md](manual-transactions.md) · [ISIN_TO_TICKER_CONVERSION.md](ISIN_TO_TICKER_CONVERSION.md)
-- Ticket: [issue #38](https://github.com/Zoeille/picsou-finance/issues/38)
+- Ticket: [issue #38](https://github.com/Cloeille/picsou-finance/issues/38)

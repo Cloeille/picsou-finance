@@ -30,7 +30,7 @@ class AccountsExporter implements EntityExporter {
     @Override
     public List<String> csvHeader() {
         return List.of(
-            "id", "name", "type", "provider", "currency", "current_balance",
+            "id", "name", "type", "provider", "currency", "current_balance", "cash_balance",
             "ticker", "is_manual", "color", "external_account_id",
             "last_synced_at", "created_at", "updated_at"
         );
@@ -46,6 +46,7 @@ class AccountsExporter implements EntityExporter {
                 nullSafe(a.getProvider()),
                 nullSafe(a.getCurrency()),
                 nullSafe(a.getCurrentBalance() == null ? null : a.getCurrentBalance().toPlainString()),
+                nullSafe(a.getCashBalance() == null ? null : a.getCashBalance().toPlainString()),
                 nullSafe(a.getTicker()),
                 String.valueOf(a.isManual()),
                 nullSafe(a.getColor()),
@@ -68,6 +69,7 @@ class AccountsExporter implements EntityExporter {
             json.writeStringField("provider", a.getProvider());
             json.writeStringField("currency", a.getCurrency());
             writeBigDecimal(json, "current_balance", a.getCurrentBalance());
+            writeBigDecimal(json, "cash_balance", a.getCashBalance());
             json.writeStringField("ticker", a.getTicker());
             json.writeBooleanField("is_manual", a.isManual());
             json.writeStringField("color", a.getColor());

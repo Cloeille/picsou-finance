@@ -38,6 +38,18 @@ public class AccountHolding extends AuditableEntity {
     @Column(name = "current_price", precision = 20, scale = 8)
     private BigDecimal currentPrice;
 
+    /** ISO 4217 currency of currentPrice; averageBuyIn remains EUR-denominated. */
+    @Column(name = "quote_currency", length = 3)
+    private String quoteCurrency;
+
+    /** Last complete broker-provided position valuation in EUR. */
+    @Column(name = "provider_value_eur", precision = 20, scale = 8)
+    private BigDecimal providerValueEur;
+
+    /** Last complete broker-provided unrealized P&amp;L in EUR. */
+    @Column(name = "provider_pnl_eur", precision = 20, scale = 8)
+    private BigDecimal providerPnlEur;
+
     @Column(name = "last_synced_at")
     private Instant lastSyncedAt;
 }

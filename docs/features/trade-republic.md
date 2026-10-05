@@ -1,6 +1,6 @@
 # Feature: Trade Republic Sync
 
-> Last updated: 2026-07-07 (ticker exchange-suffix FORBIDDEN fix #23; compactPortfolioByType migration — TR breaking change 2026-06-21; PEA/CTO wrapper split)
+> Last updated: 2026-08-09
 
 ## Context
 
@@ -33,7 +33,7 @@ failures:
 
 `TradeRepublicSyncService.completeAuth()` stores tokens in a `TradeRepublicSession` entity and returns immediately with a `SessionStatusResponse`. The initial sync runs **in the background** on a daemon thread (`tr-sync`) using `TransactionTemplate` for programmatic transaction management — the background thread has no Spring-managed EntityManager, so `@Transactional` would not work.
 
-Both `sessionToken` and `refreshToken` are **encrypted at rest** with AES-256-GCM via `CryptoEncryption` before storage, and decrypted on read. The refresh token has ~2-hour validity. On sync, if the session token is expired (`SESSION_EXPIRED` error), the service attempts to refresh using the stored refresh token. If refresh also fails, the session is cleared and the user must re-authenticate. See [encryption-at-rest.md](./encryption-at-rest.md) for encryption details.
+Both `sessionToken` and `refreshToken` are **encrypted at rest** with AES-256-GCM via `CryptoEncryption` before storage, and decrypted on read. They are stored as unbounded `TEXT` (no length ceiling — GH issue #115: TR lengthened its token past the old `VARCHAR(2000)`, 500ing `completeAuth`). The stored `expiresAt` (+2 h at auth/refresh time) is a **heuristic hint, not a hard gate**: on sync, if the session token is expired (`SESSION_EXPIRED` error), the service refreshes using the stored refresh token — this is the normal path for any sync happening hours after auth. Only a refresh **rejected by TR** (401/403 from the sidecar, which relays TR's status verbatim → `SyncException("SESSION_EXPIRED")`) clears the session and forces re-authentication; anything else (TR 429 rate-limit, sidecar 5xx, timeout, empty body) is transient and keeps the session so the next sync can retry. `getSessionStatus` therefore reports the session as active while a refresh token exists, even past `expiresAt`. See [encryption-at-rest.md](./encryption-at-rest.md) for encryption details.
 
 ### Data fetching (WebSocket, no sidecar)
 
@@ -57,7 +57,37 @@ holdings for a TR account are deleted and recreated on every WebSocket sync; if 
 portfolio is returned with an empty position list, stale holdings are cleared. The
 CSV fallback imports balances only and therefore does not replace holdings.
 
-### CSV import fallback (account balances)
+### Broker valuation fallback (`provider_value_eur`)
+
+Each persisted holding also stores TR's own EUR valuation of the position in
+`provider_value_eur`, with `quote_currency = "EUR"`. The value is
+`currentPrice × quantity`, falling back to `averageBuyIn × quantity` when TR's
+ticker stream returned no live price — mirroring exactly how `TradeRepublicAdapter`
+already builds the account-level `TrAccountData.balanceEur`, so the sum of the
+holdings agrees with the **securities subtotal** of that figure by construction.
+When several ISINs deduplicate to one ticker, this value is the sum of their
+individually rounded broker values rather than the aggregate quantity multiplied
+by the first position's price. This preserves the broker subtotal even when the
+merged positions carry different live prices.
+For a compte-titres that subtotal *is* the account total; for a PEA the total also
+includes a scoped cash amount Picsou never persists, so the holdings sum falls
+short of `current_balance` by exactly that cash. This is why `V64` can only
+backfill accounts that reconcile, and why PEAs are left to self-heal on sync.
+
+This exists because `AccountService.liveBalanceEur` re-values holdings from Yahoo
+and **drops** any it cannot price, while the invested side keeps their full cost
+basis — an asymmetry that fabricates a loss (GH issue #76). TR positions Yahoo
+cannot resolve (unmappable ISINs, thin US OTC listings for Irish/Luxembourg UCITS
+ETFs — see [ISIN_TO_TICKER_CONVERSION.md](./ISIN_TO_TICKER_CONVERSION.md) and GH
+issue #78) now fall back to this broker figure instead of vanishing.
+
+Treating TR quotes as EUR is not a new assumption: the adapter already sums them
+unconverted into `balanceEur`. Writing `quote_currency` makes that assumption
+explicit in the schema rather than implicit in the adapter, which is what the
+[FX-conversion ADR](../decisions/2026-05-19-yahoo-fx-conversion.md) asked for when
+it rejected using the untagged `current_price` column as a fallback.
+
+### CSV import fallback
 
 `TradeRepublicSyncService.importCsv()` parses a CSV file with columns `name,type,balance`. Accounts are deduplicated via a stable external ID derived from the name (`tr_csv_` prefix + slugified name).
 
@@ -89,15 +119,15 @@ The two legs are strict mirrors: the investment leg always carries the **opposit
 
 ### Scheduled sync
 
-`SchedulerService.dailyBankSync()` calls `TradeRepublicSyncService.resyncIfSessionActive()`, which is a no-op if no session exists or if the session has expired.
+`SchedulerService.dailyBankSync()` calls `TradeRepublicSyncService.resyncIfSessionActive()`, which is a no-op if no session exists. An expired session token is not a reason to skip: the sync attempts the stored refresh token first (the daily 08:00 run is always past the 2 h token window, so the refresh path IS the scheduled-sync path).
 
 ### Key files
 
-- `adapter/TradeRepublicAdapter.java` -- WebSocket data fetching + sidecar auth delegation
-- `port/TradeRepublicPort.java` -- Port interface with `TrTokens`, `TrAccountData`, `TrPosition` records
-- `service/TradeRepublicSyncService.java` -- Auth flow, sync orchestration, CSV import, session management
-- `controller/TradeRepublicController.java` -- REST endpoints under `/api/tr/`
-- `model/TradeRepublicSession.java` -- Session entity with token storage
+- `backend/src/main/java/com/picsou/adapter/TradeRepublicAdapter.java` -- WebSocket data fetching + sidecar auth delegation
+- `backend/src/main/java/com/picsou/port/TradeRepublicPort.java` -- Port interface with `TrTokens`, `TrAccountData`, `TrPosition` records
+- `backend/src/main/java/com/picsou/service/TradeRepublicSyncService.java` -- Auth flow, sync orchestration, CSV import, session management
+- `backend/src/main/java/com/picsou/controller/TradeRepublicController.java` -- REST endpoints under `/api/tr/`
+- `backend/src/main/java/com/picsou/model/TradeRepublicSession.java` -- Session entity with token storage
 
 ### Flow
 
@@ -186,8 +216,13 @@ Without rule 2, Playwright installs to `/root/.cache/ms-playwright/`, which the 
 
 Both compose files (`docker-compose.yml` at repo root and `docker/docker-compose.yml`) reference `services/tr-auth/Dockerfile`, so a fix here applies to both.
 
+Both also forward `APP_SIDECAR_API_KEY`. The sidecar refuses to start without it and answers every route except `/health` with a 401 `Picsou-Sidecar-Key` challenge unless the backend presents it; see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
+
 ## Gotchas / Pitfalls
 
+- **The daily snapshot is taken after the holdings are replaced.** The 3-arg `AccountService.upsertSnapshot` derives the day's `investedAmount` from the holdings in the table; taken before `deleteByAccountId` + re-insert it costed today's snapshot with the previous sync's positions, one sync late in every daily point. Same rule in `DegiroSyncService`.
+- **The PEA's cash pocket reaches `Account.cashBalance`.** `TrAccountData.cashEur` carries the scoped cash that is already inside `balanceEur`; without it on the account, `valuation()` left the pocket out of the live value while the provider-valued total kept it, so the cash read as a gain or vanished depending on which path ran. Null for the CTO, whose cash is the separate `tr_cash` account. Null too when the pocket is unknown (no cash account to subscribe to, or its frame never came): the sync then keeps the last known pocket rather than writing an empty one, as it keeps the holdings on an error frame.
+- **An error frame on the portfolio subscription is not an empty portfolio.** `<id> E {...}` (or a payload that does not parse) answers the subscription, so the sync's wait does not hang on it, but `TradeRepublicAdapter.shouldPersist` skips the account: persisting it as empty made the service delete every holding and snapshot the securities at zero, cash pocket kept, so a PEA looked like cash only until the next successful sync. The account keeps the previous sync's data and the warning names it. A genuinely emptied portfolio (an answer that parsed with no positions) still persists. Each subscription counts once toward the wait, whatever the number of frames it sends: an error or delta frame after an answer must not complete the wait while another account is still silent.
 - **tr-auth must be running**: The Python sidecar must be accessible at `app.tr-auth.url` (default `http://tr-auth:8001`). If it is down, auth calls will timeout after 60 seconds.
 - **Local Maven dev uses localhost**: `application-dev.yml` overrides `app.tr-auth.url` to `http://127.0.0.1:8001` because `tr-auth` is a Docker-internal DNS name. When running the backend with `mvn spring-boot:run`, start the sidecar separately on port 8001.
 - **tr-auth 500 = Playwright crash**: A generic 500 from the sidecar almost always means the Chromium browser could not launch. Check `PLAYWRIGHT_BROWSERS_PATH` is set and `chown` covers it (see Docker section above). Run `docker logs <tr-auth-container>` to confirm.
@@ -198,8 +233,8 @@ Both compose files (`docker-compose.yml` at repo root and `docker/docker-compose
   phone/PIN step and clear any stale process id. Only `/tr/auth/complete` errors
   should keep the verification-code step visible for retry.
 - **Frontend API field mapping**: Frontend sends `phoneNumber` and `pin` (not `phone` and `pin`). The API uses ISO field names; if frontend is updated, verify the DTO record field names match.
-- **Error message parsing on frontend**: Error handling extracts specific error codes from deeply nested JSON responses (e.g., `NUMBER_INVALID`, `PIN_INVALID`, `VALIDATION_CODE_INVALID`). If the sidecar changes the error response format, frontend error messages must be updated to match. See `TradeRepublicTab.tsx` `formatAuthError()`.
-- **Session expires ~2h**: The refresh token validity is approximately 2 hours. If auto-sync fails after 2h of inactivity, the user must re-authenticate manually.
+- **Error message parsing on frontend**: Error handling extracts specific error codes from deeply nested JSON responses (e.g., `NUMBER_INVALID`, `PIN_INVALID`, `VALIDATION_CODE_INVALID`). The backend wraps every TR error in a `SyncException`, which `GlobalExceptionHandler` maps to **HTTP 422** with the code in the ProblemDetail `detail` — so the shared `formatTrAuthError()` (`frontend/src/lib/errors.ts`) matches TR codes on both 422 and 5xx via a single `matchTrDetail()` helper. It is used by `TradeRepublicTab`, `AddAccountModal` **and** `SyncAllModal` (the modal surfaces auth and per-row sync errors inline). If the sidecar changes the error response format, update `matchTrDetail()`.
+- **Session lifetime is TR's call, not ours**: the stored `expiresAt` (+2 h) is a heuristic; sync always *tries* (refreshing on `SESSION_EXPIRED`) and only a TR-rejected refresh clears the session. If TR invalidates refresh tokens quickly, the user still has to re-authenticate — but that decision now comes from TR's actual response, not a hard-coded clock.
 - **WebSocket protocol is reverse-engineered**: The TR WebSocket API is undocumented. Raw responses are logged at INFO level. If TR changes the protocol, the adapter will break and need updating.
 - **timeout-driven completion**: The WebSocket session completes when either all data is received (cash + all portfolios + all tickers) or a 30-second timeout is hit.
 - **TR WebSocket API breaks without notice**: Trade Republic removed `compactPortfolio` on 2026-06-21 (protocol v31) and replaced it with `compactPortfolioByType`. The JSON structure changed: positions are now nested under `categories[].positions[]` and use `isin` instead of `instrumentId`. Reference project for future breaks: [pytr-org/pytr](https://github.com/pytr-org/pytr) — they track TR API changes in commit history.

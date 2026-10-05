@@ -141,9 +141,24 @@ first is recommended.
 
 ### 5.3 Real estate
 
-Real-estate accounts have a metadata pane: address, surface, valuation
-notes. Edit the value to log a re-evaluation; Picsou snapshots it like
-a regular account.
+Real-estate accounts have a detail pane describing the property: type and
+category, geocoded address, living area and land area, rooms, construction
+year, floor and lift, garage and parking, garden/terrace/balcony, energy
+rating, and the full acquisition cost (price plus agency, notary and works
+fees).
+
+From that description Picsou estimates the property's current value each
+month from French open data (DGFiP transactions via Cerema, addresses via
+IGN, re-indexed on the INSEE housing index) and updates the account
+balance, so the gain/loss curve builds itself. Turn off "automatic
+estimate" to freeze your own figure instead.
+
+Estimation is unavailable in Alsace, Moselle and Mayotte, which keep the
+*livre foncier* registry and are absent from the national transaction
+dataset; those properties stay on manual valuation.
+
+A property can be split between family members, and a mortgage can be
+linked to it, giving gross and net property wealth.
 
 ---
 

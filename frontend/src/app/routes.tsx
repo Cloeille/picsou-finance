@@ -9,6 +9,7 @@ import {
   DashboardPage,
   AccountsPage,
   AccountDetailPage,
+  AnalysisPage,
   GoalsPage,
   GoalCalendarPage,
   BudgetLayout,
@@ -34,6 +35,8 @@ import {
   SetupStepComplete,
   SetupStepEnableBanking,
   SetupStepBoursoBank,
+  SetupStepBourseDirect,
+  SetupStepFortuneo,
   SetupStepTradeRepublic,
   SetupStepRevolut,
   SetupStepFinary,
@@ -59,9 +62,11 @@ export const router = createBrowserRouter([
   {
     // /login/mfa is also for unauthenticated visitors — the user is mid-login
     // (mfa_challenge cookie set, access_token NOT yet set), so PublicOnly applies.
+    // No session to restore yet, so skip the probe (a /auth/refresh here would
+    // 401 and just flash a skeleton over the challenge form).
     path: '/login/mfa',
     element: (
-      <PublicOnly>
+      <PublicOnly probe={false}>
         <SuspensePage>
           <MfaChallengePage />
         </SuspensePage>
@@ -116,6 +121,8 @@ export const router = createBrowserRouter([
       { path: 'integrations', element: <SuspensePage fallback={null}><SetupStepIntegrations /></SuspensePage> },
       { path: 'integrations/enablebanking', element: <SuspensePage fallback={null}><SetupStepEnableBanking /></SuspensePage> },
       { path: 'integrations/boursobank', element: <SuspensePage fallback={null}><SetupStepBoursoBank /></SuspensePage> },
+      { path: 'integrations/boursedirect', element: <SuspensePage fallback={null}><SetupStepBourseDirect /></SuspensePage> },
+      { path: 'integrations/fortuneo', element: <SuspensePage fallback={null}><SetupStepFortuneo /></SuspensePage> },
       { path: 'integrations/traderepublic', element: <SuspensePage fallback={null}><SetupStepTradeRepublic /></SuspensePage> },
       { path: 'integrations/revolut', element: <SuspensePage fallback={null}><SetupStepRevolut /></SuspensePage> },
       { path: 'integrations/finary', element: <SuspensePage fallback={null}><SetupStepFinary /></SuspensePage> },
@@ -136,6 +143,7 @@ export const router = createBrowserRouter([
       { index: true, element: <SuspensePage><DashboardPage /></SuspensePage> },
       { path: 'accounts', element: <SuspensePage><AccountsPage /></SuspensePage> },
       { path: 'accounts/:id', element: <SuspensePage><AccountDetailPage /></SuspensePage> },
+      { path: 'analysis', element: <SuspensePage><AnalysisPage /></SuspensePage> },
       { path: 'goals', element: <SuspensePage><GoalsPage /></SuspensePage> },
       { path: 'goals/:id/calendar', element: <SuspensePage><GoalCalendarPage /></SuspensePage> },
       {

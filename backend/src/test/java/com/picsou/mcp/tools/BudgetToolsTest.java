@@ -2,6 +2,7 @@ package com.picsou.mcp.tools;
 
 import com.picsou.dto.BudgetRequest;
 import com.picsou.dto.BudgetResponse;
+import com.picsou.dto.CashflowFlowResponse;
 import com.picsou.dto.CashflowPeriod;
 import com.picsou.dto.CashflowResponse;
 import com.picsou.dto.CategorizationRuleRequest;
@@ -11,6 +12,7 @@ import com.picsou.dto.CategoryResponse;
 import com.picsou.dto.RecurringOccurrenceResponse;
 import com.picsou.dto.RecurringSeriesResponse;
 import com.picsou.dto.SpendingByCategoryResponse;
+import com.picsou.dto.SpendingDetailResponse;
 import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.CategoryKind;
@@ -23,7 +25,9 @@ import com.picsou.service.budget.CashflowFlowService;
 import com.picsou.service.budget.CashflowService;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.CategoryService;
+import com.picsou.service.budget.RecurringDetectionService;
 import com.picsou.service.budget.RecurringSeriesService;
+import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -59,10 +63,12 @@ class BudgetToolsTest {
     @Mock CategorizationService categorizationService;
     @Mock BudgetService budgetService;
     @Mock RecurringSeriesService recurringSeriesService;
+    @Mock RecurringDetectionService recurringDetectionService;
     @Mock CashflowService cashflowService;
     @Mock CashflowFlowService cashflowFlowService;
     @Mock TransactionRepository transactionRepository;
     @Mock UserContext userContext;
+    @Mock Validator validator;
     @InjectMocks BudgetTools tools;
 
     // ─── Categories ─────────────────────────────────────────────────────────
@@ -360,6 +366,46 @@ class BudgetToolsTest {
         assertThat(dashboard.cashflow()).isSameAs(cashflow);
         assertThat(dashboard.topCategories()).containsExactly(big, small); // ranked highest amount first
         assertThat(dashboard.upcomingSubscriptions()).containsExactly(occurrence);
+    }
+
+    // ─── Spending / cashflow ────────────────────────────────────────────────
+
+    @Test
+    void getSpendingByCategory_defaultsToTheCycleContainingToday() {
+        SpendingByCategoryResponse spending = mock(SpendingByCategoryResponse.class);
+        when(userContext.currentMemberId()).thenReturn(MID);
+        when(cashflowFlowService.spendingByCategory(MID, CashflowPeriod.CYCLE, LocalDate.now())).thenReturn(spending);
+
+        assertThat(tools.getSpendingByCategory(null, null)).isSameAs(spending);
+    }
+
+    @Test
+    void getSpendingCategoryDetail_passesCategoryPeriodAndAnchor() {
+        SpendingDetailResponse detail = mock(SpendingDetailResponse.class);
+        LocalDate anchor = LocalDate.of(2026, 3, 15);
+        when(userContext.currentMemberId()).thenReturn(MID);
+        when(cashflowFlowService.categoryDetail(MID, 3L, CashflowPeriod.YTD, anchor)).thenReturn(detail);
+
+        assertThat(tools.getSpendingCategoryDetail(3L, CashflowPeriod.YTD, anchor)).isSameAs(detail);
+    }
+
+    @Test
+    void getCashflow_passesPeriodAndAnchor() {
+        CashflowResponse cashflow = mock(CashflowResponse.class);
+        LocalDate anchor = LocalDate.of(2026, 3, 15);
+        when(userContext.currentMemberId()).thenReturn(MID);
+        when(cashflowService.compute(MID, CashflowPeriod.YTD, anchor)).thenReturn(cashflow);
+
+        assertThat(tools.getCashflow(CashflowPeriod.YTD, anchor)).isSameAs(cashflow);
+    }
+
+    @Test
+    void getCashflowFlow_defaultsToTheCycleContainingToday() {
+        CashflowFlowResponse flow = mock(CashflowFlowResponse.class);
+        when(userContext.currentMemberId()).thenReturn(MID);
+        when(cashflowFlowService.flow(MID, CashflowPeriod.CYCLE, LocalDate.now())).thenReturn(flow);
+
+        assertThat(tools.getCashflowFlow(null, null)).isSameAs(flow);
     }
 
     private static SpendingByCategoryResponse.CategorySpend categorySpend(long categoryId, BigDecimal amount) {

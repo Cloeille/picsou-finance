@@ -1,6 +1,7 @@
 package com.picsou.controller;
 
 import com.picsou.config.AuthCookieWriter;
+import com.picsou.config.ClientIp;
 import com.picsou.config.JwtUtil;
 import com.picsou.config.RateLimitConfig;
 import com.picsou.dto.ActivationRequest;
@@ -21,6 +22,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +43,8 @@ import java.util.UUID;
 @RequestMapping("/api/auth")
 public class AuthController {
 
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
+
     private final AppUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
@@ -50,6 +55,7 @@ public class AuthController {
     private final PersistentSessionService persistentSessionService;
     private final SetupAuditService auditService;
     private final boolean adminRecoveryEnabled;
+    private final boolean loginRateLimitEnabled;
 
     /**
      * A throwaway hash with the same cost factor as {@link #passwordEncoder}.
@@ -69,7 +75,8 @@ public class AuthController {
         MfaService mfaService,
         PersistentSessionService persistentSessionService,
         SetupAuditService auditService,
-        @org.springframework.beans.factory.annotation.Value("${app.admin-recovery.enabled:false}") boolean adminRecoveryEnabled
+        @org.springframework.beans.factory.annotation.Value("${app.admin-recovery.enabled:false}") boolean adminRecoveryEnabled,
+        @org.springframework.beans.factory.annotation.Value("${app.auth.login-rate-limit.enabled:true}") boolean loginRateLimitEnabled
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
@@ -81,6 +88,7 @@ public class AuthController {
         this.persistentSessionService = persistentSessionService;
         this.auditService = auditService;
         this.adminRecoveryEnabled = adminRecoveryEnabled;
+        this.loginRateLimitEnabled = loginRateLimitEnabled;
         this.dummyPasswordHash = passwordEncoder.encode("login-timing-equalizer");
     }
 
@@ -91,12 +99,13 @@ public class AuthController {
         HttpServletResponse httpRes
     ) {
         String ip = getClientIp(httpReq);
-        Bucket bucket = loginBuckets.computeIfAbsent(ip, k -> RateLimitConfig.createLoginBucket());
-
-        if (!bucket.tryConsume(1)) {
-            ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
-            detail.setDetail("Too many login attempts. Try again in 15 minutes.");
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
+        if (loginRateLimitEnabled) {
+            Bucket bucket = loginBuckets.computeIfAbsent(ip, k -> RateLimitConfig.createLoginBucket());
+            if (!bucket.tryConsume(1)) {
+                ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
+                detail.setDetail("Too many login attempts. Try again in 15 minutes.");
+                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
+            }
         }
 
         AppUser user = userRepository.findByUsernameWithMember(req.username()).orElse(null);
@@ -259,7 +268,12 @@ public class AuthController {
             try {
                 var claims = jwtUtil.validateAndParse(refreshToken);
                 if (jwtUtil.isRefreshToken(claims)) {
-                    AppUser user = userRepository.findByUsernameWithMember(claims.getSubject()).orElse(null);
+                    // By the immutable uid, like JwtAuthenticationFilter, never by the username in
+                    // `sub`: a username can be changed (change-username) or freed and given to a new
+                    // member, and resolving by name logged the old token's holder into whoever now
+                    // carried that name, or locked a renamed user out at the next refresh.
+                    Long uid = jwtUtil.getUserId(claims);
+                    AppUser user = uid == null ? null : userRepository.findByIdWithMember(uid).orElse(null);
                     // Reject if the user is gone, the token version was bumped (credential
                     // change / recovery), or the account has since been deactivated.
                     Long tv = jwtUtil.getTokenVersion(claims);
@@ -283,9 +297,11 @@ public class AuthController {
                         return ResponseEntity.ok(userPayload(user));
                     }
                 }
-            } catch (Exception ignored) {
+            } catch (RuntimeException ex) {
                 // Falls through: an invalid/expired refresh_token doesn't necessarily mean
-                // "logged out" -- see the persistentPrincipal branch below.
+                // "logged out" -- see the persistentPrincipal branch below. Logged at DEBUG so
+                // a refresh loop can still be traced to the token that caused it.
+                log.debug("Refresh token rejected, falling through to persistent token: {}", ex.toString());
             }
         }
 
@@ -550,10 +566,14 @@ public class AuthController {
 
     private String getClientIp(HttpServletRequest request) {
         // Never trust X-Forwarded-For from the client — it is user-controllable and
-        // would allow rate-limit bypass by spoofing IPs. Use only the TCP-level remote
-        // address, which is the nginx container's internal IP in production (the only
-        // valid entry point on the picsou-net Docker bridge network).
-        return request.getRemoteAddr();
+        // would allow rate-limit bypass by spoofing IPs. request.getRemoteAddr() is NOT
+        // a safe substitute either: under server.forward-headers-strategy=framework
+        // (see application.yml), Spring's ForwardedHeaderFilter rewrites it from the
+        // leftmost X-Forwarded-For entry, which nginx's proxy_add_x_forwarded_for only
+        // ever appends to (never replaces) — so it inherits the same spoofability.
+        // ClientIp.resolve() uses X-Real-IP instead, which our nginx always overwrites
+        // with $remote_addr and a client cannot inject through the proxy.
+        return ClientIp.resolve(request);
     }
 
     record ChangePasswordRequest(

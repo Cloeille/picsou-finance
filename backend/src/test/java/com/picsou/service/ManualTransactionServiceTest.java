@@ -220,7 +220,7 @@ class ManualTransactionServiceTest {
     }
 
     @Test
-    void addTransaction_syncedInvestmentAccount_stillRecomputesHoldings() {
+    void addTransaction_syncedInvestmentAccount_leavesProviderHoldingsUntouched() {
         Account account = Account.builder()
             .id(4L)
             .name("Synced CTO")
@@ -246,9 +246,7 @@ class ManualTransactionServiceTest {
 
         manualTransactionService.addTransaction(4L, 10L, req);
 
-        // The isManual guard only gates the cash recompute path — holdings
-        // derivation runs for investment accounts regardless of provenance.
-        verify(holdingComputeService).recomputeHoldings(account);
+        verify(holdingComputeService, never()).recomputeHoldings(any());
         verify(finaryPersistenceHelper, never()).reconstructSnapshotsFromDb(any());
     }
 
@@ -386,6 +384,8 @@ class ManualTransactionServiceTest {
 
         TransactionResponse result = manualTransactionService.addTransaction(2L, 10L, req);
 
+        assertThat(result.txType()).isEqualTo(TransactionType.BUY);
+        assertThat(result.description()).isEqualTo("AAPL");
         assertThat(result.fees()).isEqualByComparingTo("1.50");
         verify(holdingComputeService).recomputeHoldings(account);
     }

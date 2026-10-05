@@ -34,15 +34,18 @@ public class PersistentSessionService {
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
     private final long expiryDays;
+    private final long rotationGraceSeconds;
 
     public PersistentSessionService(
         PersistentSessionRepository repository,
         Clock clock,
-        @Value("${app.persistent-session.expiry-days:90}") long expiryDays
+        @Value("${app.persistent-session.expiry-days:90}") long expiryDays,
+        @Value("${app.persistent-session.rotation-grace-seconds:30}") long rotationGraceSeconds
     ) {
         this.repository = repository;
         this.clock = clock;
         this.expiryDays = expiryDays;
+        this.rotationGraceSeconds = rotationGraceSeconds;
     }
 
     @Transactional
@@ -68,15 +71,26 @@ public class PersistentSessionService {
     /**
      * Validate the cookie value, rotate the token, and return the rotated cookie value + session.
      * <p>
-     * Token theft detection: if the cookie's series_id exists but its token hash doesn't match
-     * the current stored hash, the entire series is revoked and an empty Optional is returned.
+     * Token theft detection: if the cookie's series_id exists but its token hash matches neither
+     * the current stored hash nor the immediately-previous hash within the rotation grace window,
+     * the entire series is revoked and an empty Optional is returned.
+     * <p>
+     * Grace window: several browser tabs restored at once each present the same pre-rotation
+     * token. The first request rotates it; without a grace window the rest would look like a
+     * replayed (stolen) token and revoke the series, logging the user out everywhere. Accepting
+     * the immediately-previous token for {@code rotationGraceSeconds} tolerates that concurrent
+     * burst. The persistent cookie is shared across tabs and converges on the latest rotated
+     * value, so the window only needs to cover the in-flight burst, not a lasting second token.
      */
     @Transactional
     public Optional<ValidationResult> validateAndRotate(String cookieValue) {
         ParsedCookie parsed = parseCookie(cookieValue).orElse(null);
         if (parsed == null) return Optional.empty();
 
-        Optional<PersistentSession> opt = repository.findBySeriesId(parsed.seriesId());
+        // Row-level lock so concurrent restores of the same series serialize —
+        // otherwise both read the same pre-rotation state and the second rotation
+        // orphans the first token, which then trips theft detection below.
+        Optional<PersistentSession> opt = repository.findBySeriesIdForUpdate(parsed.seriesId());
         if (opt.isEmpty()) return Optional.empty();
 
         PersistentSession session = opt.get();
@@ -85,9 +99,14 @@ public class PersistentSessionService {
         if (!session.isActive(now)) return Optional.empty();
 
         String presentedHash = sha256Hex(parsed.token());
-        if (!MessageDigest.isEqual(
-            presentedHash.getBytes(StandardCharsets.UTF_8),
-            session.getTokenHash().getBytes(StandardCharsets.UTF_8))) {
+        boolean matchesCurrent = constantTimeEquals(presentedHash, session.getTokenHash());
+        boolean matchesRecentPrevious =
+            session.getPreviousTokenHash() != null
+            && session.getPreviousTokenAt() != null
+            && !now.isAfter(session.getPreviousTokenAt().plusSeconds(rotationGraceSeconds))
+            && constantTimeEquals(presentedHash, session.getPreviousTokenHash());
+
+        if (!matchesCurrent && !matchesRecentPrevious) {
             log.warn("Persistent token theft suspected: series={} user={} — wiping series",
                 session.getSeriesId(), session.getUser().getId());
             session.setRevokedAt(now);
@@ -96,10 +115,30 @@ public class PersistentSessionService {
         }
 
         String newToken = generateToken();
+        if (matchesCurrent) {
+            // A genuine rotation: arm the grace window with the token we're rotating
+            // away from, so concurrent tabs still holding it are accepted below.
+            session.setPreviousTokenHash(session.getTokenHash());
+            session.setPreviousTokenAt(now);
+        }
+        // On a grace (previous-match) acceptance we deliberately leave
+        // previous_token_hash/at ANCHORED. Two consequences, both intended:
+        //   - EVERY concurrent tab presenting the same pre-rotation token is
+        //     accepted (not just the first two), because `previous` keeps pointing
+        //     at that token instead of advancing to each freshly-minted one;
+        //   - the window can't be slid forward by replaying the previous token —
+        //     it stays pinned to the rotation that opened it (rotationGraceSeconds
+        //     from the first rotation, not from the last acceptance).
         session.setTokenHash(sha256Hex(newToken));
         session.setLastUsedAt(now);
         repository.save(session);
         return Optional.of(new ValidationResult(formatCookieValue(session.getSeriesId(), newToken), session));
+    }
+
+    private static boolean constantTimeEquals(String a, String b) {
+        return MessageDigest.isEqual(
+            a.getBytes(StandardCharsets.UTF_8),
+            b.getBytes(StandardCharsets.UTF_8));
     }
 
     public List<PersistentSession> listActiveForUser(AppUser user) {

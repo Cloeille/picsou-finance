@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { Label } from '@/components/ui/label'
 import { parseAmount } from '@/lib/utils'
+import { formatApiError } from '@/lib/errors'
+import { totalFromAvg, avgFromTotal } from '@/features/accounts/cost-basis'
 import { Loader2 } from 'lucide-react'
 import type { HoldingResponse } from '@/types/api'
 
@@ -14,9 +16,15 @@ interface EditHoldingModalProps {
   holding: HoldingResponse | null
   onSubmit: (ticker: string, quantity: number, averageBuyIn?: number) => Promise<void>
   isLoading?: boolean
+  /**
+   * When true the quantity is owned by an external sync (an on-chain wallet or
+   * exchange), so it is shown read-only — the user only corrects the cost basis.
+   * Editing it would be overwritten on the next sync.
+   */
+  quantityReadOnly?: boolean
 }
 
-export function EditHoldingModal({ open, onOpenChange, holding, onSubmit, isLoading }: EditHoldingModalProps) {
+export function EditHoldingModal({ open, onOpenChange, holding, onSubmit, isLoading, quantityReadOnly }: EditHoldingModalProps) {
   const { t } = useTranslation()
 
   return (
@@ -34,6 +42,7 @@ export function EditHoldingModal({ open, onOpenChange, holding, onSubmit, isLoad
             onOpenChange={onOpenChange}
             onSubmit={onSubmit}
             isLoading={isLoading}
+            quantityReadOnly={quantityReadOnly}
           />
         )}
       </DialogContent>
@@ -46,26 +55,77 @@ interface HoldingFormProps {
   onOpenChange: (open: boolean) => void
   onSubmit: (ticker: string, quantity: number, averageBuyIn?: number) => Promise<void>
   isLoading?: boolean
+  quantityReadOnly?: boolean
 }
 
-function HoldingForm({ holding, onOpenChange, onSubmit, isLoading }: HoldingFormProps) {
+/**
+ * Formats a derived value in FIXED notation (never scientific, which the numeric
+ * input can't parse back), trimming only fractional trailing zeros. 8 decimals
+ * matches the backend's `average_buy_in` scale, so a small per-unit price for a
+ * micro-cap token isn't underflowed to "0" (which would zero the cost basis).
+ */
+function fmt(n: number | null): string {
+  if (n == null || !Number.isFinite(n)) return ''
+  return n.toFixed(8).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '')
+}
+
+/** parseAmount but returns null instead of NaN for empty/invalid input. */
+function parseFinite(value: string): number | null {
+  const n = parseAmount(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function HoldingForm({ holding, onOpenChange, onSubmit, isLoading, quantityReadOnly }: HoldingFormProps) {
   const { t } = useTranslation()
   const [quantity, setQuantity] = useState(() => String(holding.quantity))
   const [averageBuyIn, setAverageBuyIn] = useState(() => (holding.averageBuyIn != null ? String(holding.averageBuyIn) : ''))
+  const [totalInvested, setTotalInvested] = useState(() =>
+    fmt(totalFromAvg(holding.averageBuyIn, holding.quantity)),
+  )
   const [error, setError] = useState<string | null>(null)
+
+  // The quantity used to keep the two cost-basis fields in sync. When it's
+  // read-only it's authoritative (the synced balance); otherwise track the input.
+  const effectiveQty = quantityReadOnly ? holding.quantity : parseFinite(quantity)
+
+  function onAvgChange(value: string) {
+    setAverageBuyIn(value)
+    setTotalInvested(fmt(totalFromAvg(parseFinite(value), effectiveQty)))
+  }
+
+  function onTotalChange(value: string) {
+    setTotalInvested(value)
+    setAverageBuyIn(fmt(avgFromTotal(parseFinite(value), effectiveQty)))
+  }
+
+  function onQuantityChange(value: string) {
+    setQuantity(value)
+    // Keep the average buy-in as the source of truth; refresh the total display.
+    setTotalInvested(fmt(totalFromAvg(parseFinite(averageBuyIn), parseFinite(value))))
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+
+    // Validate before hitting the API: parseAmount returns NaN for empty/invalid,
+    // which must never be sent to the backend as a quantity or cost basis.
+    const qty = quantityReadOnly ? holding.quantity : parseFinite(quantity)
+    if (qty == null || qty <= 0) {
+      setError(t('holdings.quantityInvalid'))
+      return
+    }
+    const avg = averageBuyIn ? parseFinite(averageBuyIn) : null
+    if (averageBuyIn && (avg == null || avg < 0)) {
+      setError(t('holdings.costBasisInvalid'))
+      return
+    }
+
     try {
-      await onSubmit(
-        holding.ticker,
-        parseAmount(quantity),
-        averageBuyIn ? parseAmount(averageBuyIn) : undefined,
-      )
+      await onSubmit(holding.ticker, qty, avg ?? undefined)
       onOpenChange(false)
-    } catch {
-      setError(t('common.error'))
+    } catch (err) {
+      setError(formatApiError(err, t))
     }
   }
 
@@ -75,18 +135,33 @@ function HoldingForm({ holding, onOpenChange, onSubmit, isLoading }: HoldingForm
         <Label>{t('holdings.quantity')}</Label>
         <NumericInput
           value={quantity}
-          onChange={e => setQuantity(e.target.value)}
-          required
+          onChange={e => onQuantityChange(e.target.value)}
+          disabled={quantityReadOnly}
+          required={!quantityReadOnly}
         />
+        {quantityReadOnly && (
+          <p className="text-muted-foreground text-xs">{t('holdings.quantitySyncedHint')}</p>
+        )}
       </div>
-      <div className="space-y-1">
-        <Label>{t('holdings.avgBuyIn')} <span className="text-muted-foreground text-xs">({t('common.optional')})</span></Label>
-        <NumericInput
-          value={averageBuyIn}
-          onChange={e => setAverageBuyIn(e.target.value)}
-          placeholder="—"
-        />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label>{t('holdings.avgBuyIn')} <span className="text-muted-foreground text-xs">({t('common.optional')})</span></Label>
+          <NumericInput
+            value={averageBuyIn}
+            onChange={e => onAvgChange(e.target.value)}
+            placeholder="—"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>{t('holdings.totalInvested')} <span className="text-muted-foreground text-xs">({t('common.optional')})</span></Label>
+          <NumericInput
+            value={totalInvested}
+            onChange={e => onTotalChange(e.target.value)}
+            placeholder="—"
+          />
+        </div>
       </div>
+      <p className="text-muted-foreground text-xs">{t('holdings.costBasisHint')}</p>
       {error && <p className="text-sm text-destructive">{error}</p>}
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>

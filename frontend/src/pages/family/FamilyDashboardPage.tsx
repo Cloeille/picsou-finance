@@ -1,13 +1,14 @@
 import { useTranslation } from 'react-i18next'
+import { useMoney } from '@/hooks/use-money'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
 import { useFamilyDashboard } from '@/features/family/hooks'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Wallet, Target, Users } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
 
 export function FamilyDashboardPage() {
+  const money = useMoney()
   const { t } = useTranslation()
   const { data, isLoading } = useFamilyDashboard()
 
@@ -34,7 +35,7 @@ export function FamilyDashboardPage() {
               {t('family.dashboard.sharedNetWorth')}
             </CardTitle>
             <p className="text-2xl font-bold">
-              {formatCurrency(dashboard.totalSharedNetWorth)}
+              {money.amount(dashboard.totalSharedNetWorth)}
             </p>
           </div>
         </CardHeader>
@@ -69,11 +70,11 @@ export function FamilyDashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-lg font-bold">
-                    {formatCurrency(account.balanceEur)}
+                    {money.amount(account.balanceEur)}
                   </p>
                   {account.currency !== 'EUR' && (
                     <p className="text-xs text-muted-foreground">
-                      {formatCurrency(account.balance)} {account.currency}
+                      {money.amount(account.balance, account.currency)}
                     </p>
                   )}
                 </CardContent>
@@ -117,8 +118,8 @@ export function FamilyDashboardPage() {
                     {/* Progress bar */}
                     <div>
                       <div className="flex justify-between text-xs mb-1">
-                        <span>{formatCurrency(goal.currentTotal)}</span>
-                        <span className="text-muted-foreground">{formatCurrency(goal.targetAmount)}</span>
+                        <span>{money.amount(goal.currentTotal)}</span>
+                        <span className="text-muted-foreground">{money.amount(goal.targetAmount)}</span>
                       </div>
                       <div className="h-2 rounded-full bg-muted overflow-hidden">
                         <div
@@ -137,7 +138,7 @@ export function FamilyDashboardPage() {
                         {goal.contributions.map((c) => (
                           <div key={c.memberName} className="flex justify-between text-xs">
                             <span>{c.memberName}</span>
-                            <span className="font-medium">{formatCurrency(c.amount)}</span>
+                            <span className="font-medium">{money.amount(c.amount)}</span>
                           </div>
                         ))}
                       </div>

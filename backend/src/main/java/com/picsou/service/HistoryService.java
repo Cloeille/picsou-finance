@@ -35,6 +35,7 @@ public class HistoryService {
     private final PriceService priceService;
     private final PriceSnapshotRepository priceSnapshotRepository;
     private final AccountService accountService;
+    private final AccountAccessResolver accessResolver;
 
     public HistoryService(
         AccountRepository accountRepository,
@@ -42,7 +43,8 @@ public class HistoryService {
         AccountHoldingRepository holdingRepository,
         PriceService priceService,
         PriceSnapshotRepository priceSnapshotRepository,
-        AccountService accountService
+        AccountService accountService,
+        AccountAccessResolver accessResolver
     ) {
         this.accountRepository = accountRepository;
         this.snapshotRepository = snapshotRepository;
@@ -50,6 +52,7 @@ public class HistoryService {
         this.priceService = priceService;
         this.priceSnapshotRepository = priceSnapshotRepository;
         this.accountService = accountService;
+        this.accessResolver = accessResolver;
     }
 
     public List<NetWorthPoint> buildHistory(List<Long> accountIds, int months, Long memberId) {
@@ -57,22 +60,46 @@ public class HistoryService {
     }
 
     /**
-     * Rejects any request whose accounts don't all belong to {@code memberId}.
+     * Rejects any request containing an account the member may not read, and returns each
+     * account's share so the caller can weight it.
      *
      * <p>Member scoping is mandatory: a {@code null} memberId is a programming error
      * (every controller resolves {@code UserContext.currentMemberId()}, which is never
      * null), not a "skip validation" signal — failing loud here prevents a future caller
      * from accidentally returning another member's financial data.
+     *
+     * <p>Ownership alone is not the test: a co-owner legitimately reads an account they do not
+     * own, so a positive share grants access on its own.
+     *
+     * <p>But a zero share is not the opposite signal, and treating it as one was a bug. The
+     * administrative owner may legitimately hold none of their own account — they can transfer
+     * their whole share away, and {@code shareFrom} deliberately reports that as 0 rather than
+     * inventing an implicit 100%. Reading is still theirs: they administer it, and
+     * {@link AccountAccessResolver#requireReadable} has always let them through on that basis.
+     * This guard did not, and because it rejects the <em>whole batch</em> while
+     * {@code DashboardService} passes every readable id at once, one such account 404'd the
+     * entire dashboard history rather than showing itself as worth nothing. The two guards now
+     * answer the same question.
      */
-    private void assertOwnership(List<Account> accounts, Long memberId) {
+    private Map<Long, BigDecimal> assertReadable(List<Account> accounts, Long memberId) {
         if (memberId == null) {
             throw new IllegalArgumentException("memberId is required for member-scoped history");
         }
+        Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);
         for (Account account : accounts) {
-            if (!account.getMember().getId().equals(memberId)) {
+            BigDecimal share = shares.getOrDefault(account.getId(), BigDecimal.ZERO);
+            boolean owner = account.getMember() != null
+                && memberId.equals(account.getMember().getId());
+            if (share.signum() <= 0 && !owner) {
                 throw com.picsou.exception.ResourceNotFoundException.account(account.getId());
             }
         }
+        return shares;
+    }
+
+    /** The member's slice of an account-level amount. Zero-safe, null-safe. */
+    private static BigDecimal weigh(BigDecimal amount, Map<Long, BigDecimal> shares, Long accountId) {
+        return AccountAccessResolver.weigh(amount, shares.get(accountId));
     }
 
     /**
@@ -92,12 +119,18 @@ public class HistoryService {
         List<Account> accounts = accountRepository.findAllById(accountIds);
         if (accounts.isEmpty()) return List.of();
 
-        assertOwnership(accounts, memberId);
+        Map<Long, BigDecimal> shares = assertReadable(accounts, memberId);
 
         LocalDate from = LocalDate.now().minusMonths(months);
 
+        // A loan stores its outstanding capital positive and is negated here; a credit card
+        // stores its debt already signed. Both are liabilities: never invested, never P&L.
         Set<Long> loanIds = accounts.stream()
             .filter(a -> a.getType() == AccountType.LOAN)
+            .map(Account::getId)
+            .collect(Collectors.toSet());
+        Set<Long> liabilityIds = accounts.stream()
+            .filter(a -> a.getType().isLiability())
             .map(Account::getId)
             .collect(Collectors.toSet());
 
@@ -115,27 +148,32 @@ public class HistoryService {
             for (Account account : accounts) {
                 Long accId = account.getId();
                 boolean isLoan = loanIds.contains(accId);
+                boolean isLiability = liabilityIds.contains(accId);
 
                 NavigableMap<LocalDate, BigDecimal> balMap = ffData.balanceByAccount().get(accId);
                 NavigableMap<LocalDate, BigDecimal> invMap = ffData.investedByAccount().get(accId);
                 var balEntry = balMap != null ? balMap.floorEntry(date) : null;
                 var invEntry = invMap != null ? invMap.floorEntry(date) : null;
 
-                BigDecimal rawBalance = balEntry != null ? balEntry.getValue() : BigDecimal.ZERO;
+                // Snapshots hold 100% of the account's value; the member's share is applied
+                // here, on read. Weighting at write time would mean rewriting the whole
+                // history every time a split changes.
+                BigDecimal rawBalance = weigh(
+                    balEntry != null ? balEntry.getValue() : BigDecimal.ZERO, shares, accId);
                 BigDecimal accTotal = isLoan ? rawBalance.negate() : rawBalance;
                 aggTotal = aggTotal.add(accTotal);
 
-                // Match live-path semantics: loans contribute 0 to invested; non-loans
+                // Match live-path semantics: liabilities contribute 0 to invested; assets
                 // use the forward-filled snapshot (falling back to balance if the row
                 // predates V18 / the account has no prior snapshot).
-                BigDecimal accInvested = isLoan
+                BigDecimal accInvested = isLiability
                     ? BigDecimal.ZERO
-                    : (invEntry != null ? invEntry.getValue() : rawBalance);
+                    : (invEntry != null ? weigh(invEntry.getValue(), shares, accId) : rawBalance);
                 aggInvested = aggInvested.add(accInvested);
 
-                // Debt-neutral pnl (issue #18): loans contribute 0 — outstanding debt
+                // Debt-neutral pnl (issue #18): liabilities contribute 0 — outstanding debt
                 // is a liability, not an investment loss.
-                BigDecimal accPnl = isLoan ? BigDecimal.ZERO : accTotal.subtract(accInvested);
+                BigDecimal accPnl = isLiability ? BigDecimal.ZERO : accTotal.subtract(accInvested);
                 aggPnl = aggPnl.add(accPnl);
 
                 if (split) {
@@ -153,24 +191,28 @@ public class HistoryService {
         Map<Long, AccountPoint> liveAccountPoints = split ? new HashMap<>() : null;
 
         for (Account account : accounts) {
-            BigDecimal accLive = accountService.liveBalanceEur(account);
-            BigDecimal accInvested = accountService.calculateInvestedAmount(account);
-            boolean isLoan = account.getType() == AccountType.LOAN;
+            // One pass, not two: liveBalanceEur and calculateInvestedAmount each run the whole
+            // valuation, and two runs can straddle a price-cache change — the value excluding an
+            // asset the cost basis then includes is the disagreement that reported an untouched
+            // account as an 85% loss, and here it would land straight in the live P&L point.
+            // Both halves are then weighted by the same share, so the pairing survives.
+            AccountService.Valuation valuation = accountService.valuation(account);
+            BigDecimal accLive = weigh(valuation.liveEur(), shares, account.getId());
+            BigDecimal accInvested = weigh(valuation.investedEur(), shares, account.getId());
+            boolean isLiability = account.getType().isLiability();
+            BigDecimal total = account.getType() == AccountType.LOAN ? accLive.negate() : accLive;
 
-            if (isLoan) {
-                liveTotal = liveTotal.subtract(accLive);
-            } else {
-                liveTotal = liveTotal.add(accLive);
+            liveTotal = liveTotal.add(total);
+            if (!isLiability) {
                 liveInvested = liveInvested.add(accInvested);
             }
 
-            // Debt-neutral pnl (issue #18): loans contribute 0.
-            BigDecimal accPnl = isLoan ? BigDecimal.ZERO : accLive.subtract(accInvested);
+            // Debt-neutral pnl (issue #18): liabilities contribute 0.
+            BigDecimal accPnl = isLiability ? BigDecimal.ZERO : accLive.subtract(accInvested);
             livePnl = livePnl.add(accPnl);
 
             if (split) {
-                BigDecimal total = isLoan ? accLive.negate() : accLive;
-                BigDecimal invested = isLoan ? BigDecimal.ZERO : accInvested;
+                BigDecimal invested = isLiability ? BigDecimal.ZERO : accInvested;
                 liveAccountPoints.put(account.getId(), new AccountPoint(total, invested, accPnl));
             }
         }
@@ -199,7 +241,8 @@ public class HistoryService {
     /**
      * Build hourly net worth history for the last 24 hours.
      *
-     * For investment accounts (PEA, CT, Crypto): portfolio value = sum(holding.qty × intraday price at each hour).
+     * For investment accounts (PEA, CT, Crypto): portfolio value = sum(holding.qty × intraday price at each hour)
+     * plus the cash pocket held in the envelope, which also counts as invested (it is worth what it cost).
      * For bank/savings accounts: use today's balance snapshot (constant throughout the day).
      * For loans: negate the balance.
      */
@@ -207,7 +250,7 @@ public class HistoryService {
         List<Account> accounts = accountRepository.findAllById(accountIds);
         if (accounts.isEmpty()) return List.of();
 
-        assertOwnership(accounts, memberId);
+        Map<Long, BigDecimal> shares = assertReadable(accounts, memberId);
 
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime from = now.minusHours(24);
@@ -217,9 +260,11 @@ public class HistoryService {
 
         Map<Long, List<HoldingData>> accountHoldings = new HashMap<>();
         Map<Long, BigDecimal> accountHoldingsInvested = new HashMap<>();
+        Map<Long, BigDecimal> accountCash = new HashMap<>(); // cash pocket of investment accounts, unweighted
         Map<Long, BigDecimal> accountBankBalance = new HashMap<>(); // non-investment account balances
         Set<String> allTickers = new HashSet<>();
         Set<Long> loanIds = new HashSet<>();
+        Set<Long> liabilityIds = new HashSet<>();
 
         LocalDate today = LocalDate.now();
 
@@ -228,6 +273,9 @@ public class HistoryService {
 
             if (account.getType() == AccountType.LOAN) {
                 loanIds.add(accId);
+            }
+            if (account.getType().isLiability()) {
+                liabilityIds.add(accId);
             }
 
             List<AccountHolding> holdings = holdingRepository.findByAccount_Id(accId);
@@ -238,7 +286,9 @@ public class HistoryService {
                 BigDecimal balance = snapshot.isPresent()
                     ? snapshot.get().getBalance()
                     : accountService.liveBalanceEur(account);
-                accountBankBalance.put(accId, balance);
+                // Weighted once here rather than in the hourly loop below — the value is
+                // constant across the day, so there is no reason to re-apply it 24 times.
+                accountBankBalance.put(accId, weigh(balance, shares, accId));
                 accountHoldings.put(accId, List.of());
                 accountHoldingsInvested.put(accId, BigDecimal.ZERO);
             } else {
@@ -255,17 +305,31 @@ public class HistoryService {
                     if (ticker != null) allTickers.add(ticker);
                 }
 
+                // The cash pocket sits in the envelope next to the positions and is worth exactly
+                // what it cost, so it goes on both sides, as valuation() does for the daily chart's
+                // today point. Leaving it out of both kept the intraday gain right but printed a
+                // total lower than the daily chart's by the whole pocket, so switching to 24H read
+                // as a drop that never happened.
+                BigDecimal cash = account.getCashBalance() != null ? account.getCashBalance() : BigDecimal.ZERO;
+                accountCash.put(accId, cash);
                 accountHoldings.put(accId, holdingDataList);
-                accountHoldingsInvested.put(accId, invested);
+                accountHoldingsInvested.put(accId, weigh(invested.add(cash), shares, accId));
             }
         }
 
-        // Fetch intraday prices for all tickers
+        // Fetch intraday prices for all tickers. Guard per ticker: the price providers swallow
+        // expected upstream failures and return an empty map, so anything thrown here is a bug
+        // -- but letting it escape would 500 the whole intraday chart over one bad ticker.
+        // Log it loudly, drop that ticker's series, and still render the rest.
         Map<String, NavigableMap<LocalDateTime, BigDecimal>> intradayPricesByTicker = new HashMap<>();
         for (String ticker : allTickers) {
-            Map<LocalDateTime, BigDecimal> prices = priceService.getIntradayPricesEur(ticker, from, now);
-            if (!prices.isEmpty()) {
-                intradayPricesByTicker.put(ticker, new TreeMap<>(prices));
+            try {
+                Map<LocalDateTime, BigDecimal> prices = priceService.getIntradayPricesEur(ticker, from, now);
+                if (!prices.isEmpty()) {
+                    intradayPricesByTicker.put(ticker, new TreeMap<>(prices));
+                }
+            } catch (Exception ex) {
+                log.error("Intraday price fetch failed for {} -- omitting it from the chart", ticker, ex);
             }
         }
 
@@ -286,7 +350,7 @@ public class HistoryService {
                     BigDecimal balance = accountBankBalance.getOrDefault(accId, BigDecimal.ZERO);
                     BigDecimal value = loanIds.contains(accId) ? balance.negate() : balance;
                     aggTotal = aggTotal.add(value);
-                    if (!loanIds.contains(accId)) {
+                    if (!liabilityIds.contains(accId)) {
                         aggInvested = aggInvested.add(value);
                     }
                 } else {
@@ -303,7 +367,15 @@ public class HistoryService {
                         }
                     }
 
-                    // If no intraday price found, account has zero market value at that hour (skip)
+                    // Weighted on the account total rather than per holding: rounding once
+                    // keeps this consistent with the daily chart's per-account weighting. The
+                    // cash pocket goes in before that single rounding, as it does on the
+                    // invested side, so the two sides cannot drift by a rounded cent.
+                    marketValue = weigh(
+                        marketValue.add(accountCash.getOrDefault(accId, BigDecimal.ZERO)), shares, accId);
+
+                    // If no intraday price found, the positions are worth zero at that hour and
+                    // only the cash pocket remains (skip)
                     if (loanIds.contains(accId)) {
                         aggTotal = aggTotal.subtract(marketValue);
                     } else {
@@ -333,7 +405,7 @@ public class HistoryService {
             return new com.picsou.dto.PnlResponse(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null);
         }
 
-        assertOwnership(accounts, memberId);
+        Map<Long, BigDecimal> shares = assertReadable(accounts, memberId);
 
         // Live values. `liveTotal` stays NET WORTH (loans negated); pnl is computed
         // debt-neutrally from non-loan value only (issue #18).
@@ -341,20 +413,32 @@ public class HistoryService {
         BigDecimal liveInvested = BigDecimal.ZERO;
         BigDecimal liveNonLoanValue = BigDecimal.ZERO;
 
-        // Collect all holdings for historical lookup
+        // Collect all holdings for historical lookup, remembering which account each came
+        // from so the range PnL below can weight it by that account's share.
         List<AccountHolding> allHoldings = new ArrayList<>();
+        Map<Long, Long> accountIdByHolding = new HashMap<>();
 
         for (Account account : accounts) {
             List<AccountHolding> holdings = holdingRepository.findByAccount_Id(account.getId());
             allHoldings.addAll(holdings);
+            for (AccountHolding h : holdings) {
+                accountIdByHolding.put(h.getId(), account.getId());
+            }
+
+            // One valuation per account, for the same reason as buildHistory above: the P&L
+            // printed here is value minus cost, so the two must come from the same prices.
+            AccountService.Valuation valuation = accountService.valuation(account);
+            BigDecimal accLive = weigh(valuation.liveEur(), shares, account.getId());
 
             if (account.getType() == AccountType.LOAN) {
-                liveTotal = liveTotal.subtract(accountService.liveBalanceEur(account));
+                liveTotal = liveTotal.subtract(accLive);
+            } else if (account.getType().isLiability()) {
+                liveTotal = liveTotal.add(accLive);
             } else {
-                BigDecimal accLive = accountService.liveBalanceEur(account);
                 liveTotal = liveTotal.add(accLive);
                 liveNonLoanValue = liveNonLoanValue.add(accLive);
-                liveInvested = liveInvested.add(accountService.calculateInvestedAmount(account));
+                liveInvested = liveInvested.add(
+                    weigh(valuation.investedEur(), shares, account.getId()));
             }
         }
 
@@ -388,8 +472,13 @@ public class HistoryService {
             }
             BigDecimal livePrice = livePriceByTicker.get(ticker);
             if (livePrice == null) continue;
-            valueAtFrom = valueAtFrom.add(h.getQuantity().multiply(snap.get().getPriceEur()));
-            liveMatchedValue = liveMatchedValue.add(h.getQuantity().multiply(livePrice));
+            // Both sides weighted by the same share, so the ratio -- and therefore the
+            // percentage -- is unchanged; only the absolute figures shrink to the member's part.
+            Long holdingAccountId = accountIdByHolding.get(h.getId());
+            valueAtFrom = valueAtFrom.add(
+                weigh(h.getQuantity().multiply(snap.get().getPriceEur()), shares, holdingAccountId));
+            liveMatchedValue = liveMatchedValue.add(
+                weigh(h.getQuantity().multiply(livePrice), shares, holdingAccountId));
             matchedPrices++;
         }
 

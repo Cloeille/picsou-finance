@@ -1,24 +1,21 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import {
-  LayoutDashboard,
-  Wallet,
-  Target,
-  PieChart,
-  Settings,
-} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import picsouLogo from '@/assets/picsou_logo_white.svg'
+import { CLASSIC_SETTINGS_NAV_ITEM, NAV_ITEMS } from './sidebar-nav-items'
 import { LanguageToggle } from './LanguageToggle'
 
-const NAV_ITEMS = [
-  { path: '/', icon: LayoutDashboard, labelKey: 'nav.dashboard', end: true },
-  { path: '/accounts', icon: Wallet, labelKey: 'nav.accounts', end: false },
-  { path: '/goals', icon: Target, labelKey: 'nav.goals', end: false },
-  { path: '/budget', icon: PieChart, labelKey: 'nav.budget', end: false },
-  { path: '/settings', icon: Settings, labelKey: 'nav.settings', end: false },
-] as const
+/**
+ * The bar carries the same routes as the sidebar, plus Settings — which on mobile has no other
+ * entry point, since the desktop sidebar reaches it through the bottom account row.
+ *
+ * It used to keep its own hardcoded copy of the route list with the brand logo centred between
+ * two pairs of items. Adding a fifth route left no honest way to keep that symmetry, and a
+ * private copy of the list was one more place to forget a route, so both went: one registry,
+ * evenly spaced items, and the logo stays on the desktop sidebar where it has room. The language
+ * toggle keeps the trailing position it held beside the logo, next to Settings it belongs with.
+ */
+const MOBILE_NAV_ITEMS = [...NAV_ITEMS, CLASSIC_SETTINGS_NAV_ITEM] as const
 
 function MobileNavItem({
   to,
@@ -57,41 +54,16 @@ export function MobileBottomNav() {
   return (
     <nav className="fixed bottom-4 inset-x-4 z-50 md:hidden">
       <div className="flex items-center justify-between rounded-xl bg-background px-3 py-3 ring-1 ring-border">
-        {/* Left items */}
-        <div className="flex gap-2 items-center">
-          {NAV_ITEMS.slice(0, 2).map((item) => (
-            <MobileNavItem
-              key={item.path}
-              to={item.path}
-              end={item.end}
-              icon={item.icon}
-              label={t(item.labelKey)}
-            />
-          ))}
-          <LanguageToggle />
-        </div>
-
-        {/* Center logo */}
-        <div className="flex-1 flex justify-center">
-          <img
-            src={picsouLogo}
-            alt="Picsou"
-            className="h-8 w-auto opacity-90 brightness-0 dark:invert"
+        {MOBILE_NAV_ITEMS.map((item) => (
+          <MobileNavItem
+            key={item.path}
+            to={item.path}
+            end={item.path === '/'}
+            icon={item.icon}
+            label={t(item.labelKey)}
           />
-        </div>
-
-        {/* Right items */}
-        <div className="flex gap-2">
-          {NAV_ITEMS.slice(2).map((item) => (
-            <MobileNavItem
-              key={item.path}
-              to={item.path}
-              end={item.end}
-              icon={item.icon}
-              label={t(item.labelKey)}
-            />
-          ))}
-        </div>
+        ))}
+        <LanguageToggle />
       </div>
       {/* iOS safe area */}
       <div className="h-[env(safe-area-inset-bottom)]" />

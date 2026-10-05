@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { extractErrorMessage, safeBackendMessage, formatApiError } from './errors'
+import {
+  extractErrorMessage,
+  safeBackendMessage,
+  formatApiError,
+  formatFortuneoError,
+  formatTrAuthError,
+  fortuneoErrorMessage,
+  getErrorCode,
+} from './errors'
 
 /** Minimal translator stub: echoes the key so assertions can check which key fired. */
 const t = (key: string, fallback?: string) => fallback ?? key
@@ -31,9 +39,11 @@ describe('extractErrorMessage', () => {
     expect(extractErrorMessage(err)).toBe('Bad redirect URI')
   })
 
-  it('uses err.message as fallback for plain text', () => {
+  it('rejects raw browser network errors', () => {
     const err = new Error('Network error')
-    expect(extractErrorMessage(err)).toBe('Network error')
+    expect(extractErrorMessage(err, 'Custom fallback')).toBe('Custom fallback')
+    expect(extractErrorMessage(new Error('AxiosError'))).toBe('Une erreur est survenue')
+    expect(extractErrorMessage(new Error('Failed to fetch'))).toBe('Une erreur est survenue')
   })
 
   it('skips Axios boilerplate and returns fallback', () => {
@@ -47,6 +57,37 @@ describe('extractErrorMessage', () => {
 
   it('returns default fallback when no fallback provided', () => {
     expect(extractErrorMessage({})).toBe('Une erreur est survenue')
+  })
+})
+
+describe('getErrorCode', () => {
+  it('extracts a stable ProblemDetail code', () => {
+    expect(getErrorCode({ response: { data: { code: 'SESSION_EXPIRED' } } })).toBe('SESSION_EXPIRED')
+  })
+
+  it('ignores non-string codes', () => {
+    expect(getErrorCode({ response: { data: { code: 42 } } })).toBeUndefined()
+  })
+})
+
+describe('fortuneoErrorMessage', () => {
+  it('explains how to unblock an investor-profile gate', () => {
+    expect(fortuneoErrorMessage(t, 'INVESTOR_PROFILE_REQUIRED')).toBe(
+      'sync.fortuneo.errors.investorProfileRequired'
+    )
+  })
+
+  it('returns null for an unknown code so callers can fall back', () => {
+    expect(fortuneoErrorMessage(t, 'SOMETHING_NEW')).toBeNull()
+    expect(fortuneoErrorMessage(t, null)).toBeNull()
+  })
+})
+
+describe('formatFortuneoError', () => {
+  it('maps rate limiting to the dedicated message', () => {
+    expect(formatFortuneoError({ response: { status: 429 } }, t)).toBe(
+      'sync.fortuneo.errors.tooManyAttempts'
+    )
   })
 })
 
@@ -101,5 +142,43 @@ describe('formatApiError — status-aware translated output', () => {
   it('never leaks internals even on a 400', () => {
     const err = { response: { status: 400, data: { detail: 'java.lang.IllegalStateException: boom' } } }
     expect(formatApiError(err, t, 'auth.error')).toBe('auth.error')
+  })
+})
+
+describe('formatTrAuthError — TR error codes', () => {
+  const trErr = (status: number, detail?: string, errors?: Record<string, unknown>) => ({
+    response: { status, data: { detail, errors } },
+  })
+
+  it('maps TR codes carried by a 422 (SyncException → ProblemDetail)', () => {
+    expect(formatTrAuthError(trErr(422, 'PIN_INVALID'), t)).toBe('sync.tr.errors.invalidPin')
+    expect(formatTrAuthError(trErr(422, 'NUMBER_INVALID'), t)).toBe('sync.tr.errors.invalidPhoneNumber')
+    expect(formatTrAuthError(trErr(422, 'VALIDATION_CODE_INVALID'), t)).toBe('sync.tr.errors.invalidTan')
+    expect(formatTrAuthError(trErr(422, 'AUTHENTICATION_ERROR'), t)).toBe('sync.tr.errors.authenticationFailed')
+  })
+
+  it('maps the sidecar-down message on a 422', () => {
+    const detail = 'Trade Republic authentication service is unavailable. Please make sure tr-auth is running on port 8001.'
+    expect(formatTrAuthError(trErr(422, detail), t)).toBe('sync.tr.errors.serviceUnavailable')
+  })
+
+  it('maps session-expiry wording on a 422', () => {
+    const detail = 'Your Trade Republic session has expired and could not be refreshed. Please reconnect.'
+    expect(formatTrAuthError(trErr(422, detail), t)).toBe('sync.tr.errors.authenticationFailed')
+  })
+
+  it('keeps the field-validation fallback on a 422 without TR codes', () => {
+    expect(formatTrAuthError(trErr(422, undefined, { pin: 'required' }), t)).toBe('sync.tr.errors.pinRequired')
+    expect(formatTrAuthError(trErr(422, undefined, { phoneNumber: 'required' }), t)).toBe('sync.tr.errors.phoneNumberRequired')
+    expect(formatTrAuthError(trErr(422, 'something else'), t)).toBe('sync.tr.errors.validationFailed')
+  })
+
+  it('still maps TR codes on 5xx (proxy/unmapped failures)', () => {
+    expect(formatTrAuthError(trErr(502, 'PIN_INVALID'), t)).toBe('sync.tr.errors.invalidPin')
+    expect(formatTrAuthError(trErr(500, 'boom'), t)).toBe('sync.tr.errors.serverError')
+  })
+
+  it('maps 429 to the rate-limit message', () => {
+    expect(formatTrAuthError(trErr(429), t)).toBe('sync.tr.errors.tooManyAttempts')
   })
 })

@@ -1,4 +1,10 @@
-fastapi==0.111.0
-uvicorn==0.30.1
-httpx==0.27.0
-pydantic==2.7.4
+# fastapi 0.111 bundled python-multipart, orjson and ujson as hard dependencies
+# and pinned Starlette to a range with published DoS advisories. This sidecar
+# serves JSON only and parses no multipart request, so the newer line both
+# patches Starlette and drops those three from the image entirely. (It *sends*
+# one multipart form to BoursoBank; httpx builds that itself.)
+fastapi==0.141.1
+uvicorn==0.52.1
+pydantic==2.13.4
+# Production dependency here, not just a test one: BoursoBank needs no browser.
+httpx==0.28.1

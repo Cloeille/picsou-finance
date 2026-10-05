@@ -31,7 +31,10 @@ public class CryptoExchangeSession extends AuditableEntity {
     @Column(name = "api_key", nullable = false, length = 500)
     private String apiKey;
 
-    @Column(name = "api_secret", nullable = false, length = 500)
+    // Nullable: single-key exchanges have no secret at all (see
+    // CryptoExchangePort.requiresApiSecret()). CryptoExchangeSyncService still refuses to save a
+    // session without a secret for an exchange whose adapter requires one.
+    @Column(name = "api_secret", length = 500)
     private String apiSecret;
 
     @Column(nullable = false, length = 20)

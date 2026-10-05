@@ -109,7 +109,7 @@ and shared `components/`.
 | `features/family/` | Member switcher, family view |
 | `features/admin/` | Members, integrations, security sections |
 | `components/shared/` | Reusable UI (modals, charts, forms) |
-| `lib/api-client.ts` | Single `fetch` wrapper with `withCredentials` |
+| `frontend/src/lib/api-client.ts` | Single Axios instance (`withCredentials`) with request/response interceptors |
 | `stores/` | Zustand stores for cross-cutting state |
 
 ---

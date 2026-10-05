@@ -143,6 +143,36 @@ class LoanAmortizationServiceTest {
         assertThat(remaining).isEqualByComparingTo("11700.00");
     }
 
+    /**
+     * The computed annuity covers capital and interest; the schedule then takes the insurance
+     * out of every installment. Without adding it back, each installment under-amortised the
+     * capital by the insurance and the last one absorbed a shortfall of twelve times it.
+     */
+    @Test
+    void computedMonthlyPayment_includesInsurance_soCapitalIsFullyAmortised() {
+        Debt debt = Debt.builder()
+            .borrowedAmount(new BigDecimal("12000"))
+            .interestRate(new BigDecimal("0"))
+            .insuranceMonthly(new BigDecimal("10"))
+            .startDate(LocalDate.parse("2025-01-01"))
+            .endDate(LocalDate.parse("2026-01-01"))
+            .build();
+
+        LoanScheduleResponse out = service.compute(debt, LocalDate.parse("2025-01-01"));
+
+        assertThat(out.summary().monthlyPayment()).isEqualByComparingTo("1010.00");
+        assertThat(out.schedule().get(0).capital()).isEqualByComparingTo("1000.00");
+        assertThat(out.schedule().get(10).capital()).isEqualByComparingTo("1000.00");
+        assertThat(out.schedule().get(11).capital()).isEqualByComparingTo("1000.00");
+    }
+
+    @Test
+    void hasSchedule_needsAStartAndAnEndDateInOrder() {
+        assertThat(LoanAmortizationService.hasSchedule(debt("12000", "0", "100", "2025-01-01", "2026-01-01"))).isTrue();
+        assertThat(LoanAmortizationService.hasSchedule(Debt.builder().borrowedAmount(new BigDecimal("12000")).build())).isFalse();
+        assertThat(LoanAmortizationService.hasSchedule(debt("12000", "0", "100", "2026-01-01", "2025-01-01"))).isFalse();
+    }
+
     private static Debt debt(String borrowed, String rate, String monthly, String start, String end) {
         return Debt.builder()
             .borrowedAmount(new BigDecimal(borrowed))

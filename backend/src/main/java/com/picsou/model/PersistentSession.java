@@ -29,6 +29,15 @@ public class PersistentSession {
     @Column(name = "token_hash", nullable = false, columnDefinition = "TEXT")
     private String tokenHash;
 
+    // The immediately-previous token hash, kept for a short grace window so that
+    // concurrent multi-tab restores (which all present the pre-rotation token)
+    // are accepted instead of tripping theft detection. Null until first rotation.
+    @Column(name = "previous_token_hash", columnDefinition = "TEXT")
+    private String previousTokenHash;
+
+    @Column(name = "previous_token_at")
+    private Instant previousTokenAt;
+
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)

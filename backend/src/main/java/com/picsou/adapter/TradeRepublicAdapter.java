@@ -2,11 +2,13 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
 import com.picsou.port.TradeRepublicPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -54,6 +56,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
 
     private static final String WS_URL     = "wss://api.traderepublic.com/";
     private static final int    WS_VERSION = 31;
+    private static final Duration DEFAULT_REFRESH_TIMEOUT = Duration.ofSeconds(15);
 
     private record SecAccount(
         String wrapper,
@@ -66,15 +69,21 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
 
     private final WebClient    sidecarClient;
     private final ObjectMapper objectMapper;
+    private final Duration     refreshTimeout;
 
+    @Autowired
     public TradeRepublicAdapter(
+        SidecarWebClientFactory clients,
         ObjectMapper objectMapper,
         @Value("${app.tr-auth.url:http://tr-auth:8001}") String trAuthUrl
     ) {
+        this(objectMapper, clients.create("Trade Republic", trAuthUrl), DEFAULT_REFRESH_TIMEOUT);
+    }
+
+    TradeRepublicAdapter(ObjectMapper objectMapper, WebClient sidecarClient, Duration refreshTimeout) {
         this.objectMapper   = objectMapper;
-        this.sidecarClient  = WebClient.builder()
-            .baseUrl(trAuthUrl)
-            .build();
+        this.sidecarClient  = sidecarClient;
+        this.refreshTimeout = refreshTimeout;
     }
 
     // ─── Auth (delegated to Python sidecar) ───────────────────────────────────
@@ -152,15 +161,33 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
             .bodyToMono(JsonNode.class)
             .onErrorResume(WebClientResponseException.class, ex -> {
                 log.error("tr-auth sidecar /refresh failed ({}) : {}", ex.getStatusCode(), ex.getResponseBodyAsString());
-                return Mono.error(new SyncException("SESSION_EXPIRED"));
+                // The sidecar relays TR's status verbatim: only 401/403 mean the
+                // refresh token was actually rejected. Anything else (TR 429
+                // rate-limit, sidecar 5xx) is transient and must not destroy the
+                // stored session.
+                int status = ex.getStatusCode().value();
+                if (status == 401 || status == 403) {
+                    return Mono.error(new SyncException("SESSION_EXPIRED"));
+                }
+                return Mono.error(new SyncException(
+                    "Trade Republic authentication service is unavailable. Please make sure tr-auth is running on port 8001.",
+                    ex));
             })
-            .timeout(Duration.ofSeconds(15))
+            .timeout(refreshTimeout)
+            .onErrorMap(ex -> !(ex instanceof SyncException), ex -> new SyncException(
+                "Trade Republic authentication service is unavailable. Please make sure tr-auth is running on port 8001.",
+                ex))
             .blockOptional()
-            .orElseThrow(() -> new SyncException("SESSION_EXPIRED"));
+            // An empty 2xx body is a sidecar/proxy defect, not a TR rejection —
+            // it must not carry the SESSION_EXPIRED sentinel that destroys the
+            // stored session. Only a 4xx above means TR refused the token.
+            .orElseThrow(() -> new SyncException(
+                "Trade Republic authentication service returned an empty response. Please try again later."));
 
         String newSession = response.path("sessionToken").asText(null);
         if (newSession == null || newSession.isBlank()) {
-            throw new SyncException("SESSION_EXPIRED");
+            throw new SyncException(
+                "Trade Republic authentication service returned an empty response. Please try again later.");
         }
         String newRefresh = response.path("refreshToken").asText(null);
         log.info("TR session refreshed successfully");
@@ -187,6 +214,11 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         ConcurrentHashMap<Integer, SecAccount> portfolioSubIds = new ConcurrentHashMap<>();
         ConcurrentHashMap<Integer, SecAccount> scopedCashSubIds = new ConcurrentHashMap<>();
         Set<String> receivedPortfolioIds = ConcurrentHashMap.newKeySet();
+        // Portfolio subscriptions that answered with an error frame or an unparsable payload.
+        // They count as answered (the wait must not hang on them) but say nothing about the
+        // portfolio, so the account is left untouched this sync instead of being persisted as
+        // an empty one, which deleted every holding and snapshotted the securities at zero.
+        Set<String> erroredPortfolioIds = ConcurrentHashMap.newKeySet();
         Set<Integer> receivedScopedCashSubs = ConcurrentHashMap.newKeySet();
         AtomicBoolean authExpired = new AtomicBoolean(false);
         AtomicInteger subIdCounter = new AtomicInteger(0);
@@ -272,11 +304,23 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
 
                                 } else if (portfolioSubIds.containsKey(wsId)) {
                                     SecAccount account = portfolioSubIds.get(wsId);
-                                    receivedPortfolios.incrementAndGet();
-                                    receivedPortfolioIds.add(account.externalId());
+                                    // Counted once per subscription: a second frame for an account
+                                    // already answered (an error after an answer, a delta) must not
+                                    // complete the wait while another account is still silent.
+                                    if (receivedPortfolioIds.add(account.externalId())) {
+                                        receivedPortfolios.incrementAndGet();
+                                    }
                                     log.info("TR compactPortfolioByType [{}] raw: {}", account.name(),
                                              payload.length() > 2000
                                                      ? payload.substring(0, 2000) + "…" : payload);
+                                    if ("E".equals(extractWsType(text))) {
+                                        erroredPortfolioIds.add(account.externalId());
+                                        expectedTickers.compareAndSet(-1, 0);
+                                        log.warn("TR compactPortfolioByType [{}] answered with an error frame: {} "
+                                            + "-- keeping the previous sync's holdings", account.name(),
+                                            payload.length() > 300 ? payload.substring(0, 300) : payload);
+                                        return Mono.just(text);
+                                    }
                                     try {
                                         JsonNode root = objectMapper.readTree(payload);
 
@@ -352,6 +396,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                     } catch (Exception ex) {
                                         log.error("Failed to parse compactPortfolioByType [{}]: {}",
                                             account.name(), payload, ex);
+                                        erroredPortfolioIds.add(account.externalId());
                                         expectedTickers.compareAndSet(-1, 0);
                                     }
 
@@ -410,9 +455,14 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
             Map<String, JsonNode> positionsByIsin = positionsByAccount.getOrDefault(
                 secAccount.externalId(), new ConcurrentHashMap<>());
 
-            BigDecimal totalPortfolioValue = secAccount.type() == AccountType.PEA
-                ? parseCashValue(scopedCashJsonByAccount.get(secAccount.externalId()))
-                : BigDecimal.ZERO;
+            // Null when the pocket is unknown (no cash account to subscribe to, or its frame
+            // never arrived), not zero: parseCashValue(null) reads as an empty pocket, and the
+            // sync keeps the last known pocket for an unknown one, as it keeps the holdings.
+            String peaCashJson = secAccount.type() == AccountType.PEA
+                ? scopedCashJsonByAccount.get(secAccount.externalId())
+                : null;
+            BigDecimal peaCash = peaCashJson != null ? parseCashValue(peaCashJson) : null;
+            BigDecimal totalPortfolioValue = peaCash != null ? peaCash : BigDecimal.ZERO;
             int priced = 0;
             for (var entry : positionsByIsin.entrySet()) {
                 String isin = entry.getKey();
@@ -453,16 +503,22 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                 positions.add(new TradeRepublicPort.TrPosition(isin, size, averageBuyIn, currentPrice));
             }
 
-            if (totalPortfolioValue.compareTo(BigDecimal.ZERO) > 0
-                    || !positions.isEmpty()
-                    || receivedPortfolioIds.contains(secAccount.externalId())) {
-                accounts.add(new TrAccountData(
-                    secAccount.externalId(),
-                    secAccount.name(),
-                    secAccount.type(),
-                    totalPortfolioValue,
-                    positions));
+            boolean answered = receivedPortfolioIds.contains(secAccount.externalId());
+            boolean errored = erroredPortfolioIds.contains(secAccount.externalId());
+            if (!shouldPersist(totalPortfolioValue, positions.isEmpty(), answered, errored)) {
+                if (errored) {
+                    log.warn("TR portfolio [{}]: no usable portfolio answer this sync -- "
+                        + "the account keeps its previous holdings and balance", secAccount.name());
+                }
+                continue;
             }
+            accounts.add(new TrAccountData(
+                secAccount.externalId(),
+                secAccount.name(),
+                secAccount.type(),
+                totalPortfolioValue,
+                positions,
+                peaCash));
         }
 
         if (cashJson.get() != null
@@ -519,6 +575,29 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         int second = text.indexOf(' ', first + 1);
         if (second < 0) return text.substring(first + 1);
         return text.substring(second + 1);
+    }
+
+    /** The frame type between the id and the payload: A (answer), D (delta), E (error), C (complete). */
+    private String extractWsType(String text) {
+        int first = text.indexOf(' ');
+        if (first < 0) return "";
+        int second = text.indexOf(' ', first + 1);
+        return second < 0 ? text.substring(first + 1) : text.substring(first + 1, second);
+    }
+
+    /**
+     * Whether what came back for a securities account this sync is a portfolio to persist.
+     *
+     * <p>An error frame or an unparsable payload answers the subscription, so the wait does not
+     * hang on it, but it says nothing about the positions. Persisting it as an empty portfolio
+     * made {@code TradeRepublicSyncService} delete every holding of the account and snapshot the
+     * securities at zero; with a PEA it even kept the cash pocket, so the account looked like
+     * cash only. Such an account is skipped and keeps the previous sync's data. A genuinely
+     * emptied portfolio still persists: its answer parsed, it just had no positions.
+     */
+    static boolean shouldPersist(BigDecimal totalValue, boolean noPositions, boolean answered, boolean errored) {
+        if (errored && noPositions) return false;
+        return totalValue.signum() > 0 || !noPositions || answered;
     }
 
     private String buildConnectMessage() {

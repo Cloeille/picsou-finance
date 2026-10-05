@@ -31,7 +31,8 @@ export function localeFromLanguage(language: string | null | undefined): string 
   return resolveLocale(language).intlLocale
 }
 
-function normalizeIntlLocale(locale: string): string {
+/** Exported for `lib/money.ts`, the only other place allowed to build an Intl currency format. */
+export function normalizeIntlLocale(locale: string): string {
   try {
     return Intl.NumberFormat.supportedLocalesOf(locale).length > 0 ? locale : DEFAULT_LOCALE.intlLocale
   } catch {
@@ -39,29 +40,44 @@ function normalizeIntlLocale(locale: string): string {
   }
 }
 
-export function formatCurrency(value: number, currency = 'EUR', locale = getLocale()): string {
-  const safeLocale = normalizeIntlLocale(locale)
+// formatCurrency used to live here. It moved to `lib/money.ts` and became private, so that every
+// amount on screen goes through the formatter that knows whether amounts are hidden. Reaching for
+// a raw currency format is now a compile error rather than a silent leak during a demo.
+
+/** ISO 3166-1 alpha-2 code → localized country name (e.g. "EE" → "Estonia"). Falls back to the raw code for an unknown/invalid one. */
+export function formatCountryName(code: string, locale = getLocale()): string {
   try {
-    return new Intl.NumberFormat(safeLocale, { style: 'currency', currency }).format(value)
+    const name = new Intl.DisplayNames([normalizeIntlLocale(locale)], { type: 'region' }).of(code)
+    return name && name !== code ? name : code
   } catch {
-    // An unknown/invalid ISO 4217 code makes Intl.NumberFormat throw a RangeError.
-    // Degrade to a plain decimal + the raw code instead of crashing the whole app (issue #9).
-    const num = new Intl.NumberFormat(safeLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
-    return `${num} ${currency}`
+    return code
   }
+}
+
+/**
+ * Parses an API date, anchoring a date-only value at *local* midnight.
+ *
+ * `new Date('2026-07-31')` is specified to parse as UTC midnight, so anywhere west of UTC the
+ * rendered day is the one before. A date-only string carries no zone because it denotes a calendar
+ * day rather than an instant — which is exactly why the backend sends `LocalDate` for `priceAsOf`,
+ * transaction dates and goal deadlines. Values that do carry a time are left to `Date` untouched:
+ * there the offset is real information.
+ */
+function toDate(dateStr: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? new Date(`${dateStr}T00:00:00`) : new Date(dateStr)
 }
 
 export function formatDate(dateStr: string | null | undefined, locale = getLocale(), format?: DateFormat): string {
   if (!dateStr) return '—'
   const resolvedFormat = format ?? useAppStore.getState().dateFormat
   if (resolvedFormat === 'iso') {
-    const d = new Date(dateStr)
+    const d = toDate(dateStr)
     const day = String(d.getDate()).padStart(2, '0')
     const month = String(d.getMonth() + 1).padStart(2, '0')
     const year = d.getFullYear()
     return `${day}-${month}-${year}`
   }
-  return new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(dateStr))
+  return new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' }).format(toDate(dateStr))
 }
 
 /**
@@ -101,7 +117,7 @@ export function parseDate(
 
 export function formatDateTime(dateStr: string | null | undefined, locale = getLocale(), format?: DateFormat): string {
   if (!dateStr) return '—'
-  const d = new Date(dateStr)
+  const d = toDate(dateStr)
   const resolvedFormat = format ?? useAppStore.getState().dateFormat
   if (resolvedFormat === 'iso') {
     const day = String(d.getDate()).padStart(2, '0')
@@ -131,7 +147,29 @@ export function todayLabel(locale = getLocale(), date = new Date()): string {
 
 export function formatLocalDate(dateStr: string | null | undefined, locale = getLocale()): string {
   if (!dateStr) return '—'
-  return new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(dateStr))
+  return new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'long', year: 'numeric' }).format(toDate(dateStr))
+}
+
+/**
+ * Completed years between two `yyyy-MM-dd` dates — someone's age on a given day.
+ *
+ * Computed on the string parts rather than through `Date`: the projection asks this about dates
+ * twenty years out, and building two `Date` objects to subtract them would reintroduce exactly
+ * the local-midnight problem `toDate` exists to avoid, for no gain.
+ *
+ * Returns null if either date is malformed, and a negative number is possible (a date before the
+ * birth) — callers decide whether that is meaningful.
+ */
+export function ageAt(birthDate: string, at: string): number | null {
+  const born = birthDate.split('-').map(Number)
+  const on = at.split('-').map(Number)
+  if (born.length !== 3 || on.length !== 3) return null
+  if ([...born, ...on].some((part) => !Number.isFinite(part))) return null
+
+  const [bornYear, bornMonth, bornDay] = born
+  const [year, month, day] = on
+  const hadBirthday = month > bornMonth || (month === bornMonth && day >= bornDay)
+  return year - bornYear - (hadBirthday ? 0 : 1)
 }
 
 export function formatTimeAgo(dateStr: string | null | undefined, locale = getLocale()): string {
@@ -144,6 +182,48 @@ export function formatTimeAgo(dateStr: string | null | undefined, locale = getLo
   if (hours < 24) return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-hours, 'hour')
   const days = Math.floor(hours / 24)
   return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-days, 'day')
+}
+
+export type FreshnessLevel = 'fresh' | 'recent' | 'stale' | 'old' | 'unknown'
+
+/** Upper bound of each level, in ms. See the two scales in `lib/constants.ts`. */
+export interface FreshnessBounds {
+  fresh: number
+  recent: number
+  stale: number
+}
+
+/**
+ * How old a date is, bucketed. `unknown` covers a missing date — never synced, never valued —
+ * which is not the same as "very old" and must not read as an alarm.
+ *
+ * `now` is a parameter rather than a `Date.now()` call so callers stay pure and testable; the
+ * card that uses this re-renders on a timer to cross a boundary without a remount.
+ */
+export function freshnessLevel(
+  dateStr: string | null | undefined,
+  bounds: FreshnessBounds,
+  now: number = Date.now(),
+): FreshnessLevel {
+  if (!dateStr) return 'unknown'
+  const age = now - toDate(dateStr).getTime()
+  // A date in the future (clock skew between the server and this browser) is as fresh as it gets.
+  if (age < bounds.fresh) return 'fresh'
+  if (age < bounds.recent) return 'recent'
+  if (age < bounds.stale) return 'stale'
+  return 'old'
+}
+
+/**
+ * Text colour per level. Both themes are spelled out: the 600 shades are unreadable on a dark
+ * background and the 400s wash out on a light one.
+ */
+export const FRESHNESS_TEXT_CLASS: Record<FreshnessLevel, string> = {
+  fresh: 'text-emerald-600 dark:text-emerald-400',
+  recent: 'text-yellow-600 dark:text-yellow-400',
+  stale: 'text-orange-600 dark:text-orange-400',
+  old: 'text-red-600 dark:text-red-400',
+  unknown: 'text-muted-foreground',
 }
 
 export function safeRedirect(redirect: string | null, fallback = '/'): string {

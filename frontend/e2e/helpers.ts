@@ -7,6 +7,15 @@ import type { Page } from '@playwright/test'
 async function setupLocale(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem('picsou-locale', 'fr')
+    localStorage.setItem('picsou-app', JSON.stringify({
+      state: {
+        sidebarCollapsed: false,
+        dateFormat: 'locale',
+        sidebarStyle: 'current',
+        hasSeenSidebarStylePrompt: true,
+      },
+      version: 0,
+    }))
   })
 }
 

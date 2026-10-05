@@ -14,6 +14,8 @@ import dev.samstevens.totp.qr.QrData;
 import dev.samstevens.totp.qr.QrGenerator;
 import dev.samstevens.totp.secret.SecretGenerator;
 import dev.samstevens.totp.time.TimeProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -31,6 +33,8 @@ import java.util.Set;
 
 @Service
 public class MfaService {
+
+    private static final Logger log = LoggerFactory.getLogger(MfaService.class);
 
     private static final int TOTP_PERIOD_SECONDS = 30;
     private static final int TOTP_WINDOW = 1;
@@ -223,6 +227,9 @@ public class MfaService {
             try {
                 expected = codeGenerator.generate(secret, step);
             } catch (CodeGenerationException ex) {
+                // Not a wrong code: the stored secret or the generator is broken, which would
+                // otherwise be indistinguishable from a user typo in the 401 the caller returns.
+                log.warn("TOTP code generation failed", ex);
                 return null;
             }
             if (constantTimeEquals(expected, code)) return step;
@@ -250,7 +257,7 @@ public class MfaService {
             byte[] png = qrGenerator.generate(data);
             return "data:" + qrGenerator.getImageMimeType() + ";base64," + Base64.getEncoder().encodeToString(png);
         } catch (QrGenerationException ex) {
-            throw new MfaException("Failed to generate QR code");
+            throw new MfaException("Failed to generate QR code", ex);
         }
     }
 

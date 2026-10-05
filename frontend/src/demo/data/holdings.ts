@@ -5,6 +5,8 @@ export const mockHoldings: Record<number, HoldingResponse[]> = {
     {
       ticker: 'AAPL',
       name: 'Apple Inc.',
+      logoUrl: null,
+      // an equity: no logo source yet, so the ticker stands (issue #162)
       quantity: 15,
       averageBuyIn: 155.0,
       currentPrice: 182.5,
@@ -13,10 +15,14 @@ export const mockHoldings: Record<number, HoldingResponse[]> = {
       pnlEur: 412.5,
       pnlPercent: 17.7,
       priceUpdatedAt: new Date().toISOString(),
+      priceAsOf: new Date().toISOString().slice(0, 10),
+      priceStale: false,
     },
     {
       ticker: 'MSFT',
       name: 'Microsoft Corp.',
+      logoUrl: null,
+      // an equity: no logo source yet, so the ticker stands (issue #162)
       quantity: 8,
       averageBuyIn: 340.0,
       currentPrice: 415.0,
@@ -25,10 +31,14 @@ export const mockHoldings: Record<number, HoldingResponse[]> = {
       pnlEur: 600.0,
       pnlPercent: 22.1,
       priceUpdatedAt: new Date().toISOString(),
+      priceAsOf: new Date().toISOString().slice(0, 10),
+      priceStale: false,
     },
     {
       ticker: 'AMZN',
       name: 'Amazon.com Inc.',
+      logoUrl: null,
+      // an equity: no logo source yet, so the ticker stands (issue #162)
       quantity: 20,
       averageBuyIn: 145.0,
       currentPrice: 178.0,
@@ -37,10 +47,14 @@ export const mockHoldings: Record<number, HoldingResponse[]> = {
       pnlEur: 660.0,
       pnlPercent: 22.8,
       priceUpdatedAt: new Date().toISOString(),
+      priceAsOf: new Date().toISOString().slice(0, 10),
+      priceStale: false,
     },
     {
       ticker: 'NVDA',
       name: 'NVIDIA Corp.',
+      logoUrl: null,
+      // an equity: no logo source yet, so the ticker stands (issue #162)
       quantity: 10,
       averageBuyIn: 480.0,
       currentPrice: 880.0,
@@ -49,12 +63,16 @@ export const mockHoldings: Record<number, HoldingResponse[]> = {
       pnlEur: 4000.0,
       pnlPercent: 83.3,
       priceUpdatedAt: new Date().toISOString(),
+      priceAsOf: new Date().toISOString().slice(0, 10),
+      priceStale: false,
     },
   ],
   6: [
     {
       ticker: 'BTC',
       name: 'Bitcoin',
+      logoUrl: 'https://coin-images.coingecko.com/coins/images/1/small/bitcoin.png?1696501400',
+      // the CoinGecko image a real instance resolves
       quantity: 0.032,
       averageBuyIn: 52000.0,
       currentPrice: 84500.0,
@@ -63,10 +81,14 @@ export const mockHoldings: Record<number, HoldingResponse[]> = {
       pnlEur: 1040.0,
       pnlPercent: 62.5,
       priceUpdatedAt: new Date().toISOString(),
+      priceAsOf: new Date().toISOString().slice(0, 10),
+      priceStale: false,
     },
     {
       ticker: 'ETH',
       name: 'Ethereum',
+      logoUrl: 'https://coin-images.coingecko.com/coins/images/279/small/ethereum.png?1696501400',
+      // the CoinGecko image a real instance resolves
       quantity: 1.2,
       averageBuyIn: 1800.0,
       currentPrice: 2100.0,
@@ -75,10 +97,14 @@ export const mockHoldings: Record<number, HoldingResponse[]> = {
       pnlEur: 360.0,
       pnlPercent: 16.7,
       priceUpdatedAt: new Date().toISOString(),
+      priceAsOf: new Date().toISOString().slice(0, 10),
+      priceStale: false,
     },
     {
       ticker: 'SOL',
       name: 'Solana',
+      logoUrl: 'https://coin-images.coingecko.com/coins/images/4128/small/solana.png?1718769756',
+      // the CoinGecko image a real instance resolves
       quantity: 15,
       averageBuyIn: 95.0,
       currentPrice: 148.0,
@@ -87,12 +113,16 @@ export const mockHoldings: Record<number, HoldingResponse[]> = {
       pnlEur: 795.0,
       pnlPercent: 55.8,
       priceUpdatedAt: new Date().toISOString(),
+      priceAsOf: new Date().toISOString().slice(0, 10),
+      priceStale: false,
     },
   ],
   3: [
     {
       ticker: 'IWDA',
       name: 'iShares Core MSCI World',
+      logoUrl: null,
+      // an equity: no logo source yet, so the ticker stands (issue #162)
       quantity: 25,
       averageBuyIn: 72.0,
       currentPrice: 85.0,
@@ -101,10 +131,14 @@ export const mockHoldings: Record<number, HoldingResponse[]> = {
       pnlEur: 325.0,
       pnlPercent: 18.1,
       priceUpdatedAt: new Date().toISOString(),
+      priceAsOf: new Date().toISOString().slice(0, 10),
+      priceStale: false,
     },
     {
       ticker: 'EUNL',
       name: 'iShares Core S&P 500',
+      logoUrl: null,
+      // an equity: no logo source yet, so the ticker stands (issue #162)
       quantity: 30,
       averageBuyIn: 38.0,
       currentPrice: 44.0,
@@ -113,6 +147,8 @@ export const mockHoldings: Record<number, HoldingResponse[]> = {
       pnlEur: 180.0,
       pnlPercent: 15.8,
       priceUpdatedAt: new Date().toISOString(),
+      priceAsOf: new Date().toISOString().slice(0, 10),
+      priceStale: false,
     },
   ],
 }

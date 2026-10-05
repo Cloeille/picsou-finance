@@ -8,7 +8,8 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173',
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'https://localhost:5173',
+    ignoreHTTPSErrors: true,
     trace: 'on-first-retry',
   },
   projects: [
@@ -19,8 +20,12 @@ export default defineConfig({
   ],
   webServer: {
     command: 'bun run dev',
-    url: process.env.PLAYWRIGHT_DEV_URL || 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
+    url: process.env.PLAYWRIGHT_DEV_URL || 'https://localhost:5173',
+    env: {
+      VITE_DEMO_MODE: 'true',
+    },
+    ignoreHTTPSErrors: true,
+    reuseExistingServer: false,
     timeout: 120000,
   },
 })

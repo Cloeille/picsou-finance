@@ -81,7 +81,7 @@ Additionally, a dashed **"+ previous month"** card (`goals.addPreviousMonth`) is
 | Custom SVG (two `<circle>`) | Full control over the bonus arc, no dependency | `recharts` (no access to `stroke-dasharray` for overflow) |
 | `oklch(from var(--primary) calc(l + 0.2) c h)` | `var(--primary)` in dark mode is too dark (lightness 0.42); CSS relative color syntax adds 0.2 lightness while staying theme-consistent | Hardcoded `#6366f1` (doesn't follow the theme) |
 | `overflow-x-auto` + `flex min-w-max` | 12 cards × ~96px ≈ 1200px min; horizontal scroll preserves 80px proportions | `grid-cols-12` with smaller cards (too small to read inner text) |
-| `formatCompact` local (not in `lib/utils.ts`) | Very specific to this component (6-char constraint to fit in 80px ring) | Global utility (too specialized to reuse) |
+| `formatCompact` local (not in `frontend/src/lib/utils.ts`) | Very specific to this component (6-char constraint to fit in 80px ring) | Global utility (too specialized to reuse) |
 | Bonus arc capped at 100% bonus | Beyond 200% total, the visual doesn't change; the real % stays readable in the text | Multi-turn arc (complex and unreadable) |
 
 ## Gotchas / Pitfalls

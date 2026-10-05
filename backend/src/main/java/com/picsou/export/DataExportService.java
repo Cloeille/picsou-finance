@@ -132,8 +132,10 @@ public class DataExportService {
                 + "Please retry; if the problem persists, contact the administrator.\n")
                 .getBytes(StandardCharsets.UTF_8));
             zip.closeEntry();
-        } catch (IOException ignore) {
-            // best-effort; zip stream may already be broken
+        } catch (IOException ex) {
+            // Best-effort — the zip stream is usually already broken by the original
+            // failure. Log it so an operator can tell the archive carries no marker.
+            log.warn("export.failure-marker-write-failed — archive is incomplete AND unmarked", ex);
         }
     }
 }

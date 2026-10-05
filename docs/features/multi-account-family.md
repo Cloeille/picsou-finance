@@ -34,10 +34,10 @@ Non-admin users always use their own memberId (override is ignored server-side, 
 
 `profile-store` persists `activeMemberId` to **localStorage** (`picsou-profile`) and the TanStack Query cache holds user-agnostic keys (`['dashboard', range]`, `['accounts']`, …). On a **shared family browser** both survive a logout, so without an explicit reset the next person's login would carry the previous user's impersonation target and see their cached balance/history (staleTime is 60 s).
 
-A single helper, `resetClientState(queryClient)` in `lib/reset-client-state.ts`, calls `useProfileStore.getState().reset()` **and** `queryClient.clear()`. It runs on **every** auth-boundary crossing:
+A single helper, `resetClientState(queryClient)` in `frontend/src/lib/reset-client-state.ts`, calls `useProfileStore.getState().reset()` **and** `queryClient.clear()`. It runs on **every** auth-boundary crossing:
 
-- **logout** — `useLogout` (`onSettled`, `features/auth/hooks.ts`);
-- **a login that establishes a session** — the non-MFA branch of `useLoginWithRememberMe` and the post-verify branch of `useVerifyMfa` (`features/mfa/hooks.ts`), i.e. the exact moment the new identity is written to the auth store.
+- **logout** — `useLogout` (`onSettled`, `frontend/src/features/auth/hooks.ts`);
+- **a login that establishes a session** — the non-MFA branch of `useLoginWithRememberMe` and the post-verify branch of `useVerifyMfa` (`frontend/src/features/mfa/hooks.ts`), i.e. the exact moment the new identity is written to the auth store.
 
 It is deliberately **not** called on the `mfaRequired` branch — no session exists yet there (the user is mid-challenge). The reset is the authoritative client-side privacy boundary; the `?memberId` admin-gating and backend scoping are defense-in-depth. Its server-side complement — severing a *different* user's leftover cookies during login so they can't silently re-authenticate — lives in [mfa-and-remember-me.md](./mfa-and-remember-me.md#cross-identity-session-bleed-at-login).
 
@@ -92,7 +92,7 @@ switch into their profile and browse their data:
   member's data"`. This is the single choke point through which every controller
   scopes data (`currentMemberId()`), so all endpoints are covered at once.
 - **Frontend (UX):** admin users get a visible sidebar profile switcher. It is
-  built from `selectSwitchableMembers()` (`features/family/members.ts` =
+  built from `selectSwitchableMembers()` (`frontend/src/features/family/members.ts` =
   `managed && !activated`) so independent members cannot be impersonated from
   the UI. Non-admin and demo sessions do not call `/family/members`; they keep
   the simple Settings account link. Independent members remain listed in Family
@@ -170,8 +170,8 @@ requesterMemberId)` keeps only two guards so the instance stays usable:
    `AppUserRepository.countByRole(ADMIN) <= 1`, deletion is refused (403 "Cannot
    delete the last administrator").
 
-Frontend: both member-management UIs (`pages/admin/sections/MembersSection.tsx` and
-`pages/settings/FamilySettingsPage.tsx`) show the delete action for any non-self member.
+Frontend: both member-management UIs (`frontend/src/pages/admin/sections/MembersSection.tsx` and
+`frontend/src/pages/settings/FamilySettingsPage.tsx`) show the delete action for any non-self member.
 Because deletion of an **activated** member is irreversible and destroys private
 data, the shared `ConfirmDialog` is given a `confirmPhrase` (the member's display
 name) that the admin must retype before the destructive call is enabled.
@@ -188,31 +188,31 @@ Step 3 is critical: without it, the next request would fail because the old JWT 
 ### Key files
 
 **Backend:**
-- `model/FamilyMember.java` — member profile entity
-- `model/AppUser.java` — login entity (username, passwordHash, role, member FK)
-- `model/SharingSettings.java` — per-resource sharing level
-- `model/SharedResource.java` — individual resource sharing (MANUAL mode)
-- `service/UserContext.java` — request-scoped helper, handles memberId override for admins
-- `service/FamilyService.java` — member CRUD, activation tokens, sharing settings
-- `service/FamilyViewService.java` — family dashboard aggregation
-- `controller/FamilyController.java` — `/api/family/members` (admin-only), `/api/family/sharing`
-- `controller/FamilyViewController.java` — `/api/family/dashboard`
-- `controller/AuthController.java` — `/api/auth/activate/{token}`
+- `backend/src/main/java/com/picsou/model/FamilyMember.java` — member profile entity
+- `backend/src/main/java/com/picsou/model/AppUser.java` — login entity (username, passwordHash, role, member FK)
+- `backend/src/main/java/com/picsou/model/SharingSettings.java` — per-resource sharing level
+- `backend/src/main/java/com/picsou/model/SharedResource.java` — individual resource sharing (MANUAL mode)
+- `backend/src/main/java/com/picsou/service/UserContext.java` — request-scoped helper, handles memberId override for admins
+- `backend/src/main/java/com/picsou/service/FamilyService.java` — member CRUD, activation tokens, sharing settings
+- `backend/src/main/java/com/picsou/service/FamilyViewService.java` — family dashboard aggregation
+- `backend/src/main/java/com/picsou/controller/FamilyController.java` — `/api/family/members` (admin-only), `/api/family/sharing`
+- `backend/src/main/java/com/picsou/controller/FamilyViewController.java` — `/api/family/dashboard`
+- `backend/src/main/java/com/picsou/controller/AuthController.java` — `/api/auth/activate/{token}`
 
 **Frontend:**
-- `stores/profile-store.ts` — `activeMemberId`, `viewMode` (own/managed/family)
-- `features/family/hooks.ts` — TanStack Query hooks for members, sharing, dashboard
-- `features/family/api.ts` — API functions
-- `features/family/members.ts` — `selectSwitchableMembers()` helper used by the admin switcher; excludes independent members
-- `components/layout/AppSidebar.tsx` — admin profile switcher; non-admin/demo bottom account row links to Settings
-- `lib/api-client.ts` — Axios interceptor adds `?memberId=X` only when an **admin** has a managed profile active
-- `lib/reset-client-state.ts` — `resetClientState(queryClient)`: resets profile-store + clears the Query cache; the one shared auth-boundary reset
-- `features/auth/hooks.ts` — `useLogout` calls `resetClientState` (logout side)
-- `features/mfa/hooks.ts` — `useLoginWithRememberMe` / `useVerifyMfa` call `resetClientState` before writing the new identity (login side)
-- `pages/settings/FamilySettingsPage.tsx` — member management + sharing config UI
-- `pages/family/FamilyDashboardPage.tsx` — shared overview
-- `pages/activation/ActivationPage.tsx` — activation flow for new members
-- `pages/settings/SettingsPage.tsx` — username edit inline (pencil → input → save)
+- `frontend/src/stores/profile-store.ts` — `activeMemberId`, `viewMode` (own/managed/family)
+- `frontend/src/features/family/hooks.ts` — TanStack Query hooks for members, sharing, dashboard
+- `frontend/src/features/family/api.ts` — API functions
+- `frontend/src/features/family/members.ts` — `selectSwitchableMembers()` helper used by the admin switcher; excludes independent members
+- `frontend/src/components/layout/AppSidebar.tsx` — admin profile switcher; non-admin/demo bottom account row links to Settings
+- `frontend/src/lib/api-client.ts` — Axios interceptor adds `?memberId=X` only when an **admin** has a managed profile active
+- `frontend/src/lib/reset-client-state.ts` — `resetClientState(queryClient)`: resets profile-store + clears the Query cache; the one shared auth-boundary reset
+- `frontend/src/features/auth/hooks.ts` — `useLogout` calls `resetClientState` (logout side)
+- `frontend/src/features/mfa/hooks.ts` — `useLoginWithRememberMe` / `useVerifyMfa` call `resetClientState` before writing the new identity (login side)
+- `frontend/src/pages/settings/FamilySettingsPage.tsx` — member management + sharing config UI
+- `frontend/src/pages/family/FamilyDashboardPage.tsx` — shared overview
+- `frontend/src/pages/activation/ActivationPage.tsx` — activation flow for new members
+- `frontend/src/pages/settings/SettingsPage.tsx` — username edit inline (pencil → input → save)
 
 **Migrations:**
 - `V20__create_family_system.sql` — creates family_member, sharing_settings, shared_resource, goal_contributor tables; adds member_id to all owner tables
@@ -261,14 +261,14 @@ Admin selects their own account
 - **Cannot impersonate an activated member**: `UserContext.getMemberIdOverride()` throws 403 when an admin's `?memberId=X` targets an activated (independent) member other than themselves. The sidebar switcher hides them via `selectSwitchableMembers`, but the backend is the authoritative guard — never rely on the frontend filter alone.
 - **Yahoo Finance null closes**: Yahoo can return `null` in historical price arrays for non-trading days. Must check `close == null` before unboxing to avoid NPE.
 - **Profile switch cache**: TanStack Query cache is global. The sidebar switcher must invalidate queries on every effective switch; otherwise the old member's data persists visually.
-- **Cross-user leak on a shared browser**: query keys are not scoped by user and `activeMemberId` is persisted to localStorage, so every auth-boundary crossing MUST `queryClient.clear()` + `useProfileStore.getState().reset()` — centralised in `resetClientState` (`lib/reset-client-state.ts`), wired into `useLogout` (logout) and `useLoginWithRememberMe`/`useVerifyMfa` (login). Otherwise the next person to log in on the same device briefly sees the previous user's balance/history (and, for an admin re-login, the stale `?memberId` returns another member's real data). Regression that prompted the fix: a member reported seeing "un solde et historique qui n'est pas du tout le sien" on first login. A related **identity** bleed — entering one user's credentials but landing on *another* user's account — is the server-side cookie-severing case in [mfa-and-remember-me.md](./mfa-and-remember-me.md#cross-identity-session-bleed-at-login).
+- **Cross-user leak on a shared browser**: query keys are not scoped by user and `activeMemberId` is persisted to localStorage, so every auth-boundary crossing MUST `queryClient.clear()` + `useProfileStore.getState().reset()` — centralised in `resetClientState` (`frontend/src/lib/reset-client-state.ts`), wired into `useLogout` (logout) and `useLoginWithRememberMe`/`useVerifyMfa` (login). Otherwise the next person to log in on the same device briefly sees the previous user's balance/history (and, for an admin re-login, the stale `?memberId` returns another member's real data). Regression that prompted the fix: a member reported seeing "un solde et historique qui n'est pas du tout le sien" on first login. A related **identity** bleed — entering one user's credentials but landing on *another* user's account — is the server-side cookie-severing case in [mfa-and-remember-me.md](./mfa-and-remember-me.md#cross-identity-session-bleed-at-login).
 
 ## Tests
 
 - `GoalServiceTest` — goal CRUD scoped by memberId
 - `HistoryServiceTest` — history scoped by memberId, incl. `buildHistory_rejectsAccountsOwnedByAnotherMember` and `buildHistory_rejectsNullMemberId`
 - `api-client.test.ts` (frontend) — `?memberId` is attached only for admins, never for a non-admin with a stale `activeMemberId`
-- `features/mfa/hooks.test.ts` (frontend) — login-side `resetClientState`: wipes the cache + impersonation target on a non-MFA login and on MFA verify, and performs **no** reset on the `mfaRequired` branch
+- `frontend/src/features/mfa/hooks.test.ts` (frontend) — login-side `resetClientState`: wipes the cache + impersonation target on a non-MFA login and on MFA verify, and performs **no** reset on the `mfaRequired` branch
 - `FamilyServiceTest` — username derivation, activation/reset, and **member deletion**:
   `deleteMember_withLogin_deletesUserBeforeMember` (Mockito `InOrder` guard for the
   `TransientObjectException` fix), `deleteMember_managedWithoutLogin_deletesOnlyMember`,

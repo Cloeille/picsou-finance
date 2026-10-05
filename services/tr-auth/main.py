@@ -13,20 +13,53 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
+import secrets
 import uuid
 import logging
+from contextlib import asynccontextmanager
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from playwright.async_api import async_playwright
 from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("tr-auth")
 logging.getLogger("httpx").setLevel(logging.WARNING)
+SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    if not SIDECAR_API_KEY.strip():
+        raise RuntimeError("APP_SIDECAR_API_KEY must be configured and non-blank")
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.middleware("http")
+async def authenticate_sidecar_request(request: Request, call_next):
+    if request.url.path != "/health":
+        supplied_key = request.headers.get("X-Picsou-Sidecar-Key", "")
+        # Starlette exposes wire header bytes through Latin-1, not UTF-8.
+        if (
+            not SIDECAR_API_KEY.strip()
+            or not secrets.compare_digest(
+                supplied_key.encode("latin-1"), SIDECAR_API_KEY.encode("utf-8")
+            )
+        ):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "UNAUTHORIZED"},
+                headers={"WWW-Authenticate": "Picsou-Sidecar-Key"},
+            )
+    return await call_next(request)
+
 
 TR_API = "https://api.traderepublic.com"
 TR_APP = "https://app.traderepublic.com"
@@ -237,7 +270,7 @@ async def refresh_session(req: RefreshRequest):
     log.info("Refreshing TR session via tr_refresh token")
     async with httpx.AsyncClient(timeout=15) as client:
         try:
-            resp = await client.post(
+            resp = await client.get(
                 f"{TR_API}/api/v1/auth/web/refresh",
                 cookies={"tr_refresh": req.refreshToken},
                 headers={

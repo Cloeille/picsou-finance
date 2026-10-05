@@ -8,6 +8,8 @@ import com.picsou.mcp.RequiresScope;
 import com.picsou.mcp.Scopes;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
+import com.picsou.service.AccountConnectionService;
+import com.picsou.service.AccountConnectionService.DeletionImpact;
 import com.picsou.service.AccountService;
 import com.picsou.service.UserContext;
 import org.springframework.ai.tool.annotation.Tool;
@@ -21,19 +23,23 @@ import java.util.List;
 /**
  * MCP tools over a member's accounts, holdings, and balance history. Every method resolves the
  * authenticated key owner's member via {@link UserContext} and delegates to the already
- * member-scoped {@link AccountService}; an access-key can therefore only ever touch its own
- * owner's accounts. Writes are restricted to <em>manual</em> accounts — {@link #createManualAccount}
- * always sets {@code isManual=true}; synced bank/broker/crypto accounts are managed by their sync.
+ * member-scoped services (AccountService or AccountConnectionService); an access-key can therefore only ever touch its own
+ * owner's accounts. Account creation is restricted to <em>manual</em> accounts —
+ * {@link #createManualAccount} always sets {@code isManual=true}. Deletion also supports synced accounts and can remove saved
+ * sessions/credentials, an IBKR connection, or an Enable Banking requisition when it is the last
+ * account. These tools neither create nor expose credentials and do not run authentication flows.
  */
 @Component
 public class AccountTools {
 
     private final AccountService accountService;
     private final UserContext userContext;
+    private final AccountConnectionService accountConnectionService;
 
-    public AccountTools(AccountService accountService, UserContext userContext) {
+    public AccountTools(AccountService accountService, UserContext userContext, AccountConnectionService accountConnectionService) {
         this.accountService = accountService;
         this.userContext = userContext;
+        this.accountConnectionService = accountConnectionService;
     }
 
     @Tool(name = "list_accounts",
@@ -68,18 +74,27 @@ public class AccountTools {
         return accountService.getHistory(accountId, userContext.currentMemberId(), from, to);
     }
 
+    @Tool(name = "get_account_deletion_impact", description = "Ask before a destructive delete_account; "
+        + "previews what connection would be removed (if any) but does not delete. A prediction: "
+        + "delete_account returns what was actually removed.")
+    @RequiresScope(Scopes.ACCOUNTS_READ)
+    public DeletionImpact getAccountDeletionImpact(
+        @ToolParam(description = "The account id") Long accountId) {
+        return accountConnectionService.describeDeletion(accountId, userContext.currentMemberId());
+    }
+
     @Tool(name = "create_manual_account",
         description = "Create a new MANUAL account for the authenticated member (a non-synced account whose "
             + "balance you maintain yourself). Returns the created account.")
     @RequiresScope(Scopes.ACCOUNTS_WRITE)
     public AccountResponse createManualAccount(
         @ToolParam(description = "Account name") String name,
-        @ToolParam(description = "Account type: LEP, PEA, COMPTE_TITRES, CRYPTO, CHECKING, SAVINGS, REAL_ESTATE, LOAN or OTHER") AccountType type,
+        @ToolParam(description = "Account type: CHECKING, SAVINGS, LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL, PEA, COMPTE_TITRES, CRYPTO, REAL_ESTATE, SCPI, LOAN, EMPLOYEE_SAVINGS or OTHER") AccountType type,
         @ToolParam(description = "ISO currency code, e.g. EUR, USD") String currency,
         @ToolParam(description = "Opening balance; defaults to 0 when omitted", required = false) BigDecimal currentBalance,
         @ToolParam(description = "Optional hex colour like #1a2b3c", required = false) String color,
         @ToolParam(description = "Optional ticker for single-asset accounts", required = false) String ticker) {
-        AccountRequest req = new AccountRequest(name, type, null, currency, currentBalance, true, color, ticker);
+        AccountRequest req = new AccountRequest(name, type, null, currency, currentBalance, true, color, ticker, null, null, null);
         return accountService.create(req, userContext.currentMember());
     }
 
@@ -89,21 +104,24 @@ public class AccountTools {
     public AccountResponse updateAccount(
         @ToolParam(description = "The account id") Long accountId,
         @ToolParam(description = "Account name") String name,
-        @ToolParam(description = "Account type: LEP, PEA, COMPTE_TITRES, CRYPTO, CHECKING, SAVINGS, REAL_ESTATE, LOAN or OTHER") AccountType type,
+        @ToolParam(description = "Account type: CHECKING, SAVINGS, LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL, PEA, COMPTE_TITRES, CRYPTO, REAL_ESTATE, SCPI, LOAN, EMPLOYEE_SAVINGS or OTHER") AccountType type,
         @ToolParam(description = "ISO currency code, e.g. EUR, USD") String currency,
         @ToolParam(description = "Balance; omit to leave the service default", required = false) BigDecimal currentBalance,
         @ToolParam(description = "Optional hex colour like #1a2b3c", required = false) String color,
         @ToolParam(description = "Optional ticker for single-asset accounts", required = false) String ticker) {
-        AccountRequest req = new AccountRequest(name, type, null, currency, currentBalance, true, color, ticker);
+        AccountRequest req = new AccountRequest(name, type, null, currency, currentBalance, true, color, ticker, null, null, null);
         return accountService.update(accountId, req, userContext.currentMemberId());
     }
 
-    @Tool(name = "delete_account", description = "Delete (soft-delete) an account of the authenticated member.")
+    @Tool(name = "delete_account", description = "Delete (soft-delete) an account of the authenticated member. "
+        + "This also supports synced accounts. If it was the last account on its connection, saved "
+        + "sessions/credentials and that connection are removed; this can delete an IBKR connection "
+        + "or Enable Banking requisition. Returns the actual DeletionImpact: removesConnection is true only "
+        + "when something was removed (otherwise false with a null label).")
     @RequiresScope(Scopes.ACCOUNTS_WRITE)
-    public String deleteAccount(
+    public DeletionImpact deleteAccount(
         @ToolParam(description = "The account id") Long accountId) {
-        accountService.delete(accountId, userContext.currentMemberId());
-        return "Deleted account " + accountId;
+        return accountConnectionService.deleteAccount(accountId, userContext.currentMemberId());
     }
 
     @Tool(name = "add_balance_snapshot",

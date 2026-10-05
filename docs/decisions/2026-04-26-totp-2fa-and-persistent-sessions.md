@@ -88,8 +88,8 @@ Cascading invalidations were chosen paranoid-by-default: enabling and disabling 
 
 **Frontend:**
 - New module `features/mfa/` (`api.ts`, `hooks.ts`).
-- New pages: `pages/login/MfaChallengePage.tsx`, `pages/settings/security/{SecuritySection,MfaEnrollDialog,MfaDisableDialog,RecoveryCodesDialog,RecoveryCodesView,SessionsList}.tsx`.
-- Modified: `LoginPage.tsx` (Remember Me checkbox + `mfaRequired` branch), `SettingsPage.tsx` (Security section), `pages/admin/sections/MembersSection.tsx` (2FA badge + Reset 2FA button), `app/routes.tsx` (`/login/mfa` under `<PublicOnly>`), `i18n/{fr,en}.json`.
+- New pages: `frontend/src/pages/login/MfaChallengePage.tsx`, `frontend/src/pages/settings/security/{SecuritySection,MfaEnrollDialog,MfaDisableDialog,RecoveryCodesDialog,RecoveryCodesView,SessionsList}.tsx`.
+- Modified: `LoginPage.tsx` (Remember Me checkbox + `mfaRequired` branch), `SettingsPage.tsx` (Security section), `frontend/src/pages/admin/sections/MembersSection.tsx` (2FA badge + Reset 2FA button), `frontend/src/app/routes.tsx` (`/login/mfa` under `<PublicOnly>`), `i18n/{fr,en}.json`.
 - Backend DTO change visible on the wire: `FamilyMemberResponse` now includes `mfaEnabled: boolean`.
 
 **Operational:**

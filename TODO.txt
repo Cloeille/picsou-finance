@@ -1,6 +1,6 @@
 - Ajouter les dettes à Picsou
-- Ajouter l'or et le patrimoine immobilier
-- Pouvoir lier de la dette à un objet (montant d'un compte bancaire, ou % d'un objet/immobilier)
+- Ajouter l'or (le patrimoine immobilier est fait : estimation open data + quotes-parts)
+- Pouvoir lier de la dette à un montant d'un compte bancaire (le lien prêt <-> bien immobilier est fait)
 - Importer les transactions Trade Republic (achats, ventes, dividendes)
 
 - Wizard setup compte admin + setup de l'app avec le .env qui peut être configuré via /setup

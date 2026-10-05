@@ -7,9 +7,18 @@ import { CryptoExchangeTab } from './CryptoExchangeTab'
 import { CryptoWalletTab } from './CryptoWalletTab'
 import { TradeRepublicTab } from './TradeRepublicTab'
 import { RevolutTab } from './RevolutTab'
+import { IbkrTab } from './IbkrTab'
 import { FinaryTab } from './FinaryTab'
+import { BourseDirectTab } from './BourseDirectTab'
 import { AccountsVisibilityTab } from './AccountsVisibilityTab'
-// BoursoTab hidden for 1.0.0 — sidecar integration not finished.
+import { DegiroTab } from './DegiroTab'
+import { AmundiTab } from './AmundiTab'
+import { AmexTab } from './AmexTab'
+import { CorumTab } from './CorumTab'
+import { SofidyTab } from './SofidyTab'
+import { BoursoTab } from './BoursoTab'
+import { FortuneoTab } from './FortuneoTab'
+import { ActualBudgetTab } from './ActualBudgetTab'
 
 export function SyncPage() {
   const { t } = useTranslation()
@@ -20,14 +29,24 @@ export function SyncPage() {
     <div className="space-y-6">
       <PageHeader title={t('sync.title')} />
       <Tabs defaultValue={defaultTab}>
-        <TabsList>
-          <TabsTrigger value="banks">{t('sync.banks.title')}</TabsTrigger>
-          <TabsTrigger value="exchanges">{t('sync.exchanges.title')}</TabsTrigger>
-          <TabsTrigger value="wallets">{t('sync.wallets.title')}</TabsTrigger>
-          <TabsTrigger value="tr">{t('sync.tr.title')}</TabsTrigger>
-          <TabsTrigger value="revolut">{t('sync.revolut.title')}</TabsTrigger>
-          <TabsTrigger value="finary">{t('sync.finary.title')}</TabsTrigger>
-          <TabsTrigger value="visibility">{t('sync.visibility.title')}</TabsTrigger>
+        <TabsList className="w-full justify-start">
+          <TabsTrigger value="banks" className="flex-none">{t('sync.banks.title')}</TabsTrigger>
+          <TabsTrigger value="exchanges" className="flex-none">{t('sync.exchanges.title')}</TabsTrigger>
+          <TabsTrigger value="wallets" className="flex-none">{t('sync.wallets.title')}</TabsTrigger>
+          <TabsTrigger value="tr" className="flex-none">{t('sync.tr.title')}</TabsTrigger>
+          <TabsTrigger value="revolut" className="flex-none">{t('sync.revolut.title')}</TabsTrigger>
+          <TabsTrigger value="bourso" className="flex-none">{t('sync.bourso.title')}</TabsTrigger>
+          <TabsTrigger value="bourse-direct" className="flex-none">{t('sync.bourseDirect.title')}</TabsTrigger>
+          <TabsTrigger value="degiro" className="flex-none">{t('sync.degiro.title')}</TabsTrigger>
+          <TabsTrigger value="ibkr" className="flex-none">{t('sync.ibkr.title')}</TabsTrigger>
+          <TabsTrigger value="amundi" className="flex-none">{t('sync.amundi.title')}</TabsTrigger>
+          <TabsTrigger value="fortuneo" className="flex-none">{t('sync.fortuneo.title')}</TabsTrigger>
+          <TabsTrigger value="amex" className="flex-none">{t('sync.amex.title')}</TabsTrigger>
+          <TabsTrigger value="corum" className="flex-none">{t('sync.corum.title')}</TabsTrigger>
+          <TabsTrigger value="sofidy" className="flex-none">{t('sync.sofidy.title')}</TabsTrigger>
+          <TabsTrigger value="actual" className="flex-none">{t('sync.actual.title')}</TabsTrigger>
+          <TabsTrigger value="finary" className="flex-none">{t('sync.finary.title')}</TabsTrigger>
+          <TabsTrigger value="visibility" className="flex-none">{t('sync.visibility.title')}</TabsTrigger>
         </TabsList>
         <TabsContent value="banks" className="mt-6">
           <BankSyncTab />
@@ -43,6 +62,36 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="revolut" className="mt-6">
           <RevolutTab />
+        </TabsContent>
+        <TabsContent value="bourso" className="mt-6">
+          <BoursoTab />
+        </TabsContent>
+        <TabsContent value="bourse-direct" className="mt-6">
+          <BourseDirectTab />
+        </TabsContent>
+        <TabsContent value="degiro" className="mt-6">
+          <DegiroTab />
+        </TabsContent>
+        <TabsContent value="ibkr" className="mt-6">
+          <IbkrTab />
+        </TabsContent>
+        <TabsContent value="amundi" className="mt-6">
+          <AmundiTab />
+        </TabsContent>
+        <TabsContent value="fortuneo" className="mt-6">
+          <FortuneoTab />
+        </TabsContent>
+        <TabsContent value="amex" className="mt-6">
+          <AmexTab />
+        </TabsContent>
+        <TabsContent value="corum" className="mt-6">
+          <CorumTab />
+        </TabsContent>
+        <TabsContent value="sofidy" className="mt-6">
+          <SofidyTab />
+        </TabsContent>
+        <TabsContent value="actual" className="mt-6">
+          <ActualBudgetTab />
         </TabsContent>
         <TabsContent value="finary" className="mt-6">
           <FinaryTab />

@@ -1,21 +1,22 @@
 import { useMutation } from '@tanstack/react-query'
-import { exportApi, type ExportRequest } from './api'
+import { exportApi, type AccountsExportRequest, type ExportRequest } from './api'
+import { triggerBlobDownload } from '@/lib/download'
 
 export function useExportData() {
   return useMutation({
     mutationFn: async (req: ExportRequest) => {
       const { blob, filename } = await exportApi.download(req)
-      // Trigger download via anchor — works without popup blockers because
-      // it's a synchronous user-gesture-initiated click on an in-DOM element.
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      // Revoke after the click is processed; doing it immediately can race in Safari.
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      triggerBlobDownload(blob, filename)
+      return { filename }
+    },
+  })
+}
+
+export function useExportAccountsXlsx() {
+  return useMutation({
+    mutationFn: async (req: AccountsExportRequest) => {
+      const { blob, filename } = await exportApi.downloadAccountsXlsx(req)
+      triggerBlobDownload(blob, filename)
       return { filename }
     },
   })

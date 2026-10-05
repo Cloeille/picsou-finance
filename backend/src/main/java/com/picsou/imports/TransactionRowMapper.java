@@ -64,7 +64,7 @@ public class TransactionRowMapper {
         }
 
         InstrumentFieldResolver.ResolvedInstrument instrument =
-            instrumentFieldResolver.resolve(cell(row, mapping.tickerOrIsin()), cell(row, mapping.name()), side);
+            instrumentFieldResolver.resolve(cell(row, mapping.tickerOrIsin()), cell(row, mapping.name()));
         if (instrument == null) {
             throw new IllegalArgumentException("Missing ticker/ISIN");
         }
@@ -151,7 +151,7 @@ public class TransactionRowMapper {
         try {
             return CsvValueParser.parseDecimal(raw, dialect.decimal());
         } catch (NumberFormatException ex) {
-            throw new IllegalArgumentException("Invalid " + field + " '" + raw + "'");
+            throw new IllegalArgumentException("Invalid " + field + " '" + raw + "'", ex);
         }
     }
 
@@ -159,7 +159,7 @@ public class TransactionRowMapper {
         try {
             return CsvValueParser.parseDate(raw, dialect.dateFormat());
         } catch (DateTimeParseException ex) {
-            throw new IllegalArgumentException("Invalid date '" + raw + "'");
+            throw new IllegalArgumentException("Invalid date '" + raw + "'", ex);
         }
     }
 }

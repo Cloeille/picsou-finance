@@ -56,15 +56,23 @@ class HoldingDedupTest {
         assertThat(merged.averageBuyIn()).isEqualByComparingTo("12.00000000");
     }
 
+    /**
+     * Superseded by plan 003 (issue D): the merge used to return {@code prev} unchanged
+     * (a stale non-zero position) whenever the total quantity was zero, purely to dodge
+     * the divide-by-zero. Now that IBKR positions can be signed, a zero net quantity is
+     * a real, common outcome (a covered short) and must produce a flat sentinel instead
+     * of resurrecting whichever side happened to be "prev".
+     */
     @Test
-    void vwapMerge_returnsPrevWhenTotalQuantityZero() {
-        // Cannot divide by zero — guard returns prev unchanged
+    void vwapMerge_totalQuantityZero_returnsZeroQuantitySentinel() {
+        // Two already-flat aggregates merging: still zero, not a divide-by-zero crash.
         HoldingAgg a = new HoldingAgg(BigDecimal.ZERO, bd("10"), bd("100"), "A");
         HoldingAgg b = new HoldingAgg(BigDecimal.ZERO, bd("20"), bd("110"), "B");
 
         HoldingAgg merged = HoldingDedup.vwapMerge(a, b);
 
-        assertThat(merged).isSameAs(a);
+        assertThat(merged.quantity()).isEqualByComparingTo("0");
+        assertThat(merged.averageBuyIn()).isNull();
     }
 
     @Test
@@ -82,6 +90,56 @@ class HoldingDedupTest {
         HoldingAgg b = new HoldingAgg(bd("1"), bd("1"), bd("42"), "B");
 
         assertThat(HoldingDedup.vwapMerge(a, b).currentPrice()).isEqualByComparingTo("42");
+    }
+
+    // -- Plan 003 / issue D: sign-aware merge (IBKR can carry short quantities) --------
+
+    @Test
+    void vwapMerge_oppositeSignsNettingToZero_returnsZeroQuantitySentinel() {
+        HoldingAgg longLeg = new HoldingAgg(bd("40"), bd("10"), bd("12"), "Acme");
+        HoldingAgg shortLeg = new HoldingAgg(bd("-40"), bd("15"), bd("12"), "Acme");
+
+        HoldingAgg merged = HoldingDedup.vwapMerge(longLeg, shortLeg);
+
+        assertThat(merged.quantity()).isEqualByComparingTo("0");
+        assertThat(merged.averageBuyIn()).isNull();
+    }
+
+    @Test
+    void vwapMerge_oppositeSignsNonZeroNet_netsQuantityAndKeepsLargerSideAverage() {
+        // +100 @ 10 vs -40 @ 20 -> net 60, average from the larger-|q| side (the +100 @ 10 leg).
+        HoldingAgg big = new HoldingAgg(bd("100"), bd("10"), bd("12"), "Acme");
+        HoldingAgg small = new HoldingAgg(bd("-40"), bd("20"), bd("12"), "Acme");
+
+        HoldingAgg merged = HoldingDedup.vwapMerge(big, small);
+
+        assertThat(merged.quantity()).isEqualByComparingTo("60");
+        assertThat(merged.averageBuyIn()).isEqualByComparingTo("10");
+    }
+
+    @Test
+    void vwapMerge_oppositeSignsNonZeroNet_isOrderIndependent() {
+        // Same scenario as above with the arguments swapped: the larger-|q| side's
+        // average must win regardless of which argument is "prev" and which is "next".
+        HoldingAgg big = new HoldingAgg(bd("100"), bd("10"), bd("12"), "Acme");
+        HoldingAgg small = new HoldingAgg(bd("-40"), bd("20"), bd("12"), "Acme");
+
+        HoldingAgg merged = HoldingDedup.vwapMerge(small, big);
+
+        assertThat(merged.quantity()).isEqualByComparingTo("60");
+        assertThat(merged.averageBuyIn()).isEqualByComparingTo("10");
+    }
+
+    @Test
+    void vwapMerge_sameSigns_unchangedVwapRegression() {
+        // +10 @ 5 and +30 @ 9 -> (10*5 + 30*9) / 40 = 320/40 = 8.
+        HoldingAgg a = new HoldingAgg(bd("10"), bd("5"), bd("100"), "Acme");
+        HoldingAgg b = new HoldingAgg(bd("30"), bd("9"), bd("100"), "Acme");
+
+        HoldingAgg merged = HoldingDedup.vwapMerge(a, b);
+
+        assertThat(merged.quantity()).isEqualByComparingTo("40");
+        assertThat(merged.averageBuyIn()).isEqualByComparingTo("8");
     }
 
     private static BigDecimal bd(String v) { return new BigDecimal(v); }

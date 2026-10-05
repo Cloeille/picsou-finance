@@ -61,18 +61,18 @@ Possible status values: `OK`, `NEEDS_MAPPING`, `TOTP_REQUIRED`, `NOT_CONNECTED`.
 
 ### Key files
 
-- `service/FinaryImportService.java` -- XLSX file import (Apache POI parsing, two-phase flow)
-- `finary/FinaryApiSyncService.java` -- Direct API sync (Clerk auth, two-phase flow, cache, `autoSync()`)
-- `finary/client/FinaryApiClient.java` -- Finary/Clerk HTTP client (6-step auth, TOTP, pagination, `fetchLoans()`)
-- `finary/dto/FinaryLoanDto.java` -- a loan/mortgage entry from the dedicated `/loans` endpoint
-- `exception/TotpRequiredException.java` -- Thrown when 2FA is required but no TOTP provided (returns 403)
-- `exception/FinaryServiceUnavailableException.java` -- Thrown when Clerk/Finary APIs are unreachable (network, timeout, DNS); returns 502
-- `finary/FinaryPersistenceHelper.java` -- Shared helper: account creation, snapshot reconstruction, transaction import (preserves manual transactions), type suggestion
-- `controller/FinaryImportController.java` -- REST endpoints for xlsx upload
-- `controller/FinaryApiSyncController.java` -- REST endpoints for API sync (`/preview`, `/execute`, `/auto`)
-- `finary/dto/` -- 14 DTOs for Finary API responses (incl. `FinaryLoanDto`)
-- `finary/SyncSessionData.java` -- Cache record for API sync session
-- `dto/FinaryAutoSyncResponse.java` -- Response DTO for `/api/finary/api-sync/auto`
+- `backend/src/main/java/com/picsou/service/FinaryImportService.java` -- XLSX file import (Apache POI parsing, two-phase flow)
+- `backend/src/main/java/com/picsou/finary/FinaryApiSyncService.java` -- Direct API sync (Clerk auth, two-phase flow, cache, `autoSync()`)
+- `backend/src/main/java/com/picsou/finary/client/FinaryApiClient.java` -- Finary/Clerk HTTP client (6-step auth, TOTP, pagination, `fetchLoans()`)
+- `backend/src/main/java/com/picsou/finary/dto/FinaryLoanDto.java` -- a loan/mortgage entry from the dedicated `/loans` endpoint
+- `backend/src/main/java/com/picsou/exception/TotpRequiredException.java` -- Thrown when 2FA is required but no TOTP provided (returns 403)
+- `backend/src/main/java/com/picsou/exception/FinaryServiceUnavailableException.java` -- Thrown when Clerk/Finary APIs are unreachable (network, timeout, DNS); returns 502
+- `backend/src/main/java/com/picsou/finary/FinaryPersistenceHelper.java` -- Shared helper: account creation, snapshot reconstruction, transaction import (preserves manual transactions), type suggestion
+- `backend/src/main/java/com/picsou/controller/FinaryImportController.java` -- REST endpoints for xlsx upload
+- `backend/src/main/java/com/picsou/controller/FinaryApiSyncController.java` -- REST endpoints for API sync (`/preview`, `/execute`, `/auto`)
+- `backend/src/main/java/com/picsou/finary/dto/` -- 14 DTOs for Finary API responses (incl. `FinaryLoanDto`)
+- `backend/src/main/java/com/picsou/finary/SyncSessionData.java` -- Cache record for API sync session
+- `backend/src/main/java/com/picsou/dto/FinaryAutoSyncResponse.java` -- Response DTO for `/api/finary/api-sync/auto`
 
 ### Flow
 
@@ -101,7 +101,6 @@ FinaryImportService.executeImport(fileToken + mappings)
         |       +-- CREATE_NEW: create account, set externalAccountId
         |       +-- Reconstruct balance snapshots from transactions
         |       +-- Import transactions
-        +-- Remove from cache
         +-- Return result (counts + imported accounts)
 
 API Sync:
@@ -177,6 +176,9 @@ POST /api/finary/api-sync/auto
 
 ## Gotchas / Pitfalls
 
+- **`autoSync` is `@Transactional` in its own right.** It calls `execute()` on `this`, past the Spring proxy, so `execute`'s annotation never applies on that path; without its own transaction the daily and the manual auto-sync ran deletes, snapshot rebuilds and imports as auto-committed statements, and a failure halfway left a half-imported account.
+- **Mapping a Finary account onto a connector-owned account keeps that account's `externalAccountId`.** The other connector (Enable Banking, a broker) finds the account by that id; taking it over made it create a duplicate at its next sync. Only a manual account, or one with no external id, takes the Finary id.
+- **A rebuilt snapshot holds the end-of-day balance.** Both reconstructions walk transactions newest first and record, under a day's date, the running balance before that day's transactions are subtracted (once per day). Subtracting first stored the balance before the day's movements, one day's transactions off on every rebuilt point.
 - **TOTP must be disabled for background auto-sync**: `autoSync()` passes `null` for TOTP. If 2FA is enabled on the Finary account, auto-sync returns `TOTP_REQUIRED` and the session is flagged. The user must re-authenticate interactively (via the preview endpoint with TOTP). For interactive sync via the frontend button, the TOTP input is shown and the user retries through the preview flow.
 - **Manual transactions survive Finary re-syncs**: `FinaryPersistenceHelper.importTransactions()` calls `deleteByAccountIdAndIsManualFalse()` instead of `deleteByAccountId()`. Manually-added transactions are preserved across any number of re-syncs.
 - **TOTP is a query parameter**: The TOTP code is sent as `?totp={code}` on the POST preview request. This avoids body parsing complexity but means the code is visible in server access logs.

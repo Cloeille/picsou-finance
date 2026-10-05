@@ -42,8 +42,8 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function TokenCell({ value }: { value: number | null }) {
-  if (value === null) return <span className="text-muted-foreground">—</span>
+function TokenCell({ value }: { value?: number | null }) {
+  if (value == null) return <span className="text-muted-foreground">—</span>
   return <>{value}</>
 }
 

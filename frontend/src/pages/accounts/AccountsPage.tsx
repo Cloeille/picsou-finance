@@ -1,11 +1,14 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { useAccounts, useAccountTree, useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
+import { useAccounts, useAccountTree, useAccountDeletionImpact, useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import { useHistory } from '@/features/history/hooks'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
 import { AccountForm } from '@/components/shared/AccountForm'
 import { AddAccountModal } from '@/components/shared/AddAccountModal'
+import { AddPropertyModal } from '@/components/property/AddPropertyModal'
+import { ExportAccountsModal } from '@/components/shared/ExportAccountsModal'
+import { AddScpiModal } from '@/components/scpi/AddScpiModal'
 import { AccountCard } from '@/components/shared/AccountCard'
 import { AccountsStackedChart } from '@/components/shared/AccountsStackedChart'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -15,8 +18,11 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown } from 'lucide-react'
+import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
+import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/accounts/pnl'
+import { useAppStore } from '@/stores/app-store'
 import type { Account, AccountRequest, AccountType } from '@/types/api'
 
 type AssetFilter = 'ALL' | 'STOCKS' | 'METALS' | 'SAVINGS' | 'CHECKING' | 'CRYPTO' | 'REAL_ESTATE' | 'DEBTS'
@@ -25,13 +31,13 @@ const FILTER_KEYS: AssetFilter[] = ['ALL', 'STOCKS', 'METALS', 'SAVINGS', 'CHECK
 
 const ASSET_FILTER_MAP: Record<AssetFilter, AccountType[] | null> = {
   ALL: null,
-  STOCKS: ['PEA', 'COMPTE_TITRES'],
+  STOCKS: ['PEA', 'COMPTE_TITRES', 'EMPLOYEE_SAVINGS', 'ASSURANCE_VIE'],
   METALS: ['OTHER'],
-  SAVINGS: ['LEP', 'SAVINGS'],
+  SAVINGS: ['LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL', 'SAVINGS'],
   CHECKING: ['CHECKING'],
   CRYPTO: ['CRYPTO'],
-  REAL_ESTATE: ['REAL_ESTATE'],
-  DEBTS: ['LOAN'],
+  REAL_ESTATE: ['REAL_ESTATE', 'SCPI'],
+  DEBTS: LIABILITY_ACCOUNT_TYPES,
 }
 
 const TYPE_GROUP_META: Record<string, { key: string; labelKey: string; color: string }> = {
@@ -47,16 +53,24 @@ const TYPE_GROUP_META: Record<string, { key: string; labelKey: string; color: st
 const TYPE_TO_GROUP: Record<AccountType, string> = {
   PEA: 'STOCKS',
   COMPTE_TITRES: 'STOCKS',
+  EMPLOYEE_SAVINGS: 'STOCKS',
+  ASSURANCE_VIE: 'STOCKS',
   OTHER: 'METALS',
   LEP: 'SAVINGS',
+  LIVRET_A: 'SAVINGS',
+  LDDS: 'SAVINGS',
+  LIVRET_JEUNE: 'SAVINGS',
+  PEL: 'SAVINGS',
+  CEL: 'SAVINGS',
   SAVINGS: 'SAVINGS',
   CHECKING: 'CHECKING',
   CRYPTO: 'CRYPTO',
   REAL_ESTATE: 'REAL_ESTATE',
+  SCPI: 'REAL_ESTATE',
   LOAN: 'DEBTS',
+  CREDIT_CARD: 'DEBTS',
 }
 
-const HOLDING_ACCOUNT_TYPES: AccountType[] = ['PEA', 'COMPTE_TITRES', 'CRYPTO']
 
 type AccountFormData = {
   name: string
@@ -67,6 +81,8 @@ type AccountFormData = {
   isManual: boolean
   color: string
   ticker?: string
+  logoKey?: string
+  institutionId?: string
   borrowedAmount?: number
   interestRatePct?: number
   monthlyPayment?: number
@@ -74,6 +90,8 @@ type AccountFormData = {
   fileFees?: number
   startDate?: string
   endDate?: string
+  linkedAccountId?: number
+  openedAt?: string
 }
 
 // ─── Inline pocket card (smaller, with "alloué" tooltip) ─────────────────────
@@ -107,6 +125,9 @@ export function AccountsPage() {
   const navigate = useNavigate()
 
   const { data: accounts, isLoading } = useAccounts()
+  // The demo adapter has no handler for the export route, and an unhandled route resolves to
+  // {} -- which here would download a corrupt workbook instead of failing visibly.
+  const demoMode = useAppStore(state => state.demoMode)
   const updateAccount = useUpdateAccount()
   const updateDebt = useUpdateDebtMetadata()
   const deleteAccount = useDeleteAccount()
@@ -114,6 +135,9 @@ export function AccountsPage() {
   const hasSavingsSuggestions = Array.isArray(savingsSuggestions) && savingsSuggestions.length > 0
 
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showPropertyModal, setShowPropertyModal] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
+  const [showScpiModal, setShowScpiModal] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
@@ -128,6 +152,10 @@ export function AccountsPage() {
 
   const { nonPocketAccounts, walletGroups: allWalletGroups, standaloneAccounts: allStandaloneAccounts } =
     useAccountTree(accounts)
+
+  // Deleting the last account on a connection removes that connection too, and a bank one
+  // costs a full OAuth re-authorisation to get back -- so the dialog names it first.
+  const { data: deletionImpact } = useAccountDeletionImpact(deleteId)
 
   // All non-pocket IDs for history query (split mode for per-account breakdown)
   const allAccountIds = useMemo(() => nonPocketAccounts.map((a) => a.id), [nonPocketAccounts])
@@ -155,8 +183,12 @@ export function AccountsPage() {
     return allStandaloneAccounts.filter((a) => types.includes(a.type))
   }, [allStandaloneAccounts, filter])
 
-  // Whether current filter contains investment accounts (for PnL display)
-  const hasHoldings = filteredNonPockets.some((a) => HOLDING_ACCOUNT_TYPES.includes(a.type))
+  // Whether the current filter has a gain/loss worth showing: an investment account, whose
+  // basis comes from its holdings, or a property, whose basis is its purchase price plus fees.
+  // Cash-only filters are excluded on purpose -- their PnL is always 0.
+  const hasPnl = filteredNonPockets.some(
+    a => HOLDING_ACCOUNT_TYPES.includes(a.type) || hasMeasurableGain(a)
+  )
 
   // Summary card values (pockets excluded — their balance is already in the wallet)
   const totalBalance = filteredNonPockets.reduce(
@@ -177,8 +209,8 @@ export function AccountsPage() {
     for (const a of filteredNonPockets) {
       const ap = latest.accounts[String(a.id)]
       if (ap) {
-        inv += ap.invested
-        pnlSum += ap.pnl
+        inv += accountInvestedAt(a, ap)
+        pnlSum += accountPnlAt(a, ap)
       }
     }
     const pct = inv > 0 ? ((pnlSum / inv) * 100).toFixed(1) : null
@@ -206,6 +238,7 @@ export function AccountsPage() {
       color: meta.color,
       ticker: null,
       logoUrl: null,
+      logoKey: null,
       createdAt: '',
       hidden: false,
     }))
@@ -216,39 +249,39 @@ export function AccountsPage() {
     if (!historyData || !Array.isArray(historyData) || !accounts) return []
 
     if (filter !== 'ALL') {
-      const ids = nonPocketAccounts
-        .filter((a) => ASSET_FILTER_MAP[filter]!.includes(a.type))
-        .map((a) => String(a.id))
+      const shown = nonPocketAccounts.filter(a => ASSET_FILTER_MAP[filter]!.includes(a.type))
 
       return historyData
         .filter((p) => p.accounts)
         .map((point) => {
           const row: { date: string; [key: string]: string | number } = { date: point.date! }
-          for (const id of ids) {
-            const ap = point.accounts![id]
-            row[id] = ap ? ap.pnl : 0
+          for (const a of shown) {
+            const ap = point.accounts![String(a.id)]
+            row[String(a.id)] = ap ? accountPnlAt(a, ap) : 0
           }
           return row
         })
     }
 
-    // ALL → aggregate PnL per type group (pockets excluded)
-    const groupIds: Record<string, Set<string>> = {}
+    // ALL → aggregate PnL per type group, pockets excluded. Grouped by account rather than by
+    // id string, because a property's PnL is only computable from the account itself (its cost
+    // basis lives there).
+    const groupMembers: Record<string, Account[]> = {}
     for (const a of nonPocketAccounts) {
       const group = TYPE_TO_GROUP[a.type]
-      if (!groupIds[group]) groupIds[group] = new Set()
-      groupIds[group].add(String(a.id))
+      if (!groupMembers[group]) groupMembers[group] = []
+      groupMembers[group].push(a)
     }
 
     return historyData
       .filter((p) => p.accounts)
       .map((point) => {
         const row: { date: string; [key: string]: string | number } = { date: point.date! }
-        for (const [group, ids] of Object.entries(groupIds)) {
+        for (const [group, members] of Object.entries(groupMembers)) {
           let pnlSum = 0
-          for (const id of ids) {
-            const ap = point.accounts![id]
-            if (ap) pnlSum += ap.pnl
+          for (const a of members) {
+            const ap = point.accounts![String(a.id)]
+            if (ap) pnlSum += accountPnlAt(a, ap)
           }
           row[group] = pnlSum
         }
@@ -256,7 +289,15 @@ export function AccountsPage() {
       })
   }, [historyData, accounts, nonPocketAccounts, filter])
 
+  // With the Immobilier filter on, "add an account" almost certainly means "add a property",
+  // so the primary action goes straight to the guided flow instead of the generic picker.
+  const addingProperty = filter === 'REAL_ESTATE'
+
   function handleOpenCreate() {
+    if (addingProperty) {
+      setShowPropertyModal(true)
+      return
+    }
     setShowCreateModal(true)
   }
 
@@ -281,6 +322,14 @@ export function AccountsPage() {
       isManual: data.isManual,
       color: data.color,
       ticker: data.ticker || undefined,
+      // Empty rather than absent for every account without a logo choice; the backend keeps
+      // whatever it already stores when this is undefined.
+      logoKey: data.logoKey || undefined,
+      // Set only when a bank was picked from the catalog; the backend resolves its logo from it.
+      institutionId: data.institutionId,
+      // Undefined leaves the stored date alone, which is what an account type that never offers
+      // the field should do -- see AccountRequest.
+      openedAt: data.openedAt || undefined,
     }
     await updateAccount.mutateAsync({ id: editingAccount.id, data: request })
     if (data.type === 'LOAN' && data.borrowedAmount && data.borrowedAmount > 0) {
@@ -295,6 +344,9 @@ export function AccountsPage() {
           lenderName: data.provider || undefined,
           startDate: data.startDate || undefined,
           endDate: data.endDate || undefined,
+          // null, not undefined: an omitted key would leave a previously linked property
+          // attached when the user picks "no linked asset".
+          linkedAccountId: data.linkedAccountId ?? null,
         },
       })
     }
@@ -316,10 +368,15 @@ export function AccountsPage() {
       type: editingAccount.type,
       provider: (editingAccount.type === 'LOAN' ? debt?.lenderName : editingAccount.provider) ?? '',
       currency: editingAccount.currency,
-      currentBalance: editingAccount.currentBalance,
+      // The form asks for a card's amount owed; the backend stores it negative.
+      currentBalance: editingAccount.type === 'CREDIT_CARD'
+        ? Math.abs(editingAccount.currentBalance)
+        : editingAccount.currentBalance,
       isManual: editingAccount.isManual,
       color: editingAccount.color,
       ticker: editingAccount.ticker ?? '',
+      logoKey: editingAccount.logoKey ?? '',
+      openedAt: editingAccount.openedAt ?? '',
       ...(debt
         ? {
             borrowedAmount: debt.borrowedAmount,
@@ -329,6 +386,7 @@ export function AccountsPage() {
             fileFees: debt.fileFees ?? undefined,
             startDate: debt.startDate ?? '',
             endDate: debt.endDate ?? '',
+            linkedAccountId: debt.linkedAccountId ?? undefined,
           }
         : {}),
     }
@@ -343,10 +401,29 @@ export function AccountsPage() {
       <PageHeader
         title={t('accounts.title')}
         actions={
-          <Button onClick={handleOpenCreate} size="sm">
-            <Plus className="size-4" />
-            {t('accounts.addAccount')}
-          </Button>
+          <div className="flex items-center gap-2">
+            {!demoMode && (
+              <Button
+                onClick={() => setShowExportModal(true)}
+                size="sm"
+                variant="outline"
+                disabled={!accounts || accounts.length === 0}
+              >
+                <Download className="size-4" />
+                {t('accounts.export.button')}
+              </Button>
+            )}
+            <Button onClick={handleOpenCreate} size="sm">
+              <Plus className="size-4" />
+              {addingProperty ? t('property.add.action') : t('accounts.addAccount')}
+            </Button>
+            {addingProperty && (
+              <Button onClick={() => setShowScpiModal(true)} size="sm" variant="outline">
+                <Plus className="size-4" />
+                {t('scpi.add.action')}
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -391,7 +468,7 @@ export function AccountsPage() {
             <CardContent>
               <CardTitle>{t('accounts.total')}</CardTitle>
               <CurrencyDisplay value={totalBalance} className="text-4xl font-bold" />
-              {hasHoldings && totalInvested > 0 && (
+              {hasPnl && totalInvested > 0 && (
                 <div className="mt-3 flex items-center gap-2">
                   {pnlPositive
                     ? <TrendingUp className="text-emerald-500" size={18} />
@@ -411,7 +488,7 @@ export function AccountsPage() {
           </Card>
 
           {/* PnL chart */}
-          {hasHoldings && (
+          {hasPnl && (
             <Card>
               <CardHeader>
                 <CardTitle>{t('accounts.pnl')}</CardTitle>
@@ -439,7 +516,10 @@ export function AccountsPage() {
           className="min-h-[calc(100vh-14rem)]"
           icon={<Wallet className="size-12" />}
           title={t('accounts.noAccounts')}
-          action={{ label: t('accounts.addAccount'), onClick: handleOpenCreate }}
+          action={{
+            label: addingProperty ? t('property.add.action') : t('accounts.addAccount'),
+            onClick: handleOpenCreate,
+          }}
         />
       ) : (
         <div className="space-y-4">
@@ -550,6 +630,20 @@ export function AccountsPage() {
         </div>
       )}
 
+      {showPropertyModal && (
+        <AddPropertyModal open onOpenChange={setShowPropertyModal} />
+      )}
+
+      <ExportAccountsModal
+        open={showExportModal}
+        onOpenChange={setShowExportModal}
+        accounts={accounts ?? []}
+      />
+      {showScpiModal && (
+        <AddScpiModal open onOpenChange={setShowScpiModal} />
+      )}
+
+
       <AddAccountModal
         open={showCreateModal}
         onOpenChange={setShowCreateModal}
@@ -560,6 +654,7 @@ export function AccountsPage() {
         onOpenChange={handleEditFormOpenChange}
         onSubmit={handleEditSubmit}
         defaultValues={defaultValues}
+        accounts={accounts}
         title={t('accounts.editAccount')}
         loading={isMutating}
       />
@@ -568,7 +663,11 @@ export function AccountsPage() {
         open={deleteId !== null}
         onOpenChange={(open) => { if (!open) setDeleteId(null) }}
         title={t('accounts.deleteAccount')}
-        description={t('accounts.deleteConfirm')}
+        description={
+          deletionImpact?.removesConnection
+            ? `${t('accounts.deleteConfirm')} ${t('accounts.deleteRemovesConnection', { connection: deletionImpact.connectionLabel })}`
+            : t('accounts.deleteConfirm')
+        }
         onConfirm={handleConfirmDelete}
         loading={deleteAccount.isPending}
         variant="destructive"

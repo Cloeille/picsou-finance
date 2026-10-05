@@ -33,15 +33,15 @@ bun run test:e2e     # Playwright E2E tests
 
 ## Code conventions
 
-See [`docs/conventions/`](docs/conventions/) and module-specific AGENTS.md files (`backend/AGENTS.md`, `frontend/AGENTS.md`).
+See [`docs/conventions/`](docs/conventions/) and module-specific instruction files (`backend/CLAUDE.md`, `frontend/CLAUDE.md`).
 
 ## Project architecture
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full architecture overview, data flows, and external dependencies.
 
 For module-specific details, see:
-- [`backend/AGENTS.md`](backend/AGENTS.md) -- package structure, ports & adapters, auth, configuration
-- [`frontend/AGENTS.md`](frontend/AGENTS.md) -- component hierarchy, API layer, demo mode, i18n
+- [`backend/CLAUDE.md`](backend/CLAUDE.md) -- package structure, ports & adapters, auth, configuration
+- [`frontend/CLAUDE.md`](frontend/CLAUDE.md) -- component hierarchy, API layer, demo mode, i18n
 
 ## Technical documentation
 

@@ -34,6 +34,35 @@ jobs:
             image: ${{ github.repository }}/revolut-auth
             context: services/revolut-auth
             dockerfile: services/revolut-auth/Dockerfile
+          - name: bourse-direct-auth
+            image: ${{ github.repository }}/bourse-direct-auth
+            context: services/bourse-direct-auth
+            dockerfile: services/bourse-direct-auth/Dockerfile
+            versioned: false
+          - name: amundi-auth
+            image: ${{ github.repository }}/amundi-auth
+            context: services/amundi-auth
+            dockerfile: services/amundi-auth/Dockerfile
+            versioned: false
+          - name: bourso-auth
+            image: ${{ github.repository }}/bourso-auth
+            context: services/bourso-auth
+            dockerfile: services/bourso-auth/Dockerfile
+            versioned: false
+          - name: fortuneo-auth
+            image: ${{ github.repository }}/fortuneo-auth
+            context: services/fortuneo-auth
+            dockerfile: services/fortuneo-auth/Dockerfile
+            versioned: false
+          - name: corum-auth
+            image: ${{ github.repository }}/corum-auth
+            context: services/corum-auth
+            dockerfile: services/corum-auth/Dockerfile
+            versioned: false
+          - name: sofidy-auth
+            image: ${{ github.repository }}/sofidy-auth
+            context: services/sofidy-auth
+            dockerfile: services/sofidy-auth/Dockerfile
             versioned: false
 
     steps:

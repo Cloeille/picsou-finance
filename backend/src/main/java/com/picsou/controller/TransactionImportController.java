@@ -1,5 +1,6 @@
 package com.picsou.controller;
 
+import com.picsou.config.ClientIp;
 import com.picsou.config.RateLimitConfig;
 import com.picsou.dto.TransactionImportPreviewResponse;
 import com.picsou.dto.TransactionImportRequest;
@@ -71,7 +72,7 @@ public class TransactionImportController {
     }
 
     private boolean checkRateLimit(HttpServletRequest request) {
-        String ip = request.getRemoteAddr();
+        String ip = ClientIp.resolve(request);
         Bucket bucket = syncBuckets.computeIfAbsent(ip, k -> RateLimitConfig.createSyncBucket());
         return bucket.tryConsume(1);
     }

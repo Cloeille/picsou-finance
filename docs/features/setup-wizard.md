@@ -1,6 +1,6 @@
 # Feature: First-launch Setup Wizard
 
-> Last updated: 2026-04-24
+> Last updated: 2026-07-19 (HSTS is opt-in, no longer an always-on nginx header)
 
 ## Context
 
@@ -63,7 +63,7 @@ Frontend:
   — the main-line steps.
 - `frontend/src/pages/setup/integrations/SetupStepEnableBanking.tsx` + 5 substep
   components under `enablebanking/` — the guided EB flow.
-- `frontend/src/pages/setup/integrations/SetupStep{BoursoBank,TradeRepublic,Finary,Crypto}.tsx`
+- `frontend/src/pages/setup/integrations/SetupStep{BoursoBank,BourseDirect,TradeRepublic,Finary,Crypto}.tsx`
   — the other integration substeps.
 - `frontend/src/features/setup/{api,hooks,schemas,guards}.tsx` — dedicated axios
   client (no 401 interceptor), react-query hooks, zod schemas, route guards.
@@ -92,6 +92,7 @@ Hello greeting → Admin → Security → Integration picker
     │                                    │
     │                                    ├─ Enable Banking: 5 substeps
     │                                    ├─ BoursoBank: sidecar ping
+    │                                    ├─ Bourse Direct: post-setup login acknowledgement
     │                                    ├─ Trade Republic: ack
     │                                    ├─ Finary: ack
     │                                    └─ Crypto: ensure key exists
@@ -190,8 +191,11 @@ future work):
 - **Rate limiting** on `/api/setup/*` via Bucket4j (10 rpm / IP). 429 on breach.
 - **Headers** (set by nginx, app-wide):
   `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy:
-  strict-origin-when-cross-origin`, `Strict-Transport-Security: max-age=31536000;
-  includeSubDomains`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`.
+  strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`.
+- **`Strict-Transport-Security` is opt-in**, not app-wide: it is only sent when
+  `HSTS_ENABLED=true` (see [docker-deployment.md](./docker-deployment.md)). Enabling it
+  with a locally-issued certificate locks users out — the browser drops the
+  "proceed anyway" bypass. Do not assume HSTS is enforced on a deployment.
 - **CSP** (nginx):
   `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src
   'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'`.
@@ -200,6 +204,12 @@ future work):
 - **Audit trail** in the `setup_audit` table for `setup.admin.created`,
   `setup.integration.enabled`, `setup.security.updated`, `setup.completed` — valuable
   forensics for a self-host admin who wants to know "who ran setup on this machine".
+- **Single-account seeding.** The wizard seeds exactly one account. `SetupService.seedAdmin`
+  rejects any call once one user already exists (`AppUserRepository.count() > 0`),
+  regardless of `setup.state` — so a second, differently-named `role=ADMIN` account can no
+  longer be planted through `POST /api/setup/admin` during the `IN_PROGRESS` window (after
+  the first admin is seeded but before `/api/setup/complete` is called). Further accounts
+  are created from the authenticated Family admin UI, never from the wizard.
 
 ## Running without Docker
 
@@ -227,11 +237,11 @@ The wizard makes zero outbound requests on first load:
 
 - `SetupServiceTest` — state transitions (`PENDING_ADMIN → IN_PROGRESS → COMPLETE`),
   SERIALIZABLE CAS on admin claim, bcrypt-hash rejection, idempotent seed when user
-  already exists, CSV origin persistence, empty-origin rejection, consistent
-  integration-key formatting.
+  already exists, rejection when any account already exists (second-admin backdoor),
+  CSV origin persistence, empty-origin rejection, consistent integration-key formatting.
 - `SetupControllerTest` — endpoint-level: admin seed returns 410 after completion,
   EB keypair regenerate-flag on first call vs. idempotent subsequent calls, EB
-  `test` only flips the integration flag on success, BoursoBank health / TR / Finary
+  `test` only flips the integration flag on success, BoursoBank health / Bourse Direct / TR / Finary
   acknowledge flows, crypto-key flagging for existing vs. freshly generated, rate
   limit returns 429 after bucket drain.
 - `EnableBankingKeyPairServiceTest` — first-call persistence of private PEM, idempotent

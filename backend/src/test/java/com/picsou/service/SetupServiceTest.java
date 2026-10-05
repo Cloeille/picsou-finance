@@ -47,7 +47,7 @@ class SetupServiceTest {
 
         assertThat(response.state()).isEqualTo(SetupState.PENDING_ADMIN);
         assertThat(response.needsSetup()).isTrue();
-        assertThat(response.integrations()).containsKeys("enablebanking", "boursobank", "traderepublic", "finary", "crypto");
+        assertThat(response.integrations()).containsKeys("enablebanking", "boursobank", "boursedirect", "traderepublic", "finary", "crypto");
         assertThat(response.integrations().values()).allMatch(b -> !b);
     }
 
@@ -68,6 +68,7 @@ class SetupServiceTest {
     void seedAdmin_createsFamilyMemberAndAppUser_andClaimsInProgressState() {
         when(userRepository.existsByUsername("admin")).thenReturn(false);
         when(settingRepository.findByKey(SetupService.KEY_SETUP_STATE)).thenReturn(Optional.empty());
+        when(userRepository.count()).thenReturn(0L);
         when(settingRepository.compareAndSet(SetupService.KEY_SETUP_STATE,
             SetupState.PENDING_ADMIN.name(), SetupState.IN_PROGRESS.name())).thenReturn(1);
 
@@ -124,6 +125,28 @@ class SetupServiceTest {
         assertThatThrownBy(() -> setupService.seedAdmin("admin", "$2a$12$any", null, null))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("already complete");
+    }
+
+    /**
+     * Closes the setup-wizard second-admin backdoor: while state is IN_PROGRESS (an
+     * admin was seeded but /api/setup/complete has not been called yet), the wizard's
+     * /admin endpoint is still unauthenticated. Without this guard a differently-named
+     * account sails through — the same-username idempotency check doesn't catch it, and
+     * the CAS only protects the PENDING_ADMIN -> IN_PROGRESS transition, not this one.
+     */
+    @Test
+    void seedAdmin_refuses_whenAnyAccountAlreadyExists() {
+        AppSetting state = AppSetting.builder().key(SetupService.KEY_SETUP_STATE).value("IN_PROGRESS").build();
+        when(userRepository.existsByUsername("bob")).thenReturn(false);
+        when(settingRepository.findByKey(SetupService.KEY_SETUP_STATE)).thenReturn(Optional.of(state));
+        when(userRepository.count()).thenReturn(1L);
+
+        assertThatThrownBy(() -> setupService.seedAdmin("bob", "$2a$12$any", "Bob", null))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("already exists");
+
+        verify(userRepository, never()).save(any());
+        verify(memberRepository, never()).save(any());
     }
 
     @Test

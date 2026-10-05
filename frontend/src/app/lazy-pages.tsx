@@ -110,6 +110,16 @@ export const SetupStepBoursoBank = lazy(() =>
     default: m.SetupStepBoursoBank,
   }))
 )
+export const SetupStepBourseDirect = lazy(() =>
+  import('@/pages/setup/integrations/SetupStepBourseDirect').then((m) => ({
+    default: m.SetupStepBourseDirect,
+  }))
+)
+export const SetupStepFortuneo = lazy(() =>
+  import('@/pages/setup/integrations/SetupStepFortuneo').then((m) => ({
+    default: m.SetupStepFortuneo,
+  }))
+)
 export const SetupStepTradeRepublic = lazy(() =>
   import('@/pages/setup/integrations/SetupStepTradeRepublic').then((m) => ({
     default: m.SetupStepTradeRepublic,
@@ -129,6 +139,10 @@ export const SetupStepCrypto = lazy(() =>
   import('@/pages/setup/integrations/SetupStepCrypto').then((m) => ({
     default: m.SetupStepCrypto,
   }))
+)
+
+export const AnalysisPage = lazy(() =>
+  import('@/pages/analysis/AnalysisPage').then((m) => ({ default: m.AnalysisPage }))
 )
 
 export const ConsentPage = lazy(() =>

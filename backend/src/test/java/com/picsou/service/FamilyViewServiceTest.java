@@ -16,6 +16,7 @@ import com.picsou.repository.SharedResourceRepository;
 import com.picsou.repository.SharingSettingsRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -26,8 +27,11 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,7 +46,23 @@ class FamilyViewServiceTest {
     @Mock AccountService accountService;
     @Mock GoalManualContributionRepository contributionRepository;
 
+    @Mock AccountAccessResolver accessResolver;
+
     @InjectMocks FamilyViewService familyViewService;
+
+    @BeforeEach
+    void stubOwnershipShares() {
+        // Mirrors the batch resolver: every fixture account is wholly owned, so weighting is the
+        // identity and these tests keep measuring what they were written to measure.
+        lenient().when(accessResolver.sharesFor(any(), any())).thenAnswer(inv -> {
+            java.util.Collection<com.picsou.model.Account> accounts = inv.getArgument(0);
+            java.util.Map<Long, java.math.BigDecimal> shares = new java.util.HashMap<>();
+            for (com.picsou.model.Account a : accounts) {
+                shares.put(a.getId(), new java.math.BigDecimal("100"));
+            }
+            return shares;
+        });
+    }
 
     @Test
     void getFamilyDashboard_manualAccounts_usesMemberScopedRepository() {
@@ -199,5 +219,38 @@ class FamilyViewServiceTest {
         assertThat(response.sharedGoals()).hasSize(1);
         // Goal progress nets the linked loan against the linked asset: 2000 − 10000.
         assertThat(response.sharedGoals().getFirst().currentTotal()).isEqualByComparingTo("-8000");
+    }
+
+    @Test
+    void getFamilyDashboard_resolvesSharesInOneQueryPerMember() {
+        // shareFor issues a query per account, and this runs inside a loop over every family
+        // member, so the per-account form costs members x accounts round trips to answer what
+        // one IN clause answers. Nothing else fails if it regresses -- only this.
+        FamilyMember viewer = FamilyMember.builder().id(1L).displayName("Viewer").build();
+        FamilyMember owner = FamilyMember.builder().id(2L).displayName("Owner").build();
+        List<Account> accounts = List.of(
+            Account.builder().id(10L).name("A").type(AccountType.SAVINGS).currency("EUR")
+                .currentBalance(new BigDecimal("100")).build(),
+            Account.builder().id(11L).name("B").type(AccountType.SAVINGS).currency("EUR")
+                .currentBalance(new BigDecimal("200")).build(),
+            Account.builder().id(12L).name("C").type(AccountType.SAVINGS).currency("EUR")
+                .currentBalance(new BigDecimal("300")).build());
+
+        when(memberRepository.findAllByOrderByCreatedAtAsc()).thenReturn(List.of(viewer, owner));
+        when(sharingSettingsRepository.findByMemberIdAndResourceType(2L, "ACCOUNT"))
+            .thenReturn(Optional.of(new SharingSettings(null, owner, "ACCOUNT", SharingLevel.ALL)));
+        when(sharingSettingsRepository.findByMemberIdAndResourceType(2L, "GOAL"))
+            .thenReturn(Optional.empty());
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(2L)).thenReturn(accounts);
+        for (Account a : accounts) {
+            when(accountService.signedLiveBalanceEur(a)).thenReturn(a.getCurrentBalance());
+        }
+
+        FamilyDashboardResponse response = familyViewService.getFamilyDashboard(1L);
+
+        assertThat(response.sharedAccounts()).hasSize(3);
+        assertThat(response.totalSharedNetWorth()).isEqualByComparingTo("600");
+        verify(accessResolver, times(1)).sharesFor(any(), eq(2L));
+        verify(accessResolver, never()).shareFor(any(), any());
     }
 }

@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { transactionDescription } from '@/lib/transactions'
 
 interface TransactionDetailSheetProps {
   transaction: Transaction | null
@@ -61,6 +62,7 @@ export function TransactionDetailSheet({
 
   if (!tx) return null
 
+  const label = tx.merchantLabel || transactionDescription(tx, t)
   const canCategorize = !tx.isManual && !!onCategorize && !!categories
 
   function confirmCategory() {
@@ -74,12 +76,12 @@ export function TransactionDetailSheet({
       {/* Header */}
       <div className="flex items-center gap-3">
         <MerchantAvatar
-          label={tx.merchantLabel || tx.description}
+          label={label}
           logoUrl={logoUrlFor?.(tx.merchantBrandId)}
           size="md"
         />
         <div className="min-w-0 flex-1">
-          <p className="font-semibold break-words">{tx.merchantLabel || tx.description}</p>
+          <p className="font-semibold break-words">{label}</p>
           {tx.merchantLabel && tx.description !== tx.merchantLabel && (
             <p className="text-xs text-muted-foreground break-words">{tx.description}</p>
           )}

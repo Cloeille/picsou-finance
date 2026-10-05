@@ -1,0 +1,47 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Picsou — optional TLS terminator (compose profile `tls`).
+#
+# Why this exists: Enable Banking rejects plain-HTTP callback URLs for
+# PRODUCTION applications, and PRODUCTION is the only mode that exposes real
+# banks. So bank sync is unusable on an HTTP-only deployment, no matter how
+# the redirect URI is configured. See docs/features/bank-sync.md.
+#
+# PICSOU_DOMAIN decides how the certificate is obtained — Caddy makes that
+# choice on its own, from the hostname, with no configuration from you:
+#
+#   • Public FQDN (picsou.example.com) → ACME (Let's Encrypt / ZeroSSL).
+#     Publicly trusted, fully automatic, nothing to install on any device.
+#     Needs the name to resolve to this host and :80 + :443 reachable.
+#
+#   • Local name — the default `picsou.localhost`, anything under .local /
+#     .internal / .home.arpa, or a bare LAN IP → Caddy's built-in CA issues
+#     the certificate locally. No domain and no internet access required,
+#     but each browser must trust the root once (README explains how).
+#
+# Deliberately absent: Strict-Transport-Security. With a locally-issued
+# certificate an HSTS entry is a one-way trap — the browser stops offering
+# the "proceed anyway" bypass and locks the user out with no in-app
+# recovery. HSTS is opt-in via HSTS_ENABLED once the cert is publicly
+# trusted; see docker/entrypoint.sh.
+# ─────────────────────────────────────────────────────────────────────────
+
+{$PICSOU_DOMAIN:picsou.localhost} {
+	# The app container serves nginx on 8080 (SPA + /api + /actuator).
+	# Caddy sets X-Forwarded-Proto/Host/For by default, which is exactly
+	# what docker/nginx.conf preserves and what the backend needs for
+	# same-origin detection (server.forward-headers-strategy=framework).
+	# Do NOT add `header_up X-Forwarded-For {remote_host}` here. Caddy already
+	# sets X-Forwarded-For to the real peer address and ignores whatever the
+	# client sent, because `trusted_proxies` is empty — verified by sending a
+	# spoofed `X-Forwarded-For: 10.0.0.99` through this config and observing
+	# only the peer address reach the upstream. Stating it explicitly is
+	# redundant and makes Caddy log "Unnecessary header_up X-Forwarded-For"
+	# on every start.
+	#
+	# It is worth knowing why this matters: Spring's
+	# forward-headers-strategy=framework makes getRemoteAddr() return XFF[0],
+	# and AuthController.getClientIp() uses that as the bucket4j key for the
+	# 5-attempts/15-min login and MFA-verify limits. A client-controlled XFF[0]
+	# would let an attacker mint a fresh bucket per request.
+	reverse_proxy app:8080
+}

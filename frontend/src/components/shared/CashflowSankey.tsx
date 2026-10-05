@@ -2,7 +2,7 @@ import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Layer, Rectangle, ResponsiveContainer, Sankey, Tooltip } from 'recharts'
 import type { CashflowFlowResponse, FlowNode } from '@/types/api'
-import { formatCurrency } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 import { FLOW_FALLBACK_COLOR, flowNodeColor, flowNodeLabel, flowSides } from './flow-utils'
 
 /**
@@ -121,6 +121,9 @@ function FlowTooltip(props: {
   t?: TFunction
   nodes?: FlowNode[]
 }) {
+  // Above the early return, as hook order demands. The tooltip subscribes for itself rather than
+  // reading a formatter passed down, so one that is open when the toggle flips redraws with it.
+  const money = useMoney()
   const { active, payload, t, nodes = [] } = props
   if (!active || !payload?.length || !t) return null
   const datum = payload[0]?.payload
@@ -139,7 +142,7 @@ function FlowTooltip(props: {
         <p className="font-medium">
           {flowNodeLabel(source, t)} → {flowNodeLabel(target, t)}
         </p>
-        <p className="text-muted-foreground tabular-nums">{formatCurrency(value)}</p>
+        <p className="text-muted-foreground tabular-nums">{money.amount(value)}</p>
       </div>
     )
   }
@@ -147,7 +150,7 @@ function FlowTooltip(props: {
   return (
     <div className="rounded-lg border bg-background px-3 py-2 text-xs shadow-md">
       <p className="font-medium">{flowNodeLabel(datum as unknown as FlowNode, t)}</p>
-      <p className="text-muted-foreground tabular-nums">{formatCurrency(value)}</p>
+      <p className="text-muted-foreground tabular-nums">{money.amount(value)}</p>
     </div>
   )
 }
@@ -158,11 +161,12 @@ function FlowTooltip(props: {
  * real data table — every inflow/outflow with its amount, not just the aggregate summary.
  */
 function FlowDataTable({ flow, t }: { flow: CashflowFlowResponse; t: TFunction }) {
+  const money = useMoney()
   const { sources, sinks } = flowSides(flow)
   const caption = t('budget.flow.dataTableCaption', {
-    income: formatCurrency(flow.income),
-    expense: formatCurrency(flow.expense),
-    net: formatCurrency(flow.net),
+    income: money.amount(flow.income),
+    expense: money.amount(flow.expense),
+    net: money.amount(flow.net),
   })
 
   return (
@@ -180,14 +184,14 @@ function FlowDataTable({ flow, t }: { flow: CashflowFlowResponse; t: TFunction }
           <tr key={`in-${bar.node.key}-${i}`}>
             <td>{t('budget.flow.inflows')}</td>
             <td>{flowNodeLabel(bar.node, t)}</td>
-            <td>{formatCurrency(bar.value)}</td>
+            <td>{money.amount(bar.value)}</td>
           </tr>
         ))}
         {sinks.map((bar, i) => (
           <tr key={`out-${bar.node.key}-${i}`}>
             <td>{t('budget.flow.outflows')}</td>
             <td>{flowNodeLabel(bar.node, t)}</td>
-            <td>{formatCurrency(bar.value)}</td>
+            <td>{money.amount(bar.value)}</td>
           </tr>
         ))}
       </tbody>

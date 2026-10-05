@@ -18,9 +18,12 @@ public enum AssetClass {
     public static AssetClass of(AccountType type) {
         return switch (type) {
             case CHECKING -> CURRENT;
-            case LEP, SAVINGS -> SAVINGS;
-            case PEA, COMPTE_TITRES, CRYPTO -> INVESTMENT;
-            case REAL_ESTATE, LOAN, OTHER -> OTHER;
+            case LEP, SAVINGS, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL -> SAVINGS;
+            case PEA, COMPTE_TITRES, CRYPTO, EMPLOYEE_SAVINGS, ASSURANCE_VIE -> INVESTMENT;
+            // SCPI sits with real estate rather than with investments: it is property held on
+            // paper, priced per share by no market this app can reach, so it is not part of the
+            // cash allocation the donut describes. Same placement as in WealthTier.
+            case REAL_ESTATE, SCPI, LOAN, CREDIT_CARD, OTHER -> OTHER;
         };
     }
 

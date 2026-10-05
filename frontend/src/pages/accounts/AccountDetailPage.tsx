@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  useAccount, useAccountHistory, useHoldingsWithLivePrices,
+  useAccount, useAccountHistory, useHoldingsWithLivePrices, useAccountPositions,
   useAccountTransactions, useAddTransaction, useDeleteTransaction,
   useUpdateTransaction, useUpdateHolding, useDeleteHolding, useImportTRTransactions
 } from '@/features/accounts/hooks'
@@ -13,6 +13,7 @@ import { useHistory } from '@/features/history/hooks'
 import { BalanceHistoryChart } from '@/components/shared/BalanceHistoryChart'
 import { NetWorthChart } from '@/components/shared/NetWorthChart'
 import { HoldingsTable } from '@/components/shared/HoldingsTable'
+import { PositionsByProduct } from '@/components/shared/PositionsByProduct'
 import { RealizedPnlSection } from '@/components/shared/RealizedPnlSection'
 import { TransactionsList } from '@/components/shared/TransactionsList'
 import { AddTransactionModal } from '@/components/shared/AddTransactionModal'
@@ -25,27 +26,30 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { LoanDetailSection } from '@/components/loan/LoanDetailSection'
 import { SavingsConfigSection } from '@/features/savings/SavingsConfigSection'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
+import { PropertyDetailSection } from '@/components/property/PropertyDetailSection'
+import { ScpiDetailSection } from '@/components/scpi/ScpiDetailSection'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Upload } from 'lucide-react'
-import { formatLocalDate } from '@/lib/utils'
-import { accountTypeLabelKey } from '@/lib/constants'
+import { formatLocalDate, localeFromLanguage } from '@/lib/utils'
+import { accountTypeLabelKey, HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { HoldingResponse, Transaction } from '@/types/api'
 
-const HOLDING_ACCOUNT_TYPES = ['PEA', 'COMPTE_TITRES', 'CRYPTO']
 
 export function AccountDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const accountId = parseInt(id!, 10)
 
   const { data: account, isLoading } = useAccount(accountId)
   const { data: history } = useAccountHistory(accountId)
   const { data: holdings } = useHoldingsWithLivePrices(accountId)
+  const { data: positions } = useAccountPositions(accountId)
   const { data: transactions } = useAccountTransactions(accountId)
   const addTxMutation = useAddTransaction(accountId)
   const deleteTxMutation = useDeleteTransaction(accountId)
@@ -115,15 +119,13 @@ export function AccountDetailPage() {
   const isSavings = account
     ? (account.type === 'SAVINGS' || account.type === 'LEP' || !!account.savingsConfig || !!savingsSuggestion)
     : false
+  const isRealEstate = account?.type === 'REAL_ESTATE'
+  const isScpi = account?.type === 'SCPI'
   const showHoldings = account ? HOLDING_ACCOUNT_TYPES.includes(account.type) : false
   const recentSnapshots = [...(history ?? [])].reverse().slice(0, 10)
 
-  // Live value from holdings (with live prices) — not from stale snapshots
-  const liveTotal = holdings ? holdings.reduce((sum, h) => sum + (h.currentValueEur ?? 0), 0) : 0
-  // For holding accounts, use live total value as the displayed balance
-  const displayBalance = (showHoldings && holdings && holdings.length > 0 && liveTotal > 0)
-    ? liveTotal
-    : (account?.currentBalanceEur ?? 0)
+  // The backend owns EUR valuation and falls back atomically to the broker snapshot.
+  const displayBalance = account?.currentBalanceEur ?? 0
 
   // PnL from unified history endpoint (pre-computed by backend)
   const pnlLatest = pnlData && pnlData.length > 0 ? pnlData[pnlData.length - 1] : null
@@ -178,18 +180,17 @@ export function AccountDetailPage() {
       {showHoldings && <RealizedPnlSection accountId={accountId} enabled={showHoldings} />}
 
       {/* Transactions */}
-      {!isLoan && (transactions ? (
+      {!isLoan && transactions && (
         <>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-base font-semibold">{t('accounts.transactions')}</h3>
-            <div className="flex items-center gap-2">
-              <input
-                type="file"
-                accept=".csv"
-                className="hidden"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-              />
+          <input
+            type="file"
+            accept=".csv"
+            className="hidden"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+          />
+          <TransactionsList
+            actions={<>
               {account?.provider === 'Trade Republic' && account?.type === 'CHECKING' && (
                 <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importTRMutation.isPending}>
                   {importTRMutation.isPending ? t('common.loading') : t('accounts.importCsvTR')}
@@ -202,11 +203,9 @@ export function AccountDetailPage() {
                 </Button>
               )}
               <Button size="sm" variant="outline" onClick={() => setShowAddTx(true)}>
-                + Ajouter
+                + {t('common.add')}
               </Button>
-            </div>
-          </div>
-          <TransactionsList
+            </>}
             transactions={transactions}
             onDelete={(txId) => deleteTxMutation.mutate(txId)}
             onEdit={(tx) => setEditingTx(tx)}
@@ -214,13 +213,7 @@ export function AccountDetailPage() {
             onCategorize={handleCategorize}
           />
         </>
-      ) : (
-        <Card>
-          <CardContent className="pt-6">
-            <Skeleton className="h-32 w-full" />
-          </CardContent>
-        </Card>
-      ))}
+      )}
 
       {/* Snapshot list */}
       {!isLoan && recentSnapshots.length > 0 && (
@@ -286,24 +279,46 @@ export function AccountDetailPage() {
         </Card>
       ) : account ? (
         <Card>
-          <CardHeader>
-            <CardTitle>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: account.color }} />
-                {account.name}
-                <AccountTypeBadge type={account.type} />
+        <CardHeader className="pb-3">
+          <CardTitle className="flex flex-wrap items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="size-3 shrink-0 rounded-full" style={{ backgroundColor: account.color }} />
+              <span className="truncate">{account.name}</span>
+              <AccountTypeBadge type={account.type} />
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {account.type === 'CREDIT_CARD' ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('accounts.currentDebt')}</p>
+                <CurrencyDisplay value={displayBalance} className="text-3xl font-bold tabular-nums" />
               </div>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+              {account.paymentDueAmount != null && <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.amountDue')}</p>
+                <CurrencyDisplay value={account.paymentDueAmount} className="text-xl font-semibold tabular-nums" />
+              </div>}
+              {account.paymentDueDate && <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.dueDate')}</p>
+                <p className="text-base font-medium">{formatLocalDate(account.paymentDueDate)}</p>
+              </div>}
+              {account.rewardPoints != null && <div>
+                <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.miles')}</p>
+                <p className="text-xl font-semibold tabular-nums">{new Intl.NumberFormat(locale).format(account.rewardPoints)}</p>
+              </div>}
+            </div>
+          ) : <>
             <p className="text-xs text-muted-foreground mb-1">{t('accounts.currentBalance')}</p>
-            <CurrencyDisplay
-              value={displayBalance}
-              className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`}
-            />
+            <CurrencyDisplay value={displayBalance} className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`} />
+            {showHoldings && account.cashBalance != null && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('accounts.cashBalance')}: <CurrencyDisplay value={account.cashBalance} />
+              </p>
+            )}
             {account.currency !== 'EUR' && (
               <p className="text-xs text-muted-foreground mt-0.5">
-                {account.currentBalance} {account.currency}
+                <CurrencyDisplay value={account.currentBalance} currency={account.currency} />
                 {account.ticker ? ` (${account.ticker})` : ''}
               </p>
             )}
@@ -323,15 +338,51 @@ export function AccountDetailPage() {
                 <span className="text-sm text-muted-foreground">{t('dashboard.portfolioPerformance')}</span>
               </div>
             )}
-          </CardContent>
+          </>
+          }
+        </CardContent>
         </Card>
       ) : null}
 
       {/* Loan detail */}
       {isLoan && account && <LoanDetailSection accountId={account.id} />}
 
-      {/* Savings accounts: split into Overview / Config tabs so the page stays clean.
-          Other account types keep the flat layout. */}
+      {/* Property detail: description, valuation, financing and ownership split */}
+      {isRealEstate && account && <PropertyDetailSection account={account} />}
+
+      {isScpi && account && <ScpiDetailSection account={account} />}
+
+      {/* Holdings — grouped by product when the connector reports one (crypto exchanges),
+          otherwise the flat table.
+
+          Both are keyed on the account id so their column sort resets when the reader moves to
+          another account. This route keeps the same component across a change of :id, so without
+          the key a sort chosen on one portfolio would silently carry over to the next. */}
+      {showHoldings && (
+        holdings ? (
+          positions && positions.length > 0 ? (
+            <PositionsByProduct key={accountId} positions={positions} />
+          ) : (
+            <HoldingsTable
+              key={accountId}
+              holdings={holdings}
+              onEdit={setEditingHolding}
+              onDelete={(h) => deleteHoldingMutation.mutate(h.ticker)}
+            />
+          )
+        ) : (
+          <Card>
+            <CardContent className="pt-6">
+              <Skeleton className="h-32 w-full" />
+            </CardContent>
+          </Card>
+        )
+      )}
+
+      {/* Realized P&L on closed positions (investment accounts only) */}
+      {showHoldings && <RealizedPnlSection key={accountId} accountId={accountId} enabled={showHoldings} />}
+
+      {/* Savings accounts: split into Overview / Config tabs so the page stays clean. */}
       {isSavings && account ? (
         <Tabs defaultValue="overview">
           <TabsList>
@@ -387,7 +438,7 @@ export function AccountDetailPage() {
             date: editingTx.date,
             description: editingTx.description,
             amount: editingTx.amount,
-            txType: editingTx.txType,
+            txType: editingTx.txType ?? null,
             ticker: editingTx.ticker ?? undefined,
             name: editingTx.name ?? undefined,
             quantity: editingTx.quantity ?? undefined,
@@ -408,6 +459,9 @@ export function AccountDetailPage() {
         open={!!editingHolding}
         onOpenChange={(open) => { if (!open) setEditingHolding(null) }}
         holding={editingHolding}
+        // Synced accounts (on-chain wallets, exchanges) own the quantity from
+        // the chain/exchange, so only the cost basis is editable there.
+        quantityReadOnly={account ? !account.isManual : false}
         onSubmit={async (ticker, quantity, averageBuyIn) => {
           await updateHoldingMutation.mutateAsync({ ticker, data: { quantity, averageBuyIn } })
           setEditingHolding(null)
@@ -421,6 +475,7 @@ export function AccountDetailPage() {
         onClose={() => setShowHistory(false)}
         accountId={accountId}
         history={history}
+        amountOwed={account?.type === 'CREDIT_CARD'}
       />
     </div>
   )

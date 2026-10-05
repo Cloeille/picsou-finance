@@ -35,6 +35,7 @@ import asyncio
 import logging
 import os
 import re
+import secrets
 import shutil
 import time
 from collections import Counter
@@ -43,14 +44,43 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from camoufox.async_api import AsyncCamoufox
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("revolut-auth")
+SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    if not SIDECAR_API_KEY.strip():
+        raise RuntimeError("APP_SIDECAR_API_KEY must be configured and non-blank")
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.middleware("http")
+async def authenticate_sidecar_request(request: Request, call_next):
+    if request.url.path != "/health":
+        supplied_key = request.headers.get("X-Picsou-Sidecar-Key", "")
+        # Starlette exposes wire header bytes through Latin-1, not UTF-8.
+        if (
+            not SIDECAR_API_KEY.strip()
+            or not secrets.compare_digest(
+                supplied_key.encode("latin-1"), SIDECAR_API_KEY.encode("utf-8")
+            )
+        ):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "UNAUTHORIZED"},
+                headers={"WWW-Authenticate": "Picsou-Sidecar-Key"},
+            )
+    return await call_next(request)
+
 
 APP_URL = "https://app.revolut.com/"
 HOME_URL = "https://app.revolut.com/home"
@@ -567,9 +597,7 @@ async def _fill_phone(page, phone: str) -> None:
             num = num[len(pfx):]
     if num.startswith("0"):
         num = num[1:]
-    tel = page.locator("input[name='phoneNumber']").first
-    if not await tel.count():
-        tel = page.locator("input[inputmode='tel'], input[type='tel']").first
+    tel = page.locator("input[name='phoneNumber'], input[inputmode='tel'], input[type='tel']").first
     await tel.click()
     await tel.fill("")
     await tel.type(num, delay=70)

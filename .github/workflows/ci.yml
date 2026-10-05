@@ -20,9 +20,29 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the Sofidy contract interpreter
+        run: pip install -r services/sofidy-auth/requirements.txt
       - name: Run backend tests
-        run: mvn -B test
+        # Migration tests skip themselves when Docker is unreachable so local runs
+        # without a socket still work. Runners always have Docker, so require it here --
+        # otherwise environment drift would silently drop the PostgreSQL coverage of
+        # data-mutating migrations and the build would stay green.
+        env:
+          # SidecarWebClientFactory (shared by the Bourso, DEGIRO, Trade Republic, Amundi,
+          # Bourse Direct, AMEX, CORUM and Sofidy adapters) fails the Spring context if this key is
+          # blank. Runners hold no bank secrets, so a fresh value is enough — the adapters never call
+          # out for real in the test suite.
+          APP_SIDECAR_API_KEY: ci-test-only
+          PICSOU_REQUIRE_DOCKER_TESTS: 'true'
+        run: mvn -B test -Dsofidy.contract.python=python3
         working-directory: backend
+      - name: Require the SCPI PostgreSQL tests
+        run: >-
+          grep -q 'Tests run: 6, Failures: 0, Errors: 0, Skipped: 0'
+          backend/target/surefire-reports/com.picsou.service.ScpiSyncSessionPostgresTest.txt
 
   frontend:
     runs-on: ubuntu-latest
@@ -43,3 +63,138 @@ jobs:
       - name: Unit tests
         run: bun run test
         working-directory: frontend
+      - name: Install Playwright browser
+        run: bunx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: End-to-end tests
+        run: bun run test:e2e
+        working-directory: frontend
+
+  bourse-direct-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the Chromium-only sidecar image
+        run: docker build --tag picsou-bourse-direct-auth:test services/bourse-direct-auth
+      - name: Run parser, lifecycle, and browser navigation tests
+        run: >-
+          docker run --rm --ipc=host
+          --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/bourse-direct-auth/test_main.py:/tests/test_main.py:ro"
+          --volume "${{ github.workspace }}/services/bourse-direct-auth/test_navigation.py:/tests/test_navigation.py:ro"
+          --volume "${{ github.workspace }}/services/bourse-direct-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
+          --volume "${{ github.workspace }}/services/bourse-direct-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --env APP_SIDECAR_API_KEY=test-key
+          --workdir /tests
+          picsou-bourse-direct-auth:test
+          python -m unittest discover -v
+
+  fortuneo-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the Chromium-only sidecar image
+        run: docker build --tag picsou-fortuneo-auth:test services/fortuneo-auth
+      - name: Run parser, lifecycle, and browser navigation tests
+        run: >-
+          docker run --rm --ipc=host
+          --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/fortuneo-auth/test_main.py:/tests/test_main.py:ro"
+          --volume "${{ github.workspace }}/services/fortuneo-auth/test_navigation.py:/tests/test_navigation.py:ro"
+          --volume "${{ github.workspace }}/services/fortuneo-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
+          --volume "${{ github.workspace }}/services/fortuneo-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --env APP_SIDECAR_API_KEY=test-key
+          --workdir /tests
+          picsou-fortuneo-auth:test
+          python -m unittest discover -v
+
+  bourso-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the browserless sidecar image
+        run: docker build --tag picsou-bourso-auth:test services/bourso-auth
+      - name: Run parser, contract and lifecycle tests
+        run: >-
+          docker run --rm
+          --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/bourso-auth/fixtures.py:/tests/fixtures.py:ro"
+          --volume "${{ github.workspace }}/services/bourso-auth/test_virtual_pad.py:/tests/test_virtual_pad.py:ro"
+          --volume "${{ github.workspace }}/services/bourso-auth/test_accounts_parser.py:/tests/test_accounts_parser.py:ro"
+          --volume "${{ github.workspace }}/services/bourso-auth/test_main.py:/tests/test_main.py:ro"
+          --volume "${{ github.workspace }}/services/bourso-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
+          --volume "${{ github.workspace }}/services/bourso-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --env APP_SIDECAR_API_KEY=test-key
+          --workdir /tests
+          picsou-bourso-auth:test
+          python -m unittest discover -v
+
+  corum-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the Chromium-only sidecar image
+        run: docker build --tag picsou-corum-auth:test services/corum-auth
+      - name: Run parser, navigation and live-contract tests
+        run: >-
+          docker run --rm --ipc=host
+          --env PYTHONPATH=/app
+          --env CORUM_BROWSER_TESTS=1
+          --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/corum-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
+          --volume "${{ github.workspace }}/services/corum-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
+          --volume "${{ github.workspace }}/services/corum-auth/test_navigation_security.py:/tests/test_navigation_security.py:ro"
+          --volume "${{ github.workspace }}/services/corum-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --workdir /tests
+          picsou-corum-auth:test
+          python -m unittest discover -v
+
+  sofidy-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the browserless sidecar image
+        run: docker build --tag picsou-sofidy-auth:test services/sofidy-auth
+      - name: Run parser, redirect and live-contract tests
+        run: >-
+          docker run --rm
+          --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_redirect_security.py:/tests/test_redirect_security.py:ro"
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_java_contract.py:/tests/test_java_contract.py:ro"
+          --volume "${{ github.workspace }}/services/sofidy-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --env APP_SIDECAR_API_KEY=test-key
+          --workdir /tests
+          picsou-sofidy-auth:test
+          python -m unittest discover -v
+
+  amundi-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the Chromium-only sidecar image
+        run: docker build --tag picsou-amundi-auth:test services/amundi-auth
+      - name: Run parser and lifecycle tests
+        run: >-
+          docker run --rm --ipc=host
+          --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/amundi-auth/test_main.py:/tests/test_main.py:ro"
+          --volume "${{ github.workspace }}/services/amundi-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
+          --volume "${{ github.workspace }}/services/amundi-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --env APP_SIDECAR_API_KEY=test-key
+          --workdir /tests
+          picsou-amundi-auth:test
+          python -m unittest discover -v

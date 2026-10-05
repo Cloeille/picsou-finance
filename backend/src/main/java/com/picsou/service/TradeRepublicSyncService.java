@@ -25,6 +25,7 @@ import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -36,15 +37,18 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -69,6 +73,7 @@ public class TradeRepublicSyncService {
     private final FamilyMemberRepository        familyMemberRepository;
     private final AccountService                accountService;
     private final OpenFigiIsinConverter         isinConverter;
+    private final SecurityIdentityService       identityService;
     private final CryptoEncryption              encryption;
     private final TransactionTemplate           txTemplate;
     private final CategorizationService         categorizationService;
@@ -83,6 +88,7 @@ public class TradeRepublicSyncService {
         FamilyMemberRepository familyMemberRepository,
         AccountService accountService,
         OpenFigiIsinConverter isinConverter,
+        SecurityIdentityService identityService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         CategorizationService categorizationService,
@@ -96,6 +102,7 @@ public class TradeRepublicSyncService {
         this.familyMemberRepository = familyMemberRepository;
         this.accountService    = accountService;
         this.isinConverter     = isinConverter;
+        this.identityService   = identityService;
         this.encryption        = encryption;
         this.txTemplate        = txTemplate;
         this.categorizationService = categorizationService;
@@ -187,7 +194,9 @@ public class TradeRepublicSyncService {
                 log.warn("TR session expired -- no refresh token available, clearing session");
                 sessionRepository.findByMemberId(memberId).ifPresent(sessionRepository::delete);
                 throw new SyncException(
-                    "Your Trade Republic session has expired. Please reconnect from the Trade Republic page.");
+                    "Your Trade Republic session has expired. Please reconnect from the Trade Republic page.",
+                    e,
+                    "SESSION_EXPIRED");
             }
             throw e;
         }
@@ -205,10 +214,18 @@ public class TradeRepublicSyncService {
             log.info("TR session refreshed -- retrying sync");
             return syncWithToken(newTokens.sessionToken(), null, memberId); // null = no retry on next expiry
         } catch (SyncException ex) {
-            log.warn("TR refresh failed -- clearing session");
-            sessionRepository.findByMemberId(memberId).ifPresent(sessionRepository::delete);
-            throw new SyncException(
-                "Your Trade Republic session has expired and could not be refreshed. Please reconnect.");
+            if ("SESSION_EXPIRED".equals(ex.getMessage())) {
+                log.warn("TR refresh rejected -- clearing session");
+                sessionRepository.findByMemberId(memberId).ifPresent(sessionRepository::delete);
+                throw new SyncException(
+                    "Your Trade Republic session has expired and could not be refreshed. Please reconnect.",
+                    ex,
+                    "SESSION_EXPIRED");
+            }
+            // Transient failure (sidecar down, timeout): keep the session so the
+            // next sync can retry the refresh instead of forcing a re-auth.
+            log.warn("TR refresh failed transiently -- keeping session: {}", ex.getMessage());
+            throw ex;
         }
     }
 
@@ -553,34 +570,52 @@ public class TradeRepublicSyncService {
             return new SessionStatusResponse(false, null);
         }
         TradeRepublicSession s = session.get();
-        boolean active = s.getExpiresAt() == null || s.getExpiresAt().isAfter(Instant.now());
+        // A session past its (heuristic) expiry is still operationally active as
+        // long as a refresh token exists: the next sync refreshes it transparently,
+        // and a genuinely rejected refresh deletes the row — making this false.
+        boolean withinWindow = s.getExpiresAt() == null || s.getExpiresAt().isAfter(Instant.now());
+        boolean active = withinWindow || s.getRefreshToken() != null;
         return new SessionStatusResponse(active, s.getExpiresAt());
     }
 
-    public void clearSession(Long memberId) {
-        sessionRepository.findByMemberId(memberId).ifPresent(sessionRepository::delete);
+    /** Returns whether a stored session was there to delete. */
+    public boolean clearSession(Long memberId) {
+        var session = sessionRepository.findByMemberId(memberId);
+        session.ifPresent(sessionRepository::delete);
         log.info("Trade Republic session cleared for member {}", memberId);
+        return session.isPresent();
     }
 
     // --- Scheduler entry point ---
 
-    /** Called by SchedulerService. No-op if no active session for this member. */
-    public void resyncIfSessionActive(Long memberId) {
-        Optional<TradeRepublicSession> session = sessionRepository.findByMemberId(memberId);
-        if (session.isEmpty()) return;
-
-        TradeRepublicSession s = session.get();
-        if (s.getExpiresAt() != null && !s.getExpiresAt().isAfter(Instant.now())) {
-            log.warn("Trade Republic session expired for member {} -- skipping auto-sync. Re-authenticate via the UI.", memberId);
-            return;
-        }
-
+    /**
+     * Called by SchedulerService. No-op if no session exists for this member.
+     * An expired session token is not a reason to skip: syncWithToken routes
+     * SESSION_EXPIRED through refreshAndRetry using the stored refresh token,
+     * which is the normal path for any sync happening hours after auth.
+     */
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
+            Optional<TradeRepublicSession> session = sessionRepository.findByMemberId(memberId);
+            if (session.isEmpty()) {
+                return new SourceSyncResult("trade-republic", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
+            }
+
+            TradeRepublicSession s = session.get();
             syncWithToken(encryption.decrypt(s.getSessionToken()), s, memberId);
+            return new SourceSyncResult("trade-republic", SourceSyncResult.Status.SYNCED, "");
+        } catch (SyncException ex) {
+            return SourceSyncResult.fromSyncException("trade-republic", ex);
         } catch (Exception ex) {
-            log.warn("Trade Republic auto-sync failed for member {}: {}", memberId, ex.getMessage());
+            log.error("Trade Republic scheduled sync failed unexpectedly for member {}", memberId, ex);
+            return new SourceSyncResult("trade-republic", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
+
+    public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId); // ignore return
+    }
+
 
     // --- Private ---
 
@@ -600,6 +635,14 @@ public class TradeRepublicSyncService {
         if (existing.isPresent()) {
             account = existing.get();
             account.setCurrentBalance(data.balanceEur());
+            // The PEA's cash pocket is folded into balanceEur; without it on cashBalance the
+            // valuation left it out of the live value while the provider-valued total kept it,
+            // so the pocket read as a gain or vanished depending on which path ran. Null means
+            // the adapter does not know the pocket this time (no cash account, or its frame
+            // never came): the last known one stays, as the holdings do on an error frame.
+            if (data.cashEur() != null) {
+                account.setCashBalance(data.cashEur());
+            }
             account.setLastSyncedAt(Instant.now());
         } else {
             FamilyMember member = familyMemberRepository.findById(memberId)
@@ -611,6 +654,7 @@ public class TradeRepublicSyncService {
                 .provider("Trade Republic")
                 .currency("EUR")
                 .currentBalance(data.balanceEur())
+                .cashBalance(data.cashEur())
                 .lastSyncedAt(Instant.now())
                 .externalAccountId(data.externalId())
                 .isManual(false)
@@ -629,13 +673,17 @@ public class TradeRepublicSyncService {
             account = accountRepository.save(account);
             log.info("TR upsertAccount: concurrent insert resolved for externalId={}", data.externalId());
         }
-        accountService.upsertSnapshot(account, data.balanceEur(), LocalDate.now());
 
+        // The snapshot comes AFTER the holdings are replaced (both exits below): the 3-arg
+        // upsertSnapshot derives the day's investedAmount from the holdings in the table, and
+        // taken here it costed today's snapshot with the previous sync's positions, one sync
+        // late in every daily point.
         if (replaceHoldings) {
             holdingRepository.deleteByAccountId(account.getId());
             holdingRepository.flush();
 
             if (data.positions().isEmpty()) {
+                accountService.upsertSnapshot(account, data.balanceEur(), LocalDate.now());
                 return Optional.of(accountService.toResponse(account));
             }
 
@@ -643,17 +691,36 @@ public class TradeRepublicSyncService {
             // aggregate them via VWAP to avoid unique constraint violations and
             // preserve a meaningful weighted average buy-in.
             Map<String, HoldingDedup.HoldingAgg> deduped = new HashMap<>();
+            Map<String, BigDecimal> providerValuesEur = new HashMap<>();
+            Set<String> incompleteProviderValues = new HashSet<>();
+            Map<String, String> isinByTicker = new HashMap<>();
             for (TrPosition p : data.positions()) {
                 var result = isinConverter.resolve(p.isin());
                 String ticker = result.ticker();
+                isinByTicker.put(ticker, p.isin());
                 String name = result.name();
+                BigDecimal positionValueEur = providerValueEur(p);
+                if (positionValueEur == null) {
+                    incompleteProviderValues.add(ticker);
+                } else {
+                    providerValuesEur.merge(ticker, positionValueEur, BigDecimal::add);
+                }
                 deduped.merge(
                     ticker,
                     new HoldingDedup.HoldingAgg(p.quantity(), p.averageBuyIn(), p.currentPrice(), name),
                     HoldingDedup::vwapMerge);
             }
+            identityService.record(isinByTicker);
             for (Map.Entry<String, HoldingDedup.HoldingAgg> entry : deduped.entrySet()) {
                 HoldingDedup.HoldingAgg agg = entry.getValue();
+                if (agg.quantity().signum() == 0) {
+                    // vwapMerge is sign-aware and can net two positions to exactly zero
+                    // (shared with IBKR, which can carry short quantities) -- a flat
+                    // position, not a holding to persist. TR only ever feeds positive
+                    // quantities today, so this is unreachable here but keeps the
+                    // invariant true regardless.
+                    continue;
+                }
                 holdingRepository.save(AccountHolding.builder()
                     .account(account)
                     .ticker(entry.getKey())
@@ -661,12 +728,30 @@ public class TradeRepublicSyncService {
                     .quantity(agg.quantity())
                     .averageBuyIn(agg.averageBuyIn())
                     .currentPrice(agg.currentPrice())
+                    .quoteCurrency("EUR")
+                    .providerValueEur(incompleteProviderValues.contains(entry.getKey())
+                        ? null
+                        : providerValuesEur.get(entry.getKey()).setScale(8, RoundingMode.HALF_UP))
                     .lastSyncedAt(Instant.now())
                     .build());
             }
         }
 
+        accountService.upsertSnapshot(account, data.balanceEur(), LocalDate.now());
         return Optional.of(accountService.toResponse(account));
+    }
+
+    private static BigDecimal providerValueEur(TrPosition position) {
+        BigDecimal price = position.currentPrice() != null && position.currentPrice().signum() > 0
+            ? position.currentPrice()
+            : position.averageBuyIn();
+        if (price == null || price.signum() <= 0) {
+            return null;
+        }
+        // TradeRepublicAdapter builds balanceEur by rounding each original position
+        // to cents. Preserve that exact subtotal even when several ISINs collapse to
+        // one persisted ticker with different market prices.
+        return price.multiply(position.quantity()).setScale(2, RoundingMode.HALF_UP);
     }
 
     private String colorFor(AccountType type) {

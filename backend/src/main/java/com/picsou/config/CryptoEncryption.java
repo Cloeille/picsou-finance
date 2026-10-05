@@ -9,6 +9,7 @@ import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
 
@@ -29,7 +30,25 @@ public class CryptoEncryption {
                 "CRYPTO_ENCRYPTION_KEY is required. Generate one with: " +
                 "openssl rand -base64 32");
         }
-        this.key = new SecretKeySpec(Base64.getDecoder().decode(base64Key), "AES");
+        byte[] keyBytes;
+        try {
+            keyBytes = Base64.getDecoder().decode(base64Key);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalStateException(
+                "CRYPTO_ENCRYPTION_KEY is not valid base64. Generate one with: " +
+                "openssl rand -base64 32", ex);
+        }
+        // Fail fast on a misconfigured key length. new SecretKeySpec accepts any
+        // length, so an accidentally-truncated key would otherwise silently pick a
+        // weaker AES variant (or throw a cryptic InvalidKeyException only at the
+        // first encrypt/decrypt, long after startup).
+        if (keyBytes.length != 16 && keyBytes.length != 24 && keyBytes.length != 32) {
+            throw new IllegalStateException(
+                "CRYPTO_ENCRYPTION_KEY must decode to 16, 24 or 32 bytes " +
+                "(AES-128/192/256); got " + keyBytes.length + " bytes. Generate a " +
+                "256-bit key with: openssl rand -base64 32");
+        }
+        this.key = new SecretKeySpec(keyBytes, "AES");
     }
 
     public String encrypt(String plainText) {
@@ -40,7 +59,7 @@ public class CryptoEncryption {
             random.nextBytes(iv);
             Cipher cipher = Cipher.getInstance(ALGORITHM);
             cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
-            byte[] encrypted = cipher.doFinal(plainText.getBytes());
+            byte[] encrypted = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
             byte[] combined = new byte[iv.length + encrypted.length];
             System.arraycopy(iv, 0, combined, 0, iv.length);
             System.arraycopy(encrypted, 0, combined, iv.length, encrypted.length);
@@ -59,7 +78,7 @@ public class CryptoEncryption {
             Cipher cipher = Cipher.getInstance(ALGORITHM);
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
             byte[] decrypted = cipher.doFinal(combined, iv.length, combined.length - iv.length);
-            return new String(decrypted);
+            return new String(decrypted, StandardCharsets.UTF_8);
         } catch (Exception ex) {
             throw new RuntimeException("Decryption failed", ex);
         }

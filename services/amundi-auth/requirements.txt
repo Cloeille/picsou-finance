@@ -1,0 +1,11 @@
+# fastapi 0.111 bundled python-multipart, orjson and ujson as hard dependencies
+# and pinned Starlette to a range with published DoS advisories. This sidecar
+# speaks JSON only and parses no multipart, so the newer line both patches
+# Starlette and drops those three from the image entirely.
+fastapi==0.141.1
+uvicorn==0.52.1
+pydantic==2.13.4
+playwright==1.52.0
+# Only used by fastapi.testclient in the contract tests; kept explicit because
+# fastapi no longer pulls it in.
+httpx==0.28.1

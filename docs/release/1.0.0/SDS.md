@@ -215,16 +215,21 @@ Order  Filter                              Role
 
 ## 4. Frontend module contracts
 
-### 4.1 `lib/api-client.ts`
+### 4.1 `frontend/src/lib/api-client.ts`
 
 ```ts
-fetchJson<T>(path: string, init?: RequestInit): Promise<T>
+export const api: AxiosInstance   // baseURL '/api', withCredentials: true
+export function isSetupRequiredResponse(status: number | undefined, data: unknown): boolean
 ```
 
-- Always sends `credentials: 'include'`.
-- On `401` with `mfa_required`, redirects to `/mfa-challenge`.
-- On `503` with `setup_required`, redirects to `/setup`.
-- Throws `ApiError` (carries `ProblemDetail` body).
+- Single Axios instance; feature `api.ts` modules call `api.get/post/...`.
+- Request interceptor injects `memberId` when an admin impersonates a managed profile.
+- Response interceptor tracks connectivity, then routes by status:
+  - `403` on a GET → redirects to `/error/403`.
+  - `503` with `setup_required` → redirects to `/setup`.
+  - `5xx` on a GET → redirects to `/error/500?code=<status>` (skippable via `skipGlobalErrorRedirect`).
+  - `401` (non-`/auth/*`) → silently `POST /auth/refresh` and retry, queueing concurrent requests; on failure logs out and redirects to `/login`.
+- Rejections propagate the original Axios error (carrying the `ProblemDetail` body).
 
 ### 4.2 Stores (Zustand)
 

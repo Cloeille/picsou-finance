@@ -15,7 +15,7 @@ Security patches are applied to the latest release on the `main` branch.
 
 Report privately using one of:
 
-- [GitHub Security Advisory](../../security/advisories/new) (preferred)
+- [GitHub Security Advisory](https://github.com/Cloeille/picsou-finance/security/advisories/new) (preferred)
 - Email the maintainer directly (see GitHub profile)
 
 Please include:
@@ -116,11 +116,6 @@ multi-tenant in the SaaS sense.
 The following integrations ship in 1.0.0 but are **disabled by default** in
 the UI because they are not yet ready for production:
 
-- **BoursoBank** — Selenium-based Python sidecar. The container is commented
-  out in `docker-compose.yml`, the setup wizard catalog hides the entry, and
-  the sync page does not show the tab. Backend code and the V23 migration
-  remain in place for future work; do **not** re-enable on a public-facing
-  instance until it has been reviewed.
 - **Powens / Budget Insight** — `PowensBankConnector` ships in the codebase
   but has **not** been tested end-to-end against a real Powens tenant. The
   `@Primary` annotation was removed so Enable Banking stays injected as the

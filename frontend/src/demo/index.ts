@@ -1,9 +1,17 @@
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
-import type { GoalProgress } from '@/types/api'
+import type { GoalProgress, ScpiPosition, ScpiPositionRequest } from '@/types/api'
 import { mockAccounts } from './data/accounts'
+import {
+  mockAllocationTargets,
+  mockDiversification,
+  mockExpenseEstimate,
+  mockProjection,
+  mockWealthPyramid,
+} from './data/analysis'
 import { mockDashboard } from './data/dashboard'
 import { mockGoals } from './data/goals'
 import { mockHoldings } from './data/holdings'
+import { ageFromBirthDate, mockMemberProfile, netIncome } from './data/profile'
 import { mockTransactions } from './data/transactions'
 import { mockExchangeStatuses, mockWalletStatuses, mockRequisitions } from './data/sync-status'
 import {
@@ -108,9 +116,84 @@ handlers.set(key('GET', '/family/members'), () => [
 // Dashboard
 handlers.set(key('GET', '/dashboard'), () => mockDashboard)
 
+// Analysis
+handlers.set(key('GET', '/analysis/pyramid'), () => mockWealthPyramid)
+handlers.set(key('GET', '/analysis/diversification'), () => mockDiversification)
+// Held in a mutable copy, because saving targets invalidates the whole ['analysis'] namespace:
+// a PUT that only echoed the merge back would be undone by the refetch that follows it, and the
+// demo would show the form silently reverting.
+let demoAllocationTargets = { ...mockAllocationTargets }
+handlers.set(key('GET', '/analysis/allocation-targets'), () => demoAllocationTargets)
+handlers.set(key('PUT', '/analysis/allocation-targets'), (config) => {
+  demoAllocationTargets = {
+    ...demoAllocationTargets,
+    ...(typeof config.data === 'string' ? JSON.parse(config.data) : {}),
+  }
+  return demoAllocationTargets
+})
+handlers.set(key('GET', '/analysis/essential-expenses/estimate'), () => mockExpenseEstimate)
+
+// Member profile. Held in a mutable copy for the same reason as the allocation targets above:
+// saving invalidates ['me','profile'], and a PUT that only echoed its body back would be undone
+// by the refetch that follows -- the form would appear to revert on every save.
+let demoMemberProfile = { ...mockMemberProfile }
+handlers.set(key('GET', '/me/profile'), () => demoMemberProfile)
+handlers.set(key('PUT', '/me/profile'), (config) => {
+  const body = typeof config.data === 'string' ? JSON.parse(config.data) : {}
+  demoMemberProfile = {
+    ...demoMemberProfile,
+    ...body,
+    // Both are derived server-side in production; the demo has to derive them too, or the
+    // savings rate on the Goals page never moves.
+    age: body.birthDate == null ? null : ageFromBirthDate(body.birthDate),
+    monthlyNetIncome: netIncome(body.monthlyNetBeforeTax ?? null, body.withholdingTaxRate ?? null),
+  }
+  return demoMemberProfile
+})
+handlers.set(key('GET', '/analysis/projection'), (config) =>
+  mockProjection(Number(config.params?.years) || 20))
+// Demo mode has no scheduler and no network, so the refresh reports a plausible queue rather
+// than pretending work happened.
+handlers.set(key('POST', '/analysis/security-profiles/refresh'), () => ({
+  queuedTickers: 2,
+  alreadyRunning: false,
+}))
+
+// Classification is keyed on (account, ticker) and the demo lookup is exact-match, so every pair
+// the UI can open has to be registered. The unregistered fallback returns {}, which would render
+// the editor with undefined fields instead of failing visibly.
+const demoClassifiable: [number, string][] = [
+  ...Object.entries(mockHoldings).flatMap(([accountId, lines]) =>
+    (lines as { ticker: string }[]).map(
+      (line): [number, string] => [Number(accountId), line.ticker],
+    ),
+  ),
+  ...mockDiversification.unclassified
+    .filter((line) => line.accountId !== null)
+    .map((line): [number, string] => [line.accountId as number, line.ticker]),
+]
+for (const [accountId, ticker] of demoClassifiable) {
+  const path = `/accounts/${accountId}/holdings/${encodeURIComponent(ticker)}/classification`
+  // Nothing overridden by default: the demo shows the providers' own answer, which is what a
+  // real instance looks like before anyone corrects anything.
+  handlers.set(key('GET', path), () => ({
+    ticker,
+    wealthTier: null,
+    sectorKey: null,
+    countryKey: null,
+    inferredSectorKey: null,
+    inferredCountryKey: null,
+    profileLooked: true,
+  }))
+  handlers.set(key('PUT', path), (config) => ({
+    ticker,
+    ...(typeof config.data === 'string' ? JSON.parse(config.data) : {}),
+  }))
+}
+
 // Accounts
 handlers.set(key('GET', '/accounts'), () => _demoAccounts)
-for (let i = 1; i <= 7; i++) {
+for (let i = 1; i <= mockAccounts.length; i++) {
   handlers.set(key('GET', `/accounts/${i}`), () => mockAccounts[i - 1])
 }
 
@@ -121,6 +204,34 @@ for (let i = 8; i <= 10; i++) {
 }
 
 // Account CRUD
+for (const account of mockAccounts.filter(account => account.type === 'SCPI')) {
+  handlers.set(key('GET', `/accounts/${account.id}`), () => _demoAccounts.find(a => a.id === account.id))
+  handlers.set(key('PUT', `/accounts/${account.id}/scpi`), config => {
+    const data: ScpiPositionRequest = JSON.parse(config.data || '{}')
+    const current = _demoAccounts.find(a => a.id === account.id)!
+    const withdrawalValue = data.withdrawalPriceEur == null ? null : data.shareCount * data.withdrawalPriceEur
+    const scpi: ScpiPosition = {
+      isin: data.isin?.trim() || null,
+      managementCompany: data.managementCompany?.trim() || null,
+      corumFundCode: data.corumFundCode == null ? current.scpi?.corumFundCode ?? null : data.corumFundCode.trim() || null,
+      sofidyFundCode: data.sofidyFundCode == null ? current.scpi?.sofidyFundCode ?? null : data.sofidyFundCode.trim() || null,
+      shareCount: data.shareCount,
+      subscriptionPriceEur: data.subscriptionPriceEur ?? null,
+      withdrawalPriceEur: data.withdrawalPriceEur ?? null,
+      withdrawalValueEur: withdrawalValue,
+      dividendPolicy: data.dividendPolicy ?? 'CASH',
+      jouissanceDate: data.jouissanceDate ?? null,
+      valuationStatus: withdrawalValue == null ? 'PRICE_INCOMPLETE' : 'OK',
+    }
+    _demoAccounts = _demoAccounts.map(a => a.id === account.id ? {
+      ...a, scpi,
+      currentBalance: withdrawalValue ?? a.currentBalance,
+      currentBalanceEur: withdrawalValue ?? a.currentBalanceEur,
+    } : a)
+    return scpi
+  })
+}
+
 handlers.set(key('POST', '/accounts'), (config) => {
   const body = JSON.parse(config.data || '{}')
   return {
@@ -149,8 +260,23 @@ handlers.set(key('GET', '/accounts/2/holdings'), () => mockHoldings[2] ?? [])
 handlers.set(key('GET', '/accounts/3/holdings'), () => mockHoldings[3] ?? [])
 handlers.set(key('GET', '/accounts/6/holdings'), () => mockHoldings[6] ?? [])
 
-// Account details: transactions for all accounts (1–10)
-for (let i = 1; i <= 10; i++) {
+// Per-product breakdown. Only the crypto account (id=6) has one, exactly like a real crypto
+// exchange account; every other account falls back to the flat holdings table.
+handlers.set(key('GET', '/accounts/6/positions'), () => {
+  const today = new Date().toISOString().slice(0, 10)
+  return [
+    { product: 'SPOT', ticker: 'BTC', quantity: 0.01204, principal: null, interest: null, averageBuyIn: 68000, currentPriceEur: 92100, currentValueEur: 1108.88, costBasisEur: 818.72, pnlEur: 290.16, pnlPercent: 35.4, priceAsOf: today, priceStale: false },
+    { product: 'SPOT', ticker: 'ETH', quantity: 0.031906, principal: null, interest: null, averageBuyIn: 3200, currentPriceEur: 4116, currentValueEur: 131.32, costBasisEur: 102.1, pnlEur: 29.22, pnlPercent: 28.6, priceAsOf: today, priceStale: false },
+    { product: 'STAKING', ticker: 'ATOM', quantity: 33.154, principal: 19.73, interest: 13.424, averageBuyIn: 6.4, currentPriceEur: 5.65, currentValueEur: 187.32, costBasisEur: 212.19, pnlEur: -24.87, pnlPercent: -11.7, priceAsOf: today, priceStale: false },
+    { product: 'LENDING', ticker: 'USDT', quantity: 75.01, principal: 75, interest: 0.01, averageBuyIn: 0.91, currentPriceEur: 0.92, currentValueEur: 69.01, costBasisEur: 68.26, pnlEur: 0.75, pnlPercent: 1.1, priceAsOf: today, priceStale: false },
+  ]
+})
+for (const i of [1, 2, 3, 4, 5, 7]) {
+  handlers.set(key('GET', `/accounts/${i}/positions`), () => [])
+}
+
+// Account details: transactions for all accounts
+for (let i = 1; i <= mockAccounts.length; i++) {
   handlers.set(key('GET', `/accounts/${i}/transactions`), () => mockTransactions[i] ?? [])
 }
 
@@ -360,6 +486,10 @@ handlers.set(key('GET', '/accounts/4/history'), () => generateHistory(
 handlers.set(key('GET', '/accounts/5/history'), () => generateHistory(
   [800, 1100, 950, 1300, 1050, 1200, 900, 1350, 1100, 1250, 1400, 1580.9]))
 
+// AMEX card: debt builds up then resets on each monthly debit
+handlers.set(key('GET', '/accounts/12/history'), () => generateHistory(
+  [-640, -910, -720, -1050, -830, -1180, -760, -990, -1120, -870, -1030.5, -1284.6]))
+
 // Crypto: volatile, strong upward trend
 handlers.set(key('GET', '/accounts/6/history'), () => generateHistory(
   [1800, 2100, 2400, 1900, 2600, 2800, 3100, 2700, 3400, 3600, 3900, 4250]))
@@ -371,6 +501,189 @@ handlers.set(key('GET', '/accounts/7/history'), () => generateHistory(
 // Revolut wallet (id=8)
 handlers.set(key('GET', '/accounts/8/history'), () => generateHistory(
   [3000, 3050, 3100, 3200, 3150, 3100, 3200, 3300, 3250, 3200, 3240, 3240.5]))
+
+// Property: slow appreciation, revalued monthly rather than daily.
+handlers.set(key('GET', '/accounts/11/history'), () => generateHistory(
+  [392000, 393500, 395000, 397000, 399500, 401000, 403000, 405500, 407000, 409000, 410500, 412000]))
+
+// ─── Real estate ─────────────────────────────────────────────────────────────
+// Every route the property UI touches needs a handler: the demo adapter answers `{}` for
+// anything unmatched, and the pages would then read fields off an empty object.
+
+const demoProperty = mockAccounts.find((a) => a.id === 11)!
+
+function demoPaperSummary() {
+  const paper = _demoAccounts.filter(account => account.type === 'SCPI').map(account => ({
+    accountId: account.id,
+    name: account.name,
+    color: account.color,
+    managementCompany: account.scpi?.managementCompany ?? null,
+    shareCount: account.scpi?.shareCount ?? null,
+    sharePercent: 100,
+    withdrawalPriceEur: account.scpi?.withdrawalPriceEur ?? null,
+    subscriptionPriceEur: account.scpi?.subscriptionPriceEur ?? null,
+    grossValue: account.currentBalanceEur,
+    outstandingDebt: 0,
+    netValue: account.currentBalanceEur,
+    valuationStatus: account.scpi?.valuationStatus ?? 'PRICE_INCOMPLETE',
+    loans: [],
+  }))
+  const paperGross = paper.reduce((total, line) => total + line.grossValue, 0)
+  return { paperGross, paperDebt: 0, paperNet: paperGross, paper }
+}
+
+handlers.set(key('GET', '/real-estate/summary'), () => ({
+  grossValue: 412000,
+  outstandingDebt: 168400,
+  netValue: 243600,
+  costBasis: 368800,
+  unrealizedGain: 43200,
+  unrealizedGainPercent: 11.71,
+  loanToValue: 40.87,
+  monthlyRentalIncome: 0,
+  ...demoPaperSummary(),
+  properties: [{
+    accountId: 11,
+    name: demoProperty.name,
+    color: demoProperty.color,
+    propertyType: 'HOUSE',
+    category: 'PRIMARY_RESIDENCE',
+    city: 'Bordeaux',
+    sharePercent: 100,
+    grossValue: 412000,
+    outstandingDebt: 168400,
+    netValue: 243600,
+    costBasis: 368800,
+    unrealizedGain: 43200,
+    surfaceArea: 95,
+    rentalIncome: 0,
+    valuationMode: 'ESTIMATED',
+    lastValuedAt: '2026-07-01',
+    lastConfidence: 'HIGH',
+    loans: [{
+      accountId: 4,
+      name: 'Prêt immobilier',
+      lenderName: 'BNP Paribas',
+      outstandingBalance: 168400,
+      sharePercent: 100,
+      monthlyPayment: 1120,
+      endDate: '2043-06-01',
+    }],
+  }],
+}))
+
+handlers.set(key('GET', '/real-estate/11/valuations'), () => {
+  const points = [395000, 398000, 401500, 404000, 407500, 409000, 412000]
+  return points.map((value, i) => ({
+    valuedAt: `2026-0${i + 1}-01`,
+    estimatedValue: value,
+    lowValue: Math.round(value * 0.88),
+    highValue: Math.round(value * 1.14),
+    pricePerSqm: Math.round(value / 95),
+    provider: 'CEREMA_DV3F',
+    confidence: 'HIGH',
+    sampleSize: 1048,
+    sourceYear: 2025,
+  })).reverse()
+})
+
+handlers.set(key('POST', '/accounts/11/valuation/refresh'), () => ({
+  status: 'OK',
+  mode: 'ESTIMATED',
+  appliedToBalance: true,
+  estimatedValue: 412000,
+  lowValue: 362560,
+  highValue: 469680,
+  pricePerSqm: 4336,
+  sampleSize: 1048,
+  confidence: 'HIGH',
+  sourceYear: 2025,
+  provider: 'CEREMA_DV3F',
+  scale: 'communes',
+  valuedAt: '2026-08-01',
+  reindexRatio: 1.021,
+  adjustments: [
+    { code: 'GARDEN', factor: 0.02, sqm: null, amount: 8080 },
+    { code: 'TERRACE', factor: 0.03, sqm: null, amount: 12120 },
+    { code: 'GARAGE', factor: null, sqm: 12, amount: 52032 },
+  ],
+}))
+
+handlers.set(key('GET', '/accounts/11/ownership'), () => ({
+  shares: [{ memberId: 1, displayName: 'Demo', avatarColor: '#6366f1', sharePercent: 100, isOwner: true }],
+  totalAssigned: 100,
+  unassigned: 0,
+}))
+handlers.set(key('PUT', '/accounts/11/ownership'), (config) => {
+  const body = JSON.parse(config.data || '{}')
+  const shares = (body.shares ?? []) as { memberId: number; sharePercent: number }[]
+  const total = shares.reduce((sum, s) => sum + s.sharePercent, 0)
+  return {
+    shares: shares.map((s) => ({
+      memberId: s.memberId,
+      displayName: 'Demo',
+      avatarColor: '#6366f1',
+      sharePercent: s.sharePercent,
+      isOwner: s.memberId === 1,
+    })),
+    totalAssigned: total,
+    unassigned: 100 - total,
+  }
+})
+
+// Address autocomplete. Returns a fixed match so the field behaves without reaching IGN.
+handlers.set(key('GET', '/geocode'), () => ([
+  {
+    label: '12 Rue de la République 33000 Bordeaux',
+    score: 0.94,
+    postcode: '33000',
+    city: 'Bordeaux',
+    inseeCode: '33063',
+    latitude: 44.8378,
+    longitude: -0.5792,
+  },
+]))
+
+// Aggregate net-worth history (dashboard chart, accounts page with split=true).
+// Mirrors backend NetWorthPoint: { date, total, invested, pnl, accounts? }.
+function generateNetWorthHistory(months: number, accountIds: number[], split: boolean) {
+  const now = new Date()
+  const weights = accountIds.map((id) => mockAccounts.find((a) => a.id === id)?.currentBalanceEur ?? 1000)
+  const weightSum = weights.reduce((s, w) => s + w, 0) || 1
+
+  return Array.from({ length: months }, (_, i) => {
+    // Build in UTC: a local-midnight Date run through toISOString() shifts to
+    // the previous day in any timezone ahead of UTC.
+    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth() - (months - 1 - i), 1))
+    const progress = months > 1 ? i / (months - 1) : 1
+    const total = Math.round((58_000 + progress * 14_000 + Math.sin(i * 1.7) * 1_200) * 100) / 100
+    const invested = Math.round(total * 0.55 * 100) / 100
+    const pnl = Math.round((total * 0.06 + progress * 1_500) * 100) / 100
+    const point: {
+      date: string; total: number; invested: number; pnl: number
+      accounts?: Record<string, { total: number; invested: number; pnl: number }>
+    } = { date: d.toISOString().split('T')[0], total, invested, pnl }
+    if (split) {
+      point.accounts = Object.fromEntries(accountIds.map((id, idx) => {
+        const share = weights[idx] / weightSum
+        return [String(id), {
+          total: Math.round(total * share * 100) / 100,
+          invested: Math.round(invested * share * 100) / 100,
+          pnl: Math.round(pnl * share * 100) / 100,
+        }]
+      }))
+    }
+    return point
+  })
+}
+
+handlers.set(key('GET', '/history'), (config) => {
+  const params = (config.params ?? {}) as { accountIds?: string; months?: number | string; split?: boolean | string }
+  const months = Number(params.months) || 12
+  const ids = String(params.accountIds ?? '').split(',').filter(Boolean).map(Number)
+  const split = params.split === true || params.split === 'true'
+  return generateNetWorthHistory(months, ids.length ? ids : mockAccounts.map((a) => a.id), split)
+})
 
 // Pocket "Vacances" (id=9): inflows-only
 handlers.set(key('GET', '/accounts/9/history'), () => generateHistory(
@@ -461,11 +774,24 @@ for (let i = 1; i <= 3; i++) {
   handlers.set(key('POST', `/goals/${i}/history/extend`), () => mockGoals[i - 1])
   handlers.set(key('POST', `/goals/${i}/history/extend/month`), () => mockGoals[i - 1])
 }
+/** The holding name behind a ticker in a demo account, for the split's display. */
+function demoHoldingName(accountId: number | undefined, ticker: string): string | null {
+  if (accountId == null) return null
+  return mockHoldings[accountId]?.find(h => h.ticker === ticker)?.name ?? null
+}
+
 handlers.set(key('POST', '/goals'), (config) => {
   const body = JSON.parse(config.data || '{}')
   return {
     ...mockGoals[0],
     id: Date.now(),
+    allocations: (body.allocations ?? []).map(
+      (line: { ticker: string; monthlyAmount: number }) => ({
+        ticker: line.ticker,
+        name: demoHoldingName(body.accountIds?.[0], line.ticker),
+        monthlyAmount: line.monthlyAmount,
+      }),
+    ),
     name: body.name ?? 'New Goal',
     targetAmount: body.targetAmount ?? 0,
     deadline: body.deadline ?? '2026-01-01',
@@ -479,7 +805,10 @@ handlers.set(key('POST', '/goals'), (config) => {
     surplus: 0,
   }
 })
-for (let i = 1; i <= 3; i++) {
+// Every mock goal, not just the first three: the recurring plan is id 4, and leaving it out
+// meant editing or deleting it in demo mode resolved to {} -- a silent no-op that looked like a
+// broken save.
+for (let i = 1; i <= mockGoals.length; i++) {
   handlers.set(key('PUT', `/goals/${i}`), (config) => {
     const body = JSON.parse(config.data || '{}')
     return {
@@ -487,21 +816,41 @@ for (let i = 1; i <= 3; i++) {
       name: body.name ?? mockGoals[i - 1].name,
       targetAmount: body.targetAmount ?? mockGoals[i - 1].targetAmount,
       deadline: body.deadline ?? mockGoals[i - 1].deadline,
+      monthlyAmount: body.monthlyAmount ?? mockGoals[i - 1].monthlyAmount,
+      // Names come from the account's holdings on the real backend; the demo resolves them
+      // from the same fixture the picker reads.
+      allocations: (body.allocations ?? []).map(
+        (line: { ticker: string; monthlyAmount: number }) => ({
+          ticker: line.ticker,
+          name: demoHoldingName(body.accountIds?.[0], line.ticker),
+          monthlyAmount: line.monthlyAmount,
+        }),
+      ),
       accounts: (body.accountIds ?? mockGoals[i - 1].accounts.map(a => a.id))
         .map((id: number) => mockAccounts.find(a => a.id === id)).filter(Boolean),
     }
   })
+  handlers.set(key('DELETE', `/goals/${i}`), () => null)
 }
-handlers.set(key('DELETE', '/goals/1'), () => null)
-handlers.set(key('DELETE', '/goals/2'), () => null)
-handlers.set(key('DELETE', '/goals/3'), () => null)
 
 // Sync
+const DEMO_INSTITUTIONS = [
+  { id: 'BNP Paribas::FR::personal', name: 'BNP Paribas', bic: 'BNPAFRPP', logoUrl: null, country: 'FR', psuType: 'personal' },
+  { id: 'BoursoBank::FR::personal', name: 'BoursoBank', bic: 'BNPAFRPP', logoUrl: null, country: 'FR', psuType: 'personal' },
+  { id: 'Swan::FR::business', name: 'Swan', bic: 'SWNBFR22', logoUrl: null, country: 'FR', psuType: 'business' },
+  { id: 'Deutsche Bank::DE::personal', name: 'Deutsche Bank', bic: 'DEUTDEFF', logoUrl: null, country: 'DE', psuType: 'personal' },
+  { id: 'LHV Pank::EE::personal', name: 'LHV Pank', bic: 'LHVBEE22', logoUrl: null, country: 'EE', psuType: 'personal' },
+]
 handlers.set(key('GET', '/sync/status'), () => mockRequisitions)
-handlers.set(key('GET', '/sync/institutions'), () => [
-  { id: 'BNP_PARIBAS', name: 'BNP Paribas', bic: 'BNPAFRPP', logoUrl: null, country: 'FR' },
-  { id: 'BOURSOBANK', name: 'BoursoBank', bic: 'BNPAFRPP', logoUrl: null, country: 'FR' },
-])
+handlers.set(key('GET', '/sync/institutions'), (config) => {
+  const params = (config.params ?? {}) as { query?: string; country?: string }
+  const country = params.country || 'FR'
+  const query = (params.query ?? '').toLowerCase()
+  return DEMO_INSTITUTIONS.filter((inst) =>
+    inst.country === country && (query === '' || inst.name.toLowerCase().includes(query)),
+  )
+})
+handlers.set(key('GET', '/sync/countries'), () => ['FR', 'DE', 'EE'])
 
 // Crypto exchange
 handlers.set(key('GET', '/crypto/exchange/status'), () => mockExchangeStatuses)
@@ -515,16 +864,88 @@ handlers.set(key('POST', '/sync/initiate'), () => ({
   authLink: 'https://demo.enablebanking.com/auth?demo=true',
 }))
 
-// Sync - complete
-handlers.set(key('POST', '/sync/complete'), () => ([
+// Sync - complete (real backend: GET /api/sync/complete?code=...&state=...)
+handlers.set(key('GET', '/sync/complete'), () => ([
   { id: 100, name: 'Demo Bank Account', type: 'CHECKING' as const, provider: 'Demo Bank', currency: 'EUR', currentBalance: 5000, currentBalanceEur: 5000, lastSyncedAt: new Date().toISOString(), isManual: false, color: '#3b82f6', ticker: null, createdAt: new Date().toISOString() }
 ]))
 
 // Sync - retry
 handlers.set(key('POST', '/sync/1/retry'), () => [])
 
+// Sync - reconnect (re-initiate OAuth for a dead requisition)
+handlers.set(key('POST', '/sync/1/reconnect'), () => ({
+  requisitionId: 'demo-req-reconnect',
+  authLink: 'https://demo.enablebanking.com/auth?demo=true',
+}))
+
 // Sync - delete
 handlers.set(key('DELETE', '/sync/1'), () => null)
+
+// Interactive Brokers — same demo convention as Trade Republic below: reads report a
+// disconnected state, mutations fake-succeed with the real response shapes (without
+// these, unmapped routes resolve `{}` and the tab silently misbehaves).
+handlers.set(key('GET', '/ibkr/status'), () => ({
+  connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null,
+}))
+handlers.set(key('POST', '/ibkr/connect'), () => null)
+handlers.set(key('POST', '/ibkr/sync'), () => [])
+handlers.set(key('DELETE', '/ibkr/connection'), () => null)
+
+// Amundi Épargne Salariale — same demo convention: reads report a disconnected
+// session, mutations fake-succeed with the real response shapes. Bourse Direct
+// has no handlers at all, which leaves its panel reading `isActive: undefined`
+// in demo mode; do not copy that gap here.
+const demoAmundiStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+handlers.set(key('GET', '/amundi/status'), () => demoAmundiStatus)
+handlers.set(key('POST', '/amundi/auth/initiate'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/amundi/auth/complete'), () => demoAmundiStatus)
+handlers.set(key('POST', '/amundi/sync'), () => demoAmundiStatus)
+handlers.set(key('DELETE', '/amundi/session'), () => null)
+
+// BoursoBank — same convention. Its demo accounts already carry
+// `provider: 'BoursoBank'`, so without these the Sync-all modal would list a
+// connection whose status request falls through to `{}`.
+const demoBoursoStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+handlers.set(key('GET', '/bourso/status'), () => demoBoursoStatus)
+handlers.set(key('POST', '/bourso/auth/initiate'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/bourso/auth/complete'), () => demoBoursoStatus)
+handlers.set(key('POST', '/bourso/sync'), () => demoBoursoStatus)
+handlers.set(key('DELETE', '/bourso/session'), () => null)
+
+// Fortuneo — its frontend validates every response with Zod, so the demo must
+// return the complete production contract rather than relying on the adapter's
+// permissive `{}` fallback.
+const demoFortuneoStatus = {
+  isActive: false,
+  expiresAt: null,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+handlers.set(key('GET', '/fortuneo/status'), () => demoFortuneoStatus)
+handlers.set(key('POST', '/fortuneo/auth/initiate'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/fortuneo/auth/complete'), () => demoFortuneoStatus)
+handlers.set(key('POST', '/fortuneo/sync'), () => demoFortuneoStatus)
+handlers.set(key('DELETE', '/fortuneo/session'), () => null)
 
 // Trade Republic - session status
 handlers.set(key('GET', '/tr/status'), () => ({ isActive: false, expiresAt: null }))
@@ -541,19 +962,27 @@ handlers.set(key('POST', '/tr/sync'), () => [])
 // Trade Republic - import CSV
 handlers.set(key('POST', '/tr/import'), () => [])
 
-// Trade Republic - logout
-handlers.set(key('POST', '/tr/logout'), () => null)
+// Trade Republic - clear session (real backend: DELETE /api/tr/session)
+handlers.set(key('DELETE', '/tr/session'), () => null)
 
-// Crypto exchange - add
-handlers.set(key('POST', '/crypto/exchange'), () => ({
-  id: Date.now(), name: 'Binance', type: 'CRYPTO' as const, provider: 'BINANCE', currency: 'USDT', currentBalance: 0, currentBalanceEur: 0, lastSyncedAt: null, isManual: false, color: '#f59e0b', ticker: null, createdAt: new Date().toISOString()
-}))
+// Crypto exchange - add. Echoes the chosen exchange rather than hardcoding one, so the demo
+// reflects whichever exchange the user picked.
+handlers.set(key('POST', '/crypto/exchange'), (config) => {
+  const body = JSON.parse(config.data || '{}')
+  const provider = body.type ?? 'BINANCE'
+  return {
+    id: Date.now(), name: provider, type: 'CRYPTO' as const, provider, currency: 'EUR', currentBalance: 0, currentBalanceEur: 0, lastSyncedAt: null, isManual: false, color: '#f59e0b', ticker: null, logoUrl: null, logoKey: null, createdAt: new Date().toISOString()
+  }
+})
 
-// Crypto exchange - sync
+// Crypto exchange - sync (one route per mockExchangeStatuses entry: an unmapped route resolves
+// `{}` and the row's buttons silently misbehave)
 handlers.set(key('POST', '/crypto/exchange/1/sync'), () => [])
+handlers.set(key('POST', '/crypto/exchange/2/sync'), () => [])
 
 // Crypto exchange - remove
 handlers.set(key('DELETE', '/crypto/exchange/1'), () => null)
+handlers.set(key('DELETE', '/crypto/exchange/2'), () => null)
 
 // Crypto wallet - add
 handlers.set(key('POST', '/crypto/wallet'), () => ({
@@ -909,6 +1338,9 @@ for (const s of mockRecurring) {
 handlers.set(key('POST', '/recurring/detect'), () => ({ detected: 2 }))
 
 function generateMockMonths(goal: GoalProgress) {
+  // Mirrors the backend: the monthly calendar belongs to savings targets only.
+  if (goal.deadline === null || goal.monthlyNeeded === null) return []
+  const monthlyNeeded = goal.monthlyNeeded
   const start = new Date('2025-01-01')
   const end = new Date(goal.deadline)
   const months: { yearMonth: string; objective: number; actual: number | null; manualActual: number | null; override: number | null; effective: number | null }[] = []
@@ -917,10 +1349,10 @@ function generateMockMonths(goal: GoalProgress) {
   while (current <= end) {
     const ym = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`
     const isPast = current <= now
-    const actual = isPast ? Math.round((goal.monthlyNeeded * (0.7 + Math.random() * 0.6)) * 100) / 100 : null
+    const actual = isPast ? Math.round((monthlyNeeded * (0.7 + Math.random() * 0.6)) * 100) / 100 : null
     months.push({
       yearMonth: ym,
-      objective: goal.monthlyNeeded,
+      objective: monthlyNeeded,
       actual,
       manualActual: null,
       override: null,
@@ -935,6 +1367,14 @@ export function createDemoAdapter() {
   return (config: InternalAxiosRequestConfig): Promise<AxiosResponse> => {
     const k = key(config.method || 'GET', config.url || '')
     const handler = handlers.get(k)
+
+    if (!handler) {
+      // Deliberately still resolves 200 {} — several demo screens lean on the
+      // permissive fallback. The warning is what keeps frontend/backend
+      // endpoint drift visible: a mismatched method/path (e.g. the old
+      // POST /tr/logout) used to "succeed" here while 404ing in production.
+      console.warn(`[demo] no handler registered for "${k}" — returning empty 200`)
+    }
 
     return new Promise((resolve) => {
       setTimeout(() => {

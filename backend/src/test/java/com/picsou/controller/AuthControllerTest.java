@@ -41,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -75,11 +76,16 @@ class AuthControllerTest {
     }
 
     private AuthController newController(boolean adminRecoveryEnabled) {
+        return newController(adminRecoveryEnabled, true);
+    }
+
+    private AuthController newController(boolean adminRecoveryEnabled, boolean loginRateLimitEnabled) {
         return new AuthController(
             userRepository, passwordEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
             mfaService, persistentSessionService, auditService,
-            adminRecoveryEnabled
+            adminRecoveryEnabled,
+            loginRateLimitEnabled
         );
     }
 
@@ -97,6 +103,45 @@ class AuthControllerTest {
     }
 
     // ─── login ───────────────────────────────────────────────────────────
+
+    @Test
+    void login_skipsRateLimit_whenDisabledForDevelopment() {
+        loginBuckets.put("10.0.0.5", Bucket.builder()
+            .addLimit(io.github.bucket4j.Bandwidth.builder()
+                .capacity(1)
+                .refillIntervally(1, java.time.Duration.ofHours(1))
+                .build())
+            .build());
+        Bucket exhausted = loginBuckets.get("10.0.0.5");
+        exhausted.tryConsume(1);
+
+        when(passwordEncoder.encode("login-timing-equalizer")).thenReturn("dummy-hash");
+        AuthController devController = newController(false, false);
+        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.empty());
+        when(passwordEncoder.matches("pw", "dummy-hash")).thenReturn(false);
+
+        assertThatThrownBy(() -> devController.login(
+            new LoginRequest("alice", "pw", false), httpReq, httpRes))
+            .isInstanceOf(BadCredentialsException.class);
+        assertThat(exhausted.getAvailableTokens()).isZero();
+    }
+
+    @Test
+    void login_appliesProductionRateLimitByDefault() {
+        Bucket exhausted = Bucket.builder()
+            .addLimit(io.github.bucket4j.Bandwidth.builder()
+                .capacity(1)
+                .refillIntervally(1, java.time.Duration.ofHours(1))
+                .build())
+            .build();
+        exhausted.tryConsume(1);
+        loginBuckets.put("10.0.0.5", exhausted);
+
+        ResponseEntity<?> response = controller.login(
+            new LoginRequest("alice", "pw", false), httpReq, httpRes);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
 
     @Test
     void login_returns403_andSetsNoCookies_whenAccountNotActivated() {
@@ -224,7 +269,7 @@ class AuthControllerTest {
         AuthController timingController = new AuthController(
             userRepository, realEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, auditService, false);
+            mfaService, persistentSessionService, auditService, false, true);
 
         // Path A — the username does not exist: there is no stored hash to compare,
         // yet the request must still cost a full bcrypt round against the dummy hash.
@@ -275,7 +320,7 @@ class AuthControllerTest {
         AuthController timingController = new AuthController(
             userRepository, realEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, auditService, false);
+            mfaService, persistentSessionService, auditService, false, true);
 
         AppUser pending = AppUser.builder()
             .id(11L).username("bob")
@@ -302,6 +347,48 @@ class AuthControllerTest {
         // No session is established, and a credential-less profile never reaches MFA.
         verify(cookieWriter, never()).setAccessAndRefresh(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
         verify(mfaService, never()).isEnabled(any());
+    }
+
+    @Test
+    void login_ratelimitKey_isXRealIp_notSpoofableXForwardedFor() {
+        // Regression for the leftmost-XFF spoofing bug: request.getRemoteAddr() is tainted by
+        // ForwardedHeaderFilter from whatever the client puts in X-Forwarded-For (nginx only
+        // appends, never replaces), so a raw client could rotate it and get a fresh bucket every
+        // request. ClientIp.resolve() must key on nginx's X-Real-IP instead, which stays constant
+        // for the same real client regardless of the spoofed XFF value.
+        @SuppressWarnings("unchecked")
+        Map<String, Bucket> mockedLoginBuckets = mock(Map.class);
+        Bucket bucket = mock(Bucket.class);
+        when(bucket.tryConsume(1)).thenReturn(true);
+        when(mockedLoginBuckets.computeIfAbsent(any(), any())).thenReturn(bucket);
+        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.empty());
+
+        AuthController spoofTestController = new AuthController(
+            userRepository, passwordEncoder, jwtUtil,
+            mockedLoginBuckets, mfaVerifyBuckets, cookieWriter,
+            mfaService, persistentSessionService, auditService, false, true);
+
+        MockHttpServletRequest firstCall = new MockHttpServletRequest();
+        firstCall.setRemoteAddr("172.18.0.2");
+        firstCall.addHeader("X-Forwarded-For", "1.1.1.1"); // attacker-supplied, rotates per request
+        firstCall.addHeader("X-Real-IP", "203.0.113.9");   // nginx-observed peer, stable
+
+        MockHttpServletRequest secondCall = new MockHttpServletRequest();
+        secondCall.setRemoteAddr("172.18.0.2");
+        secondCall.addHeader("X-Forwarded-For", "9.9.9.9"); // rotated -- same attacker, new value
+        secondCall.addHeader("X-Real-IP", "203.0.113.9");   // unchanged: same real client
+
+        assertThatThrownBy(() -> spoofTestController.login(
+                new LoginRequest("alice", "pw", false), firstCall, httpRes))
+            .isInstanceOf(BadCredentialsException.class);
+        assertThatThrownBy(() -> spoofTestController.login(
+                new LoginRequest("alice", "pw", false), secondCall, httpRes))
+            .isInstanceOf(BadCredentialsException.class);
+
+        // Both calls looked up the SAME key, despite the different X-Forwarded-For each time.
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(mockedLoginBuckets, times(2)).computeIfAbsent(keyCaptor.capture(), any());
+        assertThat(keyCaptor.getAllValues()).containsOnly("203.0.113.9");
     }
 
     // ─── activate ────────────────────────────────────────────────────────
@@ -376,8 +463,8 @@ class AuthControllerTest {
         Claims claims = org.mockito.Mockito.mock(Claims.class);
         when(jwtUtil.validateAndParse("rt")).thenReturn(claims);
         when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
-        when(claims.getSubject()).thenReturn("alice");
-        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.of(deactivated));
+        when(jwtUtil.getUserId(claims)).thenReturn(7L);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(deactivated));
         when(jwtUtil.getTokenVersion(claims)).thenReturn(3L); // matches user.tokenVersion
 
         ResponseEntity<?> res = controller.refresh(null, httpReq, httpRes);
@@ -394,8 +481,8 @@ class AuthControllerTest {
         Claims claims = org.mockito.Mockito.mock(Claims.class);
         when(jwtUtil.validateAndParse("rt")).thenReturn(claims);
         when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
-        when(claims.getSubject()).thenReturn("alice");
-        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.of(active));
+        when(jwtUtil.getUserId(claims)).thenReturn(7L);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(active));
         when(jwtUtil.getTokenVersion(claims)).thenReturn(3L);
         when(jwtUtil.generateAccessToken(active)).thenReturn("acc2");
         when(jwtUtil.generateRefreshToken(active)).thenReturn("ref2");
@@ -408,6 +495,48 @@ class AuthControllerTest {
         verify(cookieWriter).setAccessAndRefresh(httpRes, "acc2", "ref2", false);
     }
 
+    /**
+     * The token names its account by the immutable uid, never by the username in `sub`: a
+     * username can be changed (change-username) or freed and given to a new member, and
+     * resolving by name logged the old token's holder into whoever carried that name next,
+     * or locked a renamed user out at the next refresh.
+     */
+    @Test
+    void refresh_resolvesTheAccountByUid_neverByTheUsernameInTheSubject() {
+        AppUser alice = user(true);
+        httpReq.setCookies(new Cookie("refresh_token", "rt"));
+        Claims claims = org.mockito.Mockito.mock(Claims.class);
+        when(jwtUtil.validateAndParse("rt")).thenReturn(claims);
+        when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
+        when(jwtUtil.getUserId(claims)).thenReturn(7L);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(alice));
+        when(jwtUtil.getTokenVersion(claims)).thenReturn(3L);
+        when(jwtUtil.generateAccessToken(alice)).thenReturn("acc2");
+        when(jwtUtil.generateRefreshToken(alice)).thenReturn("ref2");
+
+        ResponseEntity<?> res = controller.refresh(null, httpReq, httpRes);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(cookieWriter).setAccessAndRefresh(httpRes, "acc2", "ref2", false);
+        verify(userRepository, never()).findByUsernameWithMember(any());
+        verify(claims, never()).getSubject();
+    }
+
+    @Test
+    void refresh_returns401_whenTheTokenCarriesNoUid() {
+        httpReq.setCookies(new Cookie("refresh_token", "rt"));
+        Claims claims = org.mockito.Mockito.mock(Claims.class);
+        when(jwtUtil.validateAndParse("rt")).thenReturn(claims);
+        when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
+        when(jwtUtil.getUserId(claims)).thenReturn(null);
+
+        ResponseEntity<?> res = controller.refresh(null, httpReq, httpRes);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        verify(userRepository, never()).findByIdWithMember(any());
+        verify(userRepository, never()).findByUsernameWithMember(any());
+    }
+
     @Test
     void refresh_rotatesTokens_asPersistentCookies_whenPersistentTokenCookiePresentAndOwned() {
         AppUser active = user(true); // id 7L
@@ -417,8 +546,8 @@ class AuthControllerTest {
         Claims claims = org.mockito.Mockito.mock(Claims.class);
         when(jwtUtil.validateAndParse("rt")).thenReturn(claims);
         when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
-        when(claims.getSubject()).thenReturn("alice");
-        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.of(active));
+        when(jwtUtil.getUserId(claims)).thenReturn(7L);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(active));
         when(jwtUtil.getTokenVersion(claims)).thenReturn(3L);
         when(jwtUtil.generateAccessToken(active)).thenReturn("acc2");
         when(jwtUtil.generateRefreshToken(active)).thenReturn("ref2");
@@ -479,8 +608,8 @@ class AuthControllerTest {
         Claims claims = org.mockito.Mockito.mock(Claims.class);
         when(jwtUtil.validateAndParse("stale-rt")).thenReturn(claims);
         when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
-        when(claims.getSubject()).thenReturn("alice");
-        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.of(active));
+        when(jwtUtil.getUserId(claims)).thenReturn(7L);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(active));
         when(jwtUtil.getTokenVersion(claims)).thenReturn(1L); // stale -- user is now at tv=3
         when(persistentSessionService.ownerUserId("mine")).thenReturn(Optional.of(active.getId()));
         when(jwtUtil.generateAccessToken(active)).thenReturn("acc4");
@@ -504,8 +633,8 @@ class AuthControllerTest {
         Claims claims = org.mockito.Mockito.mock(Claims.class);
         when(jwtUtil.validateAndParse("rt")).thenReturn(claims);
         when(jwtUtil.isRefreshToken(claims)).thenReturn(true);
-        when(claims.getSubject()).thenReturn("alice");
-        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.of(active));
+        when(jwtUtil.getUserId(claims)).thenReturn(7L);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(active));
         when(jwtUtil.getTokenVersion(claims)).thenReturn(3L);
         when(jwtUtil.getSeriesId(claims)).thenReturn(revokedSeries);
         when(persistentSessionService.isSeriesActive(revokedSeries)).thenReturn(false);

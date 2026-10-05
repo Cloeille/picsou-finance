@@ -1,6 +1,6 @@
 # Feature: GDPR-friendly data export (JSON + CSV)
 
-> Last updated: 2026-04-26
+> Last updated: 2026-07-20
 > Status: ✅ Implemented
 
 ## Context
@@ -160,21 +160,21 @@ The export scope is **the data tied to the AppUser making the call**. If an admi
 
 Backend:
 
-- `controller/MeExportController.java` — REST endpoint at `/api/me/export`, re-auth gate, rate limit, audit log
-- `export/DataExportService.java` — orchestrator: opens ZIP, drives all exporters
-- `service/ReAuthService.java` — verifies password OR TOTP based on `user.mfaEnabled` (reusable for future sensitive operations)
-- `export/EntityExporter.java` — interface: `void writeJson(JsonGenerator g)` + `void writeCsv(Writer w)` + `String csvFileName()` + `String jsonKey()`
-- `export/{Profile,Accounts,Holdings,Transactions,Goals,Debts,WalletAddresses,SharedResources,BankConnections,BalanceSnapshots}Exporter.java` — one per entity root
-- `dto/ExportRequest.java` — record `(ReAuthDto reAuth, boolean includeBalanceSnapshots)`
-- `dto/ReAuthDto.java` — record `(String password, String totpCode)` (XOR depending on user)
-- `config/RateLimitConfig.java` — extend with the export bucket (5/h per userId)
+- `backend/src/main/java/com/picsou/controller/MeExportController.java` — REST endpoint at `/api/me/export`, re-auth gate, rate limit, audit log
+- `backend/src/main/java/com/picsou/export/DataExportService.java` — orchestrator: opens ZIP, drives all exporters
+- `backend/src/main/java/com/picsou/service/ReAuthService.java` — verifies password OR TOTP based on `user.mfaEnabled` (reusable for future sensitive operations)
+- `backend/src/main/java/com/picsou/export/EntityExporter.java` — interface: `void writeJson(JsonGenerator g)` + `void writeCsv(Writer w)` + `String csvFileName()` + `String jsonKey()`
+- `backend/src/main/java/com/picsou/export/{Profile,Accounts,Holdings,Transactions,Goals,Debts,WalletAddresses,SharedResources,BankConnections,BalanceSnapshots}Exporter.java` — one per entity root (family members are folded into `ProfileExporter`)
+- `backend/src/main/java/com/picsou/dto/ExportRequest.java` — record `(ReAuthDto reAuth, boolean includeBalanceSnapshots)`
+- `backend/src/main/java/com/picsou/dto/ReAuthDto.java` — record `(String password, String totpCode)` (XOR depending on user)
+- `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — extend with the export bucket (5/h per userId)
 
 Frontend:
 
-- `pages/settings/security/SecuritySection.tsx` — opens `ExportDataDialog` from the "Export my data" button (no separate section card)
-- `pages/settings/security/ExportDataDialog.tsx` — modal with toggle + re-auth field + download trigger
-- `features/export/api.ts` — `requestExport(opts)` returning a `Blob`
-- `features/export/hooks.ts` — `useExportData()` mutation (TanStack Query) wrapping the fetch + blob download
+- `frontend/src/pages/settings/security/SecuritySection.tsx` — opens `ExportDataDialog` from the "Export my data" button (no separate section card)
+- `frontend/src/pages/settings/security/ExportDataDialog.tsx` — modal with toggle + re-auth field + download trigger
+- `frontend/src/features/export/api.ts` — `requestExport(opts)` returning a `Blob`
+- `frontend/src/features/export/hooks.ts` — `useExportData()` mutation (TanStack Query) wrapping the fetch + blob download
 
 ## Technical choices
 
@@ -197,13 +197,15 @@ Frontend:
 - **Currency separation.** Money is always written as `(decimal-string, currency-code)` — never as a localized string like `"1 234,56 €"` and never as a `Double`.
 - **`SharedResource` direction.** Only export rows where the AppUser's member is the **recipient** (data shared *with* me); rows where they share *outwards* are also relevant since they describe how my data is shared — both directions are exported, but always anchored on "my member id" so we never include third-party data we shouldn't.
 - **Managed-profile detour.** The export endpoint ignores any `?memberId=` query/cookie context — always anchors on the authenticated `AppUser`.
+- **`BalanceSnapshotsExporter` streams per account.** `writeCsv`/`writeJson` each iterate the member's accounts and, per account, query `balanceSnapshotRepository.findByAccountIdOrderByDateAsc` — instead of collecting the member's *entire* snapshot history into one list before writing anything. This is the table the class's own Javadoc calls out as able to "dwarf the rest of the archive" (years × many accounts), so heap must stay bounded to one account's history at a time rather than growing with total history size. Cost: each of the 2 passes (CSV, JSON) re-runs the same per-account queries — 2 passes total, unchanged from before. Accepted: the goal is bounded heap, not minimal query count. Row order (account insertion order, then date within account) is unchanged.
 
 ## Tests
 
 Backend:
 
 - `*ExporterTest` (one per `EntityExporter`) — fixtures → expected JSON node + CSV rows. Each includes a *negative* assertion: the produced bytes do not contain known-secret tokens.
-- `DataExportServiceTest` — verifies ZIP file list given options, presence/absence of `balance_snapshots.csv` based on toggle, presence of `README.txt`.
+- `DataExportServiceTest` — verifies ZIP file list given options, presence/absence of `balance_snapshots.csv` based on toggle, presence of `README.txt`. Wires **all** `EntityExporter` beans (matching production Spring injection, not a subset) with one fixture per entity carrying a unique tripwire literal in every sensitive, non-exported field (e.g. `Requisition.authLink`); asserts none of the tripwires appear anywhere in the archive bytes. **New exporter ⇒ new wiring + new tripwire(s) in this test** — the net only protects what it exercises, and a partial exporter list (as this test shipped with for a while) silently blinds it to whichever exporters are missing.
+- `BalanceSnapshotsExporterTest` — drives the exporter directly (2 accounts × 3 snapshots): asserts CSV/JSON row order (account, then date) and, via `Mockito.verify`, exactly one `balanceSnapshotRepository.findByAccountIdOrderByDateAsc` call per account per pass (2 passes) — never a whole-member collecting call.
 - `MeExportControllerTest` (`@WebMvcTest`) — happy path, re-auth fail (password), re-auth fail (TOTP), missing body, rate-limit exceeded.
 - `DataExportIntegrationTest` (`@SpringBootTest` + H2) — seed an `AppUser` with **all** entity types populated **and** every secret-bearing entity (MFA secret, recovery codes, BoursoSession ciphertext, requisition tokens, persistent session). Hit the endpoint, parse the ZIP in memory, assert:
   - all expected files present

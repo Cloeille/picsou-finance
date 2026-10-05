@@ -113,6 +113,15 @@ public class JwtUtil {
         return v == null ? null : v.longValue();
     }
 
+    /**
+     * The account the token was minted for, by its immutable id. This, not the username in
+     * {@code sub}, is what a token identifies: a username can be changed or freed and reused.
+     */
+    public Long getUserId(Claims claims) {
+        Number v = claims.get("uid", Number.class);
+        return v == null ? null : v.longValue();
+    }
+
     public Claims validateAndParse(String token) {
         return Jwts.parser()
             .verifyWith(signingKey)

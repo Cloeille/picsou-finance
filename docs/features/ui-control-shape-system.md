@@ -1,6 +1,6 @@
 # Feature: UI control shape (shadcn theme radius)
 
-> Last updated: 2026-07-12
+> Last updated: 2026-08-10
 
 ## Context
 
@@ -23,7 +23,7 @@ scale; they never hardcode a pixel radius or a pill shape:
 | Cards / large surfaces | `rounded-xl` … `rounded-4xl` | 14+ |
 | Circular by nature (avatar, switch thumb, badge, status dot, scrollbar) | `rounded-full` | — |
 
-Shape lives in the shadcn primitives (`components/ui/button.tsx`, `tabs.tsx`,
+Shape lives in the shadcn primitives (`frontend/src/components/ui/button.tsx`, `tabs.tsx`,
 `dropdown-menu.tsx`), so a page composes `<Button>` / `<Tabs>` and inherits the correct radius. App
 code must not re-shape a control with a local `rounded-*` className.
 
@@ -56,7 +56,16 @@ code must not re-shape a control with a local `rounded-*` className.
   Reverted 2026-07-12. This is why the convention-integrity rule exists in `CODING_RULES.md`.
 - **`rounded-4xl` on cards is intentional**, not drift — it predates #29. Do not "fix" card radius to
   match controls; cards are deliberately rounder than controls.
-- **Don't hand-edit `components/ui/`** to change radius/sizing. Shape comes from the `--radius` theme
+- **The rule is honoured by the primitives, not yet by every call site.** Roughly 19 hardcoded
+  `rounded-xl`/`rounded-2xl` controls predate the 2026-07-12 revert and are still there:
+  `AccountForm`, `AddAccountModal` and `FinaryTab` selects, the `SettingsPage` /
+  `HoldingDetailModal` / `HoldingInsightSection` segmented controls, `AccessKeysSection` code
+  rows, and the setup layout. So `rounded-xl` on a select is what most of the app currently
+  *does*, while `rounded-md` is what the charter *says* — copying a neighbouring form is how a
+  new screen inherits the deviation, which is exactly how the property flow got it. Judge a new
+  control against this document, not against the file next to it. Fixing the backlog is a
+  separate sweep, deliberately not folded into feature branches.
+- **Don't hand-edit `frontend/src/components/ui/`** to change radius/sizing. Shape comes from the `--radius` theme
   token; adjust the token, not the primitives.
 
 ## Tests
@@ -64,7 +73,9 @@ code must not re-shape a control with a local `rounded-*` className.
 - No dedicated unit test (pure styling). `frontend/src/components/layout/AppSidebar.test.tsx` and the
   Playwright E2E suite exercise the components that consume these primitives.
 - Conformance is enforced by review + the grep-able Don'ts in `docs/conventions/frontend.md`
-  (no `rounded-full`/`rounded-xl`/`rounded-2xl` on interactive text controls).
+  (no `rounded-full`/`rounded-xl`/`rounded-2xl` on interactive text controls). Review is the
+  only gate, and the backlog above is what it has let through — a lint rule would catch it,
+  but none exists today.
 
 ## Links
 

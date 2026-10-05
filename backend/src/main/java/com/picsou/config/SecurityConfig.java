@@ -36,6 +36,52 @@ public class SecurityConfig {
     @Value("${app.cors.allowed-origins:}")
     private String allowedOrigins;
 
+    /**
+     * Whether to send {@code Strict-Transport-Security}. Off by default, and it must stay in
+     * lock-step with the nginx-side gate (docker/entrypoint.sh writes
+     * {@code /etc/nginx/snippets/picsou-hsts.conf} from the same {@code HSTS_ENABLED}).
+     *
+     * <p>Gating this matters because Spring Security's {@code HstsHeaderWriter} fires on any
+     * request where {@code isSecure()} is true, and {@code forward-headers-strategy: framework}
+     * makes that true from {@code X-Forwarded-Proto: https}. Without the gate, every
+     * {@code /api/*} response carries HSTS — and the SPA calls the API on load, so the browser
+     * pins the policy on the first page view. With a locally-issued certificate that is a
+     * lockout: the browser then refuses the "proceed anyway" bypass and there is no in-app
+     * recovery.
+     *
+     * <p>In the all-in-one Docker image this is defence in depth — nginx strips the backend's
+     * copy on {@code /api} and {@code /actuator} ({@code proxy_hide_header}) and emits its own.
+     * It is the operative control for the split stack and for bare-metal runs behind an
+     * operator's own proxy, where nothing hides it.
+     *
+     * <p>Bound as a {@code String} and parsed leniently on purpose. A primitive {@code boolean}
+     * would make Spring fail field injection on any value it cannot convert — including a bare
+     * {@code HSTS_ENABLED=} — which takes the whole backend down under supervisord while nginx
+     * keeps serving, turning a harmless typo into an app-wide 502. {@code docker/entrypoint.sh}
+     * deliberately tolerates the same inputs and warns; the two must agree.
+     */
+    @Value("${app.hsts-enabled:false}")
+    private String hstsEnabledRaw;
+
+    /**
+     * The truthy tokens accepted for {@code HSTS_ENABLED}. This set is duplicated in the
+     * {@code case} arm of {@code docker/entrypoint.sh}, which gates the nginx-side emitter from
+     * the same env var. The two must stay identical: if they diverge, one emitter sends HSTS
+     * while the other does not, and on a locally-issued certificate that is the browser lockout
+     * the whole gate exists to prevent. {@code SecurityConfigHstsParsingTest} pins this list
+     * against the shell script so the drift fails the build rather than a deployment.
+     */
+    static final java.util.Set<String> HSTS_TRUTHY = java.util.Set.of("true", "1", "yes", "on");
+
+    /** Lenient, case-insensitive, surrounding-whitespace-tolerant — mirrors entrypoint.sh. */
+    static boolean parseHstsEnabled(String raw) {
+        return raw != null && HSTS_TRUTHY.contains(raw.trim().toLowerCase());
+    }
+
+    private boolean hstsEnabled() {
+        return parseHstsEnabled(hstsEnabledRaw);
+    }
+
     // @Order(2): the catch-all API chain. The OAuth2 authorization-server chain
     // (AuthorizationServerConfig, @Order(1)) matches /oauth2/** ahead of this one; every other
     // request falls through to here. This chain is otherwise unchanged from the cookie-only design.
@@ -58,10 +104,13 @@ public class SecurityConfig {
             .headers(headers -> headers
                 .frameOptions(fo -> fo.deny())
                 .contentTypeOptions(cto -> {})
-                .httpStrictTransportSecurity(hsts -> hsts
-                    .maxAgeInSeconds(31536000)
-                    .includeSubDomains(true)
-                )
+                .httpStrictTransportSecurity(hsts -> {
+                    if (hstsEnabled()) {
+                        hsts.maxAgeInSeconds(31536000).includeSubDomains(true);
+                    } else {
+                        hsts.disable();
+                    }
+                })
                 .referrerPolicy(rp -> rp
                     .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)
                 )

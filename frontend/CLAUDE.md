@@ -31,13 +31,13 @@ src/
 
 ## Key patterns
 
-**API layer (`lib/api-client.ts`):** Single Axios instance, `withCredentials: true`. Response interceptor silently refreshes on 401 (queues concurrent retries). Auth calls excluded to avoid loops. Feature-specific API functions live in `features/*/api.ts`.
+**API layer (`frontend/src/lib/api-client.ts`):** Single Axios instance, `withCredentials: true`. Response interceptor silently refreshes on 401 (queues concurrent retries). Auth calls excluded to avoid loops. Feature-specific API functions live in `features/*/api.ts`.
 
-**Server state:** TanStack Query via hooks in `features/*/hooks.ts`. No Redux, no Context for server data. Query keys co-located in hook files. Stale times in `lib/constants.ts`.
+**Server state:** TanStack Query via hooks in `features/*/hooks.ts`. No Redux, no Context for server data. Query keys co-located in hook files. Stale times in `frontend/src/lib/constants.ts`.
 
-**Auth guard:** `RequireAuth` in `features/auth/guards.tsx` checks `sessionStorage.getItem('picsou_user')` (JS-readable signal; the actual session cookies are HttpOnly). sessionStorage doesn't survive a tab/browser close, so when it's empty `RequireAuth` probes the cookie-backed session once via `useSessionProbe()` (`features/auth/hooks.ts`, calls `POST /auth/refresh`) before redirecting to `/login` — this is what makes "Remember Me" (`persistent_token`, 90 days) actually keep users signed in across restarts instead of only within a single tab session. Because the probe's success is cached, **always log out via `useLogout()`** (never the raw `useAuthStore().logout()` action directly) — it's the only path that also revokes the session server-side and clears the query cache (`resetClientState`), so a later probe can't silently resurrect a session the UI claims is logged out.
+**Auth guard:** `RequireAuth` in `frontend/src/features/auth/guards.tsx` checks `sessionStorage.getItem('picsou_user')` (JS-readable signal; the actual session cookies are HttpOnly). sessionStorage doesn't survive a tab/browser close, so when it's empty `RequireAuth` probes the cookie-backed session once via `useSessionProbe()` (`frontend/src/features/auth/hooks.ts`, calls `POST /auth/refresh`) before redirecting to `/login` — this is what makes "Remember Me" (`persistent_token`, 90 days) actually keep users signed in across restarts instead of only within a single tab session. Because the probe's success is cached, **always log out via `useLogout()`** (never the raw `useAuthStore().logout()` action directly) — it's the only path that also revokes the session server-side and clears the query cache (`resetClientState`), so a later probe can't silently resurrect a session the UI claims is logged out.
 
-**Routing:** React Router v7 in `app/routes.tsx`. Lazy code-splitting per page. `/sync/callback` and `/sync` share SyncPage (OAuth redirect target).
+**Routing:** React Router v7 in `frontend/src/app/routes.tsx`. Lazy code-splitting per page. `/sync/callback` and `/sync` share SyncPage (OAuth redirect target).
 
 ## Conventions
 

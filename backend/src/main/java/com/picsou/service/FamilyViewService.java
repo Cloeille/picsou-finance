@@ -12,7 +12,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 @Transactional(readOnly = true)
@@ -25,6 +28,7 @@ public class FamilyViewService {
     private final GoalRepository goalRepository;
     private final AccountService accountService;
     private final GoalManualContributionRepository contributionRepository;
+    private final AccountAccessResolver accessResolver;
 
     public FamilyViewService(
         FamilyMemberRepository memberRepository,
@@ -33,7 +37,8 @@ public class FamilyViewService {
         AccountRepository accountRepository,
         GoalRepository goalRepository,
         AccountService accountService,
-        GoalManualContributionRepository contributionRepository
+        GoalManualContributionRepository contributionRepository,
+        AccountAccessResolver accessResolver
     ) {
         this.memberRepository = memberRepository;
         this.sharingSettingsRepository = sharingSettingsRepository;
@@ -42,6 +47,7 @@ public class FamilyViewService {
         this.goalRepository = goalRepository;
         this.accountService = accountService;
         this.contributionRepository = contributionRepository;
+        this.accessResolver = accessResolver;
     }
 
     public FamilyDashboardResponse getFamilyDashboard(Long viewerMemberId) {
@@ -74,9 +80,21 @@ public class FamilyViewService {
                     accounts = accountRepository.findByIdInAndMemberId(sharedIds, member.getId());
                 }
 
+                // One query for the whole set. shareFor issues one per account, and this runs
+                // inside a loop over every family member -- members x accounts round trips to
+                // answer a question a single IN clause answers.
+                Map<Long, BigDecimal> accountShares = accessResolver.sharesFor(accounts, member.getId());
+
                 for (Account acc : accounts) {
                     // Signed: LOAN accounts count negatively so totalNetWorth below is correct.
-                    BigDecimal balanceEur = accountService.signedLiveBalanceEur(acc);
+                    //
+                    // Weighted by the OWNER's share, not the viewer's: this list is "what other
+                    // members hold". On a house split 50/50 between the viewer and this member,
+                    // the viewer's own half already shows on their personal dashboard, so
+                    // counting the full value here would report the property twice.
+                    BigDecimal balanceEur = AccountAccessResolver.weigh(
+                        accountService.signedLiveBalanceEur(acc),
+                        accountShares.get(acc.getId()));
                     sharedAccounts.add(new SharedAccountInfo(
                         acc.getId(),
                         ownerName,
@@ -106,9 +124,21 @@ public class FamilyViewService {
                     goals = goalRepository.findByIdInAndMemberId(sharedIds, member.getId());
                 }
 
+                // Resolved across every goal's accounts at once rather than per goal, since
+                // the same account commonly backs several of them.
+                Set<Account> goalAccounts = new LinkedHashSet<>();
                 for (Goal goal : goals) {
+                    goalAccounts.addAll(goal.getAccounts());
+                }
+                Map<Long, BigDecimal> goalShares = accessResolver.sharesFor(goalAccounts, member.getId());
+
+                for (Goal goal : goals) {
+                    // Same reasoning as the accounts above: a goal backed by a co-owned
+                    // account counts only the goal owner's share of it.
                     BigDecimal currentTotal = goal.getAccounts().stream()
-                        .map(a -> accountService.signedLiveBalanceEur(a))
+                        .map(a -> AccountAccessResolver.weigh(
+                            accountService.signedLiveBalanceEur(a),
+                            goalShares.get(a.getId())))
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
 
                     // Build contributions per member (from manual contributions)
