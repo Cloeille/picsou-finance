@@ -1087,18 +1087,21 @@ Countries the active bank-sync provider supports, for the "which country" search
 
 ---
 
-#### `GET /api/sync/complete`
+#### `POST /api/sync/complete`
 
 - **Auth:** Required
+- **Rate-limited:** own sync bucket
 
-**Query params:**
-| Param | Type | Description |
-|-------|------|-------------|
-| `code` | `string` | OAuth authorization code |
+Called by the SPA's `/sync/callback` page after the bank redirects the browser there.
+
+**Request body:**
+```json
+{ "code": "string (required) — OAuth authorization code", "state": "string (optional) — OAuth state nonce from the redirect" }
+```
 
 **Response `200` — `AccountResponse[]`.**
 
-**Errors:** 401 (invalid code), 502
+**Errors:** 401 (invalid code), 422 (missing code), 429, 502
 
 ---
 

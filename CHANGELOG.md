@@ -141,6 +141,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   too. **Upgrade note:** both Compose files forward the key to every sidecar they define, so
   a `docker/.env` that already sets it needs no change; recreate the app and all
   sidecars together. ([#169](https://github.com/Cloeille/picsou-finance/issues/169))
+- **Another site can no longer act on your Picsou account through your browser.** The login
+  cookies are `SameSite=Lax`, which still lets a page on a sibling subdomain (another app on
+  the same home domain) submit forms to Picsou with your session, and several actions accept
+  such a form. The API now rejects a cookie-authenticated change (`POST`, `PUT`, `PATCH`,
+  `DELETE`) sent from another origin, using the browser's `Sec-Fetch-Site` header, or
+  `Origin`/`Referer` when it is missing. Origins on the CORS allow-list, the iOS app and MCP
+  clients are unaffected. The bank connection callback now completes with a `POST` instead
+  of a `GET`.
 
 
 ## [1.1.0] — 2026-06-09
