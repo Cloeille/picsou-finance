@@ -1,6 +1,6 @@
 # Feature: Native iOS app
 
-> Last updated: 2026-07-22
+> Last updated: 2026-10-05
 
 ## Context
 
@@ -8,13 +8,17 @@ A native SwiftUI iPhone client for a self-hosted Picsou instance. The founding a
 2026-07-22: this is **not a companion app** to the web frontend — some users will only ever use iOS,
 never open the web app — so every feature area has to stand on its own, not lean on "do it on the
 web" as an acceptable answer. The app has 5 tabs: Dashboard, Accounts, Goals, **Budget**, Settings
-(Access keys, Family, Sync, Two-Factor, Appearance, Profile, Security).
+(Access keys, Family, Sync, Two-Factor, Appearance, Profile, Security). Sync lists the Enable
+Banking connections (retry, delete) and, read-only, the connected sidecars that share one status
+shape (Amex, BoursoBank, Bourse Direct, Amundi, Fortuneo, CORUM, Sofidy). Security lists the
+browser Remember Me sessions and the app's own sign-ins.
 
 **Budget** is the most complete write-capable surface in the app (redesigned 2026-07-22, see
 [Links](#links) for the ADR): a hub (cycle cashflow + status strip, envelope list, nav rows) pushing
 to a **categorization inbox** (1-tap AI-suggestion accept, confidence-gated bulk-accept, undo),
 **inline categorization** everywhere a transaction appears (including the Accounts tab's transaction
-detail sheet — one `CategoryPickerView`, pushed, reused across the app), envelope **create/edit/
+detail sheet — one `CategoryPickerView`, pushed, reused across the app, with the transaction's
+backend AI suggestion pinned on top when it has one), envelope **create/edit/
 delete**, a **spending breakdown** with drill-down, **recurring/subscription triage** (confirm/
 ignore/undo via swipe, a "what changed" activity feed, an upcoming-payments calendar), and minimal
 budget **settings** (cycle start day, AI toggle). Deliberately NOT native (per the same "iOS-only
@@ -178,10 +182,26 @@ Infra: `docker/nginx.conf` + `frontend/nginx.conf` (`location /oauth2`); `fronte
 - **The `.xcodeproj` is generated** — run `xcodegen generate` after pulling; never edit it by hand.
 - Two active ADRs previously set OAuth2 aside for their scopes (MFA, MCP) — the new ADR scopes those
   conclusions and does not reverse them.
-- **`GET /api/auth/sessions` only lists `PersistentSession` (Remember Me) rows.** The iOS app never
-  sends `rememberMe:true` and authenticates via the OAuth2 AS's Bearer token, not a persistent
-  session — so the app itself never appears in, and can't revoke, its own entry on the Settings >
-  Sessions screen. Logged in `TODO.md` (2026-07-22), not fixed.
+- **The app is a session too.** `GET /api/auth/sessions` lists each live `picsou-ios`
+  authorization as `kind: IOS_APP` next to the browser Remember Me rows, flagged `current` from
+  the Bearer token's `aid` claim. Revoking one deletes the authorization; the resource server
+  checks `aid` on every request, so the device's access token dies at once, not after its TTL.
+  Settings › Sécurité lets the user revoke other devices and, after a confirmation, this one
+  (which signs the app out). See [mfa-and-remember-me.md](./mfa-and-remember-me.md#ios-app-sessions)
+  and the [2026-10-05 ADR](../decisions/2026-10-05-ios-app-sessions-revocable-authorizations.md).
+- **The backend omits nulls** (`default-property-inclusion: non_null`): every field that can be
+  null must be optional in Swift, and fixtures must omit the key rather than send `null` (a
+  `null` fixture hides a non-optional property that a real omitted key would break).
+- **`Instant`s carry fractional seconds** (`2026-07-04T08:00:00.123456Z`) whenever Postgres has
+  them, which is always. A bare `ISO8601DateFormatter` returns nil for those, which silently
+  rendered every "last synced/used" as "—". Parse with `DateParsing.instant`.
+- **Backend enums grow.** Decode them through `LenientEnum` (unknown value → `.unknown`), or
+  `AccountType(raw:)` (→ `.other`). `AiCategorizationMode` is a raw-value struct instead, because
+  budget settings are saved read-modify-write and an unknown mode must go back unchanged.
+- **Credit cards (`CREDIT_CARD`) are liabilities without a loan schedule.** The Debts view sends
+  them to the account detail (amount due, due date, reward points), never to `loan-summary`. The
+  recurring calendar lists a card's statement payment with `creditCardPayment: true` and
+  `seriesId` = minus the card's account id: there is no series behind it.
 
 ## Tests
 
@@ -198,6 +218,11 @@ iOS (XCTest, run on the simulator):
   (401→refresh→retry, proactive near-expiry refresh), `DemoDashboardDataSourceTests`
 - `AccountsTests`, `BudgetTests`, `GoalsTests`, `FamilyTests`, `SettingsTests`, `AccessKeysTests` —
   per-feature decode/demo-source coverage, all against `MockURLProtocol` fixtures
+- `ApiContractTests` — payloads shaped like the 1.1.0 backend writes them (omitted nulls,
+  fractional-second instants, credit cards, card payments in the calendar, unknown enum values,
+  both session kinds, sidecar statuses, the pinned AI suggestion). Two of them read
+  `AccountType.java` and `Scopes.java` from the checkout and fail when the Swift copies drift;
+  they skip when the sources aren't reachable (a device run).
 - **`LiveBackendE2ETests` (`PicsouTests/E2E/`)** — the same `Live*DataSource`s against a REAL running
   backend instead of mocked JSON: dashboard, accounts+goals CRUD round-trip (including a manual cash
   transaction), budget, access-key create/list/revoke, family, sync, settings/MFA, and the OAuth
