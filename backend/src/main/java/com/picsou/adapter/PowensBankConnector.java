@@ -182,7 +182,7 @@ public class PowensBankConnector implements BankConnectorPort {
                 .block();
         } catch (WebClientResponseException ex) {
             log.warn("Powens transaction fetch failed for account {} ({}): {}",
-                externalAccountId, ex.getStatusCode(), ex.getResponseBodyAsString());
+                externalAccountId, ex.getStatusCode(), LogSanitizer.safe(ex.getResponseBodyAsString()));
             return List.of();
         }
 

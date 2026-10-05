@@ -7,6 +7,7 @@ import com.picsou.model.AccountType;
 import com.picsou.port.RevolutPort;
 import com.picsou.service.sync.SyncProgressService;
 import com.picsou.service.sync.SyncProvider;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -96,7 +97,7 @@ public class RevolutAdapter implements RevolutPort {
                         return Mono.error(new SyncException("BROWSER_LAUNCH_FAILED"));
                     }
                     log.error("revolut-auth sidecar /sync failed ({}) : {}",
-                        ex.getStatusCode(), ex.getResponseBodyAsString());
+                        ex.getStatusCode(), LogSanitizer.safe(ex.getResponseBodyAsString()));
                     return Mono.error(new SyncException(
                         "Failed to sync Revolut accounts. Please try again later."));
                 })

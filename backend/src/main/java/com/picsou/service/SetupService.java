@@ -9,6 +9,7 @@ import com.picsou.model.UserRole;
 import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -91,7 +92,7 @@ public class SetupService {
     @Transactional(isolation = Isolation.SERIALIZABLE)
     public AppUser seedAdmin(String username, String bcryptHash, String displayName, String avatarColor) {
         if (userRepository.existsByUsername(username)) {
-            log.info("Admin '{}' already exists, skipping seed", username);
+            log.info("Admin '{}' already exists, skipping seed", LogSanitizer.safe(username));
             return userRepository.findByUsernameWithMember(username).orElseThrow();
         }
 
@@ -141,7 +142,7 @@ public class SetupService {
             .build();
         userRepository.save(user);
 
-        log.info("setup.admin.created username={} role=ADMIN", username);
+        log.info("setup.admin.created username={} role=ADMIN", LogSanitizer.safe(username));
         return user;
     }
 

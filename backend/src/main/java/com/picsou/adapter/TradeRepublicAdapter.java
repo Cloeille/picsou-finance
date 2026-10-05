@@ -6,6 +6,7 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
 import com.picsou.port.TradeRepublicPort;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -100,7 +101,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
             .bodyToMono(JsonNode.class)
             .onErrorResume(WebClientResponseException.class, ex -> {
                 String body = ex.getResponseBodyAsString();
-                log.error("tr-auth sidecar /initiate failed ({}) : {}", ex.getStatusCode(), body);
+                log.error("tr-auth sidecar /initiate failed ({}) : {}", ex.getStatusCode(), LogSanitizer.safe(body));
                 return Mono.error(mapAuthError(body,
                     "Trade Republic authentication failed. Please check your credentials and try again."));
             })
@@ -130,7 +131,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
             .bodyToMono(JsonNode.class)
             .onErrorResume(WebClientResponseException.class, ex -> {
                 String body = ex.getResponseBodyAsString();
-                log.error("tr-auth sidecar /complete failed ({}) : {}", ex.getStatusCode(), body);
+                log.error("tr-auth sidecar /complete failed ({}) : {}", ex.getStatusCode(), LogSanitizer.safe(body));
                 return Mono.error(mapAuthError(body,
                     "The verification code is invalid or has expired. Please request a new one."));
             })
@@ -160,7 +161,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
             .retrieve()
             .bodyToMono(JsonNode.class)
             .onErrorResume(WebClientResponseException.class, ex -> {
-                log.error("tr-auth sidecar /refresh failed ({}) : {}", ex.getStatusCode(), ex.getResponseBodyAsString());
+                log.error("tr-auth sidecar /refresh failed ({}) : {}", ex.getStatusCode(), LogSanitizer.safe(ex.getResponseBodyAsString()));
                 // The sidecar relays TR's status verbatim: only 401/403 mean the
                 // refresh token was actually rejected. Anything else (TR 429
                 // rate-limit, sidecar 5xx) is transient and must not destroy the

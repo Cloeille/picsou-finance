@@ -6,6 +6,7 @@ import com.picsou.export.xlsx.AccountsWorkbookService;
 import com.picsou.export.xlsx.SheetLabels;
 import com.picsou.model.AppUser;
 import com.picsou.service.UserContext;
+import com.picsou.util.LogSanitizer;
 import io.github.bucket4j.Bucket;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -71,13 +72,13 @@ public class AccountExportController {
             key, k -> RateLimitConfig.createAccountExportBucket());
         if (!bucket.tryConsume(1)) {
             log.warn("accounts_export.rate_limited userId={} ip={}",
-                user.getId(), httpReq.getRemoteAddr());
+                user.getId(), LogSanitizer.safe(httpReq.getRemoteAddr()));
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
         }
 
         Long memberId = userContext.currentMemberId();
         log.warn("accounts_export.requested userId={} memberId={} accountIds={} ip={}",
-            user.getId(), memberId, req.accountIds(), httpReq.getRemoteAddr());
+            user.getId(), memberId, req.accountIds(), LogSanitizer.safe(httpReq.getRemoteAddr()));
 
         SheetLabels labels = SheetLabels.of(req.labelsOrEmpty());
         String filename = "picsou-comptes-" + filenameTimestamp() + ".xlsx";
