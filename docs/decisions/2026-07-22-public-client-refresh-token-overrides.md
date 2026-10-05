@@ -58,6 +58,27 @@ above and nothing else:
 Both defer (return `null`) for any request shape they don't recognize, so the authorization_code+PKCE
 path — and any future confidential client — is untouched.
 
+3. **Reuse detection and a fixed sign-in lifetime for `picsou-ios`** (amended 2026-10-05). Rotation
+   alone does not contain a stolen refresh token: if the attacker redeems it first, the device's copy
+   is the one that fails, and the attacker's chain keeps rotating. Each rotation also used to set
+   `expiresAt = now + TTL`, so that chain had no end. Per OAuth 2.1 and RFC 9700 §4.14.2:
+   - `NativeAppRefreshTokens` makes `picsou-ios` refresh tokens `<authorizationId>.<random>.<mac>`,
+     the MAC an HMAC-SHA256 (keyed by `JWT_SECRET`, domain-separated from the JWT signatures) over the
+     first two parts. The framework still stores and looks tokens up by full value.
+   - `RefreshTokenReuseDetector`, inserted at index 0 of the token endpoint's providers, handles a
+     refresh request whose token has a valid MAC but is not the authorization's current refresh
+     token. That token was issued and rotated away, so it deletes the whole authorization (current
+     refresh token, current access token through the `aid` check) and answers `invalid_grant`.
+     Anything else (current token, unknown format, authorization already gone) defers to the
+     framework.
+   - `NativeAppRefreshTokenGenerator` sets a `picsou-ios` refresh token's expiry to the
+     authorization code's issue time plus the refresh TTL (`app.oauth.refresh-token-ttl-days`, 30
+     days). Rotation renews the token, never the sign-in: a device signs in again at most every 30
+     days.
+
+   Remote-MCP clients keep the opaque, sliding refresh token: their retry behaviour is not ours to
+   control, and a false reuse there would disconnect a connector.
+
 ## Alternatives considered
 
 ### Give `picsou-ios` a client secret
@@ -108,6 +129,14 @@ making that commitment actually functional.
   throw `invalid_grant` on the missing PKCE verifier. This is framework behavior, not something this
   codebase controls — a future Spring AS upgrade that changes provider ordering would need this
   re-verified (the regression test would fail loudly, not silently).
+- **A lost refresh response signs the device out.** If the server rotates the token but the
+  response never reaches the app, the app retries with the old token, which now reads as reuse and
+  revokes the sign-in. No grace window, unlike the web Remember-Me cookie: the app's
+  `TokenRefresher` is single-flight, so concurrent refreshes never produce this, and the cost of a
+  false positive is one new sign-in.
+- **Hashes of rotated-away tokens were not kept.** Storing them on the authorization's attributes
+  grows the row with every rotation (an attacker can rotate on purpose) and needs a scan to map an
+  unknown token back to its row. The MAC'd format needs no storage and no migration.
 
 ## Consequences
 
@@ -118,7 +147,10 @@ making that commitment actually functional.
 - **New test**: `backend/src/test/java/com/picsou/config/PublicClientRefreshTokenIntegrationTest.java`
   — real filter chain, real Postgres (Testcontainers): authorize → exchange (refresh_token present) →
   redeem (200, rotated tokens) → rotated access token works against `/api/dashboard` → the
-  rotated-away refresh token is rejected (`invalid_grant`). Self-skips without Docker.
+  rotated-away refresh token is rejected (`invalid_grant`) → that reuse also kills the current
+  refresh token and access token. Self-skips without Docker.
+- **New (2026-10-05)**: `NativeAppRefreshTokens.java`, `RefreshTokenReuseDetector.java`, with unit
+  tests `RefreshTokenReuseDetectorTest` and `NativeAppRefreshTokenGeneratorTest`.
 - **No schema change**, no client-facing API shape change beyond the token response now correctly
   including `refresh_token`.
 - Full context and the two-bug narrative: [`docs/features/ios-app.md`](../features/ios-app.md)

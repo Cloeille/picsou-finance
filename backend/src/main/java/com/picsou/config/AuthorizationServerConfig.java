@@ -38,6 +38,8 @@ import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
+import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationServerMetadata;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
@@ -127,7 +129,9 @@ public class AuthorizationServerConfig {
     public SecurityFilterChain authorizationServerSecurityFilterChain(
         HttpSecurity http,
         JwtTokenAuthenticator jwtTokenAuthenticator,
-        RegisteredClientRepository registeredClientRepository
+        RegisteredClientRepository registeredClientRepository,
+        OAuth2AuthorizationService authorizationService,
+        NativeAppRefreshTokens nativeAppRefreshTokens
     ) throws Exception {
 
         OAuth2AuthorizationServerConfigurer authorizationServer =
@@ -160,7 +164,12 @@ public class AuthorizationServerConfig {
                 // for a NONE-method client, so the authorization_code+PKCE path is untouched.
                 .clientAuthentication(clientAuthentication -> clientAuthentication
                     .authenticationConverter(new PublicClientRefreshTokenAuthenticationConverter())
-                    .authenticationProvider(new PublicClientRefreshTokenAuthenticationProvider(registeredClientRepository))))
+                    .authenticationProvider(new PublicClientRefreshTokenAuthenticationProvider(registeredClientRepository)))
+                // Index 0 explicitly: the reuse check must see a rotated-away token before the
+                // framework's refresh provider rejects it as merely unknown.
+                .tokenEndpoint(tokenEndpoint -> tokenEndpoint
+                    .authenticationProviders(providers -> providers.add(0,
+                        new RefreshTokenReuseDetector(authorizationService, nativeAppRefreshTokens)))))
             .authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated())
             // The token endpoint is called by the native app with PKCE (no browser session);
             // the authorize endpoint is a GET. CSRF protection is not applicable to this chain.
@@ -411,8 +420,10 @@ public class AuthorizationServerConfig {
      * <p>Spring's default is a defensible security posture for browser-based public clients (a
      * refresh token sitting in JS-accessible storage is a bigger prize than a short-lived access
      * token), but it is overly broad for a native app storing the token in the Keychain, and this
-     * client already carries the mitigation OAuth 2.1 asks for on public-client refresh tokens:
-     * rotation on every use ({@code reuseRefreshTokens(false)}). The JDBC authorization store and
+     * client carries the mitigations OAuth 2.1 asks for on public-client refresh tokens: rotation on
+     * every use ({@code reuseRefreshTokens(false)}) with reuse detection
+     * ({@link RefreshTokenReuseDetector}), and a sign-in lifetime that rotation cannot extend (the
+     * refresh TTL counts from the authorization code, not from each rotation). The JDBC authorization store and
      * its Jackson mix-ins were already built anticipating a working refresh flow (see the comments
      * on {@link #authorizationService} and {@link #jwtTokenCustomizer()}) — this bean is what makes
      * that flow actually run.
@@ -421,24 +432,40 @@ public class AuthorizationServerConfig {
      * {@link OAuth2AccessTokenGenerator} for the other two token types; only the refresh-token leg is
      * replaced, with {@link NativeAppRefreshTokenGenerator} below — a copy of
      * {@code OAuth2RefreshTokenGenerator}'s real generation logic (96-byte URL-safe base64 key, TTL
-     * from the registered client) minus the public-client bypass.
+     * from the registered client) minus the public-client bypass. {@code picsou-ios} tokens differ
+     * in two ways: their value comes from {@link NativeAppRefreshTokens} so a reuse can be traced to
+     * its authorization, and they expire one refresh TTL after the sign-in, however often rotated.
      */
     @Bean
     public OAuth2TokenGenerator<OAuth2Token> tokenGenerator(
         JWKSource<SecurityContext> jwkSource,
-        OAuth2TokenCustomizer<JwtEncodingContext> jwtTokenCustomizer
+        OAuth2TokenCustomizer<JwtEncodingContext> jwtTokenCustomizer,
+        NativeAppRefreshTokens nativeAppRefreshTokens,
+        OAuthClientProperties props
     ) {
         JwtEncoder jwtEncoder = new NimbusJwtEncoder(jwkSource);
         JwtGenerator jwtGenerator = new JwtGenerator(jwtEncoder);
         jwtGenerator.setJwtCustomizer(jwtTokenCustomizer);
-        return new DelegatingOAuth2TokenGenerator(
-            jwtGenerator, new OAuth2AccessTokenGenerator(), new NativeAppRefreshTokenGenerator());
+        return new DelegatingOAuth2TokenGenerator(jwtGenerator, new OAuth2AccessTokenGenerator(),
+            new NativeAppRefreshTokenGenerator(nativeAppRefreshTokens, props.getClientId()));
+    }
+
+    @Bean
+    NativeAppRefreshTokens nativeAppRefreshTokens(@Value("${app.jwt.secret}") String secret) {
+        return new NativeAppRefreshTokens(secret);
     }
 
     /** See {@link #tokenGenerator} for why this exists instead of the framework default. */
     private static final class NativeAppRefreshTokenGenerator implements OAuth2TokenGenerator<OAuth2RefreshToken> {
         private final StringKeyGenerator refreshTokenGenerator =
             new Base64StringKeyGenerator(Base64.getUrlEncoder().withoutPadding(), 96);
+        private final NativeAppRefreshTokens nativeAppRefreshTokens;
+        private final String nativeAppClientId;
+
+        NativeAppRefreshTokenGenerator(NativeAppRefreshTokens nativeAppRefreshTokens, String nativeAppClientId) {
+            this.nativeAppRefreshTokens = nativeAppRefreshTokens;
+            this.nativeAppClientId = nativeAppClientId;
+        }
 
         @Override
         public OAuth2RefreshToken generate(OAuth2TokenContext context) {
@@ -446,8 +473,18 @@ public class AuthorizationServerConfig {
                 return null;
             }
             Instant issuedAt = Instant.now();
-            Instant expiresAt = issuedAt.plus(context.getRegisteredClient().getTokenSettings().getRefreshTokenTimeToLive());
-            return new OAuth2RefreshToken(refreshTokenGenerator.generateKey(), issuedAt, expiresAt);
+            Duration ttl = context.getRegisteredClient().getTokenSettings().getRefreshTokenTimeToLive();
+            OAuth2Authorization authorization = context.getAuthorization();
+            if (authorization == null || !nativeAppClientId.equals(context.getRegisteredClient().getClientId())) {
+                return new OAuth2RefreshToken(refreshTokenGenerator.generateKey(), issuedAt, issuedAt.plus(ttl));
+            }
+            OAuth2Authorization.Token<OAuth2AuthorizationCode> code = authorization.getToken(OAuth2AuthorizationCode.class);
+            Instant signedInAt = code != null ? code.getToken().getIssuedAt() : issuedAt;
+            Instant expiresAt = signedInAt.plus(ttl);
+            if (!expiresAt.isAfter(issuedAt)) {
+                throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
+            }
+            return new OAuth2RefreshToken(nativeAppRefreshTokens.issue(authorization.getId()), issuedAt, expiresAt);
         }
     }
 

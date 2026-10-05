@@ -187,6 +187,19 @@ class PublicClientRefreshTokenIntegrationTest {
                 .param("client_id", clientId))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("invalid_grant"));
+
+        // 6) Reuse detection: that reuse revoked the whole authorization, so whoever holds the
+        // current refresh token and access token is locked out too.
+        mockMvc.perform(post("/oauth2/token")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("grant_type", "refresh_token")
+                .param("refresh_token", refreshToken2)
+                .param("client_id", clientId))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("invalid_grant"));
+        mockMvc.perform(get("/api/dashboard")
+                .header("Authorization", "Bearer " + rotatedAccessToken))
+            .andExpect(status().isUnauthorized());
     }
 
     private String randomCodeVerifier() {
