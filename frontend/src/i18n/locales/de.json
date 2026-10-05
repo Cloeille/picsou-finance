@@ -151,9 +151,11 @@
     "liabilitiesTitle": "Verbindlichkeiten",
     "liabilitiesDescription": "Ausstehende Schulden nach Konto",
     "portfolioPerformance": "portfolio performance",
-    "liabilities": "Liabilities",
-    "monthlyPayment": "Monthly payment",
-    "loanParamsUnconfigured": "Parameters not configured"
+    "liabilities": "Verbindlichkeiten",
+    "monthlyPayment": "Monatliche Rate",
+    "loanParamsUnconfigured": "Parameter nicht konfiguriert",
+    "amountDue": "Fälliger Betrag",
+    "dueOn": "Fällig am {{date}}"
   },
   "accounts": {
     "title": "Konten",

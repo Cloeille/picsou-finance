@@ -438,7 +438,7 @@ export function AccountDetailPage() {
             date: editingTx.date,
             description: editingTx.description,
             amount: editingTx.amount,
-            txType: editingTx.txType,
+            txType: editingTx.txType ?? null,
             ticker: editingTx.ticker ?? undefined,
             name: editingTx.name ?? undefined,
             quantity: editingTx.quantity ?? undefined,

@@ -147,6 +147,8 @@
     "liabilities": "Dettes",
     "monthlyPayment": "Mensualité totale",
     "loanParamsUnconfigured": "Paramètres non renseignés",
+    "amountDue": "Montant à régler",
+    "dueOn": "Prélevé le {{date}}",
     "evolution": {
       "net": "Évolution du patrimoine net",
       "gross": "Évolution du patrimoine brut",

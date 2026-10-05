@@ -151,9 +151,11 @@
     "liabilitiesTitle": "Pasivos",
     "liabilitiesDescription": "Deuda pendiente por cuenta",
     "portfolioPerformance": "portfolio performance",
-    "liabilities": "Liabilities",
-    "monthlyPayment": "Monthly payment",
-    "loanParamsUnconfigured": "Parameters not configured"
+    "liabilities": "Pasivos",
+    "monthlyPayment": "Cuota mensual",
+    "loanParamsUnconfigured": "Parámetros no configurados",
+    "amountDue": "Importe a pagar",
+    "dueOn": "Vence el {{date}}"
   },
   "accounts": {
     "title": "Cuentas",
