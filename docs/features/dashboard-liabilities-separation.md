@@ -42,7 +42,8 @@ data-model change — but the dashboard now separates four readings: **assets**,
 - `LiabilitiesCard` renders `data.liabilities` — each loan's name, outstanding
   amount in red, and its **repayment progress**: a `percentPaid` bar plus the
   monthly payment when the loan's `Debt` row supplies them, or an "unconfigured"
-  hint otherwise. The header sums `totalMonthlyPayment`. Rendered when
+  hint otherwise. A credit card shows its amount due and payment date instead,
+  when known. The header sums `totalMonthlyPayment`. Rendered when
   `data.liabilities.length > 0`. Full card spec:
   [dashboard-liabilities-card.md](./dashboard-liabilities-card.md).
 
@@ -59,8 +60,8 @@ data-model change — but the dashboard now separates four readings: **assets**,
   title, renders `LiabilitiesCard`
 - `frontend/src/components/shared/NetWorthChart.tsx` — tooltip reads row `pnl`
 - `frontend/src/components/shared/LiabilitiesCard.tsx` — liabilities list
-- `frontend/src/demo/data/dashboard.ts` — demo mock ships one loan so demo
-  mode exercises the card
+- `frontend/src/demo/data/dashboard.ts` — demo mock ships one loan and the demo
+  credit card so demo mode exercises both row kinds
 
 ### Flow
 

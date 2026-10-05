@@ -171,9 +171,24 @@ public class DashboardService {
         Map<Long, Debt> debtByAccountId = debtRepository.findByAccountIdIn(liabilityIds).stream()
             .collect(Collectors.toMap(d -> d.getAccount().getId(), d -> d));
 
+        Map<Long, Account> accountsById = accounts.stream()
+            .collect(Collectors.toMap(Account::getId, a -> a));
+
         BigDecimal totalMonthlyPayment = null;
         List<DashboardResponse.LiabilityEntry> liabilities = new ArrayList<>();
         for (DistributionItem item : rawLiabilities) {
+            Account account = accountsById.get(item.accountId());
+            BigDecimal paymentDueAmountEur = null;
+            LocalDate paymentDueDate = null;
+            if (account.getType() == AccountType.CREDIT_CARD) {
+                // Weighted like balanceEur so a shared card shows the member's part of the statement.
+                if (account.getPaymentDueAmount() != null) {
+                    paymentDueAmountEur = AccountAccessResolver.weigh(
+                        priceService.toEur(account.getPaymentDueAmount(), account.getCurrency(), account.getTicker()),
+                        shares.get(account.getId()));
+                }
+                paymentDueDate = account.getPaymentDueDate();
+            }
             Debt debt = debtByAccountId.get(item.accountId());
             BigDecimal monthlyPayment = null;
             Double percentPaid = null;
@@ -195,7 +210,7 @@ public class DashboardService {
             liabilities.add(new DashboardResponse.LiabilityEntry(
                 item.accountId(), item.name(), item.color(), item.balanceEur(),
                 item.percentage(), item.accountType(), item.hasHoldings(),
-                monthlyPayment, percentPaid
+                monthlyPayment, percentPaid, paymentDueAmountEur, paymentDueDate
             ));
         }
 

@@ -147,6 +147,8 @@
     "liabilities": "Liabilities",
     "monthlyPayment": "Monthly payment",
     "loanParamsUnconfigured": "Parameters not configured",
+    "amountDue": "Amount due",
+    "dueOn": "Due {{date}}",
     "evolution": {
       "net": "Net worth evolution",
       "gross": "Gross assets evolution",
