@@ -1704,6 +1704,90 @@ Returns whether the Finary API credentials (`FINARY_EMAIL`, `FINARY_PASSWORD`) a
 
 ---
 
+### 14b. Actual Budget import — `/api/actual/import`
+
+Two-phase, member-scoped import of an **Actual Budget** export: the budget `.zip`
+(`db.sqlite` + `metadata.json`) or a bare `db.sqlite`, recognised by signature. Scheduled
+transactions, budget envelopes and live sync with an Actual server are not part of it.
+See [Actual Budget import](../../docs/features/actual-budget-import.md).
+
+#### `POST /api/actual/import/preview`
+
+- **Auth:** Required. **Content-Type:** `multipart/form-data`, field `file` (at most 10 MB).
+- **Response `200` — `ActualBudgetImportDtos.Preview`:** `fileToken` (member-bound, single-use,
+  30-minute TTL), `currency` (the budget's `defaultCurrencyCode`, or `null` when the file has
+  none), `accounts[]` (`sourceId`, `name`, `offBudget`, `closed`, `suggestedType`, `balance`,
+  `transactionCount`, `importedAccountId` = the account an earlier import created for this
+  source, or `null`), `categories[]` (`sourceId`, `name`, `groupName`, `income`,
+  `transactionCount`), `existingAccounts[]`, `actualAccountIds[]` (the existing accounts any
+  Actual import created, which the wizard offers only to the source they were created for),
+  `existingCategories[]`,
+  `sampleTransactions[]`
+  (newest 20: `sourceId`, `accountSourceId`, `date`, `amount`, `payee`, `notes`,
+  `categorySourceId`, `kind` = `REGULAR` | `TRANSFER` | `STARTING_BALANCE`),
+  `totalTransactions`, `transferTransactions`.
+
+The whole file is validated before a token is returned; preview writes nothing.
+
+#### `POST /api/actual/import/plan`
+
+- **Auth:** Required. **Content-Type:** `application/json`, the same body as
+  `POST /api/actual/import`. **Response `200` — `Plan`:** `transactionsToAdd`,
+  `transactionsToDelete`, `transactionsToMove`, `warnings[]` (`reason`, `count`),
+  `largeDeletion` (`true` when the import would delete more than 200 rows, or more than 20 % of
+  an account's imported rows).
+
+A dry run: it runs every validation of the import and fails with the same `400`s, writes
+nothing and leaves the token usable. It does not refuse a large deletion; it reports it.
+
+#### `POST /api/actual/import`
+
+- **Auth:** Required. **Content-Type:** `application/json`. **Response `201` — `Result`.**
+
+```json
+{
+  "fileToken": "token-from-preview",
+  "currency": "EUR",
+  "accountMappings": [
+    { "sourceId": "acc-1", "action": "CREATE_NEW",
+      "newAccount": { "name": "Everyday", "type": "CHECKING", "currency": "EUR" } },
+    { "sourceId": "acc-2", "action": "MAP_EXISTING", "targetAccountId": 12 },
+    { "sourceId": "acc-3", "action": "SKIP" }
+  ],
+  "categoryMappings": [
+    { "sourceId": "cat-1", "action": "CREATE_NEW", "name": "Groceries" },
+    { "sourceId": "cat-2", "action": "MAP_EXISTING", "targetCategoryId": 40 },
+    { "sourceId": "cat-3", "action": "UNCATEGORIZED" }
+  ],
+  "acknowledgeLargeDeletion": false
+}
+```
+
+Every source account and category needs exactly one mapping. `currency` must match the
+budget's when the file records one, and every target account's. Investment, property and
+loan account types are refused (the file holds cash ledgers, and Picsou stores a loan as the
+positive amount owed). `MAP_EXISTING` categories must be active and of the same kind
+(income/expense). On a re-import, an account an Actual import created for a source account of
+this file (`externalAccountId = actual_<source id>`), mapped from that same source, follows the
+file: rows no longer in Actual are deleted, rows moved to another such account are moved.
+`MAP_EXISTING` onto an `actual_<X>` account from a source other than `X` is refused with `400`.
+Every other account (the user's) only receives new rows; rows missing or moved there are kept
+and reported as warnings. When the plan reports
+`largeDeletion`, the import is refused with `400` unless `acknowledgeLargeDeletion` is `true`
+(optional, defaults to `false`). Every touched account an Actual import created gets its balance and
+snapshots recomputed from its full ledger, whichever action maps it; accounts the user created
+keep their balance.
+
+**Result:** `accountsCreated`, `accountsMapped`, `accountsSkipped`, `categoriesCreated`,
+`transactionsImported`, `transactionsSkipped`, `transactionsDeleted`, `transactionsMoved`,
+`warnings[]` (`reason` = `KEPT_MISSING` | `KEPT_MOVED`, `count`).
+
+**Errors:** `400` (RFC 7807) for unsupported/corrupt/unsafe files (including a value over
+1 MiB, a table over its row cap, or a generated column), invalid mappings and expired
+previews — nothing is written; `429` when the shared sync/import rate limit trips.
+
+---
+
 ### 15. Amundi Épargne Salariale — `/api/amundi`
 
 Read-only. Amundi gates its login behind a captcha and a mandatory second
