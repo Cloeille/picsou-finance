@@ -136,7 +136,10 @@ private struct MfaEnrollSheet: View {
         busy = true; error = nil
         Task {
             do { secret = try await dataSource.mfaEnrollInit(password: password).secret; step = .scan }
-            catch { self.error = (error as? APIError)?.errorDescription ?? "Mot de passe incorrect." }
+            catch {
+                let apiError = error as? APIError
+                self.error = apiError?.credentialMessage ?? apiError?.errorDescription ?? "Mot de passe incorrect."
+            }
             busy = false
         }
     }
@@ -200,7 +203,7 @@ private struct MfaCredentialSheet: View {
                     onDone(); dismiss()
                 }
             } catch {
-                self.error = "Échec — vérifie le mot de passe et le code."
+                self.error = (error as? APIError)?.credentialMessage ?? "Échec — vérifie le mot de passe et le code."
             }
             busy = false
         }

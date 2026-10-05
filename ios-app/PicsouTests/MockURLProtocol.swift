@@ -32,4 +32,10 @@ final class MockURLProtocol: URLProtocol {
     static func status(_ request: URLRequest, _ code: Int, json: String = "") -> (HTTPURLResponse, Data) {
         (HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: nil)!, Data(json.utf8))
     }
+
+    /// The backend security entry point's 401 for a missing, expired or revoked access token.
+    static func tokenRejected(_ request: URLRequest) -> (HTTPURLResponse, Data) {
+        status(request, 401, json:
+            #"{"type":"urn:picsou:problem:authentication-required","status":401,"title":"Unauthorized","detail":"Authentication required"}"#)
+    }
 }

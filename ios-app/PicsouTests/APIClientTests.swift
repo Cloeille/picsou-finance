@@ -46,7 +46,7 @@ final class APIClientTests: XCTestCase {
                 let bearer = request.value(forHTTPHeaderField: "Authorization")
                 return bearer == "Bearer new"
                     ? MockURLProtocol.ok(request, json: #"{"ok":true}"#)
-                    : MockURLProtocol.status(request, 401)
+                    : MockURLProtocol.tokenRejected(request)
             }
             return MockURLProtocol.status(request, 404)
         }
@@ -75,7 +75,7 @@ final class APIClientTests: XCTestCase {
             let bearer = request.value(forHTTPHeaderField: "Authorization")
             return bearer == "Bearer fresh"
                 ? MockURLProtocol.ok(request, json: #"{"ok":true}"#)
-                : MockURLProtocol.status(request, 401)
+                : MockURLProtocol.tokenRejected(request)
         }
 
         let ping: Ping = try await api.get("api/ping")
@@ -97,7 +97,7 @@ final class APIClientTests: XCTestCase {
                 tokenCalls.increment()
                 return MockURLProtocol.status(request, 400, json: #"{"error":"invalid_grant"}"#)
             }
-            return MockURLProtocol.status(request, 401)
+            return MockURLProtocol.tokenRejected(request)
         }
 
         do {
@@ -123,7 +123,7 @@ final class APIClientTests: XCTestCase {
         MockURLProtocol.handler = { request in
             request.url?.path == "/oauth2/token"
                 ? MockURLProtocol.status(request, 401, json: #"{"error":"invalid_client"}"#)
-                : MockURLProtocol.status(request, 401)
+                : MockURLProtocol.tokenRejected(request)
         }
 
         let _: Ping? = try? await appState.api.get("api/ping")
@@ -144,7 +144,7 @@ final class APIClientTests: XCTestCase {
         MockURLProtocol.handler = { request in
             request.url?.path == "/oauth2/token"
                 ? MockURLProtocol.status(request, 503)
-                : MockURLProtocol.status(request, 401)
+                : MockURLProtocol.tokenRejected(request)
         }
 
         do {
@@ -155,6 +155,77 @@ final class APIClientTests: XCTestCase {
         }
         XCTAssertEqual(lost.value, 0)
         XCTAssertEqual(tokenStore.load()?.refreshToken, "refresh-1")
+    }
+
+    /// Stubs `path` with a credential-check failure and counts token-endpoint calls.
+    private func stubCredentialFailure(path: String, status: Int, json: String) -> Counter {
+        let tokenCalls = Counter()
+        MockURLProtocol.handler = { request in
+            if request.url?.path == "/oauth2/token" {
+                tokenCalls.increment()
+                return MockURLProtocol.ok(request, json:
+                    #"{"access_token":"new","refresh_token":"refresh-2","expires_in":900,"token_type":"Bearer"}"#)
+            }
+            return request.url?.path == path
+                ? MockURLProtocol.status(request, status, json: json)
+                : MockURLProtocol.status(request, 404)
+        }
+        return tokenCalls
+    }
+
+    func testWrongCurrentPasswordOnChangePasswordIsShownWithoutRefreshOrSignOut() async {
+        let (api, tokenStore) = makeClient(tokens: TokenSet(
+            accessToken: "valid", refreshToken: "refresh-1", accessTokenExpiry: Date().addingTimeInterval(3600)))
+        let lost = Counter()
+        api.onAuthenticationLost = { lost.increment() }
+        let body = #"{"type":"about:blank","title":"Unauthorized","status":401,"detail":"Invalid credentials","instance":"/api/auth/change-password"}"#
+        let tokenCalls = stubCredentialFailure(path: "/api/auth/change-password", status: 401, json: body)
+
+        do {
+            try await LiveSettingsDataSource(api: api).changePassword(current: "typo", new: "new-password-1")
+            XCTFail("expected the request to fail")
+        } catch {
+            XCTAssertEqual(error as? APIError, .http(status: 401, body: body))
+            XCTAssertEqual((error as? APIError)?.credentialMessage, "Mot de passe actuel incorrect.")
+        }
+        XCTAssertEqual(tokenCalls.value, 0)
+        XCTAssertEqual(lost.value, 0)
+        XCTAssertEqual(tokenStore.load()?.refreshToken, "refresh-1")
+    }
+
+    func testReAuthFailureOnMfaIsShownWithoutRefreshOrSignOut() async {
+        let (api, tokenStore) = makeClient(tokens: TokenSet(
+            accessToken: "valid", refreshToken: "refresh-1", accessTokenExpiry: Date().addingTimeInterval(3600)))
+        let lost = Counter()
+        api.onAuthenticationLost = { lost.increment() }
+        let body = #"{"type":"about:blank","title":"REAUTH_FAILED","status":401,"detail":"invalid totp","instance":"/api/auth/mfa/disable"}"#
+        let tokenCalls = stubCredentialFailure(path: "/api/auth/mfa/disable", status: 401, json: body)
+
+        do {
+            try await LiveSettingsDataSource(api: api).mfaDisable(password: "secret", code: "000000")
+            XCTFail("expected the request to fail")
+        } catch {
+            XCTAssertEqual(error as? APIError, .http(status: 401, body: body))
+            XCTAssertEqual((error as? APIError)?.credentialMessage, "invalid totp")
+        }
+        XCTAssertEqual(tokenCalls.value, 0)
+        XCTAssertEqual(lost.value, 0)
+        XCTAssertEqual(tokenStore.load()?.refreshToken, "refresh-1")
+    }
+
+    func testWrongPasswordOnMfaEnrollShowsTheServerMessage() async {
+        let (api, _) = makeClient(tokens: TokenSet(
+            accessToken: "valid", refreshToken: "refresh-1", accessTokenExpiry: Date().addingTimeInterval(3600)))
+        let body = #"{"type":"about:blank","title":"Bad Request","status":400,"detail":"Current password is incorrect","instance":"/api/auth/mfa/enroll/init"}"#
+        let tokenCalls = stubCredentialFailure(path: "/api/auth/mfa/enroll/init", status: 400, json: body)
+
+        do {
+            _ = try await LiveSettingsDataSource(api: api).mfaEnrollInit(password: "typo")
+            XCTFail("expected the request to fail")
+        } catch {
+            XCTAssertEqual((error as? APIError)?.credentialMessage, "Mot de passe actuel incorrect.")
+        }
+        XCTAssertEqual(tokenCalls.value, 0)
     }
 }
 

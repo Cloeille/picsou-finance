@@ -1,8 +1,8 @@
 import Foundation
 
-/// Thin JSON client for the Picsou REST API. Injects the Bearer access token, refreshes it once on a
-/// 401 (and proactively when it's about to expire), and asks `AppState` to sign out when refresh
-/// ultimately fails.
+/// Thin JSON client for the Picsou REST API. Injects the Bearer access token, refreshes it once when
+/// the server rejects it (and proactively when it's about to expire), and asks `AppState` to sign out
+/// when refresh ultimately fails.
 final class APIClient: @unchecked Sendable {
     private let serverConfig: ServerConfig
     private let tokenStore: TokenStoring
@@ -78,8 +78,7 @@ final class APIClient: @unchecked Sendable {
         do {
             let token = try await validAccessToken()
             let (data, response) = try await send(url: url, bearer: token, method: method, body: body)
-            if (response as? HTTPURLResponse)?.statusCode == 401 {
-                // Expired/rejected token — refresh once and retry.
+            if Self.isTokenRejection(data, response) {
                 let fresh = try await refresher.forceRefresh()
                 let (retryData, retryResponse) = try await send(url: url, bearer: fresh.accessToken, method: method, body: body)
                 return try validate(retryData, retryResponse)
@@ -109,11 +108,16 @@ final class APIClient: @unchecked Sendable {
 
     private func validate(_ data: Data, _ response: URLResponse) throws -> Data {
         guard let http = response as? HTTPURLResponse else { throw APIError.network("No HTTP response") }
-        switch http.statusCode {
-        case 200...299: return data
-        case 401: throw APIError.unauthorized
-        default: throw APIError.http(status: http.statusCode, body: String(data: data, encoding: .utf8))
-        }
+        if (200...299).contains(http.statusCode) { return data }
+        if Self.isTokenRejection(data, response) { throw APIError.unauthorized }
+        throw APIError.http(status: http.statusCode, body: String(data: data, encoding: .utf8))
+    }
+
+    /// The server rejected the Bearer itself (missing, expired or revoked). Other 401s, such as a
+    /// wrong current password on change-password, carry no such type and surface as `.http`.
+    private static func isTokenRejection(_ data: Data, _ response: URLResponse) -> Bool {
+        (response as? HTTPURLResponse)?.statusCode == 401
+            && ProblemDetail(body: String(data: data, encoding: .utf8))?.type == ProblemDetail.authenticationRequiredType
     }
 
     /// A non-expired access token, refreshing proactively when within 60s of expiry.

@@ -89,9 +89,15 @@ with XcodeGen (not committed).
 - `ServerConfig` stores the instance URL (validated via `/actuator/health`).
 - `OAuthService` runs the PKCE flow and token/refresh grants; `TokenStore` persists the `TokenSet`
   in the Keychain (device-only); `BiometricGate` gates entry with Face ID.
-- `APIClient` injects the Bearer token and refreshes once on a 401 (and proactively near expiry)
-  via an actor-based single-flight (`TokenRefresher`); on terminal failure it asks `AppState` to
-  sign out. `AppState.signOut()` / `resetServer()` clear the Keychain and change phase at once,
+- `APIClient` injects the Bearer token and refreshes once when the server rejects it (and
+  proactively near expiry) via an actor-based single-flight (`TokenRefresher`); on terminal failure
+  it asks `AppState` to sign out. "Rejected" means a 401 whose ProblemDetail `type` is
+  `urn:picsou:problem:authentication-required`, which only the security entry point sends
+  (`SecurityConfig.AUTHENTICATION_REQUIRED_TYPE`) for a missing, expired or revoked token. A 401
+  from a credential check (wrong current password on change-password, `REAUTH_FAILED`) keeps the
+  default type, so the app surfaces it as an ordinary `.http` error and the Profile / 2FA screens
+  show it. Before this, a typo in the current password refreshed, retried, then signed the device
+  out. `AppState.signOut()` / `resetServer()` clear the Keychain and change phase at once,
   then send a best-effort `DELETE /api/auth/sessions/{aid}` (the `aid` claim of the access token,
   refreshed first if it is about to expire; 5 s timeout, errors ignored) so the server forgets the
   device too. This refresh path only became a real, working feature with the two backend overrides
@@ -229,7 +235,9 @@ Backend (Mockito + AssertJ, plus Testcontainers Postgres integration tests):
 
 iOS (XCTest, run on the simulator):
 - `PKCETests` (incl. the RFC 7636 S256 vector), `DashboardDecodingTests`, `APIClientTests`
-  (401→refresh→retry, proactive near-expiry refresh), `DemoDashboardDataSourceTests`
+  (401→refresh→retry, proactive near-expiry refresh, refresh refused → one sign-out, a
+  credential-check 401 or 400 on change-password / MFA → no refresh, no sign-out, French
+  message), `DemoDashboardDataSourceTests`
 - `AccountsTests`, `BudgetTests`, `GoalsTests`, `FamilyTests`, `SettingsTests`, `AccessKeysTests` —
   per-feature decode/demo-source coverage, all against `MockURLProtocol` fixtures
 - `ApiContractTests` — payloads shaped like the 1.1.0 backend writes them (omitted nulls,

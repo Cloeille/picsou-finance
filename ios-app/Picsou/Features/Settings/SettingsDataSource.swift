@@ -37,6 +37,18 @@ struct MfaEnrollInit: Decodable, Equatable {
     let secret: String
 }
 
+extension APIError {
+    /// What to show when the server refuses a password or a 2FA code: French text for the
+    /// backend's fixed English details, else the server's own `detail`.
+    var credentialMessage: String? {
+        switch problemDetail {
+        case "Invalid credentials", "Current password is incorrect": return "Mot de passe actuel incorrect."
+        case "Invalid verification code": return "Code 2FA invalide."
+        case let detail: return detail
+        }
+    }
+}
+
 fileprivate struct RecoveryCodesResponse: Decodable { let recoveryCodes: [String] }
 fileprivate struct EnrollInitBody: Encodable { let currentPassword: String }
 fileprivate struct EnrollVerifyBody: Encodable { let code: String }

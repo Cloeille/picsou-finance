@@ -33,6 +33,9 @@ import java.util.Map;
 @EnableWebSecurity
 public class SecurityConfig {
 
+    /** ProblemDetail {@code type} of the 401 sent when a request carries no valid access token. */
+    public static final String AUTHENTICATION_REQUIRED_TYPE = "urn:picsou:problem:authentication-required";
+
     @Value("${app.cors.allowed-origins:}")
     private String allowedOrigins;
 
@@ -161,8 +164,10 @@ public class SecurityConfig {
             // ExceptionHandlingConfigurer ignores defaultAuthenticationEntryPointFor(...) mappings
             // entirely once a plain authenticationEntryPoint(...) is set, so /mcp/** gets its own
             // RFC 9728 challenge (McpAuthenticationEntryPoint) while every other path falls through
-            // to the catch-all matcher below, which reproduces the original problem+json body
-            // unchanged.
+            // to the catch-all matcher below, which writes the problem+json body. Its `type` is
+            // what tells a client "your token was missing, expired or revoked" apart from a 401
+            // raised by a credential check (BadCredentialsException, ReAuthFailedException), so
+            // the iOS app refreshes or signs out only on the former.
             .exceptionHandling(ex -> ex
                 .defaultAuthenticationEntryPointFor(
                     new McpAuthenticationEntryPoint(),
@@ -173,8 +178,8 @@ public class SecurityConfig {
                         res.setStatus(401);
                         res.setContentType("application/problem+json");
                         res.getWriter().write("""
-                            {"status":401,"title":"Unauthorized","detail":"Authentication required"}
-                            """);
+                            {"type":"%s","status":401,"title":"Unauthorized","detail":"Authentication required"}
+                            """.formatted(AUTHENTICATION_REQUIRED_TYPE));
                     },
                     AnyRequestMatcher.INSTANCE
                 )

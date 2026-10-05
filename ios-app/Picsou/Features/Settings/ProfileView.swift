@@ -73,7 +73,8 @@ struct ProfileView: View {
                 message = "Mot de passe changé. Une reconnexion peut être nécessaire."
             } catch {
                 isError = true
-                message = (error as? APIError)?.errorDescription ?? "Échec du changement de mot de passe."
+                let apiError = error as? APIError
+                message = apiError?.credentialMessage ?? apiError?.errorDescription ?? "Échec du changement de mot de passe."
             }
             savingPassword = false
         }
