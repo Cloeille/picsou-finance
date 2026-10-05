@@ -75,6 +75,7 @@
 | 2026-09-23 | [A SCPI share is not a property](./decisions/2026-09-23-scpi-not-a-property.md) | Active |
 | 2026-09-26 | [CORUM client space fills existing SCPI accounts through a browser sidecar](./decisions/2026-09-26-corum-scpi-sidecar.md) | Active |
 | 2026-09-27 | [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](./decisions/2026-09-27-sofidy-scpi-sidecar.md) | Active |
+| 2026-10-05 | [The iOS app's sign-ins are revocable sessions, checked on every request](./decisions/2026-10-05-ios-app-sessions-revocable-authorizations.md) | Active |
 
 ## Feature notes
 

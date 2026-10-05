@@ -115,6 +115,13 @@ public class AuthorizationServerConfig {
     /** The {@code aud} claim stamped on every MCP access token; also the RFC 9728 {@code resource}. */
     public static final String MCP_AUDIENCE = "picsou-mcp";
 
+    /**
+     * Claim carrying the {@code oauth2_authorization} row id on a native-app access token. The
+     * resource server checks the row still exists, so revoking the app from Settings › Sessions
+     * locks the device out immediately instead of after the access-token TTL.
+     */
+    public static final String AUTHORIZATION_ID_CLAIM = "aid";
+
     @Bean
     @Order(1)
     public SecurityFilterChain authorizationServerSecurityFilterChain(
@@ -339,7 +346,8 @@ public class AuthorizationServerConfig {
      * <p>Two claim shapes branch on the {@link #MCP_CLIENT_SETTING} flag on the registered client:
      * <ul>
      *   <li><b>iOS / first-party</b> (flag absent) — {@code type=access}, {@code uid}, {@code tv},
-     *       {@code role}, default audience. Unchanged from before this MCP branch existed.</li>
+     *       {@code role}, default audience, plus {@link #AUTHORIZATION_ID_CLAIM} naming the
+     *       authorization the token belongs to (see {@code NativeAppSessionService}).</li>
      *   <li><b>Remote-MCP client</b> (flag {@code true}) — {@code type=mcp}, {@code aud=picsou-mcp},
      *       {@code uid}, {@code tv}, {@code scope} (space-delimited granted scopes), and
      *       deliberately <em>no</em> {@code role} — an MCP token authorizes {@code /mcp} purely by
@@ -373,6 +381,9 @@ public class AuthorizationServerConfig {
                             .claim("uid", user.getId())
                             .claim("tv", user.getTokenVersion())
                             .claim("role", user.getRole().name());
+                        if (context.getAuthorization() != null) {
+                            context.getClaims().claim(AUTHORIZATION_ID_CLAIM, context.getAuthorization().getId());
+                        }
                     }
                 }
             }

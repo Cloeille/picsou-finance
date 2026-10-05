@@ -147,7 +147,7 @@ export function useSessions() {
 export function useRevokeSession() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: number) => mfaApi.revokeSession(id),
+    mutationFn: (id: string) => mfaApi.revokeSession(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: MFA_KEYS.sessions }),
   })
 }

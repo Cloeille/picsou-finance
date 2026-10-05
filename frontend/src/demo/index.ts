@@ -57,7 +57,8 @@ handlers.set(key('POST', '/auth/refresh'), () => ({ username: 'demo' }))
 // Persistent sessions — demo shows one current desktop session
 handlers.set(key('GET', '/auth/sessions'), () => [
   {
-    id: 1,
+    id: '1',
+    kind: 'REMEMBER_ME',
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
     ipPrefix: '192.168.1',
     createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
