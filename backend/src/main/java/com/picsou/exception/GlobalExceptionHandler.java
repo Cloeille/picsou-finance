@@ -1,7 +1,9 @@
 package com.picsou.exception;
 
+import com.picsou.telemetry.TelemetryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -18,6 +20,11 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    // Optional, and field-injected so `new GlobalExceptionHandler()` (standalone MockMvc tests)
+    // keeps working. Capture is a no-op unless the admin opted in to telemetry.
+    @Autowired(required = false)
+    private TelemetryService telemetry;
 
     @ExceptionHandler(ResourceNotFoundException.class)
     ProblemDetail handleNotFound(ResourceNotFoundException ex) {
@@ -112,6 +119,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail handleGeneric(Exception ex) {
         // Log full exception internally but never expose it to the client
         log.error("Unhandled exception", ex);
+        if (telemetry != null) {
+            telemetry.captureServerError(ex);
+        }
         return ProblemDetail.forStatusAndDetail(
             HttpStatus.INTERNAL_SERVER_ERROR,
             "An unexpected error occurred"

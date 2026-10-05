@@ -6,6 +6,7 @@ import com.picsou.dto.AdminAiRequest;
 import com.picsou.dto.AdminEnableBankingRequest;
 import com.picsou.dto.AdminSecurityRequest;
 import com.picsou.dto.AdminSettingsResponse;
+import com.picsou.dto.AdminTelemetryRequest;
 import com.picsou.dto.AiCallLogPage;
 import com.picsou.dto.AiTestResponse;
 import com.picsou.dto.EnableBankingImportRequest;
@@ -15,6 +16,7 @@ import com.picsou.service.EnableBankingCallLogger;
 import com.picsou.service.EnableBankingKeyPairService;
 import com.picsou.service.IntegrationsService;
 import com.picsou.service.SetupService;
+import com.picsou.telemetry.TelemetryService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -40,6 +42,7 @@ public class AdminController {
     private final AiConfigProvider aiConfigProvider;
     private final AiCallLogService aiCallLogService;
     private final EnableBankingCallLogger ebCallLogger;
+    private final TelemetryService telemetryService;
     private final String envAllowedOrigins;
 
     public AdminController(SetupService setupService,
@@ -49,6 +52,7 @@ public class AdminController {
                            AiConfigProvider aiConfigProvider,
                            AiCallLogService aiCallLogService,
                            EnableBankingCallLogger ebCallLogger,
+                           TelemetryService telemetryService,
                            @Value("${app.cors.allowed-origins:}") String envAllowedOrigins) {
         this.setupService = setupService;
         this.integrationsService = integrationsService;
@@ -57,6 +61,7 @@ public class AdminController {
         this.aiConfigProvider = aiConfigProvider;
         this.aiCallLogService = aiCallLogService;
         this.ebCallLogger = ebCallLogger;
+        this.telemetryService = telemetryService;
         this.envAllowedOrigins = envAllowedOrigins;
     }
 
@@ -94,13 +99,30 @@ public class AdminController {
             new AdminSettingsResponse.EnableBankingSettings(
                 appId, redirectUri, ebConfigProvider.privateKeyPresent()),
             integrations,
-            ai
+            ai,
+            new AdminSettingsResponse.TelemetrySettings(
+                telemetryService.isAvailable(), String.valueOf(telemetryService.consent()))
         ));
     }
 
     @PutMapping("/settings/security")
     public ResponseEntity<Void> updateSecurity(@Valid @RequestBody AdminSecurityRequest request) {
         setupService.writeSecurity(request.allowedOrigins(), request.secureCookies());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Opt-in anonymous telemetry consent (instance-wide). Applies immediately: the backend SDK is
+     * initialised or closed in-process. Enabling without a configured DSN is a 409.
+     */
+    @PutMapping("/settings/telemetry")
+    public ResponseEntity<?> updateTelemetry(@Valid @RequestBody AdminTelemetryRequest request) {
+        try {
+            telemetryService.setEnabled(request.enabled());
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage()));
+        }
         return ResponseEntity.noContent().build();
     }
 

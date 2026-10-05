@@ -40,6 +40,9 @@ services:
       CORUM_AUTH_URL: http://corum-auth:8001
       SOFIDY_AUTH_URL: http://sofidy-auth:8001
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      # Opt-in anonymous telemetry: empty DSN = feature fully inactive (docs/features/telemetry.md)
+      APP_TELEMETRY_DSN: ${APP_TELEMETRY_DSN:-}
+      APP_TELEMETRY_ENVIRONMENT: ${APP_TELEMETRY_ENVIRONMENT:-production}
     depends_on:
       db:
         condition: service_healthy

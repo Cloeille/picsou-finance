@@ -1786,6 +1786,32 @@
     "revokeDescription": "This app immediately loses access to your data. You can reconnect it later from the app.",
     "error": "Could not revoke access. Please try again."
   },
+  "telemetry": {
+    "consent": {
+      "title": "Help improve Picsou?",
+      "intro": "Share anonymous crash reports and usage counts with the Picsou developers. This is optional, applies to this whole instance, and you can change it at any time in Administration.",
+      "collectedTitle": "What is shared",
+      "collected1": "Technical error reports (error type, scrubbed message, code location)",
+      "collected2": "Which screens are opened (page template only, e.g. /accounts/:id)",
+      "collected3": "Which features are used (e.g. a sync was triggered), with no details",
+      "neverTitle": "What is never shared",
+      "never1": "Accounts, balances, transactions, amounts or IBANs",
+      "never2": "Names, emails, usernames or IP addresses",
+      "never3": "Any identifier of a user, device or session",
+      "tunnel": "Reports go through your own Picsou server, which scrubs them again before forwarding.",
+      "enable": "Enable",
+      "decline": "No thanks",
+      "error": "Could not save your choice. Please try again."
+    },
+    "section": {
+      "title": "Anonymous telemetry",
+      "description": "Opt-in crash reports and usage counts sent to the Picsou developers. Off by default.",
+      "toggle": "Share anonymous telemetry",
+      "unavailable": "Unavailable — no telemetry server (DSN) is configured on this instance.",
+      "privacy": "Only technical error reports, page templates (e.g. /accounts/:id) and feature names are sent. Financial data, personal data and identifiers are never collected, and reports are scrubbed in your browser and again on your server.",
+      "error": "Could not update the telemetry setting."
+    }
+  },
   "admin": {
     "title": "Administration",
     "ai": {

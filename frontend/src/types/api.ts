@@ -1916,3 +1916,20 @@ export interface MemberProfile {
 
 /** A full replacement: a null field clears what was stored. */
 export type MemberProfileRequest = Omit<MemberProfile, 'age' | 'monthlyNetIncome'>
+
+/** `GET /telemetry/config`. `dsn` is null unless telemetry is effectively enabled. */
+export interface TelemetryConfig {
+  enabled: boolean
+  dsn: string | null
+  environment: string
+  release: string
+}
+
+/** Instance-wide telemetry consent. `UNSET` = never asked, treated as disabled. */
+export type TelemetryConsent = 'ENABLED' | 'DISABLED' | 'UNSET'
+
+export interface TelemetrySettings {
+  /** A DSN is configured on the server; without one telemetry is inert everywhere. */
+  available: boolean
+  consent: TelemetryConsent
+}

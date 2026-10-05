@@ -1489,6 +1489,32 @@
       }
     }
   },
+  "telemetry": {
+    "consent": {
+      "title": "Picsou verbessern helfen?",
+      "intro": "Teile anonyme Absturzberichte und Nutzungszähler mit den Picsou-Entwicklern. Das ist freiwillig, gilt für die gesamte Instanz und lässt sich jederzeit in der Administration ändern.",
+      "collectedTitle": "Was geteilt wird",
+      "collected1": "Technische Fehlerberichte (Fehlertyp, bereinigte Meldung, Codestelle)",
+      "collected2": "Welche Seiten geöffnet werden (nur Seitenvorlage, z. B. /accounts/:id)",
+      "collected3": "Welche Funktionen genutzt werden (z. B. eine Synchronisierung wurde gestartet), ohne Details",
+      "neverTitle": "Was nie geteilt wird",
+      "never1": "Konten, Kontostände, Transaktionen, Beträge oder IBANs",
+      "never2": "Namen, E-Mail-Adressen, Benutzernamen oder IP-Adressen",
+      "never3": "Jegliche Kennung von Benutzer, Gerät oder Sitzung",
+      "tunnel": "Berichte laufen über deinen eigenen Picsou-Server, der sie vor der Weiterleitung erneut bereinigt.",
+      "enable": "Aktivieren",
+      "decline": "Nein danke",
+      "error": "Deine Auswahl konnte nicht gespeichert werden. Bitte versuche es erneut."
+    },
+    "section": {
+      "title": "Anonyme Telemetrie",
+      "description": "Freiwillige Absturzberichte und Nutzungszähler an die Picsou-Entwickler. Standardmäßig aus.",
+      "toggle": "Anonyme Telemetrie teilen",
+      "unavailable": "Nicht verfügbar — auf dieser Instanz ist kein Telemetrie-Server (DSN) konfiguriert.",
+      "privacy": "Es werden nur technische Fehlerberichte, Seitenvorlagen (z. B. /accounts/:id) und Funktionsnamen gesendet. Finanzdaten, personenbezogene Daten und Kennungen werden nie erhoben; Berichte werden im Browser und erneut auf deinem Server bereinigt.",
+      "error": "Die Telemetrie-Einstellung konnte nicht geändert werden."
+    }
+  },
   "admin": {
     "title": "Administration",
     "security": {

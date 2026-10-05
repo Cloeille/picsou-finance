@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
+import { trackFeature } from '@/lib/telemetry'
 import type { QueryKey } from '@tanstack/react-query'
 import {
   bankSyncApi,
@@ -132,6 +133,7 @@ export function useInitiateBankSync() {
       institutionName: string
     }) => bankSyncApi.initiate(institutionId, institutionName),
     onSuccess: () => {
+      trackFeature('sync_triggered')
       queryClient.invalidateQueries({ queryKey: syncKeys.banks() })
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })

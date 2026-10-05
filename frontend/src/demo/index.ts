@@ -1001,7 +1001,14 @@ handlers.set(key('GET', '/admin/settings'), () => ({
   enableBanking: { applicationId: '', redirectUri: '', privateKeyPresent: false },
   integrations: {},
   ai: { provider: 'none', model: '', baseUrl: '', apiKeyPresent: false, maxConcurrency: 4 },
+  telemetry: { available: false, consent: 'UNSET' },
 }))
+handlers.set(key('PUT', '/admin/settings/telemetry'), () => ({}))
+// Demo never reports anything, whatever the toggle says.
+handlers.set(key('GET', '/telemetry/config'), () => ({
+  enabled: false, dsn: null, environment: 'demo', release: 'demo',
+}))
+handlers.set(key('POST', '/telemetry/tunnel'), () => null)
 handlers.set(key('PUT', '/admin/settings/security'), () => ({}))
 handlers.set(key('PUT', '/admin/settings/enablebanking'), () => ({}))
 handlers.set(key('PUT', '/admin/settings/ai'), () => ({}))

@@ -1786,6 +1786,32 @@
     "revokeDescription": "Cette application perd immédiatement l'accès à tes données. Tu pourras la reconnecter plus tard depuis l'application.",
     "error": "Impossible de révoquer l'accès. Réessaye."
   },
+  "telemetry": {
+    "consent": {
+      "title": "Aider à améliorer Picsou ?",
+      "intro": "Partagez des rapports de plantage anonymes et des compteurs d'usage avec les développeurs de Picsou. C'est facultatif, valable pour toute l'instance, et modifiable à tout moment dans Administration.",
+      "collectedTitle": "Ce qui est partagé",
+      "collected1": "Rapports d'erreurs techniques (type d'erreur, message nettoyé, emplacement dans le code)",
+      "collected2": "Les écrans ouverts (gabarit de page uniquement, ex. /accounts/:id)",
+      "collected3": "Les fonctionnalités utilisées (ex. une synchronisation lancée), sans détail",
+      "neverTitle": "Ce qui n'est jamais partagé",
+      "never1": "Comptes, soldes, transactions, montants ou IBAN",
+      "never2": "Noms, e-mails, identifiants de connexion ou adresses IP",
+      "never3": "Tout identifiant d'utilisateur, d'appareil ou de session",
+      "tunnel": "Les rapports passent par votre propre serveur Picsou, qui les nettoie à nouveau avant de les transmettre.",
+      "enable": "Activer",
+      "decline": "Non merci",
+      "error": "Impossible d'enregistrer votre choix. Veuillez réessayer."
+    },
+    "section": {
+      "title": "Télémétrie anonyme",
+      "description": "Rapports de plantage et compteurs d'usage envoyés aux développeurs de Picsou, uniquement si vous l'acceptez. Désactivée par défaut.",
+      "toggle": "Partager une télémétrie anonyme",
+      "unavailable": "Indisponible — aucun serveur de télémétrie (DSN) n'est configuré sur cette instance.",
+      "privacy": "Seuls des rapports d'erreurs techniques, des gabarits de pages (ex. /accounts/:id) et des noms de fonctionnalités sont envoyés. Aucune donnée financière, personnelle ou identifiant n'est collectée, et les rapports sont nettoyés dans votre navigateur puis à nouveau sur votre serveur.",
+      "error": "Impossible de modifier le réglage de télémétrie."
+    }
+  },
   "admin": {
     "title": "Administration",
     "ai": {
