@@ -17,6 +17,7 @@ import com.picsou.model.Account;
 import com.picsou.model.Transaction;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.util.LogSanitizer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -198,7 +199,7 @@ public class TransactionImportService {
         } catch (IOException ex) {
             // The 400 stays deliberately vague; the cause is what tells an operator whether the
             // upload was truncated or the temp store is broken.
-            log.warn("Could not read uploaded transaction file '{}'", file.getOriginalFilename(), ex);
+            log.warn("Could not read uploaded transaction file '{}'", LogSanitizer.safe(file.getOriginalFilename()), ex);
             throw new IllegalArgumentException("Could not read the uploaded file", ex);
         }
     }

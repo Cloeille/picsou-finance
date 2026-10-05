@@ -7,6 +7,7 @@ import com.picsou.dto.FundFacts;
 import com.picsou.dto.SecurityInsightResponse;
 import com.picsou.dto.SecurityRef;
 import com.picsou.port.EtfCompositionProvider;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -139,7 +140,7 @@ public class SecurityInsightService {
         }
 
         if (slices == null && facts == null) {
-            log.debug("No provider resolved composition for {} ({})", ref.ticker(), ref.isin());
+            log.debug("No provider resolved composition for {} ({})", LogSanitizer.safe(ref.ticker()), LogSanitizer.safe(ref.isin()));
             return null;
         }
         String source = String.join(" · ", sources);

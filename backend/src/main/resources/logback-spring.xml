@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Spring Boot's default console logging, with log-injection protection: the message (%m) and the
+  exception messages in stack traces (%wEx) have line breaks and control characters replaced, so a
+  logged value cannot forge a log line or send terminal escape sequences.
+
+  The rules must come after defaults.xml, which registers its own %wEx. Levels, patterns and
+  LOGGING_* properties keep working as with Spring Boot's built-in configuration. File logging
+  (logging.file.name / logging.file.path) is not wired: Picsou logs to the console only.
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <conversionRule conversionWord="m" converterClass="com.picsou.util.SafeMessageConverter"/>
+    <conversionRule conversionWord="msg" converterClass="com.picsou.util.SafeMessageConverter"/>
+    <conversionRule conversionWord="message" converterClass="com.picsou.util.SafeMessageConverter"/>
+    <conversionRule conversionWord="wEx" converterClass="com.picsou.util.SafeThrowableProxyConverter"/>
+
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

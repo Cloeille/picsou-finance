@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.picsou.exception.SyncException;
 import com.picsou.port.BankConnectorPort;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -209,7 +210,7 @@ public class PowensBankConnector implements BankConnectorPort {
     /** Searches Powens connectors (banks) by name and country. */
     @Override
     public List<InstitutionData> searchInstitutions(String query, String country) {
-        log.info("Searching Powens connectors: query='{}' country='{}'", query, country);
+        log.info("Searching Powens connectors: query='{}' country='{}'", LogSanitizer.safe(query), LogSanitizer.safe(country));
         ConnectorsResponse response = webClient.get()
             .uri(uriBuilder -> {
                 var b = uriBuilder.path("/connectors");

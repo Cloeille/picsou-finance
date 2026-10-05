@@ -149,6 +149,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Origin`/`Referer` when it is missing. Origins on the CORS allow-list, the iOS app and MCP
   clients are unaffected. The bank connection callback now completes with a `POST` instead
   of a `GET`.
+- **A crafted value can no longer forge lines in the backend log.** A search term, a ticker,
+  an uploaded file name or CSV line, or an error page from a price provider could carry line
+  breaks or terminal escape codes into the log, and so fake an entry or garble the terminal.
+  The backend log now replaces line breaks and control characters with `?` in every message
+  and in exception messages, and the values an outsider controls are also cleaned where they
+  are logged. The log layout is unchanged; the backend logs to the console only, as before.
 
 
 ## [1.1.0] — 2026-06-09

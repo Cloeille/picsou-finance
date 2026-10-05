@@ -26,6 +26,7 @@ import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.sync.SourceSyncResult;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -263,7 +264,7 @@ public class TradeRepublicSyncService {
 
                 String[] parts = line.split(",", 3);
                 if (parts.length < 3) {
-                    log.warn("TR CSV: skipping malformed line: {}", line);
+                    log.warn("TR CSV: skipping malformed line: {}", LogSanitizer.safe(line));
                     continue;
                 }
 
@@ -275,7 +276,7 @@ public class TradeRepublicSyncService {
                 try {
                     type = AccountType.valueOf(typeStr);
                 } catch (IllegalArgumentException ex) {
-                    log.warn("TR CSV: unknown type '{}' on line '{}', using OTHER", typeStr, line);
+                    log.warn("TR CSV: unknown type '{}' on line '{}', using OTHER", LogSanitizer.safe(typeStr), LogSanitizer.safe(line));
                     type = AccountType.OTHER;
                 }
 
@@ -283,7 +284,7 @@ public class TradeRepublicSyncService {
                 try {
                     balance = new BigDecimal(balStr);
                 } catch (NumberFormatException ex) {
-                    log.warn("TR CSV: invalid balance '{}' on line '{}'", balStr, line);
+                    log.warn("TR CSV: invalid balance '{}' on line '{}'", LogSanitizer.safe(balStr), LogSanitizer.safe(line));
                     continue;
                 }
 

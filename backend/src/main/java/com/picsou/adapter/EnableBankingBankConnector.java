@@ -320,7 +320,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
      */
     @Override
     public List<InstitutionData> searchInstitutions(String query, String country) {
-        log.info("Searching institutions: query='{}' country='{}'", query, country);
+        log.info("Searching institutions: query='{}' country='{}'", LogSanitizer.safe(query), LogSanitizer.safe(country));
         AspspsResponse response = webClient.get()
             .uri(uriBuilder -> {
                 var b = uriBuilder.path("/aspsps");

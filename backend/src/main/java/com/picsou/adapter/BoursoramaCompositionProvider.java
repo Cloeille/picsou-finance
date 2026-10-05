@@ -6,6 +6,7 @@ import com.picsou.dto.EtfComposition;
 import com.picsou.dto.SecurityRef;
 import com.picsou.dto.WeightedSlice;
 import com.picsou.port.EtfCompositionProvider;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.Order;
@@ -90,17 +91,17 @@ public class BoursoramaCompositionProvider implements EtfCompositionProvider {
         try {
             Optional<String> symbol = client.resolveSymbol(identifier);
             if (symbol.isEmpty()) {
-                log.debug("Boursorama: no symbol resolved for {}", identifier);
+                log.debug("Boursorama: no symbol resolved for {}", LogSanitizer.safe(identifier));
                 return Optional.empty();
             }
             Optional<String> html = fetchCompositionHtml(symbol.get());
             if (html.isEmpty()) {
-                log.debug("Boursorama: no composition page for {} ({})", identifier, symbol.get());
+                log.debug("Boursorama: no composition page for {} ({})", LogSanitizer.safe(identifier), LogSanitizer.safe(symbol.get()));
                 return Optional.empty();
             }
             return Optional.of(parse(html.get()));
         } catch (Exception ex) {
-            log.warn("Boursorama composition fetch failed for {}: {}", identifier, ex.getMessage());
+            log.warn("Boursorama composition fetch failed for {}: {}", LogSanitizer.safe(identifier), LogSanitizer.safe(ex.getMessage()));
             return Optional.empty();
         }
     }

@@ -3,6 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.picsou.port.LogoProviderPort;
 import com.picsou.port.PriceProviderPort;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -389,7 +390,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
             // handshake. Same class of expected outage as a 5xx -- WARN, and without the
             // stacktrace, which would otherwise flood the log for the whole outage.
             log.warn("CoinGecko {} request for {} could not reach the API ({}) -- returning no prices",
-                operation, context, cause.getMessage());
+                operation, context, LogSanitizer.safe(cause.getMessage()));
         } else if (!isExpectedUpstreamFailure(cause)) {
             // Not an upstream failure -- an NPE, ClassCastException or parse defect on our
             // side. Rethrow rather than return an empty map: a bug that presents as "no
@@ -490,7 +491,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
             @Override public String toString() {
                 String body = http.getResponseBodyAsString();
                 if (body == null || body.isBlank()) return "<empty body>";
-                return body.length() <= 200 ? body : body.substring(0, 200) + "... (truncated)";
+                return LogSanitizer.safe(body.length() <= 200 ? body : body.substring(0, 200) + "... (truncated)");
             }
         };
     }
