@@ -78,7 +78,9 @@ Concretely, the SDKs are configured so most of this is never produced in the fir
 - Browser (`@sentry/react`, loaded with a dynamic `import()` only after consent): no default
   integrations (no breadcrumbs, no tracing, no replay, no session tracking, no HTTP context); only
   the global error handlers and linked errors. `dataCollection` disables user info, cookies,
-  headers, bodies, query params, frame variables and context lines. `maxBreadcrumbs: 0`,
+  headers, bodies, query params, frame variables and context lines. `attachStacktrace: false`
+  (otherwise every usage message carries a synthetic stack and is stored as an error),
+  `maxBreadcrumbs: 0`,
   `beforeBreadcrumb` drops everything, client reports off.
 - Backend (`io.sentry:sentry`, plain SDK, **not** the Spring Boot starter): `sendDefaultPii=false`,
   no breadcrumbs, no uncaught-exception handler, no session tracking, no modules, no server name,

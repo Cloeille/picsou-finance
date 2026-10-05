@@ -61,6 +61,9 @@ export function initTelemetry(config: TelemetryConfig): Promise<void> {
         // tracking all collect more than the allowlist permits. Only error capture is kept.
         defaultIntegrations: false,
         integrations: [mod.globalHandlersIntegration(), mod.linkedErrorsIntegration()],
+        // Without this the SDK attaches a synthetic stack to every captureMessage, so a page view
+        // is stored as "Error: page_view" with React internals as frames. Real errors keep theirs.
+        attachStacktrace: false,
         maxBreadcrumbs: 0,
         beforeBreadcrumb: () => null,
         beforeSend: (event) => scrubEvent(event),

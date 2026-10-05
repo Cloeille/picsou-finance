@@ -64,6 +64,7 @@ describe('telemetry', () => {
       dsn: CONFIG.dsn,
       tunnel: '/api/telemetry/tunnel',
       defaultIntegrations: false,
+      attachStacktrace: false,
       maxBreadcrumbs: 0,
       environment: 'production',
       release: '1.1.0',
