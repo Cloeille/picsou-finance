@@ -49,11 +49,15 @@ enum CashflowPeriod: String, Encodable {
     case yearToDate = "YTD"
 }
 
-/// Mirrors backend `AiCategorizationMode`.
-enum AiCategorizationMode: String, Codable {
-    case suggest = "SUGGEST"
-    case autoHighConfidence = "AUTO_HIGH_CONFIDENCE"
-    case autoAll = "AUTO_ALL"
+/// Mirrors backend `AiCategorizationMode`. A struct rather than an enum: settings are saved
+/// read-modify-write, so a mode this build doesn't know must go back to the server unchanged.
+struct AiCategorizationMode: RawRepresentable, Codable, Hashable {
+    let rawValue: String
+    init(rawValue: String) { self.rawValue = rawValue }
+
+    static let suggest = AiCategorizationMode(rawValue: "SUGGEST")
+    static let autoHighConfidence = AiCategorizationMode(rawValue: "AUTO_HIGH_CONFIDENCE")
+    static let autoAll = AiCategorizationMode(rawValue: "AUTO_ALL")
 }
 
 /// Mirrors backend `BudgetSettingsResponse` (GET /api/budget/settings). The app only exposes

@@ -2,10 +2,11 @@ import Foundation
 
 /// Mirrors backend `CategoryKind` — drives cashflow/envelope inclusion. `TRANSFER` categories
 /// exist but are never offered in the categorization picker (see `Category.pickable`).
-enum CategoryKind: String, Decodable {
+enum CategoryKind: String, LenientEnum {
     case income = "INCOME"
     case expense = "EXPENSE"
     case transfer = "TRANSFER"
+    case unknown = "UNKNOWN"
 }
 
 /// Mirrors backend `CategoryResponse` (GET /api/categories). Read-only in the app — no
@@ -22,5 +23,5 @@ struct Category: Decodable, Identifiable, Equatable {
     let parentId: Int64?
 
     /// Offered in the categorization picker: not archived, not a transfer bucket.
-    var pickable: Bool { !archived && kind != .transfer }
+    var pickable: Bool { !archived && (kind == .income || kind == .expense) }
 }

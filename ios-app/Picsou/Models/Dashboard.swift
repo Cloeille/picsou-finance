@@ -48,6 +48,9 @@ struct LiabilityEntry: Decodable, Equatable, Identifiable {
     let hasHoldings: Bool
     let monthlyPayment: Decimal?
     let percentPaid: Double?
+    /// Credit cards only; omitted for loans and when the issuer gave none.
+    var paymentDueAmountEur: Decimal? = nil
+    var paymentDueDate: String? = nil
 
     var id: Int64 { accountId }
     var type: AccountType { AccountType(raw: accountType) }

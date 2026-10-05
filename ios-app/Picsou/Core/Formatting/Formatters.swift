@@ -34,7 +34,7 @@ enum Percent {
     }
 }
 
-/// Parses the backend's `LocalDate` strings ("yyyy-MM-dd").
+/// Parses the backend's `LocalDate` strings ("yyyy-MM-dd") and `Instant` strings.
 enum DateParsing {
     static let localDate: DateFormatter = {
         let df = DateFormatter()
@@ -43,6 +43,49 @@ enum DateParsing {
         df.dateFormat = "yyyy-MM-dd"
         return df
     }()
+
+    /// Jackson writes an `Instant` with its fractional seconds ("2026-07-04T08:00:00.123456Z") as soon
+    /// as it has any, which every Postgres timestamp does; a plain `ISO8601DateFormatter` rejects that.
+    static func instant(_ iso: String?) -> Date? {
+        guard let iso else { return nil }
+        return withFraction.date(from: iso) ?? withoutFraction.date(from: iso)
+    }
+
+    private static let withFraction: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let withoutFraction = ISO8601DateFormatter()
+}
+
+/// "12 nov. 2026" from a backend `LocalDate`.
+enum DueDate {
+    static func label(_ localDate: String?) -> String? {
+        guard let localDate, let date = DateParsing.localDate.date(from: localDate) else { return nil }
+        return formatter.string(from: date)
+    }
+
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "fr_FR")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "d MMM yyyy"
+        return f
+    }()
+}
+
+/// A backend enum decoded leniently: a value the server added after this build lands on `unknown`
+/// instead of failing the whole payload.
+protocol LenientEnum: RawRepresentable, Decodable where RawValue == String {
+    static var unknown: Self { get }
+}
+
+extension LenientEnum {
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: raw) ?? .unknown
+    }
 }
 
 extension Decimal {

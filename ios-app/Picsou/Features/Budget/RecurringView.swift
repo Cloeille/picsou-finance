@@ -120,6 +120,8 @@ struct RecurringView: View {
             return "Passé de \(prev) à \(now)"
         case .autoConfirmed:
             return "Confirmé automatiquement"
+        case .unknown:
+            return "Mis à jour"
         }
     }
 
@@ -152,7 +154,7 @@ struct RecurringView: View {
         switch item.status {
         case .confirmed: return .confirmed
         case .ignored: return .ignored
-        case .suggested: return .new
+        case .suggested, .unknown: return .new
         }
     }
 
@@ -185,13 +187,27 @@ struct RecurringView: View {
 
     private func occurrenceRow(_ occurrence: RecurringOccurrence) -> some View {
         HStack(spacing: 10) {
-            Circle().fill(Color.account(occurrence.categoryColor ?? Theme.fallbackColorHex)).frame(width: 10, height: 10)
-            Text(occurrence.label).font(Theme.font(14.5, .semibold)).foregroundStyle(Theme.foreground)
+            if occurrence.isCreditCardPayment {
+                Image(systemName: "creditcard.fill").font(.system(size: 11)).foregroundStyle(Theme.mutedForeground)
+            } else {
+                Circle().fill(Color.account(occurrence.categoryColor ?? Theme.fallbackColorHex)).frame(width: 10, height: 10)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(occurrence.label).font(Theme.font(14.5, .semibold)).foregroundStyle(Theme.foreground)
+                if occurrence.isCreditCardPayment {
+                    Text(cardPaymentDetail(occurrence)).font(Theme.font(12)).foregroundStyle(Theme.mutedForeground)
+                }
+            }
             Spacer()
             Text(Money.format(abs(occurrence.expectedAmount)))
                 .font(Theme.font(14, .semibold)).monospacedDigit().foregroundStyle(Theme.foreground)
         }
         .padding(14)
+    }
+
+    private func cardPaymentDetail(_ occurrence: RecurringOccurrence) -> String {
+        let points = occurrence.rewardPoints.map { " · \($0.formatted(.number.locale(Locale(identifier: "fr_FR")))) points" } ?? ""
+        return "Paiement carte bancaire" + points
     }
 
     private func groupedByMonth(_ occurrences: [RecurringOccurrence]) -> [(String, [RecurringOccurrence])] {

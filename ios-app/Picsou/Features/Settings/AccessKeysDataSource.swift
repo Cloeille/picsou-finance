@@ -26,7 +26,9 @@ struct AccessKeyCreateRequest: Encodable {
     let expiresAt: String?
 }
 
-/// The MCP scope allowlist (mirrors backend `mcp.Scopes.ALL` / frontend `ALL_SCOPES`).
+/// The MCP scope allowlist, in the order of backend `mcp.Scopes.ALL` / frontend `ALL_SCOPES`. Labels
+/// are the web's `accessKeys.scopes.*.label` (fr.json) plus the read/write side, which the web shows
+/// as a group heading instead. `McpScopeTests` checks the ids against `Scopes.java`.
 enum McpScope {
     static let all: [(id: String, label: String)] = [
         ("accounts:read", "Comptes — lecture"),
@@ -35,6 +37,8 @@ enum McpScope {
         ("dashboard:read", "Tableau de bord — lecture"),
         ("prices:read", "Cours — lecture"),
         ("family:read", "Famille — lecture"),
+        ("sync:read", "État des synchronisations — lecture"),
+        ("analysis:read", "Analyse du patrimoine — lecture"),
         ("budget:categories-read", "Catégories budgétaires — lecture"),
         ("budget:rules-read", "Règles de catégorisation — lecture"),
         ("budget:transactions-read", "Transactions budgétées — lecture"),
@@ -42,14 +46,15 @@ enum McpScope {
         ("budget:envelopes-read", "Enveloppes budgétaires — lecture"),
         ("budget:dashboard-read", "Tableau de bord budget — lecture"),
         ("oauth2:discover", "Découverte OAuth2"),
-        ("oauth2:session-status", "Statut de session OAuth2"),
+        ("oauth2:session-status", "Statut de session"),
         ("accounts:write", "Comptes — écriture"),
         ("transactions:write", "Transactions — écriture"),
         ("goals:write", "Objectifs — écriture"),
-        ("sync:trigger", "Déclencher une synchro"),
+        ("sync:trigger", "Synchronisation — déclencher"),
         ("budget:categories-write", "Catégories budgétaires — écriture"),
         ("budget:rules-write", "Règles de catégorisation — écriture"),
         ("budget:transactions-write", "Transactions budgétées — écriture"),
+        ("budget:recurring-write", "Abonnements récurrents — écriture"),
         ("budget:envelopes-write", "Enveloppes budgétaires — écriture"),
     ]
     static func label(_ id: String) -> String { all.first { $0.id == id }?.label ?? id }

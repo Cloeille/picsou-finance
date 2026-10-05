@@ -23,7 +23,7 @@ final class AccountDetailViewModel {
     func load() async {
         do {
             let account = try await dataSource.account(id: id)
-            let holdings = account.isInvestment ? try await dataSource.holdings(id: id) : []
+            let holdings = account.type.holdsPositions ? try await dataSource.holdings(id: id) : []
             let txs = try await dataSource.transactions(id: id)
             let loan = account.type == .loan ? try? await dataSource.loanSummary(id: id) : nil
             state = .loaded(account, holdings, txs, loan)
@@ -91,6 +91,7 @@ private struct AccountDetailContent: View {
             VStack(alignment: .leading, spacing: 20) {
                 header(account)
                 if !holdings.isEmpty { holdingsSection(holdings) }
+                if account.type == .creditCard { creditCardSection(account) }
                 if let loan { loanSection(account, loan) }
                 transactionsSection(account, txs)
             }
@@ -140,6 +141,21 @@ private struct AccountDetailContent: View {
                     .padding(.horizontal, 14).padding(.vertical, 12)
                 }
             }
+            .cardOutline()
+        }
+    }
+
+    private func creditCardSection(_ account: Account) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            SectionLabel("Carte de crédit")
+            VStack(alignment: .leading, spacing: 12) {
+                statRow("Montant dû", account.paymentDueAmount.map { Money.format($0, fractionDigits: 2) } ?? "—")
+                statRow("Échéance", DueDate.label(account.paymentDueDate) ?? "—")
+                if let points = account.rewardPoints {
+                    statRow("Points", points.formatted(.number.locale(Locale(identifier: "fr_FR"))))
+                }
+            }
+            .padding(16)
             .cardOutline()
         }
     }

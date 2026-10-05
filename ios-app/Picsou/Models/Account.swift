@@ -22,6 +22,10 @@ struct Account: Decodable, Identifiable, Equatable {
     let parentAccountId: Int64?
     let debt: DebtInfo?
     let hidden: Bool
+    /// Credit cards only (`CREDIT_CARD`, synced from the card issuer); omitted everywhere else.
+    var paymentDueAmount: Decimal? = nil
+    var paymentDueDate: String? = nil
+    var rewardPoints: Int64? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, name
@@ -29,11 +33,11 @@ struct Account: Decodable, Identifiable, Equatable {
         case provider, currency, currentBalance, currentBalanceEur, lastSyncedAt
         case manual = "isManual"
         case color, ticker, parentAccountId, debt, hidden
+        case paymentDueAmount, paymentDueDate, rewardPoints
     }
 
     var type: AccountType { AccountType(raw: accountType) }
-    var isInvestment: Bool { [.pea, .compteTitres, .crypto].contains(type) }
-    var lastSyncedDate: Date? { lastSyncedAt.flatMap { ISO8601DateFormatter().date(from: $0) } }
+    var lastSyncedDate: Date? { DateParsing.instant(lastSyncedAt) }
 }
 
 struct DebtInfo: Decodable, Equatable {

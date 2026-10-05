@@ -1,11 +1,12 @@
 import Foundation
 
-enum RecurringCadence: String, Codable {
+enum RecurringCadence: String, LenientEnum {
     case weekly = "WEEKLY"
     case biweekly = "BIWEEKLY"
     case monthly = "MONTHLY"
     case quarterly = "QUARTERLY"
     case yearly = "YEARLY"
+    case unknown = "UNKNOWN"
 
     var label: String {
         switch self {
@@ -14,27 +15,31 @@ enum RecurringCadence: String, Codable {
         case .monthly: return "Mensuel"
         case .quarterly: return "Trimestriel"
         case .yearly: return "Annuel"
+        case .unknown: return "Périodique"
         }
     }
 }
 
-enum RecurringStatus: String, Decodable {
+enum RecurringStatus: String, LenientEnum {
     case suggested = "SUGGESTED"
     case confirmed = "CONFIRMED"
     case ignored = "IGNORED"
+    case unknown = "UNKNOWN"
 }
 
 /// Urgency of a series' next due date, computed server-side at read time (never stored).
-enum RecurringRuntimeStatus: String, Decodable {
+enum RecurringRuntimeStatus: String, LenientEnum {
     case stale = "STALE"
     case late = "LATE"
     case dueSoon = "DUE_SOON"
     case scheduled = "SCHEDULED"
+    case unknown = "UNKNOWN"
 }
 
-enum RecurringActivityType: String, Decodable {
+enum RecurringActivityType: String, LenientEnum {
     case autoConfirmed = "AUTO_CONFIRMED"
     case priceChange = "PRICE_CHANGE"
+    case unknown = "UNKNOWN"
 }
 
 /// Mirrors backend `RecurringSeriesResponse` (GET /api/recurring).
@@ -80,7 +85,9 @@ struct RecurringActivity: Decodable, Identifiable, Equatable {
 }
 
 /// Mirrors backend `RecurringOccurrenceResponse` (GET /api/recurring/calendar) — one projected
-/// charge. No `id` field on the wire; synthesized from series id + due date.
+/// charge. No `id` field on the wire; synthesized from series id + due date. A credit card's
+/// statement payment is listed too, with `creditCardPayment: true` and `seriesId` = minus the card's
+/// account id (there is no series behind it).
 struct RecurringOccurrence: Decodable, Identifiable, Equatable {
     let seriesId: Int64
     let label: String
@@ -90,6 +97,11 @@ struct RecurringOccurrence: Decodable, Identifiable, Equatable {
     let categoryId: Int64?
     let categoryName: String?
     let categoryColor: String?
+    var rewardPoints: Int64? = nil
+    /// Optional on the wire: servers before 1.1.0 don't send it.
+    var creditCardPayment: Bool? = nil
+
+    var isCreditCardPayment: Bool { creditCardPayment == true }
 
     var id: String { "\(seriesId)-\(dueDate)" }
     var day: Date? { DateParsing.localDate.date(from: dueDate) }

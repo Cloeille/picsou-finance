@@ -71,7 +71,7 @@ struct AccessKeysView: View {
     }
 
     private func usageLabel(_ key: AccessKey) -> String {
-        if let last = key.lastUsedAt, let date = ISO8601DateFormatter().date(from: last) {
+        if let date = DateParsing.instant(key.lastUsedAt) {
             let f = RelativeDateTimeFormatter(); f.locale = Locale(identifier: "fr_FR")
             return "utilisée \(f.localizedString(for: date, relativeTo: Date()))"
         }

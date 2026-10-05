@@ -123,7 +123,7 @@ private struct GoalsDebtsContent: View {
                 .frame(maxWidth: .infinity).padding(.vertical, 24)
         } else {
             HStack {
-                SectionLabel("Prêts")
+                SectionLabel("Dettes")
                 Spacer()
                 Text("\(data.liabilities.count)")
                     .font(Theme.font(13, .semibold)).foregroundStyle(Theme.mutedForeground)
@@ -133,7 +133,11 @@ private struct GoalsDebtsContent: View {
                 ForEach(Array(data.liabilities.enumerated()), id: \.element.id) { index, loan in
                     if index > 0 { Rectangle().fill(Theme.border).frame(height: 1) }
                     NavigationLink {
-                        LoanScheduleView(accountId: loan.accountId, accountName: loan.name)
+                        if loan.type == .loan {
+                            LoanScheduleView(accountId: loan.accountId, accountName: loan.name)
+                        } else {
+                            AccountDetailView(accountId: loan.accountId, accountName: loan.name)
+                        }
                     } label: { loanRow(loan) }
                     .buttonStyle(.plain)
                 }
@@ -154,6 +158,12 @@ private struct GoalsDebtsContent: View {
             }
             if let monthly = loan.monthlyPayment {
                 Text("\(Money.format(monthly))/mois")
+                    .font(Theme.font(12.5)).foregroundStyle(Theme.mutedForeground)
+                    .padding(.leading, 20)
+            }
+            if let due = loan.paymentDueAmountEur {
+                Text(["\(Money.format(due, fractionDigits: 2)) à régler", DueDate.label(loan.paymentDueDate).map { "le \($0)" }]
+                        .compactMap { $0 }.joined(separator: " "))
                     .font(Theme.font(12.5)).foregroundStyle(Theme.mutedForeground)
                     .padding(.leading, 20)
             }

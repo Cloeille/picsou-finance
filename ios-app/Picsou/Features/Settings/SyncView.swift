@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// Bank-sync settings: the list of bank connections (GET /api/sync/status) with status, last-synced,
-/// retry (for a failed link) and swipe-to-delete. Adding / reconnecting a bank uses the web OAuth flow.
+/// retry (for a failed link) and swipe-to-delete, then the connected sidecars (Amex, BoursoBank,
+/// Fortuneo, CORUM, Sofidy…), read-only. Adding / reconnecting either kind uses the web.
 struct SyncView: View {
     @Environment(AppState.self) private var appState
     @State private var connections: [BankConnection] = []
+    @State private var sidecars: [SidecarConnection] = []
     @State private var loading = true
     @State private var failed = false
     @State private var retrying: Int64?
@@ -34,6 +36,15 @@ struct SyncView: View {
                 Text("Connexions bancaires")
             } footer: {
                 Text("Pour ajouter ou reconnecter une banque, utilise l'app web (redirection sécurisée de la banque).")
+            }
+            if !sidecars.isEmpty {
+                Section {
+                    ForEach(sidecars) { sidecarRow($0) }
+                } header: {
+                    Text("Autres connexions")
+                } footer: {
+                    Text("Ces connexions se configurent depuis l'app web (identifiants et validation sur ton téléphone).")
+                }
             }
         }
         .navigationTitle("Synchronisation")
@@ -66,6 +77,33 @@ struct SyncView: View {
         .padding(.vertical, 2)
     }
 
+    private func sidecarRow(_ connection: SidecarConnection) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Text(connection.connector.name)
+                    .font(Theme.font(15, .semibold)).foregroundStyle(Theme.foreground)
+                Spacer()
+                sidecarBadge(connection.status.syncStatus)
+            }
+            Text("Synchronisé \(relative(connection.status.lastSyncCompletedAt))")
+                .font(Theme.font(12.5)).foregroundStyle(Theme.mutedForeground)
+            if connection.status.syncStatus == "FAILED" {
+                Text("La dernière synchronisation a échoué. Relance-la depuis l'app web.")
+                    .font(Theme.font(12)).foregroundStyle(Theme.destructive)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func sidecarBadge(_ status: String?) -> some View {
+        let (label, color): (String, Color) = switch status {
+        case "FAILED": ("Échec", Theme.destructive)
+        case "QUEUED", "RUNNING": ("Synchro…", Theme.brand)
+        default: ("Connectée", Theme.positive)
+        }
+        return badge(label, color)
+    }
+
     private func statusBadge(_ status: String) -> some View {
         let (label, color): (String, Color) = switch status {
         case "LINKED": ("Connectée", Theme.positive)
@@ -73,7 +111,11 @@ struct SyncView: View {
         case "EXPIRED": ("Expirée", Color(hex: "#F59E0B") ?? .orange)
         default: ("En attente", Theme.mutedForeground)
         }
-        return Text(label)
+        return badge(label, color)
+    }
+
+    private func badge(_ label: String, _ color: Color) -> some View {
+        Text(label)
             .font(Theme.font(11, .bold))
             .foregroundStyle(color)
             .padding(.horizontal, 8).padding(.vertical, 2)
@@ -85,6 +127,7 @@ struct SyncView: View {
         failed = false
         do { connections = try await dataSource.connections() }
         catch { failed = true }
+        sidecars = await dataSource.sidecarConnections()
         loading = false
     }
 
@@ -105,7 +148,7 @@ struct SyncView: View {
     }
 
     private func relative(_ iso: String?) -> String {
-        guard let iso, let date = ISO8601DateFormatter().date(from: iso) else { return "—" }
+        guard let date = DateParsing.instant(iso) else { return "—" }
         let f = RelativeDateTimeFormatter()
         f.locale = Locale(identifier: "fr_FR")
         return f.localizedString(for: date, relativeTo: Date())
