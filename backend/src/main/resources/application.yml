@@ -208,6 +208,11 @@ app:
     base-url: ${MERIA_BASE_URL:https://api.meria.com/v1}
   startup-sync:
     enabled: ${APP_STARTUP_SYNC_ENABLED:true}
+  # Share and fund logos, read once per ticker from its Yahoo Finance quote page and stored in
+  # PostgreSQL (docs/features/holding-logos.md). Turning it off stops new lookups only: marks
+  # already stored keep showing, and a holding without one shows its ticker alone.
+  instrument-logos:
+    enabled: ${INSTRUMENT_LOGOS_ENABLED:true}
   enablebanking:
     application-id: ${ENABLEBANKING_APPLICATION_ID:}
     key-id: ${ENABLEBANKING_KEY_ID:}

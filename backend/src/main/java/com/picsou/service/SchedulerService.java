@@ -56,6 +56,7 @@ public class SchedulerService {
     private final FinaryApiSyncService finaryApiSyncService;
     private final IbkrSyncService ibkrSyncService;
     private final PropertyValuationService propertyValuationService;
+    private final InstrumentLogoService instrumentLogoService;
 
     public SchedulerService(
         AccountRepository accountRepository,
@@ -77,7 +78,8 @@ public class SchedulerService {
         FinaryApiSyncService finaryApiSyncService,
         IbkrSyncService ibkrSyncService,
         PropertyValuationService propertyValuationService,
-                            SecurityProfileService securityProfileService) {
+                            SecurityProfileService securityProfileService,
+        InstrumentLogoService instrumentLogoService) {
         this.accountRepository = accountRepository;
         this.holdingRepository = holdingRepository;
         this.snapshotRepository = snapshotRepository;
@@ -98,6 +100,7 @@ public class SchedulerService {
         this.ibkrSyncService = ibkrSyncService;
         this.propertyValuationService = propertyValuationService;
         this.securityProfileService = securityProfileService;
+        this.instrumentLogoService = instrumentLogoService;
     }
 
     /**
@@ -314,6 +317,10 @@ public class SchedulerService {
             // reach here, so this is a bug worth surfacing.
             log.error("Price refresh failed -- skipping this cycle", ex);
         }
+        // After the prices, never before: a ticker becomes a logo candidate only once this pass
+        // has recorded a price for it, and the lookup runs on its own thread so it cannot delay
+        // the next price cycle.
+        instrumentLogoService.requestResolution();
     }
 
     /**

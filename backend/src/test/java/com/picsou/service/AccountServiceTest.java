@@ -3,6 +3,7 @@ package com.picsou.service;
 import com.picsou.dto.AccountRequest;
 import com.picsou.dto.AccountResponse;
 import com.picsou.dto.DebtRequest;
+import com.picsou.dto.HoldingLogoUrls;
 import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataResponse;
 import com.picsou.dto.SnapshotRequest;
@@ -66,6 +67,7 @@ class AccountServiceTest {
     @Mock AccountAccessResolver accessResolver;
     @Mock BankLogoResolver bankLogoResolver;
     @Mock CryptoLogoService cryptoLogoService;
+    @Mock InstrumentLogoService instrumentLogoService;
     @Mock ScpiPositionRepository scpiPositionRepository;
     @InjectMocks AccountService accountService;
 
@@ -1221,18 +1223,54 @@ class AccountServiceTest {
     }
 
     @Test
-    void getHoldings_leavesAnEquityLogoNullAndNeverAsksTheCryptoResolver() {
+    void getHoldings_leavesAnEquityLogoNullWhenNoneIsStored_andNeverAsksTheCryptoResolver() {
         Account pea = Account.builder().id(1L).type(AccountType.PEA).currency("EUR").build();
         AccountHolding h = AccountHolding.builder()
             .account(pea).ticker("MC").quantity(new BigDecimal("10")).build();
         when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(pea));
         when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(1L)).thenReturn(List.of(h));
+        when(instrumentLogoService.storedUrls(Set.of("MC"))).thenReturn(Map.of());
 
         List<HoldingResponse> holdings = accountService.getHoldings(1L, 9L);
 
-        // No equity source exists yet (issue #162), so the ticker is all the UI has to show --
-        // and the crypto-only resolver is never consulted for an equity account.
-        assertThat(holdings).singleElement().extracting(HoldingResponse::logoUrl).isNull();
+        // Nothing stored for MC: the ticker is all the UI has to show, exactly as before share
+        // logos existed -- and the crypto-only resolver is never consulted for an equity account.
+        assertThat(holdings).singleElement().satisfies(r -> {
+            assertThat(r.logoUrl()).isNull();
+            assertThat(r.logoUrlDark()).isNull();
+        });
         verifyNoInteractions(cryptoLogoService);
+    }
+
+    @Test
+    void getHoldings_carriesAStoredShareMark_fromPicsousOwnEndpoint() {
+        Account pea = Account.builder().id(1L).type(AccountType.PEA).currency("EUR").build();
+        AccountHolding h = AccountHolding.builder()
+            .account(pea).ticker("aapl").quantity(new BigDecimal("3")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(pea));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(1L)).thenReturn(List.of(h));
+        when(instrumentLogoService.storedUrls(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new HoldingLogoUrls(
+            "/api/instrument-logos/AAPL?v=1759400000", "/api/instrument-logos/AAPL?v=1759400000&variant=dark")));
+
+        List<HoldingResponse> holdings = accountService.getHoldings(1L, 9L);
+
+        assertThat(holdings).singleElement().satisfies(r -> {
+            assertThat(r.logoUrl()).isEqualTo("/api/instrument-logos/AAPL?v=1759400000");
+            assertThat(r.logoUrlDark()).isEqualTo("/api/instrument-logos/AAPL?v=1759400000&variant=dark");
+        });
+    }
+
+    @Test
+    void getHoldings_neverReadsTheShareLogoStore_forACryptoAccount() {
+        Account crypto = Account.builder().id(1L).type(AccountType.CRYPTO).currency("EUR").build();
+        AccountHolding h = AccountHolding.builder()
+            .account(crypto).ticker("SUI").quantity(new BigDecimal("1")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(crypto));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(1L)).thenReturn(List.of(h));
+
+        accountService.getHoldings(1L, 9L);
+
+        // SUI is also a listed share's symbol; a coin must never borrow that company's mark.
+        verifyNoInteractions(instrumentLogoService);
     }
 }

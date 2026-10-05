@@ -17,10 +17,9 @@ import java.util.stream.Collectors;
  * The image URL to show for a holding's crypto asset, resolved on demand.
  *
  * <p>Crypto only, and deliberately so: the provider answers from the same coin-id registry that
- * prices crypto, so an equity ticker simply has no entry and the UI keeps rendering its ticker.
- * Equities have no logo source yet (issue #162) — when one lands it implements
- * {@link LogoProviderPort} beside this one, and the cache below becomes the only thing that has to
- * learn about it. Nothing above this class names a provider.
+ * prices crypto, so an equity ticker simply has no entry. Shares and funds take a different
+ * route, {@link InstrumentLogoService}, because their only source is a scraped page whose result
+ * has to be stored rather than re-asked (issue #162). Nothing above this class names a provider.
  *
  * <p>The cache is in-memory and long-lived, unlike {@code PriceService}'s 15-minute one, because
  * the value is not time-sensitive: a coin's mark does not go stale, and the URL is stable enough

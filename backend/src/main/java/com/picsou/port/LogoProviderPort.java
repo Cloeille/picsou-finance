@@ -12,10 +12,9 @@ import java.util.Set;
  * it into {@code PriceProviderPort} would make every implementer stub a method that means nothing
  * for it, which is the argument {@link SymbolCatalogPort}'s own javadoc makes for staying apart.
  *
- * <p>Only one source carries marks today, so this has a single implementation. It exists anyway
- * because the equity half of issue #162 is an open question about <em>which</em> source, and the
- * whole point of {@code backend/CLAUDE.md}'s ports &amp; adapters rule is that answering it is a
- * matter of registering a different bean rather than editing the services above it.
+ * <p>Crypto only. Shares and funds use {@link InstrumentLogoPort} instead: their source answers
+ * with bytes Picsou stores and serves, not with a URL the browser may fetch, so the two do not
+ * share a contract.
  *
  * <p>Like every provider call here, a failure must be the caller's to survive: return what is
  * known, never throw for an upstream outage. A genuine bug still propagates, so it cannot hide

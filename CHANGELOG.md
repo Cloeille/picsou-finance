@@ -34,9 +34,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already prices the same coins, and a whole page resolves in a single request — nothing
   is stored and no account is required. A coin with no logo, a provider that is down, or
   an image that fails to load all leave the ticker exactly as it was, so nothing
-  disappears when a mark cannot be fetched. Stocks and ETFs are unchanged for now: they
-  have no logo source to draw from, and the search for one is tracked in
-  [#162](https://github.com/Cloeille/picsou-finance/issues/162).
+  disappears when a mark cannot be fetched.
+- **Stocks and ETFs show their company or fund logo next to their ticker too**
+  ([#162](https://github.com/Cloeille/picsou-finance/issues/162)). Each mark is read once per
+  ticker from its Yahoo Finance quote page, in the background after the hourly price refresh,
+  and stored in the database, so the browser only ever loads it from Picsou and a rebuild
+  loses nothing. It never runs while a page renders and never gets ahead of the prices: if
+  Yahoo answers with a rate limit, the logo pass stops and waits. A share with no logo shows
+  its ticker exactly as before, and a logo is kept when a position is sold, since another
+  account or member may hold the same share. Set `INSTRUMENT_LOGOS_ENABLED=false` to stop new
+  lookups; logos already stored keep showing.
 
 - **SCPI positions can be synced from a CORUM real-estate contract.** A CORUM
   contract now fills the SCPI accounts you created by hand, through a Chromium
