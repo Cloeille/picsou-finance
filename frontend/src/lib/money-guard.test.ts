@@ -73,6 +73,8 @@ describe('nothing bypasses the masked formatter', () => {
     const allowed = [
       // Two static input adornments, not amounts: the € sits beside the field, never in it.
       'src/pages/goals/GoalCalendarPage.tsx',
+      // Asserts the formatter put the symbol there; renders nothing.
+      'src/lib/money-axis.test.tsx',
     ]
     const offenders = files((s, path) => path.endsWith('.tsx') && s.includes('€'))
       .filter((f) => !allowed.includes(f))
