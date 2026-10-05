@@ -166,6 +166,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The Trade Republic sidecar log shows only the last two digits of your phone number.** It
   kept the first three characters too, which for a number typed without `+33` or a leading
   `0` was five of its nine digits.
+- **CI and image builds run fixed versions of their GitHub Actions.** Every third-party action
+  is pinned to a commit instead of a movable tag, so a retagged or compromised action can no
+  longer run in the job that pushes the Docker images. Dependabot proposes the updates weekly.
 
 
 ## [1.1.0] — 2026-06-09
