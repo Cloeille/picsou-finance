@@ -11,7 +11,7 @@ class ScopesTest {
     void all_containsExactlyTheDocumentedScopes() {
         assertThat(Scopes.ALL).containsExactlyInAnyOrder(
             "accounts:read", "transactions:read", "goals:read",
-            "dashboard:read", "prices:read", "family:read",
+            "dashboard:read", "prices:read", "family:read", "analysis:read",
             "budget:categories-read", "budget:rules-read", "budget:transactions-read",
             "budget:recurring-read", "budget:envelopes-read", "budget:dashboard-read",
             "oauth2:discover", "oauth2:session-status",

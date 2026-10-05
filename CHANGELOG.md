@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transactions. The calendar includes credit-card payments only for an app that may also
   read your accounts.
 
+- **An AI app connected over MCP can read your wealth analysis.** It could list accounts
+  and balances, but had to recompute allocation, diversification or a loan schedule from
+  raw data, and could get them wrong. Fourteen read-only tools now return what the
+  analysis pages show: allocation, wealth pyramid, diversification, projection,
+  allocation targets, essential-expense estimate, savings suggestions and interest,
+  real-estate summary and valuations, loan summary, realized P&L, crypto exchange
+  positions and ETF composition. Whole-wealth views need the new **Wealth analysis**
+  (`analysis:read`) permission on the access key; views of a single account use the
+  existing accounts permission, and ETF composition the prices one. Nothing can be
+  changed through these tools
+  ([#177](https://github.com/Cloeille/picsou-finance/issues/177)).
+
 - **The sync page is reachable from the profile menu.** `/sync` had no entry in the
   desktop sidebar; it was only reachable from the dashboard sync dialog or by typing the
   address. The profile menu now lists it beside Administration and Sign out, in both
@@ -64,6 +76,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   figure Sofidy does not quote no longer overwrites what you entered by hand, and
   a sold position is written at a zero balance even when no withdrawal price is
   published for it.
+
+- **Bring your history over from Actual Budget.** Upload the budget `.zip` exported
+  from Actual (or its `db.sqlite`) on the sync page, review its accounts, categories and
+  latest transactions, choose where each account and category goes, then confirm.
+  Amounts, dates, payees and notes come across as Actual shows them; split
+  transactions arrive as their parts, deleted rows stay out, and transfers between
+  your accounts and starting balances never count as income or spending. Importing the
+  same file again adds nothing, and a file that fails any check writes nothing. Importing
+  a newer export keeps the accounts the import created in step with Actual: transactions
+  you deleted, split or moved there follow, and the confirmation says how many will be
+  added, deleted and moved first. A large deletion has to be confirmed by typing its count.
+  Accounts you created yourself, and accounts created for another Actual budget, only ever
+  gain new transactions. Loan accounts can't receive an Actual import.
 
 ### Fixed
 
