@@ -13,6 +13,7 @@ import com.picsou.model.TradeRepublicSession;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.exception.ResourceNotFoundException;
+import com.picsou.exception.SyncException;
 import com.picsou.port.TradeRepublicPort;
 import com.picsou.port.TradeRepublicPort.TrAccountData;
 import com.picsou.port.TradeRepublicPort.TrPosition;
@@ -25,6 +26,7 @@ import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import ch.qos.logback.classic.Level;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -94,6 +96,44 @@ class TradeRepublicSyncServiceTest {
             assertThat(appender.list).anySatisfy(event -> assertThat(event.getThrowableProxy()).isNotNull());
             assertThat(appender.list).anySatisfy(event -> assertThat(event.getThrowableProxy().getMessage())
                 .isEqualTo(failure.getMessage()));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    /**
+     * A {@link SyncException} in the scheduled / MCP full-sync path is logged with its code and
+     * stack trace, while the returned result keeps the generic "Sync failed" text (issue #199).
+     */
+    @Test
+    void resyncReporting_syncException_logsCodeAndStackTraceButKeepsResultGeneric() {
+        Long memberId = 7L;
+        TradeRepublicSession session = TradeRepublicSession.builder().sessionToken("enc-session").build();
+        when(sessionRepository.findByMemberId(memberId)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("enc-session")).thenReturn("plain-session");
+        when(trPort.fetchAccounts("plain-session"))
+            .thenThrow(new SyncException("Trade Republic sidecar unreachable raw-marker", null, "SIDECAR_UNAVAILABLE"));
+
+        ch.qos.logback.classic.Logger logger =
+            (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(TradeRepublicSyncService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            var result = service.resyncReporting(memberId);
+
+            assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+            assertThat(result.message()).isEqualTo("Sync failed").doesNotContain("raw-marker");
+            assertThat(appender.list).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage())
+                    .isEqualTo("Trade Republic scheduled sync failed for member " + memberId + " (code=SIDECAR_UNAVAILABLE)");
+                assertThat(event.getThrowableProxy()).isNotNull();
+                assertThat(event.getThrowableProxy().getClassName()).isEqualTo(SyncException.class.getName());
+                assertThat(event.getThrowableProxy().getStackTraceElementProxyArray()).isNotEmpty();
+            });
         } finally {
             logger.detachAppender(appender);
             appender.stop();

@@ -20,6 +20,9 @@ import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.sync.SyncProgressService;
 import com.picsou.service.sync.SyncProvider;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,6 +31,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
@@ -467,6 +471,44 @@ class RevolutSyncServiceTest {
             .thenThrow(new SyncException("SESSION_EXPIRED"));
 
         assertThatCode(() -> service.resyncIfSessionActive(MEMBER_ID)).doesNotThrowAnyException();
+    }
+
+    /**
+     * A {@link SyncException} in the scheduled / MCP full-sync path is logged with its code and
+     * stack trace, while the returned result keeps the generic "Sync failed" text (issue #199).
+     */
+    @Test
+    void resyncReporting_syncException_logsCodeAndStackTraceButKeepsResultGeneric() throws Exception {
+        RevolutSession stored = RevolutSession.builder()
+            .member(member()).credentialsEnc("enc-blob").rememberCredentials(true).build();
+        when(sessionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.of(stored));
+        String storedCredentialsJson = objectMapper.writeValueAsString(Map.of("phone", PHONE, "passcode", PASSCODE));
+        when(encryption.decrypt("enc-blob")).thenReturn(storedCredentialsJson);
+        when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID, false))
+            .thenThrow(new SyncException("Revolut sidecar unreachable raw-marker", null, "SIDECAR_UNAVAILABLE"));
+        ch.qos.logback.classic.Logger logger =
+            (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(RevolutSyncService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            var result = service.resyncReporting(MEMBER_ID);
+
+            assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+            assertThat(result.message()).isEqualTo("Sync failed").doesNotContain("raw-marker");
+            assertThat(appender.list).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage())
+                    .isEqualTo("Revolut scheduled sync failed for member " + MEMBER_ID + " (code=SIDECAR_UNAVAILABLE)");
+                assertThat(event.getThrowableProxy()).isNotNull();
+                assertThat(event.getThrowableProxy().getClassName()).isEqualTo(SyncException.class.getName());
+                assertThat(event.getThrowableProxy().getStackTraceElementProxyArray()).isNotEmpty();
+            });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     // ─── Manual on-demand flow: discover (no writes) → confirmSync (persist selection) ──────────
