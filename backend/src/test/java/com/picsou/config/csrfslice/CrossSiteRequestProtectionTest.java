@@ -25,13 +25,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.Ordered;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.filter.ForwardedHeaderFilter;
 
 import java.util.Map;
 import java.util.Optional;
@@ -53,10 +58,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Cross-site request protection on the API chain, through the real {@link SecurityConfig}.
  * MockMvc requests default to {@code http://localhost:80}, which is the "own origin" below.
+ * {@link ForwardedHeaderFilter} runs ahead of security, as under {@code forward-headers-strategy:
+ * framework}.
  */
 @WebMvcTest(controllers = CrossSiteRequestProtectionTest.ProbeController.class)
-@Import({SecurityConfig.class, CrossSiteRequestProtectionTest.ProbeController.class})
+@Import({SecurityConfig.class, CrossSiteRequestProtectionTest.ProbeController.class,
+    CrossSiteRequestProtectionTest.ForwardedHeaders.class})
 class CrossSiteRequestProtectionTest {
+
+    @TestConfiguration
+    static class ForwardedHeaders {
+        @Bean
+        FilterRegistrationBean<ForwardedHeaderFilter> forwardedHeaderFilter() {
+            FilterRegistrationBean<ForwardedHeaderFilter> registration =
+                new FilterRegistrationBean<>(new ForwardedHeaderFilter());
+            registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+            return registration;
+        }
+    }
 
     @RestController
     static class ProbeController {
@@ -189,6 +208,47 @@ class CrossSiteRequestProtectionTest {
             .andExpect(status().isOk());
     }
 
+    /** nginx forwards {@code Host}/{@code X-Forwarded-Host} as {@code $http_host}, port included. */
+    private static MockHttpServletRequestBuilder behindNginx(String forwardedHost, String proto) {
+        return cookiePost("/api/probe")
+            .header("X-Forwarded-Proto", proto)
+            .header("X-Forwarded-Host", forwardedHost);
+    }
+
+    @Test
+    void noSecFetchSite_nonStandardPortBehindNginx_passes() throws Exception {
+        mvc.perform(behindNginx("nas:8080", "http").header("Origin", "http://nas:8080"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void noSecFetchSite_nonStandardPortBehindNginx_foreignOrigin_isRejected() throws Exception {
+        mvc.perform(behindNginx("nas:8080", "http").header("Origin", "http://evil.lan:8080"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void noSecFetchSite_nonStandardPortBehindNginx_otherPort_isRejected() throws Exception {
+        mvc.perform(behindNginx("nas:8080", "http").header("Origin", "http://nas:9090"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void noSecFetchSite_defaultPortsAreNormalised() throws Exception {
+        mvc.perform(behindNginx("picsou.example.com", "https").header("Origin", "https://picsou.example.com:443"))
+            .andExpect(status().isOk());
+        mvc.perform(behindNginx("picsou.example.com:443", "https").header("Origin", "https://picsou.example.com"))
+            .andExpect(status().isOk());
+        mvc.perform(behindNginx("nas:80", "http").header("Origin", "http://nas"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void noSecFetchSite_httpsOriginOnHttpForwardedScheme_isRejected() throws Exception {
+        mvc.perform(behindNginx("picsou.example.com", "http").header("Origin", "https://picsou.example.com"))
+            .andExpect(status().isForbidden());
+    }
+
     @Test
     void noOrigin_foreignReferer_isRejected() throws Exception {
         mvc.perform(cookiePost("/api/probe").header("Referer", "http://evil.localhost/page"))
@@ -224,7 +284,23 @@ class CrossSiteRequestProtectionTest {
     }
 
     @Test
-    void bearerAuthenticatedRequest_isNotChecked() throws Exception {
+    void cookieWithBrowserCachedBasicCredentials_isRejected() throws Exception {
+        mvc.perform(cookiePost("/api/probe")
+                .header("Authorization", "Basic dXNlcjpwYXNz")
+                .header("Sec-Fetch-Site", "same-site"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void cookieWithBearer_isRejected_becauseTheCookieAuthenticates() throws Exception {
+        mvc.perform(cookiePost("/api/probe")
+                .header("Authorization", "Bearer x")
+                .header("Sec-Fetch-Site", "cross-site"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void bearerAloneFromAnotherOrigin_passes() throws Exception {
         mvc.perform(post("/api/probe")
                 .with(user("member"))
                 .header("Authorization", "Bearer native-app-jwt")
@@ -240,11 +316,19 @@ class CrossSiteRequestProtectionTest {
         when(mcpKeyBuckets.computeIfAbsent(anyLong(), any())).thenReturn(RateLimitConfig.createMcpKeyBucket());
 
         mvc.perform(post("/mcp")
-                .cookie(new Cookie("access_token", "jwt"))
                 .header("Authorization", "Bearer psk_test")
                 .header("Sec-Fetch-Site", "cross-site"))
             .andExpect(status().isOk())
             .andExpect(content().string("mcp"));
+    }
+
+    @Test
+    void mcpAccessKeyWithAuthCookieFromAnotherSite_isRejected() throws Exception {
+        mvc.perform(post("/mcp")
+                .cookie(new Cookie("access_token", "jwt"))
+                .header("Authorization", "Bearer psk_test")
+                .header("Sec-Fetch-Site", "cross-site"))
+            .andExpect(status().isForbidden());
     }
 
     @Test
@@ -285,6 +369,18 @@ class CrossSiteRequestProtectionTest {
         mvc.perform(cookiePost("/api/probe")
                 .header("Sec-Fetch-Site", "same-site")
                 .header("Origin", "http://app.localhost"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void noSecFetchSite_allowListedCorsOrigin_isTrusted() throws Exception {
+        when(appSettingRepository.findByKey(eq(SetupService.KEY_CORS_ALLOWED_ORIGINS)))
+            .thenReturn(Optional.of(AppSetting.builder()
+                .key(SetupService.KEY_CORS_ALLOWED_ORIGINS)
+                .value("http://app.localhost:8443")
+                .build()));
+
+        mvc.perform(cookiePost("/api/probe").header("Origin", "http://app.localhost:8443"))
             .andExpect(status().isOk());
     }
 

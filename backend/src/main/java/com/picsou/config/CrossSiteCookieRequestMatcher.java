@@ -31,9 +31,10 @@ import java.util.Set;
  * </ol>
  *
  * <p>A cross-origin request whose {@code Origin} is on the operator's CORS allow-list is trusted:
- * that list already grants it credentialed access. Requests carrying an {@code Authorization}
- * header (native app JWT, MCP access key) are out of scope: a browser cannot attach that header
- * cross-origin without a preflight, and the CORS config never allows it.
+ * that list already grants it credentialed access. An {@code Authorization} header exempts
+ * nothing: a browser attaches cached {@code Basic}/{@code Digest}/{@code Negotiate} credentials on
+ * its own, and {@code JwtAuthenticationFilter} reads the cookie before any Bearer token. Bearer
+ * clients (native app, MCP keys) send no auth cookie and are never matched.
  */
 public class CrossSiteCookieRequestMatcher implements RequestMatcher {
 
@@ -55,7 +56,6 @@ public class CrossSiteCookieRequestMatcher implements RequestMatcher {
     @Override
     public boolean matches(HttpServletRequest request) {
         return STATE_CHANGING_METHODS.contains(request.getMethod())
-            && request.getHeader(HttpHeaders.AUTHORIZATION) == null
             && carriesCredentialCookie(request)
             && isCrossOrigin(request)
             && !isAllowListedOrigin(request);
