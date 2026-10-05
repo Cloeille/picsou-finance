@@ -63,23 +63,32 @@ public class MeExportController {
         String key = String.valueOf(user.getId());
         Bucket bucket = exportBuckets.computeIfAbsent(key, k -> RateLimitConfig.createExportBucket());
         if (!bucket.tryConsume(1)) {
-            log.warn("export.rate_limited userId={} ip={}", user.getId(), httpReq.getRemoteAddr());
+            log.warn("export.rate_limited userId={} ip={}", user.getId(), LogSanitizer.safe(httpReq.getRemoteAddr()));
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
         }
 
         reAuthService.verify(user, req.reAuth());
 
         log.warn("export.requested userId={} username={} ip={} includeBalanceSnapshots={}",
-            user.getId(), user.getUsername(), LogSanitizer.safe(httpReq.getRemoteAddr()), req.includeBalanceSnapshots());
+            user.getId(), LogSanitizer.safe(user.getUsername()), LogSanitizer.safe(httpReq.getRemoteAddr()), req.includeBalanceSnapshots());
 
         ExportContext ctx = new ExportContext(req.includeBalanceSnapshots());
-        String filename = "picsou-export-" + user.getUsername() + "-" + filenameTimestamp() + ".zip";
+        String filename = "picsou-export-" + filenameSafe(user.getUsername()) + "-" + filenameTimestamp() + ".zip";
         StreamingResponseBody body = out -> dataExportService.export(user, ctx, out);
 
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("application/zip"))
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
             .body(body);
+    }
+
+    /**
+     * Usernames are user-chosen and renamable, and not every write path enforces the setup
+     * pattern, so anything outside {@code [A-Za-z0-9._-]} is replaced before it reaches the
+     * quoted {@code Content-Disposition} filename (a quote or a line break would break it).
+     */
+    static String filenameSafe(String username) {
+        return username.replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
     private static String filenameTimestamp() {

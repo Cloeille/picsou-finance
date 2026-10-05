@@ -7,6 +7,7 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.DegiroSessionExpiredException;
 import com.picsou.exception.SyncException;
 import com.picsou.port.DegiroPort;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,7 +77,7 @@ public class DegiroAdapter implements DegiroPort {
             // surfaced a raw TimeoutException out of blockOptional() instead of a SyncException.
             .timeout(SIDECAR_TIMEOUT)
             .onErrorResume(WebClientResponseException.class, ex -> {
-                log.error("degiro-auth /initiate failed ({}) : {}", ex.getStatusCode(), ex.getResponseBodyAsString());
+                log.error("degiro-auth /initiate failed ({}) : {}", ex.getStatusCode(), LogSanitizer.safe(ex.getResponseBodyAsString()));
                 return Mono.error(new SyncException(
                     "DEGIRO authentication failed. Please check your credentials and try again."));
             })
@@ -113,7 +114,7 @@ public class DegiroAdapter implements DegiroPort {
             .bodyToMono(JsonNode.class)
             .timeout(SIDECAR_TIMEOUT)
             .onErrorResume(WebClientResponseException.class, ex -> {
-                log.error("degiro-auth /complete failed ({}) : {}", ex.getStatusCode(), ex.getResponseBodyAsString());
+                log.error("degiro-auth /complete failed ({}) : {}", ex.getStatusCode(), LogSanitizer.safe(ex.getResponseBodyAsString()));
                 return Mono.error(new SyncException(
                     "The verification code is invalid or has expired. Please request a new one."));
             })
@@ -143,7 +144,7 @@ public class DegiroAdapter implements DegiroPort {
                 if (ex.getStatusCode().value() == 401) {
                     return Mono.error(new DegiroSessionExpiredException());
                 }
-                log.error("degiro-auth /portfolio failed ({}) : {}", ex.getStatusCode(), ex.getResponseBodyAsString());
+                log.error("degiro-auth /portfolio failed ({}) : {}", ex.getStatusCode(), LogSanitizer.safe(ex.getResponseBodyAsString()));
                 return Mono.error(new SyncException(
                     "Could not fetch your DEGIRO portfolio. Please try again later."));
             })

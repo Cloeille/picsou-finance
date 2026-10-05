@@ -135,10 +135,13 @@ terminal escapes. The layout is otherwise Spring Boot's default, on the console 
 included only then).
 
 On top of that, wrap a value an outsider controls in `LogSanitizer.safe(value)` at the call
-site: request parameters and headers, uploaded file names and content, upstream response
+site: request parameters and headers, the remote address, usernames (user-chosen and
+renamable), user-supplied tickers, uploaded file names and content, upstream response
 bodies, status texts and `ex.getMessage()` of an upstream call. It applies the same
 replacement and caps the value at 500 characters, keeps the call safe under any other logging
-setup, and is what CodeQL's `java/log-injection` recognises. Don't wrap ids, enums, numbers or
+setup, and is what CodeQL's `java/log-injection` recognises. Pass the `String` it returns
+straight to the log call: an object that sanitises inside a deferred `toString()` hides the
+sanitiser from CodeQL, and the alert stays open. Don't wrap ids, enums, numbers or
 the app's own constants. Pass exceptions as the last argument
 (`log.warn(msg, ex)`), not wrapped.
 

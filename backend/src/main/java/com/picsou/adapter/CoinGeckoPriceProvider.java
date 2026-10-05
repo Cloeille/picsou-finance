@@ -217,7 +217,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
                 .block();
 
             if (markets == null) {
-                log.warn("CoinGecko returned an empty body for logos {} -- returning no logos", supported);
+                log.warn("CoinGecko returned an empty body for logos {} -- returning no logos", LogSanitizer.safe(supported));
                 return Map.of();
             }
 
@@ -229,7 +229,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
             }
             if (byCoinId.isEmpty()) {
                 log.warn("CoinGecko returned no image for any of {} requested crypto tickers -- the UI will show their tickers",
-                    supported);
+                    LogSanitizer.safe(supported));
                 return Map.of();
             }
 
@@ -286,7 +286,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
                 .block();
 
             if (response == null) {
-                log.warn("CoinGecko returned an empty body for spot prices {} -- returning no prices", supported);
+                log.warn("CoinGecko returned an empty body for spot prices {} -- returning no prices", LogSanitizer.safe(supported));
                 return Map.of();
             }
 
@@ -305,7 +305,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
                 .collect(java.util.stream.Collectors.toCollection(TreeSet::new));
             if (!missing.isEmpty()) {
                 log.warn("CoinGecko had no EUR price for {} of {} requested tickers: {}",
-                    missing.size(), supported.size(), missing);
+                    missing.size(), supported.size(), LogSanitizer.safe(missing));
             }
             return result;
         } catch (RuntimeException ex) {
@@ -356,41 +356,41 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
      */
     private void handleFetchFailure(String operation, Object context, Duration timeout, RuntimeException ex) {
         Throwable cause = reactor.core.Exceptions.unwrap(ex);
+        String where = LogSanitizer.safe(context);
         if (cause instanceof WebClientResponseException http) {
             int status = http.getStatusCode().value();
             if (status == 429) {
                 Duration cooldown = retryAfter(http);
                 rateLimitedUntil = Instant.now().plus(cooldown);
                 log.warn("CoinGecko rate-limited (429) fetching {} for {} -- returning no prices, "
-                    + "and pausing calls for {}s", operation, context, cooldown.toSeconds());
+                    + "and pausing calls for {}s", operation, where, cooldown.toSeconds());
             } else if (http.getStatusCode().is5xxServerError()) {
                 // Their outage, not our bug: WARN, matching how the rest of the codebase
                 // grades expected external failures. These callers are on a scheduler and
                 // run per-ticker, so an hours-long outage would otherwise pour ERROR lines
                 // (each carrying a full HTML error page) into a self-hosted instance's log.
                 log.warn("CoinGecko server error (HTTP {}) fetching {} for {} -- returning no prices: {}",
-                    status, operation, context, lazyBody(http));
+                    status, operation, where, bodySnippet(http));
             } else if (status == 400 || status == 404) {
                 // A malformed request or an unknown coin id points at a bad TICKER_TO_ID
-                // entry -- something we can actually fix, so ERROR. The body is decoded
-                // lazily via a supplier so a disabled level costs nothing.
+                // entry -- something we can actually fix, so ERROR.
                 log.error("CoinGecko rejected the {} request for {} with HTTP {} -- returning no prices: {}",
-                    operation, context, status, lazyBody(http));
+                    operation, where, status, bodySnippet(http));
             } else {
                 // Other 4xx (401/403 free-tier restrictions, 451...) are the provider's
                 // access policy, not a bug on our side: WARN like the other outage cases.
                 log.warn("CoinGecko refused the {} request for {} with HTTP {} -- returning no prices: {}",
-                    operation, context, status, lazyBody(http));
+                    operation, where, status, bodySnippet(http));
             }
         } else if (cause instanceof TimeoutException) {
             log.warn("CoinGecko {} request for {} timed out after {} -- returning no prices",
-                operation, context, timeout);
+                operation, where, timeout);
         } else if (cause instanceof WebClientRequestException) {
             // Never reached the server at all: DNS failure, connection refused/reset, TLS
             // handshake. Same class of expected outage as a 5xx -- WARN, and without the
             // stacktrace, which would otherwise flood the log for the whole outage.
             log.warn("CoinGecko {} request for {} could not reach the API ({}) -- returning no prices",
-                operation, context, LogSanitizer.safe(cause.getMessage()));
+                operation, where, LogSanitizer.safe(cause.getMessage()));
         } else if (!isExpectedUpstreamFailure(cause)) {
             // Not an upstream failure -- an NPE, ClassCastException or parse defect on our
             // side. Rethrow rather than return an empty map: a bug that presents as "no
@@ -402,7 +402,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
             // rather than swallow it silently, so the next addition has to give it a severity.
             log.warn("CoinGecko {} request for {} failed with an unclassified expected failure"
                 + " ({}: {}) -- returning no prices",
-                operation, context, cause.getClass().getSimpleName(), cause.getMessage());
+                operation, where, cause.getClass().getSimpleName(), LogSanitizer.safe(cause.getMessage()));
         }
     }
 
@@ -418,7 +418,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
         Instant until = rateLimitedUntil;
         if (Instant.now().isBefore(until)) {
             log.debug("CoinGecko still rate-limited until {} -- skipping the {} request for {}",
-                until, operation, context);
+                until, operation, LogSanitizer.safe(context));
             return true;
         }
         return false;
@@ -482,18 +482,15 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
     }
 
     /**
-     * Defers decoding the upstream error body until the log level is known to be enabled —
-     * SLF4J only calls {@code toString()} on an argument it actually formats. Also caps it,
-     * so one bad gateway's multi-kilobyte HTML page can't fill the log.
+     * The upstream error body, capped so one bad gateway's multi-kilobyte HTML page can't fill
+     * the log, and sanitised. Built eagerly: it only runs on a failed request, and a plain
+     * {@code String} returned by {@link LogSanitizer#safe} is what lets static analysis see
+     * the sanitisation (a deferred {@code toString()} hides it).
      */
-    private static Object lazyBody(WebClientResponseException http) {
-        return new Object() {
-            @Override public String toString() {
-                String body = http.getResponseBodyAsString();
-                if (body == null || body.isBlank()) return "<empty body>";
-                return LogSanitizer.safe(body.length() <= 200 ? body : body.substring(0, 200) + "... (truncated)");
-            }
-        };
+    private static String bodySnippet(WebClientResponseException http) {
+        String body = http.getResponseBodyAsString();
+        if (body == null || body.isBlank()) return "<empty body>";
+        return LogSanitizer.safe(body.length() <= 200 ? body : body.substring(0, 200) + "... (truncated)");
     }
 
     /**
@@ -530,7 +527,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
     ) {
         String coinId = TICKER_TO_ID.get(ticker.toUpperCase(Locale.ROOT));
         if (coinId == null) return Map.of();
-        String context = ticker + " (" + coinId + ")";
+        String context = LogSanitizer.safe(ticker + " (" + coinId + ")");
         if (coolingDown(operation, context)) return Map.of();
 
         try {

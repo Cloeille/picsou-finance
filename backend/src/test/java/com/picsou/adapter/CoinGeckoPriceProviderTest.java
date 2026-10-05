@@ -300,6 +300,20 @@ class CoinGeckoPriceProviderTest {
         assertThat(eventsAt(Level.ERROR)).isEmpty();
     }
 
+    @Test
+    void errorBody_withLineBreaks_isLoggedOnOneLine_andTruncated() {
+        String forged = "<html>bad gateway</html>\r\nERROR fake entry " + "x".repeat(300);
+        var provider = providerWithStatus(HttpStatus.BAD_GATEWAY, forged);
+
+        provider.getPricesEur(Set.of("BTC"));
+
+        assertThat(eventsAt(Level.WARN)).singleElement()
+            .satisfies(e -> assertThat(e.getFormattedMessage())
+                .contains("<html>bad gateway</html>?ERROR fake entry")
+                .endsWith("... (truncated)")
+                .doesNotContain("\r", "\n"));
+    }
+
     // ── Genuine bugs propagate ────────────────────────────────────────────────
 
     @Test
