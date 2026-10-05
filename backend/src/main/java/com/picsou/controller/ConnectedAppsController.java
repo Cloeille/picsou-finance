@@ -1,5 +1,6 @@
 package com.picsou.controller;
 
+import com.picsou.config.OAuthClientProperties;
 import com.picsou.dto.ConnectedAppResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.service.UserContext;
@@ -24,7 +25,9 @@ import java.util.List;
  * unreachable by a {@code psk_} key or an MCP JWT — {@code AccessKeyAuthFilter} only authenticates
  * {@code /mcp/**} (Property A). Mirrors {@link AccessKeyController}'s self-service shape: every
  * read/revoke is scoped to the caller's own {@code oauth2_authorization} rows (filtered by
- * {@code principal_name}), so one user can never see or revoke another's connected apps.
+ * {@code principal_name}), so one user can never see or revoke another's connected apps. The
+ * first-party {@code picsou-ios} client is left out: its sign-ins are devices, listed and revoked
+ * under Settings › Sessions ({@code SessionController}).
  *
  * <p>Reads go through a focused {@link JdbcTemplate} query joining {@code oauth2_authorization} to
  * {@code oauth2_registered_client} (for the human-readable client name) — the framework's
@@ -42,22 +45,25 @@ public class ConnectedAppsController {
                a.access_token_issued_at AS issued_at
         FROM oauth2_authorization a
         JOIN oauth2_registered_client c ON c.id = a.registered_client_id
-        WHERE a.principal_name = ? AND a.access_token_value IS NOT NULL
+        WHERE a.principal_name = ? AND a.access_token_value IS NOT NULL AND c.client_id <> ?
         ORDER BY a.access_token_issued_at DESC
         """;
 
     private final JdbcTemplate jdbcTemplate;
     private final OAuth2AuthorizationService authorizationService;
     private final UserContext userContext;
+    private final OAuthClientProperties iosClient;
 
     public ConnectedAppsController(
         JdbcTemplate jdbcTemplate,
         OAuth2AuthorizationService authorizationService,
-        UserContext userContext
+        UserContext userContext,
+        OAuthClientProperties iosClient
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.authorizationService = authorizationService;
         this.userContext = userContext;
+        this.iosClient = iosClient;
     }
 
     @GetMapping
@@ -77,7 +83,7 @@ public class ConnectedAppsController {
                 // The Spring AS JDBC schema (V54) does not track a last-used timestamp.
                 null
             );
-        }, principalName);
+        }, principalName, iosClient.getClientId());
     }
 
     @DeleteMapping("/{id}")

@@ -76,7 +76,9 @@ Properties B (no `?memberId=` override) and C (scope-only authorities, never `RO
   `oauth2_authorization`, `oauth2_authorization_consent`, Flyway `V54`), so registered clients and
   authorizations survive redeploys. `picsou-ios` is seeded at startup if absent.
 - **Revocation:** Settings → "Connected apps" (`GET/DELETE /api/connected-apps`, cookie-authed,
-  member-scoped) lists and revokes OAuth authorizations, mirroring access-key revoke.
+  member-scoped) lists and revokes OAuth authorizations, mirroring access-key revoke. The
+  `picsou-ios` client is left out: its sign-ins are devices, listed under Settings › Sessions
+  (see [mfa-and-remember-me.md](./mfa-and-remember-me.md#ios-app-sessions)).
 
 ## Key files
 
