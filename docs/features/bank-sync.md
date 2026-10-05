@@ -149,7 +149,7 @@ SyncController.initiate() --> SyncService --> BankConnectorPort.initiateConnecti
         |
         v
 User authorizes in browser --> redirect to /sync/callback?code=xxx&state=yyy
-        |                      (frontend forwards code + state to /api/sync/complete;
+        |                      (frontend POSTs code + state to /api/sync/complete;
         |                       the requisition is resolved by its stored state nonce)
         |
         v

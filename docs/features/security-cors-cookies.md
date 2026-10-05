@@ -1,6 +1,6 @@
 # Feature: CORS & Cookie Security
 
-> Last updated: 2026-07-20 (client IP trust — rate-limit keys use X-Real-IP, not the XFF-spoofable getRemoteAddr())
+> Last updated: 2026-10-05 (cross-site request check replaces `csrf.disable()`; `/api/sync/complete` is a POST)
 
 ## Context
 
@@ -49,9 +49,11 @@ chain must carry the headers end to end:
   send `X-Forwarded-Proto: https`. All of the above do by default.
 - Picsou's **own nginx** must not clobber it. It previously hardcoded `X-Forwarded-Proto $scheme`
   (always `http`, since that nginx listens on plain :8080). It now preserves the upstream value via
-  a `map`, falling back to `$scheme` only when it is the edge. `X-Forwarded-Host`/`X-Forwarded-Port`
-  are passed through **only when present** — never synthesized — so the backend derives the port
-  from the scheme (443 for https) on the common standard-port deployment.
+  a `map`, falling back to `$scheme` only when it is the edge. `X-Forwarded-Host` falls back to
+  `$http_host` (and `Host` is `$http_host`), which keeps the port the browser typed: on
+  `http://nas:8080` the backend sees port 8080, on a standard-port deployment the Host carries no
+  port and the backend derives it from the scheme. `X-Forwarded-Port` is passed through **only
+  when present**, never synthesized.
 
 ### Client IP trust (rate-limit keys)
 
@@ -106,20 +108,64 @@ Auth tokens are HttpOnly cookies written by `AuthCookieWriter`:
 access_token=...; Max-Age=900; Path=/; HttpOnly; SameSite=Lax[; Secure]
 ```
 - `SameSite=Lax` — `Strict` dropped cookies on Safari iOS on certain navigations.
+  `Lax` is **not** a CSRF defence on its own; see the next section.
 - The `Secure` flag is driven by `SecureCookieProvider` (DB `secure-cookies` setting → `SECURE_COOKIES`
   env, default `true`). Set `false` only when serving over plain HTTP. The wizard auto-detects this
   from `location.protocol`.
+
+### CSRF — cross-site request check
+
+`SameSite=Lax` blocks cookies on cross-**site** subrequests, but a page on a sibling subdomain
+(another app on the same homelab domain) is same-site: the browser attaches our cookies to its
+form POSTs. Many endpoints accept a body-less or multipart POST, which needs no CORS preflight,
+and with no allowed origins configured `DynamicCorsConfigurationSource` returns `null`, so CORS
+does not stop the request either.
+
+The API chain therefore keeps Spring's `CsrfFilter` but without tokens:
+
+- `CrossSiteCookieRequestMatcher` is the `requireCsrfProtectionMatcher`. It matches a request
+  only when **all** hold:
+  1. method is `POST`, `PUT`, `PATCH` or `DELETE`;
+  2. an auth cookie is present (`access_token`, `refresh_token`, `mfa_challenge_token`,
+     `persistent_token`). An `Authorization` header does not exempt the request: a browser
+     attaches cached `Basic`/`Digest`/`Negotiate` credentials on its own (Picsou behind a
+     basic-auth proxy), and `JwtAuthenticationFilter` reads the cookie before any Bearer token.
+     Bearer clients (iOS app, MCP keys) send no auth cookie, so they are never matched;
+  3. the request is cross-origin:
+     - `Sec-Fetch-Site` present: anything but `same-origin` or `none` (so `same-site` and
+       `cross-site` are rejected);
+     - else `Origin`, or `Referer` as a last resort, compared with the request's own
+       scheme/host/port. Behind nginx those come from `X-Forwarded-*` via
+       `forward-headers-strategy: framework` (see above), the same view CORS uses. `Origin: null`
+       and malformed values count as foreign;
+     - neither header: a non-browser client (curl, scripts, the iOS app), allowed;
+  4. the `Origin` is **not** on the CORS allow-list (an allow-listed origin already has
+     credentialed access, e.g. a split deployment with the SPA on another host).
+- `NoStoredCsrfTokenRepository` never stores a token, so a matched request always fails the
+  token comparison and gets **403** `application/problem+json`
+  (`"detail":"Cross-site request rejected"`). Unmatched requests skip the check entirely: no
+  session, no `XSRF-TOKEN` cookie, no header for the SPA to send.
+- Only the `CsrfException` 403 gets that body (`DelegatingAccessDeniedHandler`); other 403s keep
+  Spring's default handler.
+
+**GET stays unchecked, so GET must not change state.** `Lax` cookies ride on top-level cross-site
+navigations. The one offender was the bank OAuth callback: the bank redirects the browser to the
+SPA's `/sync/callback`, which now `POST`s `{code, state}` to `/api/sync/complete` (it was a GET).
+
+The OAuth2 authorization-server chain (`AuthorizationServerConfig`, `@Order(1)`, `/oauth2/**`
+endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain and is unchanged.
 
 ### Key files
 
 | File | Role |
 |------|------|
 | `backend/src/main/java/com/picsou/config/DynamicCorsConfigurationSource.java` | Per-request origin resolution (DB → env → fail closed), wildcard stripping |
-| `backend/src/main/java/com/picsou/config/SecurityConfig.java` | `.cors()`, explicit `CorsFilter` bean, CSRF disabled, filter chain |
+| `backend/src/main/java/com/picsou/config/SecurityConfig.java` | `.cors()`, explicit `CorsFilter` bean, token-less CSRF wiring + 403 body, filter chain |
+| `backend/src/main/java/com/picsou/config/CrossSiteCookieRequestMatcher.java` | Decides which requests are cross-site cookie-authenticated writes |
 | `backend/src/main/java/com/picsou/config/LoggingCorsProcessor.java` | Logs origin on CORS rejection |
 | `backend/src/main/java/com/picsou/config/AuthCookieWriter.java` / `SecureCookieProvider.java` | Cookie construction + `Secure` flag |
 | `backend/src/main/resources/application.yml` | `server.forward-headers-strategy: framework`, `app.cors.allowed-origins`, `app.secure-cookies` |
-| `docker/nginx.conf`, `frontend/nginx.conf` | Preserve upstream `X-Forwarded-Proto/Host/Port`; always set `X-Real-IP: $remote_addr` |
+| `docker/nginx.conf`, `frontend/nginx.conf` | Preserve upstream `X-Forwarded-Proto/Host/Port`, else `$scheme`/`$http_host` (port kept); always set `X-Real-IP: $remote_addr` |
 | `backend/src/main/java/com/picsou/config/ClientIp.java` | Trusted client IP for rate-limit keys (`X-Real-IP`, validated, else `getRemoteAddr()`) |
 | `backend/src/main/java/com/picsou/config/RateLimitConfig.java` | Bucket4j bucket definitions; bounded Caffeine-backed bucket-store beans |
 | `backend/src/main/java/com/picsou/controller/SetupController.java` (`/api/setup/security`) | Persists wizard's allowed origins |
@@ -129,10 +175,13 @@ access_token=...; Max-Age=900; Path=/; HttpOnly; SameSite=Lax[; Secure]
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
 | `forward-headers-strategy: framework` | Backend reachable only via local nginx; no per-IP trusted-proxy config; no-op without headers | `native` (Tomcat RemoteIpValve — needs trusted-proxy IP ranges) |
-| Preserve upstream `X-Forwarded-Proto`, never synthesize port | Proto alone lets the backend derive 443 from scheme; a synthesized `$server_port` (8080) re-breaks the match → 403 | Always set `X-Forwarded-Port $server_port` (wrong port → cross-origin) |
+| Preserve upstream `X-Forwarded-Proto`, forward `$http_host`, never synthesize a port | `$http_host` carries exactly the port the browser used (none on 443); `$server_port` is nginx's port inside the container (8080), not the published one → 403 | Always set `X-Forwarded-Port $server_port` (wrong port → cross-origin); `Host $host` (drops the port) |
 | Fail-closed empty default + wildcard stripping | `*` with credentials is unsafe and illegal in Spring | `ALLOWED_ORIGINS=*` default (previous behavior) |
 | `setAllowedOrigins` (exact) | Credentialed CORS; origins come from the wizard | `setAllowedOriginPatterns("*")` |
 | `SameSite=Lax` | Safari iOS compatibility | `SameSite=Strict` |
+| CSRF by origin check (`Sec-Fetch-Site`, then `Origin`/`Referer`), no token | Stateless, nothing for the SPA or native app to carry; every supported browser sends Fetch Metadata or `Origin` on a POST | Synchronizer/double-submit token (`CookieCsrfTokenRepository` + `X-XSRF-TOKEN` in axios): more moving parts for the same coverage; `csrf.disable()` (left same-site CSRF open) |
+| Reject `same-site`, not only `cross-site` | Sibling subdomains are the realistic attacker on a self-hosted domain | Trusting `same-site` |
+| Allow requests with neither Fetch Metadata nor `Origin`/`Referer` | Only non-browser clients omit both; they cannot be driven by another site | Rejecting them (breaks scripts and health tooling) |
 | Rate-limit keys read `X-Real-IP`, not `getRemoteAddr()` | `getRemoteAddr()` is XFF-tainted under `framework`; `X-Real-IP` is nginx-owned and not client-injectable | Switching to `native` + Tomcat `RemoteIpValve` (bigger blast radius; only justified if forwarded Host/Proto/Port ever stop being needed) |
 | Bucket stores are Caffeine-backed (`expireAfterAccess(1h)`, `maximumSize(50_000)`) | Plain `ConcurrentHashMap` bucket maps never shrink; the key is attacker-controlled for the per-IP ones | Leaving them unbounded (memory-growth DoS) |
 
@@ -149,12 +198,34 @@ access_token=...; Max-Age=900; Path=/; HttpOnly; SameSite=Lax[; Secure]
   block silently wins over `.env`. Check it first when CORS misbehaves in dev.
 - **`Secure` flag on HTTP = redirect loop.** Cookies are dropped, `sessionStorage` stays set, the app
   loops dashboard ↔ `/login`. Fix: `SECURE_COOKIES=false`.
+- **403 "Cross-site request rejected" on a write from a browser that sends no `Sec-Fetch-Site`**
+  (Safari before 16.4, Chrome before 76, Firefox before 90) means the `Origin` fallback saw a
+  scheme/host/port mismatch. Same root cause as the CORS trap above: the forwarded headers
+  don't describe what the browser sees. `ForwardedHeaderFilter` resets the port to the scheme's
+  default whenever `X-Forwarded-Proto` is present, so the port must arrive in
+  `X-Forwarded-Host` (nginx's `$http_host`). An upstream proxy that rewrites `Host` without the
+  port and sends no `X-Forwarded-Host` re-creates the bug; add the origin to the CORS allow-list
+  or have the proxy forward `X-Forwarded-Host`.
+- **Never treat an `Authorization` header as proof of a non-browser caller.** A basic-auth proxy
+  in front of Picsou makes the browser attach `Authorization: Basic …` to every request, forged
+  ones included.
 - **`PATCH` must be listed in allowed methods** — it is, but any new method needs adding.
 - **`LoggingCorsProcessor` logs `getAllowedOriginPatterns()`** which is `null` here (we use
   `setAllowedOrigins`); the rejection log shows `patterns: null` — read the configured CSV instead.
 
 ## Tests
 
+- `config/csrfslice/CrossSiteRequestProtectionTest` — through the real `SecurityConfig`:
+  cookie-authenticated POST with `Sec-Fetch-Site: cross-site`/`same-site` → 403 problem+json,
+  `same-origin`/`none` → 200; without Fetch Metadata a foreign/`null`/other-port `Origin` or a
+  foreign `Referer` → 403, a matching one (including HTTPS behind the proxy) → 200; no headers →
+  200; with the real `ForwardedHeaderFilter`, `X-Forwarded-Host: nas:8080` + `Origin:
+  http://nas:8080` → 200, a foreign host or another port → 403, default ports (80/443) normalised;
+  cookie + `Authorization: Basic` or `Bearer` cross-site → 403; Bearer or MCP `psk_` without a
+  cookie → 200; GET unaffected; SPA login/refresh pass; an allow-listed CORS origin passes, with
+  or without Fetch Metadata; a rejection creates no session and sets no cookie.
+- `controller/SyncControllerTest#complete_*` — `/api/sync/complete` is a POST with a JSON body;
+  GET answers 405.
 - `config/ForwardedHeadersCorsTest` — drives the real `ForwardedHeaderFilter` +
   `DynamicCorsConfigurationSource` + `LoggingCorsProcessor`: asserts an HTTPS same-origin request is
   **not** 403 with `X-Forwarded-Proto: https`, **is** 403 without it (the bug), and a genuine

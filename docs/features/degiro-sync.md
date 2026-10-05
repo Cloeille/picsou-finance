@@ -42,6 +42,10 @@ browser-automation one.
    `GET /pa/secure/client` to resolve `intAccount`. Returns an opaque
    `{sessionId, intAccount}` blob, which Java encrypts via `CryptoEncryption`
    into `DegiroSession.sessionBlob` — Java never parses this blob's contents.
+   The sidecar does: both values end up in the portfolio URL path, so
+   `/portfolio` coerces `intAccount` to an `int` and only accepts a `sessionId`
+   made of characters that stay inside a path segment (no `/ ? # % ; @`);
+   anything else is a 400.
 
 ### Session lifetime — the one thing genuinely different from other integrations
 

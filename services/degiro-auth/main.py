@@ -41,6 +41,7 @@ docs/decisions/2026-08-05-degiro-session-only-no-stored-totp.md.
 import json
 import logging
 import os
+import re
 import secrets
 import time
 import uuid
@@ -54,7 +55,35 @@ from pydantic import BaseModel
 
 from portfolio_parser import build_positions, build_product_info_map, parse_cash_eur, parse_raw_positions
 
-logging.basicConfig(level=logging.INFO)
+# C0/C1 controls (CR, LF, ESC, NEL...) and the Unicode line/paragraph separators.
+_LOG_UNSAFE = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
+
+
+class SafeFormatter(logging.Formatter):
+    """Escapes line breaks and control characters in the whole formatted record,
+    traceback included, so a logged value cannot forge a log line."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return _LOG_UNSAFE.sub(
+            lambda m: m.group().encode("unicode_escape").decode("ascii"),
+            super().format(record),
+        )
+
+
+def safe(value: object, limit: int = 500) -> str:
+    """An outside-controlled value made safe for a log line: truncated, line
+    breaks and control characters replaced with '?'. SafeFormatter already
+    covers the handler; this keeps the call site safe on its own."""
+    text = str(value)
+    if len(text) > limit:
+        text = text[:limit] + "..."
+    text = text.replace("\r\n", "?").replace("\n", "?")
+    return _LOG_UNSAFE.sub("?", text)
+
+
+_log_handler = logging.StreamHandler()
+_log_handler.setFormatter(SafeFormatter(logging.BASIC_FORMAT))
+logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
 log = logging.getLogger("degiro-auth")
 SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
 
@@ -89,6 +118,10 @@ async def authenticate_sidecar_request(request: Request, call_next):
 
 
 DEGIRO_BASE = "https://trader.degiro.nl"
+
+# The JSESSIONID cookie value is opaque, so the pattern only keeps characters that stay
+# inside a URL path segment: no / ? # % ; @ \, whitespace or controls.
+SESSION_ID_PATTERN = r"[A-Za-z0-9._~!*+=,:-]{1,256}"
 
 # In-memory auth state: processId → {username, password, created_at}
 # Cleaned up after /complete or after TTL. Credentials are held only long
@@ -227,7 +260,10 @@ async def _fetch_int_account(client: httpx.AsyncClient, session_id: str) -> int:
         # this is likely that state, not a different account-resolution bug. The logged
         # body above is what tells us for sure.
         raise HTTPException(status_code=502, detail="DEGIRO login succeeded but no account was returned")
-    return int_account
+    try:
+        return int(int_account)
+    except (TypeError, ValueError) as ex:
+        raise HTTPException(status_code=502, detail="DEGIRO returned an invalid account number") from ex
 
 
 async def _fetch_portfolio(client: httpx.AsyncClient, session_id: str, int_account: int) -> dict:
@@ -300,7 +336,7 @@ class PortfolioRequest(BaseModel):
 @app.post("/initiate")
 async def initiate(req: InitiateRequest):
     _clean_pending()
-    log.info("DEGIRO auth initiate for user %s***", req.username[:2])
+    log.info("DEGIRO auth initiate for user %s***", safe(req.username[:2]))
 
     client = _client()
     try:
@@ -353,12 +389,18 @@ async def portfolio(req: PortfolioRequest):
     try:
         parsed = json.loads(req.sessionBlob)
         session_id = parsed["sessionId"]
-        int_account = parsed["intAccount"]
+        int_account = int(parsed["intAccount"])
     # TypeError too: json.loads happily returns a scalar or a list for a blob like "5"
     # or "[1]", and subscripting that raises TypeError, which would escape as a 500
-    # instead of the 400 this is meant to be.
-    except (json.JSONDecodeError, KeyError, TypeError) as ex:
+    # instead of the 400 this is meant to be. ValueError covers a non-numeric
+    # intAccount (and is JSONDecodeError's base class).
+    except (ValueError, KeyError, TypeError) as ex:
         raise HTTPException(status_code=400, detail="Invalid sessionBlob format") from ex
+    # Both values end up in the portfolio URL path; nothing that can leave the segment.
+    if not isinstance(session_id, str):
+        raise HTTPException(status_code=400, detail="Invalid sessionBlob format")
+    if not re.fullmatch(SESSION_ID_PATTERN, session_id):
+        raise HTTPException(status_code=400, detail="Invalid sessionBlob format")
 
     client = _client()
     client.cookies.set("JSESSIONID", session_id, domain="trader.degiro.nl")

@@ -13,7 +13,7 @@ Trade Republic is a German neobroker popular in France. Picsou syncs portfolio b
 The `TradeRepublicAdapter` delegates auth to the `tr-auth` Python microservice (FastAPI + Playwright, running on port 8001). The Java adapter calls three HTTP endpoints on the sidecar:
 
 1. **`POST /initiate`** -- Sends phone number + PIN. TR dispatches a 2FA code via SMS/app notification. Returns a `processId`.
-2. **`POST /complete`** -- Sends processId + verification code (4-digit code in the current Trade Republic flow). Returns `sessionToken` + `refreshToken`.
+2. **`POST /complete`** -- Sends processId + verification code (4-digit code in the current Trade Republic flow). Returns `sessionToken` + `refreshToken`. Both values become path segments of the TR URL, so the sidecar only accepts `processId` matching `[A-Za-z0-9-]{1,64}` (TR sends a UUID) and `tan` matching `[0-9]{4,8}`; anything else is a 422 and never reaches TR.
 3. **`POST /refresh`** -- Sends refreshToken. Returns new sessionToken (+ possibly rotated refreshToken).
 
 Credentials (phone/PIN) are never stored -- they are used only for the `/initiate` call and discarded.

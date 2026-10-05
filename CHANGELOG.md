@@ -141,6 +141,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   too. **Upgrade note:** both Compose files forward the key to every sidecar they define, so
   a `docker/.env` that already sets it needs no change; recreate the app and all
   sidecars together. ([#169](https://github.com/Cloeille/picsou-finance/issues/169))
+- **Another site can no longer act on your Picsou account through your browser.** The login
+  cookies are `SameSite=Lax`, which still lets a page on a sibling subdomain (another app on
+  the same home domain) submit forms to Picsou with your session, and several actions accept
+  such a form. The API now rejects a cookie-authenticated change (`POST`, `PUT`, `PATCH`,
+  `DELETE`) sent from another origin, using the browser's `Sec-Fetch-Site` header, or
+  `Origin`/`Referer` when it is missing. Origins on the CORS allow-list, the iOS app and MCP
+  clients are unaffected. The bank connection callback now completes with a `POST` instead
+  of a `GET`.
+- **A crafted value can no longer forge lines in the backend log.** A search term, a ticker,
+  an uploaded file name or CSV line, or an error page from a price provider could carry line
+  breaks or terminal escape codes into the log, and so fake an entry or garble the terminal.
+  The backend log now replaces line breaks and control characters with `?` in every message
+  and in exception messages, and the values an outsider controls are also cleaned where they
+  are logged. The log layout is unchanged; the backend logs to the console only, as before.
+  The Trade Republic, DEGIRO and Revolut sidecars escape line breaks and control characters
+  in each log record too, so a multi-line browser error or traceback now prints on one line
+  with `\n` markers.
+- **The Trade Republic and DEGIRO sidecars only put well-formed values in their upstream
+  URLs.** The Trade Republic process id and code, and the DEGIRO account number and session
+  id, were pasted into the request path as received, so a crafted value could point the
+  sidecar at another path on the broker's API. They are now checked against their real
+  shape first and refused otherwise.
+- **The Trade Republic sidecar log shows only the last two digits of your phone number.** It
+  kept the first three characters too, which for a number typed without `+33` or a leading
+  `0` was five of its nine digits.
+- **CI and image builds run fixed versions of their GitHub Actions.** Every third-party action
+  is pinned to a commit instead of a movable tag, so a retagged or compromised action can no
+  longer run in the job that pushes the Docker images. Dependabot proposes the updates weekly.
 
 
 ## [1.1.0] — 2026-06-09

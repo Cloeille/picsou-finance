@@ -864,8 +864,8 @@ handlers.set(key('POST', '/sync/initiate'), () => ({
   authLink: 'https://demo.enablebanking.com/auth?demo=true',
 }))
 
-// Sync - complete (real backend: GET /api/sync/complete?code=...&state=...)
-handlers.set(key('GET', '/sync/complete'), () => ([
+// Sync - complete (real backend: POST /api/sync/complete with { code, state })
+handlers.set(key('POST', '/sync/complete'), () => ([
   { id: 100, name: 'Demo Bank Account', type: 'CHECKING' as const, provider: 'Demo Bank', currency: 'EUR', currentBalance: 5000, currentBalanceEur: 5000, lastSyncedAt: new Date().toISOString(), isManual: false, color: '#3b82f6', ticker: null, createdAt: new Date().toISOString() }
 ]))
 

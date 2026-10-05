@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Spring Boot's default logging, with log-injection protection: the message (%m) and the
+  exception messages in stack traces (%wEx) have line breaks and control characters (TAB
+  excepted) replaced, so a logged value cannot forge a log line or send terminal escape sequences.
+
+  The rules must come after defaults.xml, which registers its own %wEx. Levels, patterns and
+  LOGGING_* properties keep working as with Spring Boot's built-in configuration.
+
+  File logging, like Spring Boot's default: only when logging.file.name or logging.file.path sets
+  LOG_FILE. Spring's base.xml would always write one, to ${java.io.tmpdir}/spring.log. Without
+  Janino there is no <if>, so the include resource is picked by a nested variable: with LOG_FILE
+  unset, it reads PICSOU_FILE_LOGGING_OFF, whose value names no resource, and the optional
+  include is skipped; with LOG_FILE set, PICSOU_FILE_LOGGING_<path> is undefined and the default,
+  logback-file.xml, is included.
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <conversionRule conversionWord="m" class="com.picsou.util.SafeMessageConverter"/>
+    <conversionRule conversionWord="msg" class="com.picsou.util.SafeMessageConverter"/>
+    <conversionRule conversionWord="message" class="com.picsou.util.SafeMessageConverter"/>
+    <conversionRule conversionWord="wEx" class="com.picsou.util.SafeThrowableProxyConverter"/>
+
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <property name="PICSOU_FILE_LOGGING_OFF" value="file-logging-disabled"/>
+    <include optional="true" resource="${PICSOU_FILE_LOGGING_${LOG_FILE:-OFF}:-logback-file.xml}"/>
+</configuration>

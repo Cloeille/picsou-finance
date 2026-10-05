@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import com.picsou.dto.EquityProfile;
 import com.picsou.port.EquityProfileProvider;
+import com.picsou.util.LogSanitizer;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
@@ -120,7 +121,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
         }
 
         if (!SYMBOL_PATTERN.matcher(upper).matches()) {
-            log.debug("Rejecting non-symbol ticker: {}", ticker);
+            log.debug("Rejecting non-symbol ticker: {}", LogSanitizer.safe(ticker));
             return false;
         }
 
@@ -149,7 +150,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
                         && http.getStatusCode().value() == 429) {
                     cooldown.arm(http.getHeaders());
                 }
-                log.warn("Yahoo Finance price fetch failed for {}: {}", ticker, ex.getMessage());
+                log.warn("Yahoo Finance price fetch failed for {}: {}", LogSanitizer.safe(ticker), LogSanitizer.safe(ex.getMessage()));
             }
         }
 
@@ -291,7 +292,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             : BigDecimal.ONE;
         if (fx == null) {
             log.warn("Skipping {} series for {}: FX rate unavailable for {}",
-                    seriesName, ticker, result.meta() != null ? result.meta().currency() : "null");
+                    seriesName, LogSanitizer.safe(ticker), LogSanitizer.safe(result.meta() != null ? result.meta().currency() : null));
             return Map.of();
         }
 
@@ -383,7 +384,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             if (meta == null) return Optional.empty();
             return Optional.ofNullable(meta.instrumentType()).filter(s -> !s.isBlank());
         } catch (Exception ex) {
-            log.debug("Yahoo instrumentType fetch failed for {}: {}", ticker, ex.getMessage());
+            log.debug("Yahoo instrumentType fetch failed for {}: {}", LogSanitizer.safe(ticker), LogSanitizer.safe(ex.getMessage()));
             return Optional.empty();
         }
     }
@@ -507,7 +508,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             log.debug("Fetched {} intraday prices for {} from Yahoo", prices.size(), ticker);
             return prices;
         } catch (Exception ex) {
-            log.warn("Yahoo intraday price fetch failed for {}: {}", ticker, ex.getMessage());
+            log.warn("Yahoo intraday price fetch failed for {}: {}", LogSanitizer.safe(ticker), LogSanitizer.safe(ex.getMessage()));
             return Map.of();
         }
     }

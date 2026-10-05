@@ -1,5 +1,6 @@
 package com.picsou.config;
 
+import com.picsou.util.LogSanitizer;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -20,7 +21,7 @@ class LoggingCorsProcessor extends DefaultCorsProcessor {
         if (!allowed) {
             String origin = request.getHeader(HttpHeaders.ORIGIN);
             log.warn("CORS rejected — origin: '{}' | allowed patterns: {}",
-                origin,
+                LogSanitizer.safe(origin),
                 config != null ? config.getAllowedOriginPatterns() : "none");
         }
         return allowed;

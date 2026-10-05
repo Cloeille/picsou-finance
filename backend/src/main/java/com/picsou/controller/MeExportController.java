@@ -6,6 +6,7 @@ import com.picsou.export.DataExportService;
 import com.picsou.export.ExportContext;
 import com.picsou.model.AppUser;
 import com.picsou.service.ReAuthService;
+import com.picsou.util.LogSanitizer;
 import io.github.bucket4j.Bucket;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -69,7 +70,7 @@ public class MeExportController {
         reAuthService.verify(user, req.reAuth());
 
         log.warn("export.requested userId={} username={} ip={} includeBalanceSnapshots={}",
-            user.getId(), user.getUsername(), httpReq.getRemoteAddr(), req.includeBalanceSnapshots());
+            user.getId(), user.getUsername(), LogSanitizer.safe(httpReq.getRemoteAddr()), req.includeBalanceSnapshots());
 
         ExportContext ctx = new ExportContext(req.includeBalanceSnapshots());
         String filename = "picsou-export-" + user.getUsername() + "-" + filenameTimestamp() + ".zip";

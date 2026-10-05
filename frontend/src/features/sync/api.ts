@@ -51,7 +51,7 @@ export const bankSyncApi = {
 
   complete: (code: string, state?: string | null) =>
     api
-      .get<Account[]>('/sync/complete', { params: { code, state: state ?? undefined } })
+      .post<Account[]>('/sync/complete', { code, state: state ?? undefined })
       .then(r => r.data),
 
   getStatus: () =>

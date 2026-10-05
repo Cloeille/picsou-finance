@@ -29,7 +29,8 @@ could resync BNP and report success.
   pass it to the connector as OAuth `state`, and persist it on the requisition
   (`requisition.oauth_state`, unique index, migration V51).
 - The frontend forwards the `state` query param from the redirect to
-  `GET /api/sync/complete`.
+  `/api/sync/complete` (a `POST` with a JSON body since 2026-10, so the
+  call falls under the cross-site request check).
 - `completeConnection` resolves the requisition **by state** (single-use: the
   nonce is cleared the moment the code exchange succeeds) and derives the
   member from the resolved requisition, not the caller context.
@@ -76,7 +77,7 @@ member is derived from the row it resolves to.
 - `RequisitionRepository.findByOauthState` (documented exception to the
   member-scoping rule) and
   `findByStatusAndMemberIdAndInstitutionIdOrderByCreatedAtDesc`.
-- `SyncController.complete` accepts an optional `state` request param;
+- `SyncController.complete` accepts an optional `state` (body field since 2026-10);
   `BankSyncTab` forwards it from the callback URL.
 - Tests: resolution by state, unknown state rejection, same-institution replay
   scoping, impersonation member derivation (`SyncServiceTest`).
