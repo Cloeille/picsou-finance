@@ -46,7 +46,11 @@ final class OAuthService {
 
     func refresh(_ refreshToken: String) async throws -> TokenSet {
         guard let base = serverConfig.baseURL else { throw APIError.notConfigured }
-        return try await postToken(base: base, form: [
+        return try await refresh(refreshToken, base: base)
+    }
+
+    func refresh(_ refreshToken: String, base: URL) async throws -> TokenSet {
+        try await postToken(base: base, form: [
             "grant_type": "refresh_token",
             "refresh_token": refreshToken,
             "client_id": clientId,

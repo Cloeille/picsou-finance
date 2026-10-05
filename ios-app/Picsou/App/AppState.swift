@@ -157,14 +157,36 @@ final class AppState {
 
     /// Clear tokens and return to the login screen (keeps the configured instance).
     func signOut() {
+        revokeOnServer()
         tokenStore.clear()
         phase = .loggedOut
     }
 
     /// Forget the instance entirely (Settings action, not wired into Phase 1 UI yet).
     func resetServer() {
+        revokeOnServer()
         tokenStore.clear()
         serverConfig.clear()
         phase = .unconfigured
+    }
+
+    /// Best-effort `DELETE /api/auth/sessions/{aid}`, so signing out also ends this device's
+    /// authorization and its refresh token on the server. Captures the tokens and instance URL
+    /// before the caller clears them; runs detached, ignores every failure, so sign-out never waits
+    /// on the network. Bypasses `APIClient`, whose lost-auth callback would sign out again.
+    private func revokeOnServer() {
+        guard let tokens = tokenStore.load(), let base = serverConfig.baseURL else { return }
+        Task { [oauth, session] in
+            var accessToken = tokens.accessToken
+            if tokens.accessTokenExpiry.timeIntervalSinceNow < 60,
+               let fresh = try? await oauth.refresh(tokens.refreshToken, base: base) {
+                accessToken = fresh.accessToken
+            }
+            guard let aid = JWT.payload(of: accessToken)?["aid"] as? String else { return }
+            var request = URLRequest(url: base.appendingPathComponent("api/auth/sessions/\(aid)"), timeoutInterval: 5)
+            request.httpMethod = "DELETE"
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            _ = try? await session.data(for: request)
+        }
     }
 }

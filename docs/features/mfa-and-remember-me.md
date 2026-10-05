@@ -205,6 +205,10 @@ refresh-token rotation). `NativeAppSessionService` treats each live row as a ses
   `aid` claim existed carry no claim and stay valid until their TTL (15 min by default).
 - **"Log out everywhere else"** removes every app row except the one named by the request's `aid`
   (none when called from a browser), alongside the existing Remember Me logic.
+- **Signing out in the app** revokes its own row the same way (`DELETE /api/auth/sessions/{aid}`,
+  best effort), and **presenting a rotated-away refresh token** deletes the row (reuse detection,
+  see the 2026-07-22 ADR). The row's refresh token expires 30 days after sign-in at most;
+  rotation does not extend it.
 
 ### Cross-identity session bleed at login
 

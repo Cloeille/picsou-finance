@@ -65,6 +65,11 @@ backend gained a second, higher-priority `SecurityFilterChain` (`AuthorizationSe
      `PublicClientRefreshTokenAuthenticationProvider` (same file) authenticate by `client_id` alone
      for that one grant type — the standard RFC 6749 public-client model, where the refresh token
      itself (rotated on every use, `reuseRefreshTokens(false)`) is the actual credential.
+  3. Rotation is backed by reuse detection: a `picsou-ios` refresh token names its authorization
+     (`NativeAppRefreshTokens`, HMAC-signed), and presenting one that was already rotated away
+     deletes the whole authorization (`RefreshTokenReuseDetector`). Its expiry counts from the
+     sign-in, not from the last rotation, so a device signs in again at most every
+     `refreshTokenTtlDays` (30). See the 2026-07-22 ADR.
 
   Regression-tested end-to-end (real filter chain, real Postgres via Testcontainers) by
   `PublicClientRefreshTokenIntegrationTest`.
@@ -80,7 +85,10 @@ with XcodeGen (not committed).
   in the Keychain (device-only); `BiometricGate` gates entry with Face ID.
 - `APIClient` injects the Bearer token and refreshes once on a 401 (and proactively near expiry)
   via an actor-based single-flight (`TokenRefresher`); on terminal failure it asks `AppState` to
-  sign out. This refresh path only became a real, working feature with the two backend overrides
+  sign out. `AppState.signOut()` / `resetServer()` clear the Keychain and change phase at once,
+  then send a best-effort `DELETE /api/auth/sessions/{aid}` (the `aid` claim of the access token,
+  refreshed first if it is about to expire; 5 s timeout, errors ignored) so the server forgets the
+  device too. This refresh path only became a real, working feature with the two backend overrides
   above — before them, every device force-logged-out roughly every 15 minutes (the access-token
   TTL) with no refresh to fall back on.
 - The dashboard reads a single `GET /api/dashboard?range=` and renders net worth + PnL, a Swift
