@@ -1,6 +1,6 @@
 # Feature: Embedded MCP server + scoped access-keys
 
-> Last updated: 2026-10-04
+> Last updated: 2026-10-05
 
 ## Context
 
@@ -224,6 +224,8 @@ sessions/credentials as the documented side effect of deleting a connection's la
   member-level fallback, DEGIRO, Revolut, Trade Republic, IBKR and crypto-exchange reporting return
   fixed failure labels rather than truncated exception text. DEGIRO's stored last error is also
   omitted from `get_sync_status`; its failure/reauthentication flag remains visible.
+  The cause is not lost: Revolut and Trade Republic log a reporting-path `SyncException` at WARN
+  with its code and stack trace before returning the fixed label, like the queued brokers do.
 - **Status reads do not share a transaction.** `SyncStatusService.describe` suspends a caller's
   transaction with `NOT_SUPPORTED`. Each reader owns its transaction, so one caught database
   failure cannot mark the whole report rollback-only or roll back an unrelated caller's writes.
