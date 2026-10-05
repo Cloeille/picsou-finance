@@ -74,7 +74,8 @@ Properties B (no `?memberId=` override) and C (scope-only authorities, never `RO
   flag; scopes validated ⊆ `Scopes.ALL`; `redirect_uris` stored and exact-matched.
 - **Persistence:** the AS uses the JDBC repositories (`oauth2_registered_client`,
   `oauth2_authorization`, `oauth2_authorization_consent`, Flyway `V54`), so registered clients and
-  authorizations survive redeploys. `picsou-ios` is seeded at startup if absent.
+  authorizations survive redeploys. `picsou-ios` is seeded at startup if absent, and its redirect URI and token lifetimes are
+  reconciled with the configuration on every boot.
 - **Revocation:** Settings → "Connected apps" (`GET/DELETE /api/connected-apps`, cookie-authed,
   member-scoped) lists and revokes OAuth authorizations, mirroring access-key revoke. The
   `picsou-ios` client is left out: its sign-ins are devices, listed under Settings › Sessions

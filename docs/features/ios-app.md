@@ -70,6 +70,12 @@ backend gained a second, higher-priority `SecurityFilterChain` (`AuthorizationSe
      deletes the whole authorization (`RefreshTokenReuseDetector`). Its expiry counts from the
      sign-in, not from the last rotation, so a device signs in again at most every
      `refreshTokenTtlDays` (30). See the 2026-07-22 ADR.
+  4. The startup runner (`seedIosClientRunner`) inserts the `picsou-ios` row on first boot and, on
+     every later boot, reconciles its redirect URI and token lifetimes with `OAuthClientProperties`
+     (`OAUTH_IOS_REDIRECT_URI`, `OAUTH_ACCESS_TTL_MINUTES`, `OAUTH_REFRESH_TTL_DAYS`). It keeps the
+     row id and existing authorizations, writes only when a value differs, and logs one line when it
+     does. New values apply on restart. An existing sign-in picks up a new refresh TTL at its next refresh,
+     still counted from its sign-in time.
 
   Regression-tested end-to-end (real filter chain, real Postgres via Testcontainers) by
   `PublicClientRefreshTokenIntegrationTest`.

@@ -11,6 +11,8 @@ import com.picsou.model.AppUser;
 import com.picsou.model.UserRole;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -78,6 +80,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -105,6 +108,8 @@ import java.util.UUID;
  */
 @Configuration
 public class AuthorizationServerConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthorizationServerConfig.class);
 
     /**
      * {@link ClientSettings} custom-setting key marking a registered client as a remote-MCP
@@ -220,7 +225,8 @@ public class AuthorizationServerConfig {
      * JDBC-persistent client registry (V54 migration: {@code oauth2_registered_client}), so both
      * the first-party {@code picsou-ios} client and any client dynamically registered by a
      * remote-MCP consumer (claude.ai) survive redeploys. The {@code picsou-ios} row itself is
-     * seeded once at startup by {@link #seedIosClientRunner}, not built here.
+     * seeded and kept in sync with the configuration at startup by {@link #seedIosClientRunner},
+     * not built here.
      */
     @Bean
     public RegisteredClientRepository registeredClientRepository(JdbcOperations jdbcOperations) {
@@ -289,11 +295,13 @@ public class AuthorizationServerConfig {
     }
 
     /**
-     * Seeds the single first-party public client on first boot only. PKCE is mandatory; there is
-     * no client secret. Consent is skipped (the app and server are operated by the same person).
-     * Runs after the {@link RegisteredClientRepository} bean exists; idempotent across restarts —
-     * {@code findByClientId} returns non-null on every boot after the first, so the row is never
-     * re-inserted (and therefore never duplicated or reset).
+     * Seeds the single first-party public client on first boot, then on every later boot
+     * reconciles the existing row with the configured redirect URI and token lifetimes, so
+     * {@code OAUTH_IOS_REDIRECT_URI}, {@code OAUTH_ACCESS_TTL_MINUTES} and
+     * {@code OAUTH_REFRESH_TTL_DAYS} take effect on restart. The row keeps its id (authorizations
+     * reference it) and is only written when a value differs, so restarts are idempotent.
+     * PKCE is mandatory; there is no client secret. Consent is skipped (the app and server are
+     * operated by the same person).
      */
     @Bean
     public ApplicationRunner seedIosClientRunner(
@@ -301,9 +309,31 @@ public class AuthorizationServerConfig {
         OAuthClientProperties props
     ) {
         return (ApplicationArguments args) -> {
-            if (registeredClientRepository.findByClientId(props.getClientId()) == null) {
+            RegisteredClient existing = registeredClientRepository.findByClientId(props.getClientId());
+            if (existing == null) {
                 registeredClientRepository.save(buildIosClient(props));
+                return;
             }
+            Duration accessTtl = Duration.ofMinutes(props.getAccessTokenTtlMinutes());
+            Duration refreshTtl = Duration.ofDays(props.getRefreshTokenTtlDays());
+            TokenSettings tokens = existing.getTokenSettings();
+            if (existing.getRedirectUris().equals(Set.of(props.getRedirectUri()))
+                && tokens.getAccessTokenTimeToLive().equals(accessTtl)
+                && tokens.getRefreshTokenTimeToLive().equals(refreshTtl)) {
+                return;
+            }
+            registeredClientRepository.save(RegisteredClient.from(existing)
+                .redirectUris(uris -> {
+                    uris.clear();
+                    uris.add(props.getRedirectUri());
+                })
+                .tokenSettings(TokenSettings.withSettings(tokens.getSettings())
+                    .accessTokenTimeToLive(accessTtl)
+                    .refreshTokenTimeToLive(refreshTtl)
+                    .build())
+                .build());
+            log.info("OAuth client '{}' updated from configuration: redirectUri={}, accessTtl={}, refreshTtl={}",
+                props.getClientId(), props.getRedirectUri(), accessTtl, refreshTtl);
         };
     }
 

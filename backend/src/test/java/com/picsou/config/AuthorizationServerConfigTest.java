@@ -121,6 +121,23 @@ class AuthorizationServerConfigTest {
     }
 
     @Test
+    void restartReconcilesTheStoredIosClientWithNewConfiguration() throws Exception {
+        String id = registeredClientRepository.findByClientId(oAuthClientProperties.getClientId()).getId();
+        OAuthClientProperties changed = new OAuthClientProperties();
+        changed.setRefreshTokenTtlDays(7);
+        try {
+            config.seedIosClientRunner(registeredClientRepository, changed).run(null);
+
+            RegisteredClient client = registeredClientRepository.findByClientId(changed.getClientId());
+            assertThat(client.getId()).isEqualTo(id);
+            assertThat(client.getTokenSettings().getRefreshTokenTimeToLive()).isEqualTo(java.time.Duration.ofDays(7));
+            assertThat(client.getTokenSettings().isReuseRefreshTokens()).isFalse();
+        } finally {
+            config.seedIosClientRunner(registeredClientRepository, oAuthClientProperties).run(null);
+        }
+    }
+
+    @Test
     void customizerStampsResourceServerClaimsAndForcesHs256() {
         JwtEncodingContext context = accessTokenContext(user);
 
