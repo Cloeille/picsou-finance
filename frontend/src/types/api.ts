@@ -563,10 +563,32 @@ export interface GoalMonthEntry {
   effective: number | null
 }
 
+/**
+ * The backend serialises with `default-property-inclusion: non_null`, so a null field is
+ * omitted from the JSON rather than sent as null. Optional + nullable is the honest type.
+ */
+export interface DashboardLiability {
+  accountId: number
+  name: string
+  color: string
+  balanceEur: number
+  percentage: number
+  accountType: AccountType
+  hasHoldings: boolean
+  /** Loans with configured parameters only. */
+  monthlyPayment?: number | null
+  /** Loans with a borrowed amount only. */
+  percentPaid?: number | null
+  /** Credit cards only, when the statement is known. */
+  paymentDueAmountEur?: number | null
+  /** Credit cards only, `yyyy-MM-dd`. */
+  paymentDueDate?: string | null
+}
+
 export interface DashboardData {
   totalNetWorth: number
   totalLiabilities: number
-  totalMonthlyPayment: number | null
+  totalMonthlyPayment?: number | null
   netWorthHistory: { date: string; total: number; invested: number; pnl: number }[]
   distribution: {
     accountId: number
@@ -577,17 +599,7 @@ export interface DashboardData {
     accountType: AccountType
     hasHoldings: boolean
   }[]
-  liabilities: {
-    accountId: number
-    name: string
-    color: string
-    balanceEur: number
-    percentage: number
-    accountType: AccountType
-    hasHoldings: boolean
-    monthlyPayment: number | null
-    percentPaid: number | null
-  }[]
+  liabilities: DashboardLiability[]
   goalSummaries: GoalProgress[]
 }
 
@@ -1125,7 +1137,8 @@ export interface Transaction {
   categoryId?: number | null
   nativeCurrency: string
   isManual: boolean
-  txType: 'DEPOSIT' | 'WITHDRAWAL' | 'BUY' | 'SELL' | 'DIVIDEND' | 'FEE' | null
+  /** Omitted from the JSON for a plain cash movement (`non_null`). */
+  txType?: 'DEPOSIT' | 'WITHDRAWAL' | 'BUY' | 'SELL' | 'DIVIDEND' | 'FEE' | null
   ticker: string | null
   name: string | null
   quantity: number | null
@@ -1571,9 +1584,10 @@ export interface AiCallLog {
   model: string | null
   prompt: string | null
   response: string | null
-  promptTokens: number | null
-  completionTokens: number | null
-  totalTokens: number | null
+  /** Omitted from the JSON when the provider reported no usage (`non_null`). */
+  promptTokens?: number | null
+  completionTokens?: number | null
+  totalTokens?: number | null
   latencyMs: number | null
   status: string
   error: string | null

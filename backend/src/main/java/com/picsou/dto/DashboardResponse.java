@@ -24,7 +24,9 @@ public record DashboardResponse(
         String accountType,
         boolean hasHoldings,
         BigDecimal monthlyPayment,
-        Double percentPaid
+        Double percentPaid,
+        BigDecimal paymentDueAmountEur,  // credit cards only; null when unknown
+        LocalDate paymentDueDate         // credit cards only; null when unknown
     ) {}
 
     public record AccountPoint(BigDecimal total, BigDecimal invested, BigDecimal pnl) {}

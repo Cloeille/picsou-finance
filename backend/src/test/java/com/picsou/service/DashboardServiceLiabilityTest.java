@@ -158,6 +158,83 @@ class DashboardServiceLiabilityTest {
         assertThat(result.totalMonthlyPayment()).isNull();
     }
 
+    @Test
+    void credit_card_liability_carries_payment_due_amount_and_date() {
+        Account card = new Account();
+        card.setId(30L);
+        card.setName("Card");
+        card.setType(AccountType.CREDIT_CARD);
+        card.setCurrentBalance(new BigDecimal("-2254.90"));
+        card.setCurrency("EUR");
+        card.setColor("#0ea5e9");
+        card.setPaymentDueAmount(new BigDecimal("912.40"));
+        card.setPaymentDueDate(LocalDate.of(2026, 11, 5));
+
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(card));
+        when(holdingRepository.findByAccount_Id(30L)).thenReturn(List.of());
+        when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(debtRepository.findByAccountIdIn(List.of(30L))).thenReturn(List.of());
+        when(historyService.buildHistory(any(), any(Integer.class), any())).thenReturn(List.of());
+        when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of());
+
+        DashboardResponse result = dashboardService.getDashboard(1L, null);
+
+        DashboardResponse.LiabilityEntry entry = result.liabilities().get(0);
+        assertThat(entry.balanceEur()).isEqualByComparingTo("2254.90");
+        assertThat(entry.paymentDueAmountEur()).isEqualByComparingTo("912.40");
+        assertThat(entry.paymentDueDate()).isEqualTo(LocalDate.of(2026, 11, 5));
+        assertThat(entry.monthlyPayment()).isNull();
+        assertThat(entry.percentPaid()).isNull();
+    }
+
+    @Test
+    void credit_card_without_statement_leaves_payment_due_fields_null() {
+        Account card = new Account();
+        card.setId(31L);
+        card.setName("Card");
+        card.setType(AccountType.CREDIT_CARD);
+        card.setCurrentBalance(new BigDecimal("-100"));
+        card.setCurrency("EUR");
+        card.setColor("#0ea5e9");
+
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(card));
+        when(holdingRepository.findByAccount_Id(31L)).thenReturn(List.of());
+        when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(debtRepository.findByAccountIdIn(List.of(31L))).thenReturn(List.of());
+        when(historyService.buildHistory(any(), any(Integer.class), any())).thenReturn(List.of());
+        when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of());
+
+        DashboardResponse.LiabilityEntry entry = dashboardService.getDashboard(1L, null).liabilities().get(0);
+
+        assertThat(entry.paymentDueAmountEur()).isNull();
+        assertThat(entry.paymentDueDate()).isNull();
+    }
+
+    @Test
+    void loan_liability_never_carries_payment_due_fields() {
+        Account loan = new Account();
+        loan.setId(32L);
+        loan.setName("Loan");
+        loan.setType(AccountType.LOAN);
+        loan.setCurrentBalance(new BigDecimal("-5000"));
+        loan.setCurrency("EUR");
+        loan.setColor("#aabbcc");
+        loan.setPaymentDueAmount(new BigDecimal("300"));
+        loan.setPaymentDueDate(LocalDate.of(2026, 11, 5));
+
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
+        when(holdingRepository.findByAccount_Id(32L)).thenReturn(List.of());
+        when(accountService.liveBalanceEur(loan)).thenReturn(new BigDecimal("5000"));
+        when(debtRepository.findByAccountIdIn(List.of(32L))).thenReturn(List.of());
+        when(historyService.buildHistory(any(), any(Integer.class), any())).thenReturn(List.of());
+        when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of());
+
+        DashboardResponse.LiabilityEntry entry = dashboardService.getDashboard(1L, null).liabilities().get(0);
+
+        assertThat(entry.paymentDueAmountEur()).isNull();
+        assertThat(entry.paymentDueDate()).isNull();
+    }
+
     /**
      * Regression guard for the history double-count fix: a pocket sub-account's balance is already
      * folded into its parent wallet (see the skip a few lines above in getDashboard/buildDistribution),

@@ -13,7 +13,7 @@ const TRANSACTION_TYPE_LABEL_KEYS = {
 
 /** Builds a localized fallback only for manual instrument rows that have no display name. */
 export function transactionDescription(transaction: Transaction, translate: (key: string) => string): string {
-  if (!transaction.isManual || !transaction.ticker?.trim() || transaction.name?.trim() || transaction.txType === null) {
+  if (!transaction.isManual || !transaction.ticker?.trim() || transaction.name?.trim() || transaction.txType == null) {
     return transaction.description
   }
 
