@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An MCP client can refresh every existing connector and read whether one needs a new login.**
+  `trigger_full_sync` runs the same per-member sync as the 08:00 job and returns one line per
+  source, so a failed bank or a broker that needs reauthentication is named instead of hidden
+  behind a success sentence. The older trigger tools are filters over that same list. A second
+  trigger for the same member within 15 minutes, or a fifth in a day, answers with how many
+  minutes to wait and does not call the banks. `get_sync_status` (`sync:read`) reports the last
+  sync time and the reauthentication flag without starting a sync.
+
 - **An AI app connected over MCP can triage your recurring payments.** It could list the
   subscriptions the detector found but not act on them. It can now confirm or ignore a
   suggestion, undo a silent auto-confirm or acknowledge a price change, declare a series
@@ -98,6 +106,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gain new transactions. Loan accounts can't receive an Actual import.
 
 ### Fixed
+
+- **MCP sync no longer hides an expired browser session or loses the status report after a database error.**
+  BoursoBank, Bourse Direct, Amundi and Fortuneo distinguish an inactive session requiring a new login
+  from another recorded failure and from no connection. Exceptions retain server-side diagnostics
+  without exposing database details. Status reads isolate each reader's transaction, and every
+  sync trigger explains that its cooldown is shared with the other trigger tools.
 
 - **A credit card on the dashboard's liabilities card no longer shows `NaN% · NaN €/mo`.**
   The API leaves out empty fields, and the card mistook a missing repayment percentage for a

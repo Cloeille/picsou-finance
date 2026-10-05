@@ -17,6 +17,7 @@ describe('scopeGroup', () => {
       'dashboard:read',
       'prices:read',
       'family:read',
+      'sync:read',
       'analysis:read',
     ]) {
       expect(scopeGroup(s)).toBe('read')
@@ -80,6 +81,7 @@ describe('scope vocabulary', () => {
         'dashboard:read',
         'prices:read',
         'family:read',
+        'sync:read',
         'analysis:read',
         'budget:categories-read',
         'budget:rules-read',
@@ -128,6 +130,7 @@ describe('scope vocabulary', () => {
         'dashboard:read',
         'prices:read',
         'family:read',
+        'sync:read',
         'analysis:read',
         'budget:categories-read',
         'budget:rules-read',

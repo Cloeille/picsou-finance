@@ -25,6 +25,7 @@ import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -193,7 +194,9 @@ public class TradeRepublicSyncService {
                 log.warn("TR session expired -- no refresh token available, clearing session");
                 sessionRepository.findByMemberId(memberId).ifPresent(sessionRepository::delete);
                 throw new SyncException(
-                    "Your Trade Republic session has expired. Please reconnect from the Trade Republic page.");
+                    "Your Trade Republic session has expired. Please reconnect from the Trade Republic page.",
+                    e,
+                    "SESSION_EXPIRED");
             }
             throw e;
         }
@@ -215,7 +218,9 @@ public class TradeRepublicSyncService {
                 log.warn("TR refresh rejected -- clearing session");
                 sessionRepository.findByMemberId(memberId).ifPresent(sessionRepository::delete);
                 throw new SyncException(
-                    "Your Trade Republic session has expired and could not be refreshed. Please reconnect.");
+                    "Your Trade Republic session has expired and could not be refreshed. Please reconnect.",
+                    ex,
+                    "SESSION_EXPIRED");
             }
             // Transient failure (sidecar down, timeout): keep the session so the
             // next sync can retry the refresh instead of forcing a re-auth.
@@ -589,21 +594,28 @@ public class TradeRepublicSyncService {
      * SESSION_EXPIRED through refreshAndRetry using the stored refresh token,
      * which is the normal path for any sync happening hours after auth.
      */
-    public void resyncIfSessionActive(Long memberId) {
-        Optional<TradeRepublicSession> session = sessionRepository.findByMemberId(memberId);
-        if (session.isEmpty()) return;
-
-        TradeRepublicSession s = session.get();
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
+            Optional<TradeRepublicSession> session = sessionRepository.findByMemberId(memberId);
+            if (session.isEmpty()) {
+                return new SourceSyncResult("trade-republic", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
+            }
+
+            TradeRepublicSession s = session.get();
             syncWithToken(encryption.decrypt(s.getSessionToken()), s, memberId);
+            return new SourceSyncResult("trade-republic", SourceSyncResult.Status.SYNCED, "");
         } catch (SyncException ex) {
-            // Expected upstream flakiness (expired session, sidecar down) — WARN, as elsewhere.
-            log.warn("Trade Republic auto-sync failed for member {}: {}", memberId, ex.getMessage());
-        } catch (RuntimeException ex) {
-            // Anything else is a bug: the message alone is "null" for an NPE, so log the trace.
-            log.error("Unexpected Trade Republic auto-sync failure for member {}", memberId, ex);
+            return SourceSyncResult.fromSyncException("trade-republic", ex);
+        } catch (Exception ex) {
+            log.error("Trade Republic scheduled sync failed unexpectedly for member {}", memberId, ex);
+            return new SourceSyncResult("trade-republic", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
+
+    public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId); // ignore return
+    }
+
 
     // --- Private ---
 

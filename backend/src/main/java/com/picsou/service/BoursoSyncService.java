@@ -16,6 +16,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -744,27 +745,41 @@ public class BoursoSyncService {
         return removed;
     }
 
-    public void resyncIfSessionActive(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                return;
+                if (status.lastSyncError() == BoursoErrorCode.SESSION_EXPIRED
+                    || status.lastSyncError() == BoursoErrorCode.INVALID_CREDENTIALS) {
+                    return new SourceSyncResult("bourso", SourceSyncResult.Status.NEEDS_REAUTH,
+                        status.lastSyncError().name());
+                }
+                if (status.lastSyncError() != null) {
+                    return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED,
+                        status.lastSyncError().name());
+                }
+                return new SourceSyncResult("bourso", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
             }
             queueSync(memberId);
+            return new SourceSyncResult("bourso", SourceSyncResult.Status.QUEUED, "");
         } catch (ResourceNotFoundException ex) {
-            log.debug("Member disappeared before scheduled BoursoBank sync (member={})", memberId);
+            return new SourceSyncResult("bourso", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
             log.error("Database error during scheduled BoursoBank sync (member={})", memberId, ex);
+            return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED, "Database error");
         } catch (SyncException ex) {
-            log.warn(
-                "Could not queue scheduled BoursoBank sync (member={}; code={})",
-                memberId,
-                codeOf(ex),
-                ex
-            );
-        } catch (RuntimeException ex) {
-            log.error("Unexpected scheduled BoursoBank sync failure (member={})", memberId, ex);
+            log.warn("Could not queue scheduled BoursoBank sync (member={}; code={})", memberId, ex.getCode(), ex);
+            SourceSyncResult classified = SourceSyncResult.fromSyncException("bourso", ex);
+            return new SourceSyncResult("bourso", classified.status(),
+                classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
+        } catch (Exception ex) {
+            log.error("BoursoBank scheduled sync failed unexpectedly for member {}", memberId, ex);
+            return new SourceSyncResult("bourso", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
+    }
+
+    public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId); // ignore return
     }
 
     private SessionStatusResponse toStatus(BoursoSession session) {

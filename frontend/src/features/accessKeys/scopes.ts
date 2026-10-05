@@ -14,6 +14,7 @@ export const ALL_SCOPES = [
   'dashboard:read',
   'prices:read',
   'family:read',
+  'sync:read',
   'analysis:read',
   'budget:categories-read',
   'budget:rules-read',

@@ -19,6 +19,7 @@ import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.FortuneoSessionRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -940,28 +941,42 @@ public class FortuneoSyncService {
         }));
     }
 
-    public void resyncIfSessionActive(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                return;
+                if (status.lastSyncError() == FortuneoErrorCode.SESSION_EXPIRED) {
+                    return new SourceSyncResult("fortuneo", SourceSyncResult.Status.NEEDS_REAUTH,
+                        status.lastSyncError().name());
+                }
+                if (status.lastSyncError() != null) {
+                    return new SourceSyncResult("fortuneo", SourceSyncResult.Status.FAILED,
+                        status.lastSyncError().name());
+                }
+                return new SourceSyncResult("fortuneo", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
             }
             queueSync(memberId);
+            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.QUEUED, "");
         } catch (ResourceNotFoundException ex) {
-            log.debug("Member disappeared before scheduled Fortuneo sync (member={})", memberId);
+            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
             log.error("Database error during scheduled Fortuneo sync (member={})", memberId, ex);
+            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.FAILED, "Database error");
         } catch (SyncException ex) {
-            log.warn(
-                "Could not queue scheduled Fortuneo sync (member={}; code={})",
-                memberId,
-                codeOf(ex),
-                ex
-            );
-        } catch (RuntimeException ex) {
-            log.error("Unexpected scheduled Fortuneo sync failure (member={})", memberId, ex);
+            log.warn("Could not queue scheduled Fortuneo sync (member={}; code={})", memberId, ex.getCode(), ex);
+            SourceSyncResult classified = SourceSyncResult.fromSyncException("fortuneo", ex);
+            return new SourceSyncResult("fortuneo", classified.status(),
+                classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
+        } catch (Exception ex) {
+            log.error("Fortuneo scheduled sync failed unexpectedly for member {}", memberId, ex);
+            return new SourceSyncResult("fortuneo", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
+
+    public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId); // ignore return
+    }
+
 
     private SessionStatusResponse toStatus(FortuneoSession session) {
         return new SessionStatusResponse(

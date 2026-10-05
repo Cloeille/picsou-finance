@@ -15,6 +15,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AmundiSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -522,28 +523,42 @@ public class AmundiSyncService {
         }));
     }
 
-    public void resyncIfSessionActive(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                return;
+                if (status.lastSyncError() == AmundiErrorCode.SESSION_EXPIRED) {
+                    return new SourceSyncResult("amundi", SourceSyncResult.Status.NEEDS_REAUTH,
+                        status.lastSyncError().name());
+                }
+                if (status.lastSyncError() != null) {
+                    return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED,
+                        status.lastSyncError().name());
+                }
+                return new SourceSyncResult("amundi", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
             }
             queueSync(memberId);
+            return new SourceSyncResult("amundi", SourceSyncResult.Status.QUEUED, "");
         } catch (ResourceNotFoundException ex) {
-            log.debug("Member disappeared before scheduled Amundi sync (member={})", memberId);
+            return new SourceSyncResult("amundi", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
             log.error("Database error during scheduled Amundi sync (member={})", memberId, ex);
+            return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED, "Database error");
         } catch (SyncException ex) {
-            log.warn(
-                "Could not queue scheduled Amundi sync (member={}; code={})",
-                memberId,
-                codeOf(ex),
-                ex
-            );
-        } catch (RuntimeException ex) {
-            log.error("Unexpected scheduled Amundi sync failure (member={})", memberId, ex);
+            log.warn("Could not queue scheduled Amundi sync (member={}; code={})", memberId, ex.getCode(), ex);
+            SourceSyncResult classified = SourceSyncResult.fromSyncException("amundi", ex);
+            return new SourceSyncResult("amundi", classified.status(),
+                classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
+        } catch (Exception ex) {
+            log.error("Amundi scheduled sync failed unexpectedly for member {}", memberId, ex);
+            return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
+
+    public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId); // ignore return
+    }
+
 
     private SessionStatusResponse toStatus(AmundiSession session) {
         return new SessionStatusResponse(

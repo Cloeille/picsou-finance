@@ -15,6 +15,7 @@ import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AmexSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -741,16 +742,46 @@ public class AmexSyncService {
     }
 
     public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId);
+    }
+
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                return;
+                if (status.lastSyncError() == AmexErrorCode.SESSION_EXPIRED) {
+                    return new SourceSyncResult("amex", SourceSyncResult.Status.NEEDS_REAUTH,
+                        AmexErrorCode.SESSION_EXPIRED.name());
+                }
+                if (status.lastSyncError() != null) {
+                    return new SourceSyncResult("amex", SourceSyncResult.Status.FAILED,
+                        status.lastSyncError().name());
+                }
+                return new SourceSyncResult("amex", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
             }
-            queueSync(memberId);
+            SessionStatusResponse queued = queueSync(memberId);
+            String syncStatus = queued.syncStatus() == null ? "" : queued.syncStatus().name();
+            if ("QUEUED".equals(syncStatus) || "RUNNING".equals(syncStatus)) {
+                return new SourceSyncResult("amex", SourceSyncResult.Status.QUEUED, "");
+            }
+            if ("SUCCESS".equals(syncStatus)) {
+                return new SourceSyncResult("amex", SourceSyncResult.Status.SYNCED, "");
+            }
+            if (queued.lastSyncError() == AmexErrorCode.SESSION_EXPIRED) {
+                return new SourceSyncResult("amex", SourceSyncResult.Status.NEEDS_REAUTH,
+                    AmexErrorCode.SESSION_EXPIRED.name());
+            }
+            if ("FAILED".equals(syncStatus)) {
+                return new SourceSyncResult("amex", SourceSyncResult.Status.FAILED,
+                    queued.lastSyncError() == null ? "Sync failed" : queued.lastSyncError().name());
+            }
+            return new SourceSyncResult("amex", SourceSyncResult.Status.SKIPPED, "Sync already complete");
         } catch (ResourceNotFoundException ex) {
             log.debug("Member disappeared before scheduled American Express sync (member={})", memberId);
+            return new SourceSyncResult("amex", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
             log.error("Database error during scheduled American Express sync (member={})", memberId, ex);
+            return new SourceSyncResult("amex", SourceSyncResult.Status.FAILED, "Database error");
         } catch (SyncException ex) {
             log.warn(
                 "Could not queue scheduled American Express sync (member={}; code={})",
@@ -758,8 +789,11 @@ public class AmexSyncService {
                 codeOf(ex),
                 ex
             );
+            return SourceSyncResult.fromSyncException("amex", ex);
         } catch (RuntimeException ex) {
             log.error("Unexpected scheduled American Express sync failure (member={})", memberId, ex);
+            return new SourceSyncResult("amex", SourceSyncResult.Status.FAILED,
+                "Unexpected sync error");
         }
     }
 

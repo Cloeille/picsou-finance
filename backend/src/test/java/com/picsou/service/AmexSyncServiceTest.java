@@ -82,6 +82,47 @@ class AmexSyncServiceTest {
     }
 
     @Test
+    void reportingWrapperReportsSyncedWhenTheJobFinishesBeforeQueueReturns() {
+        FamilyMember member = member();
+        AmexSession session = activeSession(member);
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1")));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        arrangeNewAccountPersistence(20L);
+
+        var result = service.resyncReporting(7L);
+
+        assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.SYNCED);
+    }
+
+    @Test
+    void reportingWrapperDistinguishesQueuedFromDisconnected() {
+        FamilyMember member = member();
+        AmexSession session = activeSession(member);
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        service = serviceWith(job -> { });
+
+        var queued = service.resyncReporting(7L);
+
+        assertThat(queued.source()).isEqualTo("amex");
+        assertThat(queued.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.QUEUED);
+
+        when(sessionRepository.findByMemberId(8L)).thenReturn(Optional.empty());
+        var disconnected = service.resyncReporting(8L);
+        assertThat(disconnected.status())
+            .isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.SKIPPED_NOT_CONNECTED);
+
+        AmexSession expired = AmexSession.builder()
+            .id(4L).member(member).sessionState("encrypted").active(false).syncStatus(AmexSyncStatus.FAILED).build();
+        when(sessionRepository.findByMemberId(9L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByMemberIdForUpdate(9L)).thenReturn(Optional.of(expired));
+        var reauth = service.resyncReporting(9L);
+        assertThat(reauth.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.NEEDS_REAUTH);
+        assertThat(reauth.message()).isEqualTo("Reauthentication required");
+    }
+
+    @Test
     void firstSync_savesTransactionsAlongsideTheAccount() {
         AmexPort.Transaction charge = charge(1, "Coffee shop", "-4.50");
 
