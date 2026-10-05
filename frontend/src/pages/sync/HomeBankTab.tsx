@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMoney } from '@/hooks/use-money'
-import { ACCOUNT_COLORS, ACCOUNT_TYPES } from '@/lib/constants'
+import { ACCOUNT_COLORS, ACCOUNT_TYPES, SUPPORTED_CURRENCIES } from '@/lib/constants'
 import { formatDate } from '@/lib/utils'
 import { extractErrorMessage } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
@@ -17,6 +17,12 @@ import type { AccountType } from '@/types/api'
 const allowedAccountTypes = ACCOUNT_TYPES.filter(({ value }) =>
   !(['PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI'] as AccountType[]).includes(value),
 )
+const intlSupportedValuesOf = (Intl as typeof Intl & { supportedValuesOf?: (key: 'currency') => string[] }).supportedValuesOf
+const validCurrencyCodes = new Set(intlSupportedValuesOf?.call(Intl, 'currency') ?? SUPPORTED_CURRENCIES)
+
+function isValidCurrencyCode(code: string) {
+  return validCurrencyCodes.has(code)
+}
 
 export function HomeBankTab() {
   const { t } = useTranslation()
@@ -27,6 +33,7 @@ export function HomeBankTab() {
   const previewInFlightRef = useRef(false)
   const [file, setFile] = useState<File | null>(null)
   const [password, setPassword] = useState('')
+  const [currency, setCurrency] = useState('')
   const [preview, setPreview] = useState<HomeBankPreviewResponse | null>(null)
   const [accountMappings, setAccountMappings] = useState<HomeBankAccountMapping[]>([])
   const [categoryMappings, setCategoryMappings] = useState<HomeBankCategoryMapping[]>([])
@@ -36,11 +43,13 @@ export function HomeBankTab() {
   const [dragOver, setDragOver] = useState(false)
 
   async function handlePreview() {
-    if (!file || previewInFlightRef.current || previewMutation.isPending) return
+    const isQif = file?.name.toLowerCase().endsWith('.qif') ?? false
+    const normalizedCurrency = currency.trim().toUpperCase()
+    if (!file || (isQif && !isValidCurrencyCode(normalizedCurrency)) || previewInFlightRef.current || previewMutation.isPending) return
     previewInFlightRef.current = true
     setError(null)
     try {
-      const data = await previewMutation.mutateAsync({ file, password: password || undefined })
+      const data = await previewMutation.mutateAsync({ file, password: isQif ? undefined : password || undefined, currency: isQif ? normalizedCurrency : undefined })
       if (!data || typeof data.fileToken !== 'string' || !Array.isArray(data.accounts) || !Array.isArray(data.categories)
         || !Array.isArray(data.existingAccounts) || !Array.isArray(data.existingCategories) || !Array.isArray(data.sampleTransactions)
         || typeof data.totalTransactions !== 'number' || typeof data.forecastTransactions !== 'number') {
@@ -108,6 +117,7 @@ export function HomeBankTab() {
     importMutation.reset()
     setFile(null)
     setPassword('')
+    setCurrency('')
     setPreview(null)
     setAccountMappings([])
     setCategoryMappings([])
@@ -123,12 +133,16 @@ export function HomeBankTab() {
     importMutation.reset()
     setFile(selected)
     setPassword('')
+    setCurrency('')
     setPreview(null)
     setResult(null)
     setError(null)
   }
 
   const busy = previewMutation.isPending || importMutation.isPending
+  const isQif = file?.name.toLowerCase().endsWith('.qif') ?? false
+  const normalizedCurrency = currency.trim().toUpperCase()
+  const qifCurrencyValid = isValidCurrencyCode(normalizedCurrency)
   const hasWork = accountMappings.some(mapping => mapping.action !== 'SKIP')
   const mappingsValid = accountMappings.every(mapping => mapping.action === 'SKIP' || (mapping.action === 'MAP_EXISTING' ? mapping.targetAccountId != null : !!mapping.newAccount?.name.trim()))
     && categoryMappings.every(mapping => mapping.action === 'UNCATEGORIZED' || (mapping.action === 'MAP_EXISTING' ? mapping.targetCategoryId != null : !!mapping.name?.trim() && !hasParentKindMismatch(mapping.sourceId)))
@@ -143,11 +157,11 @@ export function HomeBankTab() {
           onDrop={event => { event.preventDefault(); setDragOver(false); if (!busy) selectFile(event.dataTransfer.files[0]) }}>
           <Upload className="size-6 text-muted-foreground" /><div><p className="font-medium">{t('sync.homebank.upload')}</p><p className="mt-1 text-sm text-muted-foreground">{t('sync.homebank.uploadHint')}</p></div>
           <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={busy}><Upload />{t('sync.homebank.chooseFile')}</Button>
-          <input ref={fileInputRef} aria-label={t('sync.homebank.file')} type="file" accept=".hbk,.hbexport" className="hidden" disabled={busy} onChange={event => selectFile(event.target.files?.[0])} />
+          <input ref={fileInputRef} aria-label={t('sync.homebank.file')} type="file" accept=".hbk,.hbexport,.qif" className="hidden" disabled={busy} onChange={event => selectFile(event.target.files?.[0])} />
         </div>
         {file && <p className="text-sm text-muted-foreground">{file.name}</p>}
-        <div className="space-y-2"><Label htmlFor="homebank-password">{t('sync.homebank.password')}</Label><Input id="homebank-password" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></div>
-        <Button className="w-full" onClick={handlePreview} disabled={!file || busy}>{previewMutation.isPending && <Loader2 className="size-4 animate-spin" />}{t('sync.homebank.preview')}</Button>
+        {isQif ? <><div className="space-y-2"><Label htmlFor="homebank-currency">{t('sync.homebank.currency')}</Label><Input id="homebank-currency" aria-label={t('sync.homebank.currency')} required maxLength={3} autoComplete="off" placeholder={t('sync.homebank.currencyPlaceholder')} value={currency} onChange={event => setCurrency(event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3))} /></div><p className="rounded-lg bg-muted px-4 py-3 text-sm text-muted-foreground">{t('sync.homebank.qifLimitations')}</p></> : <div className="space-y-2"><Label htmlFor="homebank-password">{t('sync.homebank.password')}</Label><Input id="homebank-password" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></div>}
+        <Button className="w-full" onClick={handlePreview} disabled={!file || busy || (isQif && !qifCurrencyValid)}>{previewMutation.isPending && <Loader2 className="size-4 animate-spin" />}{t('sync.homebank.preview')}</Button>
       </div>}
 
       {preview && !result && <div className="space-y-5">

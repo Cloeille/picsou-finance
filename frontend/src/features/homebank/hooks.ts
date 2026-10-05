@@ -4,11 +4,12 @@ import type { HomeBankImportRequest } from './types'
 
 export function usePreviewHomeBank() {
   return useMutation({
-    mutationFn: async (input: { file: File; password?: string }) => {
+    mutationFn: async (input: { file: File; password?: string; currency?: string }) => {
       try {
-        return await homeBankApi.preview(input.file, input.password)
+        return await homeBankApi.preview(input.file, input.password, input.currency)
       } finally {
         input.password = undefined
+        input.currency = undefined
       }
     },
   })

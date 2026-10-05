@@ -1,0 +1,204 @@
+package com.picsou.imports.homebank;
+
+import org.junit.jupiter.api.Test;
+
+import java.io.InputStream;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class HomeBankQifParserTest {
+    private final HomeBankQifParser parser = new HomeBankQifParser();
+
+    @Test
+    void parsesAccountsTransactionsCategoriesTransfersAndSplits() throws Exception {
+        ParsedHomeBankData parsed = parser.parse(fixture(), "EUR");
+
+        assertThat(parsed.accounts()).hasSize(2);
+        assertThat(parsed.accounts()).extracting(ParsedHomeBankData.SourceAccount::name)
+                .containsExactly("Compte courant", "Épargne");
+        assertThat(parsed.accounts()).allSatisfy(account -> {
+            assertThat(account.currency()).isEqualTo("EUR");
+            assertThat(account.initialBalance()).isEqualByComparingTo(BigDecimal.ZERO);
+            assertThat(account.id()).isEqualTo(UUID.fromString(account.id()).toString());
+        });
+        assertThat(parsed.categories()).extracting(ParsedHomeBankData.SourceCategory::name)
+                .contains("Food", "Groceries", "Salary", "Household", "Utilities");
+        assertThat(parsed.categories()).filteredOn(category -> category.name().equals("Groceries"))
+                .singleElement().satisfies(category -> {
+                    assertThat(category.income()).isFalse();
+                    assertThat(category.parentId()).isNotNull();
+                });
+        assertThat(parsed.categories()).filteredOn(category -> category.name().equals("Salary"))
+                .singleElement().satisfies(category -> assertThat(category.income()).isTrue());
+
+        List<ParsedHomeBankData.SourceTransaction> transactions = parsed.transactions();
+        assertThat(transactions).hasSize(7);
+        assertThat(transactions.get(0).amount()).isEqualByComparingTo("-12.34000001");
+        assertThat(transactions.get(0).date().toString()).isEqualTo("2024-02-29");
+        assertThat(transactions.get(0).payee()).isEqualTo("Épicerie 🥖");
+        assertThat(transactions.get(0).notes()).isEqualTo("achats du mois");
+        assertThat(transactions.get(2).amount()).isEqualByComparingTo("-5.00");
+        assertThat(transactions.get(2).categoryId()).isNotNull();
+        assertThat(transactions.get(3).transferAccountId()).isEqualTo(parsed.accounts().get(1).id());
+        assertThat(transactions.get(4).amount()).isEqualByComparingTo("-4.25");
+        assertThat(transactions.get(4).notes()).isEqualTo("split memo");
+        assertThat(transactions.get(5).amount()).isEqualByComparingTo("-5.75");
+        assertThat(transactions.get(6).transferAccountId()).isEqualTo(parsed.accounts().get(0).id());
+    }
+
+    @Test
+    void producesStableDistinctIdsForRepeatedContentAndIgnoresClearedMarker() throws Exception {
+        String one = "!Account\nNChecking\nTBank\n^\n!Type:Bank\n"
+                + "D2024/01/02\nT-1.00\nC*\nPSame\nLFood\n^\n";
+        String sameWithoutCleared = one.replace("C*\n", "");
+        ParsedHomeBankData first = parser.parse(one.getBytes(StandardCharsets.UTF_8), "USD");
+        ParsedHomeBankData again = parser.parse(sameWithoutCleared.getBytes(StandardCharsets.UTF_8), "USD");
+        assertThat(first.transactions().get(0).id()).isEqualTo(again.transactions().get(0).id());
+
+        String duplicated = one + "D2024/01/02\nT-1.00\nPSame\nLFood\n^\n";
+        ParsedHomeBankData two = parser.parse(duplicated.getBytes(StandardCharsets.UTF_8), "USD");
+        assertThat(two.transactions()).hasSize(2);
+        assertThat(two.transactions()).extracting(ParsedHomeBankData.SourceTransaction::id).doesNotHaveDuplicates();
+        assertThat(two.transactions().get(0).id()).isNotEqualTo(two.transactions().get(1).id());
+
+        String withUnrelatedEarlierRow = one.replace("!Type:Bank\n", "!Type:Bank\n"
+                + "D2024/01/01\nT-9.00\nPOther\n^\n");
+        ParsedHomeBankData shifted = parser.parse(withUnrelatedEarlierRow.getBytes(StandardCharsets.UTF_8), "USD");
+        assertThat(shifted.transactions().get(1).id()).isEqualTo(first.transactions().get(0).id());
+    }
+
+    @Test
+    void rejectsMalformedOrUnsupportedQifWithoutEchoingSourceFields() throws Exception {
+        assertInvalid("!Type:Bank\nD2024/01/01\nT1\n^");
+        assertInvalid("!Account\nN\nTBank\n^\n!Type:Bank\nD2024/02/30\nT1\n^\n");
+        assertInvalid("!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT1\nT2\n^\n");
+        assertInvalid("!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT1\nL[MissingAccount]\n^\n");
+        assertInvalid("!Account\nNChecking\nTBank\n^\n!Type:Invst\n^");
+        assertInvalid("!Account\nNSecret Account\nTBank\n^\n!Type:Bank\nDbad\nT1\n^");
+        assertInvalid("!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT1\nQunknown\n^\n");
+        assertInvalid("!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT-2\nSFood\n$-1\n^");
+    }
+
+    @Test
+    void requiresValidatedCurrencyAndEnforcesInputAndStructureBounds() throws Exception {
+        byte[] fixture = fixture();
+        assertThatThrownBy(() -> parser.parse(fixture, null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> parser.parse(fixture, "ZZZ")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> parser.parse(new byte[10 * 1024 * 1024 + 1], "EUR"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertInvalid("!Account\nNChecking\nTBank\n^\n!Account\nNChecking\nTBank\n^\n");
+        assertInvalid("!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT1\nP" + "x".repeat(256) + "\n^\n");
+        assertInvalid("!Account\nNChecking\nTBank\n^\n!Account\nN" + "x".repeat(101) + "\nTBank\n^\n");
+    }
+
+    @Test
+    void rejectsInvalidUtf8AndUnterminatedRecords() throws Exception {
+        assertThatThrownBy(() -> parser.parse(new byte[]{(byte) 0xc3, 0x28}, "EUR"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertInvalid("!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT1\n");
+    }
+
+    @Test
+    void acceptsEmptyOptionalPayeeCategoryAndClearedFields() {
+        String qif = "!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT1\nP\nC\nL\n^\n";
+        ParsedHomeBankData parsed = parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR");
+        assertThat(parsed.transactions()).singleElement().satisfies(transaction -> {
+            assertThat(transaction.payee()).isNull();
+            assertThat(transaction.categoryId()).isNull();
+        });
+    }
+
+    @Test
+    void treatsPositiveRefundAsExpenseWhenCategoryHasNegativeSpending() {
+        String qif = "!Account\nNChecking\nTBank\n^\n!Type:Bank\n"
+                + "D2024/01/01\nT-12\nLFood\n^\nD2024/01/02\nT2\nLFood\n^\n";
+        ParsedHomeBankData parsed = parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR");
+        assertThat(parsed.categories()).singleElement().satisfies(category -> assertThat(category.income()).isFalse());
+        assertThat(parsed.transactions()).hasSize(2);
+    }
+
+    @Test
+    void enforcesAccountCategoryAndNormalizedTransactionLimits() {
+        StringBuilder accounts = new StringBuilder();
+        for (int i = 0; i < 101; i++) accounts.append("!Account\nNAccount ").append(i).append("\nTBank\n^\n");
+        assertInvalid(accounts.toString());
+
+        StringBuilder categories = new StringBuilder("!Account\nNChecking\nTBank\n^\n");
+        for (int i = 0; i < 201; i++) categories.append("!Type:Cat\nNCategory ").append(i).append("\nE\n^\n");
+        assertInvalid(categories.toString());
+
+        StringBuilder transactions = new StringBuilder("!Account\nNChecking\nTBank\n^\n!Type:Bank\n");
+        for (int i = 0; i < 25_001; i++) transactions.append("D2024/01/01\nT1\n^\n");
+        assertInvalid(transactions.toString());
+    }
+
+    @Test
+    void acceptsMultipleCategoryRecordsUnderOneHeader() {
+        String qif = "!Account\nNChecking\nTBank\n^\n!Type:Cat\nNFood\nE\n^\n"
+                + "NSalary\nI\n^\n!Type:Bank\nD2024/01/01\nT-1\nLFood\n^\n";
+        ParsedHomeBankData parsed = parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR");
+        assertThat(parsed.categories()).extracting(ParsedHomeBankData.SourceCategory::name)
+                .contains("Food", "Salary");
+    }
+
+    @Test
+    void retainsParentAndSplitMemosWithoutDuplicatingIdenticalText() {
+        String qif = "!Account\nNChecking\nTBank\n^\n!Type:Bank\n"
+                + "D2024/01/01\nT-3\nMparent note\nSFood\nEsplit note\n$-3\n^\n"
+                + "D2024/01/02\nT-2\nMsame\nSFood\nEsame\n$-2\n^\n"
+                + "D2024/01/03\nT-1\nMparent only\nSFood\nE\n$-1\n^\n";
+        ParsedHomeBankData parsed = parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR");
+        assertThat(parsed.transactions()).extracting(ParsedHomeBankData.SourceTransaction::notes)
+                .containsExactly("parent note — split note", "same", "parent only");
+    }
+
+    @Test
+    void rejectsCombinedMemoOverflowInsteadOfTruncating() {
+        String qif = "!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT-1\nM"
+                + "p".repeat(130) + "\nSFood\nE" + "s".repeat(130) + "\n$-1\n^\n";
+        assertInvalid(qif);
+    }
+
+    @Test
+    void rejectsTooManyExpandedSplitRowsBeforeAccumulatingThem() {
+        StringBuilder qif = new StringBuilder("!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT25001\n");
+        for (int i = 0; i < 25_001; i++) qif.append("SFood\n$1\n");
+        qif.append("^\n");
+        assertInvalid(qif.toString());
+    }
+
+    @Test
+    void parsesCashAndCreditCardAccountsAndTheirTransactions() {
+        String qif = "!Account\nNCash\nTCash\n^\n!Type:Cash\nD2024/01/01\nT-1\n^\n"
+                + "!Account\nNCard\nTCCard\n^\n!Type:CCard\nD2024/01/02\nT-2\n^\n";
+        ParsedHomeBankData parsed = parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR");
+        assertThat(parsed.accounts()).extracting(ParsedHomeBankData.SourceAccount::type)
+                .containsExactly("cash", "creditcard");
+        assertThat(parsed.transactions()).hasSize(2);
+    }
+
+    @Test
+    void rejectsExcessiveBlankLinesWithoutSplittingTheWholeSource() {
+        String qif = "!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT-1\n^\n"
+                + "\n".repeat(500_001);
+        assertInvalid(qif);
+    }
+
+    private static byte[] fixture() throws Exception {
+        try (InputStream input = HomeBankQifParserTest.class.getResourceAsStream("/imports/homebank/desktop-synthetic.qif")) {
+            if (input == null) throw new IllegalStateException("Synthetic QIF fixture missing");
+            return input.readAllBytes();
+        }
+    }
+
+    private void assertInvalid(String qif) {
+        assertThatThrownBy(() -> parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageNotContaining("Secret Account");
+    }
+}

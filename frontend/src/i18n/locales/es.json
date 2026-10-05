@@ -928,12 +928,15 @@
       "authFailed": "Credenciales de Finary no válidas. Comprueba tu email y contraseña."
     },
     "homebank": {
-      "title": "HomeBank",
-      "upload": "Importar copia de HomeBank iOS",
-      "uploadHint": "Archivos .hbk o .hbexport — solo exportaciones de HomeBank iOS",
+      "title": "Importación de HomeBank",
+      "upload": "Importar archivo de HomeBank",
+      "uploadHint": "Admitidos: copias de HomeBank iOS .hbk/.hbexport y exportaciones de escritorio .qif",
       "chooseFile": "Elegir archivo",
       "file": "Archivo de HomeBank",
       "password": "Contraseña del archivo (si se requiere)",
+      "currency": "Moneda del QIF (ISO 4217)",
+      "currencyPlaceholder": "EUR",
+      "qifLimitations": "Los archivos QIF no incluyen la moneda ni el saldo inicial. Elija la moneda de la cuenta e incluya todo el historial. Las transacciones divididas aparecen en filas de categoría separadas y se cuentan por separado.",
       "preview": "Previsualizar importación",
       "previewSummary": "{{accounts}} cuentas, {{categories}} categorías y {{transactions}} transacciones",
       "forecastsSkipped": "Se omitirán {{count}} transacción(es) prevista(s); no se importarán.",

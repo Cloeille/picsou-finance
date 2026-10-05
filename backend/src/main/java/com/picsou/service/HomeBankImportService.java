@@ -50,6 +50,7 @@ public class HomeBankImportService {
     private final FinaryPersistenceHelper persistence;
     private final ImportPreviewStore<ParsedHomeBankData> previews;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public HomeBankImportService(HomeBankFileParser parser, AccountRepository accounts,
             CategoryRepository categories, TransactionRepository transactions, FamilyMemberRepository members,
             BalanceSnapshotRepository ignored, FinaryPersistenceHelper persistence) {
@@ -71,9 +72,14 @@ public class HomeBankImportService {
     }
 
     public Preview preview(MultipartFile file, String password, Long memberId) {
+        return preview(file, password, null, memberId);
+    }
+
+    public Preview preview(MultipartFile file, String password, String currency, Long memberId) {
         ParsedHomeBankData parsed;
         try {
-            parsed = parser.parse(file.getBytes(), file.getOriginalFilename(), password);
+            parsed = currency == null ? parser.parse(file.getBytes(), file.getOriginalFilename(), password)
+                    : parser.parse(file.getBytes(), file.getOriginalFilename(), password, currency);
         } catch (IOException e) {
             throw bad("Unable to read HomeBank file");
         }

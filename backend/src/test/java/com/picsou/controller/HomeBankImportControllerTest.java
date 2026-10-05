@@ -52,6 +52,29 @@ class HomeBankImportControllerTest {
     }
 
     @Test
+    void qifPreviewPassesExplicitCurrencyOverMultipartHttp() throws Exception {
+        var calls = new java.util.ArrayList<Object[]>();
+        var currencyService = mock(HomeBankImportService.class, invocation -> {
+            if (invocation.getMethod().getName().equals("preview")) {
+                calls.add(invocation.getArguments());
+                return new Preview("token", List.of(), List.of(), List.of(), List.of(), List.of(), 0, 0);
+            }
+            return RETURNS_DEFAULTS.answer(invocation);
+        });
+        when(userContext.currentMemberId()).thenReturn(42L);
+        var controller = new HomeBankImportController(currencyService, userContext, new HashMap<>());
+        var mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        var file = new MockMultipartFile("file", "desktop.qif", "application/octet-stream", new byte[]{1});
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .multipart("/api/homebank/import/preview").file(file).param("currency", "USD"))
+                .andExpect(status().isOk());
+
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0)).containsExactly(file, null, "USD", 42L);
+    }
+
+    @Test
     void executeRejectsNullMappingElementsOverHttpBeforeCallingService() throws Exception {
         var controller = new HomeBankImportController(service, userContext, new HashMap<>());
         var validator = new LocalValidatorFactoryBean();

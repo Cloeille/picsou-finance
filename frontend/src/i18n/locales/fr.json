@@ -1230,12 +1230,15 @@
       "authFailed": "Identifiants Finary invalides. Vérifiez votre email et mot de passe."
     },
     "homebank": {
-      "title": "HomeBank",
-      "upload": "Importer une sauvegarde HomeBank iOS",
-      "uploadHint": "Fichiers .hbk ou .hbexport — export HomeBank iOS uniquement",
+      "title": "Import HomeBank",
+      "upload": "Importer un fichier HomeBank",
+      "uploadHint": "Formats acceptés : sauvegardes HomeBank iOS .hbk/.hbexport et exports desktop .qif",
       "chooseFile": "Choisir un fichier",
       "file": "Fichier HomeBank",
       "password": "Mot de passe du fichier (si nécessaire)",
+      "currency": "Devise du QIF (ISO 4217)",
+      "currencyPlaceholder": "EUR",
+      "qifLimitations": "Les fichiers QIF ne contiennent ni devise ni solde initial. Choisissez la devise du compte et incluez tout l'historique du compte. Les transactions ventilées apparaissent en lignes de catégorie distinctes et sont comptées séparément.",
       "preview": "Prévisualiser l'import",
       "previewSummary": "{{accounts}} comptes, {{categories}} catégories et {{transactions}} transactions",
       "forecastsSkipped": "{{count}} transaction(s) prévisionnelle(s) ignorée(s) : elles ne seront pas importées.",

@@ -1580,7 +1580,7 @@ Prices are in EUR. Results are cached for 15 minutes.
 
 Two import modes: **file-based** (XLSX upload) and **API-based** (direct sync). Both use a two-phase flow: preview then execute with account mappings.
 
-For native HomeBank iOS exports, see [HomeBank history import](#homebank-ios-history-import--apihomebankimport) below. Its account/category mappings are separate from the Finary XLSX contract.
+For native HomeBank iOS and desktop QIF exports, see [HomeBank history import](#homebank-history-import--apihomebankimport) below. Its account/category mappings are separate from the Finary XLSX contract.
 
 #### `POST /api/finary/preview` (file-based)
 
@@ -2037,20 +2037,23 @@ Null fields are omitted from the JSON, as everywhere else in this API.
 
 ---
 
-### HomeBank iOS history import — `/api/homebank/import`
+### HomeBank history import — `/api/homebank/import`
 
-Two-phase, member-scoped file import from **HomeBank iOS**. Supported files are
+Two-phase, member-scoped file import from **HomeBank iOS and GNU HomeBank desktop**. Supported files are
 native `.hbk` (raw-DEFLATE JSON, schema version 3) and password-protected
-`.hbexport` (authenticated encrypted container version 1). Actual Budget, GNU
-HomeBank desktop `.xhb`, allocations, scheduled transactions and attachments are
-not part of this endpoint. Unsupported split rows reject the whole file.
+`.hbexport` (authenticated encrypted container version 1), plus desktop `.qif`.
+Desktop `.xhb`, allocations, scheduled transactions and attachments are not part
+of this endpoint. Native iOS split rows reject the whole file; QIF splits become
+individual category-bearing ledger rows after exact parent-total validation.
 
 #### `POST /api/homebank/import/preview`
 
 - **Auth:** Required; reads only the authenticated member's targets.
 - **Content-Type:** `multipart/form-data`.
 - **Fields:** `file` (required, at most 10 MiB), `password` (required only for
-  `.hbexport`). The password is used for decoding only and is not retained.
+  `.hbexport`), `currency` (required only for `.qif`, an explicit ISO 4217 code
+  applied to all source accounts). QIF omits currency; no default is inferred.
+  The password is used for decoding only and is not retained.
 - **Response:** `200`, `HomeBankImportDtos.Preview`.
 
 Preview fields:
@@ -2066,7 +2069,8 @@ Preview fields:
 - `sampleTransactions`: sample source rows with `sourceId`, `accountSourceId`,
   `date` (ISO calendar date), `amount`, `currency`, `payee`, `notes`, optional
   `categorySourceId`, `transfer`.
-- `totalTransactions`, `forecastTransactions`: source counts; forecast rows will
+- `totalTransactions`, `forecastTransactions`: normalized ledger-row counts; QIF
+  split parts count individually without their parent. Forecast rows will
   be skipped, not committed.
 
 The entire file is validated before a token is returned. Preview writes no
@@ -2115,7 +2119,12 @@ skipped accounts and already imported source IDs.
 
 Import is additive and atomic. Repeating an export into the same targets reuses
 HomeBank-created accounts/categories and skips stable source transaction UUIDs,
-including across clear/encrypted exports. Existing mapped accounts keep their
+including across clear/encrypted iOS exports. QIF uses deterministic namespaced
+content IDs with occurrence discriminators because it lacks native IDs. Identical
+repeated rows remain distinct; edited identifying content imports additively as
+a new row, and account renames change source identity. QIF account definitions
+have no opening balance: new accounts start at zero plus exported ledger rows.
+Use full histories and inspect preview balances. Existing mapped accounts keep their
 provider identity, owned balance and snapshots. HomeBank-created accounts receive
 ledger-backed opening amounts and reconstructed history. Source internal-transfer
 legs and opening amounts use managed `TRANSFER` categories and do not count as

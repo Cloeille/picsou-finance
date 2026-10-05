@@ -76,16 +76,24 @@ public final class HomeBankFileParser {
     }
 
     public ParsedHomeBankData parse(byte[] file, String filename, String password) {
+        return parse(file, filename, password, null);
+    }
+
+    public ParsedHomeBankData parse(byte[] file, String filename, String password, String currency) {
         if (file == null || file.length == 0 || file.length > MAX_FILE_BYTES) {
             throw invalid("HomeBank file size is invalid");
         }
         if (filename == null || !(filename.toLowerCase(Locale.ROOT).endsWith(".hbk")
-                || filename.toLowerCase(Locale.ROOT).endsWith(".hbexport"))) {
+                || filename.toLowerCase(Locale.ROOT).endsWith(".hbexport")
+                || filename.toLowerCase(Locale.ROOT).endsWith(".qif"))) {
             throw invalid("Unsupported HomeBank file extension");
         }
         if (password != null && password.length() > MAX_PASSWORD_CHARS) throw invalid("HomeBank password is too long");
         if (!DECODE_SLOTS.tryAcquire()) throw invalid("Too many HomeBank files are being decoded; retry shortly");
         try {
+            if (filename.toLowerCase(Locale.ROOT).endsWith(".qif")) {
+                return new HomeBankQifParser().parse(file, currency);
+            }
             byte[] compressed = filename.toLowerCase(Locale.ROOT).endsWith(".hbexport")
                     ? decrypt(file, password) : file;
             byte[] json = inflate(compressed);

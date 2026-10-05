@@ -73,6 +73,7 @@ describe('HomeBankTab', () => {
     expect(body).toBeInstanceOf(FormData)
     expect(body.get('file')).toBe(file)
     expect(body.get('password')).toBe('open sesame')
+    expect(body.get('currency')).toBeNull()
     expect(screen.getByText('Market')).toBeInTheDocument()
     expect(screen.getByText('Fresh produce')).toBeInTheDocument()
     expect(screen.getByText('-3.25 EUR')).toBeInTheDocument()
@@ -123,6 +124,45 @@ describe('HomeBankTab', () => {
     expect(apiPost).toHaveBeenCalledTimes(2)
     expect(apiPost.mock.calls[0][1].get('file')).toBe(file)
     expect(apiPost.mock.calls[1][1].get('file')).toBe(file)
+  })
+
+  it('requires an explicit ISO currency for QIF and sends it with preview', async () => {
+    renderTab()
+    const file = new File(['qif content'], 'history.qif')
+    fireEvent.change(screen.getByLabelText('sync.homebank.file'), { target: { files: [file] } })
+    expect(screen.getByLabelText('sync.homebank.file')).toHaveAttribute('accept', '.hbk,.hbexport,.qif')
+
+    const currency = screen.getByLabelText('sync.homebank.currency')
+    expect(currency).toBeRequired()
+    expect(screen.queryByLabelText('sync.homebank.password')).not.toBeInTheDocument()
+    const previewButton = screen.getByRole('button', { name: 'sync.homebank.preview' })
+    expect(previewButton).toBeDisabled()
+    fireEvent.change(currency, { target: { value: 'EU' } })
+    expect(previewButton).toBeDisabled()
+    fireEvent.change(currency, { target: { value: 'ABC' } })
+    expect(previewButton).toBeDisabled()
+    expect(apiPost).not.toHaveBeenCalled()
+    fireEvent.change(currency, { target: { value: 'eur' } })
+    expect(currency).toHaveValue('EUR')
+    expect(previewButton).toBeEnabled()
+    fireEvent.click(previewButton)
+
+    await screen.findByText('Fresh produce')
+    const body = apiPost.mock.calls[0][1] as FormData
+    expect(body.get('file')).toBe(file)
+    expect(body.get('currency')).toBe('EUR')
+    expect(body.get('password')).toBeNull()
+  })
+
+  it('clears QIF currency when switching to an iOS file', () => {
+    renderTab()
+    fireEvent.change(screen.getByLabelText('sync.homebank.file'), { target: { files: [new File(['qif'], 'history.qif')] } })
+    fireEvent.change(screen.getByLabelText('sync.homebank.currency'), { target: { value: 'USD' } })
+    fireEvent.change(screen.getByLabelText('sync.homebank.file'), { target: { files: [new File(['ios'], 'archive.hbk')] } })
+    expect(screen.queryByLabelText('sync.homebank.currency')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('sync.homebank.password')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('sync.homebank.file'), { target: { files: [new File(['qif'], 'again.qif')] } })
+    expect(screen.getByLabelText('sync.homebank.currency')).toHaveValue('')
   })
 
   it.each(['success', 'error'] as const)('removes the password from TanStack mutation variables after %s', async outcome => {

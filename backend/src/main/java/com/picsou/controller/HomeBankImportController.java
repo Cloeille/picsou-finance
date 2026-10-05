@@ -31,10 +31,15 @@ public class HomeBankImportController {
     }
     @PostMapping(value="/preview",consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> preview(@RequestParam("file") MultipartFile file,
-            @RequestParam(value="password",required=false) String password,HttpServletRequest request) {
+            @RequestParam(value="password",required=false) String password,
+            @RequestParam(value="currency",required=false) String currency,HttpServletRequest request) {
         if(!checkRateLimit(request))return tooManyRequests();
-        Preview result=service.preview(file,password,userContext.currentMemberId());
+        Preview result=currency == null ? service.preview(file,password,userContext.currentMemberId())
+                : service.preview(file,password,currency,userContext.currentMemberId());
         return ResponseEntity.ok(result);
+    }
+    public ResponseEntity<?> preview(MultipartFile file,String password,HttpServletRequest request) {
+        return preview(file,password,null,request);
     }
     @PostMapping(consumes=MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> execute(@Valid @RequestBody Request body,HttpServletRequest request) {

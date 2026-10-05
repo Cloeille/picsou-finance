@@ -928,12 +928,15 @@
       "authFailed": "Ungültige Finary-Zugangsdaten. Prüfe E-Mail und Passwort."
     },
     "homebank": {
-      "title": "HomeBank",
-      "upload": "HomeBank-iOS-Sicherung importieren",
-      "uploadHint": ".hbk- oder .hbexport-Dateien — nur HomeBank-iOS-Exporte",
+      "title": "HomeBank-Import",
+      "upload": "HomeBank-Datei importieren",
+      "uploadHint": "Unterstützt: HomeBank-iOS-Sicherungen .hbk/.hbexport und Desktop-Exporte .qif",
       "chooseFile": "Datei auswählen",
       "file": "HomeBank-Datei",
       "password": "Dateipasswort (falls erforderlich)",
+      "currency": "QIF-Währung (ISO 4217)",
+      "currencyPlaceholder": "EUR",
+      "qifLimitations": "QIF-Dateien enthalten weder Währung noch Anfangssaldo. Wählen Sie die Kontowährung und importieren Sie den vollständigen Kontoverlauf. Geteilte Buchungen erscheinen als separate Kategoriezeilen und werden entsprechend gezählt.",
       "preview": "Importvorschau",
       "previewSummary": "{{accounts}} Konten, {{categories}} Kategorien und {{transactions}} Transaktionen",
       "forecastsSkipped": "{{count}} Prognosetransaktion(en) übersprungen; sie werden nicht importiert.",

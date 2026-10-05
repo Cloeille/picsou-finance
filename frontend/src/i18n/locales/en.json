@@ -1230,12 +1230,15 @@
       "authFailed": "Invalid Finary credentials. Please check your email and password."
     },
     "homebank": {
-      "title": "HomeBank",
-      "upload": "Import a HomeBank iOS backup",
-      "uploadHint": ".hbk or .hbexport files — HomeBank iOS exports only",
+      "title": "HomeBank import",
+      "upload": "Import a HomeBank file",
+      "uploadHint": "Accepted: HomeBank iOS .hbk/.hbexport backups and desktop .qif exports",
       "chooseFile": "Choose a file",
       "file": "HomeBank file",
       "password": "File password (if required)",
+      "currency": "QIF currency (ISO 4217)",
+      "currencyPlaceholder": "EUR",
+      "qifLimitations": "QIF files do not contain currency or opening balances. Choose the account currency and include the full account history. Split transactions appear as separate category rows and are counted accordingly.",
       "preview": "Preview import",
       "previewSummary": "{{accounts}} accounts, {{categories}} categories and {{transactions}} transactions",
       "forecastsSkipped": "{{count}} forecast transaction(s) skipped; they will not be imported.",

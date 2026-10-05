@@ -50,13 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   above it otherwise; the default style keeps it opening upwards because its profile
   sits at the bottom of the screen.
 
-- **Import HomeBank iOS history from `.hbk` or password-protected `.hbexport`.**
+- **Import HomeBank iOS and desktop history from `.hbk`, `.hbexport` or `.qif`.**
   Review the source accounts, transactions, payees and notes, then map accounts and
   budget categories before confirming. Amounts, currencies and calendar dates are
   kept as exported. The import is atomic, repeated source IDs are skipped, and
   internal transfers and opening balances do not inflate spending or income.
-  Actual Budget and GNU HomeBank desktop XML are not included in this change.
-
+  Desktop QIF requires an explicit currency, preserves category splits and
+  transfer legs, and derives new balances from the exported history. Native iOS
+  exports retain password-protected import. Desktop `.xhb` XML is not supported.
 
 - **Crypto holdings show the coin's logo next to their ticker.** A position is easier to
   recognise at a glance than by reading its ticker. The mark comes from CoinGecko, which
