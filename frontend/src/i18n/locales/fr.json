@@ -1745,6 +1745,10 @@
         "label": "Transactions budgétées",
         "desc": "Modifier la catégorie des transactions"
       },
+      "budget_recurring-write": {
+        "label": "Abonnements récurrents",
+        "desc": "Confirmer, ignorer, déclarer, modifier et supprimer des séries récurrentes ; relancer la détection"
+      },
       "budget_envelopes-write": {
         "label": "Enveloppes budgétaires",
         "desc": "Créer, modifier et supprimer des enveloppes budgétaires"

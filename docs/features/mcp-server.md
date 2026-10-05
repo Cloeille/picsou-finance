@@ -153,6 +153,9 @@ default of 20 years and the service's 1 to 40 clamp. Deliberately not exposed: t
 refresh (a rate-limited fan-out to external providers) and every analysis write (allocation
 targets, savings config, real-estate, debt, ownership and visibility settings).
 
+The `budget:*` and `oauth2:*` scopes (including `budget:recurring-write` for recurring-series
+triage) and their tools are listed in [Budget + OAuth2 tools in MCP](./mcp-budget-oauth2.md).
+
 **Never exposed** (no `@Tool` exists, so no scope can initiate them): authentication flows,
 credential submission or retrieval, connecting a new bank / broker / exchange / wallet, MFA,
 admin settings, member management, and GDPR data export. This does not prohibit removing stored

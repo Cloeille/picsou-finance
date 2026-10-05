@@ -1473,6 +1473,10 @@
         "label": "Budgetierte Transaktionen",
         "desc": "Die Kategorie von Transaktionen ändern"
       },
+      "budget_recurring-write": {
+        "label": "Wiederkehrende Zahlungen",
+        "desc": "Wiederkehrende Serien bestätigen, ignorieren, anlegen, bearbeiten und löschen; Erkennung erneut ausführen"
+      },
       "budget_envelopes-write": {
         "label": "Budget-Umschläge",
         "desc": "Budget-Umschläge erstellen, bearbeiten und löschen"

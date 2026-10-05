@@ -45,6 +45,7 @@ public final class Scopes {
     public static final String BUDGET_CATEGORIES_WRITE = "budget:categories-write";
     public static final String BUDGET_RULES_WRITE = "budget:rules-write";
     public static final String BUDGET_TRANSACTIONS_WRITE = "budget:transactions-write";
+    public static final String BUDGET_RECURRING_WRITE = "budget:recurring-write";
     public static final String BUDGET_ENVELOPES_WRITE = "budget:envelopes-write";
 
     /** Immutable allowlist of every valid scope. Used to validate key-creation requests. */
@@ -54,6 +55,7 @@ public final class Scopes {
         BUDGET_CATEGORIES_READ, BUDGET_RULES_READ, BUDGET_TRANSACTIONS_READ, BUDGET_RECURRING_READ,
         BUDGET_ENVELOPES_READ, BUDGET_DASHBOARD_READ, OAUTH2_DISCOVER, OAUTH2_SESSION_STATUS,
         ACCOUNTS_WRITE, TRANSACTIONS_WRITE, GOALS_WRITE, SYNC_TRIGGER,
-        BUDGET_CATEGORIES_WRITE, BUDGET_RULES_WRITE, BUDGET_TRANSACTIONS_WRITE, BUDGET_ENVELOPES_WRITE
+        BUDGET_CATEGORIES_WRITE, BUDGET_RULES_WRITE, BUDGET_TRANSACTIONS_WRITE, BUDGET_RECURRING_WRITE,
+        BUDGET_ENVELOPES_WRITE
     );
 }

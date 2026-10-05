@@ -30,6 +30,7 @@ export const ALL_SCOPES = [
   'budget:categories-write',
   'budget:rules-write',
   'budget:transactions-write',
+  'budget:recurring-write',
   'budget:envelopes-write',
 ] as const
 
