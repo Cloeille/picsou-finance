@@ -1347,6 +1347,10 @@
         "label": "Familie",
         "desc": "Das geteilte Familien-Dashboard einsehen"
       },
+      "analysis_read": {
+        "label": "Vermögensanalyse",
+        "desc": "Allokation, Diversifikation, Projektionen und Immobilienübersicht einsehen"
+      },
       "accounts_write": {
         "label": "Konten",
         "desc": "Manuelle Konten, Salden und Bestände erstellen und bearbeiten"

@@ -1619,6 +1619,10 @@
         "label": "Family",
         "desc": "View the shared family dashboard"
       },
+      "analysis_read": {
+        "label": "Wealth analysis",
+        "desc": "View allocation, diversification, projections and property summary"
+      },
       "accounts_write": {
         "label": "Accounts",
         "desc": "Create and edit manual accounts, balances and holdings"
