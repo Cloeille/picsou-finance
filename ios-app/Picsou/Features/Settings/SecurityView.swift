@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// Security settings: active persistent sessions (GET /api/auth/sessions) with per-session revoke and
-/// "log out everywhere else". 2FA management lands in a later slice.
+/// Security settings: 2FA, then the active sessions (GET /api/auth/sessions): browsers kept signed in
+/// with "Remember Me" and iOS app sign-ins, this device included. Any row can be revoked; revoking
+/// this device signs it out. "Log out everywhere else" keeps only this one.
 struct SecurityView: View {
     @Environment(AppState.self) private var appState
     @State private var sessions: [SessionInfo] = []
     @State private var loading = true
     @State private var failed = false
+    @State private var confirmingSelfRevoke: SessionInfo?
 
     private var dataSource: SettingsDataSource { appState.makeSettingsDataSource() }
 
@@ -28,10 +30,10 @@ struct SecurityView: View {
                     ForEach(sessions) { session in
                         sessionRow(session)
                             .swipeActions {
-                                if !session.current {
-                                    Button(role: .destructive) { revoke(session.id) } label: {
-                                        Label("Révoquer", systemImage: "trash")
-                                    }
+                                Button(role: .destructive) {
+                                    if session.current { confirmingSelfRevoke = session } else { revoke(session) }
+                                } label: {
+                                    Label(session.current ? "Déconnecter" : "Révoquer", systemImage: "trash")
                                 }
                             }
                     }
@@ -43,6 +45,15 @@ struct SecurityView: View {
                 }
             }
         }
+        .confirmationDialog("Déconnecter cet iPhone ?", isPresented: Binding(
+            get: { confirmingSelfRevoke != nil }, set: { if !$0 { confirmingSelfRevoke = nil } }
+        ), titleVisibility: .visible) {
+            Button("Déconnecter", role: .destructive) {
+                if let session = confirmingSelfRevoke { revoke(session) }
+            }
+        } message: {
+            Text("Tu devras te reconnecter pour utiliser l'app.")
+        }
         .navigationTitle("Sécurité")
         .navigationBarTitleDisplayMode(.inline)
         .tint(Theme.brand)
@@ -52,7 +63,7 @@ struct SecurityView: View {
     private func sessionRow(_ session: SessionInfo) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
-                Text(session.userAgent ?? "Appareil inconnu")
+                Text(Self.title(of: session))
                     .font(Theme.font(15, .semibold)).foregroundStyle(Theme.foreground)
                 if session.current {
                     Text("Actuelle").font(Theme.font(11, .bold))
@@ -61,7 +72,7 @@ struct SecurityView: View {
                         .background(Theme.positive.opacity(0.14), in: Capsule())
                 }
             }
-            Text("\(session.ipPrefix ?? "—") · vu \(relative(session.lastUsedAt))")
+            Text([session.ipPrefix, "vu \(relative(session.lastUsedAt))"].compactMap { $0 }.joined(separator: " · "))
                 .font(Theme.font(12.5)).foregroundStyle(Theme.mutedForeground)
         }
         .padding(.vertical, 2)
@@ -75,9 +86,21 @@ struct SecurityView: View {
         loading = false
     }
 
-    private func revoke(_ id: Int64) {
+    static func title(of session: SessionInfo) -> String {
+        switch session.kind {
+        case .iosApp: return "App iPhone"
+        case .rememberMe, .unknown: return session.userAgent ?? "Appareil inconnu"
+        }
+    }
+
+    private func revoke(_ session: SessionInfo) {
         Task {
-            try? await dataSource.revokeSession(id: id)
+            do {
+                try await dataSource.revokeSession(id: session.id)
+                if session.current { appState.signOut(); return }
+            } catch {
+                if (error as? APIError) == .unauthorized { appState.signOut(); return }
+            }
             await load()
         }
     }
@@ -90,7 +113,7 @@ struct SecurityView: View {
     }
 
     private func relative(_ iso: String?) -> String {
-        guard let iso, let date = ISO8601DateFormatter().date(from: iso) else { return "—" }
+        guard let date = DateParsing.instant(iso) else { return "—" }
         let f = RelativeDateTimeFormatter()
         f.locale = Locale(identifier: "fr_FR")
         return f.localizedString(for: date, relativeTo: Date())

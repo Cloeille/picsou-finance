@@ -5,11 +5,12 @@ import XCTest
 final class SettingsTests: XCTestCase {
 
     func testSessionDecoding() throws {
-        let json = #"[{"id":1,"userAgent":"Picsou iOS","ipPrefix":"192.168.1.x","createdAt":"2026-07-01T09:00:00Z","lastUsedAt":"2026-07-04T08:00:00Z","expiresAt":"2026-08-01T09:00:00Z","trustedFor2fa":true,"current":true}]"#
+        let json = #"[{"id":"1","kind":"REMEMBER_ME","userAgent":"Safari · macOS","ipPrefix":"192.168.1","createdAt":"2026-07-01T09:00:00.5Z","lastUsedAt":"2026-07-04T08:00:00.25Z","expiresAt":"2026-08-01T09:00:00Z","trustedFor2fa":true,"current":true}]"#
         let sessions = try JSONDecoder.picsou.decode([SessionInfo].self, from: Data(json.utf8))
         XCTAssertEqual(sessions.count, 1)
         XCTAssertTrue(sessions[0].current)
-        XCTAssertEqual(sessions[0].userAgent, "Picsou iOS")
+        XCTAssertEqual(sessions[0].id, "1")
+        XCTAssertEqual(sessions[0].userAgent, "Safari · macOS")
     }
 
     func testChangePasswordRequestEncodes() throws {

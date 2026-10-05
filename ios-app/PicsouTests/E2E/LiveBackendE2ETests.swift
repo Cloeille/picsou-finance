@@ -121,13 +121,10 @@ final class LiveBackendE2ETests: XCTestCase {
 
     func testSettings_sessionsAndMfaStatusDecodeLive() async throws {
         let source = LiveSettingsDataSource(api: api)
-        // GET /api/auth/sessions lists PersistentSession (Remember Me) rows only
-        // (SessionController.list -> persistentSessionService.listActiveForUser). This fixture logs
-        // in with rememberMe=false and authenticates via the OAuth2 AS's Bearer token, which never
-        // creates one -- so an empty list here is correct, not a bug. (Product note: this means the
-        // iOS app itself can never appear in -- or revoke -- its own entry in Settings > Sessions;
-        // logged as a TODO, out of this session's fix-confirmed-drifts scope.)
-        _ = try await source.sessions()   // must decode without throwing regardless of count
+        // This fixture signed in through the OAuth2 AS, so its own authorization is listed as the
+        // current IOS_APP session (Remember Me rows, if any, come from other browsers).
+        let sessions = try await source.sessions()
+        XCTAssertTrue(sessions.contains { $0.kind == .iosApp && $0.current })
 
         let mfa = try await source.mfaStatus()
         XCTAssertFalse(mfa.enabled)

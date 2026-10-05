@@ -1,8 +1,17 @@
 import Foundation
 
-/// Mirrors backend `SessionResponse` (GET /api/auth/sessions).
+/// Mirrors backend `SessionResponse.Kind`.
+enum SessionKind: String, LenientEnum {
+    case rememberMe = "REMEMBER_ME"
+    case iosApp = "IOS_APP"
+    case unknown = "UNKNOWN"
+}
+
+/// Mirrors backend `SessionResponse` (GET /api/auth/sessions): a browser "Remember Me" session or
+/// an iOS app sign-in. `id` is opaque; it goes back unchanged to `DELETE /api/auth/sessions/{id}`.
 struct SessionInfo: Decodable, Identifiable, Equatable {
-    let id: Int64
+    let id: String
+    let kind: SessionKind
     let userAgent: String?
     let ipPrefix: String?
     let createdAt: String?
@@ -37,7 +46,7 @@ fileprivate struct RegenerateBody: Encodable { let currentPassword: String; let 
 /// Profile + session + 2FA settings (auth endpoints).
 protocol SettingsDataSource: Sendable {
     func sessions() async throws -> [SessionInfo]
-    func revokeSession(id: Int64) async throws
+    func revokeSession(id: String) async throws
     func revokeOtherSessions() async throws
     func changeUsername(_ newUsername: String) async throws -> String
     func changePassword(current: String, new: String) async throws
@@ -52,7 +61,7 @@ struct LiveSettingsDataSource: SettingsDataSource {
     let api: APIClient
 
     func sessions() async throws -> [SessionInfo] { try await api.get("api/auth/sessions") }
-    func revokeSession(id: Int64) async throws { _ = try await api.delete("api/auth/sessions/\(id)") }
+    func revokeSession(id: String) async throws { _ = try await api.delete("api/auth/sessions/\(id)") }
     func revokeOtherSessions() async throws { _ = try await api.delete("api/auth/sessions") }
 
     func changeUsername(_ newUsername: String) async throws -> String {
@@ -86,18 +95,18 @@ struct DemoSettingsDataSource: SettingsDataSource {
     func sessions() async throws -> [SessionInfo] {
         try? await Task.sleep(nanoseconds: 200_000_000)
         return [
-            SessionInfo(id: 1, userAgent: "Picsou iOS · iPhone", ipPrefix: "192.168.1.x",
+            SessionInfo(id: "0b6f3c1e-4c1d-4a8e-9f0a-2d7e5b1c9a11", kind: .iosApp, userAgent: nil, ipPrefix: nil,
                         createdAt: "2026-07-01T09:00:00Z", lastUsedAt: "2026-07-04T08:00:00Z",
-                        expiresAt: "2026-08-01T09:00:00Z", trustedFor2fa: true, current: true),
-            SessionInfo(id: 2, userAgent: "Safari · macOS", ipPrefix: "192.168.1.x",
+                        expiresAt: "2026-08-01T09:00:00Z", trustedFor2fa: false, current: true),
+            SessionInfo(id: "2", kind: .rememberMe, userAgent: "Safari · macOS", ipPrefix: "192.168.1.x",
                         createdAt: "2026-06-20T10:00:00Z", lastUsedAt: "2026-07-02T19:30:00Z",
                         expiresAt: "2026-07-20T10:00:00Z", trustedFor2fa: false, current: false),
-            SessionInfo(id: 3, userAgent: "Chrome · Windows", ipPrefix: "10.0.0.x",
+            SessionInfo(id: "3", kind: .rememberMe, userAgent: "Chrome · Windows", ipPrefix: "10.0.0.x",
                         createdAt: "2026-06-10T14:00:00Z", lastUsedAt: "2026-06-28T11:00:00Z",
                         expiresAt: "2026-07-10T14:00:00Z", trustedFor2fa: false, current: false),
         ]
     }
-    func revokeSession(id: Int64) async throws {}
+    func revokeSession(id: String) async throws {}
     func revokeOtherSessions() async throws {}
     func changeUsername(_ newUsername: String) async throws -> String { newUsername }
     func changePassword(current: String, new: String) async throws {}
