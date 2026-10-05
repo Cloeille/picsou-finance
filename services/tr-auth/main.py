@@ -178,10 +178,12 @@ def normalise_phone(phone: str) -> str:
 
 
 def mask_phone(phone: str) -> str:
-    # Below 7 chars, prefix + suffix would reveal most (or all) of the number.
-    if len(phone) <= 6:
+    # Only the last two digits, whatever the input format (+33, leading 0, spaces).
+    # They are rebuilt from an int, so the logged text carries nothing else typed.
+    digits = "".join(c for c in phone if c in "0123456789")
+    if len(digits) < 2:
         return "****"
-    return phone[:3] + "****" + phone[-2:]
+    return f"****{int(digits[-2:]):02d}"
 
 
 def cookie_names(headers: httpx.Headers) -> list[str]:

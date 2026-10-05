@@ -163,6 +163,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   id, were pasted into the request path as received, so a crafted value could point the
   sidecar at another path on the broker's API. They are now checked against their real
   shape first and refused otherwise.
+- **The Trade Republic sidecar log shows only the last two digits of your phone number.** It
+  kept the first three characters too, which for a number typed without `+33` or a leading
+  `0` was five of its nine digits.
 
 
 ## [1.1.0] — 2026-06-09
