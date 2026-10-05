@@ -37,6 +37,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -139,6 +140,31 @@ class NativeAppSessionIntegrationTest {
             .andExpect(status().isUnauthorized());
         refresh(tablet).andExpect(status().isBadRequest());
         refresh(phone).andExpect(status().isOk());
+    }
+
+    @Test
+    void afterARename_theDeviceIsStillListedAndRevocable_andItsDeadBearerNeverFallsBackToTheCookie() throws Exception {
+        Device phone = signIn();
+
+        mockMvc.perform(patch("/api/auth/username").header("Authorization", bearer(phone))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"newUsername\":\"renamed-" + UUID.randomUUID() + "\"}"))
+            .andExpect(status().isOk());
+
+        String listed = mockMvc.perform(get("/api/auth/sessions").header("Authorization", bearer(phone)))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString();
+        List<String> appIds = JsonPath.read(listed, "$[?(@.kind == 'IOS_APP')].id");
+        List<Boolean> appCurrent = JsonPath.read(listed, "$[?(@.kind == 'IOS_APP')].current");
+        assertThat(appIds).containsExactly(phone.authorizationId());
+        assertThat(appCurrent).containsExactly(true);
+
+        mockMvc.perform(delete("/api/auth/sessions/" + phone.authorizationId()).header("Authorization", bearer(phone)))
+            .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/dashboard").header("Authorization", bearer(phone)).cookie(authCookie))
+            .andExpect(status().isUnauthorized());
+        refresh(phone).andExpect(status().isBadRequest());
     }
 
     @Test

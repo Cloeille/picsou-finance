@@ -193,8 +193,10 @@ server and holds a Bearer access token plus a rotating refresh token, both tied 
 refresh-token rotation). `NativeAppSessionService` treats each live row as a session:
 
 - **Listed** when the row's captured principal is the caller (by `AppUser.id`), its captured `tv`
-  still equals the caller's (a password or username change bumps `tv`, which already kills that
-  device), and its refresh token is active. `SessionResponse.kind = IOS_APP`; `createdAt` is the
+  still equals the caller's (a password change bumps `tv`, which already kills that device), and
+  its refresh token is active. Rows are never matched on `principal_name`: that column keeps the
+  username used at sign-in, and a rename leaves the device signed in (it does not bump `tv`), so a
+  name match would hide a live device and make it impossible to revoke. `SessionResponse.kind = IOS_APP`; `createdAt` is the
   authorization-code issue time, `lastUsedAt` the latest access-token issue time (the app refreshes
   every access-token TTL while in use), `expiresAt` the refresh-token expiry. No user agent or IP.
 - **`current`** when the request's Bearer token carries the row id in its `aid` claim (stamped by

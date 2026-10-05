@@ -26,9 +26,12 @@ import java.util.Optional;
  * the {@code picsou-ios} client. An authorization survives refresh-token rotation, so it is the
  * device, not a single token.
  *
- * <p>Only rows whose captured principal is the caller <em>and</em> whose captured token version
- * still matches theirs are listed: a password or username change bumps {@code tv}, which already
- * makes the API reject that authorization's tokens, so listing it would show a dead device.
+ * <p>Rows are matched on the user id of the principal captured at sign-in, never on
+ * {@code principal_name}: that column freezes the username used at sign-in, and a later rename
+ * keeps the device's tokens valid (it does not bump {@code tv}), so a name match would hide a live
+ * device and make it unrevocable. Only rows whose captured token version still matches the
+ * caller's are listed: a password change bumps {@code tv}, which already makes the API reject that
+ * authorization's tokens, so listing it would show a dead device.
  *
  * <p>Revoking deletes the row. The refresh token dies with it, and so does the current access
  * token, because {@code JwtTokenAuthenticator} looks the token's {@code aid} claim up through
@@ -39,7 +42,7 @@ public class NativeAppSessionService {
 
     private static final String CANDIDATES_SQL = """
         SELECT id FROM oauth2_authorization
-        WHERE registered_client_id = ? AND principal_name = ? AND refresh_token_expires_at > ?
+        WHERE registered_client_id = ? AND refresh_token_expires_at > ?
         """;
 
     private final JdbcOperations jdbc;
@@ -103,7 +106,7 @@ public class NativeAppSessionService {
             return List.of();
         }
         return jdbc.queryForList(CANDIDATES_SQL, String.class,
-                client.getId(), user.getUsername(), Timestamp.from(Instant.now()))
+                client.getId(), Timestamp.from(Instant.now()))
             .stream()
             .map(authorizationService::findById)
             .filter(Objects::nonNull)

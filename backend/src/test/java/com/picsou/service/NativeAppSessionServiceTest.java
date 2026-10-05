@@ -92,6 +92,20 @@ class NativeAppSessionServiceTest {
     }
 
     @Test
+    void aSignInMadeUnderTheOldUsername_isListedAndRevocableAfterARename() {
+        stubCandidates("signed-in-as-alice");
+        OAuth2Authorization beforeRename = authorization("signed-in-as-alice", alice, 2L, T0, false);
+        stub(beforeRename);
+        AppUser renamed = AppUser.builder().id(7L).username("alicia").role(UserRole.MEMBER)
+            .activated(true).tokenVersion(2L).build();
+
+        assertThat(service.listActive(renamed))
+            .extracting(NativeAppSessionService.NativeAppSession::id).containsExactly("signed-in-as-alice");
+        assertThat(service.revoke("signed-in-as-alice", renamed)).isTrue();
+        verify(authorizationService).remove(beforeRename);
+    }
+
+    @Test
     void revoke_refusesAnIdOutsideTheCallersList() {
         stubCandidates("mine");
         stub(authorization("mine", alice, 2L, T0, false));
@@ -129,7 +143,7 @@ class NativeAppSessionServiceTest {
     }
 
     private void stubCandidates(String... ids) {
-        when(jdbc.queryForList(anyString(), eq(String.class), eq("client-row-1"), eq("alice"), any()))
+        when(jdbc.queryForList(anyString(), eq(String.class), eq("client-row-1"), any()))
             .thenReturn(List.of(ids));
     }
 
