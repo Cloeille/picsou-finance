@@ -25,7 +25,7 @@ public final class LogSanitizer {
     /**
      * Makes an externally-controlled value (request parameter, upstream response, uploaded file
      * content, exception message) safe to embed in a log line: at most {@value #MAX_SAFE_LENGTH}
-     * characters, every line break and control character replaced with {@code ?}.
+     * characters, every line break and control character except TAB replaced with {@code ?}.
      *
      * <p>{@code logback-spring.xml} already neutralises whole messages; wrapping the value at the
      * call site keeps it single-line under any other logging setup and lets static analysis see
@@ -41,10 +41,11 @@ public final class LogSanitizer {
 
     /**
      * Replaces line breaks ({@code \R}: CR, LF, VT, FF, U+0085, U+2028, U+2029) and the remaining
-     * C0/C1 control characters, ESC included, with {@code ?}. Nothing is truncated.
+     * C0/C1 control characters, ESC included, with {@code ?}. TAB is kept: it cannot start a new
+     * line or drive a terminal, and tab-separated values stay readable. Nothing is truncated.
      */
     public static String neutralize(String text) {
-        return text.replaceAll("\\R", "?").replaceAll("\\p{Cc}", "?");
+        return text.replaceAll("\\R", "?").replaceAll("[\\p{Cc}&&[^\\t]]", "?");
     }
 
     /**

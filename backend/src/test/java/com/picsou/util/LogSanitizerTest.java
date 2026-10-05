@@ -23,8 +23,8 @@ class LogSanitizerTest {
     }
 
     @Test
-    void safe_replacesEscAndOtherControlCharacters() {
-        assertThat(LogSanitizer.safe("\u001B[31mred\u001B[0m\u0000\t\u007F\u009B")).isEqualTo("?[31mred?[0m????");
+    void safe_replacesEscAndOtherControlCharacters_butKeepsTab() {
+        assertThat(LogSanitizer.safe("\u001B[31mred\u001B[0m\u0000\t\u007F\u009B")).isEqualTo("?[31mred?[0m?\t??");
     }
 
     @Test
