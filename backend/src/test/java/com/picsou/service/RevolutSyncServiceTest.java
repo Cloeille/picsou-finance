@@ -7,6 +7,8 @@ import com.picsou.dto.DiscoveredRevolutAccount;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
+import com.picsou.model.Category;
+import com.picsou.model.CategoryKind;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.RevolutSession;
 import com.picsou.model.Transaction;
@@ -68,6 +70,7 @@ class RevolutSyncServiceTest {
     @Mock RevolutSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock TransactionRepository transactionRepository;
+    @Mock SharedSidecarTransactionImportService transactionImporter;
     @Mock FamilyMemberRepository familyMemberRepository;
     @Mock AccountService accountService;
     @Mock CategorizationService categorizationService;
@@ -90,6 +93,11 @@ class RevolutSyncServiceTest {
      */
     @BeforeEach
     void runTxTemplateCallbacks() {
+        org.mockito.Mockito.lenient().doAnswer(invocation ->
+            new SharedSidecarTransactionImportService(transactionRepository, categorizationService).importFor(
+                invocation.getArgument(0), invocation.getArgument(1), invocation.getArgument(2), invocation.getArgument(3)))
+            .when(transactionImporter).importFor(any(Account.class), org.mockito.ArgumentMatchers.nullable(List.class),
+                org.mockito.ArgumentMatchers.nullable(CategorizationService.CategorizationContext.class), anyString());
         lenient().doAnswer(inv -> {
             java.util.function.Consumer<org.springframework.transaction.TransactionStatus> cb = inv.getArgument(0);
             cb.accept(null);
@@ -227,14 +235,77 @@ class RevolutSyncServiceTest {
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
         stubToResponseMirrorsAccount();
 
-        when(transactionRepository.existsByAccountIdAndExternalId(900L, "tx-old")).thenReturn(true);
-        when(transactionRepository.existsByAccountIdAndExternalId(900L, "tx-new")).thenReturn(false);
+        Transaction oldRow = Transaction.builder().account(existingAccount)
+            .externalId("tx-old").externalTransactionId("tx-old").isManual(false).build();
+        when(transactionRepository.findByAccountIdAndIsManualFalse(900L)).thenReturn(List.of(oldRow));
 
         service.sync(MEMBER_ID, PHONE, PASSCODE, false);
 
         ArgumentCaptor<Transaction> txCaptor = ArgumentCaptor.forClass(Transaction.class);
         verify(transactionRepository, times(1)).save(txCaptor.capture());
         assertThat(txCaptor.getValue().getExternalId()).isEqualTo("tx-new");
+        assertThat(txCaptor.getValue().getExternalTransactionId()).isEqualTo("revolut:tx-new");
+    }
+
+    @Test
+    void sync_classifiesOnlyVerifiedMirroredTransferLegsAcrossAccounts() {
+        Category transfer = Category.builder().name("Internal transfer").slug("virement-interne")
+            .kind(CategoryKind.TRANSFER).build();
+        when(categorizationService.loadContext(MEMBER_ID)).thenReturn(
+            new CategorizationService.CategorizationContext(List.of(), Map.of("virement-interne", transfer)));
+        LocalDate date = LocalDate.of(2026, 9, 20);
+        RevolutTxn outgoing = new RevolutTxn("shared-transfer-id", date, "Virement vers Pocket", bd("-25"), null,
+            CategoryKind.TRANSFER);
+        RevolutTxn incoming = new RevolutTxn("shared-transfer-id", date, "Virement reçu", bd("25.00"), null,
+            CategoryKind.TRANSFER);
+        RevolutTxn nonTransferOut = new RevolutTxn("non-transfer-id", date, "Achat", bd("-12"), null);
+        RevolutTxn nonTransferIn = new RevolutTxn("non-transfer-id", date, "Remboursement", bd("12"), null);
+        RevolutTxn ambiguousOut = new RevolutTxn("ambiguous-id", date, "Virement", bd("-8"), null,
+            CategoryKind.TRANSFER);
+        RevolutTxn ambiguousIn = new RevolutTxn("ambiguous-id", date, "Virement reçu", bd("8"), null,
+            CategoryKind.TRANSFER);
+        RevolutTxn ambiguousExtra = new RevolutTxn("ambiguous-id", date, "Achat", bd("-8"), null);
+        RevolutTxn unpaired = new RevolutTxn("different-provider-id", date, "Virement", bd("-4"), null,
+            CategoryKind.TRANSFER);
+        List<RevolutAccountData> accounts = List.of(
+            new RevolutAccountData("wallet-transfer-a", "Wallet A", AccountType.CHECKING, null,
+                bd("10"), "EUR", null, List.of(outgoing)),
+            new RevolutAccountData("wallet-transfer-b", "Wallet B", AccountType.CHECKING, null,
+                bd("20"), "EUR", null, List.of(incoming)),
+            new RevolutAccountData("wallet-non-transfer-a", "Wallet D", AccountType.CHECKING, null,
+                bd("10"), "EUR", null, List.of(nonTransferOut)),
+            new RevolutAccountData("wallet-non-transfer-b", "Wallet E", AccountType.CHECKING, null,
+                bd("20"), "EUR", null, List.of(nonTransferIn)),
+            new RevolutAccountData("wallet-ambiguous-a", "Wallet F", AccountType.CHECKING, null,
+                bd("10"), "EUR", null, List.of(ambiguousOut)),
+            new RevolutAccountData("wallet-ambiguous-b", "Wallet G", AccountType.CHECKING, null,
+                bd("20"), "EUR", null, List.of(ambiguousIn)),
+            new RevolutAccountData("wallet-ambiguous-c", "Wallet H", AccountType.CHECKING, null,
+                bd("30"), "EUR", null, List.of(ambiguousExtra)),
+            new RevolutAccountData("wallet-unpaired", "Wallet C", AccountType.CHECKING, null,
+                bd("30"), "EUR", null, List.of(unpaired)));
+        when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID)).thenReturn(accounts);
+        when(accountRepository.findByExternalAccountIdAndMemberId(anyString(), eq(MEMBER_ID)))
+            .thenReturn(Optional.empty());
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(anyString(), eq(MEMBER_ID)))
+            .thenReturn(false);
+        when(transactionRepository.findByAccountIdAndIsManualFalse(anyLong())).thenReturn(List.of());
+        when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(member()));
+        stubSaveAssignsIncrementingIds(new AtomicLong(930));
+        stubToResponseMirrorsAccount();
+
+        service.sync(MEMBER_ID, PHONE, PASSCODE, false);
+
+        ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(8)).save(saved.capture());
+        assertThat(saved.getAllValues()).filteredOn(tx -> tx.getExternalId().equals("shared-transfer-id"))
+            .hasSize(2).allSatisfy(tx -> assertThat(tx.getCategoryRef().getKind()).isEqualTo(CategoryKind.TRANSFER));
+        assertThat(saved.getAllValues()).filteredOn(tx -> tx.getExternalId().equals("non-transfer-id"))
+            .hasSize(2).allSatisfy(tx -> assertThat(tx.getCategoryRef()).isNull());
+        assertThat(saved.getAllValues()).filteredOn(tx -> tx.getExternalId().equals("ambiguous-id"))
+            .hasSize(3).allSatisfy(tx -> assertThat(tx.getCategoryRef()).isNull());
+        assertThat(saved.getAllValues()).filteredOn(tx -> tx.getExternalId().equals("different-provider-id"))
+            .singleElement().satisfies(tx -> assertThat(tx.getCategoryRef()).isNull());
     }
 
     /**

@@ -33,6 +33,9 @@ class BoursoAdapterTest {
               "balanceEur":20810.50,
               "cashBalance":null,
               "positions":[],
+              "iban":"FR7630006000011234567890189",
+              "transactions":[{"externalId":"move-1","date":"2026-09-20","description":"VIREMENT",
+                "amount":-25.00,"counterparty":null,"kind":"TRANSFER"}],
               "snapshotComplete":true
             },{
               "externalId":"bourso_9651d8edd5975de1b9eff3865505f15f",
@@ -64,6 +67,12 @@ class BoursoAdapterTest {
             assertThat(account.cashBalance()).isNull();
             assertThat(account.positions()).isEmpty();
             assertThat(account.snapshotComplete()).isTrue();
+            assertThat(account.iban()).isEqualTo("FR7630006000011234567890189");
+            assertThat(account.transactions()).singleElement().satisfies(transaction -> {
+                assertThat(transaction.externalId()).isEqualTo("move-1");
+                assertThat(transaction.kind()).isEqualTo("TRANSFER");
+                assertThat(transaction.counterparty()).isNull();
+            });
         });
         assertThat(accounts.get(1)).satisfies(account -> {
             assertThat(account.type()).isEqualTo(AccountType.PEA);

@@ -72,6 +72,9 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
      */
     Optional<Account> findByIbanAndMemberId(String iban, Long memberId);
 
+    /** Match legacy BoursoBank accounts by IBAN without merging another provider's account. */
+    Optional<Account> findFirstByIbanAndMemberIdAndProvider(String iban, Long memberId, String provider);
+
     /**
      * Returns true if any soft-deleted account exists with this IBAN for the member.
      * Bypasses {@code @SQLRestriction("deleted_at IS NULL")} on Account.
@@ -85,6 +88,11 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
         @Param("iban") String iban,
         @Param("memberId") Long memberId
     );
+
+    @Query(value = "SELECT EXISTS(SELECT 1 FROM account WHERE iban = :iban AND member_id = :memberId " +
+        "AND provider = :provider AND deleted_at IS NOT NULL)", nativeQuery = true)
+    boolean existsSoftDeletedByIbanAndMemberIdAndProvider(@Param("iban") String iban,
+        @Param("memberId") Long memberId, @Param("provider") String provider);
 
     // ─── Revolut pockets (1.1.0) ──────────────────────────────────────────────
 

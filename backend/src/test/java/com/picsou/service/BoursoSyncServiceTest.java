@@ -15,6 +15,8 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.TransactionRepository;
+import com.picsou.service.budget.CategorizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -55,6 +57,8 @@ class BoursoSyncServiceTest {
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
     @Mock FamilyMemberRepository memberRepository;
+    @Mock TransactionRepository transactionRepository;
+    @Mock CategorizationService categorizationService;
     @Mock AccountService accountService;
     @Mock OpenFigiIsinConverter isinConverter;
     @Mock SecurityIdentityService identityService;
@@ -112,6 +116,27 @@ class BoursoSyncServiceTest {
         });
         assertThat(saved.getFirst().getExternalAccountId()).isEqualTo(CHECKING_ID);
         assertThat(saved.getFirst().getCurrentBalance()).isEqualByComparingTo("20810.50");
+    }
+
+    @Test
+    void queueSync_reusesLegacyBoursoAccountByIbanWithoutNameOrTypeHeuristics() {
+        String iban = "FR7630006000011234567890189";
+        BoursoPort.AccountData refreshed = new BoursoPort.AccountData(CHECKING_ID, "New label",
+            AccountType.CHECKING, new BigDecimal("20810.50"), null, List.of(), true, iban, List.of());
+        arrangeCommittableSync(refreshed);
+        Account legacyBourso = Account.builder().id(88L).member(member()).name("Old label")
+            .type(AccountType.CHECKING).provider("BoursoBank").iban(iban).externalAccountId("old-bourso-id")
+            .isManual(false).build();
+        when(accountRepository.findFirstByIbanAndMemberIdAndProvider(iban, 7L, "BoursoBank"))
+            .thenReturn(Optional.of(legacyBourso));
+
+        service.queueSync(7L);
+
+        verify(accountRepository).findFirstByIbanAndMemberIdAndProvider(iban, 7L, "BoursoBank");
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getId()).isEqualTo(88L);
+        assertThat(accountCaptor.getValue().getExternalAccountId()).isEqualTo(CHECKING_ID);
+        assertThat(accountCaptor.getValue().getProvider()).isEqualTo("BoursoBank");
     }
 
     /**
@@ -584,6 +609,8 @@ class BoursoSyncServiceTest {
         arrangeQueuedSession(activeSession(member));
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(accounts));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        when(categorizationService.loadContext(7L)).thenReturn(
+            new CategorizationService.CategorizationContext(List.of(), java.util.Map.of()));
         when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(7L)))
             .thenReturn(Optional.empty());
         when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> {
@@ -613,6 +640,8 @@ class BoursoSyncServiceTest {
             holdingRepository,
             memberRepository,
             accountService,
+            categorizationService,
+            new SharedSidecarTransactionImportService(transactionRepository, categorizationService),
             isinConverter,
             identityService,
             encryption,

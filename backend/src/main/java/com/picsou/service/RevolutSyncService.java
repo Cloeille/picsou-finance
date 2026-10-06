@@ -8,16 +8,15 @@ import com.picsou.dto.DiscoveredRevolutAccount;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
+import com.picsou.model.CategoryKind;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.RevolutSession;
-import com.picsou.model.Transaction;
 import com.picsou.port.RevolutPort;
 import com.picsou.port.RevolutPort.RevolutAccountData;
 import com.picsou.port.RevolutPort.RevolutTxn;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.RevolutSessionRepository;
-import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.sync.SyncProgressService;
 import com.picsou.service.sync.SyncProvider;
@@ -28,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -74,7 +75,7 @@ public class RevolutSyncService {
     private final RevolutPort              revolutPort;
     private final RevolutSessionRepository sessionRepository;
     private final AccountRepository        accountRepository;
-    private final TransactionRepository    transactionRepository;
+    private final SharedSidecarTransactionImportService transactionImporter;
     private final FamilyMemberRepository   familyMemberRepository;
     private final AccountService           accountService;
     private final CategorizationService    categorizationService;
@@ -90,7 +91,7 @@ public class RevolutSyncService {
         RevolutPort revolutPort,
         RevolutSessionRepository sessionRepository,
         AccountRepository accountRepository,
-        TransactionRepository transactionRepository,
+        SharedSidecarTransactionImportService transactionImporter,
         FamilyMemberRepository familyMemberRepository,
         AccountService accountService,
         CategorizationService categorizationService,
@@ -102,7 +103,7 @@ public class RevolutSyncService {
         this.revolutPort         = revolutPort;
         this.sessionRepository   = sessionRepository;
         this.accountRepository   = accountRepository;
-        this.transactionRepository = transactionRepository;
+        this.transactionImporter = transactionImporter;
         this.familyMemberRepository = familyMemberRepository;
         this.accountService      = accountService;
         this.categorizationService = categorizationService;
@@ -257,6 +258,7 @@ public class RevolutSyncService {
     private List<AccountResponse> persistSelected(List<RevolutAccountData> discovered,
                                                   Set<String> selectedExternalIds, Long memberId) {
         CategorizationService.CategorizationContext ctx = categorizationService.loadContext(memberId);
+        Set<TransferMirrorKey> transferLegs = verifiedTransferLegs(discovered);
 
         List<RevolutAccountData> chosen = discovered.stream()
             .filter(d -> selectedExternalIds.contains(d.externalId()))
@@ -269,7 +271,7 @@ public class RevolutSyncService {
             Long parentId = data.parentExternalId() != null
                 ? accountIdByExternalId.get(data.parentExternalId())
                 : null;
-            upsertAccount(data, memberId, parentId, ctx).ifPresent(resp -> {
+            upsertAccount(data, memberId, parentId, ctx, transferLegs).ifPresent(resp -> {
                 accountIdByExternalId.put(data.externalId(), resp.id());
                 responses.add(resp);
             });
@@ -470,7 +472,7 @@ public class RevolutSyncService {
      */
     private Optional<AccountResponse> upsertAccount(
             RevolutAccountData data, Long memberId, Long parentAccountId,
-            CategorizationService.CategorizationContext ctx) {
+            CategorizationService.CategorizationContext ctx, Set<TransferMirrorKey> transferLegs) {
         Optional<Account> existing = findActiveAccount(data, memberId);
 
         if (existing.isEmpty()) {
@@ -518,45 +520,75 @@ public class RevolutSyncService {
         account = accountRepository.save(account);
         accountService.upsertSnapshot(account, data.balance(), LocalDate.now());
 
-        ingestTransactions(account, data.txns(), ctx);
+        ingestTransactions(account, data, ctx, transferLegs);
 
         return Optional.of(accountService.toResponse(account));
     }
 
-    /**
-     * Dedup by {@code (account, externalId)} and auto-categorize via the member's rules/brand KB,
-     * mirroring {@code SyncService.ingestTransactions}. The context is loaded once per sync and
-     * reused across every account to avoid re-querying rules/categories per account.
-     */
-    private void ingestTransactions(Account account, List<RevolutTxn> txns,
-                                     CategorizationService.CategorizationContext ctx) {
-        if (txns == null || txns.isEmpty()) {
-            return;
-        }
-        int inserted = 0;
-        for (RevolutTxn t : txns) {
-            if (t.externalId() != null
-                    && transactionRepository.existsByAccountIdAndExternalId(account.getId(), t.externalId())) {
-                continue;
-            }
-            Transaction tx = Transaction.builder()
-                .account(account)
-                .date(t.date())
-                .description(t.description())
-                .amount(t.amount())
-                .counterparty(t.counterparty())
-                .externalId(t.externalId())
-                .nativeCurrency(account.getCurrency())
-                .isManual(false)
-                .build();
-            categorizationService.autoCategorize(tx, ctx);
-            transactionRepository.save(tx);
-            inserted++;
-        }
+    /** Shared account-scoped ingestion and one-sync categorization context. */
+    private void ingestTransactions(Account account, RevolutAccountData data,
+                                     CategorizationService.CategorizationContext ctx,
+                                     Set<TransferMirrorKey> transferLegs) {
+        List<RevolutTxn> txns = data.txns();
+        int inserted = transactionImporter.importFor(account,
+            txns == null ? null : txns.stream().map(txn -> {
+                CategoryKind kind = transferLegs.contains(transferKey(data, txn))
+                    ? CategoryKind.TRANSFER : txn.kind() == CategoryKind.TRANSFER ? null : txn.kind();
+                return new RevolutTxn(txn.externalId(), txn.date(), txn.description(), txn.amount(),
+                    txn.counterparty(), kind).toSidecarTransaction();
+            }).toList(), ctx, "revolut");
         if (inserted > 0) {
             log.info("Ingested {} new Revolut transactions for account {}", inserted, account.getId());
         }
     }
+
+    private static Set<TransferMirrorKey> verifiedTransferLegs(List<RevolutAccountData> accounts) {
+        Map<String, List<TransferCandidate>> byProviderId = new HashMap<>();
+        for (RevolutAccountData account : accounts) {
+            if (account.txns() == null) continue;
+            for (RevolutTxn transaction : account.txns()) {
+                if (transaction != null && transaction.externalId() != null
+                    && transaction.date() != null && transaction.amount() != null) {
+                    byProviderId.computeIfAbsent(transaction.externalId(), ignored -> new ArrayList<>())
+                        .add(new TransferCandidate(account, transaction));
+                }
+            }
+        }
+        Set<TransferMirrorKey> verified = new HashSet<>();
+        for (List<TransferCandidate> candidates : byProviderId.values()) {
+            if (candidates.size() != 2) continue;
+            TransferCandidate left = candidates.get(0);
+            TransferCandidate right = candidates.get(1);
+            if (left.transaction().kind() != CategoryKind.TRANSFER
+                || right.transaction().kind() != CategoryKind.TRANSFER
+                || Objects.equals(left.account().externalId(), right.account().externalId())
+                || !left.transaction().date().equals(right.transaction().date())
+                || !currencyOf(left.account()).equals(currencyOf(right.account()))
+                || left.transaction().amount().signum() == 0
+                || left.transaction().amount().add(right.transaction().amount()).compareTo(BigDecimal.ZERO) != 0) {
+                continue;
+            }
+            verified.add(transferKey(left.account(), left.transaction()));
+            verified.add(transferKey(right.account(), right.transaction()));
+        }
+        return verified;
+    }
+
+    private static String currencyOf(RevolutAccountData account) {
+        return account.currency() == null || account.currency().isBlank()
+            ? "EUR" : account.currency().trim().toUpperCase(java.util.Locale.ROOT);
+    }
+
+    private static TransferMirrorKey transferKey(RevolutAccountData account, RevolutTxn transaction) {
+        if (transaction == null || transaction.externalId() == null || transaction.date() == null
+            || transaction.amount() == null) return null;
+        return new TransferMirrorKey(account.externalId(), transaction.externalId(), transaction.date(),
+            transaction.amount().stripTrailingZeros().toPlainString(), currencyOf(account));
+    }
+
+    private record TransferCandidate(RevolutAccountData account, RevolutTxn transaction) {}
+    private record TransferMirrorKey(String accountId, String transactionId, LocalDate date,
+                                     String amount, String currency) {}
 
     private String colorFor(com.picsou.model.AccountType type) {
         return switch (type) {

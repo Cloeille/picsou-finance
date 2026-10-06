@@ -447,11 +447,45 @@ async def _fetch_transactions(page, device_id, pocket_id) -> List[Dict[str, Any]
                 "description": _pick(t, "description") or _pick(merchant, "name") or "",
                 "amount": _minor_to_major(_pick(t, "amount", default=0)),
                 "counterparty": _pick(merchant, "name"),
+                "_sourceType": _pick(t, "type"),
             })
         if new_count == 0 or oldest <= cutoff or oldest >= cursor:
             break
         cursor = oldest
     return out
+
+
+def _classify_internal_transfers(accounts: List[Dict[str, Any]]) -> None:
+    """Classify only transfer legs with a deterministic, cross-pocket mirror."""
+    by_transaction_id: Dict[str, List[tuple]] = {}
+    for account in accounts:
+        account_id = account.get("externalId")
+        currency = account.get("currency")
+        for transaction in account.get("transactions", []):
+            transaction_id = transaction.get("externalId")
+            if transaction_id:
+                by_transaction_id.setdefault(transaction_id, []).append(
+                    (account_id, currency, transaction)
+                )
+
+    for entries in by_transaction_id.values():
+        if len(entries) != 2:
+            continue
+        (account_a, currency_a, transaction_a), (account_b, currency_b, transaction_b) = entries
+        amount_a = transaction_a.get("amount")
+        amount_b = transaction_b.get("amount")
+        if (account_a != account_b and currency_a == currency_b
+                and transaction_a.get("date") == transaction_b.get("date")
+                and transaction_a.get("_sourceType") == "TRANSFER"
+                and transaction_b.get("_sourceType") == "TRANSFER"
+                and isinstance(amount_a, (int, float)) and amount_a != 0
+                and isinstance(amount_b, (int, float)) and amount_a == -amount_b):
+            transaction_a["kind"] = "TRANSFER"
+            transaction_b["kind"] = "TRANSFER"
+
+    for account in accounts:
+        for transaction in account.get("transactions", []):
+            transaction.pop("_sourceType", None)
 
 
 def _with_wallet_parents(accounts: List[Dict[str, Any]], wallet_currencies: Dict[str, str],
@@ -507,6 +541,7 @@ def _with_wallet_parents(accounts: List[Dict[str, Any]], wallet_currencies: Dict
 
 async def harvest_accounts(page, device_id, on_progress: Optional[Callable[[int], None]] = None) -> Dict[str, Any]:
     accounts: List[Dict[str, Any]] = []
+    transaction_pocket_ids: Dict[str, str] = {}
 
     # Money-boxes (vaults) first -- record their pocket ids so those pockets are not
     # also surfaced as current accounts (a vault would otherwise appear twice).
@@ -517,7 +552,9 @@ async def harvest_accounts(page, device_id, on_progress: Optional[Callable[[int]
             continue
         mb_pocket = _pick(mb, "pocket", default={})
         if isinstance(mb_pocket, dict) and _pick(mb_pocket, "id"):
-            mb_pocket_ids.add(_pick(mb_pocket, "id"))
+            mb_pocket_id = _pick(mb_pocket, "id")
+            mb_pocket_ids.add(mb_pocket_id)
+            transaction_pocket_ids[mb_id] = mb_pocket_id
         bal = _pick(mb, "balance", default={})  # nested {"amount": cents, "currency": "EUR"}
         balance = _minor_to_major(_pick(bal, "amount", default=0)) if isinstance(bal, dict) else _minor_to_major(bal)
         currency = _pick(bal, "currency") if isinstance(bal, dict) else None
@@ -554,6 +591,7 @@ async def harvest_accounts(page, device_id, on_progress: Optional[Callable[[int]
                 "parentExternalId": wallet_id if wallet_id and wallet_id != pid else None,
                 "transactions": [],
             })
+            transaction_pocket_ids[pid] = pid
             if wallet_id and ptype == "CURRENT":
                 current_ccy[wallet_id] = currency
     if on_progress:
@@ -578,11 +616,13 @@ async def harvest_accounts(page, device_id, on_progress: Optional[Callable[[int]
     accounts = _with_wallet_parents(accounts, wallet_currencies, ibans)
 
     for acc in accounts:
-        if acc["type"] == "CHECKING" and acc["externalId"] not in wallet_ids:
-            acc["transactions"] = await _fetch_transactions(page, device_id, acc["externalId"])
+        pocket_id = transaction_pocket_ids.get(acc["externalId"])
+        if pocket_id:
+            acc["transactions"] = await _fetch_transactions(page, device_id, pocket_id)
             if on_progress:
                 on_progress(len(accounts))
 
+    _classify_internal_transfers(accounts)
     return {"accounts": accounts}
 
 
