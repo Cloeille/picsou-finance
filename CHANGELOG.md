@@ -107,6 +107,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AMEX and DEGIRO deployments can use CI-built images instead of local builds.**
+  Both authentication sidecars are included in GHCR publishing and image-based
+  CI tests, and the deployment Compose file offers the same image/build choice
+  as the other providers. AMEX selects the pinned browser archive for AMD64 or ARM64.
+  New packages require public visibility before anonymous pulls.
+
 - **MCP sync no longer hides an expired browser session or loses the status report after a database error.**
   BoursoBank, Bourse Direct, Amundi and Fortuneo distinguish an inactive session requiring a new login
   from another recorded failure and from no connection. Exceptions retain server-side diagnostics

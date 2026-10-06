@@ -1,16 +1,46 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-08-25 (Fortuneo internal sidecar)
+> Last updated: 2026-10-06 (AMEX and DEGIRO image publishing)
 
 ## Context
 
-Picsou deploys as six project images orchestrated by `docker/docker-compose.yml`:
+Picsou deploys as the app and ten authentication sidecars orchestrated by `docker/docker-compose.yml`:
 - **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
 - **`amundi-auth`** — Amundi login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/amundi-auth`.
 - **`bourso-auth`** — BoursoBank login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourso-auth`.
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
+- **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
+- **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
+- **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
+
+All sidecars use the Docker workflow's shared `linux/amd64,linux/arm64` platforms
+and tag strategy. AMEX pins Camoufox `152.0.4-beta.30` and selects the Linux
+archive matching the container architecture (`x86_64` or `arm64`).
+A push to `1.1.0` publishes `:1.1.0`; `:latest` follows main
+or version-tag pushes, not release-branch pushes. The deployment Compose file
+offers both `image:` and `build:` for AMEX and DEGIRO, like the other sidecars.
+For a pinned release deployment, override their image values with
+`ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0` and
+`ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0` and pull before starting.
+
+New GHCR packages may initially be private. After the first upstream build,
+the repository owner must check both packages' visibility and make them public
+if needed. Before that build, the workflow change alone does not prove public
+availability. Verify from a Docker client with an empty authentication config:
+
+```sh
+DOCKER_CONFIG="$(mktemp -d)"
+export DOCKER_CONFIG
+docker pull ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
+rmdir "$DOCKER_CONFIG"
+```
+
+CI builds both Dockerfiles and runs credential-free tests inside their images,
+with the server command overridden by Python unittest. No real provider login
+or banking credentials are used.
 
 PostgreSQL 16 and the optional Caddy TLS proxy use upstream images.
 
@@ -55,12 +85,11 @@ applies through `SidecarBaseUrl`.
 ### Sidecar shared secret — `APP_SIDECAR_API_KEY`
 
 The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank,
-Bourse Direct, Amundi, Fortuneo, DEGIRO, CORUM, Sofidy) share one secret.
+Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy) share one secret.
 Generate it with `openssl rand -base64 32`. Both Compose files forward it
 explicitly to the app and to every sidecar service they define, and refuse to
 start when it is missing or empty. The root `docker-compose.yml` defines all
-nine sidecars. `docker/docker-compose.yml` defines eight: it has no
-`degiro-auth` service. The
+ten sidecars, as does `docker/docker-compose.yml`. The
 entrypoint does not generate it: the sidecars run in separate containers and
 cannot read the app's `/data/.secrets/` volume.
 
@@ -203,10 +232,15 @@ fixed at create time, so the new value is never seen.
 docker compose -f docker/docker-compose.yml up
   → picsou:latest  (nginx:8080 → backend:9090)
   → docker-tr-auth (uvicorn:8001)
+  → revolut-auth (uvicorn:8002, internal only)
   → bourse-direct-auth (uvicorn:8001, internal only)
   → amundi-auth (uvicorn:8001, internal only)
   → bourso-auth (uvicorn:8001, internal only)
   → fortuneo-auth (uvicorn:8001, internal only)
+  → corum-auth (uvicorn:8001, internal only)
+  → sofidy-auth (uvicorn:8001, internal only)
+  → amex-auth (uvicorn:8001, internal only)
+  → degiro-auth (uvicorn:8001, internal only)
   → postgres:16-alpine (:5432)
 ```
 
@@ -216,10 +250,15 @@ docker compose -f docker/docker-compose.yml up
 docker compose -f docker/docker-compose.yml build
 docker save ghcr.io/cloeille/picsou-finance:latest \
   ghcr.io/cloeille/picsou-finance/tr-auth:latest \
+  ghcr.io/cloeille/picsou-finance/revolut-auth:latest \
   ghcr.io/cloeille/picsou-finance/bourse-direct-auth:latest \
   ghcr.io/cloeille/picsou-finance/amundi-auth:latest \
   ghcr.io/cloeille/picsou-finance/bourso-auth:latest \
   ghcr.io/cloeille/picsou-finance/fortuneo-auth:latest \
+  ghcr.io/cloeille/picsou-finance/corum-auth:latest \
+  ghcr.io/cloeille/picsou-finance/sofidy-auth:latest \
+  ghcr.io/cloeille/picsou-finance/amex-auth:latest \
+  ghcr.io/cloeille/picsou-finance/degiro-auth:latest \
   | gzip > picsou-release.tar.gz
 # On target machine:
 docker load < picsou-release.tar.gz
@@ -227,18 +266,23 @@ docker load < picsou-release.tar.gz
 
 ### Pulling from GHCR
 
-All six project images are published by `.github/workflows/docker.yml` on every push
+The app and all ten sidecar images are published by `.github/workflows/docker.yml` on every push
 (matrix build, one entry per image). To deploy from the registry instead of
 building or loading a tar.gz:
 
 ```bash
-# Replace 1.0.0 with the desired tag (nightly, branch name, or semver).
-docker pull ghcr.io/cloeille/picsou-finance:1.0.0
-docker pull ghcr.io/cloeille/picsou-finance/tr-auth:1.0.0
-docker pull ghcr.io/cloeille/picsou-finance/bourse-direct-auth:1.0.0
-docker pull ghcr.io/cloeille/picsou-finance/amundi-auth:1.0.0
-docker pull ghcr.io/cloeille/picsou-finance/bourso-auth:1.0.0
-docker pull ghcr.io/cloeille/picsou-finance/fortuneo-auth:1.0.0
+# Replace 1.1.0 with the desired tag (nightly, branch name, or semver).
+docker pull ghcr.io/cloeille/picsou-finance:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/tr-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/revolut-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/bourse-direct-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/amundi-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/bourso-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/fortuneo-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/corum-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/sofidy-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
 ```
 
 Tag scheme:
