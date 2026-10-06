@@ -58,6 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Desktop QIF requires an explicit currency, preserves category splits and
   transfer legs, and derives new balances from the exported history. Native iOS
   exports retain password-protected import. Desktop `.xhb` XML is not supported.
+  Importing again into an existing manual account refreshes its balance and
+  history. QIF dates may be year-, day- or month-first, and a transfer to an
+  account missing from the file is imported as a plain row.
 
 - **Crypto holdings show the coin's logo next to their ticker.** A position is easier to
   recognise at a glance than by reading its ticker. The mark comes from CoinGecko, which
