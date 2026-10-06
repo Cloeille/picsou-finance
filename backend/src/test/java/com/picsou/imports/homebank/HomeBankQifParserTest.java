@@ -77,7 +77,6 @@ class HomeBankQifParserTest {
         assertInvalid("!Type:Bank\nD2024/01/01\nT1\n^");
         assertInvalid("!Account\nN\nTBank\n^\n!Type:Bank\nD2024/02/30\nT1\n^\n");
         assertInvalid("!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT1\nT2\n^\n");
-        assertInvalid("!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT1\nL[MissingAccount]\n^\n");
         assertInvalid("!Account\nNChecking\nTBank\n^\n!Type:Invst\n^");
         assertInvalid("!Account\nNSecret Account\nTBank\n^\n!Type:Bank\nDbad\nT1\n^");
         assertInvalid("!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT1\nQunknown\n^\n");
@@ -198,6 +197,132 @@ class HomeBankQifParserTest {
         String qif = "!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/01\nT-1\n^\n"
                 + "\n".repeat(500_001);
         assertInvalid(qif);
+    }
+
+    private static final String AMBIGUOUS_DATES =
+            "QIF dates are ambiguous between day/month/year and month/day/year";
+    private static final String UNSUPPORTED_DATES =
+            "QIF dates must all use one format: yyyy/MM/dd, dd/MM/yyyy or MM/dd/yyyy";
+
+    @Test
+    void keepsSourceIdsOfInFileTransfersAndOtherRowsUnchanged() throws Exception {
+        ParsedHomeBankData parsed = parser.parse(fixture(), "EUR");
+        assertThat(parsed.transactions()).extracting(ParsedHomeBankData.SourceTransaction::id).containsExactly(
+                "4460717b-135d-399f-b94a-cd209584e08b", "ca113258-5dfc-31a4-9332-d2a0489ca04b",
+                "4861a933-68fe-3d4f-9390-819050a2dcaf", "5ca12e73-e24b-3bf9-9fdd-4d54ba27fdbf",
+                "2a6d22bd-ebfd-38cb-9967-654ebf8a27b1", "176ca3a3-e0cf-38b7-9deb-190c301368de",
+                "fdf45f83-af71-390c-ba1c-f106612219ca");
+    }
+
+    @Test
+    void importsTransferToAccountMissingFromFileAsUncategorisedRowKeepingTargetName() {
+        String qif = "!Account\nNChecking\nTBank\n^\n!Type:Bank\n"
+                + "D2024/01/05\nT-3.10\nPOut\nL[Elsewhere]\n^\n"
+                + "D2024/01/06\nT7.25\nMhello\nL[Elsewhere]\n^\n"
+                + "D2024/01/07\nT-1\nL[Elsewhere]\n^\n";
+        ParsedHomeBankData first = parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR");
+        ParsedHomeBankData again = parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR");
+
+        assertThat(first.categories()).isEmpty();
+        assertThat(first.transactions()).hasSize(3).allSatisfy(transaction -> {
+            assertThat(transaction.transferAccountId()).isNull();
+            assertThat(transaction.categoryId()).isNull();
+        });
+        assertThat(first.transactions().get(0).amount()).isEqualByComparingTo("-3.10");
+        assertThat(first.transactions().get(0).payee()).isEqualTo("Out");
+        assertThat(first.transactions().get(0).notes()).isEqualTo("Transfer: Elsewhere");
+        assertThat(first.transactions().get(1).notes()).isEqualTo("hello — Transfer: Elsewhere");
+        assertThat(first.transactions().get(2).notes()).isEqualTo("Transfer: Elsewhere");
+        assertThat(first.transactions()).extracting(ParsedHomeBankData.SourceTransaction::id)
+                .containsExactlyElementsOf(again.transactions().stream()
+                        .map(ParsedHomeBankData.SourceTransaction::id).toList())
+                .doesNotHaveDuplicates();
+    }
+
+    @Test
+    void omitsTransferLabelInsteadOfExceedingTheNoteLimit() {
+        String longName = "n".repeat(250);
+        String qif = "!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/05\nT-1\nL[" + longName + "]\n^\n";
+        assertThat(parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR").transactions())
+                .singleElement().satisfies(transaction -> assertThat(transaction.notes()).isNull());
+        String memo = "m".repeat(240);
+        String withMemo = "!Account\nNChecking\nTBank\n^\n!Type:Bank\nD2024/01/05\nT-1\nM" + memo
+                + "\nL[Elsewhere]\n^\n";
+        assertThat(parser.parse(withMemo.getBytes(StandardCharsets.UTF_8), "EUR").transactions())
+                .singleElement().satisfies(transaction -> assertThat(transaction.notes()).isEqualTo(memo));
+    }
+
+    @Test
+    void parsesDayFirstDatesWhenADayExceedsTwelve() {
+        String qif = dated("15/01/2024", "02/03/2024");
+        ParsedHomeBankData parsed = parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR");
+        assertThat(parsed.transactions()).extracting(t -> t.date().toString())
+                .containsExactly("2024-01-15", "2024-03-02");
+    }
+
+    @Test
+    void parsesMonthFirstDatesWhenADayExceedsTwelve() {
+        String qif = dated("01/15/2024", "03/02/2024");
+        ParsedHomeBankData parsed = parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR");
+        assertThat(parsed.transactions()).extracting(t -> t.date().toString())
+                .containsExactly("2024-01-15", "2024-03-02");
+    }
+
+    @Test
+    void acceptsDashAndDotSeparatorsAndSingleDigitComponents() {
+        assertThat(parser.parse(dated("15-1-2024", "2.3.2024").getBytes(StandardCharsets.UTF_8), "EUR")
+                .transactions()).extracting(t -> t.date().toString())
+                .containsExactly("2024-01-15", "2024-03-02");
+        assertThat(parser.parse(dated("2024-01-15", "2024.03.02").getBytes(StandardCharsets.UTF_8), "EUR")
+                .transactions()).extracting(t -> t.date().toString())
+                .containsExactly("2024-01-15", "2024-03-02");
+    }
+
+    @Test
+    void sameRowsInAnyDateFormatProduceTheSameSourceIds() {
+        List<String> ids = List.of(dated("2024/01/15", "2024/03/02"), dated("15/01/2024", "02/03/2024"),
+                        dated("01/15/2024", "03/02/2024")).stream()
+                .map(qif -> parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR").transactions().stream()
+                        .map(ParsedHomeBankData.SourceTransaction::id).toList().toString()).toList();
+        assertThat(ids).containsOnly(ids.get(0));
+    }
+
+    @Test
+    void rejectsDatesAmbiguousBetweenDayFirstAndMonthFirst() {
+        assertInvalidWith(dated("01/02/2024", "03/04/2024"), AMBIGUOUS_DATES);
+        assertInvalidWith(dated("01/02/2024"), AMBIGUOUS_DATES);
+    }
+
+    @Test
+    void acceptsDayFirstAndMonthFirstDatesWhoseReadingsCoincide() {
+        ParsedHomeBankData parsed = parser.parse(dated("05/05/2024", "12/12/2024").getBytes(StandardCharsets.UTF_8),
+                "EUR");
+        assertThat(parsed.transactions()).extracting(t -> t.date().toString())
+                .containsExactly("2024-05-05", "2024-12-12");
+    }
+
+    @Test
+    void rejectsMixedOrUnsupportedDateFormatsWithFixedMessage() {
+        assertInvalidWith(dated("2024/01/15", "15/01/2024"), UNSUPPORTED_DATES);
+        assertInvalidWith(dated("15/01/2024", "01/15/2024"), UNSUPPORTED_DATES);
+        assertInvalidWith(dated("15/01/24"), UNSUPPORTED_DATES);
+        assertInvalidWith(dated("1/15'24"), UNSUPPORTED_DATES);
+        assertInvalidWith(dated("not a date"), UNSUPPORTED_DATES);
+        assertInvalidWith(dated("2024/02/30"), UNSUPPORTED_DATES);
+        assertInvalidWith(dated("31/02/2024"), UNSUPPORTED_DATES);
+        assertInvalidWith(dated("02/31/2024"), UNSUPPORTED_DATES);
+    }
+
+    private static String dated(String... dates) {
+        StringBuilder qif = new StringBuilder("!Account\nNChecking\nTBank\n^\n!Type:Bank\n");
+        for (String date : dates) qif.append('D').append(date).append("\nT-1.00\nPSame\n^\n");
+        return qif.toString();
+    }
+
+    private void assertInvalidWith(String qif, String message) {
+        assertThatThrownBy(() -> parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(message);
     }
 
     private static byte[] fixture() throws Exception {

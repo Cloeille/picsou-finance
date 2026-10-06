@@ -8,20 +8,19 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.time.DateTimeException;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
-import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.Currency;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.picsou.imports.homebank.ParsedHomeBankData.SourceAccount;
 import static com.picsou.imports.homebank.ParsedHomeBankData.SourceCategory;
@@ -37,8 +36,12 @@ public final class HomeBankQifParser {
     private static final int MAX_TEXT = 255;
     private static final int MAX_ACCOUNT_CATEGORY_TEXT = 100;
     private static final UUID NAMESPACE = UUID.fromString("8a26b45a-967b-5c12-89d1-a9d775f19dc4");
-    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("uuuu/MM/dd", Locale.ROOT)
-            .withResolverStyle(ResolverStyle.STRICT);
+    private static final String AMBIGUOUS_DATES = "QIF dates are ambiguous between day/month/year and month/day/year";
+    private static final String UNSUPPORTED_DATES =
+            "QIF dates must all use one format: yyyy/MM/dd, dd/MM/yyyy or MM/dd/yyyy";
+    private static final String TRANSFER_LABEL = "Transfer: ";
+    private static final Pattern YEAR_FIRST = Pattern.compile("(\\d{4})([/.-])(\\d{1,2})\\2(\\d{1,2})");
+    private static final Pattern YEAR_LAST = Pattern.compile("(\\d{1,2})([/.-])(\\d{1,2})\\2(\\d{4})");
 
     public ParsedHomeBankData parse(byte[] file, String currency) {
         if (file == null || file.length == 0 || file.length > MAX_FILE_BYTES) throw invalid();
@@ -125,17 +128,21 @@ public final class HomeBankQifParser {
         if (accountFields != null || categoryFields != null || transactionFields != null) throw invalid();
         if (accounts.isEmpty()) throw invalid();
 
+        List<LocalDate> dates = resolveDates(rawTransactions);
         List<Normalized> normalized = new ArrayList<>();
-        for (RawTransaction transaction : rawTransactions) {
+        for (int index = 0; index < rawTransactions.size(); index++) {
+            RawTransaction transaction = rawTransactions.get(index);
+            LocalDate date = dates.get(index);
             if (transaction.splits().isEmpty()) {
                 String category = transaction.transferTarget() == null ? transaction.category() : null;
-                normalized.add(new Normalized(transaction, transaction.amount(), category, transaction.memo(), transaction.transferTarget()));
+                normalized.add(new Normalized(transaction, date, transaction.amount(), category, transaction.memo(),
+                        transaction.transferTarget()));
                 noteCategory(category, transaction.amount(), categoryHasNegative, categoryHasPositive, categoryPaths);
             } else {
                 BigDecimal sum = BigDecimal.ZERO;
                 for (Split split : transaction.splits()) {
                     sum = sum.add(split.amount());
-                    normalized.add(new Normalized(transaction, split.amount(), split.category(),
+                    normalized.add(new Normalized(transaction, date, split.amount(), split.category(),
                             combinedMemo(transaction.memo(), split.memo()), null));
                     noteCategory(split.category(), split.amount(), categoryHasNegative, categoryHasPositive, categoryPaths);
                 }
@@ -219,13 +226,7 @@ public final class HomeBankQifParser {
         // Cleared status (C) and check number (N) are deliberately ignored and excluded from identity.
         singleton(fields, 'C', false);
         singleton(fields, 'N', false);
-        LocalDate date;
         BigDecimal amount;
-        try {
-            date = LocalDate.parse(dateText, DATE);
-        } catch (DateTimeParseException exception) {
-            throw invalid();
-        }
         try {
             if (!amountText.matches("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)")) throw invalid();
             amount = new BigDecimal(amountText);
@@ -244,7 +245,58 @@ public final class HomeBankQifParser {
         if (account == null || (payee != null && payee.length() > MAX_TEXT) || (memo != null && memo.length() > MAX_TEXT)) {
             throw invalid();
         }
-        return new RawTransaction(account, date, amount, payee, memo, category, transfer, splits);
+        return new RawTransaction(account, dateText, amount, payee, memo, category, transfer, splits);
+    }
+
+    /**
+     * Picks one date format for the whole file (yyyy/MM/dd, dd/MM/yyyy or MM/dd/yyyy; '/', '-' or '.' separators)
+     * so that day/month order is never guessed row by row. Messages are fixed strings: never echo file content.
+     * QIF's 2-digit-year apostrophe form (1/15'24) is not supported.
+     */
+    private static List<LocalDate> resolveDates(List<RawTransaction> rows) {
+        List<LocalDate> yearFirst = new ArrayList<>(rows.size());
+        List<LocalDate> dayFirst = new ArrayList<>(rows.size());
+        List<LocalDate> monthFirst = new ArrayList<>(rows.size());
+        boolean yearFirstOk = true;
+        boolean dayFirstOk = true;
+        boolean monthFirstOk = true;
+        for (RawTransaction row : rows) {
+            Matcher first = YEAR_FIRST.matcher(row.dateText());
+            Matcher last = YEAR_LAST.matcher(row.dateText());
+            if (first.matches()) {
+                dayFirstOk = false;
+                monthFirstOk = false;
+                LocalDate date = date(first.group(1), first.group(3), first.group(4));
+                yearFirstOk &= date != null;
+                yearFirst.add(date);
+            } else if (last.matches()) {
+                yearFirstOk = false;
+                LocalDate day = date(last.group(4), last.group(3), last.group(1));
+                LocalDate month = date(last.group(4), last.group(1), last.group(3));
+                dayFirstOk &= day != null;
+                monthFirstOk &= month != null;
+                dayFirst.add(day);
+                monthFirst.add(month);
+            } else {
+                throw invalid(UNSUPPORTED_DATES);
+            }
+        }
+        if (rows.isEmpty() || yearFirstOk) return yearFirst.isEmpty() ? List.of() : yearFirst;
+        if (dayFirstOk && monthFirstOk) {
+            if (dayFirst.equals(monthFirst)) return dayFirst;
+            throw invalid(AMBIGUOUS_DATES);
+        }
+        if (dayFirstOk) return dayFirst;
+        if (monthFirstOk) return monthFirst;
+        throw invalid(UNSUPPORTED_DATES);
+    }
+
+    private static LocalDate date(String year, String month, String day) {
+        try {
+            return LocalDate.of(Integer.parseInt(year), Integer.parseInt(month), Integer.parseInt(day));
+        } catch (DateTimeException exception) {
+            return null;
+        }
     }
 
     private static List<Split> parseSplits(List<String> fields, int maxSplits) {
@@ -316,18 +368,28 @@ public final class HomeBankQifParser {
         for (Normalized row : normalized) {
             String transferId = row.transferTarget() == null ? null
                     : accountId(row.transferTarget(), accounts);
-            if (row.transferTarget() != null && transferId == null) throw invalid();
             String categoryId = row.category() == null ? null
                     : categories.containsKey(row.category()) ? categories.get(row.category()).id() : null;
-            String fingerprint = identity(row.source().account(), row.source().date().toString(),
+            // The fingerprint always uses the raw memo and target so ids never depend on the display notes.
+            String fingerprint = identity(row.source().account(), row.date().toString(),
                     row.amount().toPlainString(), row.source().payee(), row.memo(), row.category(),
                     row.transferTarget());
             int occurrence = occurrences.merge(fingerprint, 1, Integer::sum) - 1;
             String id = stableId("transaction:" + fingerprint + "\u001f" + occurrence);
-            result.add(new SourceTransaction(id, accounts.get(row.source().account()).id(), row.source().date(),
-                    row.amount(), currency, row.source().payee(), row.memo(), categoryId, transferId, false));
+            // A transfer to an account absent from this file is imported as a plain uncategorised row.
+            String notes = row.transferTarget() != null && transferId == null
+                    ? withTransferLabel(row.memo(), row.transferTarget()) : row.memo();
+            result.add(new SourceTransaction(id, accounts.get(row.source().account()).id(), row.date(),
+                    row.amount(), currency, row.source().payee(), notes, categoryId, transferId, false));
         }
         return result;
+    }
+
+    /** Keeps the missing transfer target visible; drops the label rather than exceeding the text limit. */
+    private static String withTransferLabel(String memo, String target) {
+        String label = TRANSFER_LABEL + target;
+        String notes = memo == null || memo.isEmpty() ? label : memo + " — " + label;
+        return notes.length() > MAX_TEXT ? memo : notes;
     }
 
     private static String accountId(String name, Map<String, SourceAccount> accounts) {
@@ -426,13 +488,17 @@ public final class HomeBankQifParser {
     }
 
     private static IllegalArgumentException invalid() {
-        return new IllegalArgumentException("Invalid or unsupported QIF file");
+        return invalid("Invalid or unsupported QIF file");
+    }
+
+    private static IllegalArgumentException invalid(String message) {
+        return new IllegalArgumentException(message);
     }
 
     private enum Section { NONE, ACCOUNT, CATEGORY, BANK, CASH, CCARD }
-    private record RawTransaction(String account, LocalDate date, BigDecimal amount, String payee, String memo,
+    private record RawTransaction(String account, String dateText, BigDecimal amount, String payee, String memo,
                                   String category, String transferTarget, List<Split> splits) { }
     private record Split(String category, String memo, BigDecimal amount) { }
-    private record Normalized(RawTransaction source, BigDecimal amount, String category, String memo,
+    private record Normalized(RawTransaction source, LocalDate date, BigDecimal amount, String category, String memo,
                               String transferTarget) { }
 }
