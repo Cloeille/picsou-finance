@@ -589,7 +589,7 @@ public class HomeBankImportService {
             Transaction transaction = Transaction.builder().account(account).date(source.date())
                     .amount(source.amount()).description(description).counterparty(source.payee())
                     .category(sourceCategory == null ? null : sourceCategory.name())
-                    .categoryRef(category).categoryManual(explicitCategory)
+                    .categoryRef(category).categoryManual(category != null && explicitCategory)
                     .externalId(externalId).nativeCurrency(source.currency()).isManual(true).txType(null).build();
             transactions.save(transaction);
             counts.transactionsImported++;
