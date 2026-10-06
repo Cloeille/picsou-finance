@@ -543,6 +543,9 @@ public class HomeBankImportService {
             if (!Objects.equals(target.getExternalAccountId(), homeBankAccountId(source.id()))) {
                 continue;
             }
+            if (source.initialBalance().compareTo(BigDecimal.ZERO) == 0) {
+                continue;
+            }
             String externalId = homeBankOpeningId(source.id());
             if (transactions.existsByAccountIdAndExternalId(target.getId(), externalId)) {
                 continue;
