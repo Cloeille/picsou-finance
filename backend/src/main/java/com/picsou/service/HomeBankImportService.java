@@ -55,7 +55,7 @@ public class HomeBankImportService {
             CategoryRepository categories, TransactionRepository transactions, FamilyMemberRepository members,
             BalanceSnapshotRepository ignored, FinaryPersistenceHelper persistence) {
         this(parser, accounts, categories, transactions, members, ignored, persistence,
-                new ImportPreviewStore<>(Clock.systemUTC(), Duration.ofMinutes(30), 8));
+                new ImportPreviewStore<>(Clock.systemUTC(), Duration.ofMinutes(30), 8, 3));
     }
 
     HomeBankImportService(HomeBankFileParser parser, AccountRepository accounts,

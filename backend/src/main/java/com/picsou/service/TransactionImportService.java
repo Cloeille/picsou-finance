@@ -51,7 +51,10 @@ public class TransactionImportService {
     private static final Logger log = LoggerFactory.getLogger(TransactionImportService.class);
 
     private static final int SAMPLE_ROWS = 15;
+    // Global cap bounds memory (a CSV can be 10 MB); 4 per member lets a family of 8 each keep a few
+    // previews open without one member's repeated uploads ever reaching the global cap.
     private static final int MAX_CACHED_PREVIEWS = 32;
+    private static final int MAX_CACHED_PREVIEWS_PER_MEMBER = 4;
     private static final long MAX_CSV_BYTES = 10L * 1024 * 1024;
     private static final String PREVIEW_EXPIRED = "Preview expired or invalid -- please re-upload the file";
 
@@ -61,7 +64,8 @@ public class TransactionImportService {
     private final TransactionRowMapper rowMapper;
 
     private final ImportPreviewStore<CachedCsv> cache = new ImportPreviewStore<>(
-        Clock.systemUTC(), Duration.ofMinutes(30), MAX_CACHED_PREVIEWS);
+        Clock.systemUTC(), Duration.ofMinutes(30), MAX_CACHED_PREVIEWS,
+        MAX_CACHED_PREVIEWS_PER_MEMBER);
 
     record CachedCsv(Long accountId, String content) {}
 
