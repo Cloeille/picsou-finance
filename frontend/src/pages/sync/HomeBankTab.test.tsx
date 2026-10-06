@@ -300,4 +300,27 @@ describe('HomeBankTab', () => {
       { sourceId: 'child-income', action: 'MAP_EXISTING', targetCategoryId: 51 },
     ])
   })
+
+  it('lets a sign-inferred category keep its parent and map onto either income or expense targets', async () => {
+    apiPost.mockReset().mockResolvedValueOnce({ data: {
+      ...preview,
+      categories: [
+        { sourceId: 'parent', name: 'Parent', income: false, kindInferred: true, transactionCount: 0 },
+        { sourceId: 'child', name: 'Refunds', parentSourceId: 'parent', income: true, kindInferred: true, transactionCount: 1 },
+      ],
+      existingCategories: [
+        { id: 51, name: 'Income target', kind: 'INCOME', archived: false },
+        { id: 52, name: 'Refunds', kind: 'EXPENSE', archived: false },
+        { id: 53, name: 'Transfers', kind: 'TRANSFER', archived: false },
+      ],
+    } })
+    renderTab()
+    await uploadPreview()
+
+    expect(screen.queryByText('sync.homebank.categoryParentKindMismatch')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('sync.homebank.targetCategory')).toHaveValue('52')
+    const options = screen.getByLabelText('sync.homebank.targetCategory').querySelectorAll('option')
+    expect(Array.from(options).map(option => option.value)).toEqual(['', '51', '52'])
+    expect(screen.getByRole('button', { name: 'sync.homebank.import' })).toBeEnabled()
+  })
 })

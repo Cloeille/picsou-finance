@@ -11,7 +11,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { CheckCircle2, Loader2, Upload, X } from 'lucide-react'
 import { useImportHomeBank, usePreviewHomeBank } from '@/features/homebank/hooks'
-import type { HomeBankAccountMapping, HomeBankCategoryMapping, HomeBankPreviewResponse } from '@/features/homebank/types'
+import type { HomeBankAccountMapping, HomeBankCategoryMapping, HomeBankCategoryPreview, HomeBankPreviewResponse } from '@/features/homebank/types'
 import type { AccountType } from '@/types/api'
 
 const allowedAccountTypes = ACCOUNT_TYPES.filter(({ value }) =>
@@ -65,10 +65,9 @@ export function HomeBankTab() {
           : { sourceId: account.sourceId, action: 'CREATE_NEW', newAccount: { name: account.name, type: safeType, provider: account.institution || undefined, currency: account.currency, color: ACCOUNT_COLORS[index % ACCOUNT_COLORS.length] } }
       }))
       setCategoryMappings(data.categories.map(category => {
-        const kind = category.income ? 'INCOME' : 'EXPENSE'
         const parent = data.categories.find(item => item.sourceId === category.parentSourceId)
-        const parentKindMismatch = !!parent && parent.income !== category.income
-        const exact = data.existingCategories.find(item => item.name === category.name && item.kind === kind && !item.archived)
+        const parentKindMismatch = !!parent && parent.income !== category.income && !category.kindInferred
+        const exact = data.existingCategories.find(item => item.name === category.name && kindAccepts(category, item.kind) && !item.archived)
         return exact && !parentKindMismatch
           ? { sourceId: category.sourceId, action: 'MAP_EXISTING', targetCategoryId: exact.id }
           : { sourceId: category.sourceId, action: 'CREATE_NEW', name: category.name }
@@ -95,7 +94,11 @@ export function HomeBankTab() {
   function hasParentKindMismatch(sourceId: string) {
     const category = preview?.categories.find(item => item.sourceId === sourceId)
     const parent = preview?.categories.find(item => item.sourceId === category?.parentSourceId)
-    return !!category && !!parent && category.income !== parent.income
+    return !!category && !!parent && category.income !== parent.income && !category.kindInferred
+  }
+
+  function kindAccepts(category: HomeBankCategoryPreview, kind: string) {
+    return category.kindInferred ? kind === 'INCOME' || kind === 'EXPENSE' : kind === (category.income ? 'INCOME' : 'EXPENSE')
   }
 
   async function executeImport() {
@@ -184,7 +187,7 @@ export function HomeBankTab() {
             <div className="flex items-center justify-between gap-3"><div><p className="font-medium">{category.name}</p><p className="text-sm text-muted-foreground">{t(category.income ? 'sync.homebank.income' : 'sync.homebank.expense')} · {category.transactionCount} {t('sync.homebank.transactions')}</p></div>{categoryMappings[index].action === 'CREATE_NEW' && <Input aria-label={t('sync.homebank.categoryName', { name: category.name })} value={categoryMappings[index].name ?? category.name} onChange={event => updateCategory(index, { name: event.target.value })} />}</div>
             {hasParentKindMismatch(category.sourceId) && <p role="alert" className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">{t('sync.homebank.categoryParentKindMismatch', { parent: preview.categories.find(item => item.sourceId === category.parentSourceId)?.name })}</p>}
             <div className="grid gap-2 sm:grid-cols-2"><select aria-label={t('sync.homebank.categoryAction', { name: category.name })} className="h-10 w-full rounded-md border border-input bg-background px-4 text-sm" value={categoryMappings[index].action} onChange={event => updateCategory(index, { action: event.target.value as HomeBankCategoryMapping['action'], targetCategoryId: undefined, name: event.target.value === 'CREATE_NEW' ? categoryMappings[index].name ?? category.name : undefined })}><option value="CREATE_NEW">{t('sync.homebank.createCategory')}</option><option value="MAP_EXISTING">{t('sync.homebank.mapExistingCategory')}</option><option value="UNCATEGORIZED">{t('sync.homebank.uncategorized')}</option></select>
-              {categoryMappings[index].action === 'MAP_EXISTING' && <select aria-label={t('sync.homebank.targetCategory', { name: category.name })} className="h-10 w-full rounded-md border border-input bg-background px-4 text-sm" value={categoryMappings[index].targetCategoryId ?? ''} onChange={event => updateCategory(index, { targetCategoryId: event.target.value ? Number(event.target.value) : undefined })}><option value="">{t('sync.homebank.chooseCategory')}</option>{preview.existingCategories.filter(item => item.kind === (category.income ? 'INCOME' : 'EXPENSE') && !item.archived).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
+              {categoryMappings[index].action === 'MAP_EXISTING' && <select aria-label={t('sync.homebank.targetCategory', { name: category.name })} className="h-10 w-full rounded-md border border-input bg-background px-4 text-sm" value={categoryMappings[index].targetCategoryId ?? ''} onChange={event => updateCategory(index, { targetCategoryId: event.target.value ? Number(event.target.value) : undefined })}><option value="">{t('sync.homebank.chooseCategory')}</option>{preview.existingCategories.filter(item => kindAccepts(category, item.kind) && !item.archived).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
             </div>
           </CardContent></Card>)}
         </section>

@@ -18,6 +18,8 @@ export interface HomeBankCategoryPreview {
   name: string
   parentSourceId?: string
   income: boolean
+  /** Kind guessed from amount signs (QIF without I/E flags): either income or expense target is accepted. */
+  kindInferred?: boolean
   transactionCount: number
 }
 
