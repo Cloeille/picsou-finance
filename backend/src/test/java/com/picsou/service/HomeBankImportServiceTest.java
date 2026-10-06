@@ -2,6 +2,7 @@ package com.picsou.service;
 
 import com.picsou.dto.HomeBankImportDtos.Preview;
 import com.picsou.dto.HomeBankImportDtos.Request;
+import com.picsou.dto.HomeBankImportDtos.Result;
 import com.picsou.dto.HomeBankImportDtos.AccountMapping;
 import com.picsou.dto.HomeBankImportDtos.CategoryMapping;
 import com.picsou.dto.HomeBankImportDtos.CategoryMappingAction;
@@ -324,6 +325,196 @@ class HomeBankImportServiceTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("different account");
         assertThat(storedTransactions).hasSize(2);
         assertThat(alternate.getCurrentBalance()).isEqualByComparingTo("10");
+    }
+
+    @Test
+    void uncategorizedMappingIsNotMarkedManualWhileMappedAndTransferRowsAre() {
+        var account = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                BigDecimal.ZERO, false);
+        var uncategorized = new ParsedHomeBankData.SourceCategory("u", "Divers", null, false);
+        var mapped = new ParsedHomeBankData.SourceCategory("m", "Courses", null, false);
+        Category existing = Category.builder().id(5L).name("Courses").kind(CategoryKind.EXPENSE).build();
+        var harness = new Harness(new ParsedHomeBankData(List.of(account), List.of(uncategorized, mapped),
+                List.of(tx("t-u", "a", "-1", "u", null), tx("t-m", "a", "-2", "m", null),
+                        tx("t-t", "a", "-3", null, "a"))));
+        harness.categories.add(existing);
+
+        harness.run(List.of(createAccount("a")),
+                List.of(new CategoryMapping("u", CategoryMappingAction.UNCATEGORIZED, null, null),
+                        new CategoryMapping("m", CategoryMappingAction.MAP_EXISTING, 5L, null)));
+
+        Transaction uncategorizedRow = harness.savedTransaction("homebank_t-u");
+        assertThat(uncategorizedRow.getCategoryRef()).isNull();
+        assertThat(uncategorizedRow.isCategoryManual()).isFalse();
+        Transaction mappedRow = harness.savedTransaction("homebank_t-m");
+        assertThat(mappedRow.getCategoryRef()).isSameAs(existing);
+        assertThat(mappedRow.isCategoryManual()).isTrue();
+        Transaction transferRow = harness.savedTransaction("homebank_t-t");
+        assertThat(transferRow.getCategoryRef().getKind()).isEqualTo(CategoryKind.TRANSFER);
+        assertThat(transferRow.isCategoryManual()).isTrue();
+    }
+
+    @Test
+    void zeroInitialBalanceCreatesNoOpeningRowButNonZeroDoes() {
+        var qifLike = new ParsedHomeBankData.SourceAccount("q", "QIF", "Banque", "bank", "EUR",
+                new BigDecimal("0.00"), false);
+        var ios = new ParsedHomeBankData.SourceAccount("i", "iOS", "Banque", "bank", "EUR",
+                new BigDecimal("100.00"), false);
+        var harness = new Harness(new ParsedHomeBankData(List.of(qifLike, ios), List.of(), List.of()));
+
+        harness.run(List.of(createAccount("q"), createAccount("i")), List.of());
+
+        assertThat(harness.savedTransactions).extracting(Transaction::getExternalId)
+                .containsExactly("homebank_opening_i");
+        assertThat(harness.savedTransactions.get(0).getAmount()).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    void mapExistingManualAccountReceivingNewRowsGetsBalanceAndSnapshotsRecomputed() {
+        var source = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                BigDecimal.ZERO, false);
+        var harness = new Harness(new ParsedHomeBankData(List.of(source), List.of(),
+                List.of(tx("t1", "a", "10", null, null))));
+        Account target = harness.addAccount(20L, true, new BigDecimal("5"));
+        harness.existing(target, "legacy", "5");
+
+        harness.run(List.of(new AccountMapping("a", FinaryMappingAction.MAP_EXISTING, 20L, null)), List.of());
+
+        assertThat(target.getCurrentBalance()).isEqualByComparingTo("15");
+        verify(persistenceHelper).reconstructSnapshotsFromDb(target);
+        verify(accountRepository).save(target);
+    }
+
+    @Test
+    void accountReceivingNoNewRowIsNotRecomputed() {
+        var source = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                BigDecimal.ZERO, false);
+        var harness = new Harness(new ParsedHomeBankData(List.of(source), List.of(),
+                List.of(tx("t1", "a", "10", null, null))));
+        Account target = harness.addAccount(20L, true, new BigDecimal("77"));
+        harness.existing(target, "homebank_t1", "10");
+
+        var result = harness.run(
+                List.of(new AccountMapping("a", FinaryMappingAction.MAP_EXISTING, 20L, null)), List.of());
+
+        assertThat(result.transactionsImported()).isZero();
+        assertThat(target.getCurrentBalance()).isEqualByComparingTo("77");
+        verify(persistenceHelper, never()).reconstructSnapshotsFromDb(any());
+        verify(transactionRepository, never()).sumAmountByAccountId(anyLong());
+    }
+
+    @Test
+    void mapExistingSyncedAccountReceivesRowsButKeepsItsBalance() {
+        var source = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                BigDecimal.ZERO, false);
+        var harness = new Harness(new ParsedHomeBankData(List.of(source), List.of(),
+                List.of(tx("t1", "a", "10", null, null))));
+        Account target = harness.addAccount(20L, false, new BigDecimal("500"));
+
+        var result = harness.run(
+                List.of(new AccountMapping("a", FinaryMappingAction.MAP_EXISTING, 20L, null)), List.of());
+
+        assertThat(result.transactionsImported()).isEqualTo(1);
+        assertThat(target.getCurrentBalance()).isEqualByComparingTo("500");
+        verify(persistenceHelper, never()).reconstructSnapshotsFromDb(any());
+        verify(transactionRepository, never()).sumAmountByAccountId(anyLong());
+    }
+
+    private static ParsedHomeBankData.SourceTransaction tx(String id, String accountId, String amount,
+            String categoryId, String transferAccountId) {
+        return new ParsedHomeBankData.SourceTransaction(id, accountId, LocalDate.of(2024, 1, 2),
+                new BigDecimal(amount), "EUR", "Payee", null, categoryId, transferAccountId, false);
+    }
+
+    private static AccountMapping createAccount(String sourceId) {
+        return new AccountMapping(sourceId, FinaryMappingAction.CREATE_NEW, null,
+                new NewAccountDetails("Compte " + sourceId, AccountType.CHECKING, null, "EUR", null));
+    }
+
+    /** In-memory repositories behind the mocks, so executeImport can run end to end. */
+    private final class Harness {
+        final List<Account> accounts = new ArrayList<>();
+        final List<Category> categories = new ArrayList<>();
+        final List<Transaction> storedTransactions = new ArrayList<>();
+        final List<Transaction> savedTransactions = new ArrayList<>();
+        final FamilyMember member = new FamilyMember();
+        final HomeBankImportService service;
+
+        @SuppressWarnings("unchecked")
+        Harness(ParsedHomeBankData parsed) {
+            lenient().when(parser.parse(any(), eq("bank.hbk"), isNull())).thenReturn(parsed);
+            lenient().when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(7L)).thenAnswer(i -> accounts);
+            lenient().when(accountRepository.findByIdAndMemberId(anyLong(), eq(7L))).thenAnswer(i ->
+                    accounts.stream().filter(a -> a.getId().equals(i.getArgument(0))).findFirst());
+            lenient().when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(anyString(), eq(7L)))
+                    .thenReturn(false);
+            lenient().when(accountRepository.findByExternalAccountIdAndMemberId(anyString(), eq(7L))).thenAnswer(i ->
+                    accounts.stream().filter(a -> i.getArgument(0).equals(a.getExternalAccountId())).findFirst());
+            lenient().when(accountRepository.save(any())).thenAnswer(i -> {
+                Account saved = i.getArgument(0);
+                if (saved.getId() == null) {
+                    saved.setId(100L + accounts.size());
+                    accounts.add(saved);
+                }
+                return saved;
+            });
+            lenient().when(categoryRepository.findAllByMemberIdOrderBySortOrderAscIdAsc(7L)).thenAnswer(i -> categories);
+            lenient().when(categoryRepository.findByIdAndMemberId(anyLong(), eq(7L))).thenAnswer(i ->
+                    categories.stream().filter(c -> c.getId().equals(i.getArgument(0))).findFirst());
+            lenient().when(categoryRepository.save(any())).thenAnswer(i -> {
+                Category saved = i.getArgument(0);
+                if (saved.getId() == null) {
+                    saved.setId(200L + categories.size());
+                    categories.add(saved);
+                }
+                return saved;
+            });
+            lenient().when(transactionRepository.findByAccountMemberIdAndExternalIdIn(eq(7L), anyCollection()))
+                    .thenAnswer(i -> {
+                        var ids = (java.util.Collection<String>) i.getArgument(1);
+                        return storedTransactions.stream().filter(t -> ids.contains(t.getExternalId())).toList();
+                    });
+            lenient().when(transactionRepository.existsByAccountIdAndExternalId(anyLong(), anyString()))
+                    .thenAnswer(i -> storedTransactions.stream().anyMatch(t ->
+                            t.getAccount().getId().equals(i.getArgument(0))
+                                    && t.getExternalId().equals(i.getArgument(1))));
+            lenient().when(transactionRepository.sumAmountByAccountId(anyLong())).thenAnswer(i ->
+                    storedTransactions.stream().filter(t -> t.getAccount().getId().equals(i.getArgument(0)))
+                            .map(Transaction::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
+            lenient().when(transactionRepository.save(any())).thenAnswer(i -> {
+                Transaction saved = i.getArgument(0);
+                storedTransactions.add(saved);
+                savedTransactions.add(saved);
+                return saved;
+            });
+            lenient().when(familyMemberRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(member));
+            lenient().when(familyMemberRepository.findById(7L)).thenReturn(Optional.of(member));
+            service = new HomeBankImportService(parser, accountRepository, categoryRepository, transactionRepository,
+                    familyMemberRepository, balanceSnapshotRepository, persistenceHelper,
+                    new ImportPreviewStore<>(Clock.systemUTC(), Duration.ofMinutes(30), 8));
+        }
+
+        Account addAccount(Long id, boolean manual, BigDecimal balance) {
+            Account account = Account.builder().id(id).member(member).name("Existing " + id)
+                    .type(AccountType.CHECKING).currency("EUR").currentBalance(balance).isManual(manual).build();
+            accounts.add(account);
+            return account;
+        }
+
+        void existing(Account account, String externalId, String amount) {
+            storedTransactions.add(Transaction.builder().account(account).externalId(externalId)
+                    .amount(new BigDecimal(amount)).build());
+        }
+
+        Result run(List<AccountMapping> accountMappings, List<CategoryMapping> categoryMappings) {
+            Preview preview = service.preview(
+                    new MockMultipartFile("file", "bank.hbk", "application/octet-stream", new byte[]{1}), null, 7L);
+            return service.executeImport(new Request(preview.fileToken(), accountMappings, categoryMappings), 7L);
+        }
+
+        Transaction savedTransaction(String externalId) {
+            return savedTransactions.stream().filter(t -> externalId.equals(t.getExternalId())).findFirst().orElseThrow();
+        }
     }
 
     private void assertUnsafeExistingAccountRejected(Account target) {

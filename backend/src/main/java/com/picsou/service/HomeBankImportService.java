@@ -166,10 +166,11 @@ public class HomeBankImportService {
             createCategoriesInParentOrder(parsed, categoryMappings, targetCategories, member, counts);
             Category transferCategory = reusableTransferCategory == null
                     ? createTransferCategory(member) : reusableTransferCategory;
-            importOpeningBalances(parsed, accountMappings, targetAccounts, transferCategory);
+            Set<Long> accountsWithNewRows = new HashSet<>();
+            importOpeningBalances(parsed, accountMappings, targetAccounts, transferCategory, accountsWithNewRows);
             importTransactions(parsed, accountMappings, categoryMappings, targetAccounts, targetCategories,
-                    transferCategory, counts);
-            updateNewAccountBalances(parsed, accountMappings, targetAccounts);
+                    transferCategory, counts, accountsWithNewRows);
+            recomputeDerivedState(parsed, accountMappings, targetAccounts, accountsWithNewRows);
 
             if (!synchronizedTransaction) {
                 previews.complete(request.fileToken(), entry);
@@ -534,7 +535,7 @@ public class HomeBankImportService {
     }
 
     private void importOpeningBalances(ParsedHomeBankData parsed, Map<String, AccountMapping> mappings,
-            Map<String, Account> targets, Category transferCategory) {
+            Map<String, Account> targets, Category transferCategory, Set<Long> accountsWithNewRows) {
         for (SourceAccount source : parsed.accounts()) {
             if (mappings.get(source.id()).action() != FinaryMappingAction.CREATE_NEW) {
                 continue;
@@ -558,12 +559,14 @@ public class HomeBankImportService {
                     .description("HomeBank opening balance").amount(source.initialBalance())
                     .category("Opening balance").categoryRef(transferCategory).categoryManual(true)
                     .nativeCurrency(source.currency()).externalId(externalId).isManual(true).txType(null).build());
+            accountsWithNewRows.add(target.getId());
         }
     }
 
     private void importTransactions(ParsedHomeBankData parsed, Map<String, AccountMapping> accountMappings,
             Map<String, CategoryMapping> categoryMappings, Map<String, Account> targetAccounts,
-            Map<String, Category> targetCategories, Category transferCategory, ImportCounts counts) {
+            Map<String, Category> targetCategories, Category transferCategory, ImportCounts counts,
+            Set<Long> accountsWithNewRows) {
         Map<String, SourceCategory> sourceCategories = parsed.categories().stream()
                 .collect(Collectors.toMap(SourceCategory::id, Function.identity()));
         for (SourceTransaction source : parsed.transactions()) {
@@ -595,17 +598,23 @@ public class HomeBankImportService {
                     .categoryRef(category).categoryManual(category != null && explicitCategory)
                     .externalId(externalId).nativeCurrency(source.currency()).isManual(true).txType(null).build();
             transactions.save(transaction);
+            accountsWithNewRows.add(account.getId());
             counts.transactionsImported++;
         }
     }
 
-    private void updateNewAccountBalances(ParsedHomeBankData parsed, Map<String, AccountMapping> mappings,
-            Map<String, Account> targetAccounts) {
+    /**
+     * Mirrors ManualTransactionService.recomputeDerivedState for the cash balance: every manual
+     * target that received at least one new row (whatever its mapping action) gets its balance and
+     * snapshot history rebuilt from the ledger. Synced (non-manual) targets keep their provider
+     * balance, and accounts that only hit deduplicated rows are left untouched.
+     */
+    private void recomputeDerivedState(ParsedHomeBankData parsed, Map<String, AccountMapping> mappings,
+            Map<String, Account> targetAccounts, Set<Long> accountsWithNewRows) {
         for (SourceAccount source : parsed.accounts()) {
             Account account = targetAccounts.get(source.id());
-            if (mappings.get(source.id()).action() != FinaryMappingAction.CREATE_NEW || account == null
-                    || !account.isManual()
-                    || !Objects.equals(account.getExternalAccountId(), homeBankAccountId(source.id()))) {
+            if (mappings.get(source.id()).action() == FinaryMappingAction.SKIP || account == null
+                    || !account.isManual() || !accountsWithNewRows.contains(account.getId())) {
                 continue;
             }
             account.setCurrentBalance(transactions.sumAmountByAccountId(account.getId()));
