@@ -501,10 +501,11 @@ public class BudgetTools {
 
     @Tool(name = "get_cashflow_flow",
         description = "The authenticated member's income → budget → spending money-flow graph (Sankey nodes and links) "
-            + "for a period: CYCLE or YTD. Sinks are expense categories, one SAVINGS node per savings/investment "
-            + "account that received a transfer (its assetClass is SAVINGS or INVESTMENT), and an UNSPENT node for "
-            + "income left over; a SHORTFALL source "
-            + "covers spending plus savings above income.")
+            + "for a period: CYCLE or YTD. Sources: income categories, WITHDRAWAL (net taken out of a savings/investment "
+            + "account), TRANSFER_IN (transfers from accounts not linked in Picsou) and a SHORTFALL for any remaining gap. "
+            + "Sinks: expense categories, one SAVINGS node per savings/investment account with a net inflow (assetClass "
+            + "SAVINGS or INVESTMENT; savings are counted net per account), TRANSFER_OUT (transfers to accounts not "
+            + "linked in Picsou) and UNSPENT for income left over.")
     @RequiresScope(Scopes.BUDGET_DASHBOARD_READ)
     public CashflowFlowResponse getCashflowFlow(
         @ToolParam(description = "CYCLE or YTD; defaults to CYCLE", required = false) CashflowPeriod period,

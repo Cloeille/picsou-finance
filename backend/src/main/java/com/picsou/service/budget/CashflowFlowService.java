@@ -41,10 +41,10 @@ import java.util.Map;
  * category in a single pass; the {@code null}-category bucket is spending with no managed
  * category yet.
  *
- * <p>The one deliberate addition over {@link CashflowService} is the "saved" side of the
- * Sankey: transfers into savings/investment accounts are excluded from income/expense but
- * shown as their own sinks, so the diagram can tell money that was saved from money that was
- * merely left unspent on the current account.
+ * <p>The one deliberate addition over {@link CashflowService} is the transfer side of the
+ * Sankey: transfers are excluded from income/expense but shown net per savings/investment
+ * account (saved or withdrawn) and net across the linked perimeter (transferred in/out), so the
+ * diagram can tell money that was saved from money merely left unspent on the current account.
  */
 @Service
 @Transactional(readOnly = true)
@@ -69,6 +69,42 @@ public class CashflowFlowService {
 
     // ─── Sankey flow ───────────────────────────────────────────────────────────
 
+    /**
+     * Builds the income → hub → expense/savings graph for the period.
+     *
+     * <p>Income and expense come from the non-transfer transactions (sign-based, identical to
+     * {@link CashflowService}). Transfers are then read from a single query returning every
+     * {@code TRANSFER} leg (both signs) booked on the member's accounts, and split in two:
+     *
+     * <ul>
+     *   <li><b>Per tracked account</b> (savings/investment classes): the signed sum of its legs.
+     *       A positive net is money <i>saved</i> there ({@code SAVINGS} sink); a negative net is
+     *       money <i>withdrawn</i> from it to fund the period ({@code WITHDRAWAL} source). Netting
+     *       per account is what keeps a €1,000 out-and-back on a Livret A from counting as
+     *       savings, and makes a Livret A → PEA move a withdrawal plus a saving rather than a
+     *       charge on the current balance.</li>
+     *   <li><b>External net</b>: {@code ext = −Σ(every leg)}. A transfer between two linked
+     *       accounts has both legs in the sum and cancels exactly, so whatever remains left or
+     *       entered the linked perimeter. {@code ext > 0} is money sent to an account Picsou does
+     *       not see ({@code TRANSFER_OUT}); {@code ext < 0} is money received from one
+     *       ({@code TRANSFER_IN}). We can't know the destination is savings, so it is not
+     *       labelled as such.</li>
+     * </ul>
+     *
+     * <p>With {@code in = income + withdrawn + transferIn} and
+     * {@code out = expense + saved + transferOut}, the gap is shown as a {@code SHORTFALL} source
+     * (out &gt; in) or an {@code UNSPENT} sink (in &gt; out), so the hub always balances at
+     * {@code max(in, out)}. Why the formula is right: let {@code L} be the sum of all legs on
+     * non-tracked accounts, and {@code T = saved − withdrawn} the net on tracked ones. Since
+     * {@code ext = −(L + T)}, we get {@code in − out = income − expense + withdrawn − saved +
+     * transferIn − transferOut = income − expense − T − ext = income − expense + L} — i.e.
+     * {@code unspent − shortfall} is exactly the net change of the non-tracked (current)
+     * accounts' balance over the period.
+     *
+     * <p>Known limit: the two legs of one transfer booked on either side of a cycle boundary
+     * appear as a small transfer in/out in each cycle. The allocation view
+     * ({@code AllocationService}) deliberately keeps its own gross rule.
+     */
     public CashflowFlowResponse flow(Long memberId, CashflowPeriod period, LocalDate today) {
         Range r = range(memberId, period, today);
 
@@ -94,31 +130,45 @@ public class CashflowFlowService {
             }
         }
 
-        Map<Long, Saved> saved = savedByAccount(memberId, r.from, r.to);
+        Transfers transfers = transfers(memberId, r.from, r.to);
         BigDecimal totalSaved = BigDecimal.ZERO;
-        for (Saved s : saved.values()) {
-            totalSaved = totalSaved.add(s.sum);
+        BigDecimal totalWithdrawn = BigDecimal.ZERO;
+        for (AccountNet n : transfers.tracked.values()) {
+            if (n.sum.signum() > 0) {
+                totalSaved = totalSaved.add(n.sum);
+            } else if (n.sum.signum() < 0) {
+                totalWithdrawn = totalWithdrawn.add(n.sum.negate());
+            }
         }
+        BigDecimal external = transfers.allLegs.negate();
+        BigDecimal transferOut = external.signum() > 0 ? external : BigDecimal.ZERO;
+        BigDecimal transferIn = external.signum() < 0 ? external.negate() : BigDecimal.ZERO;
 
         BigDecimal net = totalIncome.subtract(totalExpense);
         List<FlowNode> nodes = new ArrayList<>();
         List<FlowLink> links = new ArrayList<>();
 
         // Nothing to show — let the frontend render an empty state.
-        if (totalIncome.signum() == 0 && totalExpense.signum() == 0 && totalSaved.signum() == 0) {
+        if (totalIncome.signum() == 0 && totalExpense.signum() == 0 && totalSaved.signum() == 0
+            && totalWithdrawn.signum() == 0 && external.signum() == 0) {
             return new CashflowFlowResponse(period, r.from, r.to,
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, nodes, links);
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, nodes, links);
         }
 
-        // Everything leaving the hub: spending plus money that reached a savings account. Both
-        // must be funded by income, and whatever income can't cover comes out of the balance.
-        BigDecimal out = totalExpense.add(totalSaved);
+        // Everything entering / leaving the hub. Whichever side is short is balanced by a
+        // shortfall source or an unspent sink (see the identity in the method javadoc).
+        BigDecimal in = totalIncome.add(totalWithdrawn).add(transferIn);
+        BigDecimal out = totalExpense.add(totalSaved).add(transferOut);
 
-        // Sources (left): income categories, then a shortfall source if spending + savings
-        // exceed income (money taken from the account balance).
+        // Sources (left): income categories, savings withdrawals, transfers in, then a shortfall.
         List<NodeValue> sources = incomeNodes(income);
-        if (out.compareTo(totalIncome) > 0) {
-            sources.add(new NodeValue(synthetic("__shortfall__", NodeType.SHORTFALL), out.subtract(totalIncome)));
+        sources.addAll(withdrawalNodes(transfers.tracked));
+        if (transferIn.signum() > 0) {
+            sources.add(new NodeValue(synthetic("__transfer_in__", NodeType.TRANSFER_IN), transferIn));
+        }
+        if (out.compareTo(in) > 0) {
+            sources.add(new NodeValue(synthetic("__shortfall__", NodeType.SHORTFALL), out.subtract(in)));
         }
         for (NodeValue source : sources) {
             nodes.add(source.node);
@@ -131,11 +181,14 @@ public class CashflowFlowService {
         }
 
         // Sinks (right): expense categories (top-N + rollup), one node per savings account that
-        // received a transfer, then an "unspent" sink for income left on the account.
+        // netted positive, transfers out, then an "unspent" sink for income left on the account.
         List<NodeValue> sinks = expenseNodes(expense);
-        sinks.addAll(savingsNodes(saved));
-        if (totalIncome.compareTo(out) > 0) {
-            sinks.add(new NodeValue(synthetic("__unspent__", NodeType.UNSPENT), totalIncome.subtract(out)));
+        sinks.addAll(savingsNodes(transfers.tracked));
+        if (transferOut.signum() > 0) {
+            sinks.add(new NodeValue(synthetic("__transfer_out__", NodeType.TRANSFER_OUT), transferOut));
+        }
+        if (in.compareTo(out) > 0) {
+            sinks.add(new NodeValue(synthetic("__unspent__", NodeType.UNSPENT), in.subtract(out)));
         }
         for (NodeValue sink : sinks) {
             int idx = nodes.size();
@@ -143,49 +196,57 @@ public class CashflowFlowService {
             links.add(new FlowLink(hubIndex, idx, sink.value));
         }
 
-        return new CashflowFlowResponse(period, r.from, r.to, totalIncome, totalExpense, net, totalSaved, nodes, links);
+        return new CashflowFlowResponse(period, r.from, r.to, totalIncome, totalExpense, net,
+            totalSaved, totalWithdrawn, transferOut, transferIn, nodes, links);
     }
 
     /**
-     * Money moved into savings/investment accounts over the range, per receiving account.
-     *
-     * <p>Same rule as {@code AllocationService.buildContributions}: only the incoming (positive)
-     * leg of a transfer on an account whose class tracks contributions counts; the matching
-     * outflow on the current account and transfers into current/other accounts are ignored. This
-     * is what keeps the Sankey's "savings" sink honest — it used to be the whole surplus, which
-     * mislabelled money merely left on the checking account.
+     * Tallies every {@code TRANSFER} leg of the member over the range: the signed sum per
+     * tracked (savings/investment) account, and the signed sum across all accounts. One query
+     * returns both legs of every transfer touching a linked account.
      */
-    private Map<Long, Saved> savedByAccount(Long memberId, LocalDate from, LocalDate to) {
-        Map<Long, Saved> byAccount = new LinkedHashMap<>();
+    private Transfers transfers(Long memberId, LocalDate from, LocalDate to) {
+        Map<Long, AccountNet> tracked = new LinkedHashMap<>();
+        BigDecimal allLegs = BigDecimal.ZERO;
         for (Transaction tx : transactionRepository
             .findByMemberIdAndKindAndDateBetween(memberId, CategoryKind.TRANSFER, from, to)) {
-            if (tx.getAmount().signum() <= 0) {
-                continue;
-            }
+            BigDecimal amount = tx.getAmount();
+            allLegs = allLegs.add(amount);
             Account account = tx.getAccount();
-            if (!AssetClass.of(account.getType()).tracksContributions()) {
-                continue;
+            if (AssetClass.of(account.getType()).tracksContributions()) {
+                tracked.computeIfAbsent(account.getId(), k -> new AccountNet(account)).add(amount);
             }
-            byAccount.computeIfAbsent(account.getId(), k -> new Saved(account)).add(tx.getAmount());
         }
-        return byAccount;
+        return new Transfers(tracked, allLegs);
     }
 
-    /** One {@code SAVINGS} sink per receiving account, largest first. */
-    private static List<NodeValue> savingsNodes(Map<Long, Saved> saved) {
+    /** One {@code SAVINGS} sink per tracked account with a positive net, largest first. */
+    private static List<NodeValue> savingsNodes(Map<Long, AccountNet> tracked) {
         List<NodeValue> out = new ArrayList<>();
-        for (Saved s : saved.values()) {
-            if (s.sum.signum() <= 0) {
-                continue;
+        for (AccountNet n : tracked.values()) {
+            if (n.sum.signum() > 0) {
+                out.add(new NodeValue(accountNode(n.account, NodeType.SAVINGS), n.sum));
             }
-            Account account = s.account;
-            out.add(new NodeValue(
-                new FlowNode("acct:" + account.getId(), account.getName(), account.getColor(), NodeType.SAVINGS,
-                    AssetClass.of(account.getType())),
-                s.sum));
         }
         out.sort(Comparator.comparing((NodeValue n) -> n.value).reversed());
         return out;
+    }
+
+    /** One {@code WITHDRAWAL} source per tracked account with a negative net, largest first. */
+    private static List<NodeValue> withdrawalNodes(Map<Long, AccountNet> tracked) {
+        List<NodeValue> out = new ArrayList<>();
+        for (AccountNet n : tracked.values()) {
+            if (n.sum.signum() < 0) {
+                out.add(new NodeValue(accountNode(n.account, NodeType.WITHDRAWAL), n.sum.negate()));
+            }
+        }
+        out.sort(Comparator.comparing((NodeValue n) -> n.value).reversed());
+        return out;
+    }
+
+    private static FlowNode accountNode(Account account, NodeType type) {
+        return new FlowNode("acct:" + account.getId(), account.getName(), account.getColor(), type,
+            AssetClass.of(account.getType()));
     }
 
     /** Income sources, largest first; uncategorized income collapses into one node. */
@@ -352,12 +413,15 @@ public class CashflowFlowService {
 
     private record NodeValue(FlowNode node, BigDecimal value) {}
 
-    /** Mutable per-account tally of money transferred into a savings/investment account. */
-    private static final class Saved {
+    /** Result of {@link #transfers}: per-tracked-account nets and the sum of every leg. */
+    private record Transfers(Map<Long, AccountNet> tracked, BigDecimal allLegs) {}
+
+    /** Mutable signed tally of transfer legs on one savings/investment account. */
+    private static final class AccountNet {
         private final Account account;
         private BigDecimal sum = BigDecimal.ZERO;
 
-        Saved(Account account) {
+        AccountNet(Account account) {
             this.account = account;
         }
 

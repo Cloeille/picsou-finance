@@ -357,7 +357,9 @@ export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
   // Sankey and the allocation view agree (one SAVINGS sink per account, largest first).
   const savings = [...mockAllocation(period).contributions].sort((a, b) => b.amount - a.amount)
   const saved = r2(savings.reduce((acc, s) => acc + s.amount, 0))
-  const out = r2(totalExpense + saved)
+  // A small transfer to an account Picsou doesn't see, to showcase the TRANSFER_OUT sink.
+  const transferredOut = r2(50 * factor)
+  const out = r2(totalExpense + saved + transferredOut)
   const shortfall = out > income ? r2(out - income) : 0
   const unspent = income > out ? r2(income - out) : 0
 
@@ -373,7 +375,7 @@ export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
   links.push({ source: 0, target: hubIndex, value: income })
   if (shortfall > 0) links.push({ source: 1, target: hubIndex, value: shortfall })
 
-  // Sinks (right): expense categories, the savings accounts, then income left unspent.
+  // Sinks (right): expense categories, the savings accounts, transfers out, then income left unspent.
   for (const e of expenseItems) {
     const idx = nodes.length
     nodes.push({ key: e.key, label: e.label, color: e.color, type: 'EXPENSE' })
@@ -384,13 +386,18 @@ export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
     nodes.push({ key: `acct:${s.accountId}`, label: s.accountName, color: s.color, type: 'SAVINGS', assetClass: s.assetClass })
     links.push({ source: hubIndex, target: idx, value: r2(s.amount) })
   }
+  {
+    const idx = nodes.length
+    nodes.push({ key: '__transfer_out__', label: null, color: null, type: 'TRANSFER_OUT' })
+    links.push({ source: hubIndex, target: idx, value: transferredOut })
+  }
   if (unspent > 0) {
     const idx = nodes.length
     nodes.push({ key: '__unspent__', label: null, color: null, type: 'UNSPENT' })
     links.push({ source: hubIndex, target: idx, value: unspent })
   }
 
-  return { period, from, to, income, expense: totalExpense, net, saved, nodes, links }
+  return { period, from, to, income, expense: totalExpense, net, saved, withdrawn: 0, transferredOut, transferredIn: 0, nodes, links }
 }
 
 export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCategoryResponse {

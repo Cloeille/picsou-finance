@@ -34,6 +34,18 @@ describe('flowNodeLabel', () => {
     )
   })
 
+  it('labels a withdrawal source with its account name', () => {
+    const tSpy = ((key: string, opts?: { name: string }) => `${key}|${opts?.name}`) as unknown as TFunction
+    expect(
+      flowNodeLabel({ key: 'acct:1', label: 'Livret A', type: 'WITHDRAWAL', assetClass: 'SAVINGS' }, tSpy),
+    ).toBe('budget.flow.node.withdrawalAccount|Livret A')
+  })
+
+  it('translates the transfer in/out sentinels', () => {
+    expect(flowNodeLabel({ key: '__transfer_out__', label: null }, tEcho)).toBe('budget.flow.node.transferOut')
+    expect(flowNodeLabel({ key: '__transfer_in__', label: null }, tEcho)).toBe('budget.flow.node.transferIn')
+  })
+
   it('leaves a category node label unchanged', () => {
     expect(flowNodeLabel({ key: 'cat:2', label: 'Courses', type: 'EXPENSE', assetClass: null }, tEcho)).toBe('Courses')
   })
@@ -51,6 +63,16 @@ describe('flowNodeColor', () => {
   it('uses the semantic colour for known sentinels', () => {
     expect(flowNodeColor({ key: '__unspent__', color: null })).toBe('#0ea5e9')
     expect(flowNodeColor({ key: '__shortfall__', color: null })).toBe('#f59e0b')
+  })
+
+  it('uses the semantic colours for the transfer sentinels', () => {
+    expect(flowNodeColor({ key: '__transfer_out__', color: null, type: 'TRANSFER_OUT' })).toBe('#64748b')
+    expect(flowNodeColor({ key: '__transfer_in__', color: null, type: 'TRANSFER_IN' })).toBe('#14b8a6')
+  })
+
+  it('colours a WITHDRAWAL node amber without colour, but keeps an account’s own colour', () => {
+    expect(flowNodeColor({ key: 'acct:1', color: null, type: 'WITHDRAWAL' })).toBe('#f59e0b')
+    expect(flowNodeColor({ key: 'acct:2', color: '#123456', type: 'WITHDRAWAL' })).toBe('#123456')
   })
 
   it('colours a SAVINGS node without colour green, but keeps an account’s own colour', () => {
@@ -73,6 +95,9 @@ describe('flowSides', () => {
     expense: 1000,
     net: 2000,
     saved: 2000,
+    withdrawn: 0,
+    transferredOut: 0,
+    transferredIn: 0,
     nodes: [
       { key: 'cat:1', label: 'Salaire', color: '#10b981', type: 'INCOME' },
       { key: '__hub__', label: null, color: null, type: 'HUB' },

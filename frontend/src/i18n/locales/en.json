@@ -786,7 +786,10 @@
         "unspent": "Unspent",
         "shortfall": "Taken from balance",
         "savingsAccount": "Savings · {{name}}",
-        "investmentAccount": "Investment · {{name}}"
+        "investmentAccount": "Investment · {{name}}",
+        "transferOut": "Transferred out",
+        "transferIn": "Transferred in",
+        "withdrawalAccount": "From · {{name}}"
       }
     },
     "detail": {

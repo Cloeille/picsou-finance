@@ -111,7 +111,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   current account is now shown as "Unspent", and spending above income as "Taken from balance".
   Only money actually transferred to a savings or investment account appears as savings, with one
   band per account labelled "Savings · Livret A" or "Investment · PEA", taken out of the unspent
-  part.
+  part. Savings are counted net per account, so money moved out and back is not savings;
+  withdrawals from a savings account and transfers to or from accounts not linked in Picsou are
+  shown as such.
 
 - **MCP sync no longer hides an expired browser session or loses the status report after a database error.**
   BoursoBank, Bourse Direct, Amundi and Fortuneo distinguish an inactive session requiring a new login

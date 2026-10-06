@@ -126,21 +126,34 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
 - **`CashflowFlowService`** (`service/budget/CashflowFlowService.java`) — aggregates income sources
   → a central **hub** → sinks into a node/link graph, excluding `TRANSFER` from income/expense
   exactly as `CashflowService` does (so `income`/`expense`/`net` still equal the cashflow totals).
-  - **Sinks**: expense categories (top 8 + rollup); one **`SAVINGS`** node per savings/investment
-    account that received a transfer (key `acct:<accountId>`, labelled with the account name/colour).
-    Account sinks carry `assetClass` (`SAVINGS` or `INVESTMENT`); the UI prefixes the name with
-    "Savings ·" / "Investment ·" (localised);
-    an **`UNSPENT`** node (`__unspent__`) for income left over.
-  - **`SAVINGS` only means money that reached a savings/investment account.** The saved amount reuses
-    the `AllocationService.buildContributions` rule: incoming (positive) `TRANSFER` legs on an account
-    whose `AssetClass.tracksContributions()` is true. Transfers into current/other accounts, and
-    outgoing legs, are ignored. Surplus left on the checking account is `UNSPENT`, never "savings".
-    Known limit, shared with the allocation view: a savings→savings transfer (Livret A → PEA) has
-    no paired current-account leg to cancel it, so it counts as saved and raises `SHORTFALL`.
-  - **Source**: income categories, plus a **`SHORTFALL`** source (`__shortfall__`, "taken from
-    balance") when `expense + saved` exceeds income.
-  - `CashflowFlowResponse.saved` is the total sent to savings; `net` stays `income − expense`.
-  - Conservation invariant (test-locked): `intoHub == outOfHub == max(income, expense + saved)`.
+  - **Transfers are netted, never summed gross.** One query returns every `TRANSFER` leg (both
+    signs) on the member's accounts. Why net: counting only incoming legs made a €1,000 out-and-back on
+    a Livret A look like €1,000 saved.
+    - Per savings/investment account (`AssetClass.tracksContributions()`), `net = Σ signed legs`.
+      `net > 0` → a **`SAVINGS`** sink (key `acct:<accountId>`, account name/colour, `assetClass`
+      `SAVINGS` or `INVESTMENT`; the UI prefixes "Savings ·" / "Investment ·"). `net < 0` → a
+      **`WITHDRAWAL`** source on the left (same `acct:<id>` key, "From · Livret A"): money taken out
+      of savings to fund the period. `net == 0` → no node. A Livret A → PEA move is therefore a
+      withdrawal source plus a savings sink and does not touch the current balance.
+    - **External net** `ext = −Σ(every TRANSFER leg)`. Transfers between two linked accounts have both
+      legs and cancel exactly; what remains left or entered the linked perimeter. `ext > 0` →
+      **`TRANSFER_OUT`** sink (`__transfer_out__`, "Transferred out"); `ext < 0` → **`TRANSFER_IN`**
+      source (`__transfer_in__`, "Transferred in"). This covers a transfer to/from an account Picsou
+      does not see (e.g. an external Livret). It is deliberately *not* called savings — we can't know.
+  - **Sources**: income categories, `WITHDRAWAL` nodes (largest first), `TRANSFER_IN`, then a
+    **`SHORTFALL`** source (`__shortfall__`, "taken from balance") when `out > in`.
+  - **Sinks**: expense categories (top 8 + rollup), `SAVINGS` nodes (largest first), `TRANSFER_OUT`,
+    then an **`UNSPENT`** node (`__unspent__`) when `in > out`.
+  - With `in = income + withdrawn + transferredIn` and `out = expense + saved + transferredOut`:
+    `unspent − shortfall == income − expense + Σ legs on non-tracked accounts`, i.e. the net change of
+    the current accounts' balance. Surplus left on the checking account is `UNSPENT`, never "savings".
+  - `CashflowFlowResponse` carries `saved`, `withdrawn`, `transferredOut`, `transferredIn` (all ≥ 0;
+    at most one of the last two is non-zero); `net` stays `income − expense`.
+  - Conservation invariant (test-locked): `intoHub == outOfHub == max(in, out)`.
+  - **Known limits**: the two legs of one transfer booked on either side of a cycle boundary show up as a
+    small transfer in/out in each cycle. The allocation view (`AllocationService`) keeps its own gross
+    rule (incoming legs only) and is not changed here, so its contributions can differ from the Sankey's
+    net per-account figures.
 - **Endpoints** (member-scoped, under `/api/`):
   - `GET /api/cashflow/flow?period=` → `CashflowFlowResponse` (nodes + links) — `CashflowController`.
   - `GET /api/spending/by-category?period=` → ranked expense list — `SpendingController`.
@@ -459,7 +472,8 @@ Enable Banking sync ─▶ SyncService.fetchTransactions ─▶ dedup ─▶ per
 - `CategorizationServiceTest` — brand fallback **after** USER/AUTO, `categoryRef` guard never
   overridden, `merchant_label` always stamped
 - `CashflowFlowServiceTest` — hierarchy, conservation invariant, `TRANSFER` exclusion, UNSPENT /
-  SHORTFALL / per-account SAVINGS sinks (checking-account and outgoing transfers ignored), **leaf rows
+  SHORTFALL / per-account net SAVINGS sinks and WITHDRAWAL sources, TRANSFER_IN/OUT for unlinked accounts
+  (out-and-back and Livret A → PEA covered), **leaf rows
   annotated with their parent**, and **parent-drill child rollup** (incl. a child with zero spend)
 - `CategoryServiceTest` — tree invariants: parent attach/reparent, same-`kind` rule, two-level cap
   (no grandchildren), archive/un-archive cascading to children

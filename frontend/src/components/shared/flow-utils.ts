@@ -16,6 +16,8 @@ const SYNTHETIC_LABEL_KEY: Record<string, string> = {
   __income_other__: 'budget.flow.node.incomeOther',
   __unspent__: 'budget.flow.node.unspent',
   __shortfall__: 'budget.flow.node.shortfall',
+  __transfer_out__: 'budget.flow.node.transferOut',
+  __transfer_in__: 'budget.flow.node.transferIn',
   __expense_uncat__: 'budget.flow.node.uncategorized',
   __expense_more__: 'budget.flow.node.moreExpenses',
 }
@@ -26,6 +28,8 @@ const SYNTHETIC_COLOR: Record<string, string> = {
   __income_other__: 'var(--chart-2)',
   __unspent__: '#0ea5e9', // sky: income left over on the account
   __shortfall__: '#f59e0b', // amber: spending + savings above income, taken from the balance
+  __transfer_out__: '#64748b', // slate: sent to an account Picsou doesn't see
+  __transfer_in__: '#14b8a6', // teal: received from an account Picsou doesn't see
   __expense_uncat__: '#94a3b8',
   __expense_more__: '#94a3b8',
 }
@@ -35,10 +39,13 @@ export const FLOW_FALLBACK_COLOR = '#6366f1'
 /** Fallback for a savings-account node whose account has no colour. */
 const SAVINGS_FALLBACK_COLOR = '#22c55e'
 
+/** Fallback for a withdrawal source whose account has no colour. */
+const WITHDRAWAL_FALLBACK_COLOR = '#f59e0b'
+
 /**
  * Localised display name for a node — its own label, or the sentinel's translation. An account
  * sink (`SAVINGS`) is prefixed with its asset class ("Épargne · Livret A", "Investissement · PEA");
- * a missing `assetClass` is treated as savings.
+ * a missing `assetClass` is treated as savings. A `WITHDRAWAL` source reads "Retrait · Livret A".
  */
 export function flowNodeLabel(
   node: Pick<FlowNode, 'key' | 'label'> & Partial<Pick<FlowNode, 'type' | 'assetClass'>>,
@@ -50,6 +57,9 @@ export function flowNodeLabel(
         node.assetClass === 'INVESTMENT' ? 'budget.flow.node.investmentAccount' : 'budget.flow.node.savingsAccount'
       return t(key, { name: node.label })
     }
+    if (node.type === 'WITHDRAWAL') {
+      return t('budget.flow.node.withdrawalAccount', { name: node.label })
+    }
     return node.label
   }
   const labelKey = SYNTHETIC_LABEL_KEY[node.key]
@@ -60,7 +70,9 @@ export function flowNodeLabel(
 export function flowNodeColor(node: Pick<FlowNode, 'key' | 'color'> & Partial<Pick<FlowNode, 'type'>>): string {
   if (node.color) return node.color
   if (SYNTHETIC_COLOR[node.key]) return SYNTHETIC_COLOR[node.key]
-  return node.type === 'SAVINGS' ? SAVINGS_FALLBACK_COLOR : FLOW_FALLBACK_COLOR
+  if (node.type === 'SAVINGS') return SAVINGS_FALLBACK_COLOR
+  if (node.type === 'WITHDRAWAL') return WITHDRAWAL_FALLBACK_COLOR
+  return FLOW_FALLBACK_COLOR
 }
 
 export interface FlowBar {

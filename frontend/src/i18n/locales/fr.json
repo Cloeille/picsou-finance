@@ -786,7 +786,10 @@
         "unspent": "Non dépensé",
         "shortfall": "Pris sur le solde",
         "savingsAccount": "Épargne · {{name}}",
-        "investmentAccount": "Investissement · {{name}}"
+        "investmentAccount": "Investissement · {{name}}",
+        "transferOut": "Virements sortants",
+        "transferIn": "Virements entrants",
+        "withdrawalAccount": "Retrait · {{name}}"
       }
     },
     "detail": {

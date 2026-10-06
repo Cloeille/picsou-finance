@@ -2376,7 +2376,10 @@
         "unspent": "Nicht ausgegeben",
         "shortfall": "Vom Kontostand",
         "savingsAccount": "Sparen · {{name}}",
-        "investmentAccount": "Anlage · {{name}}"
+        "investmentAccount": "Anlage · {{name}}",
+        "transferOut": "Ausgehende Überweisungen",
+        "transferIn": "Eingehende Überweisungen",
+        "withdrawalAccount": "Entnahme · {{name}}"
       }
     },
     "detail": {
