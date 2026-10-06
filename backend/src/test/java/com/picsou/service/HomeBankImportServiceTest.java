@@ -82,7 +82,7 @@ class HomeBankImportServiceTest {
     @Test
     void incompleteCategoryMappingsFailBeforeAnyAccountWrite() {
         var account = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR", BigDecimal.ZERO, false);
-        var category = new ParsedHomeBankData.SourceCategory("c", "Courses", null, false);
+        var category = new ParsedHomeBankData.SourceCategory("c", "Courses", null, false, false);
         when(parser.parse(any(), eq("bank.hbk"), isNull())).thenReturn(new ParsedHomeBankData(List.of(account), List.of(category), List.of()));
         var store = new ImportPreviewStore<ParsedHomeBankData>(Clock.systemUTC(), Duration.ofMinutes(30), 32);
         var service = new HomeBankImportService(parser, accountRepository, categoryRepository, transactionRepository,
@@ -102,8 +102,8 @@ class HomeBankImportServiceTest {
         var member = new FamilyMember();
         var account = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
                 BigDecimal.ZERO, false);
-        var child = new ParsedHomeBankData.SourceCategory("child", "Marché", "parent", false);
-        var parent = new ParsedHomeBankData.SourceCategory("parent", "Vie", null, false);
+        var child = new ParsedHomeBankData.SourceCategory("child", "Marché", "parent", false, false);
+        var parent = new ParsedHomeBankData.SourceCategory("parent", "Vie", null, false, false);
         var transaction = new ParsedHomeBankData.SourceTransaction("tx", "a", LocalDate.of(2024, 1, 2),
                 new BigDecimal("-3.25"), "EUR", "Payee", " ", "child", null, false);
         when(parser.parse(any(), eq("bank.hbk"), isNull())).thenReturn(
@@ -200,7 +200,7 @@ class HomeBankImportServiceTest {
     void archivedHomeBankCategorySlugRejectsBeforeCreatingTheAccount() {
         var account = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
                 BigDecimal.ZERO, false);
-        var category = new ParsedHomeBankData.SourceCategory("c", "Courses", null, false);
+        var category = new ParsedHomeBankData.SourceCategory("c", "Courses", null, false, false);
         when(parser.parse(any(), eq("bank.hbk"), isNull())).thenReturn(
                 new ParsedHomeBankData(List.of(account), List.of(category), List.of()));
         when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(7L)).thenReturn(List.of());
@@ -242,7 +242,7 @@ class HomeBankImportServiceTest {
         var member = new FamilyMember();
         var sourceAccount = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
                 BigDecimal.ONE, false);
-        var sourceCategory = new ParsedHomeBankData.SourceCategory("c", "Courses", null, false);
+        var sourceCategory = new ParsedHomeBankData.SourceCategory("c", "Courses", null, false, false);
         var sourceTransaction = new ParsedHomeBankData.SourceTransaction("tx", "a", LocalDate.of(2024, 1, 2),
                 new BigDecimal("2"), "EUR", "Magasin", null, "c", null, false);
         ParsedHomeBankData imported = new ParsedHomeBankData(List.of(sourceAccount), List.of(sourceCategory),
@@ -331,8 +331,8 @@ class HomeBankImportServiceTest {
     void uncategorizedMappingIsNotMarkedManualWhileMappedAndTransferRowsAre() {
         var account = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
                 BigDecimal.ZERO, false);
-        var uncategorized = new ParsedHomeBankData.SourceCategory("u", "Divers", null, false);
-        var mapped = new ParsedHomeBankData.SourceCategory("m", "Courses", null, false);
+        var uncategorized = new ParsedHomeBankData.SourceCategory("u", "Divers", null, false, false);
+        var mapped = new ParsedHomeBankData.SourceCategory("m", "Courses", null, false, false);
         Category existing = Category.builder().id(5L).name("Courses").kind(CategoryKind.EXPENSE).build();
         var harness = new Harness(new ParsedHomeBankData(List.of(account), List.of(uncategorized, mapped),
                 List.of(tx("t-u", "a", "-1", "u", null), tx("t-m", "a", "-2", "m", null),
@@ -418,6 +418,104 @@ class HomeBankImportServiceTest {
         assertThat(target.getCurrentBalance()).isEqualByComparingTo("500");
         verify(persistenceHelper, never()).reconstructSnapshotsFromDb(any());
         verify(transactionRepository, never()).sumAmountByAccountId(anyLong());
+    }
+
+    @Test
+    void reimportWithFlippedInferredKindReusesExistingCategoryAndKeepsItsKind() {
+        var account = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                BigDecimal.ZERO, false);
+        var flipped = new ParsedHomeBankData.SourceCategory("c", "Courses", null, true, true);
+        var harness = new Harness(new ParsedHomeBankData(List.of(account), List.of(flipped),
+                List.of(tx("t1", "a", "5", "c", null))));
+        Category existing = Category.builder().id(5L).name("Courses").slug("homebank_c")
+                .kind(CategoryKind.EXPENSE).build();
+        harness.categories.add(existing);
+
+        var result = harness.run(List.of(createAccount("a")),
+                List.of(new CategoryMapping("c", CategoryMappingAction.CREATE_NEW, null, "Courses")));
+
+        assertThat(result.categoriesCreated()).isZero();
+        assertThat(existing.getKind()).isEqualTo(CategoryKind.EXPENSE);
+        assertThat(harness.savedTransaction("homebank_t1").getCategoryRef()).isSameAs(existing);
+    }
+
+    @Test
+    void explicitKindMismatchOnReusedSlugIsStillRejected() {
+        var account = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                BigDecimal.ZERO, false);
+        var explicit = new ParsedHomeBankData.SourceCategory("c", "Courses", null, true, false);
+        var harness = new Harness(new ParsedHomeBankData(List.of(account), List.of(explicit), List.of()));
+        harness.categories.add(Category.builder().id(5L).name("Courses").slug("homebank_c")
+                .kind(CategoryKind.EXPENSE).build());
+
+        assertThatThrownBy(() -> harness.run(List.of(createAccount("a")),
+                List.of(new CategoryMapping("c", CategoryMappingAction.CREATE_NEW, null, "Courses"))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Target category kind does not match source");
+    }
+
+    @Test
+    void inferredCategoryCanMapOntoEitherIncomeOrExpenseButNeverTransferTargets() {
+        var account = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                BigDecimal.ZERO, false);
+        var inferred = new ParsedHomeBankData.SourceCategory("c", "Misc", null, false, true);
+        var income = Category.builder().id(5L).name("Salaire").kind(CategoryKind.INCOME).build();
+        var transfer = Category.builder().id(6L).name("Epargne").kind(CategoryKind.TRANSFER).build();
+        var harness = new Harness(new ParsedHomeBankData(List.of(account), List.of(inferred), List.of()));
+        harness.categories.add(income);
+        harness.categories.add(transfer);
+
+        assertThatThrownBy(() -> harness.run(List.of(createAccount("a")),
+                List.of(new CategoryMapping("c", CategoryMappingAction.MAP_EXISTING, 6L, null))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Target category kind does not match source");
+        var result = harness.run(List.of(createAccount("a")),
+                List.of(new CategoryMapping("c", CategoryMappingAction.MAP_EXISTING, 5L, null)));
+        assertThat(result.accountsCreated()).isEqualTo(1);
+    }
+
+    @Test
+    void explicitKindCategoryCannotMapOntoTheOppositeKind() {
+        var account = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                BigDecimal.ZERO, false);
+        var income = Category.builder().id(5L).name("Salaire").kind(CategoryKind.INCOME).build();
+        var explicit = new ParsedHomeBankData.SourceCategory("c", "Misc", null, false, false);
+        var strict = new Harness(new ParsedHomeBankData(List.of(account), List.of(explicit), List.of()));
+        strict.categories.add(income);
+        assertThatThrownBy(() -> strict.run(List.of(createAccount("a")),
+                List.of(new CategoryMapping("c", CategoryMappingAction.MAP_EXISTING, 5L, null))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Target category kind does not match source");
+    }
+
+    @Test
+    void newInferredChildAdoptsItsParentKindWhileExplicitMismatchIsRejected() {
+        var account = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                BigDecimal.ZERO, false);
+        var parent = new ParsedHomeBankData.SourceCategory("p", "Vie", null, false, true);
+        var inferredChild = new ParsedHomeBankData.SourceCategory("k", "Remboursement", "p", true, true);
+        var harness = new Harness(new ParsedHomeBankData(List.of(account), List.of(parent, inferredChild), List.of()));
+
+        harness.run(List.of(createAccount("a")),
+                List.of(new CategoryMapping("p", CategoryMappingAction.CREATE_NEW, null, "Vie"),
+                        new CategoryMapping("k", CategoryMappingAction.CREATE_NEW, null, "Remboursement")));
+
+        assertThat(harness.categories).filteredOn(c -> "homebank_k".equals(c.getSlug()))
+                .singleElement().satisfies(child -> {
+                    assertThat(child.getKind()).isEqualTo(CategoryKind.EXPENSE);
+                    assertThat(child.getParent().getSlug()).isEqualTo("homebank_p");
+                });
+    }
+
+    @Test
+    void explicitChildKindDifferentFromParentIsRejectedBeforeAnyWrite() {
+        var account = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                BigDecimal.ZERO, false);
+        var parent = new ParsedHomeBankData.SourceCategory("p", "Vie", null, false, true);
+        var explicitChild = new ParsedHomeBankData.SourceCategory("k", "Remboursement", "p", true, false);
+        var strict = new Harness(new ParsedHomeBankData(List.of(account), List.of(parent, explicitChild), List.of()));
+        assertThatThrownBy(() -> strict.run(List.of(createAccount("a")),
+                List.of(new CategoryMapping("p", CategoryMappingAction.CREATE_NEW, null, "Vie"),
+                        new CategoryMapping("k", CategoryMappingAction.CREATE_NEW, null, "Remboursement"))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Category parent kind does not match");
+        assertThat(strict.categories).noneMatch(c -> "homebank_k".equals(c.getSlug()));
     }
 
     private static ParsedHomeBankData.SourceTransaction tx(String id, String accountId, String amount,

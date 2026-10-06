@@ -18,7 +18,7 @@ public final class HomeBankImportDtos {
                                  AccountType suggestedType, String currency, BigDecimal initialBalance,
                                  BigDecimal balance, int transactionCount, boolean closed) { }
     public record CategoryPreview(String sourceId, String name, String parentSourceId,
-                                  boolean income, int transactionCount) { }
+                                  boolean income, boolean kindInferred, int transactionCount) { }
     public record TransactionPreview(String sourceId, String accountSourceId, LocalDate date,
                                      BigDecimal amount, String currency, String payee, String notes,
                                      String categorySourceId, boolean transfer) { }

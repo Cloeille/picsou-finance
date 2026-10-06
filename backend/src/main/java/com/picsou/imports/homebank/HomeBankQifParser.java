@@ -298,9 +298,10 @@ public final class HomeBankQifParser {
         for (String path : sorted) {
             String parentPath = parent(path);
             String id = stableId("category:" + path);
-            boolean income = explicit.containsKey(path) ? explicit.get(path).equals("income")
-                    : !Boolean.TRUE.equals(negative.get(path));
-            result.put(path, new SourceCategory(id, leaf(path), parentPath == null ? null : idByPath.get(parentPath), income));
+            boolean inferred = !explicit.containsKey(path);
+            boolean income = inferred ? !Boolean.TRUE.equals(negative.get(path)) : explicit.get(path).equals("income");
+            result.put(path, new SourceCategory(id, leaf(path), parentPath == null ? null : idByPath.get(parentPath),
+                    income, inferred));
             idByPath.put(path, id);
         }
         return result;

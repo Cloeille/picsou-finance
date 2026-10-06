@@ -104,7 +104,7 @@ public class HomeBankImportService {
                 .toList();
         List<CategoryPreview> categoryPreviews = parsed.categories().stream()
                 .map(category -> new CategoryPreview(category.id(), category.name(), category.parentId(),
-                        category.income(), categoryCounts.getOrDefault(category.id(), 0)))
+                        category.income(), category.kindInferred(), categoryCounts.getOrDefault(category.id(), 0)))
                 .toList();
         List<AccountResponse> existingAccounts = accounts.findAllByMemberIdOrderByCreatedAtAsc(memberId).stream()
                 .map(account -> AccountResponse.from(account, account.getCurrentBalance())).toList();
@@ -322,9 +322,6 @@ public class HomeBankImportService {
                             || parentMapping.action() == CategoryMappingAction.UNCATEGORIZED) {
                         throw bad("Category parent must also be mapped");
                     }
-                    if (parentSource.income() != source.income()) {
-                        throw bad("Category parent kind does not match");
-                    }
                     if (parentMapping.action() == CategoryMappingAction.MAP_EXISTING) {
                         Category parent = resolved.get(parentSource.id());
                         if (parent.getParent() != null) {
@@ -340,6 +337,13 @@ public class HomeBankImportService {
             }
         }
 
+        Map<String, CategoryKind> kinds = effectiveKinds(parsed, resolved);
+        for (SourceCategory source : parsed.categories()) {
+            if (mappings.get(source.id()).action() == CategoryMappingAction.CREATE_NEW && source.parentId() != null
+                    && kinds.get(source.id()) != kinds.get(source.parentId())) {
+                throw bad("Category parent kind does not match");
+            }
+        }
         validateReusedCategoryHierarchy(parsed, mappings, resolved);
         return resolved;
     }
@@ -364,9 +368,45 @@ public class HomeBankImportService {
         }
     }
 
+    /**
+     * Kind each source category ends up with. Already-existing targets keep their own kind. A kind
+     * inferred from amount signs (QIF) is not authoritative, so an inferred sub-category adopts its
+     * parent's kind, which Picsou requires to be uniform within a category tree.
+     */
+    private static Map<String, CategoryKind> effectiveKinds(ParsedHomeBankData parsed, Map<String, Category> resolved) {
+        Map<String, SourceCategory> byId = parsed.categories().stream()
+                .collect(Collectors.toMap(SourceCategory::id, Function.identity()));
+        Map<String, CategoryKind> kinds = new HashMap<>();
+        for (SourceCategory source : parsed.categories()) {
+            effectiveKind(source, byId, resolved, kinds, new HashSet<>());
+        }
+        return kinds;
+    }
+
+    private static CategoryKind effectiveKind(SourceCategory source, Map<String, SourceCategory> byId,
+            Map<String, Category> resolved, Map<String, CategoryKind> kinds, Set<String> visiting) {
+        CategoryKind known = kinds.get(source.id());
+        if (known != null) {
+            return known;
+        }
+        Category existing = resolved.get(source.id());
+        CategoryKind kind = source.income() ? CategoryKind.INCOME : CategoryKind.EXPENSE;
+        if (existing != null) {
+            kind = existing.getKind();
+        } else if (source.kindInferred() && source.parentId() != null && byId.containsKey(source.parentId())
+                && visiting.add(source.id())) {
+            kind = effectiveKind(byId.get(source.parentId()), byId, resolved, kinds, visiting);
+        }
+        kinds.put(source.id(), kind);
+        return kind;
+    }
+
     private void validateCategoryKind(SourceCategory source, Category target) {
         CategoryKind expected = source.income() ? CategoryKind.INCOME : CategoryKind.EXPENSE;
-        if (target.getKind() != expected) {
+        boolean compatible = source.kindInferred()
+                ? target.getKind() == CategoryKind.INCOME || target.getKind() == CategoryKind.EXPENSE
+                : target.getKind() == expected;
+        if (!compatible) {
             throw bad("Target category kind does not match source");
         }
     }
@@ -476,6 +516,7 @@ public class HomeBankImportService {
     private void createCategoriesInParentOrder(ParsedHomeBankData parsed,
             Map<String, CategoryMapping> mappings, Map<String, Category> categoriesBySource,
             FamilyMember member, ImportCounts counts) {
+        Map<String, CategoryKind> kinds = effectiveKinds(parsed, categoriesBySource);
         Set<String> pending = parsed.categories().stream()
                 .filter(source -> mappings.get(source.id()).action() == CategoryMappingAction.CREATE_NEW
                         && !categoriesBySource.containsKey(source.id()))
@@ -493,7 +534,7 @@ public class HomeBankImportService {
                 CategoryMapping mapping = mappings.get(source.id());
                 Category category = categories.save(Category.builder().member(member).name(mapping.name())
                         .slug(homeBankCategorySlug(source.id()))
-                        .kind(source.income() ? CategoryKind.INCOME : CategoryKind.EXPENSE)
+                        .kind(kinds.get(source.id()))
                         .color("#6366f1").parent(parent).build());
                 categoriesBySource.put(source.id(), category);
                 pending.remove(source.id());

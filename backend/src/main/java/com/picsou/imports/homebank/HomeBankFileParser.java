@@ -322,7 +322,7 @@ public final class HomeBankFileParser {
     private static void addCategory(Map<String, SourceCategory> categories, JsonNode node) {
         String id = id(required(node, "id"));
         SourceCategory category = new SourceCategory(id, limitedText(required(node, "name"), "category name", 100),
-                optionalId(node, "parentID"), bool(required(node, "isIncomeType"), "isIncomeType"));
+                optionalId(node, "parentID"), bool(required(node, "isIncomeType"), "isIncomeType"), false);
         unique(categories, id, category, "category");
     }
 

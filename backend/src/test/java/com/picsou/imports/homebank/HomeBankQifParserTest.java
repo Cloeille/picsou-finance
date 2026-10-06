@@ -138,6 +138,17 @@ class HomeBankQifParserTest {
     }
 
     @Test
+    void flagsSignInferredCategoryKindsButKeepsExplicitDeclarationsAuthoritative() {
+        String qif = "!Account\nNChecking\nTBank\n^\n!Type:Cat\nNSalary\nI\n^\n!Type:Bank\n"
+                + "D2024/01/01\nT-1\nLFood\n^\nD2024/01/02\nT5\nLSalary\n^\n";
+        ParsedHomeBankData parsed = parser.parse(qif.getBytes(StandardCharsets.UTF_8), "EUR");
+        assertThat(parsed.categories()).filteredOn(category -> category.name().equals("Food"))
+                .singleElement().satisfies(category -> assertThat(category.kindInferred()).isTrue());
+        assertThat(parsed.categories()).filteredOn(category -> category.name().equals("Salary"))
+                .singleElement().satisfies(category -> assertThat(category.kindInferred()).isFalse());
+    }
+
+    @Test
     void acceptsMultipleCategoryRecordsUnderOneHeader() {
         String qif = "!Account\nNChecking\nTBank\n^\n!Type:Cat\nNFood\nE\n^\n"
                 + "NSalary\nI\n^\n!Type:Bank\nD2024/01/01\nT-1\nLFood\n^\n";
