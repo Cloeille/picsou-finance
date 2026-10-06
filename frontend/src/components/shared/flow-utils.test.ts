@@ -20,6 +20,24 @@ describe('flowNodeLabel', () => {
     )
   })
 
+  it('prefixes a savings account sink with its asset class', () => {
+    const tSpy = ((key: string, opts?: { name: string }) => `${key}|${opts?.name}`) as unknown as TFunction
+    expect(
+      flowNodeLabel({ key: 'acct:1', label: 'Livret A', type: 'SAVINGS', assetClass: 'SAVINGS' }, tSpy),
+    ).toBe('budget.flow.node.savingsAccount|Livret A')
+    expect(
+      flowNodeLabel({ key: 'acct:2', label: 'PEA', type: 'SAVINGS', assetClass: 'INVESTMENT' }, tSpy),
+    ).toBe('budget.flow.node.investmentAccount|PEA')
+    // A missing assetClass defaults to the savings wording.
+    expect(flowNodeLabel({ key: 'acct:3', label: 'LEP', type: 'SAVINGS' }, tSpy)).toBe(
+      'budget.flow.node.savingsAccount|LEP',
+    )
+  })
+
+  it('leaves a category node label unchanged', () => {
+    expect(flowNodeLabel({ key: 'cat:2', label: 'Courses', type: 'EXPENSE', assetClass: null }, tEcho)).toBe('Courses')
+  })
+
   it('falls back to the raw key for an unknown sentinel', () => {
     expect(flowNodeLabel({ key: '__mystery__', label: null }, tEcho)).toBe('__mystery__')
   })

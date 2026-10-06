@@ -2374,7 +2374,9 @@
         "uncategorized": "Uncategorized",
         "moreExpenses": "Other spending",
         "unspent": "Nicht ausgegeben",
-        "shortfall": "Vom Kontostand"
+        "shortfall": "Vom Kontostand",
+        "savingsAccount": "Sparen · {{name}}",
+        "investmentAccount": "Anlage · {{name}}"
       }
     },
     "detail": {

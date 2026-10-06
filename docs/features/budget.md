@@ -127,7 +127,9 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
   → a central **hub** → sinks into a node/link graph, excluding `TRANSFER` from income/expense
   exactly as `CashflowService` does (so `income`/`expense`/`net` still equal the cashflow totals).
   - **Sinks**: expense categories (top 8 + rollup); one **`SAVINGS`** node per savings/investment
-    account that received a transfer (key `acct:<accountId>`, labelled with the account name/colour);
+    account that received a transfer (key `acct:<accountId>`, labelled with the account name/colour).
+    Account sinks carry `assetClass` (`SAVINGS` or `INVESTMENT`); the UI prefixes the name with
+    "Savings ·" / "Investment ·" (localised);
     an **`UNSPENT`** node (`__unspent__`) for income left over.
   - **`SAVINGS` only means money that reached a savings/investment account.** The saved amount reuses
     the `AllocationService.buildContributions` rule: incoming (positive) `TRANSFER` legs on an account

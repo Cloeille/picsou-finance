@@ -35,9 +35,23 @@ export const FLOW_FALLBACK_COLOR = '#6366f1'
 /** Fallback for a savings-account node whose account has no colour. */
 const SAVINGS_FALLBACK_COLOR = '#22c55e'
 
-/** Localised display name for a node — its own label, or the sentinel's translation. */
-export function flowNodeLabel(node: Pick<FlowNode, 'key' | 'label'>, t: TFunction): string {
-  if (node.label) return node.label
+/**
+ * Localised display name for a node — its own label, or the sentinel's translation. An account
+ * sink (`SAVINGS`) is prefixed with its asset class ("Épargne · Livret A", "Investissement · PEA");
+ * a missing `assetClass` is treated as savings.
+ */
+export function flowNodeLabel(
+  node: Pick<FlowNode, 'key' | 'label'> & Partial<Pick<FlowNode, 'type' | 'assetClass'>>,
+  t: TFunction,
+): string {
+  if (node.label) {
+    if (node.type === 'SAVINGS') {
+      const key =
+        node.assetClass === 'INVESTMENT' ? 'budget.flow.node.investmentAccount' : 'budget.flow.node.savingsAccount'
+      return t(key, { name: node.label })
+    }
+    return node.label
+  }
   const labelKey = SYNTHETIC_LABEL_KEY[node.key]
   return labelKey ? t(labelKey) : node.key
 }

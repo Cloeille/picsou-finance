@@ -107,6 +107,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The budget money-flow chart no longer calls unspent money "savings".** Income left on the
+  current account is now shown as "Unspent", and spending above income as "Taken from balance".
+  Only money actually transferred to a savings or investment account appears as savings, with one
+  band per account labelled "Savings · Livret A" or "Investment · PEA", taken out of the unspent
+  part.
+
 - **MCP sync no longer hides an expired browser session or loses the status report after a database error.**
   BoursoBank, Bourse Direct, Amundi and Fortuneo distinguish an inactive session requiring a new login
   from another recorded failure and from no connection. Exceptions retain server-side diagnostics

@@ -1410,6 +1410,8 @@ export interface FlowNode {
   label: string | null
   color: string | null
   type: FlowNodeType
+  /** Only on account (`SAVINGS`) sinks: SAVINGS or INVESTMENT; the UI prefixes the name with it. */
+  assetClass?: AssetClass | null
 }
 
 /** A weighted edge: indices into the response's `nodes` array. */

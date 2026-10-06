@@ -1,5 +1,6 @@
 package com.picsou.dto;
 
+import com.picsou.model.AssetClass;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -38,9 +39,11 @@ public record CashflowFlowResponse(
      * {@code "acct:<id>"} for a savings account sink, or a {@code "__…__"} sentinel for a
      * synthetic node (hub, unspent, shortfall, uncategorized, …) the frontend labels via i18n.
      * {@code label}/{@code color} are set for category and account nodes (color may be null)
-     * and left null for synthetic ones.
+     * and left null for synthetic ones. {@code assetClass} is set only on account sinks
+     * ({@link AssetClass#SAVINGS} or {@link AssetClass#INVESTMENT}, from the account type) so
+     * the frontend can prefix the raw account name; it is null on every other node.
      */
-    public record FlowNode(String key, String label, String color, NodeType type) {}
+    public record FlowNode(String key, String label, String color, NodeType type, AssetClass assetClass) {}
 
     /** A weighted edge between two node indices. */
     public record FlowLink(int source, int target, BigDecimal value) {}

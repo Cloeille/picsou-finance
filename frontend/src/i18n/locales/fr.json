@@ -784,7 +784,9 @@
         "uncategorized": "Sans catégorie",
         "moreExpenses": "Autres dépenses",
         "unspent": "Non dépensé",
-        "shortfall": "Pris sur le solde"
+        "shortfall": "Pris sur le solde",
+        "savingsAccount": "Épargne · {{name}}",
+        "investmentAccount": "Investissement · {{name}}"
       }
     },
     "detail": {

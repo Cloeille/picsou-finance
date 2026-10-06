@@ -381,7 +381,7 @@ export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
   }
   for (const s of savings) {
     const idx = nodes.length
-    nodes.push({ key: `acct:${s.accountId}`, label: s.accountName, color: s.color, type: 'SAVINGS' })
+    nodes.push({ key: `acct:${s.accountId}`, label: s.accountName, color: s.color, type: 'SAVINGS', assetClass: s.assetClass })
     links.push({ source: hubIndex, target: idx, value: r2(s.amount) })
   }
   if (unspent > 0) {

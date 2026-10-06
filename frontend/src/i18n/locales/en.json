@@ -784,7 +784,9 @@
         "uncategorized": "Uncategorized",
         "moreExpenses": "Other spending",
         "unspent": "Unspent",
-        "shortfall": "Taken from balance"
+        "shortfall": "Taken from balance",
+        "savingsAccount": "Savings · {{name}}",
+        "investmentAccount": "Investment · {{name}}"
       }
     },
     "detail": {

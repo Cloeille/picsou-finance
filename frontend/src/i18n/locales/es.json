@@ -2374,7 +2374,9 @@
         "uncategorized": "Uncategorized",
         "moreExpenses": "Other spending",
         "unspent": "No gastado",
-        "shortfall": "Tomado del saldo"
+        "shortfall": "Tomado del saldo",
+        "savingsAccount": "Ahorro · {{name}}",
+        "investmentAccount": "Inversión · {{name}}"
       }
     },
     "detail": {

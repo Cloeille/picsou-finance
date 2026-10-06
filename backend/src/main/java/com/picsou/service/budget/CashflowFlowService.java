@@ -180,7 +180,8 @@ public class CashflowFlowService {
             }
             Account account = s.account;
             out.add(new NodeValue(
-                new FlowNode("acct:" + account.getId(), account.getName(), account.getColor(), NodeType.SAVINGS),
+                new FlowNode("acct:" + account.getId(), account.getName(), account.getColor(), NodeType.SAVINGS,
+                    AssetClass.of(account.getType())),
                 s.sum));
         }
         out.sort(Comparator.comparing((NodeValue n) -> n.value).reversed());
@@ -340,11 +341,11 @@ public class CashflowFlowService {
     }
 
     private static FlowNode categoryNode(Category cat, NodeType type) {
-        return new FlowNode("cat:" + cat.getId(), cat.getName(), cat.getColor(), type);
+        return new FlowNode("cat:" + cat.getId(), cat.getName(), cat.getColor(), type, null);
     }
 
     private static FlowNode synthetic(String key, NodeType type) {
-        return new FlowNode(key, null, null, type);
+        return new FlowNode(key, null, null, type, null);
     }
 
     private record Range(LocalDate from, LocalDate to) {}

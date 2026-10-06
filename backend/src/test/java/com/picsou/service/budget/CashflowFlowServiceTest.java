@@ -10,6 +10,7 @@ import com.picsou.dto.SpendingDetailResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
+import com.picsou.model.AssetClass;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
 import com.picsou.model.Transaction;
@@ -94,6 +95,10 @@ class CashflowFlowServiceTest {
         int hubIndex = hubIndex(flow);
         assertThat(intoHub(flow, hubIndex)).isEqualByComparingTo(outOfHub(flow, hubIndex));
         assertThat(intoHub(flow, hubIndex)).isEqualByComparingTo(expectedTotal);
+    }
+
+    private static AssetClass assetClassOf(CashflowFlowResponse flow, String key) {
+        return flow.nodes().stream().filter(n -> key.equals(n.key())).findFirst().orElseThrow().assetClass();
     }
 
     private static BigDecimal valueOf(CashflowFlowResponse flow, String key) {
@@ -222,6 +227,9 @@ class CashflowFlowServiceTest {
         assertThat(valueOf(flow, "acct:2")).isEqualByComparingTo("400");
         assertThat(valueOf(flow, "acct:7")).isEqualByComparingTo("250");
         assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("1350");
+        assertThat(assetClassOf(flow, "acct:2")).isEqualTo(AssetClass.INVESTMENT);
+        assertThat(assetClassOf(flow, "acct:7")).isEqualTo(AssetClass.SAVINGS);
+        assertThat(assetClassOf(flow, "cat:2")).isNull();
         assertConserved(flow, "3000");
     }
 
