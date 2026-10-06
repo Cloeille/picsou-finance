@@ -124,9 +124,21 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
 ### Cashflow flow diagram (Sankey)
 
 - **`CashflowFlowService`** (`service/budget/CashflowFlowService.java`) — aggregates income sources
-  → a central **hub** → expense categories (+ savings / drawdown / uncategorized sentinels) into a
-  node/link graph, excluding `TRANSFER` exactly as `CashflowService` does. Conservation invariant
-  (test-locked): `intoHub == outOfHub == max(income, expense)`.
+  → a central **hub** → sinks into a node/link graph, excluding `TRANSFER` from income/expense
+  exactly as `CashflowService` does (so `income`/`expense`/`net` still equal the cashflow totals).
+  - **Sinks**: expense categories (top 8 + rollup); one **`SAVINGS`** node per savings/investment
+    account that received a transfer (key `acct:<accountId>`, labelled with the account name/colour);
+    an **`UNSPENT`** node (`__unspent__`) for income left over.
+  - **`SAVINGS` only means money that reached a savings/investment account.** The saved amount reuses
+    the `AllocationService.buildContributions` rule: incoming (positive) `TRANSFER` legs on an account
+    whose `AssetClass.tracksContributions()` is true. Transfers into current/other accounts, and
+    outgoing legs, are ignored. Surplus left on the checking account is `UNSPENT`, never "savings".
+    Known limit, shared with the allocation view: a savings→savings transfer (Livret A → PEA) has
+    no paired current-account leg to cancel it, so it counts as saved and raises `SHORTFALL`.
+  - **Source**: income categories, plus a **`SHORTFALL`** source (`__shortfall__`, "taken from
+    balance") when `expense + saved` exceeds income.
+  - `CashflowFlowResponse.saved` is the total sent to savings; `net` stays `income − expense`.
+  - Conservation invariant (test-locked): `intoHub == outOfHub == max(income, expense + saved)`.
 - **Endpoints** (member-scoped, under `/api/`):
   - `GET /api/cashflow/flow?period=` → `CashflowFlowResponse` (nodes + links) — `CashflowController`.
   - `GET /api/spending/by-category?period=` → ranked expense list — `SpendingController`.
@@ -444,7 +456,8 @@ Enable Banking sync ─▶ SyncService.fetchTransactions ─▶ dedup ─▶ per
 - `MerchantKnowledgeBaseTest` — PHRASE-before-WORD precedence, word-boundary matching, reload
 - `CategorizationServiceTest` — brand fallback **after** USER/AUTO, `categoryRef` guard never
   overridden, `merchant_label` always stamped
-- `CashflowFlowServiceTest` — hierarchy, conservation invariant, `TRANSFER` exclusion, **leaf rows
+- `CashflowFlowServiceTest` — hierarchy, conservation invariant, `TRANSFER` exclusion, UNSPENT /
+  SHORTFALL / per-account SAVINGS sinks (checking-account and outgoing transfers ignored), **leaf rows
   annotated with their parent**, and **parent-drill child rollup** (incl. a child with zero spend)
 - `CategoryServiceTest` — tree invariants: parent attach/reparent, same-`kind` rule, two-level cap
   (no grandchildren), archive/un-archive cascading to children

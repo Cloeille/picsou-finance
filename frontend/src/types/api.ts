@@ -1392,12 +1392,16 @@ export interface CashflowResponse {
   series: CashflowBucket[]
 }
 
-/** Sankey node role — drives colour/position; HUB and SAVINGS/drawdown are synthetic. */
-export type FlowNodeType = 'INCOME' | 'HUB' | 'EXPENSE' | 'SAVINGS'
+/**
+ * Sankey node role — drives colour/position. HUB, UNSPENT and SHORTFALL are synthetic;
+ * SAVINGS is one node per savings/investment account that received a transfer.
+ */
+export type FlowNodeType = 'INCOME' | 'HUB' | 'EXPENSE' | 'SAVINGS' | 'UNSPENT' | 'SHORTFALL'
 
 /**
  * One node in the income→budget→expense Sankey. `key` is `cat:<id>` for a real category,
- * or a `__…__` sentinel for a synthetic node (hub, "other income", savings, drawdown,
+ * `acct:<id>` for a savings/investment account (carries the account's name/colour), or a
+ * `__…__` sentinel for a synthetic node (hub, "other income", unspent, shortfall,
  * uncategorized, rolled-up tail). Synthetic nodes carry `label`/`color` null and are
  * labelled/coloured on the frontend.
  */
@@ -1422,6 +1426,7 @@ export interface CashflowFlowResponse {
   income: number
   expense: number   // positive magnitude
   net: number
+  saved: number     // total moved into savings/investment accounts
   nodes: FlowNode[]
   links: FlowLink[]
 }

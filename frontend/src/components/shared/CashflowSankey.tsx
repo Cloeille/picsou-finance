@@ -38,7 +38,7 @@ function FlowSankeyNode(props: {
   const color = flowNodeColor(payload)
   const label = flowNodeLabel(payload, t)
   const isHub = payload.type === 'HUB'
-  const isRight = payload.type === 'EXPENSE' || payload.type === 'SAVINGS'
+  const isRight = payload.type === 'EXPENSE' || payload.type === 'SAVINGS' || payload.type === 'UNSPENT'
 
   return (
     <Layer>

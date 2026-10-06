@@ -2373,8 +2373,8 @@
         "incomeOther": "Other income",
         "uncategorized": "Uncategorized",
         "moreExpenses": "Other spending",
-        "savings": "Savings",
-        "drawdown": "Savings drawdown"
+        "unspent": "Nicht ausgegeben",
+        "shortfall": "Vom Kontostand"
       }
     },
     "detail": {

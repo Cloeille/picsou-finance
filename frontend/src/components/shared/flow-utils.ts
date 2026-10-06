@@ -14,8 +14,8 @@ import type { CashflowFlowResponse, FlowNode } from '@/types/api'
 const SYNTHETIC_LABEL_KEY: Record<string, string> = {
   __hub__: 'budget.flow.node.hub',
   __income_other__: 'budget.flow.node.incomeOther',
-  __drawdown__: 'budget.flow.node.drawdown',
-  __savings__: 'budget.flow.node.savings',
+  __unspent__: 'budget.flow.node.unspent',
+  __shortfall__: 'budget.flow.node.shortfall',
   __expense_uncat__: 'budget.flow.node.uncategorized',
   __expense_more__: 'budget.flow.node.moreExpenses',
 }
@@ -24,13 +24,16 @@ const SYNTHETIC_LABEL_KEY: Record<string, string> = {
 const SYNTHETIC_COLOR: Record<string, string> = {
   __hub__: 'var(--chart-3)',
   __income_other__: 'var(--chart-2)',
-  __drawdown__: '#f59e0b', // amber: money pulled from savings to cover overspend
-  __savings__: '#22c55e', // green: money kept
+  __unspent__: '#0ea5e9', // sky: income left over on the account
+  __shortfall__: '#f59e0b', // amber: spending + savings above income, taken from the balance
   __expense_uncat__: '#94a3b8',
   __expense_more__: '#94a3b8',
 }
 
 export const FLOW_FALLBACK_COLOR = '#6366f1'
+
+/** Fallback for a savings-account node whose account has no colour. */
+const SAVINGS_FALLBACK_COLOR = '#22c55e'
 
 /** Localised display name for a node — its own label, or the sentinel's translation. */
 export function flowNodeLabel(node: Pick<FlowNode, 'key' | 'label'>, t: TFunction): string {
@@ -40,8 +43,10 @@ export function flowNodeLabel(node: Pick<FlowNode, 'key' | 'label'>, t: TFunctio
 }
 
 /** Display colour for a node — its own colour, else a semantic synthetic colour. */
-export function flowNodeColor(node: Pick<FlowNode, 'key' | 'color'>): string {
-  return node.color || SYNTHETIC_COLOR[node.key] || FLOW_FALLBACK_COLOR
+export function flowNodeColor(node: Pick<FlowNode, 'key' | 'color'> & Partial<Pick<FlowNode, 'type'>>): string {
+  if (node.color) return node.color
+  if (SYNTHETIC_COLOR[node.key]) return SYNTHETIC_COLOR[node.key]
+  return node.type === 'SAVINGS' ? SAVINGS_FALLBACK_COLOR : FLOW_FALLBACK_COLOR
 }
 
 export interface FlowBar {

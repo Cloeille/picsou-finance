@@ -13,7 +13,8 @@ describe('flowNodeLabel', () => {
 
   it('translates synthetic sentinels via their i18n key', () => {
     expect(flowNodeLabel({ key: '__hub__', label: null }, tEcho)).toBe('budget.flow.node.hub')
-    expect(flowNodeLabel({ key: '__savings__', label: null }, tEcho)).toBe('budget.flow.node.savings')
+    expect(flowNodeLabel({ key: '__unspent__', label: null }, tEcho)).toBe('budget.flow.node.unspent')
+    expect(flowNodeLabel({ key: '__shortfall__', label: null }, tEcho)).toBe('budget.flow.node.shortfall')
     expect(flowNodeLabel({ key: '__expense_uncat__', label: null }, tEcho)).toBe(
       'budget.flow.node.uncategorized',
     )
@@ -30,8 +31,13 @@ describe('flowNodeColor', () => {
   })
 
   it('uses the semantic colour for known sentinels', () => {
-    expect(flowNodeColor({ key: '__savings__', color: null })).toBe('#22c55e')
-    expect(flowNodeColor({ key: '__drawdown__', color: null })).toBe('#f59e0b')
+    expect(flowNodeColor({ key: '__unspent__', color: null })).toBe('#0ea5e9')
+    expect(flowNodeColor({ key: '__shortfall__', color: null })).toBe('#f59e0b')
+  })
+
+  it('colours a SAVINGS node without colour green, but keeps an account’s own colour', () => {
+    expect(flowNodeColor({ key: 'acct:1', color: null, type: 'SAVINGS' })).toBe('#22c55e')
+    expect(flowNodeColor({ key: 'acct:2', color: '#123456', type: 'SAVINGS' })).toBe('#123456')
   })
 
   it('falls back when neither colour nor sentinel matches', () => {
@@ -40,7 +46,7 @@ describe('flowNodeColor', () => {
 })
 
 describe('flowSides', () => {
-  // Salary → hub → {Logement, Savings}: a balanced positive-net graph.
+  // Salary → hub → {Logement, Livret A}: a balanced graph (income = expense + saved).
   const flow: CashflowFlowResponse = {
     period: 'CYCLE',
     from: '2025-03-01',
@@ -48,11 +54,12 @@ describe('flowSides', () => {
     income: 3000,
     expense: 1000,
     net: 2000,
+    saved: 2000,
     nodes: [
       { key: 'cat:1', label: 'Salaire', color: '#10b981', type: 'INCOME' },
       { key: '__hub__', label: null, color: null, type: 'HUB' },
       { key: 'cat:2', label: 'Logement', color: '#6366f1', type: 'EXPENSE' },
-      { key: '__savings__', label: null, color: null, type: 'SAVINGS' },
+      { key: 'acct:1', label: 'Livret A', color: '#22c55e', type: 'SAVINGS' },
     ],
     links: [
       { source: 0, target: 1, value: 3000 },
@@ -64,7 +71,7 @@ describe('flowSides', () => {
   it('splits links into sources (into hub) and sinks (out of hub)', () => {
     const { sources, sinks } = flowSides(flow)
     expect(sources.map((s) => s.node.key)).toEqual(['cat:1'])
-    expect(sinks.map((s) => s.node.key)).toEqual(['__savings__', 'cat:2']) // sorted desc by value
+    expect(sinks.map((s) => s.node.key)).toEqual(['acct:1', 'cat:2']) // sorted desc by value
     expect(sources[0].value).toBe(3000)
     expect(sinks[0].value).toBe(2000)
   })

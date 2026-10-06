@@ -500,8 +500,10 @@ public class BudgetTools {
     }
 
     @Tool(name = "get_cashflow_flow",
-        description = "The authenticated member's income → budget → expenses money-flow graph (Sankey nodes and links) "
-            + "for a period: CYCLE or YTD.")
+        description = "The authenticated member's income → budget → spending money-flow graph (Sankey nodes and links) "
+            + "for a period: CYCLE or YTD. Sinks are expense categories, one SAVINGS node per savings/investment "
+            + "account that received a transfer, and an UNSPENT node for income left over; a SHORTFALL source "
+            + "covers spending plus savings above income.")
     @RequiresScope(Scopes.BUDGET_DASHBOARD_READ)
     public CashflowFlowResponse getCashflowFlow(
         @ToolParam(description = "CYCLE or YTD; defaults to CYCLE", required = false) CashflowPeriod period,

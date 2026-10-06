@@ -783,8 +783,8 @@
         "incomeOther": "Autres revenus",
         "uncategorized": "Sans catégorie",
         "moreExpenses": "Autres dépenses",
-        "savings": "Épargne",
-        "drawdown": "Épargne mobilisée"
+        "unspent": "Non dépensé",
+        "shortfall": "Pris sur le solde"
       }
     },
     "detail": {

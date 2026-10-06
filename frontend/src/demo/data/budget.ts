@@ -278,7 +278,7 @@ export function mockCalendar(horizonDays: number): RecurringOccurrence[] {
 // ── Flow & spending (M2) ────────────────────────────────────────────────────────
 // One coherent dataset drives the Sankey, the ranked breakdown and the category drill,
 // so the three views always agree. YTD is just the cycle scaled ~6×. The flow is built
-// exactly like the backend (sources → hub → sinks, savings sink when net positive) so
+// exactly like the backend (sources → hub → sinks: expenses, savings accounts, unspent/shortfall) so
 // the demo graph stays balanced the same way the real one is.
 
 const r2 = (n: number): number => Math.round(n * 100) / 100
@@ -353,31 +353,44 @@ export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
   const totalExpense = r2(expenseItems.reduce((acc, e) => acc + e.amount, 0))
   const net = r2(income - totalExpense)
 
+  // Transfers into savings/investment accounts: the allocation demo's contributions, so the
+  // Sankey and the allocation view agree (one SAVINGS sink per account, largest first).
+  const savings = [...mockAllocation(period).contributions].sort((a, b) => b.amount - a.amount)
+  const saved = r2(savings.reduce((acc, s) => acc + s.amount, 0))
+  const out = r2(totalExpense + saved)
+  const shortfall = out > income ? r2(out - income) : 0
+  const unspent = income > out ? r2(income - out) : 0
+
   const nodes: FlowNode[] = []
   const links: FlowLink[] = []
 
-  // Sources (left): the salary, plus a drawdown source if we overspent.
+  // Sources (left): the salary, plus a shortfall source if spending + savings exceed it.
   nodes.push({ key: `cat:${mockCategories[0].id}`, label: mockCategories[0].name, color: mockCategories[0].color, type: 'INCOME' })
-  if (net < 0) nodes.push({ key: '__drawdown__', label: null, color: null, type: 'INCOME' })
+  if (shortfall > 0) nodes.push({ key: '__shortfall__', label: null, color: null, type: 'SHORTFALL' })
 
   const hubIndex = nodes.length
   nodes.push({ key: '__hub__', label: null, color: null, type: 'HUB' })
   links.push({ source: 0, target: hubIndex, value: income })
-  if (net < 0) links.push({ source: 1, target: hubIndex, value: r2(-net) })
+  if (shortfall > 0) links.push({ source: 1, target: hubIndex, value: shortfall })
 
-  // Sinks (right): expense categories, then a savings sink if net positive.
+  // Sinks (right): expense categories, the savings accounts, then income left unspent.
   for (const e of expenseItems) {
     const idx = nodes.length
     nodes.push({ key: e.key, label: e.label, color: e.color, type: 'EXPENSE' })
     links.push({ source: hubIndex, target: idx, value: e.amount })
   }
-  if (net > 0) {
+  for (const s of savings) {
     const idx = nodes.length
-    nodes.push({ key: '__savings__', label: null, color: null, type: 'SAVINGS' })
-    links.push({ source: hubIndex, target: idx, value: net })
+    nodes.push({ key: `acct:${s.accountId}`, label: s.accountName, color: s.color, type: 'SAVINGS' })
+    links.push({ source: hubIndex, target: idx, value: r2(s.amount) })
+  }
+  if (unspent > 0) {
+    const idx = nodes.length
+    nodes.push({ key: '__unspent__', label: null, color: null, type: 'UNSPENT' })
+    links.push({ source: hubIndex, target: idx, value: unspent })
   }
 
-  return { period, from, to, income, expense: totalExpense, net, nodes, links }
+  return { period, from, to, income, expense: totalExpense, net, saved, nodes, links }
 }
 
 export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCategoryResponse {
