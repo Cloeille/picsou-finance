@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
@@ -42,6 +42,9 @@ import {
   useTrSessionStatus,
   useBoursoSessionStatus,
   useRevolutStatus,
+  useStartRevolutSync,
+  useSyncProgress,
+  useConfirmRevolutSync,
   useFinaryConnectionStatus,
   useRetryBankSync,
   useReconnectBankSync,
@@ -105,6 +108,21 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   degiro: 'degiro',
   ibkr: 'ibkr',
   finary: 'finary',
+}
+
+/**
+ * The Sync-page tab a row's button opens instead of syncing in place, or undefined when the
+ * row syncs inline. Single source of truth for both the row button (`handleSync`) and the
+ * batch filter (`isBatchSyncable`) so the two cannot disagree about who navigates:
+ * - Finary is a manual two-phase import;
+ * - an expired session re-authenticates through its own tab's form;
+ * - Revolut without remembered credentials needs the phone+passcode form (and a mobile approval).
+ */
+function ownTab(c: SyncConnection, revolutRemembered: boolean): string | undefined {
+  if (c.providerType === 'finary') return 'finary'
+  if (c.needsReauth && REAUTH_TAB[c.providerType]) return REAUTH_TAB[c.providerType]
+  if (c.providerType === 'revolut' && !revolutRemembered) return 'revolut'
+  return undefined
 }
 
 function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
@@ -221,6 +239,8 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncBourseDirectMutation = useSyncBourseDirect()
   const syncDegiroMutation       = useSyncDegiro()
   const syncIbkrMutation         = useSyncIbkr()
+  const startRevolutMutation     = useStartRevolutSync()
+  const confirmRevolutMutation   = useConfirmRevolutSync()
 
   // Track syncing state per connection
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set())
@@ -235,6 +255,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
 
   // Per-connection sync/retry errors, keyed by connection id
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
+
+  // Remembered-Revolut in-place sync: a discovery job runs in the background (202 + progress),
+  // polled until it finishes, then everything found is confirmed. Mirrors RevolutTab's quick sync.
+  const [revolutPolling, setRevolutPolling] = useState(false)
+  const revolutProgress = useSyncProgress('revolut', revolutPolling)
+  const prevRevolutRunningRef = useRef<boolean | undefined>(undefined)
 
   const isLoading = banksLoading || exchangesLoading || walletsLoading
 
@@ -332,31 +358,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     return list
   }, [banks, exchanges, wallets, hasTrAccount, accounts, trStatus?.isActive, hasRevolutAccount, revolutStatus?.remembered, revolutStatus?.lastSyncedAt, finaryStatus, sessionProviders])
 
-  const handleSync = useCallback((connection: SyncConnection) => {
-    // TR without active session: open inline auth instead of syncing
-    if (connection.providerType === 'tr' && !trStatus?.isActive) {
-      setTrAuthError(null)
-      setTrAuthStep('phone')
-      return
-    }
-    // The remaining session providers each re-authenticate through their own multi-step form
-    // (credentials, MFA, a Flex token). Rather than duplicate four flows in this modal, send
-    // the user to the tab that owns them -- firing the sync would only return a 401.
-    const reauthTab = connection.needsReauth ? REAUTH_TAB[connection.providerType] : undefined
-    if (reauthTab) {
-      navigate(`/sync?tab=${reauthTab}`)
-      onOpenChange(false)
-      return
-    }
-    // Revolut without remembered credentials: the phone+passcode form needs
-    // real screen space (and the sync blocks on a mobile approval) — send the
-    // user to the full tab, same affordance as Finary.
-    if (connection.providerType === 'revolut' && !revolutStatus?.remembered) {
-      navigate('/sync?tab=revolut')
-      onOpenChange(false)
-      return
-    }
-
+  /**
+   * Fires the in-place sync of one row. Never navigates and never closes the modal: callers
+   * must have routed rows that own a surface (`ownTab`) beforehand, which is why the batch
+   * path calls this directly instead of going through `handleSync`.
+   */
+  const syncInPlace = useCallback((connection: SyncConnection) => {
     setSyncingIds(prev => new Set(prev).add(connection.id))
 
     const clearSyncing = () => setSyncingIds(prev => {
@@ -422,25 +429,23 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         syncIbkrMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
       case 'revolut':
-        // Revolut's on-demand flow is discover → pick accounts → confirm, which lives in the
-        // dedicated tab; SyncAll routes there rather than blind-importing everything.
-        navigate('/sync?tab=revolut')
-        onOpenChange(false)
-        setSyncingIds(prev => {
-          const next = new Set(prev)
-          next.delete(connection.id)
-          return next
+        // Remembered credentials: a blank body makes the backend fall back to them. The spinner
+        // stays on until the discover → confirm effect below finishes or fails.
+        clearRowError()
+        startRevolutMutation.mutate({}, {
+          onSuccess: () => setRevolutPolling(true),
+          onError: (err: unknown) => {
+            setRowErrors(prev => ({ ...prev, [connection.id]: formatGeneric(err) }))
+            clearSyncing()
+          },
         })
         break
       case 'finary':
-        navigate('/sync?tab=finary')
-        onOpenChange(false)
+        // Unreachable: Finary always owns its tab (see `ownTab`). Kept so the switch stays exhaustive.
         clearSyncing()
         break
     }
   }, [
-    trStatus?.isActive,
-    revolutStatus?.remembered,
     retryBankMutation,
     syncExchangeMutation,
     syncWalletMutation,
@@ -451,20 +456,77 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncBourseDirectMutation,
     syncDegiroMutation,
     syncIbkrMutation,
-    navigate,
-    onOpenChange,
+    startRevolutMutation,
     queryClient,
     t,
   ])
 
-  // "Sync all" only fires what a single click can actually complete: Finary is a manual
-  // two-phase import, and any session needing re-authentication would just fail. Those rows
-  // keep their own button, which opens the right form instead.
+  // Revolut discovery job finished (running → done): surface its error, or confirm everything
+  // it found. remember=true because confirmSync clears the stored credentials otherwise — this
+  // row only syncs in place *because* the session is remembered. voluntary=false keeps accounts
+  // the user deleted from coming back.
+  useEffect(() => {
+    const running = revolutProgress.data?.running
+    if (prevRevolutRunningRef.current === true && running === false) {
+      setRevolutPolling(false)
+      const data = revolutProgress.data
+      const clearSyncing = () => setSyncingIds(prev => {
+        const next = new Set(prev)
+        next.delete('revolut')
+        return next
+      })
+      const setError = (message: string) => setRowErrors(prev => ({ ...prev, revolut: message }))
+      if (data?.error) {
+        setError(data.error)
+        clearSyncing()
+      } else if (data && data.discovered.length > 0) {
+        confirmRevolutMutation.mutate(
+          { selectedExternalIds: data.discovered.map(d => d.externalId), remember: true, voluntary: false },
+          {
+            onSuccess: () => setRowErrors(prev => {
+              if (!('revolut' in prev)) return prev
+              const next = { ...prev }
+              delete next.revolut
+              return next
+            }),
+            onError: (err: unknown) => setError(formatApiError(err, t, 'common.errors.serverError')),
+            onSettled: clearSyncing,
+          },
+        )
+      } else {
+        clearSyncing()
+      }
+    }
+    prevRevolutRunningRef.current = running
+    // revolutProgress.data/confirmRevolutMutation/t are read through the running dep on purpose
+    // (same pattern as RevolutTab) — the mutation object is a fresh one every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revolutProgress.data?.running])
+
+  const handleSync = useCallback((connection: SyncConnection) => {
+    // TR without active session: open inline auth instead of syncing
+    if (connection.providerType === 'tr' && !trStatus?.isActive) {
+      setTrAuthError(null)
+      setTrAuthStep('phone')
+      return
+    }
+    // Rows that own a surface (expired session, Finary, unremembered Revolut) go to their tab:
+    // those flows need multi-step forms or a mobile approval, and firing a sync would only 401.
+    const tab = ownTab(connection, revolutStatus?.remembered === true)
+    if (tab) {
+      navigate(`/sync?tab=${tab}`)
+      onOpenChange(false)
+      return
+    }
+    syncInPlace(connection)
+  }, [trStatus?.isActive, revolutStatus?.remembered, syncInPlace, navigate, onOpenChange])
+
+  // "Sync all" only fires what a single click can actually complete in place: every row that
+  // owns a surface (`ownTab`) is excluded, as is TR without a session (inline auth). Those rows
+  // keep their own button. The batch calls `syncInPlace` directly, so it can never navigate.
   const isBatchSyncable = useCallback((c: SyncConnection) =>
-    c.providerType !== 'finary' &&
-    !c.needsReauth &&
-    !(c.providerType === 'tr' && !trStatus?.isActive) &&
-    !(c.providerType === 'revolut' && !revolutStatus?.remembered)
+    !ownTab(c, revolutStatus?.remembered === true) &&
+    !(c.providerType === 'tr' && !trStatus?.isActive)
   , [trStatus?.isActive, revolutStatus?.remembered])
 
   const handleSyncAll = useCallback(() => {
@@ -472,10 +534,10 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       .filter(isBatchSyncable)
       .forEach(connection => {
         if (!syncingIds.has(connection.id)) {
-          handleSync(connection)
+          syncInPlace(connection)
         }
       })
-  }, [connections, syncingIds, handleSync, isBatchSyncable])
+  }, [connections, syncingIds, syncInPlace, isBatchSyncable])
 
   // With only Finary rows and expired sessions in the list there is nothing for "Sync all" to
   // do, and an enabled button that quietly does nothing reads as a broken one.

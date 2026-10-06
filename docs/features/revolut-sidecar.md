@@ -87,6 +87,9 @@ Banking stays as a fallback for the current account.
   child-check implies parent-check). `features/sync/revolut-phase.ts` — shared phase label.
 - `frontend/src/features/sync/{api.ts,hooks.ts}` (`useSyncProgress`/`useStartRevolutSync`/`useConfirmRevolutSync`),
   `types/api.ts`, `components/shared/AddAccountModal.tsx` (RevolutWizard), `components/sync/SyncAllModal.tsx`.
+- `SyncAllModal` syncs a remembered Revolut session in place (discover → auto-confirm all discovered
+  accounts with `remember=true`, `voluntary=false`, so the stored credentials survive and deleted accounts
+  stay deleted). Without remembered credentials the row button opens the Revolut tab. "Sync all" never navigates.
 
 ### Flow
 
