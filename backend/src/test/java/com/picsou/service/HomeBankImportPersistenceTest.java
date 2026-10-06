@@ -18,7 +18,6 @@ import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -37,12 +36,19 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.zip.Deflater;
 
+import org.junit.jupiter.api.condition.EnabledIf;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.testcontainers.DockerClientFactory;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * End-to-end HomeBank persistence against an isolated PostgreSQL database. Set
- * PICSOU_HOMEBANK_TEST_JDBC_URL and the standard SPRING_DATASOURCE_* variables to opt in.
+ * End-to-end HomeBank persistence (real Flyway migrations, {@code ddl-auto=validate}, rollback and
+ * duplicate-free re-import) against a throwaway PostgreSQL started by Testcontainers. Runs in CI.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -52,8 +58,31 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
     "spring.jpa.hibernate.ddl-auto=validate",
     "spring.flyway.enabled=true"
 })
-@EnabledIfEnvironmentVariable(named = "PICSOU_HOMEBANK_TEST_JDBC_URL", matches = ".+")
+@Testcontainers
+@EnabledIf("dockerAvailable")
 class HomeBankImportPersistenceTest {
+    static {
+        // docker-java otherwise negotiates API 1.32, which Docker Engine >= 28 refuses (see
+        // EncryptedSessionTokenWidthMigrationTest).
+        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
+    }
+
+    @Container
+    @ServiceConnection
+    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+
+    /** CI sets PICSOU_REQUIRE_DOCKER_TESTS so a missing daemon fails instead of silently skipping. */
+    static boolean dockerAvailable() {
+        boolean available = DockerClientFactory.instance().isDockerAvailable();
+        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
+            throw new IllegalStateException(
+                "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
+                    + "The HomeBank PostgreSQL tests cannot be skipped here. Needs Docker Engine >= 25.0.");
+        }
+        return available;
+    }
+
     @TestConfiguration(proxyBeanMethods = false)
     static class TestServiceConfiguration {
         @Bean

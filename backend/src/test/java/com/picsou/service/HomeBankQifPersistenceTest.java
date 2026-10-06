@@ -10,8 +10,6 @@ import com.picsou.model.CategoryKind;
 import com.picsou.model.FamilyMember;
 import com.picsou.repository.*;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
-import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -26,21 +24,49 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
+
+import org.junit.jupiter.api.condition.EnabledIf;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.testcontainers.DockerClientFactory;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Opt-in tests: only point datasource variables at a new, disposable PostgreSQL database. */
+/** Synthetic QIF import against a throwaway PostgreSQL started by Testcontainers. Runs in CI. */
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({HomeBankFileParser.class, FinaryPersistenceHelper.class, HomeBankQifPersistenceTest.Configuration.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=validate", "spring.flyway.enabled=true"})
-@EnabledIfEnvironmentVariable(named = "PICSOU_HOMEBANK_TEST_JDBC_URL", matches = ".+")
+@Testcontainers
+@EnabledIf("dockerAvailable")
 class HomeBankQifPersistenceTest {
+    static {
+        // docker-java otherwise negotiates API 1.32, which Docker Engine >= 28 refuses (see
+        // EncryptedSessionTokenWidthMigrationTest).
+        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
+    }
+
+    @Container
+    @ServiceConnection
+    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+
+    /** CI sets PICSOU_REQUIRE_DOCKER_TESTS so a missing daemon fails instead of silently skipping. */
+    static boolean dockerAvailable() {
+        boolean available = DockerClientFactory.instance().isDockerAvailable();
+        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
+            throw new IllegalStateException(
+                "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
+                    + "The HomeBank PostgreSQL tests cannot be skipped here. Needs Docker Engine >= 25.0.");
+        }
+        return available;
+    }
+
     @TestConfiguration(proxyBeanMethods = false)
     static class Configuration {
         @Bean
@@ -130,24 +156,6 @@ class HomeBankQifPersistenceTest {
                 .isEqualTo(2);
         assertThat(service.executeImport(request(preview(bytes, member)), member).transactionsImported()).isZero();
         assertBalances(bytes, member);
-    }
-
-    @Test
-    @EnabledIfSystemProperty(named = "picsou.homebank.qifFile", matches = ".+")
-    void privateDesktopExportPersistsExactPerAccountSumsAndReplaysWithoutDuplicates() throws Exception {
-        byte[] bytes = Files.readAllBytes(Path.of(System.getProperty("picsou.homebank.qifFile")));
-        long member = newMember();
-        Preview preview = preview(bytes, member);
-        assertThat(preview.accounts().size() == 8).isTrue();
-        assertThat(preview.totalTransactions() == 646).isTrue();
-        int imported = service.executeImport(request(preview), member).transactionsImported();
-        assertThat(imported == preview.totalTransactions()).isTrue();
-        assertBalances(bytes, member);
-        var replay = service.executeImport(request(preview(bytes, member)), member);
-        assertThat(replay.transactionsImported() == 0).isTrue();
-        assertThat(replay.transactionsSkipped() == imported).isTrue();
-        assertBalances(bytes, member);
-        System.out.println("Private QIF verified: accounts=8, normalizedRows=646, ledgerEquality=true, replayDuplicates=0");
     }
 
     private long newMember() {
