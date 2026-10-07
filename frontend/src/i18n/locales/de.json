@@ -1494,7 +1494,7 @@
       "title": "Picsou verbessern helfen?",
       "intro": "Teile anonyme Absturzberichte und Nutzungszähler mit den Picsou-Entwicklern. Das ist freiwillig, gilt für die gesamte Instanz und lässt sich jederzeit in der Administration ändern.",
       "collectedTitle": "Was geteilt wird",
-      "collected1": "Technische Fehlerberichte (Fehlertyp, bereinigte Meldung, Codestelle)",
+      "collected1": "Technische Fehlerberichte (Fehlertyp und Codestelle, niemals Fehlermeldungen)",
       "collected2": "Welche Seiten geöffnet werden (nur Seitenvorlage, z. B. /accounts/:id)",
       "collected3": "Welche Funktionen genutzt werden (z. B. eine Synchronisierung wurde gestartet), ohne Details",
       "neverTitle": "Was nie geteilt wird",

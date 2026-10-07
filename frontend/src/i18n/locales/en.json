@@ -1791,7 +1791,7 @@
       "title": "Help improve Picsou?",
       "intro": "Share anonymous crash reports and usage counts with the Picsou developers. This is optional, applies to this whole instance, and you can change it at any time in Administration.",
       "collectedTitle": "What is shared",
-      "collected1": "Technical error reports (error type, scrubbed message, code location)",
+      "collected1": "Technical error reports (error type and code location, never error messages)",
       "collected2": "Which screens are opened (page template only, e.g. /accounts/:id)",
       "collected3": "Which features are used (e.g. a sync was triggered), with no details",
       "neverTitle": "What is never shared",

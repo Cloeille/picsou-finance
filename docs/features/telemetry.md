@@ -1,6 +1,6 @@
 # Feature: Opt-in anonymous telemetry & privacy
 
-> Last updated: 2026-10-05
+> Last updated: 2026-10-07
 > Status: ✅ Implemented (issue #200)
 
 ## Context
@@ -48,7 +48,10 @@ Effective state = DSN configured **and** consent `ENABLED`.
 
 Errors:
 
-- Exception type and message, **scrubbed** (see rules below).
+- Exception type, module and sanitized stack frames. Exception messages are dropped entirely:
+  regex scrubbing cannot reliably remove names, merchant names or account labels from free text.
+- Only the fixed usage messages `page_view` and `feature_used` are retained; arbitrary event
+  messages and formatted log messages are not collected.
 - Stack frames: file path (query stripped, ids templated), function, module, line, column, in-app.
   No local variables, no source context lines.
 - Mechanism (`type`, `handled`).
@@ -119,13 +122,19 @@ API, max 200 KB → `413`):
   followed.
 - Forwards to `<scheme>://<host>/api/<project>/envelope/` with
   `X-Sentry-Auth: Sentry sentry_version=7, sentry_key=<key>, sentry_client=picsou-tunnel`.
-- Forward failures are logged at `DEBUG` and swallowed (`204`), so the endpoint is not an oracle.
+- Limits each authenticated principal to 30 requests per minute before reading the body.
+- Uses asynchronous HTTP sends, with at most 16 in flight and no waiting queue. Disabling
+  consent or shutting down cancels pending sends. Rate-limit or capacity overflow answers
+  `429` with `Retry-After: 60`; the request timeout remains five seconds.
+- Forward failures are logged at `ERROR` and swallowed (`204`), so the endpoint is not an oracle.
+- Parser and SDK scrubber failures log fixed identifiers and exception types only, never raw
+  parser excerpts or event contents.
 
 ## API
 
 | Method | Path | Who | Notes |
 |---|---|---|---|
-| `GET` | `/api/telemetry/config` | authenticated | `{enabled, dsn, environment, release}`; `dsn` is `null` unless enabled |
+| `GET` | `/api/telemetry/config` | authenticated | `{enabled, dsn, environment, release, available, consent}`; `dsn` is `null` unless enabled |
 | `POST` | `/api/telemetry/tunnel` | authenticated | Sentry envelope, see above |
 | `GET` | `/api/admin/settings` | admin | gains `telemetry: {available, consent}` |
 | `PUT` | `/api/admin/settings/telemetry` | admin | `{enabled: boolean}` → `204`; `409` without DSN |
@@ -185,9 +194,18 @@ layer, in the GlitchTip project/organization settings:
 
 - `TelemetryConfigResponse.dsn` carries `@JsonInclude(ALWAYS)`: the app serialises with
   `default-property-inclusion: non_null`, which would otherwise omit the explicit `"dsn": null`.
-- `GlobalExceptionHandler` gets `TelemetryService` through optional field injection so that
-  `new GlobalExceptionHandler()` in standalone MockMvc tests keeps working.
+- `GlobalExceptionHandler` resolves optional telemetry through constructor-injected
+  `ObjectProvider<TelemetryService>`; standalone MockMvc tests can still use its no-argument constructor.
 - Consent and DSN are re-read on every call; there is no cache to invalidate.
+- The consent prompt reads the lightweight telemetry configuration rather than admin settings.
+  Browser config follows the shared stale-time policy and is invalidated after consent changes.
+- Runtime cleanup closes the browser SDK on logout/unmount, including pending imports. New
+  initialization waits at most one second for the old client to close. Shutdown synchronously
+  disables and detaches the client, drops queued events through session gates and aborts in-flight
+  fetches before closing, so a stalled collector cannot block re-enabling. Bytes already delivered
+  before revocation cannot be recalled.
+- The budget overview emits `budget_viewed` once per mount, with no financial payload, through
+  the same consent-gated tracking helper.
 - The tunnel reads the body by hand (browser SDK sends `text/plain`), caps it at 200 KB, and never
   trusts the `dsn` in the incoming envelope header.
 

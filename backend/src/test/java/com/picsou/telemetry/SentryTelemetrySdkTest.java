@@ -2,6 +2,7 @@ package com.picsou.telemetry;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.sentry.Breadcrumb;
+import io.sentry.ISerializer;
 import io.sentry.SentryEvent;
 import io.sentry.SentryLevel;
 import io.sentry.SentryOptions;
@@ -12,11 +13,21 @@ import io.sentry.protocol.SentryStackFrame;
 import io.sentry.protocol.SentryStackTrace;
 import io.sentry.protocol.User;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
+import java.io.IOException;
 import java.io.StringWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 
 /** Backend first layer: the SDK's {@code beforeSend} rebuilds the event through the allowlist. */
 class SentryTelemetrySdkTest {
@@ -102,6 +113,32 @@ class SentryTelemetrySdkTest {
         assertThat(json.toString()).doesNotContain(IBAN).doesNotContain(EMAIL)
             .doesNotContain("Livret A Jean Dupont").doesNotContain("jane")
             .doesNotContain("secret").doesNotContain("zzz");
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void malformedEnvelope_logsSafeTypeWithoutSourceExcerpt(CapturedOutput output) {
+        byte[] raw = "{\"private\":Livret A Jean Dupont}".getBytes(StandardCharsets.UTF_8);
+
+        assertThat(TelemetryEnvelopeSanitizer.sanitize(raw, "https://key@glitch.invalid/42", mapper))
+            .isEmpty();
+
+        assertThat(output.getAll()).contains("ERROR").contains("telemetry.envelope.parse.failed")
+            .contains("type=JsonParseException").doesNotContain("Livret").doesNotContain("Jean Dupont");
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void scrubFailure_logsSafeTypeWithoutEventContent(CapturedOutput output) throws Exception {
+        ISerializer serializer = mock(ISerializer.class);
+        SentryEvent event = new SentryEvent();
+        doThrow(new IOException("Livret A Jean Dupont"))
+            .when(serializer).serialize(eq(event), any(Writer.class));
+
+        assertThat(SentryTelemetrySdk.scrub(event, serializer, mapper)).isNull();
+
+        assertThat(output.getAll()).contains("ERROR").contains("telemetry.sdk.scrub.failed")
+            .contains("type=IOException").doesNotContain("Livret A Jean Dupont");
     }
 
     private static User user() {

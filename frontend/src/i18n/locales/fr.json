@@ -1791,7 +1791,7 @@
       "title": "Aider à améliorer Picsou ?",
       "intro": "Partagez des rapports de plantage anonymes et des compteurs d'usage avec les développeurs de Picsou. C'est facultatif, valable pour toute l'instance, et modifiable à tout moment dans Administration.",
       "collectedTitle": "Ce qui est partagé",
-      "collected1": "Rapports d'erreurs techniques (type d'erreur, message nettoyé, emplacement dans le code)",
+      "collected1": "Rapports d'erreurs techniques (type d'erreur et emplacement dans le code, jamais les messages d'erreur)",
       "collected2": "Les écrans ouverts (gabarit de page uniquement, ex. /accounts/:id)",
       "collected3": "Les fonctionnalités utilisées (ex. une synchronisation lancée), sans détail",
       "neverTitle": "Ce qui n'est jamais partagé",

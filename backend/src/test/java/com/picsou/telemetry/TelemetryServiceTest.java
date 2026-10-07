@@ -301,7 +301,8 @@ class TelemetryServiceTest {
         assertThat(lines).hasSize(3);
         assertThat(lines[0]).contains("\"dsn\":\"" + DSN + "\"").contains("\"sent_at\":\"2026-10-05T10:00:00.000Z\"");
         assertThat(lines[1]).contains("\"type\":\"event\"");
-        assertThat(lines[2]).contains("[iban]").contains("\"level\":\"error\"");
+        assertThat(lines[2]).doesNotContain("\"value\"").doesNotContain("\"message\"")
+            .contains("\"type\":\"Error\"").contains("\"level\":\"error\"");
         assertThat(lines[1]).contains("\"length\":" + lines[2].getBytes(StandardCharsets.UTF_8).length);
     }
 

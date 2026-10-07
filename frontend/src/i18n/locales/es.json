@@ -1494,7 +1494,7 @@
       "title": "¿Ayudar a mejorar Picsou?",
       "intro": "Comparte informes de fallos anónimos y contadores de uso con los desarrolladores de Picsou. Es opcional, se aplica a toda la instancia y puedes cambiarlo en cualquier momento en Administración.",
       "collectedTitle": "Qué se comparte",
-      "collected1": "Informes técnicos de errores (tipo de error, mensaje depurado, ubicación en el código)",
+      "collected1": "Informes técnicos de errores (tipo de error y ubicación en el código, nunca mensajes de error)",
       "collected2": "Qué pantallas se abren (solo la plantilla de página, p. ej. /accounts/:id)",
       "collected3": "Qué funciones se usan (p. ej. se lanzó una sincronización), sin detalles",
       "neverTitle": "Qué nunca se comparte",

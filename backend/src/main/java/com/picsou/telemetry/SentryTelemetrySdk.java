@@ -95,6 +95,7 @@ public class SentryTelemetrySdk implements TelemetrySdk {
             return serializer.deserialize(
                 new StringReader(mapper.writeValueAsString(scrubbed)), SentryEvent.class);
         } catch (Exception e) {
+            log.error("telemetry.sdk.scrub.failed type={}", e.getClass().getSimpleName());
             return null;
         }
     }

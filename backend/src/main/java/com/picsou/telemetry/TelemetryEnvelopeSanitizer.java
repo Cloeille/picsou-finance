@@ -2,6 +2,8 @@ package com.picsou.telemetry;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -20,6 +22,7 @@ import java.util.regex.Pattern;
  */
 public final class TelemetryEnvelopeSanitizer {
 
+    private static final Logger log = LoggerFactory.getLogger(TelemetryEnvelopeSanitizer.class);
     static final int MAX_EVENTS = 5;
     private static final Pattern SENT_AT = Pattern.compile("^[0-9T:.+\\-Z]{10,40}$");
     private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() { };
@@ -91,6 +94,7 @@ public final class TelemetryEnvelopeSanitizer {
             }
             return Optional.of(out.toByteArray());
         } catch (Exception e) {
+            log.error("telemetry.envelope.sanitize.failed type={}", e.getClass().getSimpleName());
             return Optional.empty();
         }
     }
@@ -115,6 +119,7 @@ public final class TelemetryEnvelopeSanitizer {
         try {
             return mapper.readValue(new String(bytes, StandardCharsets.UTF_8), MAP);
         } catch (Exception e) {
+            log.error("telemetry.envelope.parse.failed type={}", e.getClass().getSimpleName());
             return null;
         }
     }

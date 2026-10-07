@@ -2046,9 +2046,11 @@ Inert unless the instance sets `APP_TELEMETRY_DSN` **and** an admin consented. S
 
 **Response `200`:**
 ```json
-{ "enabled": false, "dsn": null, "environment": "production", "release": "dev" }
+{ "enabled": false, "dsn": null, "environment": "production", "release": "dev", "available": false, "consent": "UNSET" }
 ```
 `dsn` is `null` unless `enabled` (DSN configured and consent `ENABLED`).
+`available` indicates whether a valid DSN is configured; `consent` is `ENABLED`, `DISABLED` or
+`UNSET`. These fields let the consent prompt avoid loading the full admin settings response.
 
 #### `POST /api/telemetry/tunnel`
 
@@ -2058,8 +2060,12 @@ Inert unless the instance sets `APP_TELEMETRY_DSN` **and** an admin consented. S
 Always `204` when telemetry is not enabled (nothing is forwarded). When enabled, only `event` items
 are kept, re-scrubbed, and forwarded to the **configured** DSN host (the DSN in the incoming
 envelope header is ignored). Forward failures are swallowed (`204`).
+Forwarding is asynchronous, with a five-second timeout and at most 16 sends in flight. Pending
+sends are cancelled when consent is disabled or the application shuts down. Each authenticated
+principal is limited to 30 requests per minute before the body is read.
 
-**Errors:** 413 (body over 200 KB)
+**Errors:** 413 (body over 200 KB), 429 (principal rate limit or in-flight capacity reached;
+`Retry-After: 60`)
 
 #### `PUT /api/admin/settings/telemetry`
 
