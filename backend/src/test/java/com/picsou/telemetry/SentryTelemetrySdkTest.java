@@ -65,11 +65,11 @@ class SentryTelemetrySdkTest {
         event.setExtra("balance", "1 234,56 €");
         event.setTag("route", "/accounts/123?x=1");
         event.setTag("user_email", EMAIL);
-        event.setMessage(message("mail " + EMAIL));
+        event.setMessage(message("Key (name)=(Livret A Jean Dupont) already exists"));
 
         SentryException ex = new SentryException();
         ex.setType("IllegalStateException");
-        ex.setValue("iban " + IBAN + " amount 1 234,56 € Bearer abc.def");
+        ex.setValue("Key (name)=(Livret A Jean Dupont) already exists");
         SentryStackFrame frame = new SentryStackFrame();
         frame.setFilename("AccountService.java");
         frame.setFunction("load");
@@ -89,18 +89,18 @@ class SentryTelemetrySdkTest {
         assertThat(out.getExtras()).isNullOrEmpty();
         assertThat(out.getServerName()).isNull();
         assertThat(out.getTags()).containsEntry("route", "/accounts/:id").doesNotContainKey("user_email");
-        assertThat(out.getMessage().getFormatted()).contains("[email]").doesNotContain(EMAIL);
+        assertThat(out.getMessage()).isNull();
         SentryException scrubbed = out.getExceptions().get(0);
         assertThat(scrubbed.getType()).isEqualTo("IllegalStateException");
-        assertThat(scrubbed.getValue()).contains("[iban]", "[amount]", "[token]")
-            .doesNotContain(IBAN).doesNotContain("1 234").doesNotContain("abc.def");
+        assertThat(scrubbed.getValue()).isNull();
         SentryStackFrame f = scrubbed.getStacktrace().getFrames().get(0);
         assertThat(f.getFilename()).isEqualTo("AccountService.java");
         assertThat(f.getLineno()).isEqualTo(42);
 
         StringWriter json = new StringWriter();
         options.getSerializer().serialize(out, json);
-        assertThat(json.toString()).doesNotContain(IBAN).doesNotContain(EMAIL).doesNotContain("jane")
+        assertThat(json.toString()).doesNotContain(IBAN).doesNotContain(EMAIL)
+            .doesNotContain("Livret A Jean Dupont").doesNotContain("jane")
             .doesNotContain("secret").doesNotContain("zzz");
     }
 

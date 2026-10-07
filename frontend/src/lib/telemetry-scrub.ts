@@ -125,7 +125,7 @@ function scrubExceptionValue(value: unknown): Dict | null {
   if (!isDict(value)) return null
   const out: Dict = {}
   if (typeof value.type === 'string') out.type = scrubString(value.type)
-  if (typeof value.value === 'string') out.value = scrubString(value.value)
+  if (typeof value.module === 'string') out.module = scrubString(value.module)
   if (isDict(value.mechanism)) {
     const mechanism: Dict = {}
     if (typeof value.mechanism.type === 'string') mechanism.type = value.mechanism.type.slice(0, 64)
@@ -176,10 +176,12 @@ function scrubContexts(contexts: unknown): Dict | undefined {
 }
 
 function scrubMessage(message: unknown): string | undefined {
-  if (typeof message === 'string') return scrubString(message)
+  if (typeof message === 'string') {
+    return message === 'page_view' || message === 'feature_used' ? message : undefined
+  }
   if (isDict(message)) {
     const text = message.formatted ?? message.message
-    if (typeof text === 'string') return scrubString(text)
+    if (text === 'page_view' || text === 'feature_used') return text
   }
   return undefined
 }

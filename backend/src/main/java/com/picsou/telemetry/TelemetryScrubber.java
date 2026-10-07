@@ -30,6 +30,7 @@ public final class TelemetryScrubber {
     private static final int MAX_FINGERPRINT = 10;
 
     private static final Set<String> LEVELS = Set.of("fatal", "error", "warning", "info", "debug");
+    private static final Set<String> USAGE_MESSAGES = Set.of("page_view", "feature_used");
 
     private static final Pattern EVENT_ID = Pattern.compile("^[0-9a-fA-F-]{32,36}$");
     private static final Pattern TIMESTAMP = Pattern.compile("^[0-9T:.+\\-Z ]{10,40}$");
@@ -177,17 +178,15 @@ public final class TelemetryScrubber {
 
     private static Object scrubMessage(Object message) {
         if (message instanceof String s) {
-            return cut(scrubText(s), MAX_VALUE);
+            return USAGE_MESSAGES.contains(s) ? s : null;
         }
         if (message instanceof Map<?, ?> m) {
-            Map<String, Object> out = new LinkedHashMap<>();
-            if (m.get("formatted") instanceof String f) {
-                out.put("formatted", cut(scrubText(f), MAX_VALUE));
+            Object formatted = m.get("formatted");
+            if (formatted instanceof String f && USAGE_MESSAGES.contains(f)) {
+                return f;
             }
-            if (m.get("message") instanceof String f) {
-                out.put("message", cut(scrubText(f), MAX_VALUE));
-            }
-            return out.isEmpty() ? null : out;
+            Object text = m.get("message");
+            return text instanceof String s && USAGE_MESSAGES.contains(s) ? s : null;
         }
         return null;
     }
@@ -222,7 +221,6 @@ public final class TelemetryScrubber {
     private static Map<String, Object> scrubException(Map<?, ?> ex) {
         Map<String, Object> out = new LinkedHashMap<>();
         putText(out, "type", ex.get("type"), MAX_NAME);
-        putText(out, "value", ex.get("value"), MAX_VALUE);
         putText(out, "module", ex.get("module"), MAX_NAME);
         if (ex.get("mechanism") instanceof Map<?, ?> mech) {
             Map<String, Object> m = new LinkedHashMap<>();

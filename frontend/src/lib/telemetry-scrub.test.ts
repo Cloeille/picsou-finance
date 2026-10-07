@@ -65,7 +65,7 @@ describe('scrubEvent', () => {
     release: '1.1.0',
     environment: 'production',
     server_name: 'host.local',
-    message: `Failed for ${EMAIL}`,
+    message: 'Key (name)=(Livret A Jean Dupont) already exists',
     request: { url: 'https://x/accounts/1?token=abc', headers: { Cookie: 'sid=1' } },
     user: { id: '1', email: EMAIL, ip_address: '1.2.3.4' },
     breadcrumbs: [{ message: IBAN }],
@@ -84,7 +84,8 @@ describe('scrubEvent', () => {
       values: [
         {
           type: 'Error',
-          value: `Bad ${IBAN}, ${EMAIL}, 1 234,56 €, Bearer abc.def, ${JWT}`,
+          module: 'com.picsou.errors',
+          value: 'Key (name)=(Livret A Jean Dupont) already exists',
           mechanism: { type: 'onerror', handled: false, data: { secret: 'x' } },
           stacktrace: {
             frames: [
@@ -120,7 +121,7 @@ describe('scrubEvent', () => {
   })
 
   it('contains no sensitive literal anywhere', () => {
-    for (const leaked of [IBAN, EMAIL, '1 234,56', 'abc.def', 'eyJhbGci', 'token=zzz']) {
+    for (const leaked of [IBAN, EMAIL, '1 234,56', 'abc.def', 'eyJhbGci', 'token=zzz', 'Livret A Jean Dupont']) {
       expect(json).not.toContain(leaked)
     }
   })
@@ -129,7 +130,7 @@ describe('scrubEvent', () => {
     expect(out.event_id).toBe('abc123')
     expect(out.level).toBe('error')
     expect(out.release).toBe('1.1.0')
-    expect(out.message).toBe('Failed for [email]')
+    expect(out).not.toHaveProperty('message')
     expect(out.tags).toEqual({ route: '/accounts/:id', feature: 'sync_triggered', 'ab.variant': 'v-[iban]' })
     expect(out.contexts).toEqual({
       os: { name: 'Linux' },
@@ -138,6 +139,8 @@ describe('scrubEvent', () => {
     })
     expect(out.fingerprint).toEqual(['page_view', '/accounts/:id'])
     const ex = (out.exception as { values: Record<string, unknown>[] }).values[0]
+    expect(ex).not.toHaveProperty('value')
+    expect(ex).toMatchObject({ type: 'Error', module: 'com.picsou.errors' })
     expect(ex.mechanism).toEqual({ type: 'onerror', handled: false })
     const frame = (ex.stacktrace as { frames: Record<string, unknown>[] }).frames[0]
     expect(frame.filename).toBe('/assets/accounts/:id/index-abc.js')
@@ -148,5 +151,14 @@ describe('scrubEvent', () => {
     const e = scrubEvent({ tags: { feature: 'a'.repeat(100), other: 'x' } }) as { tags: Record<string, string> }
     expect(e.tags.feature).toHaveLength(64)
     expect(e.tags).not.toHaveProperty('other')
+  })
+
+  it('keeps only fixed usage messages and drops free-text message and logentry', () => {
+    expect(scrubEvent({ message: 'page_view' })).toHaveProperty('message', 'page_view')
+    expect(scrubEvent({ message: 'feature_used' })).toHaveProperty('message', 'feature_used')
+    expect(scrubEvent({ message: 'Key (name)=(Livret A Jean Dupont) already exists' }))
+      .not.toHaveProperty('message')
+    expect(scrubEvent({ logentry: { formatted: 'Jean Dupont opened Livret A' } }))
+      .not.toHaveProperty('message')
   })
 })

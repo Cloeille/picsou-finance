@@ -77,7 +77,7 @@ class TelemetryScrubberTest {
     }
 
     @Test
-    void scrubEvent_cleansExceptionValueMessageFramesAndTags() throws Exception {
+    void scrubEvent_dropsExceptionValueAndFreeTextMessageButKeepsFramesAndTags() throws Exception {
         Map<String, Object> raw = json("""
             {
               "event_id": "9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d",
@@ -86,10 +86,11 @@ class TelemetryScrubberTest {
               "level": "error",
               "release": "1.1.0",
               "environment": "production",
-              "message": "failed for %IBAN% / %EMAIL%",
+              "message": "Key (name)=(Livret A Jean Dupont) already exists",
               "exception": {"values": [{
                 "type": "Error",
-                "value": "iban %IBAN% amount %AMOUNT% mail %EMAIL% %BEARER% jwt %JWT%",
+                "module": "com.picsou.errors",
+                "value": "Key (name)=(Livret A Jean Dupont) already exists",
                 "mechanism": {"type": "onerror", "handled": false, "data": {"secret": "x"}},
                 "stacktrace": {"frames": [{
                   "filename": "https://app.example.org/accounts/123/chunk.js?token=zzz",
@@ -121,7 +122,7 @@ class TelemetryScrubberTest {
         String serialized = MAPPER.writeValueAsString(out);
 
         assertThat(serialized)
-            .doesNotContain(IBAN).doesNotContain("1 234").doesNotContain(EMAIL)
+            .doesNotContain("Livret A Jean Dupont").doesNotContain("1 234").doesNotContain(EMAIL)
             .doesNotContain("abc123").doesNotContain("eyJ").doesNotContain("zzz")
             .doesNotContain("jane").doesNotContain("Jane").doesNotContain("iPhone");
         assertThat(out.keySet()).doesNotContain("request", "user", "breadcrumbs", "extra",
@@ -129,8 +130,9 @@ class TelemetryScrubberTest {
 
         @SuppressWarnings("unchecked")
         Map<String, Object> exc = ((List<Map<String, Object>>) ((Map<String, Object>) out.get("exception")).get("values")).get(0);
-        assertThat((String) exc.get("value")).contains("[iban]", "[amount]", "[email]", "[token]");
-        assertThat((String) out.get("message")).contains("[iban]", "[email]");
+        assertThat(exc).containsEntry("type", "Error").containsEntry("module", "com.picsou.errors");
+        assertThat(exc).doesNotContainKey("value");
+        assertThat(out).doesNotContainKey("message");
         assertThat(exc.get("mechanism")).isEqualTo(Map.of("type", "onerror", "handled", false));
 
         @SuppressWarnings("unchecked")
@@ -155,6 +157,17 @@ class TelemetryScrubberTest {
         assertThat(contexts.get("runtime")).isEqualTo(Map.of("name", "node", "version", "22"));
         assertThat(out.get("fingerprint")).isEqualTo(List.of("page_view", "/accounts/:id"));
         assertThat(out.get("sdk")).isEqualTo(Map.of("name", "sentry.javascript.react", "version", "9.0.0"));
+    }
+
+    @Test
+    void scrubEvent_keepsOnlyFixedUsageMessages() {
+        assertThat(TelemetryScrubber.scrubEvent(Map.of("message", "page_view")))
+            .containsEntry("message", "page_view");
+        assertThat(TelemetryScrubber.scrubEvent(Map.of("message", "feature_used")))
+            .containsEntry("message", "feature_used");
+        assertThat(TelemetryScrubber.scrubEvent(Map.of(
+            "message", "Key (name)=(Livret A Jean Dupont) already exists")))
+            .doesNotContainKey("message");
     }
 
     @Test
