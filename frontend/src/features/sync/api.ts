@@ -15,6 +15,10 @@ import type {
   FinaryAutoSyncResponse,
   BoursoSessionStatus,
   BoursoAuthInitResponse,
+  CaisseEpargneSessionStatus,
+  CaisseEpargneAuthInitResponse,
+  CaisseEpargneAuthCompleteResponse,
+  CaisseEpargneDeleteResponse,
   RevolutSessionStatus,
   SyncProgress,
   BourseDirectSessionStatus,
@@ -182,6 +186,35 @@ export const boursoApi = {
 
   clearSession: () =>
     api.delete('/bourso/session'),
+}
+
+// --- Caisse d'Epargne ---
+
+export const caisseEpargneApi = {
+  // One attempt only: a wrong password spends a bank attempt and can lock the
+  // account, so nothing may replay this call after a failure.
+  initiateAuth: (customerId: string, password: string) =>
+    api
+      .post<CaisseEpargneAuthInitResponse>('/caisse-epargne/auth/initiate', { customerId, password })
+      .then(r => r.data),
+
+  // No code: the user approves the Sécur'Pass push on their phone and the
+  // request stays open until they do (the backend waits up to 170 s).
+  completeAuth: (processId: string) =>
+    api
+      .post<CaisseEpargneAuthCompleteResponse>('/caisse-epargne/auth/complete', { processId })
+      .then(r => r.data),
+
+  sync: () =>
+    api.post<CaisseEpargneSessionStatus>('/caisse-epargne/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<CaisseEpargneSessionStatus>('/caisse-epargne/status', { skipGlobalErrorRedirect: true })
+      .then(r => r.data),
+
+  clearSession: () =>
+    api.delete<CaisseEpargneDeleteResponse>('/caisse-epargne/session').then(r => r.data),
 }
 
 // --- Revolut ---

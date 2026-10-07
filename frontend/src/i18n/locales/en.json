@@ -1274,6 +1274,45 @@
         "serverError": "Could not reach BoursoBank. Please try again."
       }
     },
+    "caisseEpargne": {
+      "title": "Caisse d'Epargne",
+      "customerId": "Identifier",
+      "password": "Password",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Caisse d'Epargne accounts synced.",
+      "clearSession": "Disconnect",
+      "disconnectConfirm": "This deletes the session stored in Picsou. The Caisse d'Epargne session itself is not ended and may stay active until it expires.",
+      "disconnectConfirmAction": "Delete the stored session",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your Caisse d'Epargne current and savings accounts on demand. Only the session is kept, encrypted. Contracts Picsou cannot import are listed but never created.",
+      "notice": {
+        "neverStored": "Picsou never stores your password. It is used once to sign in, then discarded.",
+        "noRetry": "Picsou never retries a sign-in. If it fails, nothing is sent again until you submit the form yourself.",
+        "lockRisk": "Wrong attempts count against your bank access and can lock your Caisse d'Epargne account. Check your identifier and password before connecting."
+      },
+      "securPassPrompt": "Approve the sign-in in your Sécur'Pass app.",
+      "securPassHint": "Picsou does not touch your phone. This page continues on its own once you approve.",
+      "countdownLabel": "Time left to approve:",
+      "unsupportedTitle": "Contracts not imported",
+      "unsupportedHint": "Picsou does not support these contract families yet (family code shown).",
+      "errors": {
+        "rateLimited": "Too many sign-in attempts. Please wait before trying again.",
+        "rateLimitedRetryAfter": "Too many sign-in attempts. Try again in {{minutes}} min.",
+        "invalidCredentials": "The bank refused the identifier or password. Check them before trying again: repeated failures can lock your account.",
+        "keypadChanged": "The bank changed its login page. Nothing was sent. Picsou needs an update before it can sign in.",
+        "appValidationTimeout": "The sign-in was not approved in Sécur'Pass in time. Start over if you want to try again.",
+        "authAttemptExpired": "The sign-in attempt expired. Start over if you want to try again.",
+        "sessionExpired": "The Caisse d'Epargne session expired. Please reconnect.",
+        "formatChanged": "The Caisse d'Epargne website format changed. Your existing data was kept.",
+        "invalidSessionState": "The stored session could not be read. Please reconnect.",
+        "serverError": "Could not reach Caisse d'Epargne. Please try again later."
+      }
+    },
     "degiro": {
       "title": "DEGIRO",
       "username": "Username",

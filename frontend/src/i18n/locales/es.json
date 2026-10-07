@@ -972,6 +972,45 @@
         "serverError": "No se puede contactar con BoursoBank. Inténtelo de nuevo."
       }
     },
+    "caisseEpargne": {
+      "title": "Caisse d'Epargne",
+      "customerId": "Identificador",
+      "password": "Contraseña",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Cuentas de Caisse d'Epargne sincronizadas.",
+      "clearSession": "Desconectar",
+      "disconnectConfirm": "Esto borra la sesión guardada en Picsou. La sesión de Caisse d'Epargne en sí no se cierra y puede seguir activa hasta que caduque.",
+      "disconnectConfirmAction": "Borrar la sesión guardada",
+      "noSession": "Sin sesión activa",
+      "sessionActive": "Sesión activa",
+      "scope": "Sincroniza bajo demanda tus cuentas corrientes y de ahorro de Caisse d'Epargne. Solo se guarda la sesión, cifrada. Los contratos que Picsou no puede importar se listan pero nunca se crean.",
+      "notice": {
+        "neverStored": "Picsou nunca guarda tu contraseña. Se usa una vez para iniciar sesión y se descarta.",
+        "noRetry": "Picsou nunca reintenta un inicio de sesión. Si falla, no se vuelve a enviar nada hasta que envíes el formulario tú mismo.",
+        "lockRisk": "Los intentos fallidos cuentan ante tu banco y pueden bloquear tu acceso a Caisse d'Epargne. Comprueba tu identificador y contraseña antes de conectar."
+      },
+      "securPassPrompt": "Aprueba el inicio de sesión en tu aplicación Sécur'Pass.",
+      "securPassHint": "Picsou no toca tu teléfono. Esta página continúa sola en cuanto apruebes.",
+      "countdownLabel": "Tiempo restante para aprobar:",
+      "unsupportedTitle": "Contratos no importados",
+      "unsupportedHint": "Picsou aún no admite estas familias de contratos (se muestra el código de familia).",
+      "errors": {
+        "rateLimited": "Demasiados intentos de inicio de sesión. Espera antes de volver a intentarlo.",
+        "rateLimitedRetryAfter": "Demasiados intentos de inicio de sesión. Inténtalo de nuevo en {{minutes}} min.",
+        "invalidCredentials": "El banco rechazó el identificador o la contraseña. Compruébalos antes de reintentar: los fallos repetidos pueden bloquear tu cuenta.",
+        "keypadChanged": "El banco cambió su página de inicio de sesión. No se envió nada. Picsou necesita una actualización antes de poder iniciar sesión.",
+        "appValidationTimeout": "El inicio de sesión no se aprobó a tiempo en Sécur'Pass. Empieza de nuevo si quieres reintentarlo.",
+        "authAttemptExpired": "El intento de inicio de sesión caducó. Empieza de nuevo si quieres reintentarlo.",
+        "sessionExpired": "La sesión de Caisse d'Epargne caducó. Vuelve a conectar.",
+        "formatChanged": "El formato del sitio de Caisse d'Epargne cambió. Se conservaron tus datos existentes.",
+        "invalidSessionState": "No se pudo leer la sesión guardada. Vuelve a conectar.",
+        "serverError": "No se pudo contactar con Caisse d'Epargne. Inténtalo de nuevo más tarde."
+      }
+    },
     "degiro": {
       "title": "DEGIRO",
       "username": "Usuario",
