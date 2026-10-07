@@ -43,6 +43,12 @@ jobs:
         run: >-
           grep -q 'Tests run: 6, Failures: 0, Errors: 0, Skipped: 0'
           backend/target/surefire-reports/com.picsou.service.ScpiSyncSessionPostgresTest.txt
+      - name: Require the HomeBank PostgreSQL persistence tests
+        run: |
+          grep -q 'Tests run: 2, Failures: 0, Errors: 0, Skipped: 0' \
+            backend/target/surefire-reports/com.picsou.service.HomeBankImportPersistenceTest.txt
+          grep -q 'Tests run: 1, Failures: 0, Errors: 0, Skipped: 0' \
+            backend/target/surefire-reports/com.picsou.service.HomeBankQifPersistenceTest.txt
 
   frontend:
     runs-on: ubuntu-latest

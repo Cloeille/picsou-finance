@@ -1,0 +1,54 @@
+!Account
+NCompte courant
+TBank
+^
+!Type:Bank
+D2024/02/29
+T-12.34000001
+C*
+PÉpicerie 🥖
+Machats du mois
+LFood:Groceries
+^
+D2024/03/01
+T25.00
+PSalaire
+MSalaire mensuel
+LSalary
+^
+D2024/03/02
+T-5.00
+PRefunded item
+LFood:Groceries
+^
+D2024/03/03
+T-20.00
+PTransfer to savings
+L[Épargne]
+^
+D2024/03/04
+T-10.00
+SFood:Groceries
+Esplit memo
+$-4.25
+SHousehold:Utilities
+$-5.75
+^
+!Account
+NÉpargne
+TBank
+^
+!Type:Bank
+D2024/03/05
+T20.00
+PTransfer from checking
+L[Compte courant]
+^
+!Type:Cat
+NFood:Groceries
+E
+^
+!Type:Cat
+NSalary
+I
+^

@@ -9,6 +9,7 @@ import { TradeRepublicTab } from './TradeRepublicTab'
 import { RevolutTab } from './RevolutTab'
 import { IbkrTab } from './IbkrTab'
 import { FinaryTab } from './FinaryTab'
+import { HomeBankTab } from './HomeBankTab'
 import { BourseDirectTab } from './BourseDirectTab'
 import { AccountsVisibilityTab } from './AccountsVisibilityTab'
 import { DegiroTab } from './DegiroTab'
@@ -46,6 +47,7 @@ export function SyncPage() {
           <TabsTrigger value="sofidy" className="flex-none">{t('sync.sofidy.title')}</TabsTrigger>
           <TabsTrigger value="actual" className="flex-none">{t('sync.actual.title')}</TabsTrigger>
           <TabsTrigger value="finary" className="flex-none">{t('sync.finary.title')}</TabsTrigger>
+          <TabsTrigger value="homebank" className="flex-none">{t('sync.homebank.title')}</TabsTrigger>
           <TabsTrigger value="visibility" className="flex-none">{t('sync.visibility.title')}</TabsTrigger>
         </TabsList>
         <TabsContent value="banks" className="mt-6">
@@ -95,6 +97,9 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="finary" className="mt-6">
           <FinaryTab />
+        </TabsContent>
+        <TabsContent value="homebank" className="mt-6">
+          <HomeBankTab />
         </TabsContent>
         <TabsContent value="visibility" className="mt-6">
           <AccountsVisibilityTab />

@@ -67,6 +67,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
+    @ExceptionHandler(ImportPreviewCapacityException.class)
+    ProblemDetail handleImportPreviewCapacity(ImportPreviewCapacityException ex) {
+        log.warn("Import preview store has no evictable slot left");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ImportPreviewCapacityException.MESSAGE);
+    }
+
     @ExceptionHandler(MfaException.class)
     ProblemDetail handleMfa(MfaException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
