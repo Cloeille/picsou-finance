@@ -990,7 +990,7 @@
       "notice": {
         "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken es selbst auf der Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
         "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",
-        "lockRisk": "Falsche Versuche zählen bei Ihrer Bank und können Ihren Caisse-d'Epargne-Zugang sperren. Prüfen Sie Kennung und Passwort vor dem Verbinden."
+        "lockRisk": "Falsche Versuche zählen bei Ihrer Bank und können Ihren Caisse-d'Epargne-Zugang sperren. Prüfen Sie Ihre Kennung und die auf der Tastatur geklickten Ziffern vor dem Bestätigen."
       },
       "securPassPrompt": "Bestätigen Sie die Anmeldung in Ihrer Sécur'Pass-App.",
       "securPassHint": "Picsou greift nicht auf Ihr Telefon zu. Diese Seite geht von selbst weiter, sobald Sie bestätigen.",

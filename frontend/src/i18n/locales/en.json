@@ -1293,7 +1293,7 @@
       "notice": {
         "neverStored": "Picsou never sees or stores your password. You click it on the bank's keypad yourself; only the positions of the keys are sent, once.",
         "noRetry": "Picsou never retries a sign-in. If it fails, nothing is sent again until you submit the form yourself.",
-        "lockRisk": "Wrong attempts count against your bank access and can lock your Caisse d'Epargne account. Check your identifier and password before connecting."
+        "lockRisk": "Wrong attempts count against your bank access and can lock your Caisse d'Epargne account. Check your identifier and the digits you click on the keypad before validating."
       },
       "securPassPrompt": "Approve the sign-in in your Sécur'Pass app.",
       "securPassHint": "Picsou does not touch your phone. This page continues on its own once you approve.",

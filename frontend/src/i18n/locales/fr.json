@@ -1293,7 +1293,7 @@
       "notice": {
         "neverStored": "Picsou ne voit et ne conserve jamais votre mot de passe. Vous le saisissez vous-même sur le clavier de la banque ; seules les positions des touches sont envoyées, une seule fois.",
         "noRetry": "Picsou ne réessaie jamais une connexion. En cas d'échec, rien n'est renvoyé tant que vous ne validez pas le formulaire vous-même.",
-        "lockRisk": "Les tentatives erronées comptent auprès de votre banque et peuvent bloquer votre accès Caisse d'Epargne. Vérifiez votre identifiant et votre mot de passe avant de vous connecter."
+        "lockRisk": "Les tentatives erronées comptent auprès de votre banque et peuvent bloquer votre accès Caisse d'Epargne. Vérifiez votre identifiant et les chiffres cliqués sur le clavier avant de valider."
       },
       "securPassPrompt": "Validez la connexion dans votre application Sécur'Pass.",
       "securPassHint": "Picsou n'agit pas sur votre téléphone. Cette page continue seule dès que vous validez.",

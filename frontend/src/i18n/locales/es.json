@@ -990,7 +990,7 @@
       "notice": {
         "neverStored": "Picsou nunca ve ni guarda tu contraseña. La pulsas tú mismo en el teclado del banco; solo se envían las posiciones de las teclas, una única vez.",
         "noRetry": "Picsou nunca reintenta un inicio de sesión. Si falla, no se vuelve a enviar nada hasta que envíes el formulario tú mismo.",
-        "lockRisk": "Los intentos fallidos cuentan ante tu banco y pueden bloquear tu acceso a Caisse d'Epargne. Comprueba tu identificador y contraseña antes de conectar."
+        "lockRisk": "Los intentos fallidos cuentan ante tu banco y pueden bloquear tu acceso a Caisse d'Epargne. Comprueba tu identificador y las cifras pulsadas en el teclado antes de validar."
       },
       "securPassPrompt": "Aprueba el inicio de sesión en tu aplicación Sécur'Pass.",
       "securPassHint": "Picsou no toca tu teléfono. Esta página continúa sola en cuanto apruebes.",
