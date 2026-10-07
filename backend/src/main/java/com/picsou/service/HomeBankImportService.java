@@ -468,7 +468,12 @@ public class HomeBankImportService {
                 .filter(transaction -> !transaction.forecast())
                 .filter(transaction -> accountMappings.get(transaction.accountId()).action() != FinaryMappingAction.SKIP)
                 .map(transaction -> homeBankTransactionId(transaction.id()))
-                .collect(Collectors.toSet());
+                .collect(Collectors.toCollection(HashSet::new));
+        parsed.accounts().stream()
+                .filter(source -> accountMappings.get(source.id()).action() != FinaryMappingAction.SKIP)
+                .filter(source -> source.initialBalance().compareTo(BigDecimal.ZERO) != 0)
+                .map(source -> homeBankOpeningId(source.id()))
+                .forEach(externalIds::add);
         if (externalIds.isEmpty()) {
             return;
         }
@@ -479,6 +484,7 @@ public class HomeBankImportService {
                 .filter(transaction -> !transaction.forecast())
                 .collect(Collectors.toMap(transaction -> homeBankTransactionId(transaction.id()),
                         SourceTransaction::accountId, (first, ignored) -> first));
+        parsed.accounts().forEach(source -> sourceAccountByExternalId.put(homeBankOpeningId(source.id()), source.id()));
         for (Map.Entry<String, Transaction> entry : existingByExternalId.entrySet()) {
             String sourceAccountId = sourceAccountByExternalId.get(entry.getKey());
             Account expectedTarget = targetAccounts.get(sourceAccountId);
@@ -578,11 +584,11 @@ public class HomeBankImportService {
     private void importOpeningBalances(ParsedHomeBankData parsed, Map<String, AccountMapping> mappings,
             Map<String, Account> targets, Category transferCategory, Set<Long> accountsWithNewRows) {
         for (SourceAccount source : parsed.accounts()) {
-            if (mappings.get(source.id()).action() != FinaryMappingAction.CREATE_NEW) {
+            if (mappings.get(source.id()).action() == FinaryMappingAction.SKIP) {
                 continue;
             }
             Account target = targets.get(source.id());
-            if (!Objects.equals(target.getExternalAccountId(), homeBankAccountId(source.id()))) {
+            if (target == null || !target.isManual()) {
                 continue;
             }
             if (source.initialBalance().compareTo(BigDecimal.ZERO) == 0) {

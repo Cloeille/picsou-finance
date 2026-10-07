@@ -93,7 +93,6 @@ class HomeBankImportPersistenceTest {
         }
     }
 
-    private static final long MEMBER_ID = 1L;
     private static final String ROLLBACK_CHECK = "homebank_test_reject_marker";
     private static final String PAYLOAD = """
         {"data":{
@@ -120,17 +119,19 @@ class HomeBankImportPersistenceTest {
     @Autowired FamilyMemberRepository members;
     @Autowired BalanceSnapshotRepository snapshots;
     @Autowired JdbcTemplate jdbc;
+    private Long memberId;
 
     @BeforeEach
     void createSyntheticMember() {
-        members.save(com.picsou.model.FamilyMember.builder().displayName("Synthetic test member").build());
+        memberId = members.save(com.picsou.model.FamilyMember.builder()
+                .displayName("Synthetic test member").build()).getId();
     }
 
     @Test
     void persistsExactLedgerReplaysDeduplicateAndRollbackRestoresTokenForRetry() {
-        assertThat(members.findById(MEMBER_ID)).isPresent();
-        int accountsBefore = accounts.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID).size();
-        int categoriesBefore = categories.findAllByMemberIdOrderBySortOrderAscIdAsc(MEMBER_ID).size();
+        assertThat(members.findById(memberId)).isPresent();
+        int accountsBefore = accounts.findAllByMemberIdOrderByCreatedAtAsc(memberId).size();
+        int categoriesBefore = categories.findAllByMemberIdOrderBySortOrderAscIdAsc(memberId).size();
         int transactionsBefore = transactions.findAll().size();
         int snapshotsBefore = snapshots.findAll().size();
 
@@ -144,10 +145,10 @@ class HomeBankImportPersistenceTest {
                         new com.picsou.dto.NewAccountDetails("wrong currency", com.picsou.model.AccountType.CHECKING, null, "EUR", "#6366f1")),
                     new AccountMapping("a12b3c4d-2222-4222-8222-222222222222", FinaryMappingAction.CREATE_NEW, null,
                         new com.picsou.dto.NewAccountDetails("wrong currency", com.picsou.model.AccountType.SAVINGS, null, "USD", "#6366f1"))),
-                    request.categoryMappings()), MEMBER_ID))
+                    request.categoryMappings()), memberId))
             .isInstanceOf(IllegalArgumentException.class);
-        assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID)).hasSize(accountsBefore);
-        assertThat(categories.findAllByMemberIdOrderBySortOrderAscIdAsc(MEMBER_ID)).hasSize(categoriesBefore);
+        assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(memberId)).hasSize(accountsBefore);
+        assertThat(categories.findAllByMemberIdOrderBySortOrderAscIdAsc(memberId)).hasSize(categoriesBefore);
         assertThat(transactions.findAll()).hasSize(transactionsBefore);
         assertThat(snapshots.findAll()).hasSize(snapshotsBefore);
 
@@ -155,22 +156,22 @@ class HomeBankImportPersistenceTest {
             + " CHECK (description <> 'Fresh food note') NOT VALID");
         Preview failingPreview = preview(PAYLOAD);
         Request failingRequest = request(failingPreview);
-        assertThatThrownBy(() -> service.executeImport(failingRequest, MEMBER_ID)).isInstanceOf(RuntimeException.class);
-        assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID)).hasSize(accountsBefore);
-        assertThat(categories.findAllByMemberIdOrderBySortOrderAscIdAsc(MEMBER_ID)).hasSize(categoriesBefore);
+        assertThatThrownBy(() -> service.executeImport(failingRequest, memberId)).isInstanceOf(RuntimeException.class);
+        assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(memberId)).hasSize(accountsBefore);
+        assertThat(categories.findAllByMemberIdOrderBySortOrderAscIdAsc(memberId)).hasSize(categoriesBefore);
         assertThat(transactions.findAll()).hasSize(transactionsBefore);
         assertThat(snapshots.findAll()).hasSize(snapshotsBefore);
 
         jdbc.execute("ALTER TABLE \"transaction\" DROP CONSTRAINT " + ROLLBACK_CHECK);
-        var result = service.executeImport(failingRequest, MEMBER_ID);
+        var result = service.executeImport(failingRequest, memberId);
         assertThat(result.accountsCreated()).isEqualTo(2);
         assertThat(result.categoriesCreated()).isEqualTo(3);
         assertThat(result.transactionsImported()).isEqualTo(4);
-        assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID)).hasSize(accountsBefore + 2);
-        assertThat(categories.findAllByMemberIdOrderBySortOrderAscIdAsc(MEMBER_ID)).hasSize(categoriesBefore + 4);
+        assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(memberId)).hasSize(accountsBefore + 2);
+        assertThat(categories.findAllByMemberIdOrderBySortOrderAscIdAsc(memberId)).hasSize(categoriesBefore + 4);
         assertThat(transactions.findAll()).hasSize(transactionsBefore + 6); // four source rows and two openings
 
-        List<Account> importedAccounts = accounts.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID).stream()
+        List<Account> importedAccounts = accounts.findAllByMemberIdOrderByCreatedAtAsc(memberId).stream()
             .filter(a -> a.getExternalAccountId() != null && a.getExternalAccountId().startsWith("homebank_"))
             .toList();
         Account checking = importedAccounts.stream().filter(a -> a.getExternalAccountId().endsWith("111111111111")).findFirst().orElseThrow();
@@ -188,7 +189,7 @@ class HomeBankImportPersistenceTest {
         assertThat(expense.getCategory()).isEqualTo("Fresh produce");
         assertThat(categoryKind(expense.getId())).isEqualTo(CategoryKind.EXPENSE);
         assertThat(jdbc.queryForObject("SELECT p.name FROM category c JOIN category p ON p.id=c.parent_id "
-            + "WHERE c.slug=? AND c.member_id=?", String.class, "homebank_b12b3c4d-2222-4222-8222-222222222222", MEMBER_ID))
+            + "WHERE c.slug=? AND c.member_id=?", String.class, "homebank_b12b3c4d-2222-4222-8222-222222222222", memberId))
             .isEqualTo("Groceries");
 
         Transaction income = rows.stream().filter(t -> "homebank_d12b3c4d-2222-4222-8222-222222222222".equals(t.getExternalId())).findFirst().orElseThrow();
@@ -217,17 +218,57 @@ class HomeBankImportPersistenceTest {
 
         int importedRows = transactions.findAll().size();
         Preview replay = preview(PAYLOAD);
-        var replayResult = service.executeImport(request(replay), MEMBER_ID);
+        var replayResult = service.executeImport(request(replay), memberId);
         assertThat(replayResult.transactionsImported()).isZero();
         assertThat(replayResult.transactionsSkipped()).isEqualTo(4);
         assertThat(transactions.findAll()).hasSize(importedRows);
-        assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID)).hasSize(accountsBefore + 2);
-        assertThat(categories.findAllByMemberIdOrderBySortOrderAscIdAsc(MEMBER_ID)).hasSize(categoriesBefore + 4);
+        assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(memberId)).hasSize(accountsBefore + 2);
+        assertThat(categories.findAllByMemberIdOrderBySortOrderAscIdAsc(memberId)).hasSize(categoriesBefore + 4);
+    }
+
+    @Test
+    void mappedManualAccountPersistsAdditiveOpeningAndReplayDoesNotDuplicateIt() {
+        String sourceId = "e12b3c4d-1111-4111-8111-111111111111";
+        var target = accounts.save(com.picsou.model.Account.builder()
+                .member(members.findById(memberId).orElseThrow()).name("Existing manual")
+                .type(com.picsou.model.AccountType.CHECKING).currency("EUR")
+                .currentBalance(new java.math.BigDecimal("1000")).isManual(true).color("#6366f1").build());
+        transactions.save(Transaction.builder().account(target).date(java.time.LocalDate.of(2024, 1, 1))
+                .description("Legacy row").amount(new java.math.BigDecimal("1000"))
+                .nativeCurrency("EUR").isManual(true).build());
+        String payload = """
+            {"data":{"accounts":[{"id":"%s","name":"Mapped account","institution":"Bank","type":"bank","currency":{"code":"EUR"},"initialAmount":{"amount":250,"currencyCode":"EUR"},"isClosed":false}],"categories":[],"payees":[],"transactions":[]},"manifest":{"schemaVersion":3,"platform":"iOS","appVersion":"synthetic","appBuild":"test","exportDate":"2024-03-03"}}
+            """.formatted(sourceId);
+        Preview preview = preview(payload);
+        Request request = new Request(preview.fileToken(), List.of(
+                new AccountMapping(sourceId, FinaryMappingAction.MAP_EXISTING, target.getId(), null)), List.of());
+
+        service.executeImport(request, memberId);
+
+        assertThat(accounts.findByIdAndMemberId(target.getId(), memberId).orElseThrow().getCurrentBalance())
+                .isEqualByComparingTo("1250");
+        assertThat(transactions.findByAccountIdOrderByDateDesc(target.getId()))
+                .extracting(Transaction::getExternalId).containsExactlyInAnyOrder(null,
+                        "homebank_opening_" + sourceId);
+        Transaction opening = transactions.findByAccountIdOrderByDateDesc(target.getId()).stream()
+                .filter(row -> ("homebank_opening_" + sourceId).equals(row.getExternalId())).findFirst().orElseThrow();
+        assertThat(opening.getAmount()).isEqualByComparingTo("250");
+        int transactionCount = transactions.findByAccountIdOrderByDateDesc(target.getId()).size();
+        int snapshotCount = snapshots.findByAccountIdOrderByDateAsc(target.getId()).size();
+
+        Preview replay = preview(payload);
+        service.executeImport(new Request(replay.fileToken(), List.of(
+                new AccountMapping(sourceId, FinaryMappingAction.MAP_EXISTING, target.getId(), null)), List.of()), memberId);
+
+        assertThat(transactions.findByAccountIdOrderByDateDesc(target.getId())).hasSize(transactionCount);
+        assertThat(snapshots.findByAccountIdOrderByDateAsc(target.getId())).hasSize(snapshotCount);
+        assertThat(accounts.findByIdAndMemberId(target.getId(), memberId).orElseThrow().getCurrentBalance())
+                .isEqualByComparingTo("1250");
     }
 
     private Preview preview(String json) {
         return service.preview(new MockMultipartFile("file", "synthetic.hbk", "application/octet-stream",
-            rawDeflate(json.getBytes(StandardCharsets.UTF_8))), null, MEMBER_ID);
+            rawDeflate(json.getBytes(StandardCharsets.UTF_8))), null, memberId);
     }
 
     private CategoryKind categoryKind(Long transactionId) {

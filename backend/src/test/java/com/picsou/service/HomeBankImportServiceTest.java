@@ -370,6 +370,91 @@ class HomeBankImportServiceTest {
     }
 
     @Test
+    void mappedManualAccountGetsAdditiveOpeningBalanceAndReplayDoesNotRecompute() {
+        var source = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                new BigDecimal("250"), false);
+        var harness = new Harness(new ParsedHomeBankData(List.of(source), List.of(), List.of()));
+        Account target = harness.addAccount(20L, true, new BigDecimal("1000"));
+        harness.existing(target, "legacy", "1000");
+        var mapping = List.of(new AccountMapping("a", FinaryMappingAction.MAP_EXISTING, 20L, null));
+
+        harness.run(mapping, List.of());
+
+        assertThat(harness.savedTransaction("homebank_opening_a").getAmount()).isEqualByComparingTo("250");
+        assertThat(target.getCurrentBalance()).isEqualByComparingTo("1250");
+        verify(persistenceHelper).reconstructSnapshotsFromDb(target);
+        verify(transactionRepository).sumAmountByAccountId(20L);
+
+        harness.run(mapping, List.of());
+
+        assertThat(harness.storedTransactions).filteredOn(t -> "homebank_opening_a".equals(t.getExternalId())).hasSize(1);
+        assertThat(target.getCurrentBalance()).isEqualByComparingTo("1250");
+        verify(persistenceHelper, times(1)).reconstructSnapshotsFromDb(target);
+        verify(transactionRepository, times(1)).sumAmountByAccountId(20L);
+    }
+
+    @Test
+    void mappedManualAccountReplacesUnbackedTypedBalanceWithSourceLedger() {
+        var source = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                new BigDecimal("1000"), false);
+        var harness = new Harness(new ParsedHomeBankData(List.of(source), List.of(),
+                List.of(tx("t1", "a", "250", null, null))));
+        Account target = harness.addAccount(20L, true, new BigDecimal("999"));
+
+        harness.run(List.of(new AccountMapping("a", FinaryMappingAction.MAP_EXISTING, 20L, null)), List.of());
+
+        assertThat(harness.savedTransaction("homebank_opening_a").getAmount()).isEqualByComparingTo("1000");
+        assertThat(target.getCurrentBalance()).isEqualByComparingTo("1250");
+        verify(persistenceHelper).reconstructSnapshotsFromDb(target);
+    }
+
+    @Test
+    void openingBalancesOnlyAffectManualSelectedAccountsAndPreserveSigns() {
+        var manualNegative = new ParsedHomeBankData.SourceAccount("negative", "Negative", "Bank", "bank", "EUR",
+                new BigDecimal("-25"), false);
+        var manualZero = new ParsedHomeBankData.SourceAccount("zero", "Zero", "Bank", "bank", "EUR",
+                BigDecimal.ZERO, false);
+        var synced = new ParsedHomeBankData.SourceAccount("synced", "Synced", "Bank", "bank", "EUR",
+                new BigDecimal("50"), false);
+        var skipped = new ParsedHomeBankData.SourceAccount("skipped", "Skipped", "Bank", "bank", "EUR",
+                new BigDecimal("75"), false);
+        var harness = new Harness(new ParsedHomeBankData(
+                List.of(manualNegative, manualZero, synced, skipped), List.of(), List.of()));
+        harness.addAccount(20L, true, BigDecimal.ZERO);
+        harness.addAccount(21L, true, BigDecimal.ZERO);
+        harness.addAccount(22L, false, new BigDecimal("900"));
+
+        harness.run(List.of(
+                new AccountMapping("negative", FinaryMappingAction.MAP_EXISTING, 20L, null),
+                new AccountMapping("zero", FinaryMappingAction.MAP_EXISTING, 21L, null),
+                new AccountMapping("synced", FinaryMappingAction.MAP_EXISTING, 22L, null),
+                new AccountMapping("skipped", FinaryMappingAction.SKIP, null, null)), List.of());
+
+        assertThat(harness.savedTransactions).extracting(Transaction::getExternalId)
+                .containsExactly("homebank_opening_negative");
+        assertThat(harness.savedTransaction("homebank_opening_negative").getAmount()).isEqualByComparingTo("-25");
+        assertThat(harness.accounts).filteredOn(a -> a.getId().equals(22L)).singleElement()
+                .extracting(Account::getCurrentBalance).isEqualTo(new BigDecimal("900"));
+    }
+
+    @Test
+    void openingBalanceAlreadyAssociatedWithAnotherAccountRejectsRemapping() {
+        var source = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
+                new BigDecimal("250"), false);
+        var harness = new Harness(new ParsedHomeBankData(List.of(source), List.of(), List.of()));
+        Account previousTarget = harness.addAccount(20L, true, new BigDecimal("250"));
+        Account newTarget = harness.addAccount(21L, true, BigDecimal.ZERO);
+        harness.existing(previousTarget, "homebank_opening_a", "250");
+
+        assertThatThrownBy(() -> harness.run(List.of(
+                new AccountMapping("a", FinaryMappingAction.MAP_EXISTING, newTarget.getId(), null)), List.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("different account");
+
+        assertThat(harness.savedTransactions).isEmpty();
+        assertThat(newTarget.getCurrentBalance()).isEqualByComparingTo("0");
+    }
+
+    @Test
     void mapExistingManualAccountReceivingNewRowsGetsBalanceAndSnapshotsRecomputed() {
         var source = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
                 BigDecimal.ZERO, false);
