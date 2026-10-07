@@ -32,12 +32,13 @@ The IBKR connector already proved the shape for "paste a credential, store it en
 ## Trade-offs accepted
 
 - A second bank-sync code path to maintain.
-- No institution search inside Picsou. Linking happens on the SimpleFIN server.
-- Credit-card balances are stored as reported, because the protocol has no liability flag.
+- No institution search inside Picsou. Linking happens on SimpleFIN Bridge.
+- Only SimpleFIN Bridge is supported. A self-hosted SimpleFIN server would need its host added in code.
+- Accounts are created as checking accounts, like Enable Banking's, because the protocol has no account type. The member sets savings or credit card in the account form, and a resync never changes it. Balances are stored as reported; Bridge sends card debt as a negative number, which is how Picsou stores a credit card.
 - The shared 90-day download repeats known transactions; dedup drops them.
 
 ## Consequences
 
-- `SimplefinClient` refuses non-public claim URLs before any HTTP call.
+- `SimplefinUrls` only accepts `https://beta-bridge.simplefin.org` for the claim URL and the access URL, so neither a pasted token nor a claim response can point Picsou at another host. Both are checked before any HTTP call.
 - The access URL is never logged, returned, or exported.
 - Deleting the last `sfin_` account removes the connection, consistent with the account-deletion ADR.

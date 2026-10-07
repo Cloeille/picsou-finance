@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.net.URI;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Currency;
 import java.util.List;
@@ -149,7 +150,7 @@ public class SimplefinSyncService {
                     + "Connect again with a new setup token.", ex);
         }
 
-        LocalDate start = bridgeStart(transactionImportService.sharedHistoryStart(), LocalDate.now());
+        LocalDate start = bridgeStart(transactionImportService.sharedHistoryStart(), LocalDate.now(ZoneOffset.UTC));
         SimplefinAccountSet set = simplefinPort.fetchAccounts(accessUrl, start);
         if (!set.errors().isEmpty()) {
             log.warn("SimpleFIN reported partial error(s) for member {}: {}",
@@ -199,7 +200,7 @@ public class SimplefinSyncService {
             account = Account.builder()
                 .member(member)
                 .name(accountName(data.connectionName(), data.name()))
-                .type(detectType(data.name()))
+                .type(AccountType.CHECKING)
                 .provider(PROVIDER)
                 .currency(data.currency().toUpperCase(Locale.ROOT))
                 .currentBalance(data.balance())
@@ -249,15 +250,6 @@ public class SimplefinSyncService {
         if (value.length() <= max) return value;
         int end = Character.isHighSurrogate(value.charAt(max - 1)) ? max - 1 : max;
         return value.substring(0, end);
-    }
-
-    static AccountType detectType(String name) {
-        if (name == null) return AccountType.CHECKING;
-        String lower = name.toLowerCase(Locale.ROOT);
-        if (lower.contains("saving") || lower.contains("épargne") || lower.contains("epargne")) {
-            return AccountType.SAVINGS;
-        }
-        return AccountType.CHECKING;
     }
 
     static boolean isIsoCurrency(String code) {

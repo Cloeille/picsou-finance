@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SimplefinClientTest {
 
-    private static final String ACCESS = "https://user1234:secret@bridge.simplefin.org/simplefin";
+    private static final String ACCESS = "https://user1234:secret@beta-bridge.simplefin.org/simplefin";
 
     private static final String ACCOUNT_SET = """
         {
@@ -64,11 +64,11 @@ class SimplefinClientTest {
     void claimPostsTheDecodedUrlAndKeepsTheAccessUrl() {
         transport.next = new SimplefinTransport.Response(200, ACCESS + "\n");
 
-        String access = client.claim(token("https://bridge.simplefin.org/simplefin/claim/abc"));
+        String access = client.claim(token("https://beta-bridge.simplefin.org/simplefin/claim/abc"));
 
         assertThat(access).isEqualTo(ACCESS);
         assertThat(transport.method).isEqualTo("POST");
-        assertThat(transport.uri).isEqualTo(URI.create("https://bridge.simplefin.org/simplefin/claim/abc"));
+        assertThat(transport.uri).isEqualTo(URI.create("https://beta-bridge.simplefin.org/simplefin/claim/abc"));
         assertThat(transport.authorization).isNull();
     }
 
@@ -106,7 +106,7 @@ class SimplefinClientTest {
     @Test
     void refusedClaimAndRevokedAccessHaveDistinctMessages() {
         transport.next = new SimplefinTransport.Response(403, "");
-        assertThatThrownBy(() -> client.claim(token("https://bridge.simplefin.org/simplefin/claim/abc")))
+        assertThatThrownBy(() -> client.claim(token("https://beta-bridge.simplefin.org/simplefin/claim/abc")))
             .isInstanceOf(SyncException.class)
             .hasMessageContaining("already been used");
 
@@ -148,17 +148,37 @@ class SimplefinClientTest {
     @Test
     void redirectsAreRefused() {
         transport.next = new SimplefinTransport.Response(302, "");
-        assertThatThrownBy(() -> client.claim(token("https://bridge.simplefin.org/simplefin/claim/abc")))
+        assertThatThrownBy(() -> client.claim(token("https://beta-bridge.simplefin.org/simplefin/claim/abc")))
             .isInstanceOf(SyncException.class)
             .hasMessageContaining("redirected");
     }
 
     @Test
     void aClaimThatIsNotHttpsNeverLeavesTheProcess() {
-        assertRejected(token("http://bridge.simplefin.org/simplefin/claim/abc"));
-        assertRejected(token("https://user:pass@bridge.simplefin.org/simplefin/claim/abc"));
+        assertRejected(token("http://beta-bridge.simplefin.org/simplefin/claim/abc"));
+        assertRejected(token("https://user:pass@beta-bridge.simplefin.org/simplefin/claim/abc"));
         assertRejected("not base64!!!");
         assertThat(transport.calls).isZero();
+    }
+
+    @Test
+    void aTokenForAnotherHostNeverLeavesTheProcess() {
+        assertRejected(token("https://10.0.0.5:8443/x"));
+        assertRejected(token("https://bridge.simplefin.org/simplefin/claim/abc"));
+        assertRejected(token("https://beta-bridge.simplefin.org.evil.example/simplefin/claim/abc"));
+        assertThat(transport.calls).isZero();
+    }
+
+    @Test
+    void aClaimThatHandsBackAnotherHostIsNotKept() {
+        transport.next = new SimplefinTransport.Response(200, "https://user:pass@10.0.0.5:8443/simplefin\n");
+
+        assertThatThrownBy(() -> client.claim(token("https://beta-bridge.simplefin.org/simplefin/claim/abc")))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining(SimplefinUrls.BRIDGE_HOST);
+        assertThatThrownBy(() -> client.fetchAccounts("https://user:pass@10.0.0.5:8443/simplefin", LocalDate.of(2026, 1, 1)))
+            .isInstanceOf(SyncException.class);
+        assertThat(transport.calls).isEqualTo(1);
     }
 
     @Test
@@ -196,7 +216,7 @@ class SimplefinClientTest {
     @Test
     void aPlusInTheAccessPasswordIsNotTurnedIntoASpace() {
         String header = SimplefinUrls.accountsRequest(
-            "https://user:p+ss%2Bword@bridge.simplefin.org/simplefin",
+            "https://user:p+ss%2Bword@beta-bridge.simplefin.org/simplefin",
             LocalDate.of(2026, 1, 1)).authorization();
         String decoded = new String(Base64.getDecoder().decode(header.substring("Basic ".length())), StandardCharsets.UTF_8);
         assertThat(decoded).isEqualTo("user:p+ss+word");

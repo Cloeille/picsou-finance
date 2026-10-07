@@ -11,10 +11,12 @@ import java.util.Base64;
 
 /**
  * Turns a setup token into a claim URL, and an access URL into a credential-free
- * accounts request. The host is whatever the member pasted.
+ * accounts request. Both must point at SimpleFIN Bridge, so a pasted token or a
+ * claim response cannot make Picsou call any other host.
  */
 final class SimplefinUrls {
 
+    static final String BRIDGE_HOST = "beta-bridge.simplefin.org";
     static final int MAX_TOKEN_CHARS = 4096;
     static final int MAX_ACCESS_URL_CHARS = 8192;
 
@@ -110,6 +112,9 @@ final class SimplefinUrls {
     private static void assertHttps(URI uri, boolean requireUserInfo) {
         if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getHost().isBlank()) {
             throw new SyncException("A SimpleFIN URL must be an https address.");
+        }
+        if (!BRIDGE_HOST.equalsIgnoreCase(uri.getHost())) {
+            throw new SyncException("Picsou only connects to SimpleFIN Bridge (" + BRIDGE_HOST + ").");
         }
         boolean hasUserInfo = uri.getRawUserInfo() != null && !uri.getRawUserInfo().isEmpty();
         if (requireUserInfo && !hasUserInfo) {
