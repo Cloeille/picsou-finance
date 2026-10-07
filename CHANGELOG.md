@@ -107,6 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AMEX login works again after AMEX changed the page where you choose SMS or e-mail for the security code.**
+  The page now lists your masked phone number and e-mail address as radio choices instead of
+  buttons, so Picsou could not pick one and the login failed with an upstream format error. It
+  now selects the channel you asked for and continues to the code entry.
+
 - **An AMEX card no longer shows a statement you already paid by direct debit as debt.**
   The card used to count the paid statement again on top of your new purchases. It now shows
   only what is still owed on the statement plus the purchases made since. A refund or an
