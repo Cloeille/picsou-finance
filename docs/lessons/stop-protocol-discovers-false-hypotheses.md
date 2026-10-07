@@ -59,5 +59,4 @@ It also makes the brief-writing process better: future briefs learn that assumpt
 
 - ADR: [Drop oauth2:token scope](../decisions/2026-07-06-drop-oauth2-token-scope.md)
 - Feature: [Budget + OAuth2 tools in MCP](../features/mcp-budget-oauth2.md)
-- Brief: `docs/briefs/oauth2-budget-mcp.md` (section "Out of scope" lists what was *not* built)
 - Commit: `fix(mcp): drop unused oauth2:token scope` (cleaned up after the discovery)

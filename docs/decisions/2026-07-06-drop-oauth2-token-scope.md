@@ -67,7 +67,6 @@ This trade-off is acceptable because:
 
 ## References
 
-- Brief: `docs/briefs/oauth2-budget-mcp.md`
 - Feature note: `docs/features/mcp-budget-oauth2.md`
 - Related ADR: [2026-07-03 OAuth2 authorization server for native app](./2026-07-03-oauth2-authorization-server-for-native-app.md)
 - Stop protocol: [Lesson: stop protocol in action](../lessons/stop-protocol-discovers-false-hypotheses.md)

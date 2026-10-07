@@ -69,8 +69,9 @@ without adding risk.
 - **Open registration endpoint.** Anyone can register a client, but registration alone grants
   nothing (no token without login + consent). Matches RFC 7591 and the remote-MCP spec.
 - **`client_id`/authorization persistence, seeded `picsou-ios`.** The iOS client is seeded
-  idempotently at startup; later `OAuthClientProperties` changes do not retroactively rewrite an
-  already-seeded row (documented; the iOS client rarely changes).
+  idempotently at startup. Amended for 1.1.0: every boot now reconciles the existing row with
+  `OAuthClientProperties` (redirect URI, access and refresh TTLs), keeping its id and authorizations,
+  so those settings apply on restart instead of only on a fresh database.
 - **Homelab edge exposure is out of repo.** The reverse proxy on the box must publicly expose
   `/.well-known/oauth-*` and `/oauth2/*`; the repo only carries the container nginx blocks.
 

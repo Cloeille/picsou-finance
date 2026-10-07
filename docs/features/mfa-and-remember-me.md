@@ -1,6 +1,6 @@
 # Feature: 2FA (TOTP) and Remember Me
 
-> Last updated: 2026-07-04
+> Last updated: 2026-10-05
 > Status: ✅ Implemented (2026-04-26)
 >
 > Implementation notes vs. original design:
@@ -9,6 +9,9 @@
 > - `FamilyMemberResponse` was extended with `mfaEnabled: boolean` so the admin Members list can show a "2FA on" badge and gate the Reset 2FA button without an extra round-trip.
 > - Settings UI: `pages/settings/security/` (`SecuritySection`, `MfaEnrollDialog`, `MfaDisableDialog`, `RecoveryCodesDialog`, `RecoveryCodesView`, `SessionsList`) — split out of the design's flat `features/mfa/` proposal because the dialogs are tightly coupled to the settings page layout.
 > - `MfaChallengePage` lives under `<PublicOnly>` (not anonymous-permitted): the user is mid-login (no `access_token`), so `RequireAuth` would loop.
+> - The individual `dto/Mfa*.java` / `dto/RecoveryCodesResponse.java` request/response types below were consolidated into a single `dto/MfaDtos.java` (nested records) instead of one file each.
+> - The admin "Disable 2FA" action lives in `pages/admin/sections/MembersSection.tsx`, not a dedicated `MembersPage.tsx`.
+> - Locale catalogs moved under `i18n/locales/` (`i18n/locales/fr.json`, `i18n/locales/en.json`) as part of the SUPPORTED_LOCALES centralization, not `i18n/fr.json` / `i18n/en.json`.
 
 ## Context
 
@@ -26,7 +29,7 @@ Security target: high. Self-hosted with no support team, so the design must be s
 - Recovery codes (10 × 8-digit) are generated once at enrollment and shown only once.
 - "Remember Me" extends session persistence to 90 days using a rotating cookie token (no JWT extension).
 - "Trust this device for 30 days" (shown only on the MFA challenge step, after TOTP success) lets a device skip the TOTP step on subsequent logins.
-- Sessions can be listed and revoked individually from `/settings/`.
+- Sessions can be listed and revoked individually from `/settings/`. The list also shows the iOS app's sign-ins (see [iOS app sessions](#ios-app-sessions)).
 - An admin can force-disable 2FA for any other member from `/admin`.
 - All sensitive credentials at rest are encrypted (TOTP secret) or hashed (recovery codes, persistent tokens).
 
@@ -182,6 +185,33 @@ The reauth check is a `passwordEncoder.matches(request.currentPassword, user.pas
 | Admin force-disables target's 2FA | Same as user-initiated disable: wipe target's persistent sessions. |
 | Logout | Revoke only the current device's persistent session. |
 
+### iOS app sessions
+
+The native app never creates a `persistent_session`: it signs in through the OAuth2 authorization
+server and holds a Bearer access token plus a rotating refresh token, both tied to one
+`oauth2_authorization` row of the `picsou-ios` client (JDBC-persisted, survives restarts and
+refresh-token rotation). `NativeAppSessionService` treats each live row as a session:
+
+- **Listed** when the row's captured principal is the caller (by `AppUser.id`), its captured `tv`
+  still equals the caller's (a password change bumps `tv`, which already kills that device), and
+  its refresh token is active. Rows are never matched on `principal_name`: that column keeps the
+  username used at sign-in, and a rename leaves the device signed in (it does not bump `tv`), so a
+  name match would hide a live device and make it impossible to revoke. `SessionResponse.kind = IOS_APP`; `createdAt` is the
+  authorization-code issue time, `lastUsedAt` the latest access-token issue time (the app refreshes
+  every access-token TTL while in use), `expiresAt` the refresh-token expiry. No user agent or IP.
+- **`current`** when the request's Bearer token carries the row id in its `aid` claim (stamped by
+  `AuthorizationServerConfig.jwtTokenCustomizer` on every app access token).
+- **Revoked** by deleting the row. The refresh grant then fails with `invalid_grant`, and the
+  current access token stops working immediately: `JwtTokenAuthenticator` looks the `aid` claim up
+  on every request and rejects the token once the row is gone. Access tokens minted before the
+  `aid` claim existed carry no claim and stay valid until their TTL (15 min by default).
+- **"Log out everywhere else"** removes every app row except the one named by the request's `aid`
+  (none when called from a browser), alongside the existing Remember Me logic.
+- **Signing out in the app** revokes its own row the same way (`DELETE /api/auth/sessions/{aid}`,
+  best effort), and **presenting a rotated-away refresh token** deletes the row (reuse detection,
+  see the 2026-07-22 ADR). The row's refresh token expires 30 days after sign-in at most;
+  rotation does not extend it.
+
 ### Cross-identity session bleed at login
 
 On a **shared family browser**, login cookies from a *previous* user can outlive their session and silently re-authenticate that other identity. `PersistentTokenAuthFilter` re-mints an access token from any still-valid `persistent_token`, and it only auto-clears a stale one when the cookie owner has 2FA enabled and the device isn't trusted — so a **no-MFA** account's leftover "Remember Me" cookie always sails through. Concretely: user A (2FA on) types their password on a browser still holding user B's (no-MFA) `persistent_token`. A's login correctly returns `requires2fa` and issues **no** session, so the next request falls back on B's lingering cookie → A is dropped onto **B's** account.
@@ -223,9 +253,9 @@ POST   /api/auth/mfa/recovery-codes/regenerate
 
 GET    /api/auth/mfa/status                   response: { enabled: bool, enrolledAt?: ISO, remainingRecoveryCodes?: int }
 
-GET    /api/auth/sessions                     response: SessionResponse[]   // own persistent sessions, sorted by last_used_at desc
-DELETE /api/auth/sessions/{id}                response: 204                  // revoke own session
-DELETE /api/auth/sessions                     response: 204                  // revoke all of own sessions except current
+GET    /api/auth/sessions                     response: SessionResponse[]   // own Remember Me sessions (last_used_at desc), then own iOS app sign-ins
+DELETE /api/auth/sessions/{id}                response: 204                  // revoke own session; id is opaque (numeric = Remember Me, UUID = iOS app)
+DELETE /api/auth/sessions                     response: 204                  // revoke all of own sessions (both kinds) except current
 
 DELETE /api/admin/members/{memberId}/mfa      admin-only; target.id != admin.id
                                               response: 204
@@ -336,7 +366,7 @@ All UIs are mobile-responsive (per repo convention).
 **Backend (new):**
 - `backend/src/main/java/com/picsou/model/UserMfa.java`, `backend/src/main/java/com/picsou/model/UserMfaRecoveryCode.java`, `backend/src/main/java/com/picsou/model/PersistentSession.java`
 - `backend/src/main/java/com/picsou/repository/UserMfaRepository.java`, `backend/src/main/java/com/picsou/repository/UserMfaRecoveryCodeRepository.java`, `backend/src/main/java/com/picsou/repository/PersistentSessionRepository.java`
-- `backend/src/main/java/com/picsou/service/MfaService.java`, `backend/src/main/java/com/picsou/service/PersistentSessionService.java`
+- `backend/src/main/java/com/picsou/service/MfaService.java`, `backend/src/main/java/com/picsou/service/PersistentSessionService.java`, `backend/src/main/java/com/picsou/service/NativeAppSessionService.java` (iOS app sign-ins)
 - `backend/src/main/java/com/picsou/controller/MfaController.java`, `backend/src/main/java/com/picsou/controller/SessionController.java`, `backend/src/main/java/com/picsou/controller/AdminMfaController.java`
 - `backend/src/main/java/com/picsou/config/PersistentTokenAuthFilter.java`
 - `backend/src/main/java/com/picsou/dto/MfaDtos.java` — all MFA DTOs as nested records (`MfaStatusResponse`, `EnrollInitRequest`, `EnrollInitResponse`, `EnrollVerifyRequest`, `RecoveryCodesResponse`, `MfaVerifyRequest`, `DisableMfaRequest`, `RegenerateCodesRequest`) — plus `backend/src/main/java/com/picsou/dto/SessionResponse.java`

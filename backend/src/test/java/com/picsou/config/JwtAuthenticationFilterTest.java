@@ -19,12 +19,13 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The filter's job is transport selection: cookie first, then a non-{@code psk_} Bearer header.
+ * The filter's job is transport selection: a non-{@code psk_} Bearer header, else the cookie.
  * Actual token validation is delegated to {@link JwtTokenAuthenticator} (mocked here).
  */
 @ExtendWith(MockitoExtension.class)
@@ -85,15 +86,40 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    void cookieTakesPrecedenceOverBearer() throws Exception {
+    void bearerTakesPrecedenceOverAnotherUsersCookie() throws Exception {
+        Authentication userB = new UsernamePasswordAuthenticationToken("bob", null, List.of());
+        request.setCookies(new Cookie("access_token", "bob-cookie-jwt"));
+        request.addHeader("Authorization", "Bearer alice-app-jwt");
+        when(authenticator.authenticate("alice-app-jwt")).thenReturn(Optional.of(AUTH));
+        lenient().when(authenticator.authenticate("bob-cookie-jwt")).thenReturn(Optional.of(userB));
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication().getName()).isEqualTo("alice");
+    }
+
+    @Test
+    void rejectedBearer_doesNotFallBackToAValidCookie() throws Exception {
+        request.setCookies(new Cookie("access_token", "valid-cookie-jwt"));
+        request.addHeader("Authorization", "Bearer expired-app-jwt");
+        when(authenticator.authenticate("expired-app-jwt")).thenReturn(Optional.empty());
+        lenient().when(authenticator.authenticate("valid-cookie-jwt")).thenReturn(Optional.of(AUTH));
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(authenticator, never()).authenticate("valid-cookie-jwt");
+    }
+
+    @Test
+    void mcpAccessKeyBearer_stillLetsTheCookieAuthenticate() throws Exception {
         request.setCookies(new Cookie("access_token", "cookie-jwt"));
-        request.addHeader("Authorization", "Bearer app-jwt");
+        request.addHeader("Authorization", "Bearer psk_deadbeef");
         when(authenticator.authenticate("cookie-jwt")).thenReturn(Optional.of(AUTH));
 
         filter.doFilter(request, response, chain);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isSameAs(AUTH);
-        verify(authenticator, never()).authenticate("app-jwt");
     }
 
     @Test

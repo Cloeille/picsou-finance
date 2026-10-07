@@ -14,11 +14,14 @@ import java.io.IOException;
  * Authenticates {@code /api/**} requests from an <em>access</em> JWT. Two transports are
  * accepted, in this order:
  * <ol>
- *   <li>the {@code access_token} HttpOnly cookie — the web client;</li>
  *   <li>the {@code Authorization: Bearer <jwt>} header — the native iOS app, whose tokens are
  *       minted by the OAuth2 authorization server but HS256-signed with the same secret and
- *       carry the same claims, so they validate through the identical path.</li>
+ *       carry the same claims, so they validate through the identical path;</li>
+ *   <li>the {@code access_token} HttpOnly cookie — the web client.</li>
  * </ol>
+ * A Bearer is an explicit choice of identity, so when one is sent the cookie is never read, even
+ * if the Bearer is invalid: a stale or other-user cookie must not win, and a rejected Bearer must
+ * surface as a 401 the client can refresh on rather than silently fall back to another session.
  * A {@code psk_}-prefixed bearer (MCP access key) is ignored here and left to
  * {@link AccessKeyAuthFilter} on the {@code /mcp} surface. All validation is delegated to
  * {@link JwtTokenAuthenticator} so the cookie and bearer paths cannot diverge.
@@ -50,13 +53,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
-    /** Cookie first (web), then a non-{@code psk_} Bearer header (native app). */
+    /** A non-{@code psk_} Bearer header (native app) if present, else the cookie (web). */
     private String extractToken(HttpServletRequest request) {
-        String cookie = extractAccessTokenFromCookie(request);
-        if (cookie != null) {
-            return cookie;
+        String bearer = extractBearerToken(request);
+        if (bearer != null) {
+            return bearer;
         }
-        return extractBearerToken(request);
+        return extractAccessTokenFromCookie(request);
     }
 
     private String extractAccessTokenFromCookie(HttpServletRequest request) {
@@ -69,7 +72,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return null;
     }
 
-    private String extractBearerToken(HttpServletRequest request) {
+    static String extractBearerToken(HttpServletRequest request) {
         String header = request.getHeader("Authorization");
         if (header == null || !header.startsWith(BEARER_PREFIX)) {
             return null;

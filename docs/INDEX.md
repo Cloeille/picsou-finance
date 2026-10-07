@@ -56,6 +56,7 @@
 | 2026-07-17 | [EVM multichain wallets — one address, many chains](./decisions/2026-07-17-evm-multichain-wallets.md) | Active |
 | 2026-07-19 | [Caddy as an opt-in TLS terminator for the Docker stack](./decisions/2026-07-19-caddy-opt-in-tls-profile.md) | Active |
 | 2026-07-21 | [Bourse Direct isolated browser sidecar and atomic complete snapshots](./decisions/2026-07-21-bourse-direct-isolated-atomic-sync.md) | Active |
+| 2026-07-22 | [Override Spring Authorization Server's public-client refresh-token defaults](./decisions/2026-07-22-public-client-refresh-token-overrides.md) | Active |
 | 2026-07-26 | [Fortuneo isolated browser sidecar and complete atomic history sync](./decisions/2026-07-26-fortuneo-isolated-atomic-history-sync.md) | Active |
 | 2026-07-19 | [Interactive Brokers via the Flex Web Service (read-only, EOD)](./decisions/2026-07-19-ibkr-flex-web-service.md) | Active |
 | 2026-08-11 | [BoursoBank through a browserless sidecar, app-push only](./decisions/2026-08-11-boursobank-httpx-sidecar.md) | Active |
@@ -74,11 +75,13 @@
 | 2026-09-23 | [A SCPI share is not a property](./decisions/2026-09-23-scpi-not-a-property.md) | Active |
 | 2026-09-26 | [CORUM client space fills existing SCPI accounts through a browser sidecar](./decisions/2026-09-26-corum-scpi-sidecar.md) | Active |
 | 2026-09-27 | [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](./decisions/2026-09-27-sofidy-scpi-sidecar.md) | Active |
+| 2026-10-05 | [The iOS app's sign-ins are revocable sessions, checked on every request](./decisions/2026-10-05-ios-app-sessions-revocable-authorizations.md) | Active |
 
 ## Feature notes
 
 | Feature | Last updated | Note |
 |---------|-------------|------|
+| Native iOS app (OAuth2+PKCE auth, dashboard/accounts/goals/budget/settings) | 2026-07-22 | [ios-app.md](./features/ios-app.md) |
 | MCP server + scoped access-keys | 2026-06-26 | [mcp-server.md](./features/mcp-server.md) |
 | Budget + OAuth2 tools in MCP | 2026-07-06 | [mcp-budget-oauth2.md](./features/mcp-budget-oauth2.md) |
 | Remote-MCP OAuth (claude.ai connector) | 2026-07-12 | [mcp-oauth-remote.md](./features/mcp-oauth-remote.md) |

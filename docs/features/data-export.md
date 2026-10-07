@@ -172,7 +172,7 @@ Backend:
 
 Frontend:
 
-- `frontend/src/pages/settings/security/SecuritySection.tsx` — section card hosting the "Export my data" button
+- `frontend/src/pages/settings/security/SecuritySection.tsx` — opens `ExportDataDialog` from the "Export my data" button (no separate section card)
 - `frontend/src/pages/settings/security/ExportDataDialog.tsx` — modal with toggle + re-auth field + download trigger
 - `frontend/src/features/export/api.ts` — `requestExport(opts)` returning a `Blob`
 - `frontend/src/features/export/hooks.ts` — `useExportData()` mutation (TanStack Query) wrapping the fetch + blob download

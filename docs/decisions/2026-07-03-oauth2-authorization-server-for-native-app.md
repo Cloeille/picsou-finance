@@ -130,3 +130,17 @@ None. Amends the OAuth-related reasoning in
 [`2026-06-05-access-key-auth-and-embedded-mcp.md`](2026-06-05-access-key-auth-and-embedded-mcp.md)
 (which remains active for MCP auth) by scoping its "no OAuth2" conclusion to the MCP/headless-agent
 case, not first-party native clients.
+
+## Update 2026-07-22
+
+Two trade-offs in this ADR turned out stale or incomplete once exercised end-to-end against a real
+backend (`ios-app/PicsouTests/E2E/LiveBackendE2ETests.swift`):
+
+- **"In-memory … no persistence yet"** (Trade-offs accepted) was already superseded before this
+  update: the remote-MCP OAuth work ([2026-07-12](2026-07-12-remote-mcp-oauth-authorization.md))
+  moved `RegisteredClientRepository`/`OAuth2AuthorizationService` to JDBC (V54 migration). Authorizations
+  now survive a backend restart.
+- **The refresh grant silently never worked at all** — see the dedicated
+  [2026-07-22-public-client-refresh-token-overrides.md](./2026-07-22-public-client-refresh-token-overrides.md)
+  for the root cause and fix. Decision (public client, PKCE, no secret) is unchanged; that ADR is a
+  correction to this one's implementation, not a reversal.

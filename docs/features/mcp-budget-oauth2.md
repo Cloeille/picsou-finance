@@ -118,6 +118,5 @@ After adding an MCP client connection in claude.ai Settings pointing to `https:/
 
 ## Links
 
-- Brief: `docs/briefs/oauth2-budget-mcp.md`
 - Related: [MCP server + scoped access-keys](./mcp-server.md), [Budget & Cashflow](./budget.md), [Budget categorization rules](./budget-rules.md)
 - ADR: [Access-key auth + embedded MCP server](../decisions/2026-06-05-access-key-auth-and-embedded-mcp.md)
