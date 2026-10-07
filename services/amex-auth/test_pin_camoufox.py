@@ -2,12 +2,50 @@
 
 import platform
 import unittest
-from unittest.mock import patch
+from unittest.mock import mock_open, patch
 
 import pin_camoufox
 
 
 class PinCamoufoxTest(unittest.TestCase):
+    def test_download_mmdb_uses_direct_release_url_and_camoufox_download_helpers(self):
+        with (
+            patch.object(pin_camoufox, "geoip_allowed") as geoip_allowed,
+            patch.object(pin_camoufox, "webdl") as webdl,
+            patch("builtins.open", mock_open()) as open_file,
+        ):
+            pin_camoufox.download_mmdb()
+
+        geoip_allowed.assert_called_once_with()
+        open_file.assert_called_once_with(pin_camoufox.MMDB_FILE, "wb")
+        webdl.assert_called_once_with(
+            "https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb",
+            desc="Downloading GeoIP database",
+            buffer=open_file(),
+        )
+
+    def test_install_uses_direct_mmdb_helper_without_release_api_discovery(self):
+        with (
+            patch.object(pin_camoufox.Pinned, "install") as browser_install,
+            patch.object(pin_camoufox, "geoip_allowed") as geoip_allowed,
+            patch.object(pin_camoufox, "webdl") as webdl,
+            patch("builtins.open", mock_open()) as open_file,
+            patch.object(pin_camoufox, "maybe_download_addons") as addons_download,
+            patch("camoufox.locale.MaxMindDownloader.get_asset") as get_asset,
+        ):
+            pin_camoufox.install()
+
+        browser_install.assert_called_once_with()
+        geoip_allowed.assert_called_once_with()
+        open_file.assert_called_once_with(pin_camoufox.MMDB_FILE, "wb")
+        webdl.assert_called_once_with(
+            "https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb",
+            desc="Downloading GeoIP database",
+            buffer=open_file(),
+        )
+        addons_download.assert_called_once_with(list(pin_camoufox.DefaultAddons))
+        get_asset.assert_not_called()
+
     def test_fetch_latest_selects_x86_64_archive_and_pins_version(self):
         with patch.object(platform, "machine", return_value="x86_64"):
             fetcher = pin_camoufox.Pinned()

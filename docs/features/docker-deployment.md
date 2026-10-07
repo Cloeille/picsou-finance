@@ -18,6 +18,10 @@ Picsou deploys as the app and ten authentication sidecars orchestrated by `docke
 All sidecars use the Docker workflow's shared `linux/amd64,linux/arm64` platforms
 and tag strategy. AMEX pins Camoufox `152.0.4-beta.30` and selects the Linux
 archive matching the container architecture (`x86_64` or `arm64`).
+Its GeoIP database is downloaded from the upstream release's direct
+`GeoLite2-City.mmdb` asset URL, without querying the unauthenticated GitHub
+releases API. Download failures still fail the build; no token is baked into
+the image and GeoIP support is retained.
 A push to `1.1.0` publishes `:1.1.0`; `:latest` follows main
 or version-tag pushes, not release-branch pushes. The deployment Compose file
 offers both `image:` and `build:` for AMEX and DEGIRO, like the other sidecars.

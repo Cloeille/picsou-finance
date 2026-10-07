@@ -1,8 +1,14 @@
 import platform
 
 from camoufox.pkgman import CamoufoxFetcher, Version
-from camoufox.locale import download_mmdb
+from camoufox.locale import MMDB_FILE, geoip_allowed, webdl
 from camoufox.addons import maybe_download_addons, DefaultAddons
+
+MMDB_URL = (
+    'https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/'
+    'GeoLite2-City.mmdb'
+)
+
 
 class Pinned(CamoufoxFetcher):
     @staticmethod
@@ -27,7 +33,22 @@ class Pinned(CamoufoxFetcher):
         )
 
 
-if __name__ == '__main__':
+def download_mmdb():
+    geoip_allowed()
+
+    with open(MMDB_FILE, 'wb') as database:
+        webdl(
+            MMDB_URL,
+            desc='Downloading GeoIP database',
+            buffer=database,
+        )
+
+
+def install():
     Pinned().install()
     download_mmdb()
     maybe_download_addons(list(DefaultAddons))
+
+
+if __name__ == '__main__':
+    install()
