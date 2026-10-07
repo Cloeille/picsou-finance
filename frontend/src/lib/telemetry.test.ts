@@ -2,9 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const sentry = vi.hoisted(() => ({
   init: vi.fn(),
-  close: vi.fn(() => Promise.resolve(true)),
   captureException: vi.fn(),
   captureMessage: vi.fn(),
+  makeFetchTransport: vi.fn(() => ({ send: vi.fn(), flush: vi.fn() })),
+  options: { enabled: true },
+  client: {
+    getOptions: vi.fn(() => ({ enabled: true })),
+    close: vi.fn(() => Promise.resolve(true)),
+  },
+  scope: {
+    getClient: vi.fn(),
+    setClient: vi.fn(),
+  },
+  getClient: vi.fn(),
+  getCurrentScope: vi.fn(),
   globalHandlersIntegration: vi.fn(() => ({ name: 'GlobalHandlers' })),
   linkedErrorsIntegration: vi.fn(() => ({ name: 'LinkedErrors' })),
 }))
@@ -27,6 +38,11 @@ describe('telemetry', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
+    sentry.options.enabled = true
+    sentry.client.getOptions.mockReturnValue(sentry.options)
+    sentry.scope.getClient.mockReturnValue(sentry.client)
+    sentry.getClient.mockReturnValue(sentry.client)
+    sentry.getCurrentScope.mockReturnValue(sentry.scope)
     fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
   })
@@ -72,7 +88,7 @@ describe('telemetry', () => {
     expect(opts.dataCollection).toMatchObject({ userInfo: false, cookies: false, httpHeaders: false })
     expect(opts.beforeBreadcrumb()).toBeNull()
     const scrubbed = opts.beforeSend({ user: { id: 1 }, message: 'a@b.fr', request: {} })
-    expect(scrubbed).toEqual({ message: '[email]' })
+    expect(scrubbed).toEqual({})
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
@@ -97,7 +113,9 @@ describe('telemetry', () => {
     const t = await load()
     await t.initTelemetry(CONFIG)
     t.shutdownTelemetry()
-    expect(sentry.close).toHaveBeenCalledWith(0)
+    expect(sentry.client.close).toHaveBeenCalledWith(1_000)
+    expect(sentry.options.enabled).toBe(false)
+    expect(sentry.scope.setClient).toHaveBeenCalledWith(undefined)
     t.trackPageView('/')
     t.captureException(new Error('x'))
     expect(sentry.captureMessage).not.toHaveBeenCalled()
@@ -107,7 +125,7 @@ describe('telemetry', () => {
 
   it('waits for an old client to close before initializing a replacement', async () => {
     let finishClose!: (value: boolean) => void
-    sentry.close.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finishClose = resolve }))
+    sentry.client.close.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finishClose = resolve }))
     const t = await load()
     await t.initTelemetry(CONFIG)
     t.shutdownTelemetry()

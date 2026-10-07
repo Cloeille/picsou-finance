@@ -27,6 +27,15 @@ let initializing: Promise<void> | null = null
 let closing: Promise<void> | null = null
 // Bumped on every shutdown so an `import()` still in flight can tell it was cancelled.
 let epoch = 0
+const CLOSE_TIMEOUT_MS = 1_000
+
+type TelemetrySession = {
+  active: boolean
+  controllers: Set<AbortController>
+  client?: ReturnType<SentryModule['getClient']>
+}
+
+let session: TelemetrySession | null = null
 
 export function isTelemetryActive(): boolean {
   return sentry !== null
@@ -40,6 +49,7 @@ export function initTelemetry(config: TelemetryInitConfig): Promise<void> {
 
   const startedAt = epoch
   const dsn = config.dsn
+  const nextSession: TelemetrySession = { active: true, controllers: new Set() }
   const run: Promise<void> = (async () => {
     try {
       // Sentry owns process-global handlers; don't let a previous client's async close race a new init.
@@ -71,10 +81,26 @@ export function initTelemetry(config: TelemetryInitConfig): Promise<void> {
         attachStacktrace: false,
         maxBreadcrumbs: 0,
         beforeBreadcrumb: () => null,
-        beforeSend: (event) => scrubEvent(event),
+        beforeSend: (event) => nextSession.active ? scrubEvent(event) : null,
         sendClientReports: false,
+        transport: (options) => mod.makeFetchTransport(options, async (input, init) => {
+          if (!nextSession.active) return new Response(null, { status: 204 })
+
+          const controller = new AbortController()
+          nextSession.controllers.add(controller)
+          try {
+            // Keep Sentry's same-origin request options, auth headers and cookies intact; only
+            // add a signal so consent revocation can cancel requests already in flight.
+            if (!nextSession.active) return new Response(null, { status: 204 })
+            return await fetch(input, { ...init, signal: controller.signal })
+          } finally {
+            nextSession.controllers.delete(controller)
+          }
+        }),
       })
+      nextSession.client = mod.getClient()
       sentry = mod
+      session = nextSession
     } catch {
       // Telemetry must never break the app.
     } finally {
@@ -89,10 +115,35 @@ export function initTelemetry(config: TelemetryInitConfig): Promise<void> {
 export function shutdownTelemetry(): void {
   epoch += 1
   const mod = sentry
+  const endingSession = session
   sentry = null
+  session = null
   initializing = null
-  if (mod) {
-    const close = Promise.resolve(mod.close(0)).then(() => undefined, () => undefined)
+  if (endingSession) {
+    endingSession.active = false
+    for (const controller of endingSession.controllers) controller.abort()
+  }
+  if (mod && endingSession?.client) {
+    const client = endingSession.client
+    client.getOptions().enabled = false
+    const scope = mod.getCurrentScope()
+    if (scope.getClient() === client) scope.setClient(undefined)
+
+    const close = new Promise<void>((resolve) => {
+      let settled = false
+      const finish = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve()
+      }
+      const timer = setTimeout(finish, CLOSE_TIMEOUT_MS)
+      try {
+        Promise.resolve(client.close(CLOSE_TIMEOUT_MS)).then(finish, finish)
+      } catch {
+        finish()
+      }
+    })
     closing = close
     void close.finally(() => {
       if (closing === close) closing = null
