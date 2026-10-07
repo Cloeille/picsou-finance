@@ -107,6 +107,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AMEX and DEGIRO deployments can use CI-built images instead of local builds.**
+  Both authentication sidecars are included in GHCR publishing and image-based
+  CI tests, and the deployment Compose file offers the same image/build choice
+  as the other providers. AMEX selects the pinned browser archive for AMD64 or ARM64.
+  New packages require public visibility before anonymous pulls.
+
 - **AMEX login works again after AMEX changed the page where you choose SMS or e-mail for the security code.**
   The page now lists your masked phone number and e-mail address as radio choices instead of
   buttons, so Picsou could not pick one and the login failed with an upstream format error. It

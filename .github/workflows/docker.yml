@@ -64,6 +64,16 @@ jobs:
             context: services/sofidy-auth
             dockerfile: services/sofidy-auth/Dockerfile
             versioned: false
+          - name: amex-auth
+            image: ${{ github.repository }}/amex-auth
+            context: services/amex-auth
+            dockerfile: services/amex-auth/Dockerfile
+            versioned: false
+          - name: degiro-auth
+            image: ${{ github.repository }}/degiro-auth
+            context: services/degiro-auth
+            dockerfile: services/degiro-auth/Dockerfile
+            versioned: false
 
     steps:
       - name: Checkout
