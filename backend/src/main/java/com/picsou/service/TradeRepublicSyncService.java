@@ -606,6 +606,7 @@ public class TradeRepublicSyncService {
             syncWithToken(encryption.decrypt(s.getSessionToken()), s, memberId);
             return new SourceSyncResult("trade-republic", SourceSyncResult.Status.SYNCED, "");
         } catch (SyncException ex) {
+            log.warn("Trade Republic scheduled sync failed for member {} (code={})", memberId, ex.getCode(), ex);
             return SourceSyncResult.fromSyncException("trade-republic", ex);
         } catch (Exception ex) {
             log.error("Trade Republic scheduled sync failed unexpectedly for member {}", memberId, ex);

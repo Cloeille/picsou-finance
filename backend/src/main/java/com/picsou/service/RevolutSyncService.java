@@ -383,6 +383,7 @@ public class RevolutSyncService {
             sync(memberId, null, null, true, false);
             return new SourceSyncResult("revolut", SourceSyncResult.Status.SYNCED, "");
         } catch (SyncException ex) {
+            log.warn("Revolut scheduled sync failed for member {} (code={})", memberId, ex.getCode(), ex);
             return SourceSyncResult.fromSyncException("revolut", ex);
         } catch (Exception ex) {
             log.error("Revolut scheduled sync failed unexpectedly for member {}", memberId, ex);
