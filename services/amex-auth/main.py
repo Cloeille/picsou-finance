@@ -1230,24 +1230,53 @@ def _parse_balance(payload: Any, account_token: str | None = None) -> dict[str, 
     )
 
     if entry.get("statement_balance_amount") is not None or entry.get("total_debits_balance_amount") is not None:
-        # ponytail: current-balance formula (statement + new debits - payments/
-        # credits) is the standard credit-card formula, but it's only been
-        # confirmed against one real AMEX account where total_payments_credits_
-        # amount and charges_amount both happened to be zero -- re-verify this
-        # once a payment or credit shows up on a real statement.
-        current_balance_key = (
-            "statement_balance_amount+total_debits_balance_amount-total_payments_credits_amount"
-        )
         statement_amt = statement_balance if statement_balance is not None else 0
         debits_amt = _unwrap_amount(entry.get("total_debits_balance_amount"))
         debits_amt = debits_amt if debits_amt is not None else 0
         credits_amt = _unwrap_amount(entry.get("total_payments_credits_amount"))
         credits_amt = credits_amt if credits_amt is not None else 0
-        current_balance = (
-            _decimal(statement_amt, "statement_balance_amount")
-            + _decimal(debits_amt, "total_debits_balance_amount")
-            - _decimal(credits_amt, "total_payments_credits_amount")
-        )
+        remaining_amt = _unwrap_amount(entry.get("remaining_statement_balance_amount"))
+        if remaining_amt is not None:
+            # remaining_statement_balance_amount is the statement balance
+            # AFTER payments/credits are netted in. The credits it already
+            # absorbed are statement - remaining; only the rest of
+            # total_payments_credits_amount is still unapplied. When credits
+            # are fully reflected in remaining this equals the legacy
+            # statement + debits - credits. It differs only when the statement
+            # was reduced by something not counted in
+            # total_payments_credits_amount (e.g. a direct debit, issue #196),
+            # which the legacy formula would subtract twice. Credits beyond
+            # the statement (overpayment/refund) still reduce the debt.
+            current_balance_key = (
+                "remaining_statement_balance_amount+total_debits_balance_amount"
+                "-unapplied_credits"
+            )
+            remaining_dec = _decimal(remaining_amt, "remaining_statement_balance_amount")
+            if statement_balance is None:
+                # Without a statement balance nothing can be proven applied:
+                # keep the whole amount owed instead of cancelling it.
+                applied = Decimal(0)
+            else:
+                applied = _decimal(statement_amt, "statement_balance_amount") - remaining_dec
+            unapplied = max(
+                Decimal(0),
+                _decimal(credits_amt, "total_payments_credits_amount") - applied,
+            )
+            current_balance = (
+                remaining_dec
+                + _decimal(debits_amt, "total_debits_balance_amount")
+                - unapplied
+            )
+        else:
+            # Legacy fallback for entries without remaining_statement_balance_amount.
+            current_balance_key = (
+                "statement_balance_amount+total_debits_balance_amount-total_payments_credits_amount"
+            )
+            current_balance = (
+                _decimal(statement_amt, "statement_balance_amount")
+                + _decimal(debits_amt, "total_debits_balance_amount")
+                - _decimal(credits_amt, "total_payments_credits_amount")
+            )
     else:
         current_balance_keys = (
             "totalBalance", "total_balance_amount", "total_balance",
@@ -1653,9 +1682,11 @@ def _self_check() -> None:
     })
     assert category_account.transactions[0].category == "Restaurant"
 
-    # Real AMEX /financials/balances shape: list root, one entry, current
-    # balance = statement + new debits - payments/credits (all extra parts
-    # zero here except debits vs statement).
+    # Real AMEX /financials/balances shape: list root, one entry. The entry
+    # carries remaining_statement_balance_amount=63.50 against a statement of
+    # 100.00, i.e. 36.50 of the statement has already been paid, so the
+    # current balance is what remains on the statement (63.50) plus the new
+    # debits since the statement date (0) = 63.50 -- not the full statement.
     real_shape_balance = _parse_balance(
         [
             {
@@ -1680,13 +1711,13 @@ def _self_check() -> None:
                 "remaining_statement_balance_amount": 63.50,
                 "statement_balance_amount": 100.0,
                 "total_debits_balance_amount": 0.0,
-                "total_payments_credits_amount": 0.0,
+                "total_payments_credits_amount": 36.50,
             },
             {"account_token": "tok-other", "total_debits_balance_amount": 999.0},
         ],
         account_token="tok-real",
     )
-    assert real_shape_balance["balanceEur"] == Decimal("-100")
+    assert real_shape_balance["balanceEur"] == Decimal("-63.50")
     assert real_shape_balance["statementBalance"] == Decimal("100.00")
     assert real_shape_balance["amountDue"] == Decimal("63.50")
     assert real_shape_balance["dueDate"] is None
@@ -1721,6 +1752,132 @@ def _self_check() -> None:
         account_token="tok-real2",
     )
     assert real_shape_balance_with_activity["balanceEur"] == Decimal("-113.45")
+
+    # ─── Statement-payment balance semantics (issue #196) ────────────────
+    # When remaining_statement_balance_amount is present it already nets the
+    # payments/credits against the statement, so the current balance is
+    # remaining + new debits -- a paid statement must not be double-counted.
+
+    # No payment yet: remaining == statement, so balance = statement + debits.
+    no_payment_balance = _parse_balance(
+        [{
+            "account_token": "tok-nopay",
+            "statement_balance_amount": 500.0,
+            "remaining_statement_balance_amount": 500.0,
+            "total_debits_balance_amount": 20.0,
+            "total_payments_credits_amount": 0.0,
+        }],
+        account_token="tok-nopay",
+    )
+    assert no_payment_balance["balanceEur"] == Decimal("-520.00")
+
+    # Full payment: the statement is paid in full (remaining = 0), only the
+    # new debits since the statement date remain due. Real case from the
+    # issue: statement 2122.00 paid, 133.00 of new purchases -> -133.00.
+    full_payment_balance = _parse_balance(
+        [{
+            "account_token": "tok-fullpay",
+            "statement_balance_amount": 2122.0,
+            "last_statement_balance_amount": 2122.0,
+            "remaining_statement_balance_amount": 0.0,
+            "total_debits_balance_amount": 133.0,
+            "total_payments_credits_amount": 2122.0,
+            "charges_amount": 133.0,
+        }],
+        account_token="tok-fullpay",
+    )
+    assert full_payment_balance["balanceEur"] == Decimal("-133.00")
+    assert full_payment_balance["amountDue"] == Decimal("0.00")
+
+    # Partial payment: 100.00 statement, 36.50 paid -> 63.50 still owed on
+    # the statement, plus 10.00 of new debits -> -73.50.
+    partial_payment_balance = _parse_balance(
+        [{
+            "account_token": "tok-partial",
+            "statement_balance_amount": 100.0,
+            "remaining_statement_balance_amount": 63.50,
+            "total_debits_balance_amount": 10.0,
+            "total_payments_credits_amount": 36.50,
+        }],
+        account_token="tok-partial",
+    )
+    assert partial_payment_balance["balanceEur"] == Decimal("-73.50")
+
+    # Issue #196 repro: the 2122.00 direct debit paid the statement
+    # (remaining 0.00) but is NOT counted in total_payments_credits_amount,
+    # which only holds a small 2.10 refund. The legacy formula would return
+    # 2122.00 + 135.00 - 2.10 = -2254.90 here (the reported bug). With
+    # remaining 0 the whole statement is applied, so the 2.10 is treated as
+    # already absorbed and only the new debits remain: -135.00.
+    issue_196_balance = _parse_balance(
+        [{
+            "account_token": "tok-issue196",
+            "statement_balance_amount": 2122.0,
+            "last_statement_balance_amount": 2122.0,
+            "remaining_statement_balance_amount": 0.0,
+            "total_debits_balance_amount": 135.0,
+            "total_payments_credits_amount": 2.10,
+        }],
+        account_token="tok-issue196",
+    )
+    assert issue_196_balance["balanceEur"] == Decimal("-135.00")
+    assert issue_196_balance["amountDue"] == Decimal("0.00")
+
+    # Statement balance absent (only remaining + debits): nothing is proven
+    # applied, so the amount owed stays whole: 500 + 20 = -520.00, and
+    # credits (30) still reduce the debt: 500 + 20 - 30 = -490.00.
+    no_statement_balance = _parse_balance(
+        [{
+            "account_token": "tok-nostmt",
+            "remaining_statement_balance_amount": 500.0,
+            "total_debits_balance_amount": 20.0,
+            "total_payments_credits_amount": 0.0,
+        }],
+        account_token="tok-nostmt",
+    )
+    assert no_statement_balance["balanceEur"] == Decimal("-520.00")
+    no_statement_credit_balance = _parse_balance(
+        [{
+            "account_token": "tok-nostmt-credit",
+            "remaining_statement_balance_amount": 500.0,
+            "total_debits_balance_amount": 20.0,
+            "total_payments_credits_amount": 30.0,
+        }],
+        account_token="tok-nostmt-credit",
+    )
+    assert no_statement_credit_balance["balanceEur"] == Decimal("-490.00")
+
+    # Refund/overpayment, remaining clamped at 0: credits (120) exceed the
+    # statement (100), so a surplus credit of 20 offsets the 5 of new debits
+    # and the card is in credit (+15).
+    refund_credit_balance = _parse_balance(
+        [{
+            "account_token": "tok-refund",
+            "statement_balance_amount": 100.0,
+            "remaining_statement_balance_amount": 0.0,
+            "total_debits_balance_amount": 5.0,
+            "total_payments_credits_amount": 120.0,
+        }],
+        account_token="tok-refund",
+    )
+    assert refund_credit_balance["balanceEur"] == Decimal("15.00")
+
+    # Same refund when AMEX does not clamp remaining (-20): same +15.
+    refund_unclamped_balance = _parse_balance(
+        [{
+            "account_token": "tok-refund-unclamped",
+            "statement_balance_amount": 100.0,
+            "remaining_statement_balance_amount": -20.0,
+            "total_debits_balance_amount": 5.0,
+            "total_payments_credits_amount": 120.0,
+        }],
+        account_token="tok-refund-unclamped",
+    )
+    assert refund_unclamped_balance["balanceEur"] == Decimal("15.00")
+
+    # The legacy formula still applies when remaining_statement_balance_amount
+    # is absent (already covered above by real_shape_balance_with_activity:
+    # statement + debits - credits = 100 + 23.45 - 10 = 113.45).
 
     # Merge posted + pending transactions, deduping by identifier (posted wins).
     posted_for_merge = [

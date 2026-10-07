@@ -107,6 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An AMEX card no longer shows a statement you already paid by direct debit as debt.**
+  The card used to count the paid statement again on top of your new purchases. It now shows
+  only what is still owed on the statement plus the purchases made since. A refund or an
+  overpayment larger than the statement now shows as a credit on the card.
+
 - **MCP sync no longer hides an expired browser session or loses the status report after a database error.**
   BoursoBank, Bourse Direct, Amundi and Fortuneo distinguish an inactive session requiring a new login
   from another recorded failure and from no connection. Exceptions retain server-side diagnostics
