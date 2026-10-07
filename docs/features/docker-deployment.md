@@ -10,6 +10,7 @@ Picsou deploys as the app and ten authentication sidecars orchestrated by `docke
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
 - **`amundi-auth`** — Amundi login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/amundi-auth`.
 - **`bourso-auth`** — BoursoBank login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourso-auth`.
+- **`caisse-epargne-auth`** — browserless Caisse d'Epargne read sidecar (session replay, no in-app login yet), published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
 - **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
@@ -243,6 +244,7 @@ docker compose -f docker/docker-compose.yml up
   → bourse-direct-auth (uvicorn:8001, internal only)
   → amundi-auth (uvicorn:8001, internal only)
   → bourso-auth (uvicorn:8001, internal only)
+  → caisse-epargne-auth (uvicorn:8001, internal only)
   → fortuneo-auth (uvicorn:8001, internal only)
   → corum-auth (uvicorn:8001, internal only)
   → sofidy-auth (uvicorn:8001, internal only)
@@ -261,6 +263,7 @@ docker save ghcr.io/cloeille/picsou-finance:latest \
   ghcr.io/cloeille/picsou-finance/bourse-direct-auth:latest \
   ghcr.io/cloeille/picsou-finance/amundi-auth:latest \
   ghcr.io/cloeille/picsou-finance/bourso-auth:latest \
+  ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:latest \
   ghcr.io/cloeille/picsou-finance/fortuneo-auth:latest \
   ghcr.io/cloeille/picsou-finance/corum-auth:latest \
   ghcr.io/cloeille/picsou-finance/sofidy-auth:latest \
@@ -273,7 +276,7 @@ docker load < picsou-release.tar.gz
 
 ### Pulling from GHCR
 
-The app and all ten sidecar images are published by `.github/workflows/docker.yml` on every push
+The app and all eleven sidecar images are published by `.github/workflows/docker.yml` on every push
 (matrix build, one entry per image). To deploy from the registry instead of
 building or loading a tar.gz:
 
@@ -285,6 +288,7 @@ docker pull ghcr.io/cloeille/picsou-finance/revolut-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/bourse-direct-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amundi-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/bourso-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/fortuneo-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/corum-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/sofidy-auth:1.1.0
