@@ -207,6 +207,12 @@
     "total": "Total",
     "currentBalance": "Saldo actual",
     "currentDebt": "Deuda de tarjeta",
+    "cardNature": {
+      "label": "Tipo de tarjeta",
+      "IMMEDIATE_DEBIT": "Débito inmediato",
+      "DEFERRED_DEBIT": "Débito diferido",
+      "CREDIT": "Crédito"
+    },
     "cashBalance": "Efectivo en la cuenta PEA/de valores",
     "snapshots": "Registros mensuales",
     "addSnapshot": "Guardar",

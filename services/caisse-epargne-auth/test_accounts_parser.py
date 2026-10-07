@@ -18,6 +18,7 @@ from accounts_parser import (
     build_import,
     card_outstanding,
     extract_iban,
+    next_due_date,
     parse_synthesis,
     parse_transactions,
 )
@@ -345,8 +346,26 @@ def test_transaction_mapping_matches_the_contract():
         "amount": Decimal("-12.5"),
         "currency": "EUR",
         "label": "FAKE ACHAT 1",
+        "typeCode": "1",
         "accountExternalId": "1001",
     }
+
+
+def test_type_code_is_the_transaction_type_code_as_a_string():
+    page = tx("courant_page1")
+    page["data"][0]["parsedData"]["transactionTypeCode"] = 4
+    page["data"][1]["parsedData"]["transactionTypeCode"] = "04"
+    rows = parse_transactions(page, account_external_id="1001")
+    assert [r["typeCode"] for r in rows] == ["4", "04", "2"]
+
+
+def test_type_code_is_none_when_absent_and_never_fails():
+    page = tx("courant_page1")
+    del page["data"][0]["parsedData"]["transactionTypeCode"]
+    page["data"][1]["parsedData"] = None
+    del page["data"][2]["parsedData"]
+    rows = parse_transactions(page, account_external_id="1001")
+    assert [r["typeCode"] for r in rows] == [None, None, None]
 
 
 def test_amount_sign_is_kept_negative_outflow_positive_inflow():
@@ -506,6 +525,37 @@ def test_outstanding_uses_exact_decimals():
 def test_outstanding_defaults_today_to_the_system_date():
     far_future = card_page((1, -7.0, "2999-01-01"))
     assert card_outstanding(far_future) == Decimal("-7.0")
+
+
+# ─── Next due date ──────────────────────────────────────────────────────────
+
+
+def test_next_due_date_is_the_smallest_due_date_after_today():
+    page = card_page(
+        (1, -10.0, "2026-10-07"),  # today: not strictly after
+        (2, -20.0, "2026-11-04"),
+        (3, -30.0, "2026-10-28"),
+        (4, -5.0, "2026-10-28"),
+    )
+    assert next_due_date(page, today=TODAY) == date(2026, 10, 28)
+
+
+def test_next_due_date_is_none_without_future_operations():
+    assert next_due_date(tx("carte_active"), today=TODAY) is None
+    assert next_due_date(tx("carte_indeterminee"), today=TODAY) is None
+
+
+def test_build_import_card_carries_next_due_date():
+    inputs = full_inputs()
+    inputs["2001"] = [card_page((1, -25.0, "2026-10-02"), (2, -9.9, "2026-10-28"))]
+    accounts = by_id(build_import(synthesis(), inputs, today=TODAY)["accounts"])
+    assert accounts["2001"]["nextDueDate"] == date(2026, 10, 28)
+    assert "nextDueDate" not in accounts["1001"]
+
+
+def test_build_import_card_without_future_operations_has_no_next_due_date():
+    accounts = by_id(build_import(synthesis(), full_inputs(), today=TODAY)["accounts"])
+    assert accounts["2001"]["nextDueDate"] is None
 
 
 # ─── build_import ───────────────────────────────────────────────────────────

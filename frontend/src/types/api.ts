@@ -248,6 +248,9 @@ export interface DebtInfo {
   fileFees: number | null
 }
 
+/** How a bank card is debited; set by the Caisse d'Epargne sync on cards only. */
+export type CardNature = 'IMMEDIATE_DEBIT' | 'DEFERRED_DEBIT' | 'CREDIT'
+
 export interface Account {
   id: number
   name: string
@@ -283,6 +286,8 @@ export interface Account {
   paymentDueAmount?: number
   paymentDueDate?: string
   rewardPoints?: number
+  /** Cards only: immediate debit, deferred debit or credit. Absent when the bank does not say. */
+  cardNature?: CardNature | null
   /** Display-only visibility flag; hidden account still syncs normally. */
   hidden: boolean
   /** Set only when the member owns less than all of it — the co-ownership badge signal. */

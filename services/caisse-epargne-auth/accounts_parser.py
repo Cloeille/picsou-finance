@@ -290,6 +290,17 @@ def _rows(pages: Pages) -> Iterable[tuple]:
             yield p, r, row
 
 
+def _type_code(row: dict) -> Optional[str]:
+    """`parsedData.transactionTypeCode` as a string, or None when absent (never an error)."""
+    parsed = row.get("parsedData")
+    if not isinstance(parsed, dict):
+        return None
+    code = parsed.get("transactionTypeCode")
+    if code is None or isinstance(code, bool) or not isinstance(code, (int, str)):
+        return None
+    return str(code)
+
+
 def _transaction(row: Any, where: str) -> dict:
     row = _object(row, INVALID_TRANSACTIONS, where)
     tx_id = row.get("id")
@@ -305,6 +316,7 @@ def _transaction(row: Any, where: str) -> dict:
         "amount": _decimal(row.get("amount"), INVALID_TRANSACTIONS, f"{where}.amount"),
         "currency": _text(row.get("currency"), INVALID_TRANSACTIONS, f"{where}.currency"),
         "label": _text(row.get("text"), INVALID_TRANSACTIONS, f"{where}.text"),
+        "typeCode": _type_code(row),
         "accountExternalId": str(account_id),
     }
 
@@ -350,12 +362,32 @@ def extract_iban(pages: Pages) -> tuple:
     return None, False
 
 
-def card_outstanding(pages: Pages, *, today: Optional[date] = None) -> Decimal:
-    """Sum of the card operations whose `dueDate` is strictly after `today`."""
+def _today(today: Optional[date]) -> date:
     if today is None:
-        today = date.today()
-    elif not isinstance(today, date):
+        return date.today()
+    if not isinstance(today, date):
         raise TypeError("today must be a date")
+    return today
+
+
+def next_due_date(pages: Pages, *, today: Optional[date] = None) -> Optional[date]:
+    """Smallest `dueDate` strictly after `today` among the card operations, or None."""
+    today = _today(today)
+    upcoming = [
+        due
+        for due in (date.fromisoformat(row["dueDate"]) for row in parse_transactions(pages))
+        if due > today
+    ]
+    return min(upcoming) if upcoming else None
+
+
+def card_outstanding(pages: Pages, *, today: Optional[date] = None) -> Decimal:
+    """Sum of the card operations whose `dueDate` is strictly after `today`.
+
+    Known gap: on the due day itself the card reads 0 even if the debit is not
+    yet posted on the current account. To be measured at the next live test.
+    """
+    today = _today(today)
     total = Decimal(0)
     for row in parse_transactions(pages):
         if date.fromisoformat(row["dueDate"]) > today:
@@ -385,6 +417,7 @@ def build_import(synthesis: Any, transactions_by_account: dict, *, today: Option
         if account["kind"] == "CARD":
             outstanding = card_outstanding(pages, today=today)
             account["outstanding"] = outstanding
+            account["nextDueDate"] = next_due_date(pages, today=today)
             account["balance"] = {"value": outstanding, "currency": account["currency"]}
         else:
             account["iban"], account["ibanAmbiguous"] = extract_iban(pages)

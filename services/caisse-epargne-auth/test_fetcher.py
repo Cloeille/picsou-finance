@@ -134,7 +134,7 @@ class HappyPathTest(unittest.IsolatedAsyncioTestCase):
         keys = {
             "externalId", "kind", "name", "balance", "currency", "iban", "ibanAmbiguous",
             "authorizedOverdraft", "ceiling", "remainingDepositCapacity", "fillingRatio",
-            "cardNature", "parentExternalId", "transactions", "snapshotComplete",
+            "cardNature", "parentExternalId", "nextDueDate", "transactions", "snapshotComplete",
         }
         for account in result["accounts"]:
             self.assertEqual(set(account), keys)
@@ -149,6 +149,9 @@ class HappyPathTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(card["cardNature"], "DEFERRED_DEBIT")
         self.assertEqual(card["parentExternalId"], "1001")
         self.assertEqual(card["balance"], "0")  # both fixture rows are due before TODAY
+        self.assertIsNone(card["nextDueDate"])
+        self.assertIsNone(current["nextDueDate"])
+        self.assertEqual([t["typeCode"] for t in card["transactions"]], ["11", "11"])
 
     async def test_transactions_are_mapped_without_the_account_id(self):
         result = await run_fetch(FakeCE())
@@ -165,6 +168,7 @@ class HappyPathTest(unittest.IsolatedAsyncioTestCase):
                 "amount": "-12.5",
                 "currency": "EUR",
                 "label": LABEL_MARKER,
+                "typeCode": "1",
             },
         )
 
@@ -271,6 +275,7 @@ class HappyPathTest(unittest.IsolatedAsyncioTestCase):
 
         card = next(a for a in result["accounts"] if a["externalId"] == "2001")
         self.assertEqual(card["balance"], "-25.0")
+        self.assertEqual(card["nextDueDate"], "2026-10-28")
 
 
 class PaginationTest(unittest.IsolatedAsyncioTestCase):

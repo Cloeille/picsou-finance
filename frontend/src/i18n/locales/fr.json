@@ -218,6 +218,12 @@
     "total": "Total",
     "currentBalance": "Solde actuel",
     "currentDebt": "Dette carte",
+    "cardNature": {
+      "label": "Type de carte",
+      "IMMEDIATE_DEBIT": "Débit immédiat",
+      "DEFERRED_DEBIT": "Débit différé",
+      "CREDIT": "Crédit"
+    },
     "tabOverview": "Aperçu",
     "cashBalance": "Liquidités dans le PEA/CTO",
     "snapshots": "Relevés mensuels",

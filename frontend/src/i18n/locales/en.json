@@ -218,6 +218,12 @@
     "total": "Total",
     "currentBalance": "Current balance",
     "currentDebt": "Credit-card debt",
+    "cardNature": {
+      "label": "Card type",
+      "IMMEDIATE_DEBIT": "Immediate debit",
+      "DEFERRED_DEBIT": "Deferred debit",
+      "CREDIT": "Credit"
+    },
     "tabOverview": "Overview",
     "cashBalance": "Cash in the PEA/securities account",
     "snapshots": "Monthly snapshots",

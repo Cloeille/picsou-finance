@@ -83,6 +83,8 @@ public interface CaisseEpargnePort {
         /** {@code CREDIT}, {@code DEFERRED_DEBIT}, {@code IMMEDIATE_DEBIT} or null; cards only. */
         String cardNature,
         String parentExternalId,
+        /** Cards only: smallest {@code dueDate} after today among the card's operations, or null. */
+        LocalDate nextDueDate,
         List<Transaction> transactions,
         boolean snapshotComplete
     ) {
@@ -98,7 +100,9 @@ public interface CaisseEpargnePort {
         LocalDate dueDate,
         BigDecimal amount,
         String currency,
-        String label
+        String label,
+        /** The bank's {@code transactionTypeCode} as text; null when the bank sent none. */
+        String typeCode
     ) {}
 
     record AccountsSnapshot(List<AccountData> accounts, List<Unsupported> unsupported) {

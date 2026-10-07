@@ -11,6 +11,9 @@ import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.CaisseEpargneSession;
 import com.picsou.model.CaisseEpargneSyncStatus;
+import com.picsou.model.CardNature;
+import com.picsou.model.Category;
+import com.picsou.model.CategoryKind;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
 import com.picsou.port.CaisseEpargneErrorCode;
@@ -19,6 +22,7 @@ import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.budget.CategorizationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -58,6 +62,10 @@ public class CaisseEpargneSyncService {
 
     static final String PROVIDER = "Caisse d'Epargne";
     private static final String EXTERNAL_ID_PREFIX = "ce_";
+    /** Slug of the seeded TRANSFER category (money moving between the member's own accounts). */
+    private static final String TRANSFER_SLUG = "virement-interne";
+    /** The bank's {@code transactionTypeCode} on the current-account debit that settles a card. */
+    private static final String SETTLEMENT_TYPE_CODE = "04";
     /** Same width the other identified-transaction connectors use for the external id. */
     private static final int MAX_EXTERNAL_ID_LENGTH = 100;
     private static final int MAX_UNSUPPORTED = 100;
@@ -80,6 +88,7 @@ public class CaisseEpargneSyncService {
     private final TransactionRepository transactionRepository;
     private final FamilyMemberRepository memberRepository;
     private final AccountService accountService;
+    private final CategorizationService categorizationService;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
@@ -99,12 +108,13 @@ public class CaisseEpargneSyncService {
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
         AccountService accountService,
+        CategorizationService categorizationService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         @Qualifier("caisseEpargneSyncExecutor") Executor syncExecutor
     ) {
         this(port, sessionRepository, accountRepository, transactionRepository, memberRepository,
-            accountService, encryption, txTemplate, syncExecutor, Clock.systemUTC());
+            accountService, categorizationService, encryption, txTemplate, syncExecutor, Clock.systemUTC());
     }
 
     CaisseEpargneSyncService(
@@ -114,6 +124,7 @@ public class CaisseEpargneSyncService {
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
         AccountService accountService,
+        CategorizationService categorizationService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         Executor syncExecutor,
@@ -126,6 +137,7 @@ public class CaisseEpargneSyncService {
         this.transactionRepository = transactionRepository;
         this.memberRepository = memberRepository;
         this.accountService = accountService;
+        this.categorizationService = categorizationService;
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
@@ -411,11 +423,18 @@ public class CaisseEpargneSyncService {
                 // A card balance is its outstanding: money owed, never a credit.
                 throw invalid("a card with a positive outstanding");
             }
+            CardNature cardNature = type == AccountType.CREDIT_CARD ? natureOf(account.cardNature()) : null;
+            String parentExternalId = cardNature == null || clean(account.parentExternalId()) == null
+                ? null
+                : prefixed(account.parentExternalId(), "an invalid card parent identifier");
             accounts.add(new PreparedAccount(
                 externalId,
                 limit(account.name(), 100, fallbackName(type)),
                 type,
                 account.balance(),
+                cardNature,
+                parentExternalId,
+                account.nextDueDate(),
                 prepareTransactions(account.transactions())
             ));
         }
@@ -444,7 +463,8 @@ public class CaisseEpargneSyncService {
             }
             String externalId = prefixed(tx.externalId(), "an invalid transaction identifier");
             byId.put(externalId, new PreparedTransaction(
-                externalId, tx.date(), tx.amount(), limit(tx.label(), 255, "Caisse d'Epargne transaction")));
+                externalId, tx.date(), tx.dueDate(), tx.amount(),
+                limit(tx.label(), 255, "Caisse d'Epargne transaction"), clean(tx.typeCode())));
         }
         return List.copyOf(byId.values());
     }
@@ -471,9 +491,14 @@ public class CaisseEpargneSyncService {
             FamilyMember member = memberRepository.findById(job.memberId())
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             Instant syncedAt = Instant.now();
+            Map<String, Map<String, Transaction>> rowsByAccount = new LinkedHashMap<>();
             for (PreparedAccount data : prepared.accounts()) {
-                upsertAccount(data, member, job.memberId(), syncedAt);
+                Map<String, Transaction> rows = upsertAccount(data, member, job.memberId(), syncedAt);
+                if (rows != null) {
+                    rowsByAccount.put(data.externalId(), rows);
+                }
             }
+            tagCardSettlements(prepared, rowsByAccount, job.memberId());
 
             session.recordUnsupportedContracts(serializeUnsupported(prepared.unsupported()));
             session.markSuccessful(syncedAt);
@@ -482,12 +507,13 @@ public class CaisseEpargneSyncService {
         }));
     }
 
-    private void upsertAccount(PreparedAccount data, FamilyMember member, Long memberId, Instant syncedAt) {
+    /** The account's upserted rows by prefixed external id, or null when the user deleted it. */
+    private Map<String, Transaction> upsertAccount(PreparedAccount data, FamilyMember member, Long memberId, Instant syncedAt) {
         Optional<Account> existing = accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), memberId);
         if (existing.isEmpty()
             && accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId)) {
             log.info("Caisse d'Epargne skipped a soft-deleted account (member={})", memberId);
-            return;
+            return null;
         }
 
         Account account = existing.orElseGet(() -> Account.builder()
@@ -505,19 +531,95 @@ public class CaisseEpargneSyncService {
         account.setManual(false);
         account.setCurrentBalance(data.balance());
         account.setLastSyncedAt(syncedAt);
-        // The IBAN is deliberately not stored and the card is not linked to its current account:
-        // matching by IBAN and the card-to-account link are outside this slice, and a stored
-        // IBAN would let the Enable Banking sync adopt this account by itself.
+        if (data.cardNature() != null) {
+            // Same shape as the Amex card: what is still to be debited, and when. The card is
+            // never given a parentAccountId: the dashboard skips any account with a parent
+            // (pocket model), which would drop the card liability from net worth.
+            account.setCardNature(data.cardNature());
+            account.setPaymentDueAmount(data.balance().abs());
+            account.setPaymentDueDate(data.nextDueDate());
+        }
+        // The IBAN is deliberately not stored: matching by IBAN is outside this slice, and a
+        // stored IBAN would let the Enable Banking sync adopt this account by itself.
         Account saved = accountRepository.save(account);
 
         accountService.upsertSnapshot(saved, data.balance(), LocalDate.now());
-        upsertTransactions(saved, data.transactions());
+        return upsertTransactions(saved, data.transactions());
+    }
+
+    /**
+     * A deferred-debit card is settled on its current account by one debit per due date. When
+     * that debit is found without doubt it is an internal transfer, not spending: the card
+     * operations already count once as expenses on the card account.
+     *
+     * <p>Strict on purpose: only a due date already reached, a debit on that very day for exactly
+     * the sum of the group, a settlement type code (or none), exactly one candidate and no
+     * category yet. Anything else stays untouched, so a re-run changes nothing and a category the
+     * user chose is never overwritten. Counts only are logged.
+     */
+    private void tagCardSettlements(
+        PreparedSnapshot prepared, Map<String, Map<String, Transaction>> rowsByAccount, Long memberId
+    ) {
+        Map<String, PreparedAccount> byId = new LinkedHashMap<>();
+        prepared.accounts().forEach(a -> byId.put(a.externalId(), a));
+        Category transfer = null;
+        boolean transferLoaded = false;
+        int tagged = 0;
+        int skipped = 0;
+        for (PreparedAccount card : prepared.accounts()) {
+            PreparedAccount parent = card.parentExternalId() == null ? null : byId.get(card.parentExternalId());
+            if (card.cardNature() != CardNature.DEFERRED_DEBIT || parent == null
+                || !rowsByAccount.containsKey(card.externalId()) || !rowsByAccount.containsKey(parent.externalId())) {
+                continue;
+            }
+            Map<LocalDate, BigDecimal> groups = new java.util.TreeMap<>();
+            LocalDate today = LocalDate.now(clock);
+            for (PreparedTransaction tx : card.transactions()) {
+                if (tx.dueDate() != null && !tx.dueDate().isAfter(today)) {
+                    groups.merge(tx.dueDate(), tx.amount(), BigDecimal::add);
+                }
+            }
+            if (groups.isEmpty()) {
+                continue;
+            }
+            if (!transferLoaded) {
+                transferLoaded = true;
+                Category found = categorizationService.loadContext(memberId).categoriesBySlug().get(TRANSFER_SLUG);
+                transfer = found != null && found.getKind() == CategoryKind.TRANSFER ? found : null;
+                if (transfer == null) {
+                    log.warn("Caisse d'Epargne settlement tagging skipped: no transfer category (member={})", memberId);
+                    return;
+                }
+            }
+            Map<String, Transaction> storedById = rowsByAccount.get(parent.externalId());
+            List<Transaction> changed = new ArrayList<>();
+            for (Map.Entry<LocalDate, BigDecimal> group : groups.entrySet()) {
+                List<PreparedTransaction> candidates = parent.transactions().stream()
+                    .filter(tx -> tx.date().equals(group.getKey()))
+                    .filter(tx -> tx.amount().compareTo(group.getValue()) == 0)
+                    .filter(tx -> tx.typeCode() == null || SETTLEMENT_TYPE_CODE.equals(tx.typeCode()))
+                    .toList();
+                Transaction row = candidates.size() == 1 ? storedById.get(candidates.get(0).externalId()) : null;
+                if (row == null || row.getCategoryRef() != null) {
+                    skipped++;
+                    continue;
+                }
+                row.setCategoryRef(transfer);
+                changed.add(row);
+                tagged++;
+            }
+            if (!changed.isEmpty()) {
+                transactionRepository.saveAllAndFlush(changed);
+            }
+        }
+        log.info("Caisse d'Epargne card settlements: tagged={}, left alone={} (member={})", tagged, skipped, memberId);
     }
 
     /** Upsert by (account, external id); rows are never deleted, manual rows are never touched. */
-    private void upsertTransactions(Account account, List<PreparedTransaction> transactions) {
+    private Map<String, Transaction> upsertTransactions(Account account, List<PreparedTransaction> transactions) {
+        Map<String, Transaction> upserted = new LinkedHashMap<>();
         if (transactions.isEmpty()) {
-            return;
+            return upserted;
         }
         Map<String, Transaction> storedById = new LinkedHashMap<>();
         if (account.getId() != null) {
@@ -541,8 +643,10 @@ public class CaisseEpargneSyncService {
             row.setDescription(tx.label());
             row.setAmount(tx.amount());
             upserts.add(row);
+            upserted.put(tx.externalId(), row);
         }
         transactionRepository.saveAllAndFlush(upserts);
+        return upserted;
     }
 
     private void markFailed(SyncJob job, CaisseEpargneErrorCode code) {
@@ -634,6 +738,18 @@ public class CaisseEpargneSyncService {
         } catch (JsonProcessingException ex) {
             log.warn("Stored Caisse d'Epargne unsupported-contract list is unreadable");
             return List.of();
+        }
+    }
+
+    private static CardNature natureOf(String nature) {
+        if (nature == null) {
+            return null;
+        }
+        try {
+            return CardNature.valueOf(nature);
+        } catch (IllegalArgumentException ex) {
+            // Never guess: an unknown nature means the format moved under us.
+            throw invalid("an unknown card nature");
         }
     }
 
@@ -762,7 +878,12 @@ public class CaisseEpargneSyncService {
         String name,
         AccountType type,
         BigDecimal balance,
+        CardNature cardNature,
+        String parentExternalId,
+        LocalDate nextDueDate,
         List<PreparedTransaction> transactions
     ) {}
-    private record PreparedTransaction(String externalId, LocalDate date, BigDecimal amount, String label) {}
+    private record PreparedTransaction(
+        String externalId, LocalDate date, LocalDate dueDate, BigDecimal amount, String label, String typeCode
+    ) {}
 }

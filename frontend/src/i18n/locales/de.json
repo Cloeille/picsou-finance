@@ -207,6 +207,12 @@
     "total": "Gesamt",
     "currentBalance": "Aktueller Saldo",
     "currentDebt": "Kreditkartenschuld",
+    "cardNature": {
+      "label": "Kartentyp",
+      "IMMEDIATE_DEBIT": "Sofortige Abbuchung",
+      "DEFERRED_DEBIT": "Verzögerte Abbuchung",
+      "CREDIT": "Kredit"
+    },
     "cashBalance": "Bargeld im PEA/Wertpapierkonto",
     "snapshots": "Monatliche Stände",
     "addSnapshot": "Speichern",

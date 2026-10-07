@@ -169,6 +169,10 @@ def _money(money: Optional[dict]) -> Optional[str]:
     return None if money is None else _dec(money["value"])
 
 
+def _iso(value: Optional[date]) -> Optional[str]:
+    return None if value is None else value.isoformat()
+
+
 def _serialise_account(account: dict, transactions: list) -> dict:
     balance = account["balance"]
     kind = account["kind"]
@@ -189,6 +193,7 @@ def _serialise_account(account: dict, transactions: list) -> dict:
         else _dec(account["fillingRatio"]),
         "cardNature": account.get("nature") if card else None,
         "parentExternalId": account.get("parentExternalId") if card else None,
+        "nextDueDate": _iso(account.get("nextDueDate")) if card else None,
         "transactions": [
             {
                 "externalId": t["externalId"],
@@ -197,6 +202,7 @@ def _serialise_account(account: dict, transactions: list) -> dict:
                 "amount": _dec(t["amount"]),
                 "currency": t["currency"],
                 "label": t["label"],
+                "typeCode": t.get("typeCode"),
             }
             for t in transactions
         ],

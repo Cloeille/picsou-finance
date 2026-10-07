@@ -98,6 +98,7 @@ class V110CaisseEpargneErrorCodeMigrationTest {
         Flyway flyway = Flyway.configure()
             .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
             .locations("classpath:db/migration")
+            .target("110") // later migrations are covered by their own tests
             .load();
         assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("109");
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);

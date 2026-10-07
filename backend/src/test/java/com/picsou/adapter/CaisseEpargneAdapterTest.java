@@ -45,7 +45,7 @@ class CaisseEpargneAdapterTest {
              "cardNature": null, "parentExternalId": null,
              "transactions": [
                {"externalId": "t1", "date": "2026-10-01", "dueDate": "2026-10-01",
-                "amount": "-12.30", "currency": "EUR", "label": "SUPERMARCHE"}
+                "amount": "-12.30", "currency": "EUR", "label": "SUPERMARCHE", "typeCode": "04"}
              ],
              "snapshotComplete": true},
             {"externalId": "1002", "kind": "LIVRET_A", "name": "LIVRET A",
@@ -61,6 +61,7 @@ class CaisseEpargneAdapterTest {
              "authorizedOverdraft": null, "ceiling": null,
              "remainingDepositCapacity": null, "fillingRatio": null,
              "cardNature": "DEFERRED_DEBIT", "parentExternalId": "1001",
+             "nextDueDate": "2026-10-31",
              "transactions": [
                {"externalId": "c1", "date": "2026-10-02", "dueDate": "2026-10-31",
                 "amount": "-87.10", "currency": "EUR", "label": "RESTAURANT"}
@@ -101,7 +102,9 @@ class CaisseEpargneAdapterTest {
             assertThat(tx.dueDate()).isEqualTo(LocalDate.of(2026, 10, 1));
             assertThat(tx.amount()).isEqualByComparingTo("-12.30");
             assertThat(tx.label()).isEqualTo("SUPERMARCHE");
+            assertThat(tx.typeCode()).isEqualTo("04");
         });
+        assertThat(current.nextDueDate()).isNull();
 
         CaisseEpargnePort.AccountData livret = snapshot.accounts().get(1);
         assertThat(livret.kind()).isEqualTo("LIVRET_A");
@@ -118,6 +121,8 @@ class CaisseEpargneAdapterTest {
         assertThat(card.cardNature()).isEqualTo("DEFERRED_DEBIT");
         assertThat(card.parentExternalId()).isEqualTo("1001");
         assertThat(card.transactions().getFirst().dueDate()).isEqualTo(LocalDate.of(2026, 10, 31));
+        assertThat(card.transactions().getFirst().typeCode()).isNull(); // absent in the payload
+        assertThat(card.nextDueDate()).isEqualTo(LocalDate.of(2026, 10, 31));
 
         assertThat(snapshot.unsupported()).singleElement().satisfies(u -> {
             assertThat(u.externalId()).isEqualTo("9001");
