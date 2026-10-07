@@ -39,37 +39,54 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CaisseEpargneAdapterAuthTest {
 
     private static final String CUSTOMER_ID = "12345678";
-    private static final String PASSWORD = "9482716350";
-    private static final String INITIATE_OK =
-        "{\"processId\":\"proc-1\",\"mfaRequired\":true,\"mfaType\":\"SECURPASS\",\"expiresInSeconds\":300}";
+    private static final List<Integer> POSITIONS = List.of(7, 3, 0, 9, 4, 1);
+    private static final String POSITIONS_JSON = "[7,3,0,9,4,1]";
+    private static final String IMAGE = "data:image/png;base64,iVBORw0KGgo=";
+    private static final String INITIATE_OK = initiateJson("proc-1", 5, 90);
+    private static final String KEYPAD_OK = "{\"processId\":\"proc-1\",\"status\":\"SECURPASS_PENDING\"}";
+
+    private static String initiateJson(String processId, int columns, int expiresIn) {
+        String images = String.join(",", java.util.Collections.nCopies(10, "\"" + IMAGE + "\""));
+        return "{\"processId\":\"" + processId + "\",\"keypad\":{\"images\":[" + images
+            + "],\"columns\":" + columns + "},\"expiresInSeconds\":" + expiresIn + "}";
+    }
 
     private record Call(String path, String body) {}
 
     // -- initiate: request and result ---------------------------------------
 
     @Test
-    void initiateAuth_postsTheCredentialsToInitiateAndMapsTheChallenge() {
+    void initiateAuth_postsOnlyTheIdentifierAndMapsTheKeypad() {
         List<Call> calls = new ArrayList<>();
         CaisseEpargneAdapter adapter = recording(calls, HttpStatus.OK, INITIATE_OK);
 
-        CaisseEpargnePort.InitiateResult result = adapter.initiateAuth(CUSTOMER_ID, PASSWORD);
+        CaisseEpargnePort.InitiateResult result = adapter.initiateAuth(CUSTOMER_ID);
 
         assertThat(calls).singleElement().satisfies(call -> {
             assertThat(call.path()).isEqualTo("/initiate");
-            assertThat(call.body())
-                .contains("\"customerId\":\"" + CUSTOMER_ID + "\"")
-                .contains("\"password\":\"" + PASSWORD + "\"");
+            assertThat(call.body()).isEqualTo("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
         });
         assertThat(result.processId()).isEqualTo("proc-1");
-        assertThat(result.mfaType()).isEqualTo("SECURPASS");
-        assertThat(result.expiresInSeconds()).isEqualTo(300);
+        assertThat(result.keypad().columns()).isEqualTo(5);
+        assertThat(result.keypad().images()).hasSize(10).allMatch(IMAGE::equals);
+        assertThat(result.expiresInSeconds()).isEqualTo(90);
+    }
+
+    @Test
+    void theInitiateBodyNeverPrintsTheIdentifier() throws Exception {
+        Class<?> body = java.util.Arrays.stream(CaisseEpargneAdapter.class.getDeclaredClasses())
+            .filter(c -> c.getSimpleName().equals("InitiateBody")).findFirst().orElseThrow();
+        var ctor = body.getDeclaredConstructors()[0];
+        ctor.setAccessible(true);
+
+        assertThat(ctor.newInstance(CUSTOMER_ID).toString()).doesNotContain(CUSTOMER_ID);
     }
 
     @Test
     void initiateAuth_mapsAnEmptyBodyToUnavailable() {
         CaisseEpargneAdapter adapter = returning(HttpStatus.OK, "");
 
-        assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, PASSWORD))
+        assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
             .isInstanceOfSatisfying(SyncException.class, error ->
                 assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name()));
     }
@@ -86,7 +103,7 @@ class CaisseEpargneAdapterAuthTest {
             new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED))) {
             CaisseEpargneAdapter adapter = returning(c.status(), "{\"detail\":\"" + c.detail() + "\"}");
 
-            assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, PASSWORD))
+            assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
                 .as(c.detail())
                 .isInstanceOfSatisfying(SyncException.class, error ->
                     assertThat(error.getCode()).isEqualTo(c.code().name()));
@@ -104,7 +121,7 @@ class CaisseEpargneAdapterAuthTest {
             new Case(HttpStatus.INTERNAL_SERVER_ERROR, CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE))) {
             CaisseEpargneAdapter adapter = returning(c.status(), "oops");
 
-            assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, PASSWORD))
+            assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
                 .as(c.status().toString())
                 .isInstanceOfSatisfying(SyncException.class, error ->
                     assertThat(error.getCode()).isEqualTo(c.code().name()));
@@ -116,7 +133,7 @@ class CaisseEpargneAdapterAuthTest {
         for (String body : List.of("{\"detail\":\"TOO_MANY_PENDING\"}", "")) {
             CaisseEpargneAdapter adapter = returning(HttpStatus.TOO_MANY_REQUESTS, body);
 
-            assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, PASSWORD))
+            assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
                 .isInstanceOfSatisfying(SyncException.class, error -> {
                     assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name());
                     assertThat(error.getMessage()).containsIgnoringCase("too many");
@@ -125,7 +142,7 @@ class CaisseEpargneAdapterAuthTest {
     }
 
     @Test
-    void initiateAuth_neverCarriesThePasswordInAnErrorOrALog() {
+    void initiateAuth_neverCarriesTheIdentifierInAnErrorOrALog() {
         Logger root = (Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
@@ -137,10 +154,10 @@ class CaisseEpargneAdapterAuthTest {
                 HttpStatus.TOO_MANY_REQUESTS, HttpStatus.BAD_GATEWAY, HttpStatus.OK)) {
                 CaisseEpargneAdapter adapter = returning(status, "not json " + status.value());
                 Throwable thrown = org.assertj.core.api.Assertions.catchThrowable(
-                    () -> adapter.initiateAuth(CUSTOMER_ID, PASSWORD));
+                    () -> adapter.initiateAuth(CUSTOMER_ID));
                 for (Throwable t = thrown; t != null; t = t.getCause()) {
-                    assertThat(String.valueOf(t.getMessage())).doesNotContain(PASSWORD);
-                    assertThat(t.toString()).doesNotContain(PASSWORD);
+                    assertThat(String.valueOf(t.getMessage())).doesNotContain(CUSTOMER_ID);
+                    assertThat(t.toString()).doesNotContain(CUSTOMER_ID);
                 }
             }
         } finally {
@@ -148,10 +165,10 @@ class CaisseEpargneAdapterAuthTest {
             root.setLevel(previous);
         }
         assertThat(appender.list).isNotEmpty().allSatisfy(event -> {
-            assertThat(event.getFormattedMessage()).doesNotContain(PASSWORD);
+            assertThat(event.getFormattedMessage()).doesNotContain(CUSTOMER_ID);
             assertThat(String.valueOf(event.getThrowableProxy() == null ? ""
                 : ch.qos.logback.classic.spi.ThrowableProxyUtil.asString(event.getThrowableProxy())))
-                .doesNotContain(PASSWORD);
+                .doesNotContain(CUSTOMER_ID);
         });
     }
 
@@ -172,10 +189,10 @@ class CaisseEpargneAdapterAuthTest {
             Duration.ofSeconds(60), Duration.ofSeconds(60),
             Duration.ofMillis(20), Duration.ofSeconds(60));
 
-        assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, PASSWORD))
+        assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
             .isInstanceOfSatisfying(SyncException.class, error -> {
                 assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name());
-                assertThat(error.getMessage()).contains("too long").doesNotContain(PASSWORD);
+                assertThat(error.getMessage()).contains("too long").doesNotContain(CUSTOMER_ID);
             });
     }
 
@@ -203,7 +220,7 @@ class CaisseEpargneAdapterAuthTest {
                 return Mono.just(ClientResponse.create(status).build());
             });
 
-            assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, PASSWORD)).isInstanceOf(SyncException.class);
+            assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID)).isInstanceOf(SyncException.class);
 
             assertThat(requests).as(status.toString()).hasValue(1);
         }
@@ -220,7 +237,7 @@ class CaisseEpargneAdapterAuthTest {
             Duration.ofSeconds(60), Duration.ofSeconds(60),
             Duration.ofMillis(20), Duration.ofMillis(20));
 
-        assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, PASSWORD)).isInstanceOf(SyncException.class);
+        assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID)).isInstanceOf(SyncException.class);
         assertThatThrownBy(() -> adapter.completeAuth("proc-1")).isInstanceOf(SyncException.class);
 
         assertThat(requests).hasValue(2);
@@ -230,9 +247,11 @@ class CaisseEpargneAdapterAuthTest {
     void theProductionClientNeverReplaysAnAuthCallOnTheWire() throws Exception {
         AtomicInteger initiateHits = new AtomicInteger();
         AtomicInteger completeHits = new AtomicInteger();
+        AtomicInteger keypadHits = new AtomicInteger();
         for (int status : new int[] {401, 409, 429, 502, 503}) {
             initiateHits.set(0);
             completeHits.set(0);
+            keypadHits.set(0);
             HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
             server.createContext("/initiate", exchange -> {
                 initiateHits.incrementAndGet();
@@ -244,6 +263,11 @@ class CaisseEpargneAdapterAuthTest {
                 exchange.sendResponseHeaders(status, -1);
                 exchange.close();
             });
+            server.createContext("/keypad", exchange -> {
+                keypadHits.incrementAndGet();
+                exchange.sendResponseHeaders(status, -1);
+                exchange.close();
+            });
             server.start();
             try {
                 CaisseEpargneAdapter adapter = new CaisseEpargneAdapter(
@@ -251,9 +275,11 @@ class CaisseEpargneAdapterAuthTest {
                     "http://127.0.0.1:" + server.getAddress().getPort(),
                     new ObjectMapper());
 
-                assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, PASSWORD)).isInstanceOf(SyncException.class);
+                assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID)).isInstanceOf(SyncException.class);
+                assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS)).isInstanceOf(SyncException.class);
                 assertThatThrownBy(() -> adapter.completeAuth("proc-1")).isInstanceOf(SyncException.class);
 
+                assertThat(keypadHits).as("keypad " + status).hasValue(1);
                 assertThat(initiateHits).as("initiate " + status).hasValue(1);
                 assertThat(completeHits).as("complete " + status).hasValue(1);
             } finally {
@@ -298,7 +324,7 @@ class CaisseEpargneAdapterAuthTest {
             assertThatThrownBy(() -> adapter.completeAuth("warmup")).isInstanceOf(SyncException.class);
             assertThat(warmups).hasValue(1);
 
-            assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, PASSWORD)).isInstanceOf(SyncException.class);
+            assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID)).isInstanceOf(SyncException.class);
             Thread.sleep(300); // a replay would arrive within this window
 
             assertThat(initiateHits).hasValue(1);
@@ -343,6 +369,180 @@ class CaisseEpargneAdapterAuthTest {
         } catch (java.io.IOException ignored) {
             // peer gone
         }
+    }
+
+    // -- keypad ---------------------------------------------------------------
+
+    @Test
+    void submitKeypad_postsTheProcessIdAndThePositionsToKeypad() {
+        List<Call> calls = new ArrayList<>();
+        CaisseEpargneAdapter adapter = recording(calls, HttpStatus.OK, KEYPAD_OK);
+
+        adapter.submitKeypad("proc-1", POSITIONS);
+
+        assertThat(calls).singleElement().satisfies(call -> {
+            assertThat(call.path()).isEqualTo("/keypad");
+            assertThat(call.body()).isEqualTo(
+                "{\"processId\":\"proc-1\",\"positions\":" + POSITIONS_JSON + "}");
+        });
+    }
+
+    @Test
+    void submitKeypad_refusesAnAnswerThatIsNotSecurPassPending() {
+        for (String body : List.of("{\"processId\":\"proc-1\",\"status\":\"DONE\"}",
+            "{\"processId\":\"proc-1\"}", "")) {
+            CaisseEpargneAdapter adapter = returning(HttpStatus.OK, body);
+
+            assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
+                .isInstanceOfSatisfying(SyncException.class, error ->
+                    assertThat(error.getCode()).isIn(
+                        CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED.name(),
+                        CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name()));
+        }
+        assertThatThrownBy(() -> returning(HttpStatus.OK, "{\"processId\":\"proc-1\",\"status\":\"DONE\"}")
+            .submitKeypad("proc-1", POSITIONS))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
+    }
+
+    @Test
+    void submitKeypad_mapsEverySidecarCodeToItsStableCode() {
+        record Case(HttpStatus status, String detail, CaisseEpargneErrorCode code) {}
+        for (Case c : List.of(
+            new Case(HttpStatus.CONFLICT, "KEYPAD_CHANGED", CaisseEpargneErrorCode.KEYPAD_CHANGED),
+            new Case(HttpStatus.REQUEST_TIMEOUT, "KEYPAD_EXPIRED", CaisseEpargneErrorCode.KEYPAD_EXPIRED),
+            new Case(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_POSITIONS", CaisseEpargneErrorCode.INVALID_POSITIONS),
+            new Case(HttpStatus.GONE, "AUTH_ATTEMPT_EXPIRED", CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED),
+            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", CaisseEpargneErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED))) {
+            CaisseEpargneAdapter adapter = returning(c.status(), "{\"detail\":\"" + c.detail() + "\"}");
+
+            assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
+                .as(c.detail())
+                .isInstanceOfSatisfying(SyncException.class, error ->
+                    assertThat(error.getCode()).isEqualTo(c.code().name()));
+        }
+    }
+
+    @Test
+    void submitKeypad_mapsABareStatusWhenTheSidecarSendsNoDetail() {
+        record Case(HttpStatus status, CaisseEpargneErrorCode code) {}
+        for (Case c : List.of(
+            new Case(HttpStatus.CONFLICT, CaisseEpargneErrorCode.KEYPAD_CHANGED),
+            new Case(HttpStatus.REQUEST_TIMEOUT, CaisseEpargneErrorCode.KEYPAD_EXPIRED),
+            new Case(HttpStatus.UNPROCESSABLE_ENTITY, CaisseEpargneErrorCode.INVALID_POSITIONS),
+            new Case(HttpStatus.GONE, CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED),
+            new Case(HttpStatus.UNAUTHORIZED, CaisseEpargneErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.BAD_GATEWAY, CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE))) {
+            CaisseEpargneAdapter adapter = returning(c.status(), "oops");
+
+            assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
+                .as(c.status().toString())
+                .isInstanceOfSatisfying(SyncException.class, error ->
+                    assertThat(error.getCode()).isEqualTo(c.code().name()));
+        }
+    }
+
+    @Test
+    void initiateStillMapsA408AsTheSecurPassTimeout() {
+        // 408 means "keypad expired" only on /keypad; on /initiate and /complete it is unchanged.
+        assertThatThrownBy(() -> returning(HttpStatus.REQUEST_TIMEOUT, "").initiateAuth(CUSTOMER_ID))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT.name()));
+        assertThatThrownBy(() -> returning(HttpStatus.REQUEST_TIMEOUT, "").completeAuth("proc-1"))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT.name()));
+    }
+
+    @Test
+    void submitKeypad_hasA70SecondTimeoutAndSurfacesARetryableUnavailable() {
+        assertThat(CaisseEpargneAdapter.KEYPAD_TIMEOUT).isEqualTo(Duration.ofSeconds(70));
+        CaisseEpargneAdapter adapter = new CaisseEpargneAdapter(
+            WebClient.builder().exchangeFunction(request -> Mono.never()).build(), new ObjectMapper(),
+            Duration.ofSeconds(60), Duration.ofSeconds(60),
+            Duration.ofSeconds(60), Duration.ofSeconds(60), Duration.ofMillis(20));
+
+        assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
+            .isInstanceOfSatisfying(SyncException.class, error -> {
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getMessage()).contains("too long");
+            });
+    }
+
+    @Test
+    void submitKeypad_isNeverRetriedWhateverTheFailure() {
+        for (HttpStatus status : List.of(HttpStatus.UNAUTHORIZED, HttpStatus.REQUEST_TIMEOUT,
+            HttpStatus.CONFLICT, HttpStatus.UNPROCESSABLE_ENTITY, HttpStatus.BAD_GATEWAY,
+            HttpStatus.SERVICE_UNAVAILABLE, HttpStatus.INTERNAL_SERVER_ERROR)) {
+            AtomicInteger requests = new AtomicInteger();
+            CaisseEpargneAdapter adapter = adapterOf(request -> {
+                requests.incrementAndGet();
+                return Mono.just(ClientResponse.create(status).build());
+            });
+
+            assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS)).isInstanceOf(SyncException.class);
+
+            assertThat(requests).as(status.toString()).hasValue(1);
+        }
+    }
+
+    @Test
+    void submitKeypad_isNeverRetriedAfterATimeout() {
+        AtomicInteger requests = new AtomicInteger();
+        CaisseEpargneAdapter adapter = new CaisseEpargneAdapter(
+            WebClient.builder().exchangeFunction(request -> {
+                requests.incrementAndGet();
+                return Mono.never();
+            }).build(), new ObjectMapper(),
+            Duration.ofSeconds(60), Duration.ofSeconds(60),
+            Duration.ofSeconds(60), Duration.ofSeconds(60), Duration.ofMillis(20));
+
+        assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS)).isInstanceOf(SyncException.class);
+
+        assertThat(requests).hasValue(1);
+    }
+
+    @Test
+    void submitKeypad_neverCarriesThePositionsInAnErrorOrALog() {
+        Logger root = (Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        root.addAppender(appender);
+        Level previous = root.getLevel();
+        root.setLevel(Level.ALL);
+        try {
+            for (HttpStatus status : List.of(HttpStatus.CONFLICT, HttpStatus.REQUEST_TIMEOUT,
+                HttpStatus.UNPROCESSABLE_ENTITY, HttpStatus.BAD_GATEWAY, HttpStatus.OK)) {
+                CaisseEpargneAdapter adapter = returning(status, "not json " + status.value());
+                Throwable thrown = org.assertj.core.api.Assertions.catchThrowable(
+                    () -> adapter.submitKeypad("proc-1", POSITIONS));
+                for (Throwable t = thrown; t != null; t = t.getCause()) {
+                    assertThat(String.valueOf(t.getMessage())).doesNotContain(POSITIONS_JSON).doesNotContain("[7, 3");
+                    assertThat(t.toString()).doesNotContain(POSITIONS_JSON).doesNotContain("[7, 3");
+                }
+            }
+        } finally {
+            root.detachAppender(appender);
+            root.setLevel(previous);
+        }
+        assertThat(appender.list).allSatisfy(event -> {
+            assertThat(event.getFormattedMessage()).doesNotContain(POSITIONS_JSON).doesNotContain("[7, 3");
+            assertThat(String.valueOf(event.getThrowableProxy() == null ? ""
+                : ch.qos.logback.classic.spi.ThrowableProxyUtil.asString(event.getThrowableProxy())))
+                .doesNotContain(POSITIONS_JSON).doesNotContain("[7, 3");
+        });
+    }
+
+    @Test
+    void theKeypadBodyNeverPrintsThePositions() throws Exception {
+        Class<?> body = java.util.Arrays.stream(CaisseEpargneAdapter.class.getDeclaredClasses())
+            .filter(c -> c.getSimpleName().equals("KeypadBody")).findFirst().orElseThrow();
+        var ctor = body.getDeclaredConstructors()[0];
+        ctor.setAccessible(true);
+
+        assertThat(ctor.newInstance("proc-1", POSITIONS).toString())
+            .doesNotContain("7, 3").doesNotContain("positions=[");
     }
 
     // -- complete -----------------------------------------------------------

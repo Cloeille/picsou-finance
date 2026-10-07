@@ -72,11 +72,11 @@ class CaisseEpargneAdapterTest {
         """;
 
     @Test
-    void portExposesTheReadPathAndTheTwoStepLoginAndNothingElse() {
-        // initiate/complete exist; no method takes or returns anything password-shaped but initiate.
+    void portExposesTheReadPathAndTheKeypadLoginAndNothingElse() {
+        // initiate/keypad/complete exist; no method takes a password: only key positions.
         var names = new TreeSet<String>();
         for (Method method : CaisseEpargnePort.class.getMethods()) names.add(method.getName());
-        assertThat(names).containsExactly("checkSession", "completeAuth", "fetchAccounts", "initiateAuth");
+        assertThat(names).containsExactly("checkSession", "completeAuth", "fetchAccounts", "initiateAuth", "submitKeypad");
     }
 
     @Test
@@ -212,7 +212,8 @@ class CaisseEpargneAdapterTest {
             .containsExactlyInAnyOrder(
                 "SESSION_EXPIRED", "UPSTREAM_UNAVAILABLE", "UPSTREAM_FORMAT_CHANGED",
                 "INVALID_SESSION_STATE", "INTERNAL_ERROR",
-                "INVALID_CREDENTIALS", "KEYPAD_CHANGED", "APP_VALIDATION_TIMEOUT", "AUTH_ATTEMPT_EXPIRED");
+                "INVALID_CREDENTIALS", "KEYPAD_CHANGED", "APP_VALIDATION_TIMEOUT", "AUTH_ATTEMPT_EXPIRED",
+                "KEYPAD_EXPIRED", "INVALID_POSITIONS");
     }
 
     // -- helpers ------------------------------------------------------------

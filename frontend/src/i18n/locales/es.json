@@ -435,7 +435,6 @@
       "hint": "Fuera de la estimación por metro cuadrado. El precio de suscripción no entra en este total.",
       "incomplete": "Una participación sigue usando su último saldo conocido: falta el precio de reembolso."
     }
-
   },
   "realEstate": {
     "purchasePrice": "Precio de compra",
@@ -705,7 +704,8 @@
       "amex": "Tarjeta de crédito American Express: saldo y transacciones",
       "property": "Casa, piso, terreno…",
       "revolut": "Phone + passcode, on-demand sync",
-      "fortuneo": "Sincronizar tus cuentas Fortuneo"
+      "fortuneo": "Sincronizar tus cuentas Fortuneo",
+      "caisseEpargne": "Cuenta corriente, Livret A y tarjetas en Caisse d'Epargne"
     },
     "revolutConnected": "Revolut connected!"
   },
@@ -975,7 +975,6 @@
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Identificador",
-      "password": "Contraseña",
       "connect": "Conectar",
       "connecting": "Conectando…",
       "sync": "Sincronizar",
@@ -989,7 +988,7 @@
       "sessionActive": "Sesión activa",
       "scope": "Sincroniza bajo demanda tus cuentas corrientes y de ahorro de Caisse d'Epargne. Solo se guarda la sesión, cifrada. Los contratos que Picsou no puede importar se listan pero nunca se crean.",
       "notice": {
-        "neverStored": "Picsou nunca guarda tu contraseña. Se usa una vez para iniciar sesión y se descarta.",
+        "neverStored": "Picsou nunca ve ni guarda tu contraseña. La pulsas tú mismo en el teclado del banco; solo se envían las posiciones de las teclas, una única vez.",
         "noRetry": "Picsou nunca reintenta un inicio de sesión. Si falla, no se vuelve a enviar nada hasta que envíes el formulario tú mismo.",
         "lockRisk": "Los intentos fallidos cuentan ante tu banco y pueden bloquear tu acceso a Caisse d'Epargne. Comprueba tu identificador y contraseña antes de conectar."
       },
@@ -1002,13 +1001,26 @@
         "rateLimited": "Demasiados intentos de inicio de sesión. Espera antes de volver a intentarlo.",
         "rateLimitedRetryAfter": "Demasiados intentos de inicio de sesión. Inténtalo de nuevo en {{minutes}} min.",
         "invalidCredentials": "El banco rechazó el identificador o la contraseña. Compruébalos antes de reintentar: los fallos repetidos pueden bloquear tu cuenta.",
-        "keypadChanged": "El banco cambió su página de inicio de sesión. No se envió nada. Picsou necesita una actualización antes de poder iniciar sesión.",
+        "keypadChanged": "El teclado cambió, empieza de nuevo. No se envió nada.",
         "appValidationTimeout": "El inicio de sesión no se aprobó a tiempo en Sécur'Pass. Empieza de nuevo si quieres reintentarlo.",
         "authAttemptExpired": "El intento de inicio de sesión caducó. Empieza de nuevo si quieres reintentarlo.",
         "sessionExpired": "La sesión de Caisse d'Epargne caducó. Vuelve a conectar.",
         "formatChanged": "El formato del sitio de Caisse d'Epargne cambió. Se conservaron tus datos existentes.",
         "invalidSessionState": "No se pudo leer la sesión guardada. Vuelve a conectar.",
-        "serverError": "No se pudo contactar con Caisse d'Epargne. Inténtalo de nuevo más tarde."
+        "serverError": "No se pudo contactar con Caisse d'Epargne. Inténtalo de nuevo más tarde.",
+        "keypadExpired": "El teclado caducó antes de validar. Empieza de nuevo si quieres reintentarlo.",
+        "invalidPositions": "No se aceptó la entrada del teclado. Empieza de nuevo e introduce de 6 a 12 teclas."
+      },
+      "keypad": {
+        "title": "Pulsa tu contraseña",
+        "description": "Pulsa en orden las teclas de tu contraseña en el teclado del banco. Los dígitos solo se muestran en las propias teclas.",
+        "key": "Tecla {{n}}",
+        "entered": "{{count}} teclas introducidas",
+        "clear": "Borrar",
+        "cancel": "Cancelar",
+        "validate": "Validar",
+        "sending": "Enviando…",
+        "countdownLabel": "Tiempo restante:"
       }
     },
     "degiro": {

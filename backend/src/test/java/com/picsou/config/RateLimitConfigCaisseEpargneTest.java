@@ -40,4 +40,27 @@ class RateLimitConfigCaisseEpargneTest {
 
         assertThat(store).isNotNull().isNotSameAs(new RateLimitConfig().boursoAuthBuckets());
     }
+
+    @Test
+    void theKeypadBucketIsShortLivedAndSmall() {
+        Bucket bucket = RateLimitConfig.createCaisseEpargneKeypadBucket();
+        int allowed = 0;
+        while (bucket.tryConsume(1) && allowed < 100) {
+            allowed++;
+        }
+
+        assertThat(allowed).isBetween(3, 10);
+        ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
+        assertThat(probe.isConsumed()).isFalse();
+        assertThat(Duration.ofNanos(probe.getNanosToWaitForRefill())).isLessThanOrEqualTo(Duration.ofMinutes(15));
+    }
+
+    @Test
+    void theKeypadBucketStoreIsABoundedBeanOfItsOwn() {
+        RateLimitConfig config = new RateLimitConfig();
+
+        assertThat(config.caisseEpargneKeypadBuckets()).isNotNull()
+            .isNotSameAs(config.caisseEpargneAuthBuckets())
+            .isNotSameAs(config.boursoAuthBuckets());
+    }
 }

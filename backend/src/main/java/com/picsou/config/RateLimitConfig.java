@@ -86,10 +86,20 @@ public class RateLimitConfig {
     /**
      * Per-IP Caisse d'Epargne login rate limiter: 3 attempts per 15 minutes. Stricter than
      * BoursoBank's on purpose: a wrong password consumes a bank attempt and the bank can lock the
-     * account. Only {@code /auth/initiate} draws from it.
+     * account. Only {@code /auth/initiate} draws from it ({@code /auth/keypad} has its own bucket).
      */
     @Bean("caisseEpargneAuthBuckets")
     public Map<String, Bucket> caisseEpargneAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP Caisse d'Epargne keypad limiter. The sidecar already accepts one {@code /keypad} per
+     * login, so this only bounds abuse of the browser slot; kept apart from the login bucket so a
+     * keypad call never eats one of the 3 login attempts.
+     */
+    @Bean("caisseEpargneKeypadBuckets")
+    public Map<String, Bucket> caisseEpargneKeypadBuckets() {
         return boundedBucketStore();
     }
 
@@ -350,6 +360,15 @@ public class RateLimitConfig {
             .addLimit(Bandwidth.builder()
                 .capacity(3)
                 .refillIntervally(3, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createCaisseEpargneKeypadBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
                 .build())
             .build();
     }

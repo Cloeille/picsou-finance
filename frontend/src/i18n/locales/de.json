@@ -435,7 +435,6 @@
       "hint": "Nicht in der Quadratmeter-Schätzung. Der Ausgabepreis steht nicht in dieser Summe.",
       "incomplete": "Ein Anteil nutzt noch den letzten bekannten Saldo: der Rücknahmepreis fehlt."
     }
-
   },
   "realEstate": {
     "purchasePrice": "Kaufpreis",
@@ -705,7 +704,8 @@
       "amex": "American Express Kreditkarte: Kontostand und Transaktionen",
       "property": "Haus, Wohnung, Grundstück…",
       "revolut": "Phone + passcode, on-demand sync",
-      "fortuneo": "Fortuneo-Konten synchronisieren"
+      "fortuneo": "Fortuneo-Konten synchronisieren",
+      "caisseEpargne": "Girokonto, Livret A und Karten bei der Caisse d'Epargne"
     },
     "revolutConnected": "Revolut connected!"
   },
@@ -975,7 +975,6 @@
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Kennung",
-      "password": "Passwort",
       "connect": "Verbinden",
       "connecting": "Verbindung…",
       "sync": "Synchronisieren",
@@ -989,7 +988,7 @@
       "sessionActive": "Sitzung aktiv",
       "scope": "Synchronisiert Ihre Giro- und Sparkonten bei der Caisse d'Epargne auf Abruf. Nur die Sitzung wird verschlüsselt gespeichert. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
       "notice": {
-        "neverStored": "Picsou speichert Ihr Passwort nie. Es wird einmal zur Anmeldung verwendet und dann verworfen.",
+        "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken es selbst auf der Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
         "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",
         "lockRisk": "Falsche Versuche zählen bei Ihrer Bank und können Ihren Caisse-d'Epargne-Zugang sperren. Prüfen Sie Kennung und Passwort vor dem Verbinden."
       },
@@ -1002,13 +1001,26 @@
         "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
         "rateLimitedRetryAfter": "Zu viele Anmeldeversuche. Versuchen Sie es in {{minutes}} Min. erneut.",
         "invalidCredentials": "Die Bank hat Kennung oder Passwort abgelehnt. Prüfen Sie sie, bevor Sie es erneut versuchen: wiederholte Fehlversuche können Ihr Konto sperren.",
-        "keypadChanged": "Die Bank hat ihre Anmeldeseite geändert. Es wurde nichts gesendet. Picsou benötigt ein Update, bevor es sich anmelden kann.",
+        "keypadChanged": "Die Tastatur hat sich geändert, bitte neu beginnen. Es wurde nichts gesendet.",
         "appValidationTimeout": "Die Anmeldung wurde nicht rechtzeitig in Sécur'Pass bestätigt. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
         "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
         "sessionExpired": "Die Caisse-d'Epargne-Sitzung ist abgelaufen. Bitte neu verbinden.",
         "formatChanged": "Das Format der Caisse-d'Epargne-Website hat sich geändert. Ihre vorhandenen Daten wurden beibehalten.",
         "invalidSessionState": "Die gespeicherte Sitzung ist nicht lesbar. Bitte neu verbinden.",
-        "serverError": "Die Caisse d'Epargne ist nicht erreichbar. Bitte versuchen Sie es später erneut."
+        "serverError": "Die Caisse d'Epargne ist nicht erreichbar. Bitte versuchen Sie es später erneut.",
+        "keypadExpired": "Die Tastatur ist vor Ihrer Bestätigung abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "invalidPositions": "Die Tastatureingabe wurde nicht akzeptiert. Beginnen Sie neu und geben Sie 6 bis 12 Tasten ein."
+      },
+      "keypad": {
+        "title": "Passwort anklicken",
+        "description": "Klicken Sie die Tasten Ihres Passworts der Reihe nach auf der Tastatur der Bank an. Die Ziffern werden nur auf den Tasten selbst angezeigt.",
+        "key": "Taste {{n}}",
+        "entered": "{{count}} Tasten eingegeben",
+        "clear": "Löschen",
+        "cancel": "Abbrechen",
+        "validate": "Bestätigen",
+        "sending": "Wird gesendet…",
+        "countdownLabel": "Verbleibende Zeit:"
       }
     },
     "degiro": {

@@ -338,9 +338,10 @@ export function useClearBoursoSession() {
 // ---------------------------------------------------------------------------
 // Caisse d'Epargne
 //
-// There is deliberately no initiate hook: a mutation keeps its variables in the
-// mutation cache, and those would hold the bank password. The panel calls
-// `caisseEpargneApi.initiateAuth` directly and clears the password itself.
+// There are deliberately no initiate/keypad hooks: a mutation keeps its variables
+// in the mutation cache, and the keypad ones are the user's password (as key
+// positions). The panel calls `caisseEpargneApi.initiateAuth` / `sendKeypad`
+// directly and holds the positions in component state only.
 // ---------------------------------------------------------------------------
 
 export function useCaisseEpargneSessionStatus() {

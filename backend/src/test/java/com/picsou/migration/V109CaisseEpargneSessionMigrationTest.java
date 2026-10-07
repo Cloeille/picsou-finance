@@ -22,9 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V109 applies on top of the whole chain. The CHECK on last_sync_error must list exactly the
- * {@link CaisseEpargneErrorCode} constants (a missing code turns a diagnosable failure into a
- * 500 when the failure is recorded), and the table must never hold a password.
+ * V109 applies on top of the whole chain. Its original CHECK predates the two later keypad
+ * error codes; V110 adds those without rewriting this already-applied migration.
  *
  * <p>Every statement is a constant with bound parameters: no value is concatenated into SQL.
  */
@@ -109,18 +108,23 @@ class V109CaisseEpargneSessionMigrationTest {
     }
 
     @Test
-    void acceptsEveryErrorCodeOfTheEnumAndNoOther() throws SQLException {
+    void acceptsEveryErrorCodeSupportedByV109AndNoOther() throws SQLException {
         for (CaisseEpargneErrorCode code : CaisseEpargneErrorCode.values()) {
+            if (code == CaisseEpargneErrorCode.KEYPAD_EXPIRED || code == CaisseEpargneErrorCode.INVALID_POSITIONS) {
+                continue;
+            }
             long member = newMember("ok-" + code.name());
             exec(INSERT_SESSION_ERROR, member, "x", "FAILED", code.name());
         }
-        long member = newMember("bad-code");
-        assertThatThrownBy(() -> exec(INSERT_SESSION_ERROR, member, "x", "FAILED", "NOT_A_REAL_CODE"))
-            .hasMessageContaining("ck_caisse_epargne_session_last_sync_error");
+        for (String code : List.of("KEYPAD_EXPIRED", "INVALID_POSITIONS", "NOT_A_REAL_CODE")) {
+            long member = newMember("bad-" + code);
+            assertThatThrownBy(() -> exec(INSERT_SESSION_ERROR, member, "x", "FAILED", code))
+                .hasMessageContaining("ck_caisse_epargne_session_last_sync_error");
+        }
     }
 
     @Test
-    void acceptsTheLoginErrorCodesByNameSoTheEnumCannotDriftFromTheCheck() throws SQLException {
+    void acceptsTheV109LoginErrorCodesByName() throws SQLException {
         for (String code : List.of("INVALID_CREDENTIALS", "KEYPAD_CHANGED",
             "APP_VALIDATION_TIMEOUT", "AUTH_ATTEMPT_EXPIRED")) {
             long member = newMember("login-" + code);

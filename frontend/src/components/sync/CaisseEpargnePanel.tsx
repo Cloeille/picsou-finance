@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react"
 import {
   AlertTriangle,
   Landmark,
-  Lock,
   LogOut,
   RefreshCw,
   ShieldAlert,
@@ -14,6 +13,14 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { caisseEpargneApi } from "@/features/sync/api"
 import {
   useCaisseEpargneSessionStatus,
@@ -24,14 +31,34 @@ import {
 import { getErrorCode, getErrorDetail, getErrorStatus } from "@/lib/errors"
 
 /**
+ * `KEYPAD` is a pop-up showing the bank's virtual keypad: the user reads the
+ * pad and clicks his own digits. Picsou never sees the password, only the
+ * positions of the clicked keys, held in component state until Validate.
  * `AWAITING_APP` has no form: the bank pushes a Sécur'Pass notification and the
  * completion request stays open until the user approves it on their phone.
  *
  * One attempt only. A wrong password spends a bank attempt and can lock the
- * account, so nothing in this panel replays `initiate` after a failure: after an
- * error the form simply comes back empty and the user decides.
+ * account, so nothing in this panel replays `initiate` or `keypad` after a
+ * failure: after an error the form simply comes back and the user decides.
  */
-type AuthState = "IDLE" | "SUBMITTING" | "AWAITING_APP" | "ERROR"
+type AuthState =
+  | "IDLE"
+  | "SUBMITTING"
+  | "KEYPAD"
+  | "SENDING_KEYPAD"
+  | "AWAITING_APP"
+  | "ERROR"
+
+/** The bank's password is 6 to 12 digits; the sidecar enforces the same bounds. */
+const MIN_POSITIONS = 6
+const MAX_POSITIONS = 12
+const DEFAULT_COLUMNS = 5
+
+interface KeypadPad {
+  processId: string
+  images: string[]
+  columns: number
+}
 
 /** The sidecar waits this long for the human to approve on the phone (COMPLETE_WAIT_SECONDS). */
 const HUMAN_WAIT_SECONDS = 150
@@ -39,6 +66,8 @@ const HUMAN_WAIT_SECONDS = 150
 const KNOWN_CODES = new Set([
   "INVALID_CREDENTIALS",
   "KEYPAD_CHANGED",
+  "KEYPAD_EXPIRED",
+  "INVALID_POSITIONS",
   "APP_VALIDATION_TIMEOUT",
   "AUTH_ATTEMPT_EXPIRED",
   "SESSION_EXPIRED",
@@ -85,13 +114,20 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   const { t } = useTranslation()
   const [authState, setAuthState] = useState<AuthState>("IDLE")
   const [customerId, setCustomerId] = useState("")
-  const [password, setPassword] = useState("")
+  const [pad, setPad] = useState<KeypadPad | null>(null)
+  // Key positions only (indexes in the pad's DOM order), never digits. Component
+  // state only: no query, no mutation cache, no storage, no log.
+  const [positions, setPositions] = useState<number[]>([])
+  const [keypadSecondsLeft, setKeypadSecondsLeft] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [secondsLeft, setSecondsLeft] = useState(0)
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
   // Synchronous guard: state updates are async, so a fast double click could
   // otherwise reach the bank twice.
   const submitting = useRef(false)
+  // Set once the login completed and its first sync was queued: the caller is told
+  // "connected" only when that sync succeeded, so the accounts exist by then.
+  const notifyConnectedOnSuccess = useRef(false)
 
   const status = useCaisseEpargneSessionStatus()
   const complete = useCompleteCaisseEpargneAuth()
@@ -105,6 +141,10 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
         return t("sync.caisseEpargne.errors.invalidCredentials")
       case "KEYPAD_CHANGED":
         return t("sync.caisseEpargne.errors.keypadChanged")
+      case "KEYPAD_EXPIRED":
+        return t("sync.caisseEpargne.errors.keypadExpired")
+      case "INVALID_POSITIONS":
+        return t("sync.caisseEpargne.errors.invalidPositions")
       case "APP_VALIDATION_TIMEOUT":
         return t("sync.caisseEpargne.errors.appValidationTimeout")
       case "AUTH_ATTEMPT_EXPIRED":
@@ -152,10 +192,47 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   const visibleError = error ?? backgroundError ?? statusError
 
   useEffect(() => {
+    if (syncStatus !== "SUCCESS" || !notifyConnectedOnSuccess.current) return
+    notifyConnectedOnSuccess.current = false
+    onConnected?.()
+  }, [onConnected, syncStatus])
+
+  useEffect(() => {
     if (authState !== "AWAITING_APP") return
     const timer = setInterval(() => setSecondsLeft((value) => Math.max(0, value - 1)), 1_000)
     return () => clearInterval(timer)
   }, [authState])
+
+  // The pad is stable for a short time only: once it is out of date nothing may
+  // be sent, so the pop-up closes and everything the user clicked is dropped.
+  useEffect(() => {
+    if (authState !== "KEYPAD") return
+    const timer = setInterval(() => setKeypadSecondsLeft((value) => Math.max(0, value - 1)), 1_000)
+    return () => clearInterval(timer)
+  }, [authState])
+
+  const expired = authState === "KEYPAD" && keypadSecondsLeft <= 0
+  if (expired) {
+    // Derived during render (React's "adjust state on change" pattern), not in an effect.
+    setPad(null)
+    setPositions([])
+    setKeypadSecondsLeft(0)
+    setError(t("sync.caisseEpargne.errors.keypadExpired"))
+    setAuthState("ERROR")
+  }
+
+  const resetKeypad = () => {
+    setPad(null)
+    setPositions([])
+    setKeypadSecondsLeft(0)
+  }
+
+  const cancelKeypad = () => {
+    if (authState !== "KEYPAD") return
+    resetKeypad()
+    setError(null)
+    setAuthState("IDLE")
+  }
 
   const awaitSecurPass = (processId: string) => {
     // One call, no polling: the backend holds it open while the human approves.
@@ -165,12 +242,17 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
         onSuccess: () => {
           setAuthState("IDLE")
           setCustomerId("")
-          setPassword("")
           void status.refetch()
-          onConnected?.()
+          // A fresh session holds no account yet: queue the first sync once (never
+          // retried), and tell the caller only when it succeeded.
+          sync.mutate(undefined, {
+            onSuccess: () => {
+              notifyConnectedOnSuccess.current = true
+            },
+            onError: (value) => setError(formatError(value)),
+          })
         },
         onError: (value) => {
-          setPassword("")
           setError(formatError(value))
           setAuthState("ERROR")
         },
@@ -183,24 +265,52 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
     submitting.current = true
     setError(null)
     setAuthState("SUBMITTING")
-    const request = caisseEpargneApi.initiateAuth(customerId, password)
-    // The request is out: the password has no further use and must not stay in
-    // component state, success or not.
-    setPassword("")
     try {
-      const result = await request
-      if (!result.processId) {
+      const result = await caisseEpargneApi.initiateAuth(customerId)
+      const images = result.keypad?.images
+      if (!result.processId || !Array.isArray(images) || images.length !== 10) {
         setError(t("sync.caisseEpargne.errors.formatChanged"))
         setAuthState("ERROR")
         return
       }
-      // expiresInSeconds is the process lifetime (300 s). The user only has the
-      // sidecar's 150 s human wait to approve, so that is what the countdown shows.
-      setSecondsLeft(
-        Math.min(HUMAN_WAIT_SECONDS, Math.max(0, Math.floor(result.expiresInSeconds ?? 0))),
-      )
+      const columns = Number(result.keypad.columns)
+      setPad({
+        processId: result.processId,
+        images,
+        columns: Number.isInteger(columns) && columns >= 1 && columns <= 10 ? columns : DEFAULT_COLUMNS,
+      })
+      setPositions([])
+      setKeypadSecondsLeft(Math.max(0, Math.floor(result.expiresInSeconds ?? 0)))
+      setAuthState("KEYPAD")
+    } catch (value) {
+      setError(formatError(value))
+      setAuthState("ERROR")
+    } finally {
+      submitting.current = false
+    }
+  }
+
+  const pressKey = (index: number) => {
+    if (authState !== "KEYPAD") return
+    setPositions((current) => (current.length >= MAX_POSITIONS ? current : [...current, index]))
+  }
+
+  const validateKeypad = async () => {
+    if (!pad || authState !== "KEYPAD" || submitting.current) return
+    if (positions.length < MIN_POSITIONS || positions.length > MAX_POSITIONS) return
+    submitting.current = true
+    const { processId } = pad
+    const sent = positions
+    setAuthState("SENDING_KEYPAD")
+    // The request owns the only copy from here on: nothing of it stays in state.
+    resetKeypad()
+    try {
+      await caisseEpargneApi.sendKeypad(processId, sent)
+      // The keypad TTL is over: the user now only has the sidecar's 150 s human
+      // wait to approve, so that is what the countdown shows.
+      setSecondsLeft(HUMAN_WAIT_SECONDS)
       setAuthState("AWAITING_APP")
-      awaitSecurPass(result.processId)
+      awaitSecurPass(processId)
     } catch (value) {
       setError(formatError(value))
       setAuthState("ERROR")
@@ -212,8 +322,9 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   if (status.isLoading)
     return <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
 
-  const showForm = !connected && (authState === "IDLE" || authState === "SUBMITTING" || authState === "ERROR")
-  const pending = authState === "SUBMITTING"
+  const showForm = !connected && authState !== "AWAITING_APP"
+  const pending =
+    authState === "SUBMITTING" || authState === "KEYPAD" || authState === "SENDING_KEYPAD"
 
   return (
     <div className="space-y-6">
@@ -376,23 +487,6 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
                   required
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="caisse-epargne-password">
-                  <Lock className="mr-1 inline-block size-4" />
-                  {t("sync.caisseEpargne.password")}
-                </Label>
-                {/* The bank's virtual keypad only has digits; a stray character
-                    would spend a login attempt on a password the user never typed. */}
-                <Input
-                  id="caisse-epargne-password"
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value.replace(/\D/g, ""))}
-                  required
-                />
-              </div>
               <Button type="submit" disabled={pending}>
                 {pending && <RefreshCw className="animate-spin" />}
                 {pending ? t("sync.caisseEpargne.connecting") : t("sync.caisseEpargne.connect")}
@@ -422,6 +516,84 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
           </CardContent>
         </Card>
       )}
+      <Dialog
+        open={authState === "KEYPAD"}
+        onOpenChange={(open) => {
+          if (!open) cancelKeypad()
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="sm:max-w-md"
+          onInteractOutside={(event) => event.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>{t("sync.caisseEpargne.keypad.title")}</DialogTitle>
+            <DialogDescription>{t("sync.caisseEpargne.keypad.description")}</DialogDescription>
+          </DialogHeader>
+          {pad && (
+            <>
+              {/* Plain <img src> only: the pad comes from the bank, nothing is injected as HTML.
+                  Names are ranks ("Key 1"), never digits, so assistive tech cannot leak them. */}
+              <div
+                data-testid="caisse-epargne-keypad-grid"
+                className="grid gap-2"
+                style={{ gridTemplateColumns: `repeat(${pad.columns}, minmax(0, 1fr))` }}
+              >
+                {pad.images.map((src, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    aria-label={t("sync.caisseEpargne.keypad.key", { n: index + 1 })}
+                    className="flex aspect-square items-center justify-center rounded-lg border bg-background p-1 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => pressKey(index)}
+                  >
+                    <img src={src} alt="" draggable={false} className="size-full object-contain" />
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div
+                  data-testid="caisse-epargne-keypad-dots"
+                  role="img"
+                  aria-label={t("sync.caisseEpargne.keypad.entered", { count: positions.length })}
+                  className="flex min-h-4 flex-wrap items-center gap-1.5"
+                >
+                  {positions.map((_, index) => (
+                    <span key={index} data-dot className="size-2.5 rounded-full bg-foreground" />
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t("sync.caisseEpargne.keypad.countdownLabel")}{" "}
+                  <span data-testid="caisse-epargne-keypad-countdown" className="font-mono">
+                    {formatCountdown(keypadSecondsLeft)}
+                  </span>
+                </p>
+              </div>
+              <DialogFooter className="gap-2">
+                <Button type="button" variant="outline" onClick={cancelKeypad}>
+                  {t("sync.caisseEpargne.keypad.cancel")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={positions.length === 0}
+                  onClick={() => setPositions([])}
+                >
+                  {t("sync.caisseEpargne.keypad.clear")}
+                </Button>
+                <Button
+                  type="button"
+                  disabled={positions.length < MIN_POSITIONS || positions.length > MAX_POSITIONS}
+                  onClick={() => void validateKeypad()}
+                >
+                  {t("sync.caisseEpargne.keypad.validate")}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

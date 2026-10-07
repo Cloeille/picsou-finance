@@ -48,7 +48,7 @@ class CaisseEpargneControllerTest {
     void setUp() {
         syncBuckets = new ConcurrentHashMap<>();
         CaisseEpargneController controller =
-            new CaisseEpargneController(service, userContext, new ConcurrentHashMap<>(), syncBuckets);
+            new CaisseEpargneController(service, userContext, new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), syncBuckets);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
@@ -163,8 +163,8 @@ class CaisseEpargneControllerTest {
     }
 
     @Test
-    void onlyTheTwoAuthEndpointsCollectAnything() throws Exception {
-        // Guessable alternatives stay closed: only /auth/initiate and /auth/complete exist.
+    void onlyTheThreeAuthEndpointsCollectAnything() throws Exception {
+        // Guessable alternatives stay closed: only /auth/initiate, /auth/keypad and /auth/complete exist.
         for (String path : List.of("/auth", "/login", "/session", "/auth/password", "/auth/store")) {
             mockMvc.perform(post("/api/caisse-epargne" + path)).andExpect(status().is4xxClientError());
         }
@@ -179,6 +179,6 @@ class CaisseEpargneControllerTest {
                 names.add(method.getName());
             }
         }
-        assertThat(names).containsExactly("clear", "complete", "initiate", "status", "sync");
+        assertThat(names).containsExactly("clear", "complete", "initiate", "keypad", "status", "sync");
     }
 }

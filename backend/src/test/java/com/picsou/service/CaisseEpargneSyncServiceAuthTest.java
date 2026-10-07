@@ -24,6 +24,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,7 +44,9 @@ import static org.mockito.Mockito.when;
 @SuppressWarnings("unchecked")
 class CaisseEpargneSyncServiceAuthTest {
 
-    private static final String PASSWORD = "9482716350";
+    private static final String CUSTOMER_ID = "12345678";
+    private static final String IMAGE = "data:image/png;base64,iVBORw0KGgo=";
+    private static final List<Integer> POSITIONS = List.of(7, 3, 0, 9, 4, 1);
     private static final Instant T0 = Instant.parse("2026-10-07T10:00:00Z");
 
     @Mock CaisseEpargnePort port;
@@ -69,9 +74,20 @@ class CaisseEpargneSyncServiceAuthTest {
             memberRepository, accountService, encryption, txTemplate, Runnable::run, clock);
     }
 
+    private static CaisseEpargnePort.Keypad keypad() {
+        return new CaisseEpargnePort.Keypad(Collections.nCopies(10, IMAGE), 5);
+    }
+
     private void challenge(String processId, int expiresIn) {
-        when(port.initiateAuth("12345678", PASSWORD))
-            .thenReturn(new CaisseEpargnePort.InitiateResult(processId, "SECURPASS", expiresIn));
+        when(port.initiateAuth(CUSTOMER_ID))
+            .thenReturn(new CaisseEpargnePort.InitiateResult(processId, keypad(), expiresIn));
+    }
+
+    /** Initiate and submit the keypad: the state a login is in while the phone push is pending. */
+    private void pushPending(String processId) {
+        challenge(processId, 90);
+        service.initiateAuth(CUSTOMER_ID, 7L);
+        service.submitKeypad(processId, POSITIONS, 7L);
     }
 
     private void arrangeStore(String plainState) {
@@ -87,40 +103,40 @@ class CaisseEpargneSyncServiceAuthTest {
     // -- initiate -----------------------------------------------------------
 
     @Test
-    void initiateAuth_returnsTheSecurPassChallengeAndStoresNothing() {
-        challenge("proc-1", 300);
+    void initiateAuth_returnsTheKeypadAndStoresNothing() {
+        challenge("proc-1", 90);
 
-        CaisseEpargneSyncService.InitiateResponse response = service.initiateAuth("12345678", PASSWORD, 7L);
+        CaisseEpargneSyncService.InitiateResponse response = service.initiateAuth(CUSTOMER_ID, 7L);
 
         assertThat(response.processId()).isEqualTo("proc-1");
-        assertThat(response.mfaRequired()).isTrue();
-        assertThat(response.mfaType()).isEqualTo("SECURPASS");
-        assertThat(response.expiresInSeconds()).isEqualTo(300);
+        assertThat(response.keypad().images()).hasSize(10).allMatch(IMAGE::equals);
+        assertThat(response.keypad().columns()).isEqualTo(5);
+        assertThat(response.expiresInSeconds()).isEqualTo(90);
         verifyNoInteractions(sessionRepository, encryption);
         verify(port, never()).fetchAccounts(any());
     }
 
     @Test
     void initiateAuth_callsTheSidecarExactlyOnce() {
-        challenge("proc-1", 300);
+        challenge("proc-1", 90);
 
-        service.initiateAuth("12345678", PASSWORD, 7L);
+        service.initiateAuth(CUSTOMER_ID, 7L);
 
-        verify(port, org.mockito.Mockito.times(1)).initiateAuth(anyString(), anyString());
+        verify(port, org.mockito.Mockito.times(1)).initiateAuth(anyString());
     }
 
     @Test
     void initiateAuth_propagatesAFailureWithoutRetryAndWithoutTouchingTheStoredSession() {
-        when(port.initiateAuth("12345678", PASSWORD)).thenThrow(new SyncException(
-            "The identifier or password was refused", null, CaisseEpargneErrorCode.INVALID_CREDENTIALS.name()));
+        when(port.initiateAuth(CUSTOMER_ID)).thenThrow(new SyncException(
+            "The identifier was refused", null, CaisseEpargneErrorCode.INVALID_CREDENTIALS.name()));
 
-        assertThatThrownBy(() -> service.initiateAuth("12345678", PASSWORD, 7L))
+        assertThatThrownBy(() -> service.initiateAuth(CUSTOMER_ID, 7L))
             .isInstanceOfSatisfying(SyncException.class, error -> {
                 assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.INVALID_CREDENTIALS.name());
-                assertThat(String.valueOf(error.getMessage())).doesNotContain(PASSWORD);
+                assertThat(String.valueOf(error.getMessage())).doesNotContain(CUSTOMER_ID);
             });
 
-        verify(port, org.mockito.Mockito.times(1)).initiateAuth(anyString(), anyString());
+        verify(port, org.mockito.Mockito.times(1)).initiateAuth(anyString());
         // an existing valid session is neither deleted nor deactivated by a failed login
         verifyNoInteractions(sessionRepository, encryption, txTemplate);
     }
@@ -128,24 +144,185 @@ class CaisseEpargneSyncServiceAuthTest {
     @Test
     void initiateAuth_refusesAnAnswerWithoutAProcessIdOrALifetime() {
         for (CaisseEpargnePort.InitiateResult bad : new CaisseEpargnePort.InitiateResult[] {
-            new CaisseEpargnePort.InitiateResult(null, "SECURPASS", 300),
-            new CaisseEpargnePort.InitiateResult(" ", "SECURPASS", 300),
-            new CaisseEpargnePort.InitiateResult("proc-1", "SECURPASS", 0),
-            new CaisseEpargnePort.InitiateResult("proc-1", null, 300)}) {
-            when(port.initiateAuth("12345678", PASSWORD)).thenReturn(bad);
+            null,
+            new CaisseEpargnePort.InitiateResult(null, keypad(), 90),
+            new CaisseEpargnePort.InitiateResult(" ", keypad(), 90),
+            new CaisseEpargnePort.InitiateResult("proc-1", keypad(), 0),
+            new CaisseEpargnePort.InitiateResult("proc-1", null, 90)}) {
+            when(port.initiateAuth(CUSTOMER_ID)).thenReturn(bad);
 
-            assertThatThrownBy(() -> service.initiateAuth("12345678", PASSWORD, 7L))
+            assertThatThrownBy(() -> service.initiateAuth(CUSTOMER_ID, 7L))
                 .isInstanceOfSatisfying(SyncException.class, error ->
                     assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
         }
+    }
+
+    @Test
+    void initiateAuth_mapsAnyUnsafeKeypadToKeypadChangedAndNeverRegistersTheProcess() {
+        List<String> notTen = new ArrayList<>(Collections.nCopies(9, IMAGE));
+        List<String> elevenImages = new ArrayList<>(Collections.nCopies(11, IMAGE));
+        List<String> withNull = new ArrayList<>(Collections.nCopies(10, IMAGE));
+        withNull.set(3, null);
+        List<String> jpeg = new ArrayList<>(Collections.nCopies(10, IMAGE));
+        jpeg.set(4, "data:image/jpeg;base64,AAAA");
+        List<String> svg = new ArrayList<>(Collections.nCopies(10, IMAGE));
+        svg.set(0, "data:image/svg+xml;base64,AAAA");
+        List<String> url = new ArrayList<>(Collections.nCopies(10, IMAGE));
+        url.set(9, "https://evil.example/pad.png");
+        List<String> notBase64 = new ArrayList<>(Collections.nCopies(10, IMAGE));
+        notBase64.set(2, "data:image/png;base64,AAAA\" onerror=\"x");
+        List<String> empty = new ArrayList<>(Collections.nCopies(10, IMAGE));
+        empty.set(1, "data:image/png;base64,");
+        String prefix = "data:image/png;base64,";
+        List<String> tooBig = new ArrayList<>(Collections.nCopies(10, IMAGE));
+        tooBig.set(6, prefix + "A".repeat(16 * 1024 - prefix.length() + 1));
+        List<String> justFits = new ArrayList<>(Collections.nCopies(10, IMAGE));
+        justFits.set(6, prefix + "A".repeat(16 * 1024 - prefix.length()));
+
+        for (List<String> images : List.of(notTen, elevenImages, withNull, jpeg, svg, url, notBase64, empty, tooBig)) {
+            when(port.initiateAuth(CUSTOMER_ID)).thenReturn(
+                new CaisseEpargnePort.InitiateResult("proc-bad", new CaisseEpargnePort.Keypad(images, 5), 90));
+
+            assertThatThrownBy(() -> service.initiateAuth(CUSTOMER_ID, 7L))
+                .isInstanceOfSatisfying(SyncException.class, error ->
+                    assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.KEYPAD_CHANGED.name()));
+            assertThatThrownBy(() -> service.submitKeypad("proc-bad", POSITIONS, 7L))
+                .isInstanceOfSatisfying(SyncException.class, error ->
+                    assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        }
+        when(port.initiateAuth(CUSTOMER_ID)).thenReturn(
+            new CaisseEpargnePort.InitiateResult("proc-ok", new CaisseEpargnePort.Keypad(justFits, 5), 90));
+        assertThat(service.initiateAuth(CUSTOMER_ID, 7L).keypad().images().get(6)).hasSize(16 * 1024);
+        verify(port, never()).submitKeypad(any(), any());
+    }
+
+    @Test
+    void initiateAuth_refusesAKeypadThatIsNotFiveColumns() {
+        when(port.initiateAuth(CUSTOMER_ID)).thenReturn(
+            new CaisseEpargnePort.InitiateResult("proc-1", new CaisseEpargnePort.Keypad(
+                Collections.nCopies(10, IMAGE), 4), 90));
+
+        assertThatThrownBy(() -> service.initiateAuth(CUSTOMER_ID, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.KEYPAD_CHANGED.name()));
+    }
+
+    // -- keypad -------------------------------------------------------------
+
+    @Test
+    void submitKeypad_forwardsThePositionsOnceForTheOwnerOfTheProcess() {
+        challenge("proc-1", 90);
+        service.initiateAuth(CUSTOMER_ID, 7L);
+
+        service.submitKeypad("proc-1", POSITIONS, 7L);
+
+        verify(port, org.mockito.Mockito.times(1)).submitKeypad("proc-1", POSITIONS);
+        verifyNoInteractions(sessionRepository, encryption);
+    }
+
+    @Test
+    void submitKeypad_refusesAnUnknownOrForeignProcessWithoutCallingTheSidecar() {
+        assertThatThrownBy(() -> service.submitKeypad("unknown", POSITIONS, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        challenge("proc-1", 90);
+        service.initiateAuth(CUSTOMER_ID, 7L);
+        assertThatThrownBy(() -> service.submitKeypad("proc-1", POSITIONS, 8L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+
+        verify(port, never()).submitKeypad(any(), any());
+        // the owner can still use it
+        service.submitKeypad("proc-1", POSITIONS, 7L);
+        verify(port).submitKeypad("proc-1", POSITIONS);
+    }
+
+    @Test
+    void submitKeypad_refusesAKeypadOlderThanItsLifetimeAsKeypadExpired() {
+        challenge("proc-1", 90);
+        service.initiateAuth(CUSTOMER_ID, 7L);
+        clock.advanceSeconds(91);
+
+        assertThatThrownBy(() -> service.submitKeypad("proc-1", POSITIONS, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.KEYPAD_EXPIRED.name()));
+        verify(port, never()).submitKeypad(any(), any());
+    }
+
+    @Test
+    void submitKeypad_isSingleUseEvenWhenTheSidecarFailsAndKeepsItsCode() {
+        for (CaisseEpargneErrorCode code : List.of(CaisseEpargneErrorCode.KEYPAD_CHANGED,
+            CaisseEpargneErrorCode.INVALID_POSITIONS, CaisseEpargneErrorCode.INVALID_CREDENTIALS)) {
+            challenge("proc-" + code, 90);
+            service.initiateAuth(CUSTOMER_ID, 7L);
+            org.mockito.Mockito.doThrow(new SyncException("failed", null, code.name()))
+                .when(port).submitKeypad("proc-" + code, POSITIONS);
+
+            assertThatThrownBy(() -> service.submitKeypad("proc-" + code, POSITIONS, 7L))
+                .isInstanceOfSatisfying(SyncException.class, error ->
+                    assertThat(error.getCode()).isEqualTo(code.name()));
+            // the sidecar released the session: a second try is refused here, not replayed
+            assertThatThrownBy(() -> service.submitKeypad("proc-" + code, POSITIONS, 7L))
+                .isInstanceOfSatisfying(SyncException.class, error ->
+                    assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+            // and the failed login can no longer be completed
+            assertThatThrownBy(() -> service.completeAuth("proc-" + code, 7L))
+                .isInstanceOfSatisfying(SyncException.class, error ->
+                    assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+            verify(port, org.mockito.Mockito.times(1)).submitKeypad("proc-" + code, POSITIONS);
+        }
+        verify(port, never()).completeAuth(any());
+    }
+
+    @Test
+    void submitKeypad_cannotBeCalledTwiceOnceTheSidecarAccepted() {
+        pushPending("proc-1");
+
+        assertThatThrownBy(() -> service.submitKeypad("proc-1", POSITIONS, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(port, org.mockito.Mockito.times(1)).submitKeypad("proc-1", POSITIONS);
+    }
+
+    @Test
+    void completeAuth_requiresTheKeypadToHaveBeenSubmitted() {
+        challenge("proc-1", 90);
+        service.initiateAuth(CUSTOMER_ID, 7L);
+
+        assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(port, never()).completeAuth(any());
+    }
+
+    @Test
+    void completeAuth_stillWorksLongAfterTheKeypadStepLifetime() {
+        pushPending("proc-1");
+        clock.advanceSeconds(120); // keypad TTL (90 s) is over, the push is still pending
+        when(port.completeAuth("proc-1")).thenReturn("cookies-json");
+        arrangeStore("cookies-json");
+
+        service.completeAuth("proc-1", 7L);
+
+        verify(port).completeAuth("proc-1");
+    }
+
+    @Test
+    void completeAuth_refusesAPendingPushOlderThanTheApprovalWindow() {
+        pushPending("proc-1");
+        clock.advanceSeconds(181);
+
+        assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(port, never()).completeAuth(any());
     }
 
     // -- complete -----------------------------------------------------------
 
     @Test
     void completeAuth_storesTheEncryptedSessionThroughStoreSessionAndDoesNotSync() {
-        challenge("proc-1", 300);
-        service.initiateAuth("12345678", PASSWORD, 7L);
+        pushPending("proc-1");
         when(port.completeAuth("proc-1")).thenReturn("cookies-json");
         arrangeStore("cookies-json");
 
@@ -161,17 +338,16 @@ class CaisseEpargneSyncServiceAuthTest {
     }
 
     @Test
-    void completeAuth_neverHandsThePasswordAnywhereButTheInitiateCall() {
-        challenge("proc-1", 300);
-        service.initiateAuth("12345678", PASSWORD, 7L);
+    void completeAuth_neverHandsAnythingButTheSessionStateToEncryption() {
+        pushPending("proc-1");
         when(port.completeAuth("proc-1")).thenReturn("cookies-json");
         arrangeStore("cookies-json");
 
         service.completeAuth("proc-1", 7L);
 
         verify(encryption).encrypt("cookies-json");
-        verify(encryption, never()).encrypt(PASSWORD);
-        verify(encryption, never()).encrypt(org.mockito.ArgumentMatchers.contains(PASSWORD));
+        verify(encryption, never()).encrypt(CUSTOMER_ID);
+        verify(encryption, never()).encrypt(org.mockito.ArgumentMatchers.contains(CUSTOMER_ID));
     }
 
     @Test
@@ -186,8 +362,7 @@ class CaisseEpargneSyncServiceAuthTest {
 
     @Test
     void completeAuth_refusesAnotherMembersProcessAndLeavesItUsableByItsOwner() {
-        challenge("proc-1", 300);
-        service.initiateAuth("12345678", PASSWORD, 7L);
+        pushPending("proc-1");
 
         assertThatThrownBy(() -> service.completeAuth("proc-1", 8L))
             .isInstanceOfSatisfying(SyncException.class, error ->
@@ -202,9 +377,8 @@ class CaisseEpargneSyncServiceAuthTest {
 
     @Test
     void completeAuth_refusesAProcessOlderThanItsLifetime() {
-        challenge("proc-1", 300);
-        service.initiateAuth("12345678", PASSWORD, 7L);
-        clock.advanceSeconds(301);
+        pushPending("proc-1");
+        clock.advanceSeconds(181);
 
         assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
@@ -214,8 +388,7 @@ class CaisseEpargneSyncServiceAuthTest {
 
     @Test
     void completeAuth_isSingleUseEvenWhenTheSidecarFails() {
-        challenge("proc-1", 300);
-        service.initiateAuth("12345678", PASSWORD, 7L);
+        pushPending("proc-1");
         when(port.completeAuth("proc-1")).thenThrow(new SyncException(
             "App validation timed out", null, CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT.name()));
 
@@ -232,8 +405,7 @@ class CaisseEpargneSyncServiceAuthTest {
 
     @Test
     void completeAuth_leavesAnExistingValidSessionUntouchedWhenTheLoginFails() {
-        challenge("proc-1", 300);
-        service.initiateAuth("12345678", PASSWORD, 7L);
+        pushPending("proc-1");
         when(port.completeAuth("proc-1")).thenThrow(new SyncException(
             "Refused", null, CaisseEpargneErrorCode.INVALID_CREDENTIALS.name()));
 
@@ -245,8 +417,7 @@ class CaisseEpargneSyncServiceAuthTest {
 
     @Test
     void completeAuth_refusesABlankSessionStateWithoutReplacingTheStoredOne() {
-        challenge("proc-1", 300);
-        service.initiateAuth("12345678", PASSWORD, 7L);
+        pushPending("proc-1");
         when(port.completeAuth("proc-1")).thenReturn(" ");
 
         assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
@@ -260,12 +431,14 @@ class CaisseEpargneSyncServiceAuthTest {
     @Test
     void theServiceKeepsNoFieldThatCouldHoldACredential() {
         for (var field : CaisseEpargneSyncService.class.getDeclaredFields()) {
-            assertThat(field.getName().toLowerCase()).doesNotContain("password").doesNotContain("credential");
+            assertThat(field.getName().toLowerCase()).doesNotContain("password").doesNotContain("credential")
+                .doesNotContain("customer").doesNotContain("positions");
         }
         for (var type : CaisseEpargneSyncService.class.getDeclaredClasses()) {
             for (var component : type.getRecordComponents() == null
                 ? new java.lang.reflect.RecordComponent[0] : type.getRecordComponents()) {
-                assertThat(component.getName().toLowerCase()).doesNotContain("password");
+                assertThat(component.getName().toLowerCase()).doesNotContain("password")
+                    .doesNotContain("customer").doesNotContain("positions");
             }
         }
     }

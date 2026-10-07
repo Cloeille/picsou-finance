@@ -822,6 +822,8 @@ export interface CaisseEpargneUnsupportedContract {
 export type CaisseEpargneErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'KEYPAD_CHANGED'
+  | 'KEYPAD_EXPIRED'
+  | 'INVALID_POSITIONS'
   | 'APP_VALIDATION_TIMEOUT'
   | 'AUTH_ATTEMPT_EXPIRED'
   | 'SESSION_EXPIRED'
@@ -841,12 +843,26 @@ export interface CaisseEpargneSessionStatus {
   unsupportedCount: number
 }
 
-/** The second factor is always Sécur'Pass: a human approves it on the phone. */
+/**
+ * The bank's virtual keypad for this login: 10 `data:image/png` images in the bank's DOM
+ * order. The user reads and clicks his digits himself; only the clicked positions go back.
+ */
+export interface CaisseEpargneKeypad {
+  images: string[]
+  columns: number
+}
+
 export interface CaisseEpargneAuthInitResponse {
   processId: string
-  mfaRequired: true
-  mfaType: 'SECURPASS'
+  keypad: CaisseEpargneKeypad
+  /** Lifetime of the keypad step (90 s), not of the Sécur'Pass wait. */
   expiresInSeconds: number
+}
+
+/** The second factor is always Sécur'Pass: a human approves it on the phone. */
+export interface CaisseEpargneAuthKeypadResponse {
+  processId: string
+  status: 'SECURPASS_PENDING'
 }
 
 export interface CaisseEpargneAuthCompleteResponse {

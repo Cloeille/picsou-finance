@@ -61,6 +61,18 @@ public class CaisseEpargneSyncService {
     /** Same width the other identified-transaction connectors use for the external id. */
     private static final int MAX_EXTERNAL_ID_LENGTH = 100;
     private static final int MAX_UNSUPPORTED = 100;
+    /** The bank's pad is 10 images laid out in 5 columns; anything else is a changed page. */
+    private static final int KEYPAD_KEY_COUNT = 10;
+    private static final int KEYPAD_COLUMNS = 5;
+    /** A key image is a small PNG (about 920 bytes live). Bigger is not a key image. */
+    private static final int KEYPAD_MAX_IMAGE_LENGTH = 16 * 1024;
+    private static final String KEYPAD_IMAGE_PREFIX = "data:image/png;base64,";
+    /**
+     * How long the user has to approve on the phone once the keypad has been submitted. The
+     * sidecar waits 150 s, so the ceiling here is what bounds a stale process id afterwards.
+     */
+    private static final int KEYPAD_APPROVAL_WINDOW_SECONDS = 180;
+    private static final java.util.regex.Pattern BASE64 = java.util.regex.Pattern.compile("[A-Za-z0-9+/]+={0,2}");
 
     private final CaisseEpargnePort port;
     private final CaisseEpargneSessionRepository sessionRepository;
@@ -120,22 +132,102 @@ public class CaisseEpargneSyncService {
     }
 
     /**
-     * Starts a login. One call to the sidecar, no retry. The password goes to the port and
-     * nowhere else: it is not stored, kept in a field, logged or put in an error, and a failure
-     * leaves any session already stored (valid or not) exactly as it was.
+     * Starts a login. One call to the sidecar, no retry. No password ever reaches Picsou: the
+     * sidecar answers with the bank's keypad, which the user clicks himself. A failure leaves any
+     * session already stored (valid or not) exactly as it was.
      */
-    public InitiateResponse initiateAuth(String customerId, String password, Long memberId) {
-        CaisseEpargnePort.InitiateResult result = port.initiateAuth(customerId, password);
+    public InitiateResponse initiateAuth(String customerId, Long memberId) {
+        CaisseEpargnePort.InitiateResult result = port.initiateAuth(customerId);
         if (result == null || result.processId() == null || result.processId().isBlank()
-            || result.mfaType() == null || result.mfaType().isBlank() || result.expiresInSeconds() <= 0) {
+            || result.keypad() == null || result.expiresInSeconds() <= 0) {
             throw error(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED,
                 "Caisse d'Epargne did not return a usable sign-in challenge", null);
         }
+        requireSafeKeypad(result.keypad());
         Instant now = clock.instant();
-        pendingLogins.values().removeIf(pending -> !pending.expiresAt().isAfter(now));
+        // Swept on every start: a stale process id must never be reachable again.
+        pendingLogins.values().removeIf(pending -> !pending.deadline().isAfter(now));
         pendingLogins.put(result.processId(),
-            new PendingLogin(memberId, now.plusSeconds(result.expiresInSeconds())));
-        return new InitiateResponse(result.processId(), true, result.mfaType(), result.expiresInSeconds());
+            new PendingLogin(memberId, now.plusSeconds(result.expiresInSeconds()), null));
+        return new InitiateResponse(result.processId(), result.keypad(), result.expiresInSeconds());
+    }
+
+    /**
+     * Refuses a keypad that cannot be shown to a user as-is. Anything unexpected becomes
+     * {@code KEYPAD_CHANGED} and the process is never registered, so nothing can be clicked.
+     */
+    private void requireSafeKeypad(CaisseEpargnePort.Keypad keypad) {
+        boolean safe = keypad != null
+            && keypad.columns() == KEYPAD_COLUMNS
+            && keypad.images() != null
+            && keypad.images().size() == KEYPAD_KEY_COUNT;
+        if (safe) {
+            for (String image : keypad.images()) {
+                if (!isDisplayableKeyImage(image)) {
+                    safe = false;
+                    break;
+                }
+            }
+        }
+        if (!safe) {
+            throw error(CaisseEpargneErrorCode.KEYPAD_CHANGED,
+                "Caisse d'Epargne changed its login page. Nothing was sent.", null);
+        }
+    }
+
+    /**
+     * PNG data URI only, over the size cap refused, and the payload must be plain base64: the
+     * string is handed to the UI, so nothing else may ride along in it.
+     */
+    private static boolean isDisplayableKeyImage(String image) {
+        if (image == null || !image.startsWith(KEYPAD_IMAGE_PREFIX)
+            || image.length() > KEYPAD_MAX_IMAGE_LENGTH) {
+            return false;
+        }
+        String payload = image.substring(KEYPAD_IMAGE_PREFIX.length());
+        return !payload.isEmpty() && BASE64.matcher(payload).matches();
+    }
+
+    /**
+     * Clicks the digits the user chose in the pop-up. Single use and no retry: the process is
+     * taken out before the sidecar is called, so a failure is never replayed. The positions are
+     * the password in disguise and are never logged. It must belong to the caller, still be within
+     * its keypad lifetime, and the keypad step must not have been done yet.
+     */
+    public void submitKeypad(String processId, List<Integer> positions, Long memberId) {
+        PendingLogin pending = takePending(processId, memberId);
+        if (pending.approvalExpiresAt() != null) {
+            // The digits were already sent for this process: nothing more to click.
+            throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
+                "This Caisse d'Epargne sign-in attempt expired. Please start again.", null);
+        }
+        if (!pending.keypadExpiresAt().isAfter(clock.instant())) {
+            // Nothing was clicked anywhere: the user just took too long.
+            throw error(CaisseEpargneErrorCode.KEYPAD_EXPIRED,
+                "The Caisse d'Epargne keypad expired. Start again.", null);
+        }
+        port.submitKeypad(processId, positions);
+        pendingLogins.put(processId, new PendingLogin(memberId, null,
+            clock.instant().plusSeconds(KEYPAD_APPROVAL_WINDOW_SECONDS)));
+    }
+
+    /**
+     * Removes a pending login for its owner, or refuses without burning the owner's attempt.
+     * Shared by the keypad and complete steps so both are single use and member-scoped.
+     */
+    private PendingLogin takePending(String processId, Long memberId) {
+        PendingLogin pending = pendingLogins.remove(processId);
+        if (pending != null && !pending.memberId().equals(memberId)) {
+            // Someone else probing a process id must not burn the owner's attempt.
+            pendingLogins.putIfAbsent(processId, pending);
+            throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
+                "This Caisse d'Epargne sign-in attempt expired. Please start again.", null);
+        }
+        if (pending == null) {
+            throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
+                "This Caisse d'Epargne sign-in attempt expired. Please start again.", null);
+        }
+        return pending;
     }
 
     /**
@@ -145,14 +237,10 @@ public class CaisseEpargneSyncService {
      * and be unexpired, otherwise the sidecar is not even contacted.
      */
     public SessionStatusResponse completeAuth(String processId, Long memberId) {
-        PendingLogin pending = pendingLogins.remove(processId);
-        if (pending == null
-            || !pending.memberId().equals(memberId)
-            || !pending.expiresAt().isAfter(clock.instant())) {
-            if (pending != null && !pending.memberId().equals(memberId)) {
-                // Someone else probing a process id must not burn the owner's attempt.
-                pendingLogins.putIfAbsent(processId, pending);
-            }
+        PendingLogin pending = takePending(processId, memberId);
+        // The keypad must have been submitted: without it there is no approval to wait for.
+        if (pending.approvalExpiresAt() == null
+            || !pending.approvalExpiresAt().isAfter(clock.instant())) {
             throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This Caisse d'Epargne sign-in attempt expired. Please start again.", null);
         }
@@ -628,10 +716,19 @@ public class CaisseEpargneSyncService {
         return Objects.requireNonNull(value, "Transaction callback returned no result");
     }
 
-    /** A contract the sidecar saw but Picsou does not import: reported by id and family code only. */
-    public record InitiateResponse(String processId, boolean mfaRequired, String mfaType, int expiresInSeconds) {}
+    /** The pending login to show: the bank's keypad, clicked by the user, and its lifetime. */
+    public record InitiateResponse(String processId, CaisseEpargnePort.Keypad keypad, int expiresInSeconds) {}
 
-    private record PendingLogin(Long memberId, Instant expiresAt) {}
+    /**
+     * A login in flight. Only one of the two deadlines is set: the keypad's while the user clicks,
+     * the approval window's once the digits were sent. Both are nulled out with the process id, so
+     * nothing about the pad survives a step.
+     */
+    private record PendingLogin(Long memberId, Instant keypadExpiresAt, Instant approvalExpiresAt) {
+        Instant deadline() {
+            return approvalExpiresAt != null ? approvalExpiresAt : keypadExpiresAt;
+        }
+    }
 
     public record UnsupportedContract(String externalId, String familyCode) {}
 

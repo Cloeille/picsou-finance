@@ -7,7 +7,7 @@ package com.picsou.port;
  * <p>The column carries a CHECK constraint enumerating these values (V109): adding a
  * constant here needs a migration.
  *
- * <p>The last four belong to the browser login ({@code /initiate}, {@code /complete}). They can
+ * <p>The last six belong to the browser login ({@code /initiate}, {@code /keypad}, {@code /complete}). They can
  * never deactivate a stored session: a failed login says nothing about the session already held.
  */
 public enum CaisseEpargneErrorCode {
@@ -23,5 +23,9 @@ public enum CaisseEpargneErrorCode {
     /** Nobody approved the Sécur'Pass push in time. */
     APP_VALIDATION_TIMEOUT,
     /** The pending login is unknown, used, expired or belongs to someone else. */
-    AUTH_ATTEMPT_EXPIRED
+    AUTH_ATTEMPT_EXPIRED,
+    /** The user took longer than the keypad's lifetime to click the digits. Nothing was clicked. */
+    KEYPAD_EXPIRED,
+    /** The clicked positions are not a valid choice on a ten-key pad (length or range). */
+    INVALID_POSITIONS
 }

@@ -1,17 +1,24 @@
 """Browser login for the Caisse d'Epargne sidecar (option B).
 
 The login page computes the `password` it posts from the keypad clicks with its
-own script, so this module drives the real page: identifier, keypad clicks for
-the password digits, Valider, then waits for the human to approve Sécur'Pass.
+own script, so this module drives the real page. It is split in two calls:
+
+  * `/initiate` types the identifier, waits for the 10-key pad and returns the key
+    images to the UI. It never clicks the pad.
+  * `/keypad` clicks the positions the USER chose in the pop-up, then Valider, then
+    waits for the Sécur'Pass approval page (which the human approves on the phone,
+    `/complete`).
+
+The password never exists outside the user's browser: only key positions travel.
 
 Rules (see the README):
-  * the password is never stored, logged, echoed, put in an error, a screenshot
-    or a trace; only the cookie jar of the finished login is returned;
+  * every credential, position, image and cookie stays out of logs, errors and
+    traces; the cookie jar of a finished login is the only thing returned;
   * one attempt, no retry on any path: a wrong password costs a bank attempt;
-  * the keypad fails closed: if the 10 keys cannot ALL be identified, nothing is
-    clicked (`KEYPAD_CHANGED`);
+  * the pad is pinned: the 10 digests are re-read and compared before EVERY click,
+    and any difference stops the typing at once (`KEYPAD_CHANGED`);
   * Sécur'Pass is human only: `complete` waits and never clicks anything;
-  * errors carry a code only, logs carry fixed text and exception TYPES only.
+  * errors carry a code only, logs carry fixed text, counts and exception TYPES.
 """
 
 import asyncio
@@ -21,7 +28,7 @@ import time
 import urllib.parse
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -48,12 +55,11 @@ IDENTIFIER_INPUT = "#neo-input-1"
 NEXT_BUTTON = 'form:has(#neo-input-1) button[type="submit"]:has-text("Valider")'
 SUBMIT_BUTTON = 'button[type="submit"]:has-text("Valider")'
 KEY_SELECTOR = ".keyboard-button"
-# Not observed live yet (no failed attempt was ever made on purpose): to confirm in L5.
+# Not observed live yet (no failed attempt was ever made on purpose): to confirm.
 # Deliberately NOT the generic `[role="alert"]`: it also matches informational
 # banners, and a false INVALID_CREDENTIALS makes the user retype (bank lock risk).
-# It is read only on the identifier page (refusal of the identifier, nothing sent
-# yet) and on the password page right after Valider, never while waiting for the
-# Sécur'Pass approval.
+# It is read on the identifier page (refusal of the identifier, nothing sent yet)
+# and on the password page right after Valider, never while waiting for Sécur'Pass.
 ERROR_SELECTOR = ".alert-danger, .error-message"
 SECURPASS_SELECTOR = 'text=/S[ée]cur.?Pass/i'
 _BACKGROUND_JS = "element => getComputedStyle(element).backgroundImage"
@@ -61,9 +67,13 @@ _BACKGROUND_JS = "element => getComputedStyle(element).backgroundImage"
 MAX_CONCURRENT_BROWSERS = 2
 PENDING_TTL_SECONDS = 300
 PENDING_SWEEP_SECONDS = 30
-# The backend gives /initiate 90 s and /complete 170 s: each overall deadline is
-# shorter, so the sidecar answers (and cleans up) before the backend gives up.
+# A session waiting for the keypad click ages out fast: nobody can use it later.
+KEYPAD_TTL_SECONDS = 90
+# The backend gives /initiate 90 s, /keypad 70 s and /complete 170 s: each overall
+# deadline is shorter, so the sidecar answers (and cleans up) before the backend
+# gives up.
 INITIATE_DEADLINE_SECONDS = 80
+KEYPAD_DEADLINE_SECONDS = 60
 COMPLETE_WAIT_SECONDS = 150  # the human part only
 # 10 s after the human wait for the post-approval work (reload + authorize capture).
 # Both are clamped to what is left of this deadline, so they fit in those 10 s when
@@ -75,8 +85,8 @@ POLL_INTERVAL_SECONDS = 0.25
 RESOURCE_CLOSE_TIMEOUT_SECONDS = 5
 
 CUSTOMER_ID_MAX_LENGTH = 20
-PASSWORD_MIN_LENGTH = 4
-PASSWORD_MAX_LENGTH = 20
+POSITIONS_MIN_LENGTH = 6
+POSITIONS_MAX_LENGTH = 12
 
 # Headless Chromium only; no stealth or evasion flags on purpose.
 LAUNCH_ARGS: list[str] = []
@@ -98,11 +108,16 @@ class _Session:
     browser: Any = None
     context: Any = None
     page: Any = None
+    digests: list[str] = field(default_factory=list, repr=False)
+    keypad_done: bool = False
     authorize_requests: list[str] = field(default_factory=list, repr=False)
     slot_held: bool = True
+    shutdown_requested: bool = False
 
 
 _pending: dict[str, _Session] = {}
+_keypad_inflight: dict[str, _Session] = {}
+_keypad_tasks: dict[str, asyncio.Task[Any]] = {}
 _browsers = 0
 
 
@@ -149,6 +164,7 @@ async def _dispose(session: _Session) -> None:
         (session.playwright, "stop"),
     )
     session.context = session.browser = session.playwright = session.page = None
+    session.digests = []
     cancelled: asyncio.CancelledError | None = None
     for resource, method in resources:
         if resource is None:
@@ -168,9 +184,16 @@ async def _dispose(session: _Session) -> None:
 # --- Pending store -----------------------------------------------------------
 
 
+def _ttl_of(session: _Session) -> int:
+    """A session waiting for the keypad click ages out faster than a Sécur'Pass wait."""
+    return PENDING_TTL_SECONDS if session.keypad_done else KEYPAD_TTL_SECONDS
+
+
 async def cleanup_expired() -> None:
-    cutoff = time.monotonic() - PENDING_TTL_SECONDS
-    expired = [pid for pid, s in _pending.items() if s.created_at < cutoff]
+    now = time.monotonic()
+    expired = [
+        pid for pid, session in _pending.items() if session.created_at < now - _ttl_of(session)
+    ]
     for pid in expired:
         # One at a time: a session leaves the store only when it is about to be
         # disposed, so a cancellation never strands several popped sessions (their
@@ -187,8 +210,23 @@ async def cleanup_expired() -> None:
 
 
 async def close_all() -> None:
-    sessions = list(_pending.values())
+    sessions = list({
+        id(session): session
+        for session in (*_pending.values(), *_keypad_inflight.values())
+    }.values())
+    for session in sessions:
+        session.shutdown_requested = True
     _pending.clear()
+
+    # The keypad task owns its browser while it is interacting with the page.
+    # Wait for it to finish before disposal; on success it must not republish.
+    tasks = [
+        task
+        for process_id in _keypad_inflight
+        if (task := _keypad_tasks.get(process_id)) is not None
+    ]
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
     for session in sessions:
         await _dispose(session)
 
@@ -214,6 +252,15 @@ def _is_digits(value: object, min_length: int, max_length: int) -> bool:
     if not isinstance(value, str) or not (min_length <= len(value) <= max_length):
         return False
     return all("0" <= char <= "9" for char in value)
+
+
+def valid_positions(value: object) -> bool:
+    """`[int]` of 6..12 key positions in 0..9. `bool` and `float` are not ints here."""
+    if not isinstance(value, list):
+        return False
+    if not POSITIONS_MIN_LENGTH <= len(value) <= POSITIONS_MAX_LENGTH:
+        return False
+    return all(type(position) is int and 0 <= position < keypad_table.KEY_COUNT for position in value)
 
 
 def _to_login_error(exc: Exception) -> LoginError:
@@ -287,11 +334,9 @@ def _watch_authorize(session: _Session, page: Any) -> None:
 # --- /initiate -----------------------------------------------------------------
 
 
-async def initiate(customer_id: str, password: str) -> dict[str, Any]:
+async def initiate(customer_id: str) -> dict[str, Any]:
     # A shape the bank would refuse is refused here, before any browser work.
-    if not _is_digits(customer_id, 1, CUSTOMER_ID_MAX_LENGTH) or not _is_digits(
-        password, PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH
-    ):
+    if not _is_digits(customer_id, 1, CUSTOMER_ID_MAX_LENGTH):
         raise LoginError(401, "INVALID_CREDENTIALS")
 
     await cleanup_expired()
@@ -299,8 +344,7 @@ async def initiate(customer_id: str, password: str) -> dict[str, Any]:
     session = _Session(created_at=time.monotonic())
     try:
         # Overall deadline (backend gives 90 s): on expiry the browser is closed and
-        # the slot released below, so no Sécur'Pass push is left pending on a
-        # browser nobody will ever complete.
+        # the slot released below, so no half-open login is left behind.
         async with asyncio.timeout(INITIATE_DEADLINE_SECONDS):
             session.playwright = await _playwright_factory().start()
             session.browser = await session.playwright.chromium.launch(
@@ -317,18 +361,16 @@ async def initiate(customer_id: str, password: str) -> dict[str, Any]:
 
             await _open_identifier_page(session.page)
             await _submit_identifier(session.page, customer_id)
-            await _type_password(session.page, password)
-            await _click_valider(session.page)
-            await _expect_securpass(session.page)
+            images, digests = await _read_pad(session.page)
 
+        session.digests = digests
         process_id = uuid.uuid4().hex + uuid.uuid4().hex
         session.created_at = time.monotonic()
         _pending[process_id] = session
         return {
             "processId": process_id,
-            "mfaRequired": True,
-            "mfaType": "SECURPASS",
-            "expiresInSeconds": PENDING_TTL_SECONDS,
+            "keypad": {"images": images, "columns": keypad_table.KEY_COLUMNS},
+            "expiresInSeconds": KEYPAD_TTL_SECONDS,
         }
     except BaseException as exc:
         await _dispose(session)
@@ -366,48 +408,50 @@ async def _submit_identifier(page: Any, customer_id: str) -> None:
             break
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
     if count > 0:
-        raise LoginError(409, "KEYPAD_CHANGED")  # a pad that is not 10 keys
+        _log_keypad_refusal(count, 0, [])
+        raise keypad_table.KeypadChanged()  # a pad that is not 10 keys
     raise LoginError(502, "UPSTREAM_FORMAT_CHANGED")
 
 
-async def _type_password(page: Any, password: str) -> None:
+async def _read_pad(page: Any) -> tuple[list[str], list[str]]:
+    """`(the 10 key images in DOM order, their digests)`, or `KeypadChanged`."""
     keys = page.locator(KEY_SELECTOR)
-    # Fail closed: all 10 keys identified, or not a single click.
-    digit_of_key = await _read_keypad(keys)
-    for digit in password:
-        # The pad is read again before EVERY click: any change (reshuffle, new image)
-        # stops here, with no further click.
-        if await _read_keypad(keys) != digit_of_key:
-            raise keypad_table.KeypadChanged()
-        await keys.nth(digit_of_key.index(digit)).click(timeout=STEP_TIMEOUT_SECONDS * 1000)
-
-
-async def _read_keypad(keys: Any) -> list[str]:
-    """The digit shown by each of the 10 keys, or `KeypadChanged`."""
+    count = await keys.count()
+    if count != keypad_table.KEY_COUNT:
+        _log_keypad_refusal(count, 0, [])
+        raise keypad_table.KeypadChanged()
+    images: list[str] = []
     digests: list[str] = []
     for index in range(keypad_table.KEY_COUNT):
         css = await keys.nth(index).evaluate(_BACKGROUND_JS)
-        digest = keypad_table.digest_from_css_background(css)
-        if digest is None:
-            _log_keypad_refusal(len(digests) + 1, len(digests), digests)
+        parsed = keypad_table.parse_key_css(css)
+        if parsed is None:
+            _log_keypad_refusal(index + 1, len(digests), digests)
             raise keypad_table.KeypadChanged()
+        digest, uri = parsed
         digests.append(digest)
-    try:
-        return keypad_table.identify_keys(digests)
-    except keypad_table.KeypadChanged:
-        _log_keypad_refusal(len(digests), len(digests), digests)
-        raise
+        images.append(uri)
+    if len(set(digests)) != keypad_table.KEY_COUNT:
+        _log_keypad_refusal(keypad_table.KEY_COUNT, keypad_table.KEY_COUNT, digests)
+        raise keypad_table.KeypadChanged()
+    return images, digests
 
 
-def _log_keypad_refusal(keys_read: int, with_image: int, digests: list[str]) -> None:
+def _log_keypad_refusal(
+    keys_read: int, with_image: int, digests: list[str], expected: list[str] | None = None
+) -> None:
     """Why the pad was refused, as counts only. A digest or a CSS value never goes in a log."""
-    known = sum(1 for digest in digests if digest in keypad_table.DIGEST_TO_DIGIT)
+    matching = (
+        sum(1 for current, pinned in zip(digests, expected) if current == pinned)
+        if expected is not None
+        else None
+    )
     log.warning(
-        "Keypad refused (keys=%d, with_image=%d, known=%d, distinct=%d)",
+        "Keypad refused (keys=%d, with_image=%d, distinct=%d%s)",
         keys_read,
         with_image,
-        known,
         len(set(digests)),
+        f", matching={matching}" if matching is not None else "",
     )
 
 
@@ -429,6 +473,76 @@ async def _expect_securpass(page: Any) -> None:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 
+# --- /keypad -------------------------------------------------------------------
+
+
+async def keypad(process_id: str, positions: object) -> dict[str, Any]:
+    if not valid_positions(positions):
+        # Refused before anything is looked at, and the pending login is dropped:
+        # a set of positions the UI would never produce means a broken caller.
+        session = _pending.pop(process_id, None)
+        if session is not None:
+            await _dispose(session)
+        raise LoginError(422, "INVALID_POSITIONS")
+
+    session = _pending.get(process_id)
+    if session is None:
+        if process_id in _keypad_inflight:
+            raise LoginError(409, "KEYPAD_CHANGED")
+        raise LoginError(410, "AUTH_ATTEMPT_EXPIRED")
+    if session.keypad_done:
+        # Single use, set before the first await: a second call never clicks again.
+        raise LoginError(409, "KEYPAD_CHANGED")
+    if session.created_at < time.monotonic() - KEYPAD_TTL_SECONDS:
+        _pending.pop(process_id, None)
+        await _dispose(session)
+        raise LoginError(408, "KEYPAD_EXPIRED")
+    # Remove it before the first await: complete and the sweeper may only claim
+    # sessions from _pending, and a second keypad call is refused via inflight.
+    _pending.pop(process_id, None)
+    session.keypad_done = True
+    _keypad_inflight[process_id] = session
+    task = asyncio.current_task()
+    if task is not None:
+        _keypad_tasks[process_id] = task
+
+    try:
+        # Overall deadline (backend gives 70 s): on expiry the browser is closed and
+        # the slot released below.
+        async with asyncio.timeout(KEYPAD_DEADLINE_SECONDS):
+            await _click_positions(session.page, cast("list[int]", positions), session.digests)
+            await _click_valider(session.page)
+            await _expect_securpass(session.page)
+        # The human wait starts now, not at /initiate: a fresh TTL for /complete.
+        session.created_at = time.monotonic()
+        _keypad_inflight.pop(process_id, None)
+        if not session.shutdown_requested:
+            _pending[process_id] = session
+        return {"processId": process_id, "status": "SECURPASS_PENDING"}
+    except BaseException as exc:
+        _keypad_inflight.pop(process_id, None)
+        await _dispose(session)
+        if not isinstance(exc, Exception):
+            raise
+        raise _to_login_error(exc) from None
+    finally:
+        _keypad_tasks.pop(process_id, None)
+
+
+async def _click_positions(page: Any, positions: list[int], pinned: list[str]) -> None:
+    keys = page.locator(KEY_SELECTOR)
+    for position in positions:
+        # The pad is re-read in full before EVERY click: any change (reshuffle, new
+        # image, one key losing its image) stops here, with no further click.
+        _, digests = await _read_pad(page)
+        if digests != pinned:
+            _log_keypad_refusal(
+                keypad_table.KEY_COUNT, keypad_table.KEY_COUNT, digests, pinned
+            )
+            raise keypad_table.KeypadChanged()
+        await keys.nth(position).click(timeout=STEP_TIMEOUT_SECONDS * 1000)
+
+
 # --- /complete -----------------------------------------------------------------
 
 
@@ -439,7 +553,7 @@ async def complete(process_id: str) -> str:
     started = time.monotonic()
     human_wait_over = False
     try:
-        if session.created_at < started - PENDING_TTL_SECONDS:
+        if not session.keypad_done or session.created_at < started - PENDING_TTL_SECONDS:
             raise LoginError(410, "AUTH_ATTEMPT_EXPIRED")
         # Overall deadline (backend gives 170 s) around the human wait AND the
         # authorize capture/reload that follows it.

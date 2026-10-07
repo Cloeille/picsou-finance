@@ -86,28 +86,39 @@ bank files them under another id, the import fails with
 - Cookies, SAML payloads, codes, tokens and authorize parameters are never logged or returned. The access token lives only in an in-memory cache until `expires_in - 30 s` (at most 64 entries) and is never returned by the API.
 - Read-only target: the OAuth/SAML replay POSTs and, for `/accounts`, GET data calls only. No balance, label, IBAN or token is ever logged.
 
-## Login by browser (`POST /initiate`, `POST /complete`)
+## Login by browser (`POST /initiate`, `POST /keypad`, `POST /complete`)
 
 The login page computes the `password` it posts from the keypad clicks with its
-own script, so the sidecar does not reproduce it: `login.py` drives the real
-page with Playwright (headless Chromium), clicks the keys for the password
-digits and lets the page do the rest. Same model as `services/amundi-auth`.
+own script, so the sidecar does not reproduce it. It does not guess the digits
+either: the key images are sent to the UI, **the user clicks his own digits in
+the pop-up**, and only the clicked positions come back. The password never
+exists outside the user's browser. Same model as `services/amundi-auth`, plus
+the user-clicked pad.
 
-**Keypad table.** `keypad_table.DIGEST_TO_DIGIT` maps the SHA-256 of each key
-image to its digit. It was captured live on 2026-10-07 (identifier only, no
-password): 10 PNG images, one per digit, shuffled on every load. If the bank
-changes the images, every digest is unknown and `/initiate` answers
-`409 KEYPAD_CHANGED` without clicking anything (fail closed): recapture the table.
+**Why not a digest table.** The key images are 10 PNG of ~920 bytes, shuffled at
+every connection. Measured live on 2026-10-07: they are stable inside one login
+(60 s, and across a reload) but different at the next one, so a fixed
+image→digit table can never work.
 
-`POST /initiate` body `{"customerId": "<digits, 1-20>", "password": "<digits, 4-20>"}`
+`POST /initiate` body `{"customerId": "<digits, 1-20>"}`
 
 | HTTP | Body | Meaning |
 | --- | --- | --- |
-| 200 | `{"processId", "mfaRequired": true, "mfaType": "SECURPASS", "expiresInSeconds": 300}` | password sent, waiting for the human to approve Sécur'Pass |
-| 401 | `INVALID_CREDENTIALS` | the bank refused the identifier or password; also a non-numeric password, refused before any browser work |
-| 409 | `KEYPAD_CHANGED` | a key image is not in the table, or the pad does not have 10 keys. Zero clicks were made |
+| 200 | `{"processId", "keypad": {"images": [10 data URIs], "columns": 5}, "expiresInSeconds": 90}` | identifier accepted, the pad is up: the user must click his digits |
+| 401 | `INVALID_CREDENTIALS` | the bank refused the identifier; also a non-numeric one, refused before any browser work |
+| 409 | `KEYPAD_CHANGED` | the pad is not 10 keys, a key has no PNG image, two keys show the same image, or an image is over 16 KB. Zero clicks were made |
 | 429 | `TOO_MANY_PENDING` | browser slots full (`MAX_CONCURRENT_BROWSERS = 2`) |
 | 502 | `UPSTREAM_UNAVAILABLE` / `UPSTREAM_FORMAT_CHANGED` | login form not found, redirect not understood |
+
+`POST /keypad` body `{"processId": "<from initiate>", "positions": [3, 0, 5, ...]}`
+clicks those positions (6 to 12 of them, each 0-9, in the user's order), then
+Valider once, then waits for the Sécur'Pass page. 200
+`{"processId", "status": "SECURPASS_PENDING"}`. 422 `INVALID_POSITIONS` (refused
+before any click, and the pending login is dropped); 409 `KEYPAD_CHANGED` when
+the pad changed before a click, or on a second call for the same process;
+408 `KEYPAD_EXPIRED` (over `KEYPAD_TTL_SECONDS = 90` after `/initiate`);
+410 `AUTH_ATTEMPT_EXPIRED`; 401 `INVALID_CREDENTIALS`; 502 upstream. A process
+accepts `/keypad` exactly once. The positions are never logged.
 
 `POST /complete` body `{"processId": "<from initiate>"}` blocks up to 150 s
 (`COMPLETE_WAIT_SECONDS`) for the human to approve on the phone. It never clicks
@@ -120,10 +131,12 @@ fails validation answers `400 INVALID_REQUEST`.
 
 Rules:
 
-- The password is never stored, logged, echoed, put in an error, a screenshot,
-  a trace or a video. Errors and logs carry codes and exception types only.
-  The password is typed once: a refusal never triggers a second attempt, here
-  or anywhere in the stack (a wrong password costs a bank attempt).
+- Nothing secret is stored, logged, echoed, put in an error, a screenshot, a
+  trace or a video: neither the password (which only the page ever sees) nor the
+  identifier, the positions, the key images or the cookies. Errors and logs
+  carry codes, counts and exception types only.
+- The pad is typed once: a refusal never triggers a second attempt, here or
+  anywhere in the stack (a wrong password costs a bank attempt).
 - Navigation is allow-listed: any request outside `https://*.caisse-epargne.fr`
   is aborted at the browser (`context.route`).
 - The returned state keeps only cookies on `caisse-epargne.fr`, and the
@@ -131,11 +144,14 @@ Rules:
   client space (without `code_challenge`, `code_challenge_method`, `nonce`),
   validated with `replay.parse_session_state` before it is returned.
 - Capacity: at most 2 browsers at once (pending ones included); a sweeper closes
-  expired pending logins; shutdown closes everything.
+  expired pending logins; shutdown closes everything. A login waiting for a pad
+  click ages out after `KEYPAD_TTL_SECONDS = 90`, one waiting for Sécur'Pass
+  after `PENDING_TTL_SECONDS = 300`.
 - Deadlines: `/initiate` is cut at `INITIATE_DEADLINE_SECONDS = 80` (backend gives
-  90 s): the browser is closed, the slot released, the answer is 502
-  `UPSTREAM_UNAVAILABLE`. `/complete` is cut at `COMPLETE_DEADLINE_SECONDS = 160`
-  (backend gives 170 s), human wait included; the human wait stays 150 s and the
+  90 s), `/keypad` at `KEYPAD_DEADLINE_SECONDS = 60` (backend gives 70 s),
+  `/complete` at `COMPLETE_DEADLINE_SECONDS = 160` (backend gives 170 s), human
+  wait included. On expiry the browser is closed, the slot released and the
+  answer is 502 `UPSTREAM_UNAVAILABLE`. The human wait stays 150 s and the
   reload / authorize wait after it are clamped to the 10 s left.
 - Error banner: only read on the identifier page (identifier refused) and on the
   password page right after Valider. Never during the Sécur'Pass wait: there only
@@ -143,9 +159,12 @@ Rules:
   become a false `INVALID_CREDENTIALS` (the user would retype and risk a lock).
 - Browser context: service workers blocked; WebSocket connections to hosts outside
   `https://*.caisse-epargne.fr` (as `wss://`) are closed (`context.route_web_socket`).
-- The keypad is read again before every key click; any change stops with
-  `KEYPAD_CHANGED` and no further click.
-- Not observed live yet, to confirm in L5: the exact error-banner selector
+- The 10 key images are re-read and compared to the pinned ones before every
+  click; any change (reshuffle, missing image, extra key, bigger image) stops
+  with `KEYPAD_CHANGED` and no further click.
+- A maximum of 16 KB per key image, PNG only: anything else is `KEYPAD_CHANGED`.
+  The UI must render the images with `<img src>` and must not treat them as HTML.
+- Not observed live yet: the exact error-banner selector
   (`login.ERROR_SELECTOR`) and the Sécur'Pass screen text selector. Detection
   also works on the `(modal:icg/cloudcard)` URL, which was observed.
 

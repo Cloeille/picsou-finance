@@ -9,18 +9,26 @@ import java.util.List;
  * about the bank's OAuth/SAML replay and its JSON APIs lives in the sidecar behind
  * {@code CaisseEpargneAdapter}.
  *
- * <p>Login is two calls and the password only ever travels through {@link #initiateAuth}:
- * the sidecar drives the real login page, the human approves in Sécur'Pass, and
- * {@link #completeAuth} hands back the cookie jar. Neither call is ever retried: a wrong
- * password consumes a bank attempt and can lock the account.
+ * <p>Login is three calls and the password never reaches Picsou: {@link #initiateAuth} returns the
+ * bank's keypad, the user clicks his digits in his browser, {@link #submitKeypad} forwards only the
+ * key positions, the human approves in Sécur'Pass, and {@link #completeAuth} hands back the cookie
+ * jar. None of them is ever retried: a wrong password consumes a bank attempt and can lock the
+ * account.
  */
 public interface CaisseEpargnePort {
 
     /**
-     * {@code POST /initiate}: types the identifier and password on the bank's keypad and answers
-     * with the pending Sécur'Pass challenge. One attempt, no retry.
+     * {@code POST /initiate}: types the identifier on the bank's login page and answers with the
+     * ten-key pad for the user to click. No password, no click on the pad. One attempt, no retry.
      */
-    InitiateResult initiateAuth(String customerId, String password);
+    InitiateResult initiateAuth(String customerId);
+
+    /**
+     * {@code POST /keypad}: clicks the positions the user chose (indexes into the pad returned by
+     * {@link #initiateAuth}) and waits for the Sécur'Pass page. Single use, no retry. The positions
+     * are never logged.
+     */
+    void submitKeypad(String processId, List<Integer> positions);
 
     /**
      * {@code POST /complete}: blocks until the human approved on the phone (the sidecar waits up
@@ -39,9 +47,16 @@ public interface CaisseEpargnePort {
 
     record CheckResult(boolean ok, long expiresIn) {}
 
-    /** The pending login: what the user must do next and for how long the attempt stays valid. */
+    /**
+     * The pending login: the bank's keypad (to be clicked by the user, never by Picsou) and for how
+     * long the keypad step stays valid.
+     */
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
-    record InitiateResult(String processId, String mfaType, int expiresInSeconds) {}
+    record InitiateResult(String processId, Keypad keypad, int expiresInSeconds) {}
+
+    /** Ten {@code data:image/png;base64,...} images in DOM order, laid out in {@code columns} columns. */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    record Keypad(java.util.List<String> images, int columns) {}
 
     /** Contracts the sidecar saw but does not import (family code not supported). */
     record Unsupported(String externalId, String familyCode) {}

@@ -19,6 +19,7 @@ import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/Ban
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { BourseDirectPanel } from '@/components/sync/BourseDirectPanel'
 import { BoursoPanel } from '@/components/sync/BoursoPanel'
+import { CaisseEpargnePanel } from '@/components/sync/CaisseEpargnePanel'
 import { DegiroPanel } from '@/components/sync/DegiroPanel'
 import { AmundiPanel } from '@/components/sync/AmundiPanel'
 import { FortuneoPanel } from '@/components/sync/FortuneoPanel'
@@ -94,7 +95,7 @@ interface AddAccountModalProps {
 }
 
 type WizardStep =
-  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso'
+  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso' | 'caisseEpargne'
   | 'bourseDirect' | 'degiro' | 'amundi' | 'fortuneo' | 'finary' | 'property' | 'manual'
   | 'bourseDirect' | 'degiro' | 'amundi' | 'finary' | 'property' | 'manual'
   | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'bourso'
@@ -137,6 +138,7 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'tr', icon: Smartphone, labelKey: 'sync.tr.title', descKey: 'addAccount.desc.tr' },
   { key: 'revolut', icon: CreditCard, labelKey: 'sync.revolut.title', descKey: 'addAccount.desc.revolut' },
   { key: 'bourso', icon: Landmark, labelKey: 'sync.bourso.title', descKey: 'addAccount.desc.bourso' },
+  { key: 'caisseEpargne', icon: Landmark, labelKey: 'sync.caisseEpargne.title', descKey: 'addAccount.desc.caisseEpargne' },
   { key: 'bourseDirect', icon: BriefcaseBusiness, labelKey: 'sync.bourseDirect.title', descKey: 'addAccount.desc.bourseDirect' },
   { key: 'degiro', icon: TrendingUp, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
   { key: 'ibkr', icon: BriefcaseBusiness, labelKey: 'sync.ibkr.title', descKey: 'addAccount.desc.ibkr' },
@@ -284,6 +286,12 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
                 <>
                   <BackButton onClick={() => setStep('selector')} />
                   <BoursoPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'caisseEpargne' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <CaisseEpargnePanel onConnected={handleDone} />
                 </>
               )}
               {step === 'bourseDirect' && (

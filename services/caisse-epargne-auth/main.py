@@ -36,7 +36,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 import fetcher
 import login
@@ -143,8 +143,16 @@ class InitiateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", repr=False)
 
     customerId: str = Field(min_length=1, max_length=200)
-    # Shape (digits, 4-20) is checked in login.initiate -> 401 before any browser work.
-    password: str = Field(max_length=200, repr=False)
+
+
+class KeypadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", repr=False)
+
+    processId: str = Field(min_length=1, max_length=200)
+    # The positions the user clicked in the pop-up. The password itself never
+    # leaves his browser: it is only ever the page's own script that knows it.
+    # StrictInt: a stringified index is a bug on the caller side, not a position.
+    positions: list[StrictInt] = Field(min_length=1, max_length=200)
 
 
 class CompleteRequest(BaseModel):
@@ -153,7 +161,7 @@ class CompleteRequest(BaseModel):
     processId: str = Field(min_length=1, max_length=200)
 
 
-LOGIN_PATHS = {"/initiate", "/complete"}
+LOGIN_PATHS = {"/initiate", "/keypad", "/complete"}
 
 
 @app.exception_handler(RequestValidationError)
@@ -173,14 +181,27 @@ async def health() -> dict:
 
 @app.post("/initiate")
 async def initiate(req: InitiateRequest) -> dict:
-    # One attempt: no retry here or anywhere. The password goes straight to the
-    # keypad and is never logged or returned.
+    # One attempt: no retry here or anywhere. Only the identifier goes in; the pad
+    # images come back for the user to click himself.
     try:
-        return await login.initiate(req.customerId, req.password)
+        return await login.initiate(req.customerId)
     except login.LoginError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.code) from None
     except Exception:
         log.error("initiate failed unexpectedly")  # no exception text: it may quote input
+        raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from None
+
+
+@app.post("/keypad")
+async def keypad(req: KeypadRequest) -> dict:
+    # The clicked positions are never logged; a wrong set costs nothing at the bank
+    # (the pad typing is refused before any click).
+    try:
+        return await login.keypad(req.processId, req.positions)
+    except login.LoginError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.code) from None
+    except Exception:
+        log.error("keypad failed unexpectedly")
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from None
 
 

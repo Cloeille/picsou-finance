@@ -14,11 +14,12 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import reactor.netty.http.client.HttpClient;
 
 /**
- * Sidecar client. The two login calls are deliberately plain single-shot requests: there is no
+ * Sidecar client. The three login calls are deliberately plain single-shot requests: there is no
  * retry filter on the {@link WebClient}, none is added here, and a failure is translated, never
  * replayed, because a wrong password consumes a bank attempt and can lock the account.
  */
@@ -31,6 +32,8 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
     /** The sidecar waits up to 150 s for the human to approve the push: stay above it. */
     static final Duration INITIATE_TIMEOUT = Duration.ofSeconds(90);
     static final Duration COMPLETE_TIMEOUT = Duration.ofSeconds(170);
+    /** The sidecar gives /keypad 60 s (clicks, Valider, Sécur'Pass page): stay above it, below nginx's 90 s. */
+    static final Duration KEYPAD_TIMEOUT = Duration.ofSeconds(70);
 
     private final WebClient client;
     private final SidecarErrorTranslator<CaisseEpargneErrorCode> sidecar;
@@ -40,6 +43,7 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
     private final Duration accountsTimeout;
     private final Duration initiateTimeout;
     private final Duration completeTimeout;
+    private final Duration keypadTimeout;
 
     @Autowired
     public CaisseEpargneAdapter(
@@ -89,6 +93,18 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
         Duration initiateTimeout,
         Duration completeTimeout
     ) {
+        this(client, objectMapper, checkTimeout, accountsTimeout, initiateTimeout, completeTimeout, KEYPAD_TIMEOUT);
+    }
+
+    CaisseEpargneAdapter(
+        WebClient client,
+        ObjectMapper objectMapper,
+        Duration checkTimeout,
+        Duration accountsTimeout,
+        Duration initiateTimeout,
+        Duration completeTimeout,
+        Duration keypadTimeout
+    ) {
         this.client = client;
         this.sidecar = translator(client, objectMapper, CaisseEpargneErrorCode.SESSION_EXPIRED);
         this.authSidecar = translator(client, objectMapper, CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED);
@@ -96,6 +112,7 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
         this.accountsTimeout = accountsTimeout;
         this.initiateTimeout = initiateTimeout;
         this.completeTimeout = completeTimeout;
+        this.keypadTimeout = keypadTimeout;
     }
 
     private static SidecarErrorTranslator<CaisseEpargneErrorCode> translator(
@@ -113,15 +130,35 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
     }
 
     @Override
-    public InitiateResult initiateAuth(String customerId, String password) {
+    public InitiateResult initiateAuth(String customerId) {
         return authPost(
             "/initiate",
-            new InitiateBody(customerId, password),
+            new InitiateBody(customerId),
             InitiateResult.class,
             initiateTimeout,
             "Could not start the Caisse d'Epargne login",
-            CaisseEpargneErrorCode.INVALID_CREDENTIALS
+            CaisseEpargneErrorCode.INVALID_CREDENTIALS,
+            CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT,
+            null
         );
+    }
+
+    @Override
+    public void submitKeypad(String processId, List<Integer> positions) {
+        KeypadAck ack = authPost(
+            "/keypad",
+            new KeypadBody(processId, positions),
+            KeypadAck.class,
+            keypadTimeout,
+            "Could not send the Caisse d'Epargne keypad choice",
+            CaisseEpargneErrorCode.INVALID_CREDENTIALS,
+            CaisseEpargneErrorCode.KEYPAD_EXPIRED,
+            CaisseEpargneErrorCode.INVALID_POSITIONS
+        );
+        if (!"SECURPASS_PENDING".equals(ack.status())) {
+            throw authSidecar.coded(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED,
+                friendlyMessage(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED), null);
+        }
     }
 
     @Override
@@ -132,15 +169,20 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
             SessionBody.class,
             completeTimeout,
             "Could not finish the Caisse d'Epargne login",
-            CaisseEpargneErrorCode.INVALID_CREDENTIALS
+            CaisseEpargneErrorCode.INVALID_CREDENTIALS,
+            CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT,
+            null
         );
         return body.sessionState();
     }
 
     /**
-     * One request, no retry. Statuses that only the login contract defines (408, 409, 429) are
+     * One request, no retry. Statuses that only the login contract defines (408, 409, 422, 429) are
      * resolved here; everything else goes through the shared translator. No request body, header
      * or response body is ever logged or put in a message.
+     *
+     * @param timeoutCode       what a 408 means on this call (Sécur'Pass not approved, keypad expired)
+     * @param unprocessableCode what a 422 means on this call, or null when it carries no such meaning
      */
     private <T> T authPost(
         String path,
@@ -148,7 +190,9 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
         Class<T> type,
         Duration timeout,
         String message,
-        CaisseEpargneErrorCode authenticationFailure
+        CaisseEpargneErrorCode authenticationFailure,
+        CaisseEpargneErrorCode timeoutCode,
+        CaisseEpargneErrorCode unprocessableCode
     ) {
         try {
             T response = client.post().uri(path).contentType(MediaType.APPLICATION_JSON)
@@ -162,8 +206,10 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
             if (ex instanceof WebClientResponseException response) {
                 int status = response.getStatusCode().value();
                 if (status == 408) {
-                    throw authSidecar.coded(CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT,
-                        friendlyMessage(CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT), null);
+                    throw authSidecar.coded(timeoutCode, friendlyMessage(timeoutCode), null);
+                }
+                if (status == 422 && unprocessableCode != null) {
+                    throw authSidecar.coded(unprocessableCode, friendlyMessage(unprocessableCode), null);
                 }
                 if (status == 409) {
                     throw authSidecar.coded(CaisseEpargneErrorCode.KEYPAD_CHANGED,
@@ -178,13 +224,24 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
         }
     }
 
-    /** The password never leaves {@code toString}, so a logged DTO cannot leak it. */
-    private record InitiateBody(String customerId, String password) {
+    /** The identifier never leaves {@code toString}, so a logged DTO cannot leak it. */
+    private record InitiateBody(String customerId) {
         @Override
         public String toString() {
-            return "InitiateBody[customerId=" + customerId + ", password=***]";
+            return "InitiateBody[customerId=***]";
         }
     }
+
+    /** The positions are the user's password in disguise: redacted from {@code toString}. */
+    private record KeypadBody(String processId, List<Integer> positions) {
+        @Override
+        public String toString() {
+            return "KeypadBody[processId=" + processId + ", positions=***]";
+        }
+    }
+
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    private record KeypadAck(String processId, String status) {}
 
     private record CompleteBody(String processId) {}
 
@@ -226,6 +283,8 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
             case SESSION_EXPIRED -> "The Caisse d'Epargne session expired";
             case INVALID_SESSION_STATE -> "The stored Caisse d'Epargne session is unusable";
             case INVALID_CREDENTIALS -> "Caisse d'Epargne refused the identifier or password";
+            case KEYPAD_EXPIRED -> "The Caisse d'Epargne keypad expired. Start again.";
+            case INVALID_POSITIONS -> "The keypad choice is not valid. Start again.";
             case KEYPAD_CHANGED -> "Caisse d'Epargne changed its login page. Nothing was sent.";
             case APP_VALIDATION_TIMEOUT -> "The sign-in was not approved in Sécur'Pass in time";
             case AUTH_ATTEMPT_EXPIRED -> "This Caisse d'Epargne sign-in attempt expired. Start again.";

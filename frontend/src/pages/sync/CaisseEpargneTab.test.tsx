@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 
@@ -34,23 +34,26 @@ const DISCONNECTED = {
   unsupportedCount: 0,
 }
 
+const PAD = Array.from({ length: 10 }, (_, i) => `data:image/png;base64,PAD${i}`)
+
 const INITIATED = {
   processId: 'p1',
-  mfaRequired: true,
-  mfaType: 'SECURPASS',
-  expiresInSeconds: 300,
+  keypad: { images: PAD, columns: 5 },
+  expiresInSeconds: 90,
 }
+
+const KEYPAD_DONE = { processId: 'p1', status: 'SECURPASS_PENDING' }
 
 let queryClient: QueryClient
 
-function renderTab() {
+function renderTab(props: { onConnected?: () => void } = {}) {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   function Wrapper({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   }
-  render(<CaisseEpargneTab />, { wrapper: Wrapper })
+  render(<CaisseEpargneTab {...props} />, { wrapper: Wrapper })
 }
 
 function problem(status: number, code: string, headers: Record<string, string> = {}) {
@@ -59,21 +62,32 @@ function problem(status: number, code: string, headers: Record<string, string> =
   }
 }
 
-async function typeCredentials(customerId = '12345678', password = '654321') {
+async function typeIdentifier(customerId = '12345678') {
   fireEvent.change(await screen.findByLabelText('sync.caisseEpargne.customerId'), {
     target: { value: customerId },
   })
-  fireEvent.change(await screen.findByLabelText('sync.caisseEpargne.password'), {
-    target: { value: password },
-  })
 }
 
-async function signIn(customerId?: string, password?: string) {
-  await typeCredentials(customerId, password)
+async function signIn(customerId?: string) {
+  await typeIdentifier(customerId)
   fireEvent.click(screen.getByText('sync.caisseEpargne.connect'))
 }
 
-const passwordInput = () => screen.getByLabelText('sync.caisseEpargne.password') as HTMLInputElement
+const keyButtons = () =>
+  within(screen.getByTestId('caisse-epargne-keypad-grid')).getAllByRole('button')
+const dots = () => screen.getByTestId('caisse-epargne-keypad-dots')
+const validateButton = () => screen.getByText('sync.caisseEpargne.keypad.validate').closest('button')!
+
+async function openKeypad() {
+  apiPost.mockResolvedValueOnce({ data: INITIATED })
+  renderTab()
+  await signIn()
+  await screen.findByTestId('caisse-epargne-keypad-grid')
+}
+
+function pressKeys(...indexes: number[]) {
+  for (const index of indexes) fireEvent.click(keyButtons()[index])
+}
 
 describe('CaisseEpargneTab', () => {
   beforeEach(() => {
@@ -88,77 +102,255 @@ describe('CaisseEpargneTab', () => {
   })
 
   describe('login form', () => {
-    it('uses a numeric, non-autofilled password field', async () => {
+    it('asks for the identifier only, never a password', async () => {
       renderTab()
-      await typeCredentials()
+      await typeIdentifier()
 
-      const field = passwordInput()
-      expect(field).toHaveAttribute('type', 'password')
-      expect(field).toHaveAttribute('inputmode', 'numeric')
-      expect(field).toHaveAttribute('autocomplete', 'off')
+      expect(screen.getByLabelText('sync.caisseEpargne.customerId')).toBeInTheDocument()
+      expect(screen.queryByLabelText('sync.caisseEpargne.password')).not.toBeInTheDocument()
+      expect(document.querySelector('input[type="password"]')).toBeNull()
     })
 
-    it('warns that the password is never stored, never retried, and can lock the account', async () => {
-      renderTab()
-      await screen.findByLabelText('sync.caisseEpargne.customerId')
-
-      expect(screen.getByText('sync.caisseEpargne.notice.neverStored')).toBeInTheDocument()
-      expect(screen.getByText('sync.caisseEpargne.notice.noRetry')).toBeInTheDocument()
-      expect(screen.getByText('sync.caisseEpargne.notice.lockRisk')).toBeInTheDocument()
-    })
-
-    it('keeps the credentials numeric', async () => {
+    it('keeps the identifier numeric and sends it alone to initiate', async () => {
       apiPost.mockReturnValueOnce(new Promise(() => {}))
       renderTab()
-      await signIn('12ab34', '56cd78')
+      await signIn('12ab34')
 
       await waitFor(() =>
         expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/initiate', {
           customerId: '1234',
-          password: '5678',
         }),
       )
     })
 
-    it('clears the password as soon as the request is sent, before any answer', async () => {
+    it('does not offer the keypad before initiate answered', async () => {
       apiPost.mockReturnValueOnce(new Promise(() => {}))
       renderTab()
       await signIn()
 
       await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1))
-      await waitFor(() => expect(passwordInput().value).toBe(''))
+      expect(screen.queryByTestId('caisse-epargne-keypad-grid')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('keypad pop-up', () => {
+    it('shows the 10 images as plain <img src> buttons in DOM order, 5 columns', async () => {
+      await openKeypad()
+
+      const buttons = keyButtons()
+      expect(buttons).toHaveLength(10)
+      buttons.forEach((button, index) => {
+        const img = button.querySelector('img')
+        expect(img).not.toBeNull()
+        expect(img).toHaveAttribute('src', PAD[index])
+        expect(button.children).toHaveLength(1)
+      })
+      expect(screen.getByTestId('caisse-epargne-keypad-grid').style.gridTemplateColumns).toBe(
+        'repeat(5, minmax(0, 1fr))',
+      )
     })
 
-    it('does not keep the password in the mutation cache once the call settled', async () => {
-      apiPost.mockRejectedValueOnce(problem(401, 'INVALID_CREDENTIALS'))
+    it('labels keys by rank only: no accessible name reveals a digit', async () => {
+      await openKeypad()
+
+      keyButtons().forEach((button, index) => {
+        expect(button).toHaveAccessibleName(`sync.caisseEpargne.keypad.key {"n":${index + 1}}`)
+        expect(button.querySelector('img')).toHaveAttribute('alt', '')
+      })
+    })
+
+    it('shows one dot per click and no digit', async () => {
+      await openKeypad()
+      expect(dots().querySelectorAll('[data-dot]')).toHaveLength(0)
+
+      pressKeys(3, 3, 7)
+
+      expect(dots().querySelectorAll('[data-dot]')).toHaveLength(3)
+      expect(dots().textContent).toBe('')
+    })
+
+    it('Clear empties the entry', async () => {
+      await openKeypad()
+      pressKeys(1, 2, 3, 4, 5, 6)
+      expect(validateButton()).toBeEnabled()
+
+      fireEvent.click(screen.getByText('sync.caisseEpargne.keypad.clear'))
+
+      expect(dots().querySelectorAll('[data-dot]')).toHaveLength(0)
+      expect(validateButton()).toBeDisabled()
+    })
+
+    it('enables Validate only for 6 to 12 clicks', async () => {
+      await openKeypad()
+      expect(validateButton()).toBeDisabled()
+
+      pressKeys(0, 1, 2, 3, 4)
+      expect(validateButton()).toBeDisabled()
+      pressKeys(5)
+      expect(validateButton()).toBeEnabled()
+      pressKeys(6, 7, 8, 9, 0, 1)
+      expect(dots().querySelectorAll('[data-dot]')).toHaveLength(12)
+      expect(validateButton()).toBeEnabled()
+
+      pressKeys(2)
+      expect(dots().querySelectorAll('[data-dot]')).toHaveLength(12)
+      expect(validateButton()).toBeEnabled()
+    })
+
+    it('counts down from expiresInSeconds', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      await openKeypad()
+
+      expect(screen.getByTestId('caisse-epargne-keypad-countdown')).toHaveTextContent('1:30')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000)
+      })
+      expect(screen.getByTestId('caisse-epargne-keypad-countdown')).toHaveTextContent('1:25')
+    })
+
+    it('Cancel closes the pop-up, resets, and sends no keypad call', async () => {
+      await openKeypad()
+      pressKeys(1, 2, 3, 4, 5, 6)
+
+      fireEvent.click(screen.getByText('sync.caisseEpargne.keypad.cancel'))
+
+      await waitFor(() =>
+        expect(screen.queryByTestId('caisse-epargne-keypad-grid')).not.toBeInTheDocument(),
+      )
+      expect(await screen.findByLabelText('sync.caisseEpargne.customerId')).toBeInTheDocument()
+      expect(apiPost).toHaveBeenCalledTimes(1)
+      expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/auth/keypad', expect.anything())
+    })
+
+    it('a cancelled pad is not kept: the next one starts empty', async () => {
+      await openKeypad()
+      pressKeys(1, 2, 3)
+      fireEvent.click(screen.getByText('sync.caisseEpargne.keypad.cancel'))
+      await waitFor(() =>
+        expect(screen.queryByTestId('caisse-epargne-keypad-grid')).not.toBeInTheDocument(),
+      )
+
+      apiPost.mockResolvedValueOnce({ data: INITIATED })
+      fireEvent.click(await screen.findByText('sync.caisseEpargne.connect'))
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+
+      expect(dots().querySelectorAll('[data-dot]')).toHaveLength(0)
+    })
+
+    it('expiry closes the pop-up, resets, explains, and sends nothing', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      await openKeypad()
+      pressKeys(1, 2, 3, 4, 5, 6)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(91_000)
+      })
+
+      expect(screen.queryByTestId('caisse-epargne-keypad-grid')).not.toBeInTheDocument()
+      expect(screen.getByText('sync.caisseEpargne.errors.keypadExpired')).toBeInTheDocument()
+      expect(screen.getByLabelText('sync.caisseEpargne.customerId')).toBeInTheDocument()
+      expect(apiPost).toHaveBeenCalledTimes(1)
+    })
+
+    it('Validate sends the clicked indexes once, then waits for Sécur’Pass and completes', async () => {
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockReturnValueOnce(new Promise(() => {}))
       renderTab()
-      await signIn('12345678', '987654')
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(4, 0, 9, 9, 2, 7)
+
+      fireEvent.click(validateButton())
+
+      await waitFor(() =>
+        expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/keypad', {
+          processId: 'p1',
+          positions: [4, 0, 9, 9, 2, 7],
+        }),
+      )
+      expect(await screen.findByText('sync.caisseEpargne.securPassPrompt')).toBeInTheDocument()
+      expect(screen.queryByTestId('caisse-epargne-keypad-grid')).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', {
+          processId: 'p1',
+        }),
+      )
+      expect(apiPost.mock.calls.map(c => c[0])).toEqual([
+        '/caisse-epargne/auth/initiate',
+        '/caisse-epargne/auth/keypad',
+        '/caisse-epargne/auth/complete',
+      ])
+    })
+
+    it('ignores a second Validate click while the keypad call is out', async () => {
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockReturnValueOnce(new Promise(() => {}))
+      renderTab()
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(1, 2, 3, 4, 5, 6)
+      const validate = validateButton()
+
+      fireEvent.click(validate)
+      fireEvent.click(validate)
+
+      await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(2))
+    })
+
+    it('does not leave positions in the mutation cache', async () => {
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockRejectedValueOnce(problem(401, 'INVALID_CREDENTIALS'))
+      renderTab()
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(8, 8, 8, 7, 7, 7)
+      fireEvent.click(validateButton())
 
       await screen.findByText('sync.caisseEpargne.errors.invalidCredentials')
-      await waitFor(() => {
-        const cached = JSON.stringify(
-          queryClient
-            .getMutationCache()
-            .getAll()
-            .map(m => m.state.variables),
-        )
-        expect(cached).not.toContain('987654')
-      })
+      const cached = JSON.stringify(
+        queryClient
+          .getMutationCache()
+          .getAll()
+          .map(m => m.state.variables),
+      )
+      expect(cached).not.toContain('888777')
+      expect(cached).not.toContain('[8,8,8,7,7,7]')
+    })
+
+    it('never writes positions to the console', async () => {
+      const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map(name =>
+        vi.spyOn(console, name).mockImplementation(() => {}),
+      )
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockRejectedValueOnce(problem(409, 'KEYPAD_CHANGED'))
+      renderTab()
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(8, 8, 8, 7, 7, 7)
+      fireEvent.click(validateButton())
+      await screen.findByText('sync.caisseEpargne.errors.keypadChanged')
+
+      for (const spy of spies) {
+        expect(JSON.stringify(spy.mock.calls)).not.toMatch(/888777|8,8,8,7,7,7/)
+        spy.mockRestore()
+      }
     })
   })
 
   describe('no retry', () => {
-    it('sends initiate once after a rejected login, shows the form again, password empty', async () => {
+    it('sends initiate once after a rejected initiate and shows the form again', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
-      apiPost.mockRejectedValueOnce(problem(401, 'INVALID_CREDENTIALS'))
+      apiPost.mockRejectedValueOnce(problem(429, 'RATE_LIMITED'))
       renderTab()
       await signIn()
 
-      expect(
-        await screen.findByText('sync.caisseEpargne.errors.invalidCredentials'),
-      ).toBeInTheDocument()
-      expect(screen.queryByText('raw upstream detail 10.0.0.1')).not.toBeInTheDocument()
-      expect(passwordInput().value).toBe('')
+      await screen.findByText('sync.caisseEpargne.errors.rateLimited')
+      expect(screen.getByLabelText('sync.caisseEpargne.customerId')).toBeInTheDocument()
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10 * 60_000)
@@ -166,29 +358,66 @@ describe('CaisseEpargneTab', () => {
       expect(apiPost).toHaveBeenCalledTimes(1)
     })
 
-    it('never calls complete when initiate failed', async () => {
-      apiPost.mockRejectedValueOnce(problem(409, 'KEYPAD_CHANGED'))
+    it('a rejected keypad is never replayed, and complete is never called', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockRejectedValueOnce(problem(401, 'INVALID_CREDENTIALS'))
       renderTab()
       await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(1, 2, 3, 4, 5, 6)
+      fireEvent.click(validateButton())
 
-      await screen.findByText('sync.caisseEpargne.errors.keypadChanged')
-      expect(apiPost).toHaveBeenCalledTimes(1)
-      expect(apiPost).not.toHaveBeenCalledWith(
-        '/caisse-epargne/auth/complete',
-        expect.anything(),
-      )
+      expect(
+        await screen.findByText('sync.caisseEpargne.errors.invalidCredentials'),
+      ).toBeInTheDocument()
+      expect(screen.queryByTestId('caisse-epargne-keypad-grid')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('sync.caisseEpargne.customerId')).toBeInTheDocument()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10 * 60_000)
+      })
+      expect(apiPost).toHaveBeenCalledTimes(2)
+      expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/auth/complete', expect.anything())
+    })
+
+    it.each([
+      ['KEYPAD_CHANGED', 409, 'keypadChanged'],
+      ['KEYPAD_EXPIRED', 408, 'keypadExpired'],
+      ['INVALID_POSITIONS', 400, 'invalidPositions'],
+    ])('explains %s from the keypad call without retrying', async (code, status, suffix) => {
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockRejectedValueOnce(problem(status, code))
+      renderTab()
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(1, 2, 3, 4, 5, 6)
+      fireEvent.click(validateButton())
+
+      expect(await screen.findByText(`sync.caisseEpargne.errors.${suffix}`)).toBeInTheDocument()
+      expect(apiPost).toHaveBeenCalledTimes(2)
     })
   })
 
   describe('Sécur’Pass wait', () => {
-    it('asks for the phone approval and counts down from the real 150 s human wait, not the 300 s process lifetime', async () => {
+    const toSecurPass = async () => {
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(1, 2, 3, 4, 5, 6)
+      fireEvent.click(validateButton())
+    }
+
+    it('asks for the phone approval and counts down from the real 150 s human wait, not the 90 s keypad TTL', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       apiPost
         .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
         .mockReturnValueOnce(new Promise(() => {}))
 
       renderTab()
-      await signIn()
+      await toSecurPass()
 
       expect(await screen.findByText('sync.caisseEpargne.securPassPrompt')).toBeInTheDocument()
       expect(screen.getByTestId('caisse-epargne-countdown')).toHaveTextContent('2:30')
@@ -197,21 +426,17 @@ describe('CaisseEpargneTab', () => {
         await vi.advanceTimersByTimeAsync(2_000)
       })
       expect(screen.getByTestId('caisse-epargne-countdown')).toHaveTextContent('2:28')
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(10_000)
-      })
-      expect(screen.getByTestId('caisse-epargne-countdown')).toHaveTextContent('2:18')
     })
 
-    it('makes one long complete call with the processId and never polls or retries it', async () => {
+    it('makes one long complete call and never polls or retries it', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       apiPost
         .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
         .mockReturnValueOnce(new Promise(() => {}))
 
       renderTab()
-      await signIn()
+      await toSecurPass()
 
       await waitFor(() =>
         expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', {
@@ -222,22 +447,88 @@ describe('CaisseEpargneTab', () => {
         await vi.advanceTimersByTimeAsync(5 * 60_000)
       })
 
-      expect(apiPost).toHaveBeenCalledTimes(2)
+      expect(apiPost).toHaveBeenCalledTimes(3)
     })
 
     it('shows the connected state once complete answers connected', async () => {
       apiPost
         .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
         .mockResolvedValueOnce({ data: { connected: true } })
+        .mockResolvedValueOnce({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } })
 
       apiGet
         .mockResolvedValueOnce({ data: DISCONNECTED })
         .mockResolvedValue({ data: { ...DISCONNECTED, isActive: true } })
       renderTab()
-      await signIn()
+      await toSecurPass()
 
       expect(await screen.findByText('sync.caisseEpargne.sessionActive')).toBeInTheDocument()
       expect(screen.queryByText('sync.caisseEpargne.securPassPrompt')).not.toBeInTheDocument()
+    })
+
+    it('queues the first sync once right after the login, so the accounts get created', async () => {
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockResolvedValueOnce({ data: { connected: true } })
+        .mockResolvedValueOnce({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } })
+      apiGet
+        .mockResolvedValueOnce({ data: DISCONNECTED })
+        .mockResolvedValue({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'RUNNING' } })
+      renderTab()
+      await toSecurPass()
+
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
+      expect(apiPost.mock.calls.map(c => c[0])).toEqual([
+        '/caisse-epargne/auth/initiate',
+        '/caisse-epargne/auth/keypad',
+        '/caisse-epargne/auth/complete',
+        '/caisse-epargne/sync',
+      ])
+    })
+
+    it('calls onConnected only once that first sync succeeded, not right after Sécur’Pass', async () => {
+      const onConnected = vi.fn()
+      let syncStatus = 'RUNNING'
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockResolvedValueOnce({ data: { connected: true } })
+        .mockResolvedValueOnce({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } })
+      apiGet
+        .mockResolvedValueOnce({ data: DISCONNECTED })
+        .mockImplementation(async () => ({ data: { ...DISCONNECTED, isActive: true, syncStatus } }))
+      renderTab({ onConnected })
+      await toSecurPass()
+
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
+      expect(onConnected).not.toHaveBeenCalled()
+
+      syncStatus = 'SUCCESS'
+      await act(async () => {
+        await queryClient.invalidateQueries()
+      })
+
+      await waitFor(() => expect(onConnected).toHaveBeenCalledTimes(1))
+    })
+
+    it('keeps the panel open and explains a failed first sync, without calling onConnected', async () => {
+      const onConnected = vi.fn()
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockResolvedValueOnce({ data: { connected: true } })
+        .mockRejectedValueOnce(problem(503, 'UPSTREAM_UNAVAILABLE'))
+      apiGet
+        .mockResolvedValueOnce({ data: DISCONNECTED })
+        .mockResolvedValue({ data: { ...DISCONNECTED, isActive: true } })
+      renderTab({ onConnected })
+      await toSecurPass()
+
+      expect(await screen.findByText('sync.caisseEpargne.errors.serverError')).toBeInTheDocument()
+      expect(onConnected).not.toHaveBeenCalled()
+      expect(apiPost.mock.calls.filter(c => c[0] === '/caisse-epargne/sync')).toHaveLength(1)
     })
 
     it.each([
@@ -246,16 +537,16 @@ describe('CaisseEpargneTab', () => {
     ])('explains %s and offers the form again without retrying', async (code, status, suffix) => {
       apiPost
         .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
         .mockRejectedValueOnce(problem(status, code))
 
       renderTab()
-      await signIn()
+      await toSecurPass()
 
       expect(await screen.findByText(`sync.caisseEpargne.errors.${suffix}`)).toBeInTheDocument()
-      expect(await screen.findByLabelText('sync.caisseEpargne.password')).toBeInTheDocument()
-      expect(passwordInput().value).toBe('')
+      expect(await screen.findByLabelText('sync.caisseEpargne.customerId')).toBeInTheDocument()
       expect(screen.queryByText('sync.caisseEpargne.securPassPrompt')).not.toBeInTheDocument()
-      expect(apiPost).toHaveBeenCalledTimes(2)
+      expect(apiPost).toHaveBeenCalledTimes(3)
     })
   })
 
@@ -345,7 +636,7 @@ describe('CaisseEpargneTab', () => {
       fireEvent.click(await screen.findByText('sync.caisseEpargne.sync'))
 
       await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
-      expect(screen.queryByLabelText('sync.caisseEpargne.password')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('sync.caisseEpargne.customerId')).not.toBeInTheDocument()
     })
 
     it('lists unsupported contracts by family code only', async () => {

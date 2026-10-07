@@ -940,8 +940,15 @@ const demoCaisseEpargneStatus = {
   unsupportedCount: 0,
 }
 handlers.set(key('GET', '/caisse-epargne/status'), () => demoCaisseEpargneStatus)
+const DEMO_PAD_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 handlers.set(key('POST', '/caisse-epargne/auth/initiate'), () => ({
-  processId: 'demo', mfaRequired: true, mfaType: 'SECURPASS', expiresInSeconds: 300,
+  processId: 'demo',
+  keypad: { images: Array.from({ length: 10 }, () => DEMO_PAD_PNG), columns: 5 },
+  expiresInSeconds: 90,
+}))
+handlers.set(key('POST', '/caisse-epargne/auth/keypad'), () => ({
+  processId: 'demo', status: 'SECURPASS_PENDING',
 }))
 handlers.set(key('POST', '/caisse-epargne/auth/complete'), () => ({ connected: true }))
 handlers.set(key('POST', '/caisse-epargne/sync'), () => demoCaisseEpargneStatus)
