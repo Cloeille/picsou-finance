@@ -1252,7 +1252,12 @@ def _parse_balance(payload: Any, account_token: str | None = None) -> dict[str, 
                 "-unapplied_credits"
             )
             remaining_dec = _decimal(remaining_amt, "remaining_statement_balance_amount")
-            applied = _decimal(statement_amt, "statement_balance_amount") - remaining_dec
+            if statement_balance is None:
+                # Without a statement balance nothing can be proven applied:
+                # keep the whole amount owed instead of cancelling it.
+                applied = Decimal(0)
+            else:
+                applied = _decimal(statement_amt, "statement_balance_amount") - remaining_dec
             unapplied = max(
                 Decimal(0),
                 _decimal(credits_amt, "total_payments_credits_amount") - applied,
@@ -1817,6 +1822,30 @@ def _self_check() -> None:
     )
     assert issue_196_balance["balanceEur"] == Decimal("-135.00")
     assert issue_196_balance["amountDue"] == Decimal("0.00")
+
+    # Statement balance absent (only remaining + debits): nothing is proven
+    # applied, so the amount owed stays whole: 500 + 20 = -520.00, and
+    # credits (30) still reduce the debt: 500 + 20 - 30 = -490.00.
+    no_statement_balance = _parse_balance(
+        [{
+            "account_token": "tok-nostmt",
+            "remaining_statement_balance_amount": 500.0,
+            "total_debits_balance_amount": 20.0,
+            "total_payments_credits_amount": 0.0,
+        }],
+        account_token="tok-nostmt",
+    )
+    assert no_statement_balance["balanceEur"] == Decimal("-520.00")
+    no_statement_credit_balance = _parse_balance(
+        [{
+            "account_token": "tok-nostmt-credit",
+            "remaining_statement_balance_amount": 500.0,
+            "total_debits_balance_amount": 20.0,
+            "total_payments_credits_amount": 30.0,
+        }],
+        account_token="tok-nostmt-credit",
+    )
+    assert no_statement_credit_balance["balanceEur"] == Decimal("-490.00")
 
     # Refund/overpayment, remaining clamped at 0: credits (120) exceed the
     # statement (100), so a surplus credit of 20 offsets the 5 of new debits
