@@ -1,0 +1,160 @@
+package com.picsou.migration;
+
+import com.picsou.port.CaisseEpargneErrorCode;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIf;
+import org.testcontainers.DockerClientFactory;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * V109 applies on top of the whole chain. The CHECK on last_sync_error must list exactly the
+ * {@link CaisseEpargneErrorCode} constants (a missing code turns a diagnosable failure into a
+ * 500 when the failure is recorded), and the table must never hold a password.
+ */
+@Testcontainers
+@EnabledIf("dockerAvailable")
+class V109CaisseEpargneSessionMigrationTest {
+
+    static {
+        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
+    }
+
+    @Container
+    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+
+    static boolean dockerAvailable() {
+        boolean available = DockerClientFactory.instance().isDockerAvailable();
+        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
+            throw new IllegalStateException(
+                "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
+                    + "The V109 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
+        }
+        return available;
+    }
+
+    @BeforeAll
+    static void migrate() throws SQLException {
+        Flyway.configure()
+            .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+            .locations("classpath:db/migration")
+            .target("109")
+            .load()
+            .migrate();
+    }
+
+    private static Connection connection() throws SQLException {
+        return DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+    }
+
+    private static void exec(String sql) throws SQLException {
+        try (Connection c = connection(); Statement st = c.createStatement()) {
+            st.execute(sql);
+        }
+    }
+
+    private static long newMember(String name) throws SQLException {
+        try (Connection c = connection(); Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery(
+                 "INSERT INTO family_member (display_name) VALUES ('" + name + "') RETURNING id")) {
+            rs.next();
+            return rs.getLong(1);
+        }
+    }
+
+    @Test
+    void theTableHasNoCredentialColumn() throws SQLException {
+        List<String> columns = new ArrayList<>();
+        try (Connection c = connection(); Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery(
+                 "SELECT column_name FROM information_schema.columns WHERE table_name = 'caisse_epargne_session'")) {
+            while (rs.next()) columns.add(rs.getString(1));
+        }
+        assertThat(columns).isNotEmpty()
+            .contains("member_id", "session_state", "is_active", "sync_status", "last_sync_error")
+            .doesNotContain("encrypted_credentials")
+            .noneMatch(name -> name.contains("password") || name.contains("credential"));
+    }
+
+    @Test
+    void acceptsEveryErrorCodeOfTheEnumAndNoOther() throws SQLException {
+        for (CaisseEpargneErrorCode code : CaisseEpargneErrorCode.values()) {
+            long member = newMember("ok-" + code.name());
+            exec("INSERT INTO caisse_epargne_session (member_id, session_state, sync_status, last_sync_error) "
+                + "VALUES (" + member + ", 'x', 'FAILED', '" + code.name() + "')");
+        }
+        long member = newMember("bad-code");
+        assertThatThrownBy(() -> exec(
+            "INSERT INTO caisse_epargne_session (member_id, session_state, sync_status, last_sync_error) "
+                + "VALUES (" + member + ", 'x', 'FAILED', 'NOT_A_REAL_CODE')"))
+            .hasMessageContaining("ck_caisse_epargne_session_last_sync_error");
+    }
+
+    @Test
+    void acceptsTheLoginErrorCodesByNameSoTheEnumCannotDriftFromTheCheck() throws SQLException {
+        for (String code : List.of("INVALID_CREDENTIALS", "KEYPAD_CHANGED",
+            "APP_VALIDATION_TIMEOUT", "AUTH_ATTEMPT_EXPIRED")) {
+            long member = newMember("login-" + code);
+            exec("INSERT INTO caisse_epargne_session (member_id, session_state, sync_status, last_sync_error) "
+                + "VALUES (" + member + ", 'x', 'FAILED', '" + code + "')");
+        }
+    }
+
+    @Test
+    void aFailedSyncMustCarryAnErrorAndOnlyAFailedOne() throws SQLException {
+        long a = newMember("failed-no-error");
+        assertThatThrownBy(() -> exec(
+            "INSERT INTO caisse_epargne_session (member_id, session_state, sync_status) "
+                + "VALUES (" + a + ", 'x', 'FAILED')"))
+            .hasMessageContaining("ck_caisse_epargne_session_failed_error");
+        long b = newMember("idle-with-error");
+        assertThatThrownBy(() -> exec(
+            "INSERT INTO caisse_epargne_session (member_id, session_state, sync_status, last_sync_error) "
+                + "VALUES (" + b + ", 'x', 'IDLE', 'INTERNAL_ERROR')"))
+            .hasMessageContaining("ck_caisse_epargne_session_failed_error");
+    }
+
+    @Test
+    void refusesAnUnknownSyncStatusAndASecondRowForTheSameMember() throws SQLException {
+        long member = newMember("one-row");
+        assertThatThrownBy(() -> exec(
+            "INSERT INTO caisse_epargne_session (member_id, session_state, sync_status) "
+                + "VALUES (" + member + ", 'x', 'PENDING')"))
+            .hasMessageContaining("ck_caisse_epargne_session_sync_status");
+
+        exec("INSERT INTO caisse_epargne_session (member_id, session_state) VALUES (" + member + ", 'x')");
+        assertThatThrownBy(() -> exec(
+            "INSERT INTO caisse_epargne_session (member_id, session_state) VALUES (" + member + ", 'y')"))
+            .hasMessageContaining("caisse_epargne_session_member_id_key");
+    }
+
+    @Test
+    void deletingTheMemberDeletesTheSession() throws SQLException {
+        long member = newMember("cascade");
+        exec("INSERT INTO caisse_epargne_session (member_id, session_state) VALUES (" + member + ", 'x')");
+
+        exec("DELETE FROM family_member WHERE id = " + member);
+
+        try (Connection c = connection(); Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery(
+                 "SELECT COUNT(*) FROM caisse_epargne_session WHERE member_id = " + member)) {
+            rs.next();
+            assertThat(rs.getInt(1)).isZero();
+        }
+    }
+}

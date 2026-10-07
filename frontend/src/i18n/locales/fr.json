@@ -1274,6 +1274,45 @@
         "serverError": "Impossible de joindre BoursoBank. Veuillez réessayer."
       }
     },
+    "caisseEpargne": {
+      "title": "Caisse d'Epargne",
+      "customerId": "Identifiant",
+      "password": "Mot de passe",
+      "connect": "Se connecter",
+      "connecting": "Connexion…",
+      "sync": "Synchroniser",
+      "queued": "Synchronisation en attente…",
+      "syncing": "Synchronisation…",
+      "syncSuccess": "Comptes Caisse d'Epargne synchronisés.",
+      "clearSession": "Déconnecter",
+      "disconnectConfirm": "Cette action supprime la session conservée dans Picsou. La session Caisse d'Epargne elle-même n'est pas fermée et peut rester active jusqu'à son expiration.",
+      "disconnectConfirmAction": "Supprimer la session conservée",
+      "noSession": "Aucune session active",
+      "sessionActive": "Session active",
+      "scope": "Synchronise vos comptes courants et d'épargne Caisse d'Epargne à la demande. Seule la session est conservée, chiffrée. Les contrats que Picsou ne sait pas importer sont listés mais jamais créés.",
+      "notice": {
+        "neverStored": "Picsou ne conserve jamais votre mot de passe. Il sert une seule fois à se connecter, puis il est effacé.",
+        "noRetry": "Picsou ne réessaie jamais une connexion. En cas d'échec, rien n'est renvoyé tant que vous ne validez pas le formulaire vous-même.",
+        "lockRisk": "Les tentatives erronées comptent auprès de votre banque et peuvent bloquer votre accès Caisse d'Epargne. Vérifiez votre identifiant et votre mot de passe avant de vous connecter."
+      },
+      "securPassPrompt": "Validez la connexion dans votre application Sécur'Pass.",
+      "securPassHint": "Picsou n'agit pas sur votre téléphone. Cette page continue seule dès que vous validez.",
+      "countdownLabel": "Temps restant pour valider :",
+      "unsupportedTitle": "Contrats non importés",
+      "unsupportedHint": "Picsou ne gère pas encore ces familles de contrats (code famille affiché).",
+      "errors": {
+        "rateLimited": "Trop de tentatives de connexion. Patientez avant de réessayer.",
+        "rateLimitedRetryAfter": "Trop de tentatives de connexion. Réessayez dans {{minutes}} min.",
+        "invalidCredentials": "La banque a refusé l'identifiant ou le mot de passe. Vérifiez-les avant de réessayer : des échecs répétés peuvent bloquer votre compte.",
+        "keypadChanged": "La banque a modifié sa page de connexion. Rien n'a été envoyé. Picsou doit être mis à jour avant de pouvoir se connecter.",
+        "appValidationTimeout": "La connexion n'a pas été validée dans Sécur'Pass à temps. Recommencez si vous voulez réessayer.",
+        "authAttemptExpired": "La tentative de connexion a expiré. Recommencez si vous voulez réessayer.",
+        "sessionExpired": "La session Caisse d'Epargne a expiré. Reconnectez-vous.",
+        "formatChanged": "Le format du site Caisse d'Epargne a changé. Vos données existantes ont été conservées.",
+        "invalidSessionState": "La session conservée est illisible. Reconnectez-vous.",
+        "serverError": "Impossible de joindre la Caisse d'Epargne. Réessayez plus tard."
+      }
+    },
     "degiro": {
       "title": "DEGIRO",
       "username": "Identifiant",

@@ -972,6 +972,45 @@
         "serverError": "BoursoBank ist nicht erreichbar. Bitte erneut versuchen."
       }
     },
+    "caisseEpargne": {
+      "title": "Caisse d'Epargne",
+      "customerId": "Kennung",
+      "password": "Passwort",
+      "connect": "Verbinden",
+      "connecting": "Verbindung…",
+      "sync": "Synchronisieren",
+      "queued": "Synchronisierung in Warteschlange…",
+      "syncing": "Synchronisierung…",
+      "syncSuccess": "Caisse-d'Epargne-Konten synchronisiert.",
+      "clearSession": "Trennen",
+      "disconnectConfirm": "Dies löscht die in Picsou gespeicherte Sitzung. Die Sitzung bei der Caisse d'Epargne selbst wird nicht beendet und kann bis zu ihrem Ablauf aktiv bleiben.",
+      "disconnectConfirmAction": "Gespeicherte Sitzung löschen",
+      "noSession": "Keine aktive Sitzung",
+      "sessionActive": "Sitzung aktiv",
+      "scope": "Synchronisiert Ihre Giro- und Sparkonten bei der Caisse d'Epargne auf Abruf. Nur die Sitzung wird verschlüsselt gespeichert. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
+      "notice": {
+        "neverStored": "Picsou speichert Ihr Passwort nie. Es wird einmal zur Anmeldung verwendet und dann verworfen.",
+        "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",
+        "lockRisk": "Falsche Versuche zählen bei Ihrer Bank und können Ihren Caisse-d'Epargne-Zugang sperren. Prüfen Sie Kennung und Passwort vor dem Verbinden."
+      },
+      "securPassPrompt": "Bestätigen Sie die Anmeldung in Ihrer Sécur'Pass-App.",
+      "securPassHint": "Picsou greift nicht auf Ihr Telefon zu. Diese Seite geht von selbst weiter, sobald Sie bestätigen.",
+      "countdownLabel": "Verbleibende Zeit zum Bestätigen:",
+      "unsupportedTitle": "Nicht importierte Verträge",
+      "unsupportedHint": "Picsou unterstützt diese Vertragsfamilien noch nicht (Familiencode angezeigt).",
+      "errors": {
+        "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
+        "rateLimitedRetryAfter": "Zu viele Anmeldeversuche. Versuchen Sie es in {{minutes}} Min. erneut.",
+        "invalidCredentials": "Die Bank hat Kennung oder Passwort abgelehnt. Prüfen Sie sie, bevor Sie es erneut versuchen: wiederholte Fehlversuche können Ihr Konto sperren.",
+        "keypadChanged": "Die Bank hat ihre Anmeldeseite geändert. Es wurde nichts gesendet. Picsou benötigt ein Update, bevor es sich anmelden kann.",
+        "appValidationTimeout": "Die Anmeldung wurde nicht rechtzeitig in Sécur'Pass bestätigt. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "sessionExpired": "Die Caisse-d'Epargne-Sitzung ist abgelaufen. Bitte neu verbinden.",
+        "formatChanged": "Das Format der Caisse-d'Epargne-Website hat sich geändert. Ihre vorhandenen Daten wurden beibehalten.",
+        "invalidSessionState": "Die gespeicherte Sitzung ist nicht lesbar. Bitte neu verbinden.",
+        "serverError": "Die Caisse d'Epargne ist nicht erreichbar. Bitte versuchen Sie es später erneut."
+      }
+    },
     "degiro": {
       "title": "DEGIRO",
       "username": "Benutzername",
