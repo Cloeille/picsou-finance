@@ -109,4 +109,175 @@ class BankTransactionImportServiceTest {
         assertThat(clipped.getDescription()).isEqualTo("x".repeat(254));
         assertThat(Character.isHighSurrogate(clipped.getDescription().charAt(clipped.getDescription().length() - 1))).isFalse();
     }
+
+    // ------------------------------------------------------------------------------------
+    // Data edge cases for provider-supplied rows (SimpleFIN): clipping, dedup, ledger limits.
+    // ------------------------------------------------------------------------------------
+
+    private static final LocalDate DAY = LocalDate.of(2026, 1, 2);
+
+    private BankTransactionImportService newService() {
+        return new BankTransactionImportService(bankConnector, transactionRepository, 90);
+    }
+
+    private static Account account(long id) {
+        Account account = new Account();
+        account.setId(id);
+        account.setCurrency("USD");
+        return account;
+    }
+
+    private static TransactionData row(String id, String description) {
+        return new TransactionData(id, DAY, description, new BigDecimal("-4.50"), "USD", null);
+    }
+
+    private void givenNothingStored(long accountId) {
+        when(transactionRepository.findLatestSyncedDateByAccountId(accountId)).thenReturn(null);
+        when(transactionRepository.findByAccountIdAndIsManualFalseAndDateGreaterThanEqual(eq(accountId), any()))
+            .thenReturn(List.of());
+    }
+
+    private List<Transaction> savedRows() {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Transaction>> saved = ArgumentCaptor.forClass(List.class);
+        verify(transactionRepository).saveAll(saved.capture());
+        return saved.getValue();
+    }
+
+    @Test
+    void importProvided_anEmojiThatEndsExactlyOnTheLimitIsKept() {
+        givenNothingStored(1L);
+        String description = "x".repeat(253) + "\uD83D\uDE00";
+
+        newService().importProvided(account(1L), List.of(row("tx-1", description)));
+
+        assertThat(savedRows()).singleElement()
+            .satisfies(tx -> assertThat(tx.getDescription()).isEqualTo(description).hasSize(255));
+    }
+
+    @Test
+    void importProvided_aCombiningMarkPastTheLimitIsCutLeavingValidUtf16() {
+        givenNothingStored(1L);
+
+        newService().importProvided(account(1L), List.of(row("tx-1", "x".repeat(254) + "e\u0301")));
+
+        assertThat(savedRows()).singleElement().satisfies(tx -> {
+            assertThat(tx.getDescription()).isEqualTo("x".repeat(254) + "e");
+            assertThat(Character.isSurrogate(tx.getDescription().charAt(254))).isFalse();
+        });
+    }
+
+    @Test
+    void importProvided_aLongRunOfEmojiIsCutOnAWholeEmoji() {
+        givenNothingStored(1L);
+
+        newService().importProvided(account(1L), List.of(row("tx-1", "\uD83D\uDE00".repeat(200))));
+
+        assertThat(savedRows()).singleElement().satisfies(tx -> {
+            assertThat(tx.getDescription()).hasSize(254);
+            assertThat(tx.getDescription().codePoints().allMatch(cp -> cp == 0x1F600)).isTrue();
+        });
+    }
+
+    @Test
+    void importProvided_aDescriptionOfExactly255IsNotTouched() {
+        givenNothingStored(1L);
+
+        newService().importProvided(account(1L), List.of(row("tx-1", "y".repeat(255))));
+
+        assertThat(savedRows()).singleElement()
+            .satisfies(tx -> assertThat(tx.getDescription()).isEqualTo("y".repeat(255)));
+    }
+
+    @Test
+    void importProvided_aNullDescriptionIsStoredEmptyRatherThanFailing() {
+        givenNothingStored(1L);
+
+        newService().importProvided(account(1L), List.of(row("tx-1", null)));
+
+        assertThat(savedRows()).singleElement().satisfies(tx -> assertThat(tx.getDescription()).isEmpty());
+    }
+
+    @Test
+    void importProvided_anIdWithSurroundingSpacesMatchesTheStoredRow() {
+        Transaction stored = Transaction.builder().account(account(1L)).date(DAY).description("Coffee")
+            .amount(new BigDecimal("-4.50")).externalTransactionId("tx-1").isManual(false).build();
+        when(transactionRepository.findLatestSyncedDateByAccountId(1L)).thenReturn(DAY);
+        when(transactionRepository.findByAccountIdAndIsManualFalseAndDateGreaterThanEqual(eq(1L), any()))
+            .thenReturn(List.of(stored));
+
+        int imported = newService().importProvided(account(1L), List.of(row(" tx-1 ", "Coffee")));
+
+        assertThat(imported).isZero();
+        verify(transactionRepository, org.mockito.Mockito.never()).saveAll(any());
+    }
+
+    @Test
+    void importProvided_theSameTransactionIdOnTwoAccountsIsStoredForBoth() {
+        Account checking = account(1L);
+        Account savings = account(2L);
+        List<Transaction> stored = new java.util.ArrayList<>();
+        when(transactionRepository.findLatestSyncedDateByAccountId(any())).thenReturn(null);
+        when(transactionRepository.findByAccountIdAndIsManualFalseAndDateGreaterThanEqual(any(), any()))
+            .thenAnswer(invocation -> stored.stream()
+                .filter(tx -> tx.getAccount().getId().equals(invocation.getArgument(0))).toList());
+        when(transactionRepository.saveAll(any())).thenAnswer(invocation -> {
+            stored.addAll(invocation.getArgument(0));
+            return invocation.getArgument(0);
+        });
+        BankTransactionImportService service = newService();
+
+        int first = service.importProvided(checking, List.of(row("shared", "Transfer out")));
+        int second = service.importProvided(savings, List.of(row("shared", "Transfer in")));
+
+        assertThat(first).isEqualTo(1);
+        assertThat(second).isEqualTo(1);
+        assertThat(stored).extracting(tx -> tx.getAccount().getId()).containsExactlyInAnyOrder(1L, 2L);
+    }
+
+    @Test
+    void importProvided_aRowOlderThanTheWindowIsComparedAgainstStoredHistory() {
+        LocalDate old = LocalDate.now().minusDays(200);
+        Transaction stored = Transaction.builder().account(account(1L)).date(old).description("Old")
+            .amount(new BigDecimal("-1.00")).externalTransactionId("tx-old").isManual(false).build();
+        when(transactionRepository.findLatestSyncedDateByAccountId(1L)).thenReturn(LocalDate.now());
+        when(transactionRepository.findByAccountIdAndIsManualFalseAndDateGreaterThanEqual(1L, old))
+            .thenReturn(List.of(stored));
+
+        int imported = newService().importProvided(account(1L), List.of(new TransactionData(
+            "tx-old", old, "Old", new BigDecimal("-1.00"), "USD", null)));
+
+        assertThat(imported).isZero();
+    }
+
+    @Test
+    void importProvided_anAmountThatDiffersOnlyInScaleMatchesTheStoredRowWhenThereIsNoId() {
+        Transaction stored = Transaction.builder().account(account(1L)).date(DAY).description("Coffee")
+            .amount(new BigDecimal("12.34000000")).isManual(false).build();
+        when(transactionRepository.findLatestSyncedDateByAccountId(1L)).thenReturn(DAY);
+        when(transactionRepository.findByAccountIdAndIsManualFalseAndDateGreaterThanEqual(eq(1L), any()))
+            .thenReturn(List.of(stored));
+
+        int imported = newService().importProvided(account(1L), List.of(new TransactionData(
+            null, DAY, " Coffee ", new BigDecimal("1.234e1"), "USD", null)));
+
+        assertThat(imported).isZero();
+    }
+
+    @Test
+    void fitsLedgerAmount_sitsExactlyOnTheNumeric20_8Boundary() {
+        assertThat(BankTransactionImportService.fitsLedgerAmount(new BigDecimal("999999999999.99999999"))).isTrue();
+        assertThat(BankTransactionImportService.fitsLedgerAmount(new BigDecimal("-999999999999.99999999"))).isTrue();
+        assertThat(BankTransactionImportService.fitsLedgerAmount(new BigDecimal("1000000000000"))).isFalse();
+        assertThat(BankTransactionImportService.fitsLedgerAmount(new BigDecimal("-1000000000000"))).isFalse();
+        assertThat(BankTransactionImportService.fitsLedgerAmount(new BigDecimal("-0.00"))).isTrue();
+        assertThat(BankTransactionImportService.fitsLedgerAmount(null)).isFalse();
+    }
+
+    @Test
+    void fitsLedgerAmount_anAbsurdExponentIsRefusedWithoutAllocatingTheDigits() {
+        assertThat(BankTransactionImportService.fitsLedgerAmount(new BigDecimal("1e999999999"))).isFalse();
+        assertThat(BankTransactionImportService.fitsLedgerAmount(new BigDecimal("-1e999999999"))).isFalse();
+        assertThat(BankTransactionImportService.fitsLedgerAmount(new BigDecimal("1e-999999999"))).isTrue();
+    }
 }

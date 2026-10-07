@@ -7,6 +7,8 @@ import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.SimplefinConnection;
+import com.picsou.model.Transaction;
+import com.picsou.port.BankConnectorPort;
 import com.picsou.port.BankConnectorPort.TransactionData;
 import com.picsou.port.SimplefinPort;
 import com.picsou.port.SimplefinPort.SimplefinAccount;
@@ -15,6 +17,7 @@ import com.picsou.port.SimplefinPort.SimplefinTransaction;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.SimplefinConnectionRepository;
+import com.picsou.repository.TransactionRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,13 +29,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -239,5 +245,400 @@ class SimplefinSyncServiceTest {
         String externalId, String bank, String name, String currency, String balance, SimplefinTransaction... txs
     ) {
         return new SimplefinAccount(externalId, bank, name, currency, new BigDecimal(balance), List.of(txs));
+    }
+
+    // ------------------------------------------------------------------------------------
+    // Data edge cases: history window, names, currency, balances, reconnect, duplicates.
+    // These run the real BankTransactionImportService over in-memory repositories (see Ledger).
+    // ------------------------------------------------------------------------------------
+
+    @Test
+    void bridgeStart_acrossAMonthEndLandsExactly89DaysBack() {
+        LocalDate today = LocalDate.of(2026, 3, 31);
+
+        LocalDate start = SimplefinSyncService.bridgeStart(LocalDate.of(2020, 1, 1), today);
+
+        assertThat(start).isEqualTo(LocalDate.of(2026, 1, 1));
+        assertThat(ChronoUnit.DAYS.between(start, today)).isEqualTo(89);
+    }
+
+    @Test
+    void bridgeStart_onTheLeapDayCountsFebruary29() {
+        LocalDate today = LocalDate.of(2028, 2, 29);
+
+        LocalDate start = SimplefinSyncService.bridgeStart(LocalDate.of(2020, 1, 1), today);
+
+        assertThat(start).isEqualTo(LocalDate.of(2027, 12, 2));
+        assertThat(ChronoUnit.DAYS.between(start, today)).isEqualTo(89);
+    }
+
+    @Test
+    void bridgeStart_theDayAfterTheLeapDayStillSpans89Days() {
+        LocalDate today = LocalDate.of(2028, 3, 1);
+
+        LocalDate start = SimplefinSyncService.bridgeStart(LocalDate.of(2020, 1, 1), today);
+
+        assertThat(start).isEqualTo(LocalDate.of(2027, 12, 3));
+        assertThat(ChronoUnit.DAYS.between(start, today)).isEqualTo(89);
+    }
+
+    @Test
+    void bridgeStart_acrossANewYearLandsInTheYearBefore() {
+        LocalDate today = LocalDate.of(2026, 1, 1);
+
+        assertThat(SimplefinSyncService.bridgeStart(LocalDate.of(2020, 1, 1), today))
+            .isEqualTo(LocalDate.of(2025, 10, 4));
+    }
+
+    @Test
+    void bridgeStart_exactly89DaysBackIsLeftAlone() {
+        LocalDate today = LocalDate.of(2026, 10, 5);
+        assertThat(SimplefinSyncService.bridgeStart(today.minusDays(89), today)).isEqualTo(today.minusDays(89));
+    }
+
+    @Test
+    void bridgeStart_oneDayBeyondTheLimitIsPulledIn() {
+        LocalDate today = LocalDate.of(2026, 10, 5);
+        assertThat(SimplefinSyncService.bridgeStart(today.minusDays(90), today)).isEqualTo(today.minusDays(89));
+    }
+
+    @Test
+    void bridgeStart_aSharedStartMuchEarlierIsPulledIn() {
+        LocalDate today = LocalDate.of(2026, 10, 5);
+        assertThat(SimplefinSyncService.bridgeStart(LocalDate.of(1900, 1, 1), today)).isEqualTo(today.minusDays(89));
+    }
+
+    @Test
+    void bridgeStart_aSharedStartInsideTheWindowIsLeftAlone() {
+        LocalDate today = LocalDate.of(2026, 10, 5);
+        assertThat(SimplefinSyncService.bridgeStart(today.minusDays(88), today)).isEqualTo(today.minusDays(88));
+        assertThat(SimplefinSyncService.bridgeStart(today, today)).isEqualTo(today);
+    }
+
+    @Test
+    void bridgeStart_aSharedStartInTheFutureIsNotMovedBack() {
+        LocalDate today = LocalDate.of(2026, 10, 5);
+        assertThat(SimplefinSyncService.bridgeStart(today.plusDays(1), today)).isEqualTo(today.plusDays(1));
+    }
+
+    @Test
+    void accountName_anEmojiThatEndsExactlyOnTheLimitIsKept() {
+        String name = "x".repeat(98) + "\uD83D\uDE00";
+
+        assertThat(SimplefinSyncService.accountName("", name)).isEqualTo(name).hasSize(100);
+    }
+
+    @Test
+    void accountName_anEmojiStraddlingTheLimitAfterABankPrefixIsDroppedWhole() {
+        // "B — " is 4 characters, so the emoji starts at index 99 and would end at 101.
+        String result = SimplefinSyncService.accountName("B", "x".repeat(95) + "\uD83D\uDE00tail");
+
+        assertThat(result).isEqualTo("B — " + "x".repeat(95)).hasSize(99);
+    }
+
+    @Test
+    void accountName_aCombiningMarkPastTheLimitIsCutLeavingValidUtf16() {
+        String result = SimplefinSyncService.accountName("", "x".repeat(99) + "e\u0301");
+
+        assertThat(result).isEqualTo("x".repeat(99) + "e");
+        assertThat(Character.isSurrogate(result.charAt(result.length() - 1))).isFalse();
+    }
+
+    @Test
+    void accountName_aCombiningMarkInsideTheLimitIsKept() {
+        String name = "x".repeat(98) + "e\u0301";
+
+        assertThat(SimplefinSyncService.accountName("", name)).isEqualTo(name).hasSize(100);
+    }
+
+    @Test
+    void accountName_aRunOfEmojiNeverEndsOnALoneSurrogate() {
+        String result = SimplefinSyncService.accountName("Bank", "\uD83D\uDE00".repeat(100));
+
+        // "Bank — " is 7 characters; 46 whole emoji (92) fit, a 47th would end at 101.
+        assertThat(result).hasSize(99);
+        assertThat(Character.isLowSurrogate(result.charAt(result.length() - 1))).isTrue();
+        assertThat(result.substring(7).codePoints().allMatch(cp -> cp == 0x1F600)).isTrue();
+    }
+
+    @Test
+    void accountName_aBankAlreadyInTheNameIsNotRepeatedWhateverTheCase() {
+        assertThat(SimplefinSyncService.accountName("chase", "CHASE Total Checking")).isEqualTo("CHASE Total Checking");
+    }
+
+    @Test
+    void accountName_blankOrMissingPartsFallBack() {
+        assertThat(SimplefinSyncService.accountName(null, null)).isEqualTo("Account");
+        assertThat(SimplefinSyncService.accountName("   ", "  ")).isEqualTo("Account");
+        assertThat(SimplefinSyncService.accountName(" Chase ", " Checking ")).isEqualTo("Chase — Checking");
+    }
+
+    @Test
+    void isIsoCurrency_acceptsAnyCaseAndRefusesNonCodes() {
+        assertThat(SimplefinSyncService.isIsoCurrency("usd")).isTrue();
+        assertThat(SimplefinSyncService.isIsoCurrency("Eur")).isTrue();
+        assertThat(SimplefinSyncService.isIsoCurrency(null)).isFalse();
+        assertThat(SimplefinSyncService.isIsoCurrency("")).isFalse();
+        assertThat(SimplefinSyncService.isIsoCurrency("US")).isFalse();
+        assertThat(SimplefinSyncService.isIsoCurrency("US$")).isFalse();
+        assertThat(SimplefinSyncService.isIsoCurrency("USDX")).isFalse();
+        assertThat(SimplefinSyncService.isIsoCurrency("ZZZ")).isFalse();
+        assertThat(SimplefinSyncService.isIsoCurrency("BTC")).isFalse();
+    }
+
+    @Test
+    void sync_aLowercaseCurrencyIsStoredUpperCase() {
+        Ledger ledger = new Ledger();
+
+        ledger.sync(account("sfin_C_a", "Chase", "Checking", "usd", "1.00"));
+
+        assertThat(ledger.accounts).singleElement().satisfies(a -> assertThat(a.getCurrency()).isEqualTo("USD"));
+    }
+
+    @Test
+    void sync_aMissingCurrencyIsSkippedAndTheOthersStillImport() {
+        Ledger ledger = new Ledger();
+
+        List<AccountResponse> synced = ledger.sync(
+            account("sfin_C_none", "Chase", "No currency", null, "1.00"),
+            account("sfin_C_ok", "Chase", "Checking", "USD", "2.00"));
+
+        assertThat(synced).hasSize(1);
+        assertThat(ledger.accounts).extracting(Account::getExternalAccountId).containsExactly("sfin_C_ok");
+    }
+
+    @Test
+    void sync_negativeZeroBalanceIsStoredAsZero() {
+        Ledger ledger = new Ledger();
+
+        ledger.sync(account("sfin_C_a", "Chase", "Checking", "USD", "-0.00"));
+
+        assertThat(ledger.accounts).singleElement()
+            .satisfies(a -> assertThat(a.getCurrentBalance()).isEqualByComparingTo("0"));
+    }
+
+    @Test
+    void sync_aBalanceJustInsideTheLedgerLimitIsKeptAndOneAtTheLimitIsSkipped() {
+        Ledger ledger = new Ledger();
+
+        ledger.sync(
+            account("sfin_C_in", "Chase", "Inside", "USD", "999999999999.99999999"),
+            account("sfin_C_at", "Chase", "At limit", "USD", "1000000000000"),
+            account("sfin_C_neg", "Chase", "Negative limit", "USD", "-1000000000000"),
+            account("sfin_C_sci", "Chase", "Scientific", "USD", "1e30"));
+
+        assertThat(ledger.accounts).extracting(Account::getExternalAccountId).containsExactly("sfin_C_in");
+    }
+
+    @Test
+    void sync_aBalanceWithAnAbsurdExponentIsSkippedWithoutBlowingUp() {
+        Ledger ledger = new Ledger();
+
+        ledger.sync(
+            account("sfin_C_big", "Chase", "Big", "USD", "1e999999999"),
+            account("sfin_C_ok", "Chase", "Checking", "USD", "1.00"));
+
+        assertThat(ledger.accounts).extracting(Account::getExternalAccountId).containsExactly("sfin_C_ok");
+    }
+
+    @Test
+    void sync_aBalanceWithMoreThanEightDecimalsIsPassedToTheColumnUnrounded() {
+        Ledger ledger = new Ledger();
+
+        ledger.sync(account("sfin_C_a", "Chase", "Checking", "USD", "0.123456789012"));
+
+        assertThat(ledger.accounts).singleElement()
+            .satisfies(a -> assertThat(a.getCurrentBalance().toPlainString()).isEqualTo("0.123456789012"));
+    }
+
+    @Test
+    void connect_aSecondTokenForTheSameMemberReusesTheConnectionRow() {
+        Ledger ledger = new Ledger();
+        ledger.connect("token-1");
+        SimplefinConnection first = ledger.connection.get();
+
+        ledger.connect("token-2");
+
+        assertThat(ledger.connection.get()).isSameAs(first);
+        assertThat(ledger.connectionsSaved).isEqualTo(2);
+    }
+
+    @Test
+    void reconnect_aNewSetupTokenForTheSameBridgeConnectionReusesAccountsAndTransactions() {
+        Ledger ledger = new Ledger();
+        ledger.connect("token-1");
+        SimplefinConnection first = ledger.connection.get();
+        SimplefinAccount firstPayload = account("sfin_CON-1_chk", "Chase", "Checking", "USD", "10.00",
+            new SimplefinTransaction("tx-1", ledger.daysAgo(10), new BigDecimal("-4.50"), "Coffee"));
+        ledger.givenBridgeReturns(firstPayload);
+        ledger.service.sync(MEMBER_ID);
+        Account original = ledger.accounts.get(0);
+
+        // The member disconnects, then pastes a brand-new token for the same Bridge connection.
+        assertThat(ledger.service.deleteConnection(MEMBER_ID)).isTrue();
+        ledger.connect("token-2");
+        assertThat(ledger.connection.get()).isNotSameAs(first);
+        ledger.givenBridgeReturns(
+            account("sfin_CON-1_chk", "Chase", "Checking", "USD", "12.00",
+                new SimplefinTransaction("tx-1", ledger.daysAgo(10), new BigDecimal("-4.50"), "Coffee"),
+                new SimplefinTransaction("tx-2", ledger.daysAgo(2), new BigDecimal("-3.00"), "Tea")));
+        ledger.service.sync(MEMBER_ID);
+
+        assertThat(ledger.accounts).hasSize(1).first().isSameAs(original);
+        assertThat(original.getCurrentBalance()).isEqualByComparingTo("12.00");
+        assertThat(ledger.transactions).extracting(Transaction::getExternalTransactionId)
+            .containsExactlyInAnyOrder("tx-1", "tx-2");
+    }
+
+    @Test
+    void reconnect_aNewBridgeConnectionIdIsANewAccountBecauseNothingLinksItToTheOldOne() {
+        Ledger ledger = new Ledger();
+        ledger.connect("token-1");
+        ledger.givenBridgeReturns(account("sfin_CON-1_chk", "Chase", "Checking", "USD", "10.00"));
+        ledger.service.sync(MEMBER_ID);
+
+        ledger.givenBridgeReturns(account("sfin_CON-2_chk", "Chase", "Checking", "USD", "10.00"));
+        ledger.service.sync(MEMBER_ID);
+
+        assertThat(ledger.accounts).extracting(Account::getExternalAccountId)
+            .containsExactly("sfin_CON-1_chk", "sfin_CON-2_chk");
+    }
+
+    @Test
+    void sync_theSameAccountIdTwiceInOneResponseFoldsIntoOneAccountAndTheLastBalanceWins() {
+        Ledger ledger = new Ledger();
+
+        ledger.sync(
+            account("sfin_C_chk", "Chase", "Checking", "USD", "1.00",
+                new SimplefinTransaction("tx-1", ledger.daysAgo(5), new BigDecimal("-1.00"), "Coffee")),
+            account("sfin_C_chk", "Chase", "Checking", "USD", "2.00",
+                new SimplefinTransaction("tx-1", ledger.daysAgo(5), new BigDecimal("-1.00"), "Coffee"),
+                new SimplefinTransaction("tx-2", ledger.daysAgo(4), new BigDecimal("-2.00"), "Tea")));
+
+        assertThat(ledger.accounts).hasSize(1);
+        assertThat(ledger.accounts.get(0).getCurrentBalance()).isEqualByComparingTo("2.00");
+        assertThat(ledger.transactions).extracting(Transaction::getExternalTransactionId)
+            .containsExactlyInAnyOrder("tx-1", "tx-2");
+    }
+
+    @Test
+    void sync_theSameTransactionIdOnTwoAccountsIsStoredOnBoth() {
+        Ledger ledger = new Ledger();
+
+        ledger.sync(
+            account("sfin_C_chk", "Chase", "Checking", "USD", "1.00",
+                new SimplefinTransaction("shared", ledger.daysAgo(3), new BigDecimal("-5.00"), "Transfer out")),
+            account("sfin_C_sav", "Chase", "Savings", "USD", "5.00",
+                new SimplefinTransaction("shared", ledger.daysAgo(3), new BigDecimal("5.00"), "Transfer in")));
+
+        assertThat(ledger.accounts).hasSize(2);
+        assertThat(ledger.transactions).hasSize(2);
+        assertThat(ledger.transactions).extracting(t -> t.getAccount().getExternalAccountId())
+            .containsExactlyInAnyOrder("sfin_C_chk", "sfin_C_sav");
+    }
+
+    @Test
+    void sync_aSecondRunOfTheSamePayloadInsertsNothingNew() {
+        Ledger ledger = new Ledger();
+        SimplefinAccount payload = account("sfin_C_chk", "Chase", "Checking", "USD", "1.00",
+            new SimplefinTransaction("tx-1", ledger.daysAgo(3), new BigDecimal("-5.00"), "Coffee"));
+
+        ledger.sync(payload);
+        ledger.sync(payload);
+
+        assertThat(ledger.accounts).hasSize(1);
+        assertThat(ledger.transactions).hasSize(1);
+    }
+
+    /** In-memory stand-ins for the repositories, behind the real import service. */
+    private static final class Ledger {
+        final List<Account> accounts = new java.util.ArrayList<>();
+        final List<Transaction> transactions = new java.util.ArrayList<>();
+        final AtomicReference<SimplefinConnection> connection = new AtomicReference<>();
+        int connectionsSaved;
+        final SimplefinPort port = lenient(SimplefinPort.class);
+        final SimplefinSyncService service;
+        private long nextId = 100;
+
+        Ledger() {
+            SimplefinConnectionRepository connections = lenient(SimplefinConnectionRepository.class);
+            AccountRepository accountRepository = lenient(AccountRepository.class);
+            FamilyMemberRepository members = lenient(FamilyMemberRepository.class);
+            AccountService accountService = lenient(AccountService.class);
+            TransactionRepository transactionRepository = lenient(TransactionRepository.class);
+            CryptoEncryption encryption = lenient(CryptoEncryption.class);
+
+            FamilyMember member = new FamilyMember();
+            member.setId(MEMBER_ID);
+            when(members.findById(MEMBER_ID)).thenReturn(Optional.of(member));
+            when(encryption.encrypt(any())).thenReturn("ciphertext");
+            when(encryption.decrypt("ciphertext")).thenReturn(ACCESS);
+            when(port.claim(any())).thenReturn(ACCESS);
+
+            when(connections.findByMemberId(MEMBER_ID)).thenAnswer(i -> Optional.ofNullable(connection.get()));
+            when(connections.save(any())).thenAnswer(i -> {
+                SimplefinConnection saved = i.getArgument(0);
+                if (saved.getId() == null) saved.setId(nextId++);
+                connection.set(saved);
+                connectionsSaved++;
+                return saved;
+            });
+            org.mockito.Mockito.doAnswer(i -> {
+                connection.set(null);
+                return null;
+            }).when(connections).delete(any());
+
+            when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(MEMBER_ID))).thenAnswer(i ->
+                accounts.stream().filter(a -> i.getArgument(0).equals(a.getExternalAccountId())).findFirst());
+            when(accountRepository.save(any())).thenAnswer(i -> {
+                Account saved = i.getArgument(0);
+                if (saved.getId() == null) saved.setId(nextId++);
+                if (!accounts.contains(saved)) accounts.add(saved);
+                return saved;
+            });
+            when(accountService.toResponse(any())).thenReturn(lenient(AccountResponse.class));
+
+            when(transactionRepository.findLatestSyncedDateByAccountId(any())).thenAnswer(i ->
+                transactions.stream().filter(t -> t.getAccount().getId().equals(i.getArgument(0)))
+                    .map(Transaction::getDate).max(LocalDate::compareTo).orElse(null));
+            when(transactionRepository.findByAccountIdAndIsManualFalseAndDateGreaterThanEqual(any(), any()))
+                .thenAnswer(i -> transactions.stream()
+                    .filter(t -> t.getAccount().getId().equals(i.getArgument(0)))
+                    .filter(t -> !t.getDate().isBefore(i.getArgument(1)))
+                    .toList());
+            when(transactionRepository.saveAll(any())).thenAnswer(i -> {
+                List<Transaction> saved = i.getArgument(0);
+                transactions.addAll(saved);
+                return saved;
+            });
+
+            BankTransactionImportService importer = new BankTransactionImportService(
+                lenient(BankConnectorPort.class), transactionRepository, 90);
+            service = new SimplefinSyncService(
+                port, connections, accountRepository, members, accountService, importer, encryption,
+                lenient(SimplefinStatusWriter.class));
+        }
+
+        private static <T> T lenient(Class<T> type) {
+            return mock(type, org.mockito.Mockito.withSettings().strictness(org.mockito.quality.Strictness.LENIENT));
+        }
+
+        LocalDate daysAgo(int days) {
+            return LocalDate.now(ZoneOffset.UTC).minusDays(days);
+        }
+
+        void connect(String token) {
+            service.connect(token, MEMBER_ID);
+        }
+
+        void givenBridgeReturns(SimplefinAccount... accounts) {
+            when(port.fetchAccounts(any(), any())).thenReturn(new SimplefinAccountSet(List.of(), List.of(accounts)));
+        }
+
+        List<AccountResponse> sync(SimplefinAccount... accounts) {
+            if (connection.get() == null) connect("token");
+            givenBridgeReturns(accounts);
+            return service.sync(MEMBER_ID);
+        }
     }
 }
