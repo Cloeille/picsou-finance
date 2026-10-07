@@ -12,9 +12,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,10 +25,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * V109 applies on top of the whole chain. The CHECK on last_sync_error must list exactly the
  * {@link CaisseEpargneErrorCode} constants (a missing code turns a diagnosable failure into a
  * 500 when the failure is recorded), and the table must never hold a password.
+ *
+ * <p>Every statement is a constant with bound parameters: no value is concatenated into SQL.
  */
 @Testcontainers
 @EnabledIf("dockerAvailable")
 class V109CaisseEpargneSessionMigrationTest {
+
+    private static final String INSERT_SESSION =
+        "INSERT INTO caisse_epargne_session (member_id, session_state) VALUES (?, ?)";
+    private static final String INSERT_SESSION_STATUS =
+        "INSERT INTO caisse_epargne_session (member_id, session_state, sync_status) VALUES (?, ?, ?)";
+    private static final String INSERT_SESSION_ERROR =
+        "INSERT INTO caisse_epargne_session (member_id, session_state, sync_status, last_sync_error) "
+            + "VALUES (?, ?, ?, ?)";
 
     static {
         System.setProperty("api.version", System.getProperty("api.version", "1.44"));
@@ -62,27 +72,34 @@ class V109CaisseEpargneSessionMigrationTest {
         return DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
-    private static void exec(String sql) throws SQLException {
-        try (Connection c = connection(); Statement st = c.createStatement()) {
-            st.execute(sql);
+    private static void exec(String sql, Object... params) throws SQLException {
+        try (Connection c = connection(); PreparedStatement st = c.prepareStatement(sql)) {
+            for (int i = 0; i < params.length; i++) {
+                st.setObject(i + 1, params[i]);
+            }
+            st.execute();
         }
     }
 
     private static long newMember(String name) throws SQLException {
-        try (Connection c = connection(); Statement st = c.createStatement();
-             ResultSet rs = st.executeQuery(
-                 "INSERT INTO family_member (display_name) VALUES ('" + name + "') RETURNING id")) {
-            rs.next();
-            return rs.getLong(1);
+        try (Connection c = connection();
+             PreparedStatement st = c.prepareStatement(
+                 "INSERT INTO family_member (display_name) VALUES (?) RETURNING id")) {
+            st.setString(1, name);
+            try (ResultSet rs = st.executeQuery()) {
+                rs.next();
+                return rs.getLong(1);
+            }
         }
     }
 
     @Test
     void theTableHasNoCredentialColumn() throws SQLException {
         List<String> columns = new ArrayList<>();
-        try (Connection c = connection(); Statement st = c.createStatement();
-             ResultSet rs = st.executeQuery(
-                 "SELECT column_name FROM information_schema.columns WHERE table_name = 'caisse_epargne_session'")) {
+        try (Connection c = connection();
+             PreparedStatement st = c.prepareStatement(
+                 "SELECT column_name FROM information_schema.columns WHERE table_name = 'caisse_epargne_session'");
+             ResultSet rs = st.executeQuery()) {
             while (rs.next()) columns.add(rs.getString(1));
         }
         assertThat(columns).isNotEmpty()
@@ -95,13 +112,10 @@ class V109CaisseEpargneSessionMigrationTest {
     void acceptsEveryErrorCodeOfTheEnumAndNoOther() throws SQLException {
         for (CaisseEpargneErrorCode code : CaisseEpargneErrorCode.values()) {
             long member = newMember("ok-" + code.name());
-            exec("INSERT INTO caisse_epargne_session (member_id, session_state, sync_status, last_sync_error) "
-                + "VALUES (" + member + ", 'x', 'FAILED', '" + code.name() + "')");
+            exec(INSERT_SESSION_ERROR, member, "x", "FAILED", code.name());
         }
         long member = newMember("bad-code");
-        assertThatThrownBy(() -> exec(
-            "INSERT INTO caisse_epargne_session (member_id, session_state, sync_status, last_sync_error) "
-                + "VALUES (" + member + ", 'x', 'FAILED', 'NOT_A_REAL_CODE')"))
+        assertThatThrownBy(() -> exec(INSERT_SESSION_ERROR, member, "x", "FAILED", "NOT_A_REAL_CODE"))
             .hasMessageContaining("ck_caisse_epargne_session_last_sync_error");
     }
 
@@ -110,51 +124,46 @@ class V109CaisseEpargneSessionMigrationTest {
         for (String code : List.of("INVALID_CREDENTIALS", "KEYPAD_CHANGED",
             "APP_VALIDATION_TIMEOUT", "AUTH_ATTEMPT_EXPIRED")) {
             long member = newMember("login-" + code);
-            exec("INSERT INTO caisse_epargne_session (member_id, session_state, sync_status, last_sync_error) "
-                + "VALUES (" + member + ", 'x', 'FAILED', '" + code + "')");
+            exec(INSERT_SESSION_ERROR, member, "x", "FAILED", code);
         }
     }
 
     @Test
     void aFailedSyncMustCarryAnErrorAndOnlyAFailedOne() throws SQLException {
         long a = newMember("failed-no-error");
-        assertThatThrownBy(() -> exec(
-            "INSERT INTO caisse_epargne_session (member_id, session_state, sync_status) "
-                + "VALUES (" + a + ", 'x', 'FAILED')"))
+        assertThatThrownBy(() -> exec(INSERT_SESSION_STATUS, a, "x", "FAILED"))
             .hasMessageContaining("ck_caisse_epargne_session_failed_error");
         long b = newMember("idle-with-error");
-        assertThatThrownBy(() -> exec(
-            "INSERT INTO caisse_epargne_session (member_id, session_state, sync_status, last_sync_error) "
-                + "VALUES (" + b + ", 'x', 'IDLE', 'INTERNAL_ERROR')"))
+        assertThatThrownBy(() -> exec(INSERT_SESSION_ERROR, b, "x", "IDLE", "INTERNAL_ERROR"))
             .hasMessageContaining("ck_caisse_epargne_session_failed_error");
     }
 
     @Test
     void refusesAnUnknownSyncStatusAndASecondRowForTheSameMember() throws SQLException {
         long member = newMember("one-row");
-        assertThatThrownBy(() -> exec(
-            "INSERT INTO caisse_epargne_session (member_id, session_state, sync_status) "
-                + "VALUES (" + member + ", 'x', 'PENDING')"))
+        assertThatThrownBy(() -> exec(INSERT_SESSION_STATUS, member, "x", "PENDING"))
             .hasMessageContaining("ck_caisse_epargne_session_sync_status");
 
-        exec("INSERT INTO caisse_epargne_session (member_id, session_state) VALUES (" + member + ", 'x')");
-        assertThatThrownBy(() -> exec(
-            "INSERT INTO caisse_epargne_session (member_id, session_state) VALUES (" + member + ", 'y')"))
+        exec(INSERT_SESSION, member, "x");
+        assertThatThrownBy(() -> exec(INSERT_SESSION, member, "y"))
             .hasMessageContaining("caisse_epargne_session_member_id_key");
     }
 
     @Test
     void deletingTheMemberDeletesTheSession() throws SQLException {
         long member = newMember("cascade");
-        exec("INSERT INTO caisse_epargne_session (member_id, session_state) VALUES (" + member + ", 'x')");
+        exec(INSERT_SESSION, member, "x");
 
-        exec("DELETE FROM family_member WHERE id = " + member);
+        exec("DELETE FROM family_member WHERE id = ?", member);
 
-        try (Connection c = connection(); Statement st = c.createStatement();
-             ResultSet rs = st.executeQuery(
-                 "SELECT COUNT(*) FROM caisse_epargne_session WHERE member_id = " + member)) {
-            rs.next();
-            assertThat(rs.getInt(1)).isZero();
+        try (Connection c = connection();
+             PreparedStatement st = c.prepareStatement(
+                 "SELECT COUNT(*) FROM caisse_epargne_session WHERE member_id = ?")) {
+            st.setLong(1, member);
+            try (ResultSet rs = st.executeQuery()) {
+                rs.next();
+                assertThat(rs.getInt(1)).isZero();
+            }
         }
     }
 }
