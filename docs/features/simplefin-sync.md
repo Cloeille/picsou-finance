@@ -56,7 +56,7 @@ upsert Account + EUR snapshot + ledger rows
 ## Gotchas / Pitfalls
 
 - The setup token is single-use. A failed claim does not store anything. A successful claim followed by a failed sync does: retry Sync, do not paste the same token.
-- A credit card arrives as `CHECKING` with the negative balance Bridge sends. Changing its type to Credit card moves it under debts without changing net worth, because Picsou stores card debt as a negative number. The account form asks for the amount owed and refuses a negative number without saying why, so the member types the debt without its minus sign; the next sync writes Bridge's signed balance back. A bank that reported card debt as a positive number would show as a credit after the change; none has been seen on Bridge.
+- A credit card arrives as `CHECKING` with the negative balance Bridge sends. Changing its type to Credit card moves it under debts without changing net worth, because Picsou stores card debt as a negative number. The account form refuses a negative number without saying why, so the member types the debt without its minus sign. The amount itself is ignored: a synced account's balance only comes from Bridge. A bank that reported card debt as a positive number would show as a credit after the change; none has been seen on Bridge.
 - Reward points and other custom currencies (a URL instead of an ISO code) are skipped. The cash accounts in the same response still import.
 - No bank logos. The Enable Banking catalog is not consulted.
 - One token per member. Connecting again replaces the stored access URL.
@@ -66,8 +66,15 @@ upsert Account + EUR snapshot + ledger rows
 ## Tests
 
 - `SimplefinClientTest` — a non-https claim, a token for another host, and a claim that hands back another host are refused without storing anything; a literal `+` kept in the access password, Basic auth without userinfo in the URI, pending rows dropped, an unusable posted date dropped, a hashed account id keeping `sfin_`, partial errors, 402, 403 and redirects
-- `SimplefinSyncServiceTest` — upsert as `CHECKING`, a resync keeping a member-set `CREDIT_CARD`, the 89-day clamp on the UTC date, the daily job reporting instead of throwing, non-ISO skip, balance that does not fit the ledger, soft-delete skip, error status, name cut on a character boundary
+- `SimplefinSyncServiceTest` — upsert as `CHECKING`, a resync keeping a member-set `CREDIT_CARD`, the 89-day clamp on the UTC date, the daily job reporting instead of throwing, non-ISO skip, balance that does not fit the ledger, soft-delete skip, error status, name cut on a character boundary, a new token for the same Bridge connection reusing accounts and transactions
+- `SimplefinUrlsTest` — the Bridge host in any case and on port 443 is accepted; other hosts, look-alikes, IP literals, userinfo tricks, encoded hosts and other schemes are refused for both URLs; refusals never echo the token or credentials
+- `SimplefinJsonTest` — currency, balance, id, transaction and posted-date parsing edge cases; external ids hashed past 255 characters
+- `SimplefinControllerTest` — every endpoint acts on the current member only, validation and error bodies carry no secret, connect and sync share the per-IP limit
+- `SimplefinStatusWriterTest` — the `ERROR` status survives the caller's rollback (H2 slice)
+- `SimplefinConnectFailureTest` — a failed claim or encryption keeps the stored access URL
+- `DataExportServiceTest`, `AccountsWorkbookServiceTest` — exports carry no access URL
 - `MemberSyncServiceTest` — SimpleFIN runs after IBKR in the scheduled order
-- `BankTransactionImportServiceTest` — a description longer than the ledger column is stored clipped, a repeated id and an oversized amount are dropped, a second import of the same id inserts nothing
+- `BankTransactionImportServiceTest` — a description longer than the ledger column is stored clipped on a character boundary, a repeated id and an oversized amount are dropped, a second import of the same id inserts nothing
 - `AccountConnectionServiceTest` — the connection is removed only with its last account
-- `SimplefinTab.test.tsx` — connect-then-sync, connected controls, sync error
+- `SimplefinPanel.test.tsx`, `SimplefinTab.test.tsx` — token form, connect-then-sync, connected controls, sync and disconnect errors, disconnect confirmation
+- `e2e/simplefin.spec.ts` — demo-mode connect and disconnect, and the add-account entry
