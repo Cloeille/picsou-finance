@@ -928,6 +928,34 @@ handlers.set(key('POST', '/bourso/auth/complete'), () => demoBoursoStatus)
 handlers.set(key('POST', '/bourso/sync'), () => demoBoursoStatus)
 handlers.set(key('DELETE', '/bourso/session'), () => null)
 
+// Caisse d'Epargne — Sécur'Pass is a human step, so the demo skips it: initiate
+// answers a pending process and complete answers connected straight away.
+const demoCaisseEpargneStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+  unsupported: [],
+  unsupportedCount: 0,
+}
+handlers.set(key('GET', '/caisse-epargne/status'), () => demoCaisseEpargneStatus)
+const DEMO_PAD_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+handlers.set(key('POST', '/caisse-epargne/auth/initiate'), () => ({
+  processId: 'demo',
+  keypad: { images: Array.from({ length: 10 }, () => DEMO_PAD_PNG), columns: 5 },
+  expiresInSeconds: 90,
+}))
+handlers.set(key('POST', '/caisse-epargne/auth/keypad'), () => ({
+  processId: 'demo', status: 'SECURPASS_PENDING',
+}))
+handlers.set(key('POST', '/caisse-epargne/auth/complete'), () => ({ connected: true }))
+handlers.set(key('POST', '/caisse-epargne/sync'), () => demoCaisseEpargneStatus)
+handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
+  removed: true, bankSessionRevoked: false, message: '',
+}))
+
 // Fortuneo — its frontend validates every response with Zod, so the demo must
 // return the complete production contract rather than relying on the adapter's
 // permissive `{}` fallback.

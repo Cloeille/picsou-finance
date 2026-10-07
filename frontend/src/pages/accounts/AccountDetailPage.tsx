@@ -22,6 +22,7 @@ import { EditHoldingModal } from '@/components/shared/EditHoldingModal'
 import { MonthEndBalanceModal } from '@/components/shared/MonthEndBalanceModal'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { AccountTypeBadge } from '@/components/shared/AccountTypeBadge'
+import { CardNatureField } from '@/components/shared/CardNatureField'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { LoanDetailSection } from '@/components/loan/LoanDetailSection'
 import { SavingsConfigSection } from '@/features/savings/SavingsConfigSection'
@@ -303,6 +304,7 @@ export function AccountDetailPage() {
                 <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.dueDate')}</p>
                 <p className="text-base font-medium">{formatLocalDate(account.paymentDueDate)}</p>
               </div>}
+              <CardNatureField nature={account.cardNature} />
               {account.rewardPoints != null && <div>
                 <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.miles')}</p>
                 <p className="text-xl font-semibold tabular-nums">{new Intl.NumberFormat(locale).format(account.rewardPoints)}</p>

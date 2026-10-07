@@ -207,6 +207,12 @@
     "total": "Gesamt",
     "currentBalance": "Aktueller Saldo",
     "currentDebt": "Kreditkartenschuld",
+    "cardNature": {
+      "label": "Kartentyp",
+      "IMMEDIATE_DEBIT": "Sofortige Abbuchung",
+      "DEFERRED_DEBIT": "Verzögerte Abbuchung",
+      "CREDIT": "Kredit"
+    },
     "cashBalance": "Bargeld im PEA/Wertpapierkonto",
     "snapshots": "Monatliche Stände",
     "addSnapshot": "Speichern",
@@ -435,7 +441,6 @@
       "hint": "Nicht in der Quadratmeter-Schätzung. Der Ausgabepreis steht nicht in dieser Summe.",
       "incomplete": "Ein Anteil nutzt noch den letzten bekannten Saldo: der Rücknahmepreis fehlt."
     }
-
   },
   "realEstate": {
     "purchasePrice": "Kaufpreis",
@@ -705,7 +710,8 @@
       "amex": "American Express Kreditkarte: Kontostand und Transaktionen",
       "property": "Haus, Wohnung, Grundstück…",
       "revolut": "Phone + passcode, on-demand sync",
-      "fortuneo": "Fortuneo-Konten synchronisieren"
+      "fortuneo": "Fortuneo-Konten synchronisieren",
+      "caisseEpargne": "Girokonto, Livret A und Karten bei der Caisse d'Epargne"
     },
     "revolutConnected": "Revolut connected!"
   },
@@ -970,6 +976,57 @@
         "formatChanged": "Das Format der BoursoBank-Website hat sich geändert. Ihre vorhandenen Daten wurden beibehalten.",
         "invalidData": "BoursoBank hat inkonsistente Daten zurückgegeben. Ihre vorhandenen Daten wurden beibehalten.",
         "serverError": "BoursoBank ist nicht erreichbar. Bitte erneut versuchen."
+      }
+    },
+    "caisseEpargne": {
+      "title": "Caisse d'Epargne",
+      "customerId": "Kennung",
+      "connect": "Verbinden",
+      "connecting": "Verbindung…",
+      "sync": "Synchronisieren",
+      "queued": "Synchronisierung in Warteschlange…",
+      "syncing": "Synchronisierung…",
+      "syncSuccess": "Caisse-d'Epargne-Konten synchronisiert.",
+      "clearSession": "Trennen",
+      "disconnectConfirm": "Dies löscht die in Picsou gespeicherte Sitzung. Die Sitzung bei der Caisse d'Epargne selbst wird nicht beendet und kann bis zu ihrem Ablauf aktiv bleiben.",
+      "disconnectConfirmAction": "Gespeicherte Sitzung löschen",
+      "noSession": "Keine aktive Sitzung",
+      "sessionActive": "Sitzung aktiv",
+      "scope": "Synchronisiert Ihre Giro- und Sparkonten bei der Caisse d'Epargne auf Abruf. Nur die Sitzung wird verschlüsselt gespeichert. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
+      "notice": {
+        "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken es selbst auf der Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
+        "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",
+        "lockRisk": "Falsche Versuche zählen bei Ihrer Bank und können Ihren Caisse-d'Epargne-Zugang sperren. Prüfen Sie Ihre Kennung und die auf der Tastatur geklickten Ziffern vor dem Bestätigen."
+      },
+      "securPassPrompt": "Bestätigen Sie die Anmeldung in Ihrer Sécur'Pass-App.",
+      "securPassHint": "Picsou greift nicht auf Ihr Telefon zu. Diese Seite geht von selbst weiter, sobald Sie bestätigen.",
+      "countdownLabel": "Verbleibende Zeit zum Bestätigen:",
+      "unsupportedTitle": "Nicht importierte Verträge",
+      "unsupportedHint": "Picsou unterstützt diese Vertragsfamilien noch nicht (Familiencode angezeigt).",
+      "errors": {
+        "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
+        "rateLimitedRetryAfter": "Zu viele Anmeldeversuche. Versuchen Sie es in {{minutes}} Min. erneut.",
+        "invalidCredentials": "Die Bank hat Kennung oder Passwort abgelehnt. Prüfen Sie sie, bevor Sie es erneut versuchen: wiederholte Fehlversuche können Ihr Konto sperren.",
+        "keypadChanged": "Die Tastatur hat sich geändert, bitte neu beginnen. Es wurde nichts gesendet.",
+        "appValidationTimeout": "Die Anmeldung wurde nicht rechtzeitig in Sécur'Pass bestätigt. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "sessionExpired": "Die Caisse-d'Epargne-Sitzung ist abgelaufen. Bitte neu verbinden.",
+        "formatChanged": "Das Format der Caisse-d'Epargne-Website hat sich geändert. Ihre vorhandenen Daten wurden beibehalten.",
+        "invalidSessionState": "Die gespeicherte Sitzung ist nicht lesbar. Bitte neu verbinden.",
+        "serverError": "Die Caisse d'Epargne ist nicht erreichbar. Bitte versuchen Sie es später erneut.",
+        "keypadExpired": "Die Tastatur ist vor Ihrer Bestätigung abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "invalidPositions": "Die Tastatureingabe wurde nicht akzeptiert. Beginnen Sie neu und geben Sie 6 bis 12 Tasten ein."
+      },
+      "keypad": {
+        "title": "Passwort anklicken",
+        "description": "Klicken Sie die Tasten Ihres Passworts der Reihe nach auf der Tastatur der Bank an. Die Ziffern werden nur auf den Tasten selbst angezeigt.",
+        "key": "Taste {{n}}",
+        "entered": "{{count}} Tasten eingegeben",
+        "clear": "Löschen",
+        "cancel": "Abbrechen",
+        "validate": "Bestätigen",
+        "sending": "Wird gesendet…",
+        "countdownLabel": "Verbleibende Zeit:"
       }
     },
     "degiro": {

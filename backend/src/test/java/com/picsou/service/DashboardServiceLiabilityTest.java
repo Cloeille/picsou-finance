@@ -188,6 +188,34 @@ class DashboardServiceLiabilityTest {
     }
 
     @Test
+    void deferred_debit_card_without_a_parent_link_still_counts_as_a_liability() {
+        // Caisse d'Epargne cards never carry parentAccountId: the pocket rule would hide them.
+        Account card = new Account();
+        card.setId(33L);
+        card.setName("Deferred card");
+        card.setType(AccountType.CREDIT_CARD);
+        card.setCardNature(CardNature.DEFERRED_DEBIT);
+        card.setCurrentBalance(new BigDecimal("-87.10"));
+        card.setCurrency("EUR");
+        card.setColor("#0ea5e9");
+        card.setPaymentDueAmount(new BigDecimal("87.10"));
+        card.setPaymentDueDate(LocalDate.of(2026, 10, 31));
+
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(card));
+        when(holdingRepository.findByAccount_Id(33L)).thenReturn(List.of());
+        when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(debtRepository.findByAccountIdIn(List.of(33L))).thenReturn(List.of());
+        when(historyService.buildHistory(any(), any(Integer.class), any())).thenReturn(List.of());
+        when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of());
+
+        DashboardResponse result = dashboardService.getDashboard(1L, null);
+
+        assertThat(result.liabilities()).hasSize(1);
+        assertThat(result.liabilities().get(0).balanceEur()).isEqualByComparingTo("87.10");
+        assertThat(result.liabilities().get(0).paymentDueDate()).isEqualTo(LocalDate.of(2026, 10, 31));
+    }
+
+    @Test
     void credit_card_without_statement_leaves_payment_due_fields_null() {
         Account card = new Account();
         card.setId(31L);
