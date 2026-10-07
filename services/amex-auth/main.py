@@ -86,6 +86,9 @@ VERIFY_CONTINUE_TIMEOUT_MS = 5_000
 VERIFY_OTP_INPUT_TIMEOUT_MS = 15_000
 OPTION_BUTTON_SELECTOR = "button[data-testid=option-button]"
 OPTION_HEADING_SELECTOR = "[data-testid=select-button-heading]"
+# Current verify page: one radio per channel, id "channel_<masked value>-<uuid>",
+# labelled with the masked phone number or masked e-mail address.
+CHANNEL_RADIO_SELECTOR = "input[type=radio][id^=channel_]"
 OTP_INPUT_SELECTORS = (
     "input[autocomplete='one-time-code']",
     "input[type=tel]",
@@ -476,13 +479,104 @@ async def _log_verify_page_diagnostics(page: Page) -> None:
         log.warning("AMEX verify page diagnostic failed error_type=%s", _safe_error_type(exc))
 
 
+def _pick_channel_index(candidates: list[str], method: str) -> int | None:
+    """Pure helper: picks the radio channel for `method` from candidate texts
+    (label text + ' ' + radio id). An e-mail channel contains '@' (masked
+    address); the SMS channel is the masked phone number, i.e. no '@'.
+    Returns the index of the first match, or None."""
+    want_email = method == "email"
+    for index, candidate in enumerate(candidates):
+        if ("@" in candidate) == want_email:
+            return index
+    return None
+
+
+_CHANNEL_RADIOS_JS = """(selector) => Array.from(document.querySelectorAll(selector)).map((el) => {
+    let label = '';
+    if (el.labels && el.labels.length) {
+        label = el.labels[0].textContent || '';
+    } else {
+        const wrapping = el.closest('label');
+        if (wrapping) label = wrapping.textContent || '';
+    }
+    return {id: el.id || '', label: label.trim()};
+})"""
+
+_CHANNEL_CLICK_JS = """([selector, index]) => {
+    const el = document.querySelectorAll(selector)[index];
+    if (!el) return false;
+    const label = (el.labels && el.labels[0]) || el.closest('label');
+    (label || el).click();
+    if (!el.checked) el.click();
+    return !!el.checked;
+}"""
+
+
+async def _click_submit_button(page: Page, timeout_ms: int) -> None:
+    """Best-effort click on the first visible submit-like button (e.g.
+    "Continuer"), skipping cancel/resend-style buttons."""
+    try:
+        buttons = page.get_by_role("button", name=OTP_SUBMIT_TEXT_PATTERN)
+        await buttons.first.wait_for(state="visible", timeout=timeout_ms)
+        count = await buttons.count()
+        for index in range(count):
+            button = buttons.nth(index)
+            text = (await button.inner_text()).strip()
+            if OTP_SUBMIT_EXCLUDE_PATTERN.search(text):
+                continue
+            await button.click()
+            return
+    except PlaywrightError:
+        pass
+
+
 async def _select_otp_method(page: Page, method: str) -> None:
-    """Clicks the SMS/e-mail option on the verify page and, if AMEX shows
+    """Selects the SMS/e-mail channel on the verify page and, if AMEX shows
     an intermediate confirm step, clicks through it too.
 
+    Current page: radio group (`input[type=radio][id^=channel_]`) + submit
+    button. Legacy page: `button[data-testid=option-button]` options.
+
     Raises HTTPException(502, UPSTREAM_FORMAT_CHANGED) with a diagnostic
-    dump if the expected option button never appears.
+    dump if no expected option ever appears or none matches the method.
     """
+    try:
+        await page.locator(
+            f"{CHANNEL_RADIO_SELECTOR}, {OPTION_BUTTON_SELECTOR}"
+        ).first.wait_for(state="attached", timeout=VERIFY_OPTION_TIMEOUT_MS)
+    except PlaywrightError:
+        await _log_verify_page_diagnostics(page)
+        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+
+    try:
+        radios = await page.evaluate(_CHANNEL_RADIOS_JS, CHANNEL_RADIO_SELECTOR)
+    except PlaywrightError:
+        radios = []
+
+    if radios:
+        log.info(
+            "AMEX verify channel picker=radio options=%d method=%s", len(radios), method
+        )
+        index = _pick_channel_index(
+            [f"{r.get('label', '')} {r.get('id', '')}" for r in radios], method
+        )
+        if index is None:
+            await _log_verify_page_diagnostics(page)
+            raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+        try:
+            checked = await page.evaluate(
+                _CHANNEL_CLICK_JS, [CHANNEL_RADIO_SELECTOR, index]
+            )
+            if not checked:
+                await page.locator(CHANNEL_RADIO_SELECTOR).nth(index).check(force=True)
+        except PlaywrightError:
+            await _log_verify_page_diagnostics(page)
+            raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+        # The submit button ("Continuer") sends the code to the chosen channel.
+        await _click_submit_button(page, VERIFY_CONTINUE_TIMEOUT_MS)
+        return
+
+    log.info("AMEX verify channel picker=button method=%s", method)
     needle = METHOD_HEADING_SUBSTRINGS[method]
     options = page.locator(OPTION_BUTTON_SELECTOR)
     try:
@@ -2000,6 +2094,19 @@ def _self_check() -> None:
         assert "APP_SIDECAR_API_KEY is required" in str(exc), str(exc)
     else:
         raise AssertionError("expected RuntimeError when APP_SIDECAR_API_KEY is unset")
+
+    # Verify-page channel picker (radio group): fake values only.
+    sms_c = "*******12345 channel_*******12345-uuid"
+    mail_c = "b****d@example.com channel_b****d@example.com-uuid"
+    assert _pick_channel_index([sms_c, mail_c], "sms") == 0
+    assert _pick_channel_index([sms_c, mail_c], "email") == 1
+    assert _pick_channel_index([mail_c, sms_c], "sms") == 1
+    assert _pick_channel_index([mail_c, sms_c], "email") == 0
+    assert _pick_channel_index([mail_c], "sms") is None
+    assert _pick_channel_index([sms_c], "email") is None
+    assert _pick_channel_index([], "sms") is None
+    assert _pick_channel_index([], "email") is None
+    assert _pick_channel_index([sms_c, "*******99999 channel_*******99999-uuid"], "sms") == 0
 
     print("self-check OK")
 

@@ -1,6 +1,6 @@
 # Feature: American Express France sidecar
 
-> Last updated: 2026-10-03
+> Last updated: 2026-10-07
 
 ## Context
 
@@ -8,7 +8,7 @@ Picsou imports French American Express credit-card balances and transactions thr
 
 ## How it works
 
-The user selects SMS (default) or e-mail for AMEX's one-time code. The browser completes login and OTP, then captures value-free JSON response diagnostics from American Express domains while the dashboard loads. Account discovery falls back to the servicing balances API; missing enrichments remain null and never fail a sync.
+The user selects SMS (default) or e-mail for AMEX's one-time code. On AMEX's verify page the channels are radio inputs labelled with the masked phone number and masked e-mail address; the sidecar picks the e-mail channel when the label contains `@`, otherwise the phone (SMS) channel, then clicks **Continuer**. The older option-button markup is still handled. Logs never include labels, ids, phone numbers or e-mail addresses. The browser completes login and OTP, then captures value-free JSON response diagnostics from American Express domains while the dashboard loads. Account discovery falls back to the servicing balances API; missing enrichments remain null and never fail a sync.
 
 The current card balance is inferred from the servicing balances. When `remaining_statement_balance_amount` is present: balance = remaining + total debits - unapplied credits, where unapplied credits = `max(0, total_payments_credits_amount - (statement_balance_amount - remaining))`. Credits already absorbed into `remaining` are not subtracted twice (e.g. a direct debit not counted in `total_payments_credits_amount`). If the statement balance is absent, no credit is treated as absorbed. When `remaining_statement_balance_amount` is absent, the legacy fallback applies: statement balance + total debits - payments/credits. Known limits: a refund posted after the statement date while `remaining` is already 0 is treated as absorbed by the statement; and when `remaining` exceeds the statement balance (fees/interest added), the formula equals the legacy one. Posted and pending transaction lists are merged, with posted transactions taking precedence when an identifier overlaps.
 
