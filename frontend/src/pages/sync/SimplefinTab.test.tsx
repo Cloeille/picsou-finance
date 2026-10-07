@@ -98,4 +98,36 @@ describe('SimplefinTab', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'sync.simplefin.sync' }))
     expect(await screen.findByText('SimpleFIN refused the stored access. It may have been revoked.')).toBeInTheDocument()
   })
+
+  it('falls back to the token form when the status request fails', async () => {
+    apiGet.mockRejectedValue(new Error('Network Error'))
+
+    renderTab()
+
+    expect(await screen.findByLabelText('sync.simplefin.token')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sync.simplefin.sync' })).not.toBeInTheDocument()
+  })
+
+  it('shows the token link and never calls the backend before the user submits', async () => {
+    apiGet.mockResolvedValue(DISCONNECTED)
+
+    renderTab()
+
+    const link = await screen.findByRole('link', { name: 'sync.simplefin.createToken' })
+    expect(link).toHaveAttribute('href', 'https://bridge.simplefin.org/simplefin/create')
+    expect(apiGet).toHaveBeenCalledWith('/simplefin/status')
+    expect(apiPost).not.toHaveBeenCalled()
+    expect(apiDelete).not.toHaveBeenCalled()
+  })
+
+  it('does not claim the token when the field only holds whitespace', async () => {
+    apiGet.mockResolvedValue(DISCONNECTED)
+
+    renderTab()
+
+    fireEvent.change(await screen.findByLabelText('sync.simplefin.token'), { target: { value: '   ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.simplefin.connect' }))
+
+    expect(apiPost).not.toHaveBeenCalled()
+  })
 })
