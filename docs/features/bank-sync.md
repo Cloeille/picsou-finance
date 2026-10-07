@@ -17,11 +17,43 @@ Picsou syncs bank accounts from Enable Banking's ~29-country EEA coverage — ba
 
 ### Provider architecture
 
-Both providers implement the `BankConnectorPort` interface with five operations: `initiateConnection`, `exchangeCode`, `fetchBalances`, `searchInstitutions`, and `listCountries`. The service layer (`SyncService`) never imports adapters directly -- it depends only on the port.
+Both providers implement the `BankConnectorPort` interface: `initiateConnection`, `exchangeCode`, `fetchBalances`, `searchInstitutions`, `listCountries`, and (since 1.1.0) `fetchTransactions`. The service layer (`SyncService`) never imports adapters directly -- it depends only on the port.
 
-**Enable Banking** (`EnableBankingBankConnector`): Uses the PSD2 Bank Account Data API. Auth is JWT-based (RS256 signed with an RSA private key). Sessions are created via OAuth redirect. After the user authorizes, accounts are linked asynchronously and polled up to 3 times with 1.5-second delays (≤ 4.5 s total). If the session still has no accounts, the adapter returns an empty list rather than throwing; `SyncService` keeps the requisition in `FAILED` so the user can retry from the UI without losing the session id. The previous 24 s blocking poll caused 502 errors at the reverse proxy.
+### Transaction ingestion (1.1.0)
+
+Since 1.1.0 the sync also ingests **transactions**, not just balances. After upserting balances, `SyncService` calls `BankConnectorPort.fetchTransactions(sessionId, externalAccountId, from)` for each Enable Banking account (`GET /accounts/{id}/transactions`, mapping creditor/debtor → `counterparty`, remittance → `description`). Transactions are deduplicated by `(account, externalId)`, persisted with `isManual=false`, then categorized by `CategorizationService.apply`. Ingestion is incremental on `lastSyncedAt`; the first attach pulls the maximum available window (≈90 days). This feeds the entire Budget module — see [budget.md](./budget.md).
+
+**Enable Banking** (`EnableBankingBankConnector`): Uses the PSD2 Bank Account Data API. Auth is JWT-based (RS256 signed with an RSA private key). Sessions are created via OAuth redirect. After the user authorizes, Enable Banking populates the `session.accounts` list **asynchronously** — some ASPSPs take seconds, others hours (Boursorama). The adapter polls `GET /sessions/{id}` up to 8 times with 2-second delays (≤ 16 s total, configurable via `app.enablebanking.session-poll-attempts` / `session-poll-delay-ms`). If the session still has no accounts, it returns an empty list rather than throwing — the requisition is marked **FAILED** (preserving the session id) so the scheduler can retry the next day without going back through OAuth.
 
 **Powens** (`PowensBankConnector`) — ⚠ experimental, disabled in 1.0.0. Uses screen scraping via the Budget Insight API. Auth is an OAuth webview that handles bank selection and credential entry. The OAuth code is exchanged for a permanent access token. Gated behind `@ConditionalOnExpression` (so it only registers when `POWENS_CLIENT_ID` is set), but `@Primary` was removed for 1.0.0, so Enable Banking remains injected even when the bean is registered.
+
+### Account-matching resilience (Enable Banking 0.16.4)
+
+Enable Banking 0.16.4 (released 2026-05-30) changed the account identification hash for ASPSPs that
+do not expose a per-account currency (e.g. Boursorama) — the account `uid` is now derived from the
+account number alone, breaking the uid-based match used by the previous upsert logic.
+
+Picsou now handles this with a two-pronged strategy:
+
+1. **IBAN-first account matching.** `SyncService.upsertAccount()` matches an incoming account against
+   stored accounts by **IBAN** first (stable, bank-issued identifier), falling back to the Enable
+   Banking `uid` only when the IBAN is absent. On a successful IBAN match the stored `uid` is
+   refreshed in place, so the next sync uses the new uid without user intervention. The soft-delete
+   guard (which prevents re-creating an account the user removed) also checks IBAN alongside uid.
+   - New column: `account.iban VARCHAR(34)`, added by `V46__account_iban.sql`.
+
+2. **Per-account failure isolation in `fetchBalances()`.** Previously, a single failing account
+   would surface an exception that zeroed the entire balance batch. Expected per-account failures
+   are now caught: a `SyncException` (every provider-call failure, such as the 404 after a uid
+   rotation, is mapped to it) and a `NumberFormatException` from a malformed balance amount. The
+   adapter logs the error and skips that account, letting the rest of the batch succeed. Any other
+   exception is a bug and propagates, so the scheduled resync marks the requisition `FAILED` instead
+   of saving a partial result. When every account fails, the first failure is rethrown instead: that is a bank- or
+   consent-level outage (5xx, 429, expired consent), and an empty list would read upstream as
+   "accounts still linking".
+
+3. **Missing currency tolerance.** Some ASPSPs omit the per-account currency field. The adapter now
+   defaults to `EUR` rather than throwing, matching the most common case for French current accounts.
 
 ### Country selection
 
@@ -83,6 +115,10 @@ preference instead of degrading to a bare name match.
 
 Every public method of `EnableBankingBankConnector` maps **all** provider failures (HTTP errors, timeouts, connection errors) to `SyncException`, keeping the external-error contract stable. `completeConnection()` additionally catches arbitrary runtime failures from account persistence, marks the requisition retryable through the independent lifecycle writer, and lets its main transaction roll back partial account/snapshot work.
 
+### Automatic retry of FAILED sessions
+
+`SchedulerService.dailyBankSync()` calls `SyncService.retryAllFailed(memberId)` (after `resyncAll`) for every member. It finds all FAILED requisitions and calls `retrySync()` for each — which re-polls the Enable Banking session. If accounts are now populated, the requisition transitions to LINKED and accounts are upserted. If not, it stays FAILED and is retried again the next day. Enable Banking sessions are valid for 90 days (`valid_until`), so there is ample time for banks that take hours to asynchronously populate accounts (observed: Boursorama ~4 h+).
+
 ### Account type detection
 
 `SyncService.detectType()` maps provider metadata (product name, cash account type) to the `AccountType` enum. Keywords like "pea", "lep", "livret", "titre" in the product string are matched case-insensitively. The `cashAccountType` field (e.g. "SVGS") is used as a fallback. Default is `CHECKING`.
@@ -113,7 +149,7 @@ SyncController.initiate() --> SyncService --> BankConnectorPort.initiateConnecti
         |
         v
 User authorizes in browser --> redirect to /sync/callback?code=xxx&state=yyy
-        |                      (frontend forwards code + state to /api/sync/complete;
+        |                      (frontend POSTs code + state to /api/sync/complete;
         |                       the requisition is resolved by its stored state nonce)
         |
         v
@@ -135,7 +171,8 @@ SyncController.complete() --> SyncService.completeConnection()
         |               AccountService.upsertSnapshot()
         |
         v
-SchedulerService.dailyBankSync() --> SyncService.resyncAll()
+SchedulerService.dailyBankSync() --> SyncService.resyncAll()   (LINKED only)
+                               --> SyncService.retryAllFailed() (FAILED: retry until LINKED or 90d expiry)
 ```
 
 ## Technical choices
@@ -191,6 +228,10 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 - **One bank-status query key**: bank-sync feature hooks own `syncKeys.banks()`, and every complete/retry/reconnect/delete mutation invalidates it. Components must use those hooks rather than introducing a parallel key such as `['sync', 'connections']`, or another sync surface can remain stale until its polling interval elapses.
 - **Type upgrade on resync**: If the user has not customized an account's type, `upsertAccount()` will upgrade it from CHECKING to the detected type on the next sync. Manual user changes are preserved (only CHECKING is auto-upgraded).
 - **Both providers are optional**: The app starts fine without either. No `BankConnectorPort` bean is required at startup.
+- **Enable Banking uid instability.** EB 0.16.4 changed the account uid derivation for ASPSPs that
+  don't expose per-account currency. Picsou resolves this via IBAN-first matching and uid refresh on
+  match; if an account has no IBAN it will fall back to uid matching and may be treated as a new
+  account after an EB provider upgrade. This is tracked by `V46__account_iban.sql`.
 - **A business bank in the list can still fail at authorization**: Enable Banking
   lets an ASPSP declare `required_psu_headers` that must accompany `/auth`.
   Picsou does not send them, so a business bank may now be *findable* yet fail
@@ -221,4 +262,5 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 
 - Related ADR: [Dual bank providers](../decisions/2026-03-01-dual-bank-providers.md)
 - Related ADR: [Ports and adapters](../decisions/2026-01-01-ports-and-adapters.md)
+- Downstream feature: [Budget & Cashflow](./budget.md) (consumes ingested transactions)
 - Related: [bank-logos.md](./bank-logos.md) — logo capture/backfill and account card rendering

@@ -1,0 +1,8 @@
+fastapi==0.111.0
+uvicorn==0.30.1
+# Camoufox (stealth Firefox) instead of vanilla Playwright Chromium: Revolut's anti-bot
+# fingerprints and blocks a plain Playwright Chromium, but accepts a real Firefox engine.
+# playwright is pinned to 1.55.0 because Camoufox 0.4.x's Firefox speaks an older Juggler
+# protocol; 1.60+ breaks it (Browser.setDefaultViewport / setContrast not supported).
+camoufox[geoip]==0.4.11
+playwright==1.55.0

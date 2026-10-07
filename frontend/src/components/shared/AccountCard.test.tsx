@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
 import { AccountCard } from './AccountCard'
+import { StubImage } from '@/test/stubImage'
 import type { Account, RealEstateMetadata } from '@/types/api'
 
 vi.mock('react-i18next', () => ({
@@ -11,57 +12,8 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
-/**
- * Radix's Avatar detects load failure via a synthetic `new Image()` instance,
- * not the rendered <img> element -- stub the global so tests can drive both
- * the success and failure paths deterministically.
- *
- * Its `load` handler reads `event.currentTarget` and re-derives the status from
- * `complete`/`naturalWidth`, so listeners must be called with an event-shaped
- * argument -- calling them bare throws inside Radix instead of failing the assertion.
- */
-class MockImage {
-  onload: (() => void) | null = null
-  onerror: (() => void) | null = null
-  complete = false
-  naturalWidth = 0
-  private listeners = new Map<string, Set<(event: { currentTarget: MockImage }) => void>>()
-  private _src = ''
-
-  addEventListener(type: string, listener: (event: { currentTarget: MockImage }) => void) {
-    const listeners = this.listeners.get(type) ?? new Set()
-    listeners.add(listener)
-    this.listeners.set(type, listeners)
-  }
-
-  removeEventListener(type: string, listener: (event: { currentTarget: MockImage }) => void) {
-    this.listeners.get(type)?.delete(listener)
-  }
-
-  set src(value: string) {
-    this._src = value
-    this.complete = false
-    this.naturalWidth = 0
-    queueMicrotask(() => {
-      this.complete = true
-      if (value.includes('broken')) {
-        this.naturalWidth = 0
-        this.onerror?.()
-        this.listeners.get('error')?.forEach(listener => listener({ currentTarget: this }))
-      } else {
-        this.naturalWidth = 1
-        this.onload?.()
-        this.listeners.get('load')?.forEach(listener => listener({ currentTarget: this }))
-      }
-    })
-  }
-  get src() {
-    return this._src
-  }
-}
-
 beforeEach(() => {
-  vi.stubGlobal('Image', MockImage)
+  vi.stubGlobal('Image', StubImage)
 })
 
 afterEach(() => {
@@ -83,6 +35,7 @@ const baseAccount: Account = {
   logoUrl: null,
   logoKey: null,
   createdAt: '2024-01-01T00:00:00Z',
+  hidden: false,
 }
 
 /** A described, valued property -- the shape every real-estate assertion below varies from. */

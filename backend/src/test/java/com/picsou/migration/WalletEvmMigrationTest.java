@@ -27,9 +27,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies the two data-mutating migrations in the EVM fan-out change:
- * {@code V54__wallet_ethereum_to_evm.sql}, which rewrites {@code wallet_address.chain} and,
+ * {@code V56__wallet_ethereum_to_evm.sql}, which rewrites {@code wallet_address.chain} and,
  * critically, the {@code account.external_account_id} tying a wallet to its synced account;
- * and {@code V55__wallet_evm_account_name.sql}, which relabels the auto-generated account
+ * and {@code V57__wallet_evm_account_name.sql}, which relabels the auto-generated account
  * name without disturbing a user's own label.
  *
  * <p>If the id rewrite were wrong or missing, {@code WalletSyncService} would compute a
@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * discovered in production.
  *
  * <p>Runs against real PostgreSQL via Testcontainers because the migration chain is
- * PostgreSQL-flavoured — {@code CREATE TYPE ... AS ENUM} and V54's own
+ * PostgreSQL-flavoured — {@code CREATE TYPE ... AS ENUM} and V56's own
  * {@code split_part()} do not exist in H2.
  */
 @Testcontainers
@@ -78,8 +78,8 @@ class WalletEvmMigrationTest {
         if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
             throw new IllegalStateException(
                 "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V54/V55 migration test cannot be skipped here. "
-                    + "Needs Docker Engine >= 25.0.");
+                    + "The V56/V57 migration test cannot be skipped here -- it is the only "
+                    + "coverage of a data-mutating migration. Needs Docker Engine >= 25.0.");
         }
         return available;
     }
@@ -95,7 +95,7 @@ class WalletEvmMigrationTest {
 
     /**
      * Brings the schema to V53 (the state a deployed instance is in before this change),
-     * seeds a realistic pre-migration dataset, then applies V54 alone.
+     * seeds a realistic pre-migration dataset, then applies V56 alone.
      */
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
@@ -115,12 +115,12 @@ class WalletEvmMigrationTest {
                     + "VALUES ('SOLANA', 'SoLaNaAddr', " + memberId + ") RETURNING id");
 
             // "ETHEREUM Wallet" is exactly what resolveAccount names an UNLABELLED wallet
-            // (chain.name() + " Wallet") -- the name V55 has to rewrite.
+            // (chain.name() + " Wallet") -- the name V57 has to rewrite.
             ethAccountId = insertAccount(conn, memberId, "ETHEREUM Wallet", "wallet_ethereum_" + ethWalletId);
             solAccountId = insertAccount(conn, memberId, "SOL Wallet", "wallet_solana_" + solWalletId);
             // A bank account whose external id is unrelated: the LIKE filter must not reach it.
             bankAccountId = insertAccount(conn, memberId, "Checking", "gocardless_abc_123");
-            // A second migrated wallet the user LABELLED: V55 must not rename it.
+            // A second migrated wallet the user LABELLED: V57 must not rename it.
             long labelledWalletId = insertReturningId(conn,
                 "INSERT INTO wallet_address (chain, address, member_id, label) "
                     + "VALUES ('ETHEREUM', '0x2222222222222222222222222222222222222222', "
@@ -129,7 +129,7 @@ class WalletEvmMigrationTest {
 
             // The trap: a user whose chosen label happens to BE the auto-generated name.
             // resolveAccount uses a label verbatim, so this account is indistinguishable
-            // from an auto-named one by name alone -- keying V55 on the name would destroy
+            // from an auto-named one by name alone -- keying V57 on the name would destroy
             // a label that can never be recovered (resolveAccount never rewrites names).
             trapWalletId = insertReturningId(conn,
                 "INSERT INTO wallet_address (chain, address, member_id, label) "
@@ -143,12 +143,12 @@ class WalletEvmMigrationTest {
                 + "VALUES (" + ethAccountId + ", 'ETH', 0.96100000, 1850.00000000)");
         }
 
-        migrateTo("55");
+        migrateTo("57");
     }
 
     @Test
     void renamesDefaultChainNamedAccount_butKeepsUserLabels() throws SQLException {
-        // V55: an unlabelled wallet's account was named from the retired chain value and
+        // V57: an unlabelled wallet's account was named from the retired chain value and
         // resolveAccount never refreshes an existing account's name, so without this it
         // would read "ETHEREUM Wallet" forever while tracking BNB, POL and AVAX too.
         assertThat(queryString("SELECT name FROM account WHERE id = " + ethAccountId))
@@ -214,18 +214,18 @@ class WalletEvmMigrationTest {
     /**
      * Ordered last: it is the only test that mutates the shared seeded dataset, so the
      * assertions above must observe the post-migration state, not the post-replay one.
-     * (The replay is a no-op while V54 is correct — but that is the property under test,
+     * (The replay is a no-op while V56 is correct — but that is the property under test,
      * so it cannot be assumed by the tests that run before it.)
      */
     @Test
     @Order(Integer.MAX_VALUE)
     void migrationSqlIsIdempotent_whenReplayedOnAlreadyMigratedData() throws Exception {
-        // Replays the REAL V54 file against data it has already migrated (a repair, a
+        // Replays the REAL V56 file against data it has already migrated (a repair, a
         // restored dump, a replayed deploy). Re-typing the SQL into the test instead
         // would assert nothing at all: after @BeforeAll both statements match zero
         // rows, so a copy passes no matter what the actual migration says -- and it
         // stops tracking the file the moment someone edits it.
-        replay("V54__wallet_ethereum_to_evm.sql");
+        replay("V56__wallet_ethereum_to_evm.sql");
 
         // A second pass must leave the already-rewritten ids and chains exactly as they
         // were -- not re-split them into a truncated or doubled prefix.
@@ -244,7 +244,7 @@ class WalletEvmMigrationTest {
     }
 
     /**
-     * V55's replay safety rests on its own effect: once an account is renamed to "EVM Wallet"
+     * V57's replay safety rests on its own effect: once an account is renamed to "EVM Wallet"
      * its {@code a.name = 'ETHEREUM Wallet'} predicate no longer matches. That is easy to
      * break by broadening the WHERE, and the damage would be a user's chosen label — so pin
      * it against the real file rather than trusting the reasoning.
@@ -252,7 +252,7 @@ class WalletEvmMigrationTest {
     @Test
     @Order(Integer.MAX_VALUE - 1)
     void v55IsIdempotent_whenReplayedOnAlreadyRenamedAccounts() throws Exception {
-        replay("V55__wallet_evm_account_name.sql");
+        replay("V57__wallet_evm_account_name.sql");
 
         assertThat(queryString("SELECT name FROM account WHERE id = " + ethAccountId))
             .isEqualTo("EVM Wallet");
@@ -269,7 +269,7 @@ class WalletEvmMigrationTest {
     @Test
     @Order(Integer.MAX_VALUE - 2)
     void latestSchema_hardensAndBackfillsOnlyReconciledBourseDirectData() throws Exception {
-        migrateTo("59");
+        migrateTo("61");
         long memberId;
         long reconciledAccountId;
         long unreconciledAccountId;
@@ -289,7 +289,7 @@ class WalletEvmMigrationTest {
                 + reconciledAccountId + ", 'FR0000000001', 10, 80, 100)");
 
             // Same legacy shape, but 10 x 100 does not equal total 1500 - cash 250.
-            // V62 must refuse to guess that the broker's unlabelled quote was EUR.
+            // V64 must refuse to guess that the broker's unlabelled quote was EUR.
             unreconciledAccountId = insertReturningId(conn,
                 "INSERT INTO account (name, type, provider, currency, current_balance, cash_balance, "
                     + "external_account_id, is_manual, member_id) VALUES "
@@ -300,7 +300,7 @@ class WalletEvmMigrationTest {
                 + unreconciledAccountId + ", 'US0000000001', 10, 80, 100)");
         }
 
-        migrateTo("63");
+        migrateTo("65");
 
         assertThat(queryString("SELECT sync_status FROM bourse_direct_session WHERE member_id = " + memberId))
             .isEqualTo("IDLE");

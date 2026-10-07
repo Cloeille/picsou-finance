@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useMoney } from '@/hooks/use-money'
 import { RefreshCw, ChevronDown, Info } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -23,6 +24,7 @@ const CONFIDENCE_STYLES: Record<ValuationConfidence, string> = {
 }
 
 export function PropertyValuationCard({ accountId, metadata, currentValue }: PropertyValuationCardProps) {
+  const money = useMoney()
   const { t, i18n } = useTranslation()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const refresh = useRefreshValuation()
@@ -95,7 +97,7 @@ export function PropertyValuationCard({ accountId, metadata, currentValue }: Pro
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
               {result.pricePerSqm != null && (
                 <Fact label={t('property.valuation.pricePerSqm')}
-                      value={`${Math.round(result.pricePerSqm).toLocaleString(locale)} €/m²`} />
+                      value={`${money.amount(Math.round(result.pricePerSqm))}/m²`} />
               )}
               {result.sampleSize != null && (
                 <Fact label={t('property.valuation.sampleSize')}

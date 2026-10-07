@@ -17,6 +17,7 @@ import com.picsou.port.SimplefinPort.SimplefinTransaction;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.SimplefinConnectionRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -43,6 +44,8 @@ public class SimplefinSyncService {
 
     /** Stamped on every imported account so Sync All and deletion can find the connection. */
     public static final String PROVIDER = "SimpleFIN";
+    /** Source name in {@link MemberSyncService} and the MCP sync tools. */
+    public static final String SOURCE = "simplefin";
 
     private static final int MAX_NAME_LEN = 100;
     private static final String COLOR = "#0d9488";
@@ -91,9 +94,11 @@ public class SimplefinSyncService {
             true, stored.getId(), stored.getStatus(), stored.getLastSyncedAt(), masked);
     }
 
-    public void deleteConnection(Long memberId) {
-        connectionRepository.findByMemberId(memberId).ifPresent(connectionRepository::delete);
+    public boolean deleteConnection(Long memberId) {
+        Optional<SimplefinConnection> connection = connectionRepository.findByMemberId(memberId);
+        connection.ifPresent(connectionRepository::delete);
         log.info("SimpleFIN connection cleared for member {}", memberId);
+        return connection.isPresent();
     }
 
     public List<AccountResponse> sync(Long memberId) {
@@ -103,18 +108,23 @@ public class SimplefinSyncService {
     }
 
     /**
-     * Scheduler entry point. Swallows sync failures; the caller still wraps this
-     * because a rollback-only transaction can escape as {@code UnexpectedRollbackException}.
+     * Scheduler and Sync All entry point. Reports failures instead of throwing; the caller still
+     * wraps this because a rollback-only transaction can escape as {@code UnexpectedRollbackException}.
      */
-    public void resyncIfConnected(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
             Optional<SimplefinConnection> connection = connectionRepository.findByMemberId(memberId);
-            if (connection.isEmpty()) return;
+            if (connection.isEmpty()) {
+                return new SourceSyncResult(SOURCE, SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No connection");
+            }
             syncWithConnection(connection.get(), memberId);
+            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.SYNCED, "");
         } catch (SyncException ex) {
             log.warn("SimpleFIN auto-sync failed for member {}: {}", memberId, ex.getMessage());
+            return SourceSyncResult.fromSyncException(SOURCE, ex);
         } catch (RuntimeException ex) {
             log.error("SimpleFIN auto-sync hit an unexpected error for member {}", memberId, ex);
+            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
 

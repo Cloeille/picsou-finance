@@ -71,6 +71,18 @@ spring:
           prompt: false
           completion: false
 
+    # AI transaction categorization: provider/key/model are RUNTIME config (Admin → Settings,
+    # stored in app_setting). spring.ai.model.* stays "none" so the starters never auto-build a
+    # ChatModel at boot — AiChatModelFactory constructs the selected provider's model on demand.
+    model:
+      chat: none
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        transcription: none
+        speech: none
+
 server:
   port: 8080
   # Trust X-Forwarded-* from the local nginx so request scheme/host/port reflect the
@@ -149,6 +161,13 @@ app:
     secret: ${JWT_SECRET}
     access-token-expiry-minutes: 15
     refresh-token-expiry-days: 7
+  # OAuth2 authorization server — the native iOS app's public client (Authorization Code + PKCE).
+  # Tokens are HS256-signed with app.jwt.secret above, so no separate signing key is needed.
+  oauth:
+    client-id: ${OAUTH_IOS_CLIENT_ID:picsou-ios}
+    redirect-uri: ${OAUTH_IOS_REDIRECT_URI:picsou://callback}
+    access-token-ttl-minutes: ${OAUTH_ACCESS_TTL_MINUTES:15}
+    refresh-token-ttl-days: ${OAUTH_REFRESH_TTL_DAYS:30}
   user:
     username: ${APP_USERNAME:}
     password-hash: ${APP_PASSWORD_HASH:}
@@ -166,17 +185,34 @@ app:
     url: ${TR_AUTH_URL:http://tr-auth:8001}
   bourso-auth:
     url: ${BOURSO_AUTH_URL:http://bourso-auth:8001}
+  revolut-auth:
+    url: ${REVOLUT_AUTH_URL:http://revolut-auth:8002}
   bourse-direct-auth:
     url: ${BOURSE_DIRECT_AUTH_URL:http://bourse-direct-auth:8001}
   degiro-auth:
     url: ${DEGIRO_AUTH_URL:http://degiro-auth:8001}
   amundi-auth:
     url: ${AMUNDI_AUTH_URL:http://amundi-auth:8001}
+  amex-auth:
+    url: ${AMEX_AUTH_URL:http://amex-auth:8001}
+  fortuneo-auth:
+    url: ${FORTUNEO_AUTH_URL:http://fortuneo-auth:8001}
+  corum-auth:
+    url: ${CORUM_AUTH_URL:http://corum-auth:8001}
+  sofidy-auth:
+    url: ${SOFIDY_AUTH_URL:http://sofidy-auth:8001}
   # Meria's public API. Overridable like every other external base URL above, which is what lets
   # an integration environment point it at a stub without editing the packaged config.
   # MeriaAdapter carries the same value as its @Value default, so a stripped config still boots.
   meria:
     base-url: ${MERIA_BASE_URL:https://api.meria.com/v1}
+  startup-sync:
+    enabled: ${APP_STARTUP_SYNC_ENABLED:true}
+  # Share and fund logos, read once per ticker from its Yahoo Finance quote page and stored in
+  # PostgreSQL (docs/features/holding-logos.md). Turning it off stops new lookups only: marks
+  # already stored keep showing, and a holding without one shows its ticker alone.
+  instrument-logos:
+    enabled: ${INSTRUMENT_LOGOS_ENABLED:true}
   enablebanking:
     application-id: ${ENABLEBANKING_APPLICATION_ID:}
     key-id: ${ENABLEBANKING_KEY_ID:}

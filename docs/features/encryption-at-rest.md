@@ -28,12 +28,13 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 | Trade Republic session token | `TradeRepublicSession` | `session_token` | V15 (2026-04-08), `TEXT` since V86 |
 | Trade Republic refresh token | `TradeRepublicSession` | `refresh_token` | V15 (2026-04-08), `TEXT` since V86 |
 | DEGIRO session blob | `DegiroSession` | `session_blob` | V71 (2026-08-10), `TEXT` since V86 |
-| SimpleFIN access URL | `SimplefinConnection` | `access_url` | V89 (2026-10-04) |
+| SimpleFIN access URL | `SimplefinConnection` | `access_url` | V109 (2026-10-06) |
 
 ### What is NOT encrypted (and why)
 
 - **Bank sync session IDs** (`requisition.requisition_id`): These are opaque references to Enable Banking sessions, not credentials. They cannot be reused to initiate new bank connections.
 - **Wallet addresses**: Public blockchain data by nature.
+- **Instrument logos** (`instrument_logo`): public company and fund marks, keyed by ticker. Like `security_profile`, the table reveals which tickers the household holds, not a credential, so it gets the same treatment as `price_snapshot` (see [holding-logos.md](./holding-logos.md)).
 - **User password**: BCrypt-hashed (not encrypted) -- correct approach for passwords.
 - **Finary credentials**: Stored in environment variables, not in the database. Out of scope for DB-level encryption.
 

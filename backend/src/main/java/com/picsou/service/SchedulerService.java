@@ -1,7 +1,5 @@
 package com.picsou.service;
 
-import com.picsou.dto.FinaryAutoSyncResponse;
-import com.picsou.finary.FinaryApiSyncService;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
@@ -10,6 +8,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -33,18 +32,19 @@ public class SchedulerService {
     private final BalanceSnapshotRepository snapshotRepository;
     private final FamilyMemberRepository familyMemberRepository;
     private final AccountService accountService;
-    private final SyncService syncService;
-    private final TradeRepublicSyncService trSyncService;
-    private final BoursoSyncService boursoSyncService;
-    private final BourseDirectSyncService bourseDirectSyncService;
-    private final AmundiSyncService amundiSyncService;
+    private final MemberSyncService memberSyncService;
+    /**
+     * How many profiles one weekly pass will resolve. Each one is up to three requests against
+     * an unofficial page and a rate-limited free tier, so the pass is bounded rather than
+     * proportional to the portfolio; a household's tickers are covered in a week or two, and
+     * everything unresolved simply reports as unclassified meanwhile.
+     */
+    private static final int SECURITY_PROFILE_BATCH = 40;
+
     private final PriceService priceService;
-    private final CryptoExchangeSyncService cryptoExchangeSyncService;
-    private final WalletSyncService walletSyncService;
-    private final FinaryApiSyncService finaryApiSyncService;
-    private final IbkrSyncService ibkrSyncService;
-    private final SimplefinSyncService simplefinSyncService;
+    private final SecurityProfileService securityProfileService;
     private final PropertyValuationService propertyValuationService;
+    private final InstrumentLogoService instrumentLogoService;
 
     public SchedulerService(
         AccountRepository accountRepository,
@@ -52,36 +52,21 @@ public class SchedulerService {
         BalanceSnapshotRepository snapshotRepository,
         FamilyMemberRepository familyMemberRepository,
         AccountService accountService,
-        SyncService syncService,
-        TradeRepublicSyncService trSyncService,
-        BoursoSyncService boursoSyncService,
-        BourseDirectSyncService bourseDirectSyncService,
-        AmundiSyncService amundiSyncService,
+        MemberSyncService memberSyncService,
         PriceService priceService,
-        CryptoExchangeSyncService cryptoExchangeSyncService,
-        WalletSyncService walletSyncService,
-        FinaryApiSyncService finaryApiSyncService,
-        IbkrSyncService ibkrSyncService,
-        SimplefinSyncService simplefinSyncService,
-        PropertyValuationService propertyValuationService
-    ) {
+        SecurityProfileService securityProfileService,
+        PropertyValuationService propertyValuationService,
+        InstrumentLogoService instrumentLogoService) {
         this.accountRepository = accountRepository;
         this.holdingRepository = holdingRepository;
         this.snapshotRepository = snapshotRepository;
         this.familyMemberRepository = familyMemberRepository;
         this.accountService = accountService;
-        this.syncService = syncService;
-        this.trSyncService = trSyncService;
-        this.boursoSyncService = boursoSyncService;
-        this.bourseDirectSyncService = bourseDirectSyncService;
-        this.amundiSyncService = amundiSyncService;
+        this.memberSyncService = memberSyncService;
         this.priceService = priceService;
-        this.cryptoExchangeSyncService = cryptoExchangeSyncService;
-        this.walletSyncService = walletSyncService;
-        this.finaryApiSyncService = finaryApiSyncService;
-        this.ibkrSyncService = ibkrSyncService;
-        this.simplefinSyncService = simplefinSyncService;
+        this.securityProfileService = securityProfileService;
         this.propertyValuationService = propertyValuationService;
+        this.instrumentLogoService = instrumentLogoService;
     }
 
     /**
@@ -112,8 +97,7 @@ public class SchedulerService {
     }
 
     /**
-     * Daily at 08:00: Re-sync all linked bank accounts for every family member
-     * (Enable Banking + Trade Republic + Crypto Exchanges + Wallets).
+     * Daily at 08:00: delegate to single owner MemberSyncService.
      */
     @Scheduled(cron = "0 0 8 * * *")
     public void dailyBankSync() {
@@ -125,67 +109,15 @@ public class SchedulerService {
             log.info("Syncing member {}", memberId);
 
             try {
-                syncService.resyncAll(memberId);
-            } catch (Exception ex) {
-                log.error("Daily Enable Banking sync failed for member {}", memberId, ex);
-            }
-
-            try {
-                syncService.retryAllFailed(memberId);
-            } catch (Exception ex) {
-                log.error("Daily retry of FAILED Enable Banking sessions failed for member {}", memberId, ex);
-            }
-
-            trSyncService.resyncIfSessionActive(memberId);
-            boursoSyncService.resyncIfSessionActive(memberId);
-            bourseDirectSyncService.resyncIfSessionActive(memberId);
-            amundiSyncService.resyncIfSessionActive(memberId);
-
-            try {
-                ibkrSyncService.resyncIfConnected(memberId);
-            } catch (Exception ex) {
-                // resyncIfConnected swallows sync failures itself, but Spring can still
-                // throw UnexpectedRollbackException AT THE PROXY EXIT: a repository call
-                // failing inside the sync marks the shared transaction rollback-only
-                // through the repository's own proxy, and the commit attempt happens
-                // after the method's internal catch. Without this wrapper that breaks
-                // the loop for every remaining member.
-                log.error("Daily IBKR auto-sync failed for member {}", memberId, ex);
-            }
-
-            try {
-                simplefinSyncService.resyncIfConnected(memberId);
-            } catch (Exception ex) {
-                log.error("Daily SimpleFIN auto-sync failed for member {}", memberId, ex);
-            }
-
-            try {
-                cryptoExchangeSyncService.resyncAll(memberId);
-            } catch (Exception ex) {
-                log.error("Daily crypto exchange sync failed for member {}", memberId, ex);
-            }
-
-            try {
-                WalletSyncService.ResyncSummary walletSummary = walletSyncService.resyncAll(memberId);
-                if (!walletSummary.failed().isEmpty()) {
-                    log.warn("Daily wallet sync for member {}: {}/{} succeeded, failed chains: {}",
-                        memberId, walletSummary.succeeded(), walletSummary.total(), walletSummary.failed());
+                List<SourceSyncResult> results = memberSyncService.resyncScheduled(memberId);
+                for (SourceSyncResult r : results) {
+                    if (r.status() == SourceSyncResult.Status.FAILED
+                            || r.status() == SourceSyncResult.Status.NEEDS_REAUTH) {
+                        log.warn("Daily sync {} for member {}: {}", r.source(), memberId, r.message());
+                    }
                 }
             } catch (Exception ex) {
-                log.error("Daily wallet sync failed for member {}", memberId, ex);
-            }
-
-            try {
-                FinaryAutoSyncResponse finaryResult = finaryApiSyncService.autoSync(memberId);
-                if ("NEEDS_MAPPING".equals(finaryResult.status())) {
-                    log.info("Finary auto-sync for member {} found new accounts, manual mapping required", memberId);
-                } else if ("OK".equals(finaryResult.status())) {
-                    log.info("Finary auto-sync completed for member {}: {} accounts synced", memberId, finaryResult.accountsSynced());
-                } else if ("TOTP_REQUIRED".equals(finaryResult.status())) {
-                    log.warn("Finary auto-sync for member {} requires TOTP — user must re-authenticate", memberId);
-                }
-            } catch (Exception ex) {
-                log.error("Daily Finary auto-sync failed for member {}", memberId, ex);
+                log.error("Daily sync failed for member {} -- skipping it", memberId, ex);
             }
         }
     }
@@ -296,6 +228,35 @@ public class SchedulerService {
             // ERROR for the same reason as dailySnapshots above: expected outages never
             // reach here, so this is a bug worth surfacing.
             log.error("Price refresh failed -- skipping this cycle", ex);
+        }
+        // After the prices, never before: a ticker becomes a logo candidate only once this pass
+        // has recorded a price for it, and the lookup runs on its own thread so it cannot delay
+        // the next price cycle.
+        instrumentLogoService.requestResolution();
+    }
+
+    /**
+     * Every Sunday night: keep the security profiles the diversification breakdown reads from
+     * warm, so nothing is ever scraped while a page is rendering.
+     *
+     * <p>Shaped like {@link #refreshPrices} and for the same reason — a profile is global, so one
+     * pass over the distinct tickers beats one pass per member. It differs in cadence and in
+     * caution: a sector does not change, the sources are unofficial HTML and a rate-limited free
+     * tier, so the batch is capped and one bad ticker only loses itself.
+     *
+     * <p>A ticker nobody has warmed yet is not an error. It reports as unclassified in the
+     * breakdown, with the uncovered share stated, until the next pass picks it up.
+     */
+    @Scheduled(cron = "0 45 3 * * SUN")
+    public void refreshSecurityProfiles() {
+        Set<String> tickers = new TreeSet<>(holdingRepository.findDistinctTickers());
+        if (tickers.isEmpty()) return;
+
+        try {
+            int refreshed = securityProfileService.refreshStale(tickers, SECURITY_PROFILE_BATCH);
+            log.info("Security profiles: refreshed {} of {} known tickers", refreshed, tickers.size());
+        } catch (Exception ex) {
+            log.error("Security profile refresh failed -- skipping this cycle", ex);
         }
     }
 }

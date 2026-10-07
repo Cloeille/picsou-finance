@@ -38,7 +38,7 @@ GET /dashboard
 
 PUT /accounts/{id}/ownership
   └─> requireOwner            a co-owner cannot reallocate shares
-       ├─ type is REAL_ESTATE or LOAN?   else 422
+       ├─ type is REAL_ESTATE, SCPI or LOAN?   else 422
        ├─ sum <= 100?                    else 422
        ├─ owner present in the split?    else 422
        └─ delete-then-insert (JPQL delete: a derived one trips the unique key)
@@ -61,7 +61,7 @@ PUT /accounts/{id}/ownership
 | Weight on read | A share is a statement about now; weighting at write time would rewrite history whenever a split changes | Store the member's part in `balance_snapshot` |
 | One resolver class | Co-ownership is the only place one member reads another's row — worth a single audited choke point | Ad-hoc ownership queries per service |
 | Sum ≤ 100, not = 100 | Models indivision with someone who does not use Picsou | Force 100 and give the rest to the owner |
-| Restricted to `REAL_ESTATE` and `LOAN` | A joint current account raises transaction and sync questions this does not answer | Apply to every account type |
+| Restricted to `REAL_ESTATE`, `SCPI` and `LOAN` | A joint current account raises transaction and sync questions this does not answer | Apply to every account type |
 | `sharePercent` null at 100% | Lets the UI treat "co-owned" as a distinct state without every ordinary account carrying a meaningless 100 | Always send the number |
 | Full value in `AccountResponse` | A half-owned house is still a €400,000 house, and the edit form must load the real figure | Pre-weight the balance |
 

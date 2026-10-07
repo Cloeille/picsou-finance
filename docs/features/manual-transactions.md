@@ -111,21 +111,35 @@ All sync services (`FinaryPersistenceHelper`, `BoursoSyncService`) now call `tra
 
 `DELETE` validates that the transaction is manual (`isManual = true`). Synced transactions cannot be deleted via this endpoint.
 
+### Category editing on synced transactions
+
+Bank-synced transactions (`isManual = false`) are read-only for amount, date, and counterparty, but their **category can be changed inline**:
+
+- The category chip in the transaction list opens the existing category picker (Dialog on desktop,
+  bottom-sheet on mobile — the same component used by the manual-transaction edit flow).
+- On confirm, the change is persisted via the existing `PUT /api/accounts/{id}/transactions/{txId}/category`
+  endpoint, which stamps `transaction.category_manual = true` on the row.
+- Because `category_manual = true`, the categorization engine will never overwrite this choice
+  during re-sync or retro-apply (see `docs/features/budget-rules.md`).
+- The full edit modal (amount, date, description) remains gated to manual-only transactions.
+
 ### Frontend
 
 `AddTransactionModal` is account-type-aware:
 
 **Cash accounts (CHECKING, SAVINGS, LEP, OTHER):**
-- Date, DEPOSIT/WITHDRAWAL toggle, Description, Amount (always positive — toggle sets sign)
+- Date, DEPOSIT/WITHDRAWAL toggle, Description, Amount (always positive — toggle sets sign), Category (optional dropdown — pre-filled from existing category when editing)
 
 **Investment accounts (PEA, COMPTE_TITRES, CRYPTO):**
 - Date, BUY/SELL toggle, **Ticker ou ISIN** (a ticker like `IWDA.AS` or a 12-char ISIN like `IE00B4L5Y983`), Name (auto-filled from existing holdings when the ticker matches; otherwise resolved from the ISIN backend-side), Quantity, Price per unit, **Fees (optional, folded into the PMP)**, Total (read-only)
 
 The Transactions list groups rows by booking date. Headings stay compact for a single-year list;
-when the visible list spans multiple calendar years, every heading includes its year. It also shows
-a manual-entry badge and a delete button, both only on manual entries. For manual instrument rows
-without a name, it combines the `txType` enum with the canonical ticker through frontend i18n.
-Provider descriptions on synced transactions remain unchanged.
+when the visible list spans multiple calendar years, every heading includes its year. It shows a
+"Manuel" badge on manual entries and a delete button (only for manual entries). For manual
+instrument rows without a name, it combines the `txType` enum with the canonical ticker through
+frontend i18n. Provider descriptions on synced transactions remain unchanged. Tapping a row opens
+a detail sheet/dialog; for synced transactions the **category chip there is tappable** and opens
+the category picker, while all other fields remain display-only.
 
 After submit, `useAddTransaction` / `useDeleteTransaction` hooks invalidate the `transactions`, `history`, `account`, and `dashboard` queries.
 
@@ -161,6 +175,7 @@ After submit, `useAddTransaction` / `useDeleteTransaction` hooks invalidate the 
 
 - **Investment account balance is NOT recomputed** from manual transactions. Only the holdings (positions) are derived. The account's `currentBalance` is set by the price scheduler (qty × live price). This is intentional for investment accounts.
 - **Synced transactions cannot be deleted**: The DELETE endpoint checks `isManual`. Attempting to delete a synced transaction returns 403.
+- **Category is the only editable field on synced transactions.** Amount, date, counterparty, and description are read-only for bank-synced rows. Only the category can be changed via the inline chip picker. Stamping `category_manual = true` makes the choice durable across re-syncs and retro-apply runs.
 - **Holdings recomputation is full**: Every add/delete triggers a full re-derivation for that account (all tickers). This is fast in practice since investment accounts rarely have hundreds of tickers.
 - **The backend never localizes ticker-based descriptions.** `ManualTransactionService` stores
   the effective name, or the canonical ticker when no name exists. The API already exposes

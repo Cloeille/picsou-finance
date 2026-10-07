@@ -1,6 +1,6 @@
 # Feature: BoursoBank sync
 
-> Last updated: 2026-08-13
+> Last updated: 2026-10-04
 > Status: ✅ **Validated end-to-end against a live BoursoBank account**
 > (2026-08-11) — login, dashboard, PEA with 9 positions, reconciled exactly.
 > See "Verification boundaries" for what that run did and did not exercise.
@@ -135,6 +135,56 @@ negatives use U+2212 rather than an ASCII hyphen. Insurance sections are
 recognized so their cards can be skipped explicitly, the same way loans are:
 an unparsed card inside a known section still fails the sync, while a card in
 an unknown section keeps failing it too.
+
+#### Several identities on one access
+
+An access that holds a personal and a business identity (a sole trader, for
+instance) does not get the dashboard straight away
+([#153](https://github.com/Cloeille/picsou-finance/issues/153)). The dashboard
+request answers `302 → /connexion/lister-identites`, a page linking each identity
+to `/connexion/changer-identite/{token}`. Following the personal link chains
+through `/feature-redirect?featureId=customer.dashboard_home` back to the normal
+dashboard.
+
+The sidecar does exactly that, once per `/accounts` call:
+
+1. read the selector and pick the personal identity (`choose_personal_identity`);
+2. follow its switch link, redirects included;
+3. request the dashboard again, then re-read `BRS_CONFIG` from the home page, in
+   case `USER_HASH` differs per identity.
+
+A selector served a second time after the switch fails with
+`UPSTREAM_FORMAT_CHANGED` instead of switching again. The switched identity is not
+written back to the stored session, so every sync switches anew.
+
+**How the personal identity is recognised is an assumption.** The page has only
+been described in the issue, never captured. Each identity is assumed to be an
+`<a href="/connexion/changer-identite/…">` whose text is its label. A label
+carrying a business marker (`EI`, `Pro`, `Professionnel`, `Entreprise`,
+`Entrepreneur`, `SARL`, `SAS`, `SIRET`…) is business; the personal identity is
+the only one without. Markers match whole words only, inflected forms included
+(`Professionnelle`, `Sociétés`, `Libéraux`…), so a personal name such as
+"Dominique Liberali" or "Camille Partisan" is not read as `Libéral` or `Artisan`. The reporter's page showed exactly that shape: one
+unmarked personal identity beside one sole-trader identity.
+
+Everything else is refused rather than guessed, with
+`IDENTITY_SELECTION_UNSUPPORTED`: a selector holding only business identities,
+two or more unmarked identities, or a lone unmarked one with no business identity
+beside it. A business marker missing from the list therefore fails safe: the
+business identity stays unmarked beside the personal one, and the choice is
+refused. The opposite mistake is not safe. A marker matching a personal label
+can leave the business identity as the only unmarked one and pick it, which is
+why markers are whole words. A switch link written outside a plain
+`<a href>`, a selector with no link at all, or a token that could leave the
+switch path fails with `UPSTREAM_FORMAT_CHANGED`, so an identity cannot drop out
+of the choice unnoticed.
+
+The token is per-session and never logged, persisted or put in an error message.
+That is also why the `httpx` logger is held at `WARNING`: at `INFO` it prints
+every request URL, token included.
+
+Business identities are not synced. Supporting them means letting the user pick an
+identity, which is a follow-up.
 
 Securities accounts then get:
 
@@ -271,7 +321,11 @@ short transaction then replaces every account's holdings and writes the daily
 snapshot. The 08:00 scheduler calls `resyncIfSessionActive` through the same gates.
 
 Only `SESSION_EXPIRED` deactivates the session — a transient failure leaves a
-usable one so the scheduler simply retries.
+usable one so the scheduler simply retries. If encrypted customer credentials
+were saved after a successful login, an expired session triggers one unattended
+re-login; it is accepted only when the bank does not require MFA. Invalid
+credentials are erased to avoid repeatedly submitting a changed password, and
+disconnect removes saved credentials with the session.
 
 ## Key files
 
@@ -316,6 +370,10 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Gotchas / Pitfalls
 
+- **The sidecar requires `APP_SIDECAR_API_KEY`.** It refuses to start without
+  it and answers every route except `/health` with a 401 `Picsou-Sidecar-Key`
+  challenge unless the backend presents it. That 401 is not a bank rejection;
+  see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
 - **The pad digit is an image, not text.** `<button data-matrix-key="XYZ">` wraps
   an `<img src="data:image/svg+xml;base64,…">`. Do not "simplify" the digest
   lookup back into reading the button's text — there is no text.
@@ -352,6 +410,11 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
   `/infos-profil/pedagogie-fraude/…` until the holder ticks the notice on the
   real website. The sidecar reports `FRAUD_ACK_REQUIRED`, never auto-ticks the
   notice, and the frontend tells the user to validate it and retry.
+- **A multi-identity access is redirected away from the dashboard.** The 302 to
+  `/connexion/lister-identites` is not the dashboard and not an expired session;
+  see "Several identities on one access". Never follow a business identity's
+  switch link to "get past" the selector: that would sync a business's accounts
+  as personal wealth.
 - **`AccountPayload.type` is `accounts_parser.AccountKind`, not its own list.**
   A kind the parser emits but the contract omits is not a type quibble: pydantic
   rejects that account and `_collect_accounts` fails the *entire* sync, so one
@@ -363,16 +426,19 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Verification boundaries
 
-`services/bourso-auth` — 114 tests, run inside the built image in CI: pad decoding
+`services/bourso-auth` — 130 tests, run inside the built image in CI: pad decoding
 against the real SVGs (and its refusal on an unknown one), password encoding, the
 dashboard parsed from a real captured page including the third-party filter and
 the loan exclusion, a card that stops parsing failing the sync, reconciliation
 accepted and refused either side of the tolerance, the ISIN read off the position and its
 absent/malformed fallbacks, the account and positions found in either section,
-the single-fund contract and each of its refusals, cookie round-tripping with
-per-cookie domains, pending TTL, and the HTTP contract.
+the single-fund contract and each of its refusals, the identity selector (personal
+identity chosen, inflected business markers recognised, a marker inside a
+personal name ignored, business-only and ambiguous selectors refused, a selector that
+comes back after the switch refused, the token kept out of the logs), cookie
+round-tripping with per-cookie domains, pending TTL, and the HTTP contract.
 
-Backend — `BoursoAdapterTest` (16), `BoursoSyncServiceTest` (23),
+Backend — `BoursoAdapterTest` (18), `BoursoSyncServiceTest` (29),
 `BoursoControllerTest` (11), `BoursoAdapterWiringTest`, `BoursoSyncRecoveryTest`,
 plus the BoursoBank cases added to `AccountServiceTest`,
 `AccountConnectionServiceTest` and `IntegrationsServiceTest`.
@@ -413,6 +479,10 @@ two-section payload shape, and the existence of a separate ISIN feed.
   synced one successfully with an equivalent normalisation. Whether `quantity`
   always arrives as a bare value rather than a `{value, decimals}` node is taken
   from that report; a node fails closed with `UPSTREAM_FORMAT_CHANGED`.
+- the **identity selector** — modelled on the
+  [#153](https://github.com/Cloeille/picsou-finance/issues/153) description with
+  synthetic HTML. The anchor shape, the label text and the business markers are
+  inferred, and the switch has not been run against a real multi-identity access.
 
 ⚠️ **One limit worth stating.** The completeness check proves every account link
 *of the expected shape* (`/compte/…/{32-hex}/`) was accounted for. It cannot prove

@@ -1,6 +1,6 @@
 # Feature: Frontend utility library (`frontend/src/lib/utils.ts`)
 
-> Last updated: 2026-08-07 (date-only values anchored at local midnight)
+> Last updated: 2026-08-19 (DateInput no longer rewrites text mid-typing; `ageAt`)
 
 ## Context
 
@@ -29,6 +29,7 @@ Shared formatting functions used across the frontend. Centralised in one file to
 | `formatLocalDate` | `(dateStr, locale=getLocale())` | `"8 avril 2026"` (long month) |
 | `formatPercent` | `(value, locale=getLocale())` | `"50,0 %"` — value is a ratio (0.5 → 50%) |
 | `formatTimeAgo` | `(dateStr, locale=getLocale())` | `"il y a 3 heures"` via `Intl.RelativeTimeFormat` |
+| `ageAt` | `(birthDate, at) => number \| null` | `('1998-09-20', '2042-08-31')` → `43`; completed years between two `yyyy-MM-dd` dates |
 | `todayLabel` | `(locale=getLocale(), date=new Date())` | `"Mardi 8 avril 2026"` (weekday + full date, sentence-cased) |
 | `safeRedirect` | `(redirect, fallback='/')` | Returns the path only if it starts with `/`, else fallback |
 
@@ -86,6 +87,16 @@ changes, derived **during render** (tracking `lastValue`/`lastFormat` in state) 
 avoid a cascading re-render — the same "derive during render" pattern used in
 `ConfirmDialog`.
 
+**It deliberately does not resync from its own echo.** Every keystroke that happens
+to parse is emitted upstream and arrives straight back as a new `value`; rewriting
+the text from it overwrote what was still being typed. Entering a 1990s birth year
+meant typing `19`, watching the field become `…/2019` — `parseDate` expands a
+two-digit year to the 2000s — and then fighting the caret for the remaining digits.
+`lastEmitted` tells the echo apart from a genuine external change (a form reset, a
+key-remount seeding another entity), which still resyncs. The canonical formatting
+the resync used to apply incidentally now happens **on blur** instead, so
+`14.6.1990` still settles to `14/06/1990` once the field is left.
+
 Wired into the four date fields: `AddTransactionModal` (transaction date),
 `GoalsPage` (deadline), and `AccountForm` (loan start/end — via react-hook-form
 `<Controller>` so the ISO value flows through `value`/`onChange`).
@@ -98,9 +109,15 @@ Wired into the four date fields: `AddTransactionModal` (transaction date),
 - **`formatDate` format resolution**: reads `useAppStore.getState().dateFormat` at call time (`'locale'` or `'iso'`). The optional `format` parameter overrides the store value — used by callers that need a specific format regardless of user preference.
 - **Store import in `utils.ts`**: `formatDate` imports `useAppStore` directly — safe because `app-store.ts` has no dependency on `utils.ts` (no circular dependency).
 - **`formatPercent` expects a ratio** (0.5 = 50%), not a percentage value. Passing `50` instead of `0.5` will output `"5 000 %"`.
+- **`ageAt` works on the string parts, never through `Date`.** It is asked about points twenty
+  years out, and building two `Date` objects to subtract them would reintroduce the very
+  local-midnight problem `toDate` exists to avoid, for no gain. It returns `null` on a malformed
+  input rather than `NaN`, and a negative number is possible — a birth date after the date asked
+  about — which callers interpret rather than the helper pretending it cannot happen.
 - **Date-only values are anchored at local midnight** — `new Date("2026-04-08")` is specified to parse as *UTC* midnight, so west of UTC every backend `LocalDate` (transaction dates, goal deadlines, `priceAsOf`) rendered as the day before. `formatDate`, `formatDateTime` and `formatLocalDate` all route through a shared `toDate` helper that appends `T00:00:00` to a `yyyy-MM-dd` string and leaves anything carrying a time to `Date` untouched — there the offset is real information, not a parsing artefact. This gotcha used to advise reaching for `formatLocalDate` instead, which had the identical flaw; the choice between them is now purely about long-month vs compact output.
 - **`parseDate` is the strict inverse of `formatDate`** — the year is the last token in every shape we render (`dd-mm-yyyy`, `dd/mm/yyyy`, `mm/dd/yyyy`); only day/month order varies (`mm/dd` for **en-US in non-iso mode**, `dd/mm` otherwise). It accepts `/`, `-`, `.` separators interchangeably, expands 2-digit years to the 2000s, and round-trips impossible dates (e.g. `31/02`) to `null` by re-checking via `new Date`. When changing `formatDate`'s output shape, update `parseDate` and the round-trip test together.
 - **`DateInput` desktop branch never emits an invalid ISO** — `onChange` fires only when `parseDate` succeeds (or `''` on clear). Consumers therefore can't rely on `onChange` firing for every keystroke; the displayed text is internal state until it parses.
+- **`DateInput` does emit *intermediate* dates while a year is being typed.** `20/09/19` parses to `2019-09-20` and is emitted before the user reaches `1998`. Harmless for a form that saves on submit, which is every current consumer — but a consumer that acted on each `onChange` (a fetch, a navigation) would fire on a date the user never meant.
 - **`safeRedirect` is a security guard** — always use it before redirecting to a URL from query params to prevent open redirect attacks.
 - **Account-type labels are translation keys** — use `accountTypeLabelKey()` from `frontend/src/lib/constants.ts` with `t()`; the former hardcoded-French `accountTypeLabel` helper was removed (2026-07-07). New backend `AccountType` values need an `ACCOUNT_TYPES` entry plus `accountTypes.*` keys in all locale files.
 

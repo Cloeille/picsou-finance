@@ -100,6 +100,14 @@ Picsou publishes pre-built, multi-arch (amd64/arm64) images to the GitHub Contai
 | `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` | Bourse Direct login/2FA sidecar |
 | `ghcr.io/cloeille/picsou-finance/amundi-auth` | Amundi Épargne Salariale login/2FA sidecar |
 | `ghcr.io/cloeille/picsou-finance/bourso-auth` | BoursoBank login/2FA sidecar |
+| `ghcr.io/cloeille/picsou-finance/fortuneo-auth` | Fortuneo login/2FA and portfolio sidecar |
+
+The app and every `*-auth` sidecar authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`. Compose refuses to start without it, and each sidecar refuses any request that does not carry it. Set it once before the first launch:
+
+```bash
+[ -f docker/.env ] || cp docker/.env.example docker/.env
+printf '\nAPP_SIDECAR_API_KEY=%s\n' "$(openssl rand -base64 32)" >> docker/.env
+```
 
 ```bash
 docker compose -f docker/docker-compose.yml pull    # fetch the published images from GHCR
@@ -330,6 +338,7 @@ cp docker/.env.example docker/.env
 
 | Variable | When to set | Description |
 |----------|-------------|-------------|
+| `APP_SIDECAR_API_KEY` | Always (required) | `openssl rand -base64 32`. Shared by the app and every `*-auth` sidecar; recreate them together after a rotation |
 | `POSTGRES_PASSWORD` | Override auto-gen | Strong random password |
 | `JWT_SECRET` | Override auto-gen | `openssl rand -base64 48` |
 | `CRYPTO_ENCRYPTION_KEY` | Override auto-gen | `openssl rand -base64 32` |
@@ -339,6 +348,7 @@ cp docker/.env.example docker/.env
 | `ENABLEBANKING_*` | Skip wizard | From your [Enable Banking dashboard](https://enablebanking.com/). The redirect URI must be `https://` |
 | `BOURSO_AUTH_URL` | Custom sidecar | Defaults to `http://bourso-auth:8001` |
 | `BOURSE_DIRECT_AUTH_URL` | Custom sidecar | Defaults to `http://bourse-direct-auth:8001` |
+| `FORTUNEO_AUTH_URL` | Custom sidecar | Defaults to `http://fortuneo-auth:8001` |
 | `PICSOU_DOMAIN` | TLS profile | Hostname Caddy serves — see [step 3](#3-https-decide-before-the-first-launch) |
 | `HSTS_ENABLED` | Trusted cert | `true` only with a publicly-trusted certificate |
 

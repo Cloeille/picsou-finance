@@ -13,7 +13,7 @@ Trade Republic is a German neobroker popular in France. Picsou syncs portfolio b
 The `TradeRepublicAdapter` delegates auth to the `tr-auth` Python microservice (FastAPI + Playwright, running on port 8001). The Java adapter calls three HTTP endpoints on the sidecar:
 
 1. **`POST /initiate`** -- Sends phone number + PIN. TR dispatches a 2FA code via SMS/app notification. Returns a `processId`.
-2. **`POST /complete`** -- Sends processId + verification code (4-digit code in the current Trade Republic flow). Returns `sessionToken` + `refreshToken`.
+2. **`POST /complete`** -- Sends processId + verification code (4-digit code in the current Trade Republic flow). Returns `sessionToken` + `refreshToken`. Both values become path segments of the TR URL, so the sidecar only accepts `processId` matching `[A-Za-z0-9-]{1,64}` (TR sends a UUID) and `tan` matching `[0-9]{4,8}`; anything else is a 422 and never reaches TR.
 3. **`POST /refresh`** -- Sends refreshToken. Returns new sessionToken (+ possibly rotated refreshToken).
 
 Credentials (phone/PIN) are never stored -- they are used only for the `/initiate` call and discarded.
@@ -40,7 +40,7 @@ Both `sessionToken` and `refreshToken` are **encrypted at rest** with AES-256-GC
 The `TradeRepublicAdapter.fetchAccounts()` connects directly to `wss://api.traderepublic.com/` (protocol version 31) using `ReactorNettyWebSocketClient`. No WAF challenge is needed for the WebSocket endpoint. The adapter:
 
 1. Sends a `connect` message with locale, platform info, and client version.
-2. Subscribes to `availableCash` (cash balance) and `compactPortfolio`/`compactPortfolioByType` (list of positions with ISIN, netSize, averageBuyIn).
+2. Subscribes to `availableCash` (cash balance) and `compactPortfolioByType` (list of positions grouped by category, with `isin`, `netSize`, `averageBuyIn`). One subscription per `secAccNo` from the JWT.
 3. For each position, subscribes to `ticker` to get the live market price. Positions with `instrumentType: "privateFund"` (private equity funds) are skipped — TR never sends a price tick for these non-publicly-traded assets, and subscribing would inflate `expectedTickers` causing the reactive stream to hang until the 45s timeout kills the entire sync. Skipped positions fall back to `averageBuyIn` pricing downstream. For all other positions, `compactPortfolioByType` positions carry no `exchangeId`, so the adapter appends one itself: `.LSX` (Lang & Schwarz Exchange, TR's home exchange for equities/ETFs) by default, or `.TRD0` for TR-native crypto ISINs (`XF000...`), which LSX doesn't list. Using the wrong suffix makes TR reject the subscription (`FORBIDDEN`), so the position's ticker price is never received and the sync silently falls back to `averageBuyIn` — see GH issue #23.
 4. Computes portfolio value as `sum(ticker.last.price * position.netSize)`.
 5. Extracts secAccNo (securities account numbers) from the JWT to handle multiple sub-portfolios. The normal brokerage account is exposed under `act.acc.owner.default`; French PEA accounts are exposed under `act.acc.owner.tax_wrapper_fr`.
@@ -91,6 +91,32 @@ it rejected using the untagged `current_price` column as a fallback.
 
 `TradeRepublicSyncService.importCsv()` parses a CSV file with columns `name,type,balance`. Accounts are deduplicated via a stable external ID derived from the name (`tr_csv_` prefix + slugified name).
 
+### CSV transaction import
+
+`TradeRepublicSyncService.importTransactionsCsv()` parses the full Trade Republic transaction history CSV (exported from the TR app). It implements a **double-entry** pattern to reflect real cash flows without creating holdings positions:
+
+| Row type | `account_type` | Action |
+|----------|---------------|--------|
+| `TRADING` **BUY** on PEA | `PEA` | **Cash leg**: `WITHDRAWAL` `−amount` on TR Cash + **Investment leg**: `DEPOSIT` `+amount` on TR PEA |
+| `TRADING` **SELL** on PEA | `PEA` | **Cash leg**: `DEPOSIT` `+amount` on TR Cash + **Investment leg**: `WITHDRAWAL` `−amount` on TR PEA |
+| `TRADING` on CTO | `DEFAULT` + category `TRADING` | Same pattern but the investment leg targets TR Titres |
+| `CASH` (Saveback, interest, card, transfers from main bank) | `DEFAULT` | Single `DEPOSIT` or `WITHDRAWAL` on TR Cash |
+| `TRANSFER_IN` or `TRANSFER_OUT` | any | **Ignored** — these are TR's internal Cash↔PEA accounting; the double-entry above covers the same movement without duplication |
+
+The two legs are strict mirrors: the investment leg always carries the **opposite sign** of the cash leg (`amount.negate()`), so the same €X moves out of cash and into investments (or vice-versa).
+
+**Cashflow / allocation treatment**: a securities purchase is treated as a real outflow (an "investment purchase"). The **cash leg** is booked under an `Investissement` **EXPENSE** category (slug `investissement-titres`), so `CashflowService` counts it as spending (and a sale as an inflow). That category is *not* part of the default seed set — it is created on demand the first time a member imports TR trades (existing members are never re-seeded), so members who never use this feature don't get an extra category. To avoid counting the same movement a second time (as income), the **investment leg** is tagged with the member's seeded `investissement` category (kind `TRANSFER`), which excludes it from cashflow while still feeding `AllocationService` — it reads the positive investment `DEPOSIT` as an investment contribution. This removes the earlier **double-counting** where both legs landed in the cashflow totals. `CASH` rows stay uncategorized and count as ordinary income/expense by sign.
+
+**Deduplication**: every row produces external IDs suffixed with `_cash` and `_inv`. `TransactionRepository.existsByAccountIdAndExternalId()` guards both, backed by the `(account_id, external_id)` partial unique index (`V33`). Re-importing the same CSV is safe — already-present rows are skipped and counted.
+
+**No positions created**: the import touches only the `transaction` table. Account holdings continue to be managed by the WebSocket sync or by manual BUY/SELL transactions. The imported legs use `tx_type` `DEPOSIT`/`WITHDRAWAL` (never `BUY`/`SELL`), so `HoldingComputeService` — which recomputes positions from `BUY`/`SELL` rows — ignores them.
+
+**Balance ownership**: the TR Cash balance stays owned by the sync — the import writes ledger rows but never overwrites `currentBalance`. More generally, `ManualTransactionService` now recomputes a cash account's balance/history from its transactions **only for manual accounts** (`refreshManualCashBalance`). For a synced account the balance and snapshots come from the connector; recomputing them from this (deliberately partial — `TRANSFER_IN/OUT` excluded) ledger would corrupt the balance the next time a manual transaction is added.
+
+**Endpoint**: `POST /api/tr/accounts/{id}/transactions/import-csv` (multipart `file` param). The `{id}` is validated to belong to the authenticated member. Returns `{ inserted: N, skipped: M }`.
+
+**Frontend**: on the **TR Cash** (CHECKING) account detail page, the **"+ Ajouter CSV (TR)"** button appears next to the manual-transaction button. After upload, a sonner toast shows the count of inserted rows and, if some were already present, the skip count.
+
 ### Scheduled sync
 
 `SchedulerService.dailyBankSync()` calls `TradeRepublicSyncService.resyncIfSessionActive()`, which is a no-op if no session exists. An expired session token is not a reason to skip: the sync attempts the stored refresh token first (the daily 08:00 run is always past the 2 h token window, so the refresh path IS the scheduled-sync path).
@@ -136,7 +162,7 @@ TRController.completeAuth() --> TRSyncService.completeAuth()
   TRAdapter.fetchAccounts(sessionToken)
         |
         WebSocket: connect -> sub availableCash
-                  -> sub compactPortfolio
+                  -> sub compactPortfolioByType (per secAccNo)
                   -> sub ticker (per ISIN)
         |
         Build TrAccountData list
@@ -190,6 +216,8 @@ Without rule 2, Playwright installs to `/root/.cache/ms-playwright/`, which the 
 
 Both compose files (`docker-compose.yml` at repo root and `docker/docker-compose.yml`) reference `services/tr-auth/Dockerfile`, so a fix here applies to both.
 
+Both also forward `APP_SIDECAR_API_KEY`. The sidecar refuses to start without it and answers every route except `/health` with a 401 `Picsou-Sidecar-Key` challenge unless the backend presents it; see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
+
 ## Gotchas / Pitfalls
 
 - **The daily snapshot is taken after the holdings are replaced.** The 3-arg `AccountService.upsertSnapshot` derives the day's `investedAmount` from the holdings in the table; taken before `deleteByAccountId` + re-insert it costed today's snapshot with the previous sync's positions, one sync late in every daily point. Same rule in `DegiroSyncService`.
@@ -209,7 +237,9 @@ Both compose files (`docker-compose.yml` at repo root and `docker/docker-compose
 - **Session lifetime is TR's call, not ours**: the stored `expiresAt` (+2 h) is a heuristic; sync always *tries* (refreshing on `SESSION_EXPIRED`) and only a TR-rejected refresh clears the session. If TR invalidates refresh tokens quickly, the user still has to re-authenticate — but that decision now comes from TR's actual response, not a hard-coded clock.
 - **WebSocket protocol is reverse-engineered**: The TR WebSocket API is undocumented. Raw responses are logged at INFO level. If TR changes the protocol, the adapter will break and need updating.
 - **timeout-driven completion**: The WebSocket session completes when either all data is received (cash + all portfolios + all tickers) or a 30-second timeout is hit.
-- **Multiple sub-portfolios / PEA**: The adapter extracts wrapper-specific `secAccNo` values from the JWT and subscribes to each one separately. `default` maps to `TR Titres` (`COMPTE_TITRES`); `tax_wrapper_fr` maps to `TR PEA` (`PEA`). This avoids merging CTO and PEA holdings into a single securities account.
+- **TR WebSocket API breaks without notice**: Trade Republic removed `compactPortfolio` on 2026-06-21 (protocol v31) and replaced it with `compactPortfolioByType`. The JSON structure changed: positions are now nested under `categories[].positions[]` and use `isin` instead of `instrumentId`. Reference project for future breaks: [pytr-org/pytr](https://github.com/pytr-org/pytr) — they track TR API changes in commit history.
+- **`compactPortfolioByType` requires `secAccNo`**: Unlike the old `compactPortfolio` which had a generic no-secAccNo fallback, `compactPortfolioByType` is always per-securities-account. If `secAccNos` is empty (no securities sub-account in JWT), the portfolio subscription is skipped entirely — only cash is returned.
+- **Multiple sub-portfolios / PEA**: The adapter extracts wrapper-specific `secAccNo` values from the JWT (`act.acc.owner.default.sec[]`) and subscribes to each one separately via per-account `compactPortfolioByType`. `default` maps to `TR Titres` (`COMPTE_TITRES`); `tax_wrapper_fr` maps to `TR PEA` (`PEA`). This avoids merging CTO and PEA holdings into a single securities account. If extraction fails, portfolio is skipped (no fallback subscription).
 - **Holding deduplication by ticker (VWAP)**: Multiple ISINs can map to the same ticker. When syncing, holdings are deduplicated in-memory before insertion to avoid unique constraint violations. Quantities are summed and `averageBuyIn` is the quantity-weighted average (VWAP) via `HoldingDedup::vwapMerge`. The earlier "keep first averageBuyIn" approach was non-deterministic (HashMap iteration order) and produced wrong gain/loss percentages. See [trade-republic-holding-deduplication.md](./trade-republic-holding-deduplication.md).
 - **Empty WebSocket portfolio clears holdings**: If TR returns a securities account
   with zero positions, the sync deletes old holdings for that account so a full sale

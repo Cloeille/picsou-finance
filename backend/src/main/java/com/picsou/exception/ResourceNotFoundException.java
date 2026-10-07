@@ -24,4 +24,16 @@ public class ResourceNotFoundException extends RuntimeException {
     public static ResourceNotFoundException transaction(Long id) {
         return new ResourceNotFoundException("Transaction not found");
     }
+
+    public static ResourceNotFoundException category(Long id) {
+        return new ResourceNotFoundException("Category not found");
+    }
+
+    public static ResourceNotFoundException rule(Long id) {
+        return new ResourceNotFoundException("Categorization rule not found");
+    }
+
+    public static ResourceNotFoundException recurringSeries(Long id) {
+        return new ResourceNotFoundException("Recurring series not found");
+    }
 }

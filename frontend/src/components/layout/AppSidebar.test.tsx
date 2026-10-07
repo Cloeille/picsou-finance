@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import type { FamilyMemberItem } from '@/features/family/api'
@@ -32,6 +32,7 @@ vi.mock('@/features/family/api', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,
+    i18n: { language: 'fr', changeLanguage: () => {} },
   }),
 }))
 
@@ -63,11 +64,18 @@ function makeClient() {
   })
 }
 
-function renderSidebar(queryClient = makeClient()) {
+function CurrentPath() {
+  return <output data-testid="current-path">{useLocation().pathname}</output>
+}
+
+function renderSidebar(queryClient = makeClient(), initialPath = '/') {
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>{children}</MemoryRouter>
+        <MemoryRouter initialEntries={[initialPath]}>
+          {children}
+          <CurrentPath />
+        </MemoryRouter>
       </QueryClientProvider>
     )
   }
@@ -89,6 +97,8 @@ describe('AppSidebar profile switcher', () => {
     listMembers.mockResolvedValue([])
     useAuthStore.getState().logout()
     useAppStore.getState().setDemoMode(false)
+    useAppStore.getState().setSidebarStyle('current')
+    useAppStore.getState().setHideAmounts(false)
     useProfileStore.getState().reset()
   })
 
@@ -143,6 +153,7 @@ describe('AppSidebar classic style', () => {
     useAuthStore.getState().logout()
     useAppStore.getState().setDemoMode(false)
     useAppStore.getState().setSidebarStyle('classic')
+    useAppStore.getState().setHideAmounts(false)
     useProfileStore.getState().reset()
   })
 
@@ -172,5 +183,87 @@ describe('AppSidebar classic style', () => {
 
     openAccountMenu('nav.switchProfile')
     expect(await screen.findByRole('menuitemradio', { name: /Lou/ })).toBeInTheDocument()
+  })
+})
+
+describe.each([
+  { style: 'current' as const, side: 'top' },
+  { style: 'classic' as const, side: 'bottom' },
+])('AppSidebar account menu sync entry ($style style)', ({ style, side }) => {
+  beforeEach(() => {
+    listMembers.mockReset()
+    listMembers.mockResolvedValue([])
+    useAuthStore.getState().logout()
+    useAppStore.getState().setDemoMode(false)
+    useAppStore.getState().setSidebarStyle(style)
+    useAppStore.getState().setHideAmounts(false)
+    useProfileStore.getState().reset()
+    useAuthStore.getState().login({ username: 'robin', role: 'MEMBER', memberId: 7, displayName: 'Robin' })
+  })
+
+  it(`opens the menu on the ${side} side of the profile trigger`, async () => {
+    renderSidebar()
+
+    openAccountMenu()
+    expect(await screen.findByRole('menu')).toHaveAttribute('data-side', side)
+  })
+
+  it('navigates to /sync from the account menu', async () => {
+    renderSidebar()
+
+    openAccountMenu()
+    const sync = await screen.findByRole('menuitem', { name: 'nav.sync' })
+    expect(sync).toHaveAttribute('href', '/sync')
+    expect(sync).not.toHaveAttribute('aria-current')
+
+    fireEvent.click(sync)
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/sync')
+  })
+
+  it('marks the sync entry as the current page on /sync', async () => {
+    renderSidebar(makeClient(), '/sync')
+
+    openAccountMenu()
+    expect(await screen.findByRole('menuitem', { name: 'nav.sync' })).toHaveAttribute('aria-current', 'page')
+  })
+})
+
+describe('AppSidebar privacy toggle', () => {
+  beforeEach(() => {
+    listMembers.mockReset()
+    listMembers.mockResolvedValue([])
+    useAuthStore.getState().logout()
+    useAppStore.getState().setDemoMode(false)
+    useAppStore.getState().setSidebarStyle('current')
+    useAppStore.getState().setHideAmounts(false)
+    useProfileStore.getState().reset()
+  })
+
+  it('hides and reveals every amount in the app, and says which action it offers', () => {
+    renderSidebar()
+
+    // The label names the action, not the state -- the icon already carries the state.
+    const button = screen.getByRole('button', { name: 'nav.hideAmounts' })
+    expect(button).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(button)
+
+    expect(useAppStore.getState().hideAmounts).toBe(true)
+    const pressed = screen.getByRole('button', { name: 'nav.showAmounts' })
+    expect(pressed).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(pressed)
+    expect(useAppStore.getState().hideAmounts).toBe(false)
+  })
+
+  it('persists the choice, because a refresh mid-demo must not reveal anything', () => {
+    renderSidebar()
+    fireEvent.click(screen.getByRole('button', { name: 'nav.hideAmounts' }))
+
+    // Written deliberately: `partialize` in app-store is an allowlist, so leaving the field out
+    // fails silently -- no type error, no runtime error, the setting simply does not survive a
+    // reload. Nothing else in the suite would notice.
+    const stored = JSON.parse(localStorage.getItem('picsou-app') ?? '{}')
+    expect(stored.state.hideAmounts).toBe(true)
   })
 })

@@ -10,7 +10,9 @@ import com.picsou.model.AccountType;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.CategoryRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.budget.CategorizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,6 +35,8 @@ class ManualTransactionServiceTest {
     @Mock TransactionRepository transactionRepository;
     @Mock HoldingComputeService holdingComputeService;
     @Mock FinaryPersistenceHelper finaryPersistenceHelper;
+    @Mock CategoryRepository categoryRepository;
+    @Mock CategorizationService categorizationService;
     @Mock OpenFigiIsinConverter openFigiIsinConverter;
 
     ManualTransactionService manualTransactionService;
@@ -43,9 +47,11 @@ class ManualTransactionServiceTest {
         // end-to-end ISIN/ticker resolution assertions below exercise the actual logic.
         manualTransactionService = new ManualTransactionService(
             accountRepository, transactionRepository, holdingComputeService,
-            finaryPersistenceHelper, new InstrumentFieldResolver(openFigiIsinConverter));
+            finaryPersistenceHelper, categoryRepository, categorizationService,
+            new InstrumentFieldResolver(openFigiIsinConverter));
     }
 
+    /** A manual cash account — its balance IS the sum of its (hand-entered) transactions. */
     private Account checkingAccount() {
         return Account.builder()
             .id(1L)
@@ -99,7 +105,7 @@ class ManualTransactionServiceTest {
             "Salary",
             new BigDecimal("1000"),
             TransactionType.DEPOSIT,
-            null, null, null, null, "EUR"
+            null, null, null, null, "EUR", null
         );
 
         when(accountRepository.findByIdAndMemberId(1L, 10L)).thenReturn(Optional.of(account));
@@ -198,7 +204,7 @@ class ManualTransactionServiceTest {
             null,
             new BigDecimal("5"),
             new BigDecimal("100"),
-            "EUR"
+            "EUR", null
         );
 
         when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(account));
@@ -248,7 +254,7 @@ class ManualTransactionServiceTest {
     void addTransaction_accountNotFound_throws() {
         TransactionRequest req = new TransactionRequest(
             LocalDate.now(), "Test", BigDecimal.TEN,
-            TransactionType.DEPOSIT, null, null, null, null, "EUR"
+            TransactionType.DEPOSIT, null, null, null, null, "EUR", null
         );
 
         when(accountRepository.findByIdAndMemberId(99L, 10L)).thenReturn(Optional.empty());
@@ -337,7 +343,7 @@ class ManualTransactionServiceTest {
             null,
             new BigDecimal("5"),
             new BigDecimal("100"),
-            "EUR"
+            "EUR", null
         );
 
         when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(account));
@@ -369,6 +375,7 @@ class ManualTransactionServiceTest {
             new BigDecimal("10"),
             new BigDecimal("100"),
             "EUR",
+            null,
             new BigDecimal("1.50")
         );
 
@@ -396,6 +403,7 @@ class ManualTransactionServiceTest {
             new BigDecimal("10"),
             new BigDecimal("100"),
             "EUR",
+            null,
             new BigDecimal("-1")
         );
 
@@ -420,7 +428,7 @@ class ManualTransactionServiceTest {
             "My World ETF",
             new BigDecimal("5"),
             new BigDecimal("100"),
-            "EUR"
+            "EUR", null
         );
 
         when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(account));

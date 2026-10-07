@@ -198,6 +198,35 @@ class HistoryServiceTest {
     }
 
     @Test
+    void buildHistory_creditCard_contributesZeroToInvested_signedDebtToTotal() {
+        LocalDate date = LocalDate.now().minusDays(2);
+        Account card = creditCard(1L, "-800");
+        Account checking = checking(2L, "2000");
+
+        when(accountRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(card, checking));
+        when(snapshotRepository.findForwardFillDataByAccountIds(any(LocalDate.class), eq(List.of(1L, 2L))))
+            .thenReturn(List.of(
+                new Object[]{1L, date, new BigDecimal("-800"), new BigDecimal("-800")},
+                new Object[]{2L, date, new BigDecimal("2000"), new BigDecimal("2000")}
+            ));
+        stubValuation(card, "-800", "-800");
+        stubValuation(checking, "2000", "2000");
+
+        List<NetWorthPoint> result = historyService.buildHistory(List.of(1L, 2L), 1, true, MEMBER_ID);
+
+        NetWorthPoint past = result.stream().filter(p -> p.date().equals(date)).findFirst().orElseThrow();
+        NetWorthPoint today = result.getLast();
+        for (NetWorthPoint point : List.of(past, today)) {
+            // The card stores its debt signed: 2000 − 800, never invested, never P&L.
+            assertThat(point.total()).isEqualByComparingTo("1200");
+            assertThat(point.invested()).isEqualByComparingTo("2000");
+            assertThat(point.pnl()).isEqualByComparingTo("0");
+            assertThat(point.accounts().get(1L).total()).isEqualByComparingTo("-800");
+            assertThat(point.accounts().get(1L).invested()).isEqualByComparingTo("0");
+        }
+    }
+
+    @Test
     void buildHistory_forwardFill_carriesLastInvestedAcrossGap() {
         LocalDate today = LocalDate.now();
         Account brokerage = brokerage(1L, "CT");
@@ -317,6 +346,12 @@ class HistoryServiceTest {
             .currentBalance(new BigDecimal(balance)).color("#ef4444").member(MEMBER).build();
     }
 
+    private static Account creditCard(long id, String balance) {
+        return Account.builder()
+            .id(id).name("Card").type(AccountType.CREDIT_CARD).currency("EUR")
+            .currentBalance(new BigDecimal(balance)).color("#2563eb").member(MEMBER).build();
+    }
+
     private static Account checking(long id, String balance) {
         return Account.builder()
             .id(id).name("Checking").type(AccountType.CHECKING).currency("EUR")
@@ -342,6 +377,24 @@ class HistoryServiceTest {
         assertThat(result.invested()).isEqualByComparingTo("4800"); // loan excluded from invested
         assertThat(result.pnl()).isEqualByComparingTo("300");       // 5100 − 4800, loan contributes 0
         assertThat(result.pnlPercent()).isEqualByComparingTo("6.3"); // 300 × 100 / 4800, HALF_UP scale 1
+    }
+
+    @Test
+    void buildPnl_creditCardCountsInTotal_excludedFromInvestedAndPnl() {
+        Account card = creditCard(1L, "-800");
+        Account brokerageAcc = brokerage(2L, "CT");
+
+        when(accountRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(card, brokerageAcc));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        when(holdingRepository.findByAccount_Id(2L)).thenReturn(List.of());
+        stubValuation(card, "-800", "-800");
+        stubValuation(brokerageAcc, "5100", "4800");
+
+        PnlResponse result = historyService.buildPnl(List.of(1L, 2L), MEMBER_ID);
+
+        assertThat(result.total()).isEqualByComparingTo("4300");
+        assertThat(result.invested()).isEqualByComparingTo("4800");
+        assertThat(result.pnl()).isEqualByComparingTo("300");
     }
 
     @Test
@@ -491,6 +544,27 @@ class HistoryServiceTest {
             assertThat(point.total()).isEqualByComparingTo("-8000");
             assertThat(point.invested()).isEqualByComparingTo("2000");
         }
+    }
+
+    @Test
+    void buildIntradayHistory_creditCardSigned_excludedFromInvested() {
+        Account card = creditCard(1L, "-800");
+        Account cashAcc = checking(2L, "2000");
+
+        when(accountRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(card, cashAcc));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        when(holdingRepository.findByAccount_Id(2L)).thenReturn(List.of());
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any(LocalDate.class))).thenReturn(Optional.empty());
+        when(snapshotRepository.findByAccountIdAndDate(eq(2L), any(LocalDate.class))).thenReturn(Optional.empty());
+        stubValuationLenient(card, "-800", "-800");
+        stubValuationLenient(cashAcc, "2000", "2000");
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L, 2L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty().allSatisfy(point -> {
+            assertThat(point.total()).isEqualByComparingTo("1200");
+            assertThat(point.invested()).isEqualByComparingTo("2000");
+        });
     }
 
     @Test

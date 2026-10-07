@@ -5,7 +5,9 @@ export type IntegrationKey =
   | 'enablebanking'
   | 'boursobank'
   | 'boursedirect'
+  | 'fortuneo'
   | 'traderepublic'
+  | 'revolut'
   | 'finary'
   | 'crypto'
 
@@ -13,7 +15,9 @@ export const ALL_INTEGRATIONS: IntegrationKey[] = [
   'enablebanking',
   'boursobank',
   'boursedirect',
+  'fortuneo',
   'traderepublic',
+  'revolut',
   'finary',
   'crypto',
 ]

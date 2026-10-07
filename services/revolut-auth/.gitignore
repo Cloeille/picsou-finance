@@ -1,0 +1,17 @@
+# Secrets / session state captured during login — never commit
+revolut-storage.json
+*-creds*
+# capture_login.py dev-helper debug artifacts
+capture.log
+# Python
+.venv/
+__pycache__/
+*.pyc
+# local dev validation helper
+validate_harvest.py
+# persistent Camoufox profile (contains the live session — never commit)
+revolut-profile/
+validate_persistent.py
+keepalive_test.py
+keepalive.log
+auto_login.py

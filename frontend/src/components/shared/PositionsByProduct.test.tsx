@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { ExchangePositionResponse } from '@/types/api'
 
@@ -18,10 +18,10 @@ vi.mock('react-i18next', () => ({
 const { PositionsByProduct } = await import('./PositionsByProduct')
 
 const POSITIONS: ExchangePositionResponse[] = [
-  { product: 'SPOT', ticker: 'BTC', quantity: 0.5, principal: null, interest: null, averageBuyIn: 80, currentPriceEur: 100, currentValueEur: 50, costBasisEur: 40, pnlEur: 10, pnlPercent: 25, priceAsOf: '2026-08-01', priceStale: false },
-  { product: 'STAKING', ticker: 'ATOM', quantity: 33.154, principal: 19.73, interest: 13.424, averageBuyIn: 6, currentPriceEur: 5, currentValueEur: 165.77, costBasisEur: 198.92, pnlEur: -33.15, pnlPercent: -16.7, priceAsOf: '2026-08-01', priceStale: false },
+  { product: 'SPOT', ticker: 'BTC', logoUrl: null, quantity: 0.5, principal: null, interest: null, averageBuyIn: 80, currentPriceEur: 100, currentValueEur: 50, costBasisEur: 40, pnlEur: 10, pnlPercent: 25, priceAsOf: '2026-08-01', priceStale: false },
+  { product: 'STAKING', ticker: 'ATOM', logoUrl: null, quantity: 33.154, principal: 19.73, interest: 13.424, averageBuyIn: 6, currentPriceEur: 5, currentValueEur: 165.77, costBasisEur: 198.92, pnlEur: -33.15, pnlPercent: -16.7, priceAsOf: '2026-08-01', priceStale: false },
   // Same asset, two products — the split this component exists to show.
-  { product: 'STAKING', ticker: 'BTC', quantity: 0.25, principal: 0.2, interest: 0.05, averageBuyIn: 80, currentPriceEur: 100, currentValueEur: 25, costBasisEur: 20, pnlEur: 5, pnlPercent: 25, priceAsOf: '2026-08-01', priceStale: false },
+  { product: 'STAKING', ticker: 'BTC', logoUrl: null, quantity: 0.25, principal: 0.2, interest: 0.05, averageBuyIn: 80, currentPriceEur: 100, currentValueEur: 25, costBasisEur: 20, pnlEur: 5, pnlPercent: 25, priceAsOf: '2026-08-01', priceStale: false },
 ]
 
 /** The figure rendered next to a product's heading, which is the group's subtotal. */
@@ -135,5 +135,24 @@ describe('PositionsByProduct', () => {
     const { container } = render(<PositionsByProduct positions={[]} />)
 
     expect(container).toBeEmptyDOMElement()
+  })
+
+  // One sort criterion for the three sections, applied inside each: the SPOT/STAKING/LENDING
+  // sequence is editorial and must survive any column the reader picks.
+  it('sorts every product section on one criterion without reordering the sections', () => {
+    render(<PositionsByProduct positions={POSITIONS} />)
+
+    const staking = sectionFor('STAKING')
+    // Value descending by default: ATOM (165,77) before BTC (25).
+    expect(staking.getAllByRole('row').slice(1).map(r => r.querySelector('td')!.textContent))
+      .toEqual(['ATOM', 'BTC'])
+
+    fireEvent.click(within(staking.getAllByRole('table')[0]).getByRole('button', { name: 'portfolio.value' }))
+
+    expect(sectionFor('STAKING').getAllByRole('row').slice(1).map(r => r.querySelector('td')!.textContent))
+      .toEqual(['BTC', 'ATOM'])
+    // The headings kept their order, and SPOT is still the first section on screen.
+    const headings = screen.getAllByRole('heading', { level: 3 }).map(h => h.textContent)
+    expect(headings).toEqual(['positions.products.SPOT', 'positions.products.STAKING'])
   })
 })

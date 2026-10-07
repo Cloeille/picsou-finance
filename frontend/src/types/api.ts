@@ -1,7 +1,7 @@
 export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'LOAN' | 'EMPLOYEE_SAVINGS' | 'OTHER'
+  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
@@ -138,6 +138,55 @@ export interface LinkedLoan {
   endDate: string | null
 }
 
+export type DividendPolicy = 'CASH' | 'REINVEST'
+export type ScpiValuationStatus = 'OK' | 'PRICE_INCOMPLETE'
+
+export interface ScpiPosition {
+  isin: string | null
+  managementCompany: string | null
+  corumFundCode: string | null
+  sofidyFundCode: string | null
+  shareCount: number
+  subscriptionPriceEur: number | null
+  withdrawalPriceEur: number | null
+  /** Withdrawal price times share count. Null when the withdrawal price is missing. */
+  withdrawalValueEur: number | null
+  dividendPolicy: DividendPolicy
+  jouissanceDate: string | null
+  valuationStatus: ScpiValuationStatus
+}
+
+export interface ScpiPositionRequest {
+  isin?: string | null
+  managementCompany?: string | null
+  /** Links this account to one fund of a CORUM contract, so a sync can fill it. */
+  corumFundCode?: string | null
+  /** Links this account to one fund of a Sofidy portfolio, so a sync can fill it. */
+  sofidyFundCode?: string | null
+  shareCount: number
+  subscriptionPriceEur?: number | null
+  withdrawalPriceEur?: number | null
+  dividendPolicy?: DividendPolicy
+  jouissanceDate?: string | null
+}
+
+/** One SCPI vehicle in the property summary. Kept out of the open-data gross. */
+export interface ScpiPaperLine {
+  accountId: number
+  name: string
+  color: string | null
+  managementCompany: string | null
+  shareCount: number | null
+  sharePercent: number
+  withdrawalPriceEur: number | null
+  subscriptionPriceEur: number | null
+  grossValue: number
+  outstandingDebt: number
+  netValue: number
+  valuationStatus: ScpiValuationStatus | null
+  loans: LinkedLoan[]
+}
+
 export interface RealEstatePropertyLine {
   accountId: number
   name: string
@@ -169,6 +218,11 @@ export interface RealEstateSummary {
   loanToValue: number | null
   monthlyRentalIncome: number
   properties: RealEstatePropertyLine[]
+  /** SCPI shares. Not included in grossValue, which is the open-data figure for physical property. */
+  paperGross: number
+  paperDebt: number
+  paperNet: number
+  paper: ScpiPaperLine[]
 }
 
 export interface GeocodeSuggestion {
@@ -211,12 +265,32 @@ export interface Account {
   /** Key of a bundled frontend asset (`lib/provider-logos.ts`); null for accounts with no choice made. */
   logoKey: string | null
   createdAt: string
+  /**
+   * When the member says the wrapper was opened — a PEA's fifth anniversary and an
+   * assurance-vie's eighth turn on it. Distinct from `createdAt`, which dates the Picsou row.
+   * Omitted by the API when never stated.
+   */
+  openedAt?: string | null
   realEstate?: RealEstateMetadata
   debt?: DebtInfo
+  /** Set for Revolut pocket sub-accounts: the id of the parent Revolut wallet.
+   *  Null / absent for regular top-level accounts. */
+  parentAccountId?: number | null
+  /** Stable external identifier (e.g. Revolut pocket UUID from "To EUR MB:<uuid>").
+   *  Null / absent for regular accounts. */
+  externalAccountId?: string | null
+  savingsConfig?: SavingsConfig | null
+  paymentDueAmount?: number
+  paymentDueDate?: string
+  rewardPoints?: number
+  /** Display-only visibility flag; hidden account still syncs normally. */
+  hidden: boolean
   /** Set only when the member owns less than all of it — the co-ownership badge signal. */
   sharePercent?: number | null
   /** Whether the viewer administers the account. Holding a share does not grant write access. */
   isOwner?: boolean | null
+  /** Present only for a SCPI account. */
+  scpi?: ScpiPosition | null
 }
 
 export interface AccountRequest {
@@ -235,6 +309,12 @@ export interface AccountRequest {
    * resolve the logo (never sent as a URL — see `docs/features/bank-logos.md`) and not stored.
    */
   institutionId?: string
+  /**
+   * ISO date. **Omitting it leaves the stored value alone** — the backend cannot tell an absent
+   * field from a cleared one, and treating null as "clear" would let any client that predates
+   * the field wipe it. The form can change the date but not blank it.
+   */
+  openedAt?: string | null
 }
 
 export interface RealEstateMetadataRequest {
@@ -279,6 +359,44 @@ export interface DebtRequest {
   endDate?: string
   insuranceMonthly?: number
   fileFees?: number
+}
+
+// ─── Savings livrets ─────────────────────────────────────────────────────────
+
+export type SavingsProduct = 'LIVRET_A' | 'LDDS' | 'LEP' | 'COMMERCIAL'
+export type RateBasis = 'GROSS' | 'NET'
+
+export interface SavingsConfig {
+  product: SavingsProduct
+  annualRate: number
+  rateBasis: RateBasis
+  taxRatePct: number | null
+  ceiling: number | null
+}
+
+export interface SavingsConfigRequest {
+  product: SavingsProduct
+  annualRate: number
+  rateBasis: RateBasis
+  taxRatePct: number | null
+  ceiling: number | null
+}
+
+export interface SavingsInterestProjection {
+  estimatedInterestYtd: number
+  projectedInterestFullYear: number
+  nextCapitalizationDate: string
+  annualRatePct: number
+  basis: RateBasis
+  netOfTax: boolean
+}
+
+export interface SavingsSuggestion {
+  accountId: number
+  accountName: string
+  suggestedProduct: SavingsProduct
+  defaultAnnualRate: number | null
+  uncertain: boolean
 }
 
 export interface LoanInstallment {
@@ -326,28 +444,114 @@ export interface BalanceSnapshot {
   createdAt?: string
 }
 
+export type GoalType = 'SAVINGS_TARGET' | 'RECURRING_INVESTMENT'
+
+/** One line of a recurring plan's monthly split. */
+export interface GoalAllocation {
+  ticker: string
+  /** The holding's name in the funded account; the ticker is what identifies the line. */
+  name: string | null
+  monthlyAmount: number
+}
+
 export interface GoalProgress {
   id: number
   name: string
-  targetAmount: number
-  deadline: string
+  type: GoalType
   createdAt: string
   historyStartMonth: string | null
   accounts: Account[]
   currentTotal: number
-  percentComplete: number
-  monthsLeft: number
-  monthlyNeeded: number
+
+  /**
+   * The target machinery. All null for a RECURRING_INVESTMENT — discriminate on `type`, which is
+   * always present, rather than on which of these happens to be missing.
+   */
+  targetAmount: number | null
+  deadline: string | null
+  percentComplete: number | null
+  monthlyNeeded: number | null
   avgMonthlyContribution: number | null
+  surplus: number | null
+
+  /**
+   * Primitives on the backend, so they cannot be dropped from the JSON: a recurring plan reports
+   * 0 and true. Meaningless for it — never render them without checking `type` first.
+   */
+  monthsLeft: number
   isOnTrack: boolean
-  surplus: number
+
+  /** RECURRING_INVESTMENT only. */
+  monthlyAmount: number | null
+  expectedReturn: number | null
+  startDate: string | null
+  endDate: string | null
+
+  /**
+   * Where the monthly amount goes. **Always an array** — empty for a savings target and for a
+   * plan nobody has detailed, never omitted. The backend sends `[]` on purpose here, against its
+   * own `non_null` rule, precisely so this can be mapped over without a guard.
+   */
+  allocations: GoalAllocation[]
 }
 
 export interface GoalRequest {
   name: string
-  targetAmount: number
-  deadline: string
+  type: GoalType
+  targetAmount: number | null
+  deadline: string | null
+  monthlyAmount: number | null
+  expectedReturn: number | null
+  startDate: string | null
+  endDate: string | null
+  /** Only tickers the funded account already holds; the backend answers 400 for any other. */
+  allocations: { ticker: string; monthlyAmount: number }[]
   accountIds: number[]
+}
+
+// --- Analysis: wealth projection ---
+
+export interface ProjectionPoint {
+  date: string
+  valueEur: number
+  /** Capital in — the base plus everything paid in since, so the chart can shade the gain. */
+  contributedEur: number
+}
+
+export interface ProjectionScenario {
+  key: 'PESSIMISTIC' | 'CAUTIOUS' | 'REFERENCE' | 'OPTIMISTIC'
+  /**
+   * The effective blended rate this scenario works out to, given where the money sits and where
+   * each plan sends it. Not a headline applied to everything — the same "optimistic" curve is
+   * 10 % for someone fully invested and 3 % for someone whose plans mostly feed a passbook.
+   */
+  annualPercent: number
+  /** Points added to risky assets to obtain this scenario. Cash does not have a good year. */
+  riskyDelta: number
+  points: ProjectionPoint[]
+}
+
+/** The mix at one horizon, under the reference scenario, beside the member's own targets. */
+export interface AllocationPoint {
+  date: string
+  tiers: AllocationTierShare[]
+}
+
+export interface AllocationTierShare {
+  tier: WealthTier
+  valueEur: number
+  percent: number
+  targetPercent: number | null
+}
+
+export interface Projection {
+  /** Investable only: no property, no loans, no alternative assets. */
+  baseValueEur: number
+  monthlyInflowEur: number
+  years: number
+  scenarios: ProjectionScenario[]
+  /** Where the mix is heading — the question the pyramid asks and a total could never answer. */
+  allocation: AllocationPoint[]
 }
 
 export interface GoalMonthEntry {
@@ -359,9 +563,32 @@ export interface GoalMonthEntry {
   effective: number | null
 }
 
+/**
+ * The backend serialises with `default-property-inclusion: non_null`, so a null field is
+ * omitted from the JSON rather than sent as null. Optional + nullable is the honest type.
+ */
+export interface DashboardLiability {
+  accountId: number
+  name: string
+  color: string
+  balanceEur: number
+  percentage: number
+  accountType: AccountType
+  hasHoldings: boolean
+  /** Loans with configured parameters only. */
+  monthlyPayment?: number | null
+  /** Loans with a borrowed amount only. */
+  percentPaid?: number | null
+  /** Credit cards only, when the statement is known. */
+  paymentDueAmountEur?: number | null
+  /** Credit cards only, `yyyy-MM-dd`. */
+  paymentDueDate?: string | null
+}
+
 export interface DashboardData {
   totalNetWorth: number
   totalLiabilities: number
+  totalMonthlyPayment?: number | null
   netWorthHistory: { date: string; total: number; invested: number; pnl: number }[]
   distribution: {
     accountId: number
@@ -372,15 +599,7 @@ export interface DashboardData {
     accountType: AccountType
     hasHoldings: boolean
   }[]
-  liabilities: {
-    accountId: number
-    name: string
-    color: string
-    balanceEur: number
-    percentage: number
-    accountType: AccountType
-    hasHoldings: boolean
-  }[]
+  liabilities: DashboardLiability[]
   goalSummaries: GoalProgress[]
 }
 
@@ -398,6 +617,13 @@ export interface Institution {
 export interface HoldingResponse {
   ticker: string
   name: string | null
+  // The image to show beside the ticker, or null when the asset has no known logo. A crypto
+  // mark is a CoinGecko URL; a share or fund mark is Picsou's own /api/instrument-logos
+  // endpoint, present once the background lookup stored one. A null is a normal answer, not a
+  // failure — see docs/features/holding-logos.md.
+  logoUrl: string | null
+  // The same mark drawn for a dark background, when the source has a distinct one.
+  logoUrlDark?: string | null
   quantity: number
   averageBuyIn: number | null
   currentPrice: number | null
@@ -478,6 +704,8 @@ export type FinaryMappingAction = 'SKIP' | 'MAP_EXISTING' | 'CREATE_NEW'
 export interface ExchangePositionResponse {
   product: 'SPOT' | 'STAKING' | 'LENDING'
   ticker: string
+  /** The coin's image, or null when CoinGecko has no mark for it. See HoldingResponse.logoUrl. */
+  logoUrl: string | null
   quantity: number
   /** Capital part of `quantity`; null when the exchange doesn't split it. */
   principal: number | null
@@ -547,6 +775,12 @@ interface BoursoSessionStatusBase {
   lastSyncCompletedAt: string | null
 }
 
+export interface RevolutSessionStatus {
+  connected: boolean
+  remembered: boolean
+  lastSyncedAt: string | null
+}
+
 export type BoursoSessionStatus =
   | (BoursoSessionStatusBase & {
       syncStatus: 'FAILED'
@@ -563,10 +797,13 @@ export type BoursoSessionStatus =
  * surfaces as `MFA_TYPE_UNSUPPORTED` instead. `FRAUD_ACK_REQUIRED` means the
  * login was parked on the bank's fraud-education notice: the credentials work,
  * the holder must tick the notice on the bank's website and retry.
+ * `IDENTITY_SELECTION_UNSUPPORTED` means the access holds several identities
+ * and the personal one could not be singled out.
  */
 export type BoursoErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'FRAUD_ACK_REQUIRED'
+  | 'IDENTITY_SELECTION_UNSUPPORTED'
   | 'MFA_TYPE_UNSUPPORTED'
   | 'APP_VALIDATION_TIMEOUT'
   | 'AUTH_ATTEMPT_EXPIRED'
@@ -637,6 +874,41 @@ export interface BourseDirectAuthInitResponse {
   mfaType: string | null
 }
 
+interface FortuneoSessionStatusBase {
+  isActive: boolean
+  expiresAt: string | null
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+}
+
+export type FortuneoSessionStatus =
+  | (FortuneoSessionStatusBase & {
+      syncStatus: 'FAILED'
+      lastSyncError: FortuneoErrorCode
+    })
+  | (FortuneoSessionStatusBase & {
+      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
+      lastSyncError: null
+    })
+
+export type FortuneoErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'INVALID_OTP'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'INVESTOR_PROFILE_REQUIRED'
+  | 'PORTFOLIO_INCOMPLETE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INVALID_DATA'
+  | 'INTERNAL_ERROR'
+
+export interface FortuneoAuthInitResponse {
+  processId: string | null
+  mfaRequired: boolean
+  mfaType: string | null
+}
+
 interface AmundiSessionStatusBase {
   isActive: boolean
   lastSyncStartedAt: string | null
@@ -671,6 +943,123 @@ export interface AmundiAuthInitResponse {
   processId: string | null
   mfaRequired: boolean
   mfaType: 'APP_PUSH' | 'SMS' | null
+}
+
+// --- American Express ---
+
+interface AmexSessionStatusBase {
+  isActive: boolean
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+}
+
+export type AmexSessionStatus =
+  | (AmexSessionStatusBase & {
+      syncStatus: 'FAILED'
+      lastSyncError: AmexErrorCode
+    })
+  | (AmexSessionStatusBase & {
+      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
+      lastSyncError: null
+    })
+
+export type AmexErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'INVALID_OTP'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INVALID_DATA'
+  | 'INTERNAL_ERROR'
+
+export type AmexOtpMethod = 'sms' | 'email'
+
+/** `mfaType` is always `OTP` when a one-time code was sent (SMS or e-mail). */
+export interface AmexAuthInitResponse {
+  processId: string | null
+  mfaRequired: boolean
+  mfaType: string | null
+}
+
+export type SofidyErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'MFA_INVALID'
+  | 'FIRST_VISIT_PENDING'
+  | 'EMAIL_UNREACHABLE'
+  | 'ACCOUNT_INACTIVE'
+  | 'RATE_LIMITED'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'PORTFOLIO_INCOMPLETE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INVALID_DATA'
+  | 'INTERNAL_ERROR'
+
+interface SofidySessionStatusBase {
+  isActive: boolean
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+}
+
+export type SofidySessionStatus =
+  | (SofidySessionStatusBase & {
+      syncStatus: 'FAILED'
+      lastSyncError: SofidyErrorCode
+    })
+  | (SofidySessionStatusBase & {
+      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
+      lastSyncError: null
+    })
+
+/**
+ * Sofidy always asks for a six-digit code by e-mail, so `mfaRequired` is
+ * effectively always true. It is kept because a portal that stopped asking would
+ * then work without a change here.
+ */
+export interface SofidyAuthInitResponse {
+  processId: string | null
+  mfaRequired: boolean
+  /** No push variant: the code always arrives by e-mail, so this is null today. */
+  mfaType: 'EMAIL' | null
+}
+
+export type CorumErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'SESSION_EXPIRED'
+  | 'MULTIPLE_CONTRACTS'
+  | 'PORTFOLIO_INCOMPLETE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INVALID_DATA'
+  | 'INTERNAL_ERROR'
+
+interface CorumSessionStatusBase {
+  isActive: boolean
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+}
+
+export type CorumSessionStatus =
+  | (CorumSessionStatusBase & {
+      syncStatus: 'FAILED'
+      lastSyncError: CorumErrorCode
+    })
+  | (CorumSessionStatusBase & {
+      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
+      lastSyncError: null
+    })
+
+/**
+ * CORUM needs no second factor, so its `authenticate` response is the session
+ * status itself. It is shaped as an auth-init result with `mfaRequired: false`
+ * so the shared sidecar panel drives it exactly like the providers that do.
+ */
+export interface CorumAuthInitResponse {
+  processId: null
+  mfaRequired: false
+  mfaType: null
 }
 
 export interface FinaryAccountPreview {
@@ -753,13 +1142,23 @@ export interface Transaction {
   amount: number
   type: string | null
   category: string | null
+  categoryId?: number | null
   nativeCurrency: string
   isManual: boolean
-  txType: 'DEPOSIT' | 'WITHDRAWAL' | 'BUY' | 'SELL' | 'DIVIDEND' | 'FEE' | null
+  /** Omitted from the JSON for a plain cash movement (`non_null`). */
+  txType?: 'DEPOSIT' | 'WITHDRAWAL' | 'BUY' | 'SELL' | 'DIVIDEND' | 'FEE' | null
   ticker: string | null
   name: string | null
   quantity: number | null
   pricePerUnit: number | null
+  /** Clean merchant name derived offline from the raw bank fields (null until enriched). */
+  merchantLabel?: string | null
+  /** Matched brand id from the offline knowledge base, or null. */
+  merchantBrandId?: number | null
+  /** Account the transaction belongs to (populated by cross-account endpoints). */
+  accountId?: number | null
+  accountName?: string | null
+  /** Per-trade broker fees folded into the PMP cost basis (null when none recorded). */
   fees: number | null
 }
 
@@ -773,7 +1172,442 @@ export interface TransactionRequest {
   quantity?: number
   pricePerUnit?: number
   currency?: string
+  categoryId?: number
   fees?: number         // per-trade fees, folded into the PMP cost basis
+}
+
+// ─── Budget & Cashflow module (mirrors com.picsou.dto.*) ─────────────────────
+
+/** Drives cashflow/envelope/allocation behaviour. Transfers feed only allocation. */
+export type CategoryKind = 'INCOME' | 'EXPENSE' | 'TRANSFER'
+export type RuleMatchType = 'COUNTERPARTY' | 'KEYWORD' | 'KEYWORDS_ALL' | 'KEYWORDS_ANY'
+export type RuleSource = 'USER' | 'AUTO'
+export type RecurringCadence = 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY'
+export type RecurringStatus = 'SUGGESTED' | 'CONFIRMED' | 'IGNORED'
+/** Computed (never stored) urgency of a series' next due date — drives the late / due-soon badges. */
+export type RecurringRuntimeStatus = 'STALE' | 'LATE' | 'DUE_SOON' | 'SCHEDULED'
+/** The kind of change surfaced in the recurring "what changed" activity feed. */
+export type RecurringActivityType = 'AUTO_CONFIRMED' | 'PRICE_CHANGE'
+export type AssetClass = 'CURRENT' | 'SAVINGS' | 'INVESTMENT' | 'OTHER'
+export type CashflowPeriod = 'CYCLE' | 'YTD'
+
+export interface Category {
+  id: number
+  name: string
+  kind: CategoryKind
+  color: string | null
+  icon: string | null
+  isDefault: boolean
+  archived: boolean
+  sortOrder: number
+  /** Parent category id, or null for a top-level category (one level of nesting only). */
+  parentId: number | null
+}
+
+export interface CategoryRequest {
+  name: string
+  kind: CategoryKind
+  color?: string
+  icon?: string
+  sortOrder?: number
+  /** Attach as a sub-category of this parent (must share kind, be a root). null/omit = top-level. */
+  parentId?: number | null
+}
+
+export interface CategorizationRule {
+  id: number
+  matchType: RuleMatchType
+  pattern: string
+  categoryId: number
+  categoryName: string
+  priority: number
+  source: RuleSource
+}
+
+export interface CategorizationRuleRequest {
+  matchType: RuleMatchType
+  pattern: string
+  categoryId: number
+  priority?: number
+}
+
+/** Assign a category to a transaction, optionally learning a rule from it. */
+export interface CategorizeRequest {
+  categoryId: number
+  createRule: boolean
+  /** Explicit rule pattern from RuleWordPicker (KEYWORDS_ALL/KEYWORDS_ANY). When set, ruleMatchType must also be set. */
+  rulePattern?: string
+  /** Match type for the explicit rule pattern. */
+  ruleMatchType?: RuleMatchType
+  /** Cherry-pick: if non-empty, retro-apply the rule only to these transaction ids. */
+  applyToTransactionIds?: number[]
+}
+
+export interface RulePreviewRequest {
+  matchType: RuleMatchType
+  pattern: string
+}
+
+export interface RulePreviewTransaction {
+  id: number
+  date: string
+  label: string
+  amount: number
+  currentCategoryName: string | null
+}
+
+export interface RulePreviewResponse {
+  matchCount: number
+  transactions: RulePreviewTransaction[]
+}
+
+/** A transaction still missing a managed category (the "to categorize" inbox). */
+export interface UncategorizedTransaction {
+  id: number
+  date: string
+  description: string
+  amount: number
+  type: string | null
+  category: string | null
+  nativeCurrency: string
+  createdAt: string
+  isManual: boolean
+  txType: 'DEPOSIT' | 'WITHDRAWAL' | 'BUY' | 'SELL' | 'DIVIDEND' | 'FEE' | null
+  ticker: string | null
+  quantity: number | null
+  pricePerUnit: number | null
+  categoryId: number | null
+  categoryName: string | null
+  counterparty: string | null
+  /** Clean merchant name derived offline from the raw bank fields (null until enriched). */
+  merchantLabel: string | null
+  /** Matched brand id from the offline knowledge base, or null. */
+  merchantBrandId: number | null
+  /** AI-proposed category id pending the member's confirmation, or null when there is no suggestion. */
+  aiSuggestedCategoryId: number | null
+  /** Self-reported confidence (0–100) attached to the AI suggestion, or null. */
+  aiConfidence: number | null
+}
+
+/** A monthly envelope with its current-cycle progress (computed on read). */
+export interface Budget {
+  id: number
+  categoryId: number
+  categoryName: string
+  categoryKind: CategoryKind
+  categoryColor: string | null
+  categoryIcon: string | null
+  monthlyLimit: number
+  spent: number
+  remaining: number
+  percent: number
+  overBudget: boolean
+  /** True when the category is a parent — `spent` then covers its whole subtree. */
+  rollup: boolean
+  cycleStart: string
+  cycleEnd: string
+}
+
+export interface BudgetRequest {
+  categoryId: number
+  monthlyLimit: number
+}
+
+/** How an AI category suggestion is applied. Mirrors the backend AiCategorizationMode enum. */
+export type AiCategorizationMode = 'SUGGEST' | 'AUTO_HIGH_CONFIDENCE' | 'AUTO_ALL'
+
+export interface BudgetSettings {
+  cycleStartDay: number
+  logoFetchEnabled: boolean
+  /** Master opt-in for the optional AI categorizer (OFF by default). */
+  aiCategorizationEnabled: boolean
+  /** How an AI suggestion is applied: suggest-only / auto on high confidence / auto-all. */
+  aiMode: AiCategorizationMode
+  /** Sensitivity gate (0–100) for AUTO_HIGH_CONFIDENCE. */
+  aiConfidenceThreshold: number
+  currentCycleStart: string
+  currentCycleEnd: string
+}
+
+export interface BudgetSettingsRequest {
+  cycleStartDay: number
+  logoFetchEnabled: boolean
+  aiCategorizationEnabled: boolean
+  aiMode: AiCategorizationMode
+  aiConfidenceThreshold: number
+}
+
+/** Live status of an async AI categorization job. */
+export interface AiJobStatus {
+  running: boolean
+  total: number
+  processed: number
+  applied: number
+  suggested: number
+  done: boolean
+  error: string | null
+}
+
+/**
+ * A pocket/vault/wallet found during a Revolut discovery pass, held server-side until
+ * confirmed. `type` mirrors `AccountType` but Revolut only ever discovers checking/savings.
+ * `parentExternalId` groups pockets/vaults under their parent wallet.
+ */
+export interface DiscoveredRevolutAccount {
+  externalId: string
+  name: string
+  type: 'CHECKING' | 'SAVINGS'
+  currency: string
+  balance: number
+  parentExternalId: string | null
+  alreadyImported: boolean
+  transactionCount: number
+}
+
+/**
+ * Live progress of a background bank sync job (Revolut now, Trade Republic later).
+ * `phase` is a provider-specific string (see `RevolutSyncPhase` on the backend) — the
+ * frontend maps it to an i18n key. `discovered` is only populated once `done` for a
+ * Revolut sync that requires account selection; empty otherwise.
+ */
+export interface SyncProgress {
+  running: boolean
+  phase: string | null
+  elapsedSeconds: number | null
+  remainingSeconds: number | null
+  accountsFound: number | null
+  done: boolean
+  error: string | null
+  discovered: DiscoveredRevolutAccount[]
+}
+
+export interface CashflowBucket {
+  start: string
+  end: string
+  label: string
+  income: number
+  expense: number   // positive magnitude
+  net: number
+}
+
+export interface CashflowResponse {
+  period: CashflowPeriod
+  from: string
+  to: string
+  income: number
+  expense: number   // positive magnitude
+  net: number
+  series: CashflowBucket[]
+}
+
+/** Sankey node role — drives colour/position; HUB and SAVINGS/drawdown are synthetic. */
+export type FlowNodeType = 'INCOME' | 'HUB' | 'EXPENSE' | 'SAVINGS'
+
+/**
+ * One node in the income→budget→expense Sankey. `key` is `cat:<id>` for a real category,
+ * or a `__…__` sentinel for a synthetic node (hub, "other income", savings, drawdown,
+ * uncategorized, rolled-up tail). Synthetic nodes carry `label`/`color` null and are
+ * labelled/coloured on the frontend.
+ */
+export interface FlowNode {
+  key: string
+  label: string | null
+  color: string | null
+  type: FlowNodeType
+}
+
+/** A weighted edge: indices into the response's `nodes` array. */
+export interface FlowLink {
+  source: number
+  target: number
+  value: number
+}
+
+export interface CashflowFlowResponse {
+  period: CashflowPeriod
+  from: string
+  to: string
+  income: number
+  expense: number   // positive magnitude
+  net: number
+  nodes: FlowNode[]
+  links: FlowLink[]
+}
+
+/**
+ * One row of the ranked expense breakdown. `categoryId`/`slug`/`name` null = uncategorized.
+ * Rows are always leaf-scoped (no double-counting); `parent*` lets the client group a subtree.
+ * `parentId` null = a root category or the uncategorized bucket.
+ */
+export interface CategorySpend {
+  categoryId: number | null
+  slug: string | null
+  name: string | null
+  color: string | null
+  icon: string | null
+  amount: number    // positive magnitude
+  count: number
+  share: number     // fraction of totalExpense, 0..1 (4 decimals)
+  parentId: number | null
+  parentName: string | null
+  parentColor: string | null
+}
+
+export interface SpendingByCategoryResponse {
+  period: CashflowPeriod
+  from: string
+  to: string
+  totalExpense: number
+  categories: CategorySpend[]
+}
+
+/** Per-child rollup shown above the transaction list when drilling a parent. `total` signed. */
+export interface ChildSpend {
+  categoryId: number
+  name: string
+  color: string | null
+  icon: string | null
+  total: number     // signed sum
+  count: number
+}
+
+/**
+ * A single category's transactions over the period (the spending drill page). When the
+ * category is a parent, `total`/`count`/`transactions` span its whole subtree and `children`
+ * carries the per-child rollup; for a leaf category `children` is empty.
+ */
+export interface SpendingDetailResponse {
+  categoryId: number
+  slug: string | null
+  name: string
+  color: string | null
+  icon: string | null
+  period: CashflowPeriod
+  from: string
+  to: string
+  total: number     // signed sum
+  count: number
+  transactions: Transaction[]
+  children: ChildSpend[]
+}
+
+export interface AllocationStock {
+  assetClass: AssetClass
+  amount: number
+  percent: number
+}
+
+export interface AllocationContribution {
+  accountId: number
+  accountName: string
+  assetClass: AssetClass
+  color: string | null
+  amount: number
+}
+
+export interface AllocationResponse {
+  period: CashflowPeriod
+  from: string
+  to: string
+  totalStock: number
+  stock: AllocationStock[]
+  totalContributions: number
+  contributions: AllocationContribution[]
+}
+
+export interface RecurringSeries {
+  id: number
+  label: string
+  counterparty: string | null
+  expectedAmount: number   // signed
+  cadence: RecurringCadence
+  status: RecurringStatus
+  nextDueDate: string | null
+  lastSeenDate: string | null
+  categoryId: number | null
+  categoryName: string | null
+  categoryColor: string | null
+  categoryIcon: string | null
+  // ── Detection v2 (M3) ──
+  confidence: number | null          // 0–1; null for a manually-declared series
+  amountMin: number | null           // observed amount envelope (signed)
+  amountMax: number | null
+  variable: boolean                  // amount legitimately drifts each period (e.g. a utility bill)
+  previousAmount: number | null      // expected amount before the last price step
+  priceChangedAt: string | null      // ISO date the expected amount last moved
+  autoConfirmed: boolean             // confirmed silently by the detector, not the user
+  runtimeStatus: RecurringRuntimeStatus
+}
+
+export interface RecurringSeriesRequest {
+  label: string
+  counterparty?: string
+  expectedAmount: number
+  cadence: RecurringCadence
+  nextDueDate?: string
+  categoryId?: number
+}
+
+export interface RecurringOccurrence {
+  seriesId: number
+  label: string
+  counterparty: string | null
+  expectedAmount: number
+  dueDate: string
+  categoryId: number | null
+  categoryName: string | null
+  categoryColor: string | null
+  categoryIcon: string | null
+  rewardPoints?: number
+  creditCardPayment?: boolean
+}
+
+/**
+ * One entry in the recurring "what changed" activity feed — derived from series state, not a stored
+ * log. {@link RecurringActivityType#PRICE_CHANGE} carries the pre-change `previousAmount`; an
+ * {@link RecurringActivityType#AUTO_CONFIRMED} entry leaves it null. Each entry is reversible.
+ */
+export interface RecurringActivity {
+  seriesId: number
+  label: string
+  type: RecurringActivityType
+  occurredOn: string | null
+  expectedAmount: number
+  previousAmount: number | null
+  cadence: RecurringCadence
+  categoryId: number | null
+  categoryName: string | null
+  categoryColor: string | null
+  categoryIcon: string | null
+}
+
+export interface AiCallLog {
+  id: number
+  createdAt: string
+  memberId: number | null
+  transactionId: number | null
+  merchantLabel: string | null
+  batchId: string | null
+  provider: string
+  model: string | null
+  prompt: string | null
+  response: string | null
+  /** Omitted from the JSON when the provider reported no usage (`non_null`). */
+  promptTokens?: number | null
+  completionTokens?: number | null
+  totalTokens?: number | null
+  latencyMs: number | null
+  status: string
+  error: string | null
+  chosenSlug: string | null
+  confidence: number | null
+  applied: boolean
+}
+
+export interface AiCallLogPage {
+  items: AiCallLog[]
+  total: number
+  totalTokens: number
 }
 
 // --- CSV transaction import (two-phase wizard) ---
@@ -854,3 +1688,239 @@ export interface RealizedPnlResponse {
   byTicker: TickerRealized[]
   lots: RealizedLot[]
 }
+
+// --- Analysis: the investment pyramid ---
+
+export type WealthTier = 'SAFETY_NET' | 'REAL_ESTATE' | 'EQUITY' | 'CRYPTO' | 'ALTERNATIVE'
+
+export interface TierAccount {
+  accountId: number
+  name: string
+  color: string
+  valueEur: number
+}
+
+/** Only the four investment tiers appear; the cushion is measured in euros, not as a share. */
+export interface WealthTierLine {
+  tier: Exclude<WealthTier, 'SAFETY_NET'>
+  valueEur: number
+  actualPercent: number
+  targetPercent: number
+  /** What the target percentage is worth today — a gap in euros is actionable, points are not. */
+  targetEur: number
+  gapPercent: number
+  accounts: TierAccount[]
+}
+
+export interface SafetyNetLine {
+  /** Savings passbooks only — a current account is not an emergency fund. */
+  valueEur: number
+  /** Current-account money: reported so it is visible, scored nowhere. */
+  dailyCashEur: number
+  /** null until the member states their monthly expenses. */
+  targetEur: number | null
+  coverage: number | null
+  excessEur: number
+  known: boolean
+  score: number | null
+}
+
+export interface WealthScore {
+  /** Null when neither sub-score could be computed — nothing to allocate and no stated expenses. */
+  global: number | null
+  /** Null when nothing is allocatable. Having no allocation is not a perfect allocation. */
+  allocation: number | null
+  misplacedPercent: number
+  cryptoPenalty: number
+  leverageBonus: number
+  cryptoTopTenShare: number | null
+  loanToValue: number | null
+}
+
+/**
+ * An observation about the portfolio's shape that holds whatever the member's targets say.
+ *
+ * The score measures conformity to self-chosen targets, so it cannot question the targets. These
+ * come from the portfolio alone and cannot be silenced by editing one.
+ */
+export interface WealthAlert {
+  code: 'SINGLE_ASSET_CONCENTRATION' | 'EMPTY_TIER' | 'CUSHION_OVERFUNDED'
+  label: string | null
+  valueEur: number
+  percent: number
+}
+
+export interface WealthPyramid {
+  totalAssetsEur: number
+  allocatableEur: number
+  safetyNet: SafetyNetLine
+  tiers: WealthTierLine[]
+  score: WealthScore
+  alerts: WealthAlert[]
+}
+
+export interface AllocationTargets {
+  monthlyEssentialExpenses: number | null
+  safetyNetMonths: number
+  realEstatePct: number
+  equityPct: number
+  cryptoPct: number
+  alternativePct: number
+}
+
+export type AllocationTargetsRequest = AllocationTargets
+
+export interface EssentialExpenseEstimate {
+  estimate: number | null
+  monthsObserved: number
+  excludedTransferCount: number
+}
+
+// --- Analysis: sector and geographic diversification ---
+
+/**
+ * What a country breakdown is measuring. An ETF's countries are look-through *exposure*; a
+ * directly held share contributes its *domicile*. Once both are present the bar mixes two
+ * different quantities, and says so.
+ */
+export type DiversificationBasis = 'EXPOSURE' | 'MIXED'
+
+export interface DiversificationBreakdown {
+  score: number
+  effectiveCount: number
+  targetCount: number
+  basis: DiversificationBasis
+  /**
+   * What this axis alone could place. Not the same as the other axis's: a share often has a
+   * known sector and no domicile, and a fund may disclose its countries far more completely than
+   * its sectors. The top-level coveragePercent reports the more generous of the two.
+   */
+  classifiedValueEur: number
+  coveragePercent: number
+  slices: DiversificationSlice[]
+}
+
+/**
+ * One bar of a breakdown, with the holdings behind it.
+ *
+ * Distinct from WeightedSlice, which is shared with the single-security insight modal where a
+ * contributor means nothing.
+ */
+export interface DiversificationSlice {
+  label: string
+  percent: number
+  valueEur: number
+  contributors: SliceContributor[]
+  /** The real number of holdings, which exceeds contributors.length once the tail is folded. */
+  contributorCount: number
+}
+
+/** One holding's share of one slice — why "France" is 8.4 %. */
+export interface SliceContributor {
+  /** Null on the folded tail of small contributors, rendered as "and N others". */
+  ticker: string | null
+  valueEur: number
+  sharePercent: number
+}
+
+/** Every security appearing as a contributor, once, so slices need not repeat its name. */
+export interface DiversificationSecurity {
+  ticker: string
+  name: string | null
+  accountId: number | null
+  valueEur: number
+}
+
+/** A holding a breakdown could not fully place, with what the editor needs to fix it. */
+export interface UnclassifiedLine {
+  ticker: string
+  name: string | null
+  /** An account holding it — the write is account-scoped because ownership authorises it. */
+  accountId: number | null
+  valueEur: number
+  sectorMissing: boolean
+  countryMissing: boolean
+  /** False means no provider lookup has run yet, so a refresh may still fix it on its own. */
+  profileLooked: boolean
+}
+
+export interface Diversification {
+  totalValueEur: number
+  classifiedValueEur: number
+  unclassifiedValueEur: number
+  coveragePercent: number
+  unclassified: UnclassifiedLine[]
+  sectors: DiversificationBreakdown
+  countries: DiversificationBreakdown
+  securities: DiversificationSecurity[]
+}
+
+export interface HoldingClassificationRequest {
+  wealthTier: WealthTier | null
+  sectorKey: string | null
+  countryKey: string | null
+}
+
+export interface HoldingClassificationResponse {
+  ticker: string
+  wealthTier: WealthTier | null
+  sectorKey: string | null
+  countryKey: string | null
+}
+
+/**
+ * What the editor opens on. The member's override and the providers' guess are separate: a form
+ * pre-filled with a guess cannot tell you whether you are confirming it or reading your own
+ * earlier decision, and saving it would freeze the guess in place forever.
+ */
+export interface HoldingClassificationView {
+  ticker: string
+  wealthTier: WealthTier | null
+  sectorKey: string | null
+  countryKey: string | null
+  inferredSectorKey: string | null
+  inferredCountryKey: string | null
+  profileLooked: boolean
+}
+
+export interface SecurityProfileRefresh {
+  queuedTickers: number
+  alreadyRunning: boolean
+}
+
+// --- Member profile (personal + fiscal context) ---
+
+export type HouseholdStatus = 'SINGLE' | 'COUPLE'
+export type RiskProfile = 'PRUDENT' | 'BALANCED' | 'DYNAMIC' | 'AGGRESSIVE'
+
+/**
+ * Every field is nullable and stays that way: null means "never stated", which is not the same
+ * as zero. The API omits nulls, so read these with `== null`, never `=== null`.
+ */
+export interface MemberProfile {
+  birthDate: string | null
+  /** Derived server-side from `birthDate`, so it cannot go stale in a cache. */
+  age: number | null
+  marginalTaxRate: number | null
+  householdStatus: HouseholdStatus | null
+  taxHouseholdParts: number | null
+  dependents: number | null
+  /** Gross: the figure a payslip states. Fiscal context; nothing is computed from it. */
+  annualGrossIncome: number | null
+  /** The payslip's "net à payer avant impôt" — after contributions, before withholding. */
+  monthlyNetBeforeTax: number | null
+  /** Taux de prélèvement à la source, in percent. */
+  withholdingTaxRate: number | null
+  /**
+   * What reaches the account: `monthlyNetBeforeTax × (1 − withholdingTaxRate)`, derived
+   * server-side. **Null unless both inputs are stated** — a blank rate means "not said", not
+   * zero, so the savings rate is withheld rather than built on a guess.
+   */
+  monthlyNetIncome: number | null
+  monthlySavingsCapacity: number | null
+  targetRetirementAge: number | null
+  riskProfile: RiskProfile | null
+}
+
+/** A full replacement: a null field clears what was stored. */
+export type MemberProfileRequest = Omit<MemberProfile, 'age' | 'monthlyNetIncome'>

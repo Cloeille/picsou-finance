@@ -1,8 +1,10 @@
 package com.picsou.config;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Ticker;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
+import io.github.bucket4j.TimeMeter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,6 +20,7 @@ public class RateLimitConfig {
      * observe — it only reclaims memory from IPs/users that stopped calling.
      */
     private static final Duration BUCKET_STORE_EXPIRE_AFTER_ACCESS = Duration.ofHours(1);
+    private static final Duration MCP_MEMBER_SYNC_BUCKET_STORE_EXPIRE_AFTER_WRITE = Duration.ofHours(24);
 
     /**
      * Ceiling on distinct keys held at once per store. 50k covers a large multiple of any
@@ -34,7 +37,12 @@ public class RateLimitConfig {
      * call sites, no behavior change for any key still within its idle window.
      */
     private static <K> Map<K, Bucket> boundedBucketStore() {
+        return boundedBucketStore(Ticker.systemTicker());
+    }
+
+    static <K> Map<K, Bucket> boundedBucketStore(Ticker ticker) {
         return Caffeine.newBuilder()
+            .ticker(ticker)
             .expireAfterAccess(BUCKET_STORE_EXPIRE_AFTER_ACCESS)
             .maximumSize(BUCKET_STORE_MAX_SIZE)
             .<K, Bucket>build()
@@ -76,6 +84,17 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP Revolut enrolment rate limiter: 5 attempts per 15 minutes.
+     * The sidecar's own login is already rate-limited by Revolut itself (spec §3.5: repeated
+     * WEB logins trigger captchas/throttling within hours), but this endpoint just receives a
+     * storageState blob -- still worth bounding against abuse of the encryption/DB write path.
+     */
+    @Bean("revolutAuthBuckets")
+    public Map<String, Bucket> revolutAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP Bourse Direct auth rate limiter: 5 attempts per 15 minutes.
      */
     @Bean("bourseDirectAuthBuckets")
@@ -100,6 +119,22 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP CORUM auth rate limiter: 5 attempts per 15 minutes.
+     */
+    @Bean("corumAuthBuckets")
+    public Map<String, Bucket> corumAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP Sofidy auth rate limiter: 5 attempts per 15 minutes.
+     */
+    @Bean("sofidyAuthBuckets")
+    public Map<String, Bucket> sofidyAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-member address autocomplete limiter.
      *
      * <p>This endpoint proxies IGN's Géoplateforme, which is free but published at 50 req/s
@@ -109,6 +144,22 @@ public class RateLimitConfig {
      */
     @Bean("geocodeBuckets")
     public Map<String, Bucket> geocodeBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP Fortuneo auth rate limiter: 5 attempts per 15 minutes.
+     */
+    @Bean("fortuneoAuthBuckets")
+    public Map<String, Bucket> fortuneoAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP American Express auth rate limiter: 5 attempts per 15 minutes.
+     */
+    @Bean("amexAuthBuckets")
+    public Map<String, Bucket> amexAuthBuckets() {
         return boundedBucketStore();
     }
 
@@ -179,6 +230,31 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-user account-spreadsheet rate limiter: 20 workbooks per hour.
+     *
+     * <p>Looser than the GDPR bucket above because this export is a subset the user picks and is
+     * meant to be used iteratively (adjust the selection, export again) rather than once a year,
+     * and it is not gated behind a re-authentication. Still bounded: building a workbook prices
+     * every holding and computes every amortization schedule in the selection.
+     */
+    @Bean("accountExportBuckets")
+    public Map<String, Bucket> accountExportBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP merchant-logo proxy rate limiter: 60 requests per minute.
+     * Generous because a single page can render many avatars, but bounded so the
+     * opt-in proxy can't be turned into an open relay against the upstream icon
+     * service. Cache hits still count — the bucket protects the network egress, not
+     * just the cache.
+     */
+    @Bean("logoBuckets")
+    public Map<String, Bucket> logoBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-key MCP rate limiter: keyed by access-key id (not IP), since one key may serve many
      * tool calls from a single AI client. Lives in the {@code AccessKeyAuthFilter}, which creates
      * a bucket lazily on first use — only after the key has resolved to a valid one, so the key
@@ -191,6 +267,26 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-member cooldown for MCP-triggered syncs only. The 08:00 scheduler does not use it.
+     * One token per 15 minutes stops an agent loop; four per day is the unattended bank-access
+     * budget that loop would otherwise burn. In-memory, like every other bucket here: a restart
+     * clears it.
+     */
+    @Bean("mcpMemberSyncBuckets")
+    public Map<Long, Bucket> mcpMemberSyncBuckets() {
+        return mcpMemberSyncBucketStore(Ticker.systemTicker());
+    }
+
+    static Map<Long, Bucket> mcpMemberSyncBucketStore(Ticker ticker) {
+        return Caffeine.newBuilder()
+            .ticker(ticker)
+            .expireAfterWrite(MCP_MEMBER_SYNC_BUCKET_STORE_EXPIRE_AFTER_WRITE)
+            .maximumSize(BUCKET_STORE_MAX_SIZE)
+            .<Long, Bucket>build()
+            .asMap();
+    }
+
+    /**
      * Per-member access-key creation limiter: keyed by member id (not IP), because the
      * {@code POST /api/access-keys} endpoint is cookie-authenticated and self-service — the member is
      * the correct abuse boundary, so an attacker with a stolen session can't mint keys faster than this
@@ -199,6 +295,17 @@ public class RateLimitConfig {
      */
     @Bean("accessKeyCreateBuckets")
     public Map<Long, Bucket> accessKeyCreateBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP OAuth2 Dynamic Client Registration limiter: 10 registrations per 15 minutes.
+     * {@code POST /oauth2/register} is unauthenticated by design (RFC 7591) so a remote-MCP client
+     * can self-register before login — that openness makes IP throttling the only guard against a
+     * flood of throwaway {@code oauth2_registered_client} rows.
+     */
+    @Bean("oauthRegisterBuckets")
+    public Map<String, Bucket> oauthRegisterBuckets() {
         return boundedBucketStore();
     }
 
@@ -238,6 +345,15 @@ public class RateLimitConfig {
             .build();
     }
 
+    public static Bucket createRevolutAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
     public static Bucket createBourseDirectAuthBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
@@ -257,6 +373,54 @@ public class RateLimitConfig {
     }
 
     public static Bucket createAmundiAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createFortuneoAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createAmexAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    /**
+     * Per-IP CORUM auth rate limiter: 5 attempts per 15 minutes. Same budget as
+     * the other portal logins -- a failed attempt here is a real credential
+     * check against CORUM, so it must not be cheap to hammer.
+     */
+    public static Bucket createCorumAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    /**
+     * Per-IP Sofidy auth rate limiter: 5 attempts per 15 minutes. Same budget as
+     * the other portal logins, and lower than it would otherwise be, because
+     * Sofidy arms a brute-force counter on its side and answers a locked-out
+     * attempt as a login success: hammering here would lock the account out
+     * rather than merely slow the caller down.
+     */
+    public static Bucket createSofidyAuthBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(5)
@@ -332,6 +496,24 @@ public class RateLimitConfig {
             .build();
     }
 
+    public static Bucket createAccountExportBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(20)
+                .refillIntervally(20, Duration.ofMinutes(60))
+                .build())
+            .build();
+    }
+
+    public static Bucket createLogoBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(60)
+                .refillIntervally(60, Duration.ofMinutes(1))
+                .build())
+            .build();
+    }
+
     /**
      * Per-key MCP throttle: 120 requests per minute. Generous enough for an interactive AI client
      * (each user turn can fan out into several tool calls) while capping a runaway or hostile key.
@@ -356,6 +538,43 @@ public class RateLimitConfig {
                 .capacity(10)
                 .refillIntervally(10, Duration.ofMinutes(60))
                 .build())
+            .build();
+    }
+
+    /**
+     * Per-IP DCR throttle: 10 client registrations per 15 minutes. Generous enough that a legitimate
+     * operator re-registering a few MCP clients (or retrying after a fixed request) never gets
+     * blocked, while bounding an anonymous flood against the open {@code POST /oauth2/register}
+     * endpoint.
+     */
+    public static Bucket createOauthRegisterBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(10)
+                .refillIntervally(10, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    /**
+     * MCP sync cooldown: at most one trigger per member every 15 minutes, and four per day.
+     * The short window is what an agent loop hits; the daily window is the PSD2-style budget.
+     */
+    public static Bucket createMcpMemberSyncBucket() {
+        return createMcpMemberSyncBucket(TimeMeter.SYSTEM_NANOTIME);
+    }
+
+    static Bucket createMcpMemberSyncBucket(TimeMeter timeMeter) {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(1)
+                .refillIntervally(1, Duration.ofMinutes(15))
+                .build())
+            .addLimit(Bandwidth.builder()
+                .capacity(4)
+                .refillIntervally(4, Duration.ofHours(24))
+                .build())
+            .withCustomTimePrecision(timeMeter)
             .build();
     }
 }

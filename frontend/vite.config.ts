@@ -19,7 +19,12 @@ const appVersion = process.env.VITE_APP_VERSION ?? packageJson.version
 export default defineConfig(({ command }) => {
   const hasLocalCerts =
     command === 'serve' && fs.existsSync(localCertPath) && fs.existsSync(localKeyPath)
-  const localHttps = hasLocalCerts
+  // Dev server TLS is a local-convenience choice (self-signed cert, browser
+  // warning dance). VITE_DISABLE_HTTPS=true serves plain HTTP instead --
+  // same pattern as the PORT override above, and what the dev profile
+  // expects (secure-cookies=false, http:// CORS origins).
+  const disableHttps = process.env.VITE_DISABLE_HTTPS === 'true'
+  const localHttps = hasLocalCerts && !disableHttps
     ? {
         cert: fs.readFileSync(localCertPath),
         key: fs.readFileSync(localKeyPath),
@@ -33,7 +38,7 @@ export default defineConfig(({ command }) => {
     plugins: [
       react(),
       tailwindcss(),
-      ...(command === 'serve' && !hasLocalCerts ? [basicSsl()] : []),
+      ...(command === 'serve' && !hasLocalCerts && !disableHttps ? [basicSsl()] : []),
     ],
     resolve: {
       alias: {
@@ -90,6 +95,13 @@ export default defineConfig(({ command }) => {
           target: process.env.VITE_API_TARGET || 'http://localhost:8080',
           changeOrigin: true,
         },
+      },
+      // Embedded MCP server (HTTP+SSE): GET /mcp stream + POST /mcp/message.
+      // http-proxy streams Server-Sent Events as-is, so an MCP client can point
+      // at the dev origin (:5173) instead of reaching the backend directly.
+      '/mcp': {
+        target: process.env.VITE_API_TARGET || 'http://localhost:8080',
+        changeOrigin: true,
       },
     },
     build: {

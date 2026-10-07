@@ -12,7 +12,11 @@
 > Cookies are now `SameSite=Lax` (not `Strict`) for Safari iOS compatibility.
 > Stateless JWT invalidation is now possible via the `tv` (token-version) claim,
 > bumped on password change. Optional TOTP 2FA and rotating "Remember Me" tokens
-> were added. Refer to the superseding ADR/feature docs for the current behavior.
+> were added. Point 4 below no longer holds: `SameSite=Lax` does not stop a
+> same-site page (sibling subdomain) from posting with the cookies, so the API
+> chain now rejects cookie-authenticated state-changing requests from another
+> origin (`Sec-Fetch-Site`, else `Origin`/`Referer`), still without a CSRF token.
+> Refer to the superseding ADR/feature docs for the current behavior.
 > The reasoning below is preserved as historical context.
 
 ## Context

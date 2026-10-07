@@ -9,9 +9,14 @@ import {
   cryptoWalletApi,
   finaryApi,
   boursoApi,
+  revolutApi,
   bourseDirectApi,
   degiroApi,
   amundiApi,
+  amexApi,
+  fortuneoApi,
+  corumApi,
+  sofidyApi,
   ibkrApi,
   simplefinApi,
 } from './api'
@@ -20,6 +25,10 @@ import type {
   ChainType,
   FinaryAccountMapping,
   FinaryImportRequest,
+  AmexOtpMethod,
+  CorumAuthInitResponse,
+  CorumSessionStatus,
+  SofidyAuthInitResponse,
 } from '@/types/api'
 
 // ---------------------------------------------------------------------------
@@ -33,9 +42,14 @@ export const syncKeys = {
   countries: () => [...syncKeys.all, 'countries'] as const,
   tr: () => [...syncKeys.all, 'tr'] as const,
   bourso: () => [...syncKeys.all, 'bourso'] as const,
+  revolut: () => [...syncKeys.all, 'revolut'] as const,
   bourseDirect: () => [...syncKeys.all, 'bourse-direct'] as const,
   degiro: () => [...syncKeys.all, 'degiro'] as const,
   amundi: () => [...syncKeys.all, 'amundi'] as const,
+  amex: () => [...syncKeys.all, 'amex'] as const,
+  fortuneo: () => [...syncKeys.all, 'fortuneo'] as const,
+  corum: () => [...syncKeys.all, 'corum'] as const,
+  sofidy: () => [...syncKeys.all, 'sofidy'] as const,
   ibkr: () => [...syncKeys.all, 'ibkr'] as const,
   simplefin: () => [...syncKeys.all, 'simplefin'] as const,
   exchanges: () => [...syncKeys.all, 'exchanges'] as const,
@@ -72,6 +86,8 @@ function useSidecarSessionStatus<
     if (!succeeded || !completedAt) return
     queryClient.invalidateQueries({ queryKey: ['accounts'] })
     queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    queryClient.invalidateQueries({ queryKey: ['real-estate'] })
+    queryClient.invalidateQueries({ queryKey: ['analysis'] })
   }, [completedAt, queryClient, succeeded])
 
   return query
@@ -320,6 +336,70 @@ export function useClearBoursoSession() {
 }
 
 // ---------------------------------------------------------------------------
+// Revolut (on-demand phone+passcode sync)
+// ---------------------------------------------------------------------------
+
+export function useRevolutStatus() {
+  return useQuery({
+    queryKey: syncKeys.revolut(),
+    queryFn: revolutApi.getSessionStatus,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  })
+}
+
+export function useSyncProgress(provider: 'revolut' | 'tr', enabled: boolean) {
+  return useQuery({
+    queryKey: ['sync', provider, 'progress'],
+    queryFn: provider === 'revolut' ? revolutApi.getSyncProgress : trApi.getSyncProgress,
+    enabled,
+    refetchInterval: (q) => (q.state.data?.running ? 1500 : false),
+  })
+}
+
+export function useStartRevolutSync() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { phoneNumber?: string; passcode?: string }) => revolutApi.startSync(body),
+    onSuccess: (progress) => {
+      queryClient.setQueryData(['sync', 'revolut', 'progress'], progress)
+    },
+  })
+}
+
+export function useConfirmRevolutSync() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      selectedExternalIds,
+      remember,
+      voluntary,
+    }: {
+      selectedExternalIds: string[]
+      remember: boolean
+      voluntary: boolean
+    }) => revolutApi.confirmSync(selectedExternalIds, remember, voluntary),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+export function useForgetRevolut() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => revolutApi.clearSession(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // DEGIRO
 // ---------------------------------------------------------------------------
 
@@ -434,6 +514,7 @@ export function useClearBourseDirectSession() {
   })
 }
 
+
 // ---------------------------------------------------------------------------
 // Amundi Épargne Salariale
 // ---------------------------------------------------------------------------
@@ -489,6 +570,205 @@ export function useClearAmundiSession() {
 }
 
 // ---------------------------------------------------------------------------
+// American Express
+// ---------------------------------------------------------------------------
+
+export function useAmexStatus() {
+  return useSidecarSessionStatus(syncKeys.amex(), amexApi.getStatus)
+}
+
+export function useInitiateAmexAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ login, password, method }: { login: string; password: string; [key: string]: string }) =>
+      amexApi.initiateAuth(login, password, method as AmexOtpMethod),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: syncKeys.amex() }),
+  })
+}
+
+export function useCompleteAmexAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ processId, code }: { processId: string; code?: string }) =>
+      amexApi.completeAuth(processId, code ?? ''),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: syncKeys.amex() }),
+  })
+}
+
+export function useSyncAmex() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => amexApi.sync(),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: syncKeys.amex() }),
+  })
+}
+
+export function useRecoverAmexHistory() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => amexApi.recoverHistory(),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.amex() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['history'] })
+    },
+  })
+}
+
+export function useClearAmexSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => amexApi.clearSession(),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: syncKeys.amex() }),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// CORUM client space
+// ---------------------------------------------------------------------------
+
+export function useCorumStatus() {
+  return useSidecarSessionStatus(syncKeys.corum(), corumApi.getStatus)
+}
+
+/**
+ * CORUM needs no second factor, so this is the whole exchange: the backend
+ * answers with the session status.
+ *
+ * The result carries both shapes — the status fields the panel polls, and the
+ * `mfaRequired: false` the shared sidecar panel reads to decide it is connected.
+ * Spreading the status into the response is what keeps `SidecarSessionPanel`
+ * reusable here without a provider-specific branch inside it.
+ */
+export function useAuthenticateCorum() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      login,
+      password,
+    }: {
+      login: string
+      password: string
+    }): Promise<CorumSessionStatus & CorumAuthInitResponse> => ({
+      ...(await corumApi.authenticate(login, password)),
+      processId: null,
+      mfaRequired: false as const,
+      mfaType: null,
+    }),
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.corum(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.corum() })
+    },
+  })
+}
+
+/** Never called: CORUM has no second step. Present because the shared panel requires it. */
+export function useCompleteCorumAuth() {
+  return useMutation<CorumSessionStatus, unknown, { processId: string; code?: string }>({
+    mutationFn: () => Promise.reject(new Error('CORUM requires no second factor')),
+  })
+}
+
+export function useSyncCorum() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: corumApi.sync,
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.corum(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.corum() })
+    },
+  })
+}
+
+export function useClearCorumSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: corumApi.clearSession,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.corum() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+/** Exported so the panel's auth-init contract is checkable at compile time. */
+export type { CorumAuthInitResponse }
+
+// ---------------------------------------------------------------------------
+// Sofidy client space
+// ---------------------------------------------------------------------------
+
+export function useSofidyStatus() {
+  return useSidecarSessionStatus(syncKeys.sofidy(), sofidyApi.getStatus)
+}
+
+/**
+ * The portal always asks for a six-digit code by e-mail, so this never opens a
+ * session: it returns the process id the completion call needs. The panel's
+ * `login` field carries the six-digit associate code, not an email address.
+ */
+export function useInitiateSofidyAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      login,
+      password,
+    }: {
+      login: string
+      password: string
+    }) => sofidyApi.initiateAuth(login, password),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.sofidy() })
+    },
+  })
+}
+
+export function useCompleteSofidyAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      processId,
+      code,
+    }: {
+      processId: string
+      code?: string
+    }) => sofidyApi.completeAuth(processId, code ?? ''),
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.sofidy(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.sofidy() })
+    },
+  })
+}
+
+export function useSyncSofidy() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: sofidyApi.sync,
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.sofidy(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.sofidy() })
+    },
+  })
+}
+
+export function useClearSofidySession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: sofidyApi.clearSession,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.sofidy() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+/** Exported so the panel's auth-init contract is checkable at compile time. */
+export type { SofidyAuthInitResponse }
+
+// ---------------------------------------------------------------------------
 // Interactive Brokers
 // ---------------------------------------------------------------------------
 
@@ -531,6 +811,79 @@ export function useDisconnectIbkr() {
   return useMutation({
     mutationFn: ibkrApi.disconnect,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: syncKeys.ibkr() }),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Fortuneo
+// ---------------------------------------------------------------------------
+
+export function useFortuneoStatus() {
+  const queryClient = useQueryClient()
+  const query = useQuery({
+    queryKey: syncKeys.fortuneo(),
+    queryFn: fortuneoApi.getStatus,
+    staleTime: 0,
+    refetchInterval: currentQuery => {
+      const state = currentQuery.state.data?.syncStatus
+      return state === 'QUEUED' || state === 'RUNNING' ? 1_500 : 30_000
+    },
+  })
+  const completedAt = query.data?.lastSyncCompletedAt
+  const succeeded = query.data?.syncStatus === 'SUCCESS'
+
+  useEffect(() => {
+    if (!succeeded || !completedAt) return
+    queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+  }, [completedAt, queryClient, succeeded])
+
+  return query
+}
+
+export function useInitiateFortuneoAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ login, password }: { login: string; password: string }) =>
+      fortuneoApi.initiateAuth(login, password),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.fortuneo() })
+    },
+  })
+}
+
+export function useCompleteFortuneoAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ processId, code }: { processId: string; code: string }) =>
+      fortuneoApi.completeAuth(processId, code),
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.fortuneo(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.fortuneo() })
+    },
+  })
+}
+
+export function useSyncFortuneo() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: fortuneoApi.sync,
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.fortuneo(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.fortuneo() })
+    },
+  })
+}
+
+export function useClearFortuneoSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: fortuneoApi.clearSession,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.fortuneo() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
   })
 }
 

@@ -23,7 +23,9 @@ JWT authentication via **HttpOnly cookies with `SameSite=Lax`** — no Authoriza
 - `JwtAuthenticationFilter` reads `access_token` and populates the `SecurityContext`. It also verifies the `tv` claim against `AppUser.tokenVersion` so a password change immediately invalidates outstanding tokens.
 - `PersistentTokenAuthFilter` re-issues a fresh access token from a valid `persistent_token` and rotates the persistent token on every use (theft detection: a re-used old token revokes the family).
 - **Member-scoped authorization.** Every controller resolves `UserContext.currentMemberId()` and every service/repository scopes queries by `member_id`. Family-shared resources are gated by `SharingSettings` + `SharedResource` (see [`docs/features/multi-account-family.md`](../features/multi-account-family.md)). Never expose data from another member without going through this layer.
-- CSRF is disabled — `SameSite=Lax` cookies + the JSON-only API surface provide equivalent protection for same-origin cookie-based auth. `Lax` (not `Strict`) is required for Safari iOS, which dropped Strict cookies on certain navigations (see [`docs/features/security-cors-cookies.md`](../features/security-cors-cookies.md)).
+- Cookies are `SameSite=Lax` (not `Strict`): Safari iOS dropped Strict cookies on certain navigations. `Lax` alone does not stop CSRF: a page on a sibling subdomain is same-site and gets the cookies on its form POSTs, and many endpoints accept a body-less or multipart POST that needs no CORS preflight.
+- **Cross-site request check.** The API chain rejects with 403 (`application/problem+json`) any `POST`/`PUT`/`PATCH`/`DELETE` that carries an auth cookie, no `Authorization` header, and comes from another origin (`Sec-Fetch-Site` other than `same-origin`/`none`, else a foreign `Origin`/`Referer`), unless that origin is on the CORS allow-list. No CSRF token is involved. See [`docs/features/security-cors-cookies.md`](../features/security-cors-cookies.md#csrf--cross-site-request-check).
+- **Never change state on `GET`.** The check only covers state-changing methods, and `Lax` cookies ride along on top-level cross-site GET navigations. An action triggered from a redirect (e.g. the bank OAuth callback) is a SPA page that `POST`s to the API.
 - The `Secure` flag is set by `SecureCookieProvider` from `app.secure-cookies` (default `true`; set to `false` only for local HTTP dev).
 
 ### Rate limiting
@@ -104,6 +106,21 @@ spring.jackson:
   default-property-inclusion: non_null      # omit null fields
   deserialization.fail-on-unknown-properties: false
 ```
+
+### A nullable field arrives as `undefined`, never as `null`
+
+`non_null` does not send `"targetPercent": null` — it omits the key. On the TypeScript side that
+is `undefined`, so **`x === null` is false for every null the backend ever produces**. Rules:
+
+- **Compare with `== null`** (or `??`) on any field the backend declares nullable. This is the one
+  place the codebase prefers loose equality, and it is not a style preference.
+- **Write fixtures the way the wire looks.** A test fixture that spells out `targetPercent: null`
+  describes the DTO, not the response — it will pass while the browser throws. Omit the key.
+
+Both halves were learned the hard way: `AllocationTrajectory` called `.toFixed()` on an omitted
+`targetPercent` and took the whole Analyse → Répartition tab down with a `TypeError`, while every
+test stayed green. Quieter cousins in the same payload printed `NaN` in a progress bar and the
+literal string `"undefined"` in a form field.
 
 ## Reference
 

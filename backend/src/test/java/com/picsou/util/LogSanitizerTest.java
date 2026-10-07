@@ -12,6 +12,49 @@ import static org.assertj.core.api.Assertions.assertThat;
 class LogSanitizerTest {
 
     @Test
+    void safe_replacesCrAndLf() {
+        assertThat(LogSanitizer.safe("AAPL\r\n2026-01-01 INFO forged")).isEqualTo("AAPL?2026-01-01 INFO forged");
+        assertThat(LogSanitizer.safe("a\nb\rc")).isEqualTo("a?b?c");
+    }
+
+    @Test
+    void safe_replacesUnicodeLineBreaks() {
+        assertThat(LogSanitizer.safe("a\u0085b c d")).isEqualTo("a?b?c?d");
+    }
+
+    @Test
+    void safe_replacesEscAndOtherControlCharacters_butKeepsTab() {
+        assertThat(LogSanitizer.safe("\u001B[31mred\u001B[0m\u0000\t\u007F\u009B")).isEqualTo("?[31mred?[0m?\t??");
+    }
+
+    @Test
+    void safe_keepsOrdinaryText() {
+        assertThat(LogSanitizer.safe("CW8.PA é €")).isEqualTo("CW8.PA é €");
+    }
+
+    @Test
+    void safe_rendersNullAsText() {
+        assertThat(LogSanitizer.safe(null)).isEqualTo("null");
+    }
+
+    @Test
+    void safe_truncatesLongInput() {
+        String out = LogSanitizer.safe("x".repeat(10_000));
+
+        assertThat(out).isEqualTo("x".repeat(500) + "...");
+    }
+
+    @Test
+    void safe_neutralizesAfterTruncating() {
+        assertThat(LogSanitizer.safe("y".repeat(499) + "\n" + "z".repeat(50))).isEqualTo("y".repeat(499) + "?...");
+    }
+
+    @Test
+    void neutralize_doesNotTruncate() {
+        assertThat(LogSanitizer.neutralize("x".repeat(600) + "\n")).isEqualTo("x".repeat(600) + "?");
+    }
+
+    @Test
     void fingerprint_isTheSha256Prefix_notJustAnyDigest() throws NoSuchAlgorithmException {
         // Pin the actual computation, not just the shape: a regression that swapped
         // the algorithm (MD5) or the truncation offset would still satisfy the

@@ -6,6 +6,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "account")
@@ -52,6 +53,15 @@ public class Account extends AuditableEntity {
     @Column(name = "last_synced_at")
     private Instant lastSyncedAt;
 
+    @Column(name = "payment_due_amount", precision = 20, scale = 8)
+    private BigDecimal paymentDueAmount;
+
+    @Column(name = "payment_due_date")
+    private LocalDate paymentDueDate;
+
+    @Column(name = "reward_points")
+    private Long rewardPoints;
+
     @Column(name = "external_account_id", length = 255)
     private String externalAccountId;
 
@@ -62,6 +72,14 @@ public class Account extends AuditableEntity {
     @Column(nullable = false, length = 7)
     @Builder.Default
     private String color = "#6366f1";
+
+    /**
+     * IBAN when provided by the bank (e.g. via Open Banking).
+     * Used as a stable match key across provider uid changes (e.g. Enable Banking v0.16.4).
+     * NULL for accounts without an IBAN (crypto, pocket sub-accounts, etc.).
+     */
+    @Column(length = 34)
+    private String iban;
 
     /** Ticker symbol for live price lookup, e.g. "BTC", "IWDA.AS" */
     @Column(length = 20)
@@ -91,6 +109,27 @@ public class Account extends AuditableEntity {
     @Column(name = "requisition_id")
     private Long requisitionId;
 
+    /**
+     * When the wrapper was opened, as the member states it — not when Picsou learned of it.
+     *
+     * <p>Load-bearing for anything fiscal: a PEA's exemption turns on its fifth anniversary, an
+     * assurance-vie's on its eighth. {@code createdAt} cannot stand in — a plan opened in 2014
+     * and typed in last month has ten years between the two.
+     */
+    @Column(name = "opened_at")
+    private LocalDate openedAt;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
+
+    /**
+     * For Revolut pockets only: points to the parent wallet account.
+     * NULL for all normal accounts.
+     */
+    @Column(name = "parent_account_id")
+    private Long parentAccountId;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean hidden = false;
 }

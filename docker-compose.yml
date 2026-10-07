@@ -35,6 +35,11 @@ services:
       BOURSO_AUTH_URL: http://bourso-auth:8001
       BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001
       AMUNDI_AUTH_URL: http://amundi-auth:8001
+      FORTUNEO_AUTH_URL: http://fortuneo-auth:8001
+      AMEX_AUTH_URL: http://amex-auth:8001
+      CORUM_AUTH_URL: http://corum-auth:8001
+      SOFIDY_AUTH_URL: http://sofidy-auth:8001
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     depends_on:
       db:
         condition: service_healthy
@@ -46,22 +51,47 @@ services:
         condition: service_started
       amundi-auth:
         condition: service_started
+      fortuneo-auth:
+        condition: service_started
+      amex-auth:
+        condition: service_started
+      corum-auth:
+        condition: service_started
+      sofidy-auth:
+        condition: service_started
     networks:
       - picsou-net
+      - fortuneo-auth-net
 
   tr-auth:
     build:
       context: ./services/tr-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     networks:
       - picsou-net
+
+  revolut-auth:
+    build:
+      context: ./services/revolut-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    networks:
+      - picsou-net
+    volumes:
+      - revolut_profiles:/data/revolut-profiles
 
   bourse-direct-auth:
     build:
       context: ./services/bourse-direct-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
     networks:
@@ -72,6 +102,45 @@ services:
       context: ./services/amundi-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    expose:
+      - "8001"
+    networks:
+      - picsou-net
+
+  fortuneo-auth:
+    build:
+      context: ./services/fortuneo-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    expose:
+      - "8001"
+    networks:
+      - fortuneo-auth-net
+      - fortuneo-egress
+
+  corum-auth:
+    build:
+      context: ./services/corum-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    expose:
+      - "8001"
+    networks:
+      - picsou-net
+
+  sofidy-auth:
+    build:
+      context: ./services/sofidy-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
     networks:
@@ -82,8 +151,22 @@ services:
       context: ./services/bourso-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
+    networks:
+      - picsou-net
+
+  amex-auth:
+    build:
+      context: ./services/amex-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8001"
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?APP_SIDECAR_API_KEY is required}
     networks:
       - picsou-net
 
@@ -92,6 +175,8 @@ services:
       context: ./services/degiro-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     networks:
       - picsou-net
 
@@ -107,9 +192,25 @@ services:
     networks:
       - picsou-net
 
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    profiles: ["ollama"]
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - picsou-net
+
 volumes:
   pgdata:
+  ollama_models:
+  revolut_profiles:
 
 networks:
   picsou-net:
+    driver: bridge
+  fortuneo-auth-net:
+    driver: bridge
+    internal: true
+  fortuneo-egress:
     driver: bridge

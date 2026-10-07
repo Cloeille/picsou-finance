@@ -43,13 +43,24 @@ export function DateInput({ value, onChange, id, required, disabled, className }
   const [lastValue, setLastValue] = useState(value)
   const [lastFormat, setLastFormat] = useState(dateFormat)
   const [touched, setTouched] = useState(false)
+  // The last ISO this field emitted, so the echo of it can be told apart from a genuine
+  // external change. See the resync below.
+  const [lastEmitted, setLastEmitted] = useState<string | null>(null)
 
   // Resync the visible text when the external ISO value or the format changes —
   // derived during render (no effect) to avoid a cascading re-render.
+  //
+  // But *not* when the incoming value is simply the one we just emitted. Every keystroke that
+  // happens to parse propagates upstream and comes straight back as a new `value`, and
+  // rewriting the text from it overwrote what the user was still typing: entering a birth year
+  // meant typing "19", watching the field turn into "…/2019" (parseDate expands a two-digit
+  // year to the 2000s) and then fighting the caret for the remaining digits. While the text is
+  // the user's own, the text is the source of truth.
   if (value !== lastValue || dateFormat !== lastFormat) {
+    const isOwnEcho = value === lastEmitted && dateFormat === lastFormat
     setLastValue(value)
     setLastFormat(dateFormat)
-    setText(value ? formatDate(value, getLocale(), dateFormat) : '')
+    if (!isOwnEcho) setText(value ? formatDate(value, getLocale(), dateFormat) : '')
   }
 
   if (isTouch) {
@@ -69,11 +80,25 @@ export function DateInput({ value, onChange, id, required, disabled, className }
   const handleChange = (raw: string) => {
     setText(raw)
     if (raw.trim() === '') {
+      setLastEmitted('')
       onChange('')
       return
     }
     const iso = parseDate(raw, getLocale(), dateFormat)
-    if (iso) onChange(iso)
+    if (iso) {
+      setLastEmitted(iso)
+      onChange(iso)
+    }
+  }
+
+  // Settle the text into the canonical display once the user leaves the field. The resync above
+  // used to do this incidentally, on every keystroke; doing it on blur is what keeps a value
+  // typed with different separators ("14.6.1990") from staying odd on screen, without touching
+  // the text while it is still being written.
+  const handleBlur = () => {
+    setTouched(true)
+    const iso = parseDate(text, getLocale(), dateFormat)
+    if (iso) setText(formatDate(iso, getLocale(), dateFormat))
   }
 
   const invalid =
@@ -86,7 +111,7 @@ export function DateInput({ value, onChange, id, required, disabled, className }
       inputMode="numeric"
       value={text}
       onChange={(e) => handleChange(e.target.value)}
-      onBlur={() => setTouched(true)}
+      onBlur={handleBlur}
       placeholder={t('common.dateHint')}
       required={required}
       disabled={disabled}

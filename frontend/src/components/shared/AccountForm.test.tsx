@@ -89,4 +89,18 @@ describe('AccountForm bank field', () => {
 
     expect(screen.getByRole('option', { name: 'accountTypes.livretA' })).toBeInTheDocument()
   })
+
+  it('asks for the amount owed on a credit card, like the remaining capital of a loan', async () => {
+    institutionSearch.current = { data: undefined }
+    const onSubmit = vi.fn()
+    render(<AccountForm open onOpenChange={vi.fn()} onSubmit={onSubmit} />)
+
+    fireEvent.change(screen.getByLabelText('accounts.accountType'), { target: { value: 'CREDIT_CARD' } })
+    fireEvent.change(screen.getByLabelText('accounts.accountName'), { target: { value: 'Card' } })
+    fireEvent.change(screen.getByLabelText('accounts.currentDebt'), { target: { value: '800' } })
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ type: 'CREDIT_CARD', currentBalance: 800 })
+  })
 })

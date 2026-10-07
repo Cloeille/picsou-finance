@@ -6,6 +6,7 @@ import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.DebtRepository;
 import com.picsou.repository.GoalRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,6 +33,8 @@ class DashboardServiceTest {
     @Mock PriceService priceService;
     @Mock AccountHoldingRepository holdingRepository;
     @Mock HistoryService historyService;
+    @Mock DebtRepository debtRepository;
+    @Mock LoanAmortizationService loanAmortizationService;
     @Mock AccountService accountService;
 
     @Mock AccountAccessResolver accessResolver;
@@ -124,7 +127,7 @@ class DashboardServiceTest {
         assertThat(response.totalNetWorth()).isEqualByComparingTo("-8000");
         // The loan appears only in the liabilities list, the cash account only in distribution.
         assertThat(response.liabilities())
-            .extracting(DashboardResponse.DistributionItem::accountId)
+            .extracting(DashboardResponse.LiabilityEntry::accountId)
             .containsExactly(10L);
         assertThat(response.distribution())
             .extracting(DashboardResponse.DistributionItem::accountId)
@@ -197,6 +200,39 @@ class DashboardServiceTest {
         assertThat(response.totalLiabilities()).isEqualByComparingTo("9500");
         assertThat(response.totalNetWorth()).isEqualByComparingTo("-7500");
         assertThat(response.liabilities().getFirst().balanceEur()).isEqualByComparingTo("9500");
+    }
+
+    @Test
+    void getDashboard_creditCardDebt_isALiabilityNotANegativeAsset() {
+        Account cashAcc = cashAccount();               // id 1, CHECKING 2000
+        Account cardAcc = Account.builder()
+            .id(11L)
+            .name("American Express")
+            .type(AccountType.CREDIT_CARD)
+            .currency("EUR")
+            .currentBalance(new BigDecimal("-500"))
+            .color("#2563eb")
+            .build();
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(cashAcc, cardAcc));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        when(holdingRepository.findByAccount_Id(11L)).thenReturn(List.of());
+        when(priceService.toEur(new BigDecimal("2000"), "EUR", null)).thenReturn(new BigDecimal("2000"));
+        when(priceService.toEur(new BigDecimal("-500"), "EUR", null)).thenReturn(new BigDecimal("-500"));
+        when(historyService.buildHistory(List.of(1L, 11L), 12, 42L)).thenReturn(List.of());
+        when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of());
+
+        DashboardResponse response = dashboardService.getDashboard(42L, "1Y");
+
+        assertThat(response.distribution())
+            .extracting(DashboardResponse.DistributionItem::accountId, DashboardResponse.DistributionItem::percentage)
+            .containsExactly(org.assertj.core.groups.Tuple.tuple(1L, 100.0));
+        assertThat(response.totalLiabilities()).isEqualByComparingTo("500");
+        assertThat(response.totalNetWorth()).isEqualByComparingTo("1500");
+        assertThat(response.liabilities()).singleElement().satisfies(entry -> {
+            assertThat(entry.accountId()).isEqualTo(11L);
+            assertThat(entry.balanceEur()).isEqualByComparingTo("500");
+            assertThat(entry.percentage()).isEqualTo(100.0);
+        });
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.picsou.model;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
+import org.springframework.security.core.AuthenticatedPrincipal;
 
 @Entity
 @Table(name = "app_user")
@@ -11,7 +12,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class AppUser extends AuditableEntity {
+public class AppUser extends AuditableEntity implements AuthenticatedPrincipal {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -50,4 +51,22 @@ public class AppUser extends AuditableEntity {
     @Column(name = "token_version", nullable = false)
     @Builder.Default
     private long tokenVersion = 0L;
+
+    /**
+     * Stable, value-based principal name for Spring Security.
+     *
+     * <p>Without this, {@code AbstractAuthenticationToken.getName()} falls back to
+     * {@code Object#toString()} — an identity-hash string that differs on every freshly-loaded
+     * JPA instance of the same user. That breaks two things that compare a principal name across
+     * requests: the OAuth2 authorization-consent handshake (the {@code GET}/{@code POST
+     * /oauth2/authorize} legs each load a fresh {@code AppUser} via the cookie bridge, so Spring
+     * Authorization Server's parked-authorization principal-name check never matches) and
+     * {@code /api/connected-apps}, which filters {@code oauth2_authorization.principal_name}
+     * against {@code AppUser.getUsername()}. Implementing {@link AuthenticatedPrincipal} makes
+     * {@code getName()} return the stable username instead.
+     */
+    @Override
+    public String getName() {
+        return username;
+    }
 }

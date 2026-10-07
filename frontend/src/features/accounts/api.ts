@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { Account, AccountDeletionImpact, AccountRequest, BalanceSnapshot, DebtRequest, DebtInfo, HoldingResponse, LoanScheduleResponse, Ownership, OwnershipRequest, PropertyValuation, PropertyValuationHistoryEntry, RealEstateMetadataRequest, RealEstateMetadata, RealEstateSummary, RealizedPnlResponse, SecurityInsight, Transaction, TransactionImportPreviewResponse, TransactionImportRequest, TransactionImportResultResponse, TransactionRequest, ExchangePositionResponse } from '@/types/api'
+import type { Account, AccountDeletionImpact, AccountRequest, BalanceSnapshot, DebtRequest, DebtInfo, HoldingResponse, LoanScheduleResponse, Ownership, OwnershipRequest, PropertyValuation, PropertyValuationHistoryEntry, RealEstateMetadataRequest, RealEstateMetadata, RealEstateSummary, RealizedPnlResponse, ScpiPosition, ScpiPositionRequest, SecurityInsight, Transaction, TransactionImportPreviewResponse, TransactionImportRequest, TransactionImportResultResponse, TransactionRequest, ExchangePositionResponse } from '@/types/api'
 
 export const accountsApi = {
   list: () => api.get<Account[]>('/accounts').then(r => r.data),
@@ -34,6 +34,8 @@ export const accountsApi = {
     api.post<BalanceSnapshot>(`/accounts/${id}/history`, { balance, date }).then(r => r.data),
   updateRealEstateMetadata: (id: number, data: RealEstateMetadataRequest) =>
     api.put<RealEstateMetadata>(`/accounts/${id}/real-estate`, data).then(r => r.data),
+  updateScpiPosition: (id: number, data: ScpiPositionRequest) =>
+    api.put<ScpiPosition>(`/accounts/${id}/scpi`, data).then(r => r.data),
   updateDebtMetadata: (id: number, data: DebtRequest) =>
     api.put<DebtInfo>(`/accounts/${id}/debt`, data).then(r => r.data),
   loanSummary: (id: number) =>
@@ -41,9 +43,17 @@ export const accountsApi = {
   addTransaction: (id: number, data: TransactionRequest) =>
     api.post<Transaction>(`/accounts/${id}/transactions`, data).then(r => r.data),
   deleteTransaction: (accountId: number, txId: number) =>
-    api.delete(`/accounts/${accountId}/transactions/${txId}`),
+    api.delete<void>(`/accounts/${accountId}/transactions/${txId}`).then(r => r.data),
   updateTransaction: (accountId: number, txId: number, data: TransactionRequest) =>
     api.put<Transaction>(`/accounts/${accountId}/transactions/${txId}`, data).then(r => r.data),
+  /** Imports the full TR transaction history CSV. Returns a count of rows inserted and skipped (already present). */
+  importTRTransactions: (id: number, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<{ inserted: number; skipped: number }>(`/tr/accounts/${id}/transactions/import-csv`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
   updateHolding: (accountId: number, ticker: string, data: { quantity: number; averageBuyIn?: number }) =>
     api.put<HoldingResponse>(`/accounts/${accountId}/holdings/${ticker}`, data).then(r => r.data),
   deleteHolding: (accountId: number, ticker: string) =>
@@ -60,6 +70,9 @@ export const accountsApi = {
     api.post<TransactionImportResultResponse>(`/accounts/${id}/transactions/import`, data).then(r => r.data),
   realizedPnl: (id: number) =>
     api.get<RealizedPnlResponse>(`/accounts/${id}/realized-pnl`).then(r => r.data),
+  listAll: () => api.get<Account[]>('/accounts', { params: { includeHidden: true } }).then(r => r.data),
+  setVisibility: (id: number, hidden: boolean) =>
+    api.put<Account>(`/accounts/${id}/visibility`, { hidden }).then(r => r.data),
   /**
    * Always resolves: a non-OK `status` in the body explains why no figure could be produced
    * (uncovered area, missing living area) and is information to render, not an error.

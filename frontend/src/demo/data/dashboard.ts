@@ -1,4 +1,5 @@
 import type { DashboardData } from '@/types/api'
+import { LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { mockAccounts } from './accounts'
 import { mockGoals } from './goals'
 
@@ -25,9 +26,10 @@ function generateNetWorthHistory(): { date: string; total: number; invested: num
 
 export const mockDashboard: DashboardData = {
   totalNetWorth: 41862.35,
-  totalLiabilities: 8500,
+  totalLiabilities: 9784.6,
+  totalMonthlyPayment: 250,
   netWorthHistory: generateNetWorthHistory(),
-  distribution: mockAccounts.map(a => ({
+  distribution: mockAccounts.filter(a => !LIABILITY_ACCOUNT_TYPES.includes(a.type)).map(a => ({
     accountId: a.id,
     name: a.name,
     color: a.color,
@@ -36,16 +38,30 @@ export const mockDashboard: DashboardData = {
     accountType: a.type,
     hasHoldings: ['PEA', 'COMPTE_TITRES', 'CRYPTO'].includes(a.type),
   })),
-  // One loan so demo mode exercises the liabilities card (issue #18).
+  // A configured loan and the demo card, so demo mode exercises both liability rows
+  // (issues #18, #197). Optional fields are omitted, as the backend does for nulls.
   liabilities: [
     {
       accountId: 100,
       name: 'Car loan',
       color: '#ef4444',
       balanceEur: 8500,
-      percentage: 100,
+      percentage: 86.87,
       accountType: 'LOAN',
       hasHoldings: false,
+      monthlyPayment: 250,
+      percentPaid: 55,
+    },
+    {
+      accountId: 12,
+      name: 'Carte Air France KLM',
+      color: '#2e77bc',
+      balanceEur: 1284.6,
+      percentage: 13.13,
+      accountType: 'CREDIT_CARD',
+      hasHoldings: false,
+      paymentDueAmountEur: 912.4,
+      paymentDueDate: '2025-04-05',
     },
   ],
   goalSummaries: mockGoals,

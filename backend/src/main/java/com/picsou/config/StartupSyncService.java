@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
@@ -19,13 +20,21 @@ public class StartupSyncService implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(StartupSyncService.class);
 
     private final SchedulerService schedulerService;
+    private final boolean enabled;
 
-    public StartupSyncService(SchedulerService schedulerService) {
+    public StartupSyncService(
+            SchedulerService schedulerService,
+            @Value("${app.startup-sync.enabled:true}") boolean enabled) {
         this.schedulerService = schedulerService;
+        this.enabled = enabled;
     }
 
     @Override
     public void run(ApplicationArguments args) {
+        if (!enabled) {
+            log.info("Initial startup sync disabled");
+            return;
+        }
         log.info("Starting initial sync of all accounts at startup");
         try {
             schedulerService.dailyBankSync();

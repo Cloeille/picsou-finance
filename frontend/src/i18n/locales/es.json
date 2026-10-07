@@ -28,7 +28,11 @@
     "no": "No",
     "today": "Hoy",
     "currency": "EUR",
-    "done": "Hecho"
+    "done": "Hecho",
+    "errorTitle": "Error",
+    "skipToContent": "Skip to main content",
+    "locale": "en-US",
+    "category": "Category"
   },
   "nav": {
     "dashboard": "Panel",
@@ -48,7 +52,14 @@
     "unknownProfile": "Perfil desconocido",
     "logout": "Cerrar sesión",
     "admin": "Administración",
-    "admin.desc": "Ajustes de la instancia"
+    "admin.desc": "Ajustes de la instancia",
+    "analysis": "Análisis",
+    "analysis.desc": "Reparto y diversificación",
+    "hideAmounts": "Ocultar importes",
+    "showAmounts": "Mostrar importes",
+    "budget": "Budget",
+    "budget.desc": "Spending & cashflow",
+    "switchLanguage": "Switch language"
   },
   "auth": {
     "login": "Iniciar sesión",
@@ -97,6 +108,9 @@
     "grossWorth": "Patrimonio bruto",
     "financialWorth": "Activos financieros",
     "syncAccounts": "Sincronizar cuentas",
+    "bankSyncFailed": "{{institution}} no se ha podido sincronizar.",
+    "bankSyncFailed_other": "{{count}} conexiones bancarias no se han podido sincronizar.",
+    "fixConnections": "Corregir conexiones",
     "invested": "Capital invertido",
     "netWorthChange": "ganancia / pérdida",
     "marketsClosed": "Mercados cerrados — sin datos intradía disponibles",
@@ -135,7 +149,13 @@
       "financial": "Evolución de los activos financieros"
     },
     "liabilitiesTitle": "Pasivos",
-    "liabilitiesDescription": "Deuda pendiente por cuenta"
+    "liabilitiesDescription": "Deuda pendiente por cuenta",
+    "portfolioPerformance": "portfolio performance",
+    "liabilities": "Pasivos",
+    "monthlyPayment": "Cuota mensual",
+    "loanParamsUnconfigured": "Parámetros no configurados",
+    "amountDue": "Importe a pagar",
+    "dueOn": "Vence el {{date}}"
   },
   "accounts": {
     "title": "Cuentas",
@@ -178,12 +198,15 @@
     "provider": "Entidad",
     "bankPickerHint": "Elige tu banco de la lista para mostrar su logotipo.",
     "ticker": "Ticker",
+    "openedAt": "Fecha de apertura",
+    "openedAtHint": "La fiscalidad de un PEA depende de su antigüedad: los cinco años cuentan desde esta fecha, no desde su alta en Picsou.",
     "color": "Color",
     "logo": "Logo",
     "logoBlockchain": "Cartera blockchain",
     "logoLedger": "Ledger",
     "total": "Total",
     "currentBalance": "Saldo actual",
+    "currentDebt": "Deuda de tarjeta",
     "cashBalance": "Efectivo en la cuenta PEA/de valores",
     "snapshots": "Registros mensuales",
     "addSnapshot": "Guardar",
@@ -200,7 +223,163 @@
       "REAL_ESTATE": "Inmobiliario",
       "DEBTS": "Deudas"
     },
-    "fees": "Comisiones"
+    "fees": "Comisiones",
+    "export": {
+      "button": "Exportar datos",
+      "title": "Exportar datos",
+      "description": "Elija las cuentas a extraer. El archivo Excel contiene una hoja por cuenta, con sus posiciones y su detalle.",
+      "selectAll": "Seleccionar todo",
+      "selectNone": "Borrar selección",
+      "selected": "{{count}} cuenta seleccionada",
+      "selected_plural": "{{count}} cuentas seleccionadas",
+      "submit": "Exportar",
+      "success": "Exportación completada: {{filename}}",
+      "empty": "Ninguna cuenta para exportar"
+    },
+    "tabOverview": "Overview",
+    "changeCategory": "Change category",
+    "importCsvTR": "+ Add CSV (TR)",
+    "importSuccess": "{{count}} transaction imported",
+    "importSuccess_other": "{{count}} transactions imported",
+    "importSuccessWithSkipped": "{{count}} transaction imported ({{skipped}} already present)",
+    "importSuccessWithSkipped_other": "{{count}} transactions imported ({{skipped}} already present)",
+    "importAlreadyDone": "No new transactions — CSV already imported.",
+    "importError": "Import error: {{message}}",
+    "uncategorized": "Uncategorized",
+    "amex": {
+      "amountDue": "Importe a pagar",
+      "dueDate": "Fecha de domiciliación",
+      "miles": "Millas ganadas este ciclo"
+    }
+  },
+  "analysis": {
+    "title": "Análisis",
+    "editTargets": "Mis objetivos",
+    "error": "No se pudo cargar el análisis",
+    "points": "pts",
+    "targetShort": "objetivo {{value}}%",
+    "empty": {
+      "title": "Nada que analizar todavía",
+      "description": "Añade cuentas para que Picsou pueda valorar cómo está construido tu patrimonio."
+    },
+    "tiers": {
+      "SAFETY_NET": "Colchón de seguridad",
+      "REAL_ESTATE": "Inmobiliario",
+      "EQUITY": "Acciones y ETF",
+      "CRYPTO": "Cripto",
+      "ALTERNATIVE": "Activos alternativos"
+    },
+    "score": {
+      "title": "Puntuación de composición",
+      "safetyNet": "Colchón",
+      "allocation": "Reparto",
+      "cryptoPenalty": "Penalización cripto",
+      "leverageBonus": "Bonus de apalancamiento",
+      "notRated": "sin evaluar",
+      "misplaced": "El {{value}}% de tu patrimonio tendría que moverse para alcanzar tus objetivos.",
+      "safetyNetUnknownHint": "Indica tus gastos mensuales obligatorios para que se evalúe el colchón de seguridad.",
+      "notRatedYet": "Aún sin puntuación: indique sus gastos mensuales o invierta más allá de su colchón."
+    },
+    "safetyNet": {
+      "title": "Colchón de seguridad y reparto",
+      "ofTarget": "sobre un objetivo de",
+      "short": "{{value}}% del objetivo",
+      "covered": "Cubierto",
+      "excess": "Excedente",
+      "excessHint": "Lo que supera el objetivo es liquidez por recolocar: no entra en el reparto de abajo.",
+      "unknown": "Indica tus gastos mensuales obligatorios para definir el objetivo de tu colchón.",
+      "dailyCash": "Tus cuentas corrientes tienen",
+      "dailyCashHint": "no contabilizado ni en el colchón ni en el reparto.",
+      "inPassbooks": "en cuentas de ahorro."
+    },
+    "targets": {
+      "title": "Mis objetivos de reparto",
+      "description": "El colchón se define en importe; el resto, en porcentaje de lo que lo supera.",
+      "expenses": "Gastos mensuales obligatorios",
+      "expensesPlaceholder": "1.850",
+      "expensesHint": "Alquiler, préstamos, energía, alimentación — lo que sale cada mes pase lo que pase.",
+      "suggestion": "Estimado en",
+      "suggestionBasis": "sobre {{count}} meses observados",
+      "useSuggestion": "Usar",
+      "months": "Meses de gastos a cubrir",
+      "allocation": "Reparto objetivo del resto",
+      "sum": "Total {{value}}% / 100%",
+      "allocationHint": "Los cuatro porcentajes deben sumar 100%."
+    },
+    "targetAmount": "objetivo",
+    "diversification": {
+      "title": "Diversificación",
+      "sectors": "Sectores",
+      "countries": "Regiones",
+      "effective": "{{value}} posiciones efectivas / {{target}} previstas",
+      "coverage": "Calculado sobre el {{value}} % de la bolsa de acciones y ETF",
+      "unclassified": "sin clasificar",
+      "noData": "No hay datos de reparto disponibles",
+      "noHoldings": "No hay línea de acciones o ETF que analizar.",
+      "basisNote": "En un ETF el país es la exposición real del índice; en una acción en directo es el país de emisión del ISIN. Son magnitudes distintas, sumadas aquí.",
+      "views": {
+        "bar": "Barras",
+        "donut": "Anillo",
+        "treemap": "Mosaico"
+      }
+    },
+    "projection": {
+      "title": "Proyección del patrimonio",
+      "years": "{{count}} años",
+      "basis": "Base invertible",
+      "monthly": "aportaciones",
+      "nothingToProject": "Define una inversión mensual en Objetivos para ver una proyección.",
+      "disclaimer": "Proyectado a partir de tus aportaciones recurrentes, capitalizado mensualmente. Excluye inmuebles, préstamos y activos alternativos. No es una previsión.",
+      "scenarios": {
+        "PESSIMISTIC": "Pesimista ({{value}} %)",
+        "CAUTIOUS": "Prudente ({{value}} %)",
+        "REFERENCE": "Referencia ({{value}} %)",
+        "OPTIMISTIC": "Optimista ({{value}} %)"
+      },
+      "contributed": "Sus aportaciones",
+      "views": {
+        "wealth": "Patrimonio",
+        "allocation": "Reparto"
+      },
+      "target": "Objetivo",
+      "blendNote": "Tasa efectiva de su mezcla: cada aportación capitaliza al tipo de su soporte.",
+      "tier": "Bolsa",
+      "today": "Hoy",
+      "atHorizon": "En {{count}} años",
+      "atAge": "{{age}} años"
+    },
+    "classification": {
+      "title": "Clasificar este valor",
+      "action": "Clasificar",
+      "sector": "Sector",
+      "country": "Región",
+      "tier": "Nivel patrimonial",
+      "inherit": "Dejar que Picsou decida",
+      "inferred": "Detectado automáticamente: {{value}}",
+      "tierHint": "Indíquelo solo si el valor no pertenece al nivel de su cuenta — por ejemplo un ETC de oro o un ETP de bitcoin en una cuenta de valores.",
+      "scopeHint": "Esta clasificación se aplica a {{ticker}} allá donde lo tenga, y sobrevive a las sincronizaciones.",
+      "listTitle": "Líneas por clasificar",
+      "missing": "falta: {{fields}}",
+      "notLookedUp": "aún sin consultar",
+      "refresh": "Consultar ahora",
+      "refreshQueued": "Consulta iniciada para {{count}} valores. Vuelva en un minuto.",
+      "refreshAlready": "Ya hay una consulta en curso.",
+      "editAria": "Clasificar {{ticker}}",
+      "andMore": "y {{count}} más."
+    },
+    "drilldown": {
+      "holdingCount": "en {{count}} línea",
+      "holdingCount_other": "en {{count}} líneas",
+      "others": "y {{count}} más",
+      "others_other": "y {{count}} más",
+      "hint": "Seleccione una porción para ver de qué se compone."
+    },
+    "alerts": {
+      "SINGLE_ASSET_CONCENTRATION": "{{label}} representa el {{percent}} % de su patrimonio: un solo activo concentra el riesgo.",
+      "EMPTY_TIER": "Nada en {{label}}: esta bolsa está vacía, no solo por debajo del objetivo.",
+      "CUSHION_OVERFUNDED": "{{value}} por encima de su objetivo de colchón: dinero disponible para colocar.",
+      "title": "A tener en cuenta"
+    }
   },
   "accountTypes": {
     "checking": "Cuenta corriente",
@@ -217,7 +396,46 @@
     "realEstate": "Inmobiliario",
     "loan": "Préstamo",
     "other": "Otro",
-    "employeeSavings": "Ahorro salarial"
+    "employeeSavings": "Ahorro salarial",
+    "assuranceVie": "Seguro de vida",
+    "scpi": "SCPI",
+    "creditCard": "Tarjeta de crédito"
+  },
+  "scpi": {
+    "add": {
+      "action": "Añadir una SCPI",
+      "title": "Añadir una participación de SCPI",
+      "description": "Una participación no es un inmueble. El patrimonio es el precio de reembolso por el número de participaciones."
+    },
+    "name": "Nombre del vehículo",
+    "managementCompany": "Sociedad gestora",
+    "shareCount": "Número de participaciones",
+    "subscriptionPrice": "Precio de suscripción",
+    "withdrawalPrice": "Precio de reembolso",
+    "withdrawalValue": "Valor al precio de reembolso",
+    "subscriptionHint": "Se muestra junto al saldo, nunca como saldo. Las comisiones de entrada están en este precio.",
+    "corumFundCode": "Código de fondo CORUM",
+    "corumFundHint": "Opcional. El código de fondo (US, XL…) permite que la sincronización de CORUM actualice esta cuenta. Déjelo vacío para una entrada manual.",
+    "sofidyFundCode": "Código de fondo Sofidy",
+    "sofidyFundHint": "Opcional. El código de producto de Sofidy (DY, IM…) permite que la sincronización de Sofidy actualice esta cuenta. Déjelo vacío para una entrada manual.",
+    "dividendPolicy": "Dividendos",
+    "cash": "Pagados",
+    "reinvest": "Reinvertidos",
+    "jouissanceDate": "Fecha de disfrute",
+    "isin": "ISIN",
+    "incomplete": "Falta el precio de reembolso: se conserva el saldo anterior.",
+    "position": "Posición",
+    "edit": "Modificar",
+    "save": "Guardar",
+    "summary": {
+      "title": "Inversión inmobiliaria indirecta",
+      "gross": "Valor al reembolso",
+      "debt": "Crédito vinculado",
+      "net": "Neto",
+      "hint": "Fuera de la estimación por metro cuadrado. El precio de suscripción no entra en este total.",
+      "incomplete": "Una participación sigue usando su último saldo conocido: falta el precio de reembolso."
+    }
+
   },
   "realEstate": {
     "purchasePrice": "Precio de compra",
@@ -334,7 +552,8 @@
         "basic_materials": "Materiales básicos",
         "energy": "Energía",
         "financial_services": "Servicios financieros",
-        "real_estate": "Inmobiliario"
+        "real_estate": "Inmobiliario",
+        "private_equity": "No cotizado"
       },
       "countryNames": {
         "US": "Estados Unidos",
@@ -361,7 +580,8 @@
         "BE": "Bélgica",
         "FI": "Finlandia",
         "NO": "Noruega",
-        "SG": "Singapur"
+        "SG": "Singapur",
+        "XU": "No cotizado"
       }
     }
   },
@@ -420,7 +640,45 @@
     "futureMonth": "···",
     "linkedAccounts": "Cuentas vinculadas",
     "history": "Historial",
-    "atCurrentPace": "Al ritmo actual"
+    "atCurrentPace": "Al ritmo actual",
+    "goalType": "Tipo de objetivo",
+    "namePlaceholder": "Entrada de la vivienda",
+    "includedAccounts": "Cuentas incluidas",
+    "monthlyAmount": "Importe mensual",
+    "expectedReturn": "Rentabilidad esperada (%)",
+    "startDate": "Inicio",
+    "endDate": "Fin",
+    "until": "hasta el {{date}}",
+    "recurringHint": "Sin fecha de fin el plan es indefinido. La rentabilidad esperada, si se indica, es la que se aplica a este plan en la proyección; si no, se usa la del tipo de cuenta.",
+    "types": {
+      "SAVINGS_TARGET": "Objetivo de ahorro",
+      "RECURRING_INVESTMENT": "Inversión mensual"
+    },
+    "sections": {
+      "savings": "Objetivos de ahorro",
+      "recurring": "Inversiones recurrentes",
+      "recurringHint": "Lo que inviertes cada mes — es lo que alimenta la proyección en Análisis."
+    },
+    "allocation": {
+      "title": "Desglose de posiciones",
+      "hint": "Reparte el importe mensual entre las posiciones que esta cuenta ya tiene. Lo que sobre aparecerá como no asignado.",
+      "pickAccountFirst": "Elige primero la cuenta que se alimenta.",
+      "noHoldings": "Esta cuenta aún no tiene ninguna posición.",
+      "amountFor": "Importe mensual en {{ticker}}",
+      "allocated": "Asignado",
+      "remaining": "resto",
+      "over": "exceso de",
+      "unallocated": "Sin asignar",
+      "toggle": "Mostrar el desglose de posiciones"
+    },
+    "savingsRate": {
+      "title": "Tasa de ahorro",
+      "perMonth": "al mes",
+      "benchmarkLabel": "Sobre la media francesa",
+      "benchmark": "La tasa de ahorro media de los hogares en Francia se sitúa en torno al {{rate}} % de su renta bruta disponible",
+      "needsIncome": "Indica tu neto mensual antes de impuestos y tu tipo de retención para ver tu tasa de ahorro.",
+      "goToSettings": "Ir a ajustes"
+    }
   },
   "addAccount": {
     "title": "Añadir cuenta",
@@ -445,8 +703,12 @@
       "finary": "Importar desde Finary",
       "manual": "Crear una cuenta manualmente",
       "amundi": "PEE, PEG, PERCO, PER en Amundi",
-      "property": "Casa, piso, terreno…"
-    }
+      "amex": "Tarjeta de crédito American Express: saldo y transacciones",
+      "property": "Casa, piso, terreno…",
+      "revolut": "Phone + passcode, on-demand sync",
+      "fortuneo": "Sincronizar tus cuentas Fortuneo"
+    },
+    "revolutConnected": "Revolut connected!"
   },
   "sync": {
     "title": "Sincronización",
@@ -578,6 +840,73 @@
       "lastSync": "Última sincronización",
       "evmHint": "Una sola dirección, todas las cadenas EVM — Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base y Avalanche."
     },
+    "visibility": {
+      "title": "Cuentas",
+      "description": "Elige qué cuentas aparecen en la aplicación. Una cuenta oculta sigue sincronizándose con normalidad — solo se retira de la pantalla.",
+      "manualGroup": "Manual"
+    },
+    "actual": {
+      "title": "Actual Budget",
+      "upload": "Importar una exportación de Actual Budget",
+      "uploadHint": "El .zip del presupuesto exportado desde Actual (Ajustes → Exportar datos) o su db.sqlite",
+      "chooseFile": "Elegir un archivo",
+      "file": "Archivo de Actual Budget",
+      "preview": "Previsualizar la importación",
+      "previewSummary": "{{accounts}} cuentas, {{categories}} categorías y {{transactions}} transacciones",
+      "restart": "Empezar de nuevo",
+      "import": "Importar datos",
+      "transfersNeutral": "{{count}} transferencias y saldos iniciales se clasificarán como transferencias internas: nunca contarán como ingresos ni gastos.",
+      "currency": "Moneda del presupuesto",
+      "currencyHint": "Este archivo no indica su moneda. Elige la de tu presupuesto.",
+      "accounts": "Cuentas",
+      "transactions": "transacciones",
+      "offBudget": "Fuera del presupuesto",
+      "closed": "Cerrada",
+      "skip": "Omitir",
+      "mapExisting": "Asociar a una cuenta existente",
+      "createNew": "Crear cuenta",
+      "targetAccount": "Cuenta destino para {{name}}",
+      "chooseAccount": "Elegir una cuenta",
+      "previouslyImported": "Cuenta creada por una importación anterior de Actual: su saldo se recalcula a partir del historial importado.",
+      "accountName": "Nombre de la cuenta",
+      "accountType": "Tipo de cuenta",
+      "categories": "Categorías",
+      "income": "Ingreso",
+      "expense": "Gasto",
+      "categoryAction": "Acción para {{name}}",
+      "createCategory": "Crear categoría",
+      "mapExistingCategory": "Asociar a una categoría existente",
+      "uncategorized": "Dejar sin categoría",
+      "categoryName": "Nombre de la categoría {{name}}",
+      "targetCategory": "Categoría destino para {{name}}",
+      "chooseCategory": "Elegir una categoría",
+      "sampleTransactions": "Últimas transacciones",
+      "noPayee": "Sin beneficiario",
+      "transfer": "Transferencia",
+      "startingBalance": "Saldo inicial",
+      "accountsCreated": "Cuentas creadas",
+      "accountsMapped": "Cuentas asociadas",
+      "accountsSkipped": "Cuentas omitidas",
+      "categoriesCreated": "Categorías creadas",
+      "transactionsImported": "Transacciones importadas",
+      "transactionsSkipped": "Transacciones omitidas",
+      "transactionsDeleted": "Transacciones eliminadas",
+      "transactionsMoved": "Transacciones movidas",
+      "done": "Hecho",
+      "confirmTitle": "Confirmar la importación de Actual Budget",
+      "planSummary": "Esta importación añade {{added}} transacciones, elimina {{deleted}} y mueve {{moved}} entre cuentas.",
+      "largeDeletion": "Atención: esta importación elimina {{count}} transacciones, una gran parte del historial de una cuenta. Comprueba que cada cuenta de Actual está asociada a la cuenta de Picsou correcta.",
+      "confirmDescription": "Una cuenta creada por una importación de Actual para una de las cuentas de este archivo sigue el archivo: las transacciones eliminadas o divididas en Actual se eliminan, y las movidas en Actual las siguen. Las demás cuentas (las tuyas, o las creadas para otro presupuesto) solo reciben transacciones nuevas. No se escribe nada si falla alguna comprobación.",
+      "warnings": {
+        "KEPT_MISSING": "{{count}} transacciones importadas antes en estas cuentas no están en este archivo. Pueden venir de otro archivo o haberse eliminado en Actual. No se ha cambiado nada.",
+        "KEPT_MOVED": "{{count}} transacciones ya importadas en otra cuenta se quedan donde están, porque esa cuenta no sigue este archivo."
+      },
+      "errors": {
+        "invalidPreview": "La respuesta de previsualización no es válida.",
+        "previewFailed": "No se pudo leer el archivo de Actual Budget.",
+        "importFailed": "La importación de Actual Budget ha fallado."
+      }
+    },
     "finary": {
       "title": "Finary",
       "uploadFile": "Importar archivo Finary (.xlsx)",
@@ -631,7 +960,9 @@
       "sessionExpired": "Sesión caducada",
       "reconnect": "Volver a conectar desde la pestaña del proveedor",
       "trManualInfo": "Trade Republic es el único banco que requiere volver a autenticarse manualmente. Tendrás que introducir de nuevo tu número de teléfono y tu PIN en cada sincronización.",
-      "trSlowWarning": "La conexión puede tardar unos instantes, es normal."
+      "trSlowWarning": "La conexión puede tardar unos instantes, es normal.",
+      "openRevolut": "Open the Revolut page to connect",
+      "revolutManualInfo": "Revolut requires approval on your phone. Click the icon to enter your credentials."
     },
     "bourso": {
       "title": "BoursoBank",
@@ -653,6 +984,7 @@
         "tooManyAttempts": "Demasiados intentos. Espere antes de reintentar.",
         "invalidCredentials": "Número de cliente o contraseña de BoursoBank no válidos.",
         "fraudAckRequired": "Inicie sesión en el sitio web de BoursoBank, valide el aviso antifraude y vuelva a conectarse.",
+        "identitySelectionUnsupported": "Este acceso de BoursoBank reúne varias identidades y Picsou no pudo determinar cuál es la personal. Las identidades profesionales aún no son compatibles. Se han conservado sus datos existentes.",
         "mfaTypeUnsupported": "BoursoBank pide un código por SMS o correo electrónico, que Picsou no puede gestionar. Active la validación por aplicación en sus ajustes de seguridad de BoursoBank.",
         "appValidationTimeout": "La validación en la aplicación no se confirmó a tiempo. Vuelva a empezar.",
         "authAttemptExpired": "El intento de autenticación ha caducado. Vuelva a empezar.",
@@ -747,6 +1079,171 @@
         "invalidData": "Amundi devolvió datos incoherentes. Se han conservado sus datos existentes.",
         "serverError": "No se puede contactar con Amundi. Inténtelo de nuevo."
       }
+    },
+    "amex": {
+      "title": "American Express",
+      "login": "Identificador",
+      "password": "Contraseña",
+      "otpMethod": "Recibir el código por",
+      "otpMethodSms": "SMS",
+      "otpMethodEmail": "Correo electrónico",
+      "otpCode": "Código de un solo uso",
+      "otpPrompt": "Introduzca el código enviado por American Express.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "validate": "Validar código",
+      "validating": "Validando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Tarjeta American Express sincronizada.",
+      "clearSession": "Desconectar",
+      "noSession": "Sin sesión activa",
+      "sessionActive": "Sesión activa",
+      "scope": "Sincroniza su tarjeta de crédito American Express: saldo e historial de transacciones.",
+      "errors": {
+        "tooManyAttempts": "Demasiados intentos. Por favor, espere.",
+        "invalidCredentials": "Credenciales de American Express inválidas.",
+        "invalidCode": "Código de un solo uso inválido o caducado. Vuelva a intentarlo.",
+        "authAttemptExpired": "El intento de autenticación expiró. Vuelva a conectarse.",
+        "sessionExpired": "La sesión de American Express ha expirado. Vuelva a conectarse.",
+        "formatChanged": "El formato del sitio de American Express ha cambiado. Sus datos existentes se han conservado.",
+        "invalidData": "American Express devolvió datos incoherentes. Sus datos existentes se han conservado.",
+        "serverError": "No se pudo conectar con American Express. Inténtelo de nuevo."
+      },
+      "historyLimit": "AMEX limita el historial a las transacciones que expone su API; puede que las más antiguas no estén disponibles.",
+      "recoverHistory": "Recuperar historial disponible",
+      "recoveringHistory": "Recuperando historial…"
+    },
+    "revolut": {
+      "title": "Revolut",
+      "phone": "Phone number",
+      "passcode": "Passcode",
+      "remember": "Remember my credentials (encrypted)",
+      "sync": "Sync Revolut",
+      "syncing": "Syncing...",
+      "approveOnPhone": "Approve the connection in your Revolut app…",
+      "connected": "Connected",
+      "forget": "Forget credentials",
+      "lastSync": "Last sync",
+      "approvalTimeout": "Approval not received. Try again.",
+      "notConnected": "Not connected",
+      "syncSuccess": "Your accounts are up to date.",
+      "phase": {
+        "checkingSession": "Checking your Revolut session…",
+        "loggingIn": "Logging in to Revolut…",
+        "awaitingApproval": "Approve the connection in your Revolut app… ({{remaining}}s left)",
+        "harvesting": "Fetching your accounts… ({{count}} found)"
+      },
+      "selection": {
+        "title": "Choose which accounts to import",
+        "selectAll": "Select all",
+        "confirm": "Import selected",
+        "importing": "Importing…",
+        "alreadyImported": "Already imported",
+        "transactions": "{{count}} transactions",
+        "allImported": "All your Revolut accounts are already imported."
+      }
+    },
+    "corum": {
+      "title": "CORUM",
+      "login": "Número de cliente",
+      "password": "Contraseña",
+      "otpCode": "Código de seguridad de 6 dígitos",
+      "otpPrompt": "Introduzca el código que CORUM ha enviado por SMS.",
+      "appValidationPrompt": "Abra la aplicación CORUM y valide el inicio de sesión.",
+      "appValidationHint": "Esta página se actualiza sola en cuanto lo haya validado.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "validate": "Validar el código",
+      "validating": "Validando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Partes SCPI sincronizadas.",
+      "clearSession": "Desconectar",
+      "noSession": "Ninguna sesión activa",
+      "sessionActive": "Sesión activa",
+      "scope": "Sincroniza las partes SCPI de sus contratos CORUM, valoradas al precio de retirada. Solo se actualizan las cuentas que haya vinculado a un fondo.",
+      "errors": {
+        "tooManyAttempts": "Demasiados intentos. Espere un momento.",
+        "invalidCredentials": "Credenciales de CORUM no válidas.",
+        "invalidCode": "Código de seguridad no válido o caducado. Vuelva a iniciar la conexión.",
+        "appValidationTimeout": "La validación en la aplicación no se confirmó a tiempo. Vuelva a iniciar la conexión.",
+        "authAttemptExpired": "El intento de autenticación ha caducado. Vuelva a intentarlo.",
+        "sessionExpired": "La sesión de CORUM ha caducado. Vuelva a conectarse.",
+        "multipleContracts": "Este acceso de CORUM contiene varios contratos inmobiliarios. La sincronización no sabe cuál elegir.",
+        "portfolioIncomplete": "CORUM ha devuelto una cartera incompleta. Se han conservado sus datos existentes.",
+        "formatChanged": "El formato del sitio de CORUM ha cambiado. Se han conservado sus datos existentes.",
+        "invalidData": "CORUM ha devuelto datos incoherentes. Se han conservado sus datos existentes.",
+        "serverError": "No se puede conectar con CORUM. Vuelva a intentarlo."
+      }
+    },
+    "sofidy": {
+      "title": "Sofidy",
+      "login": "Código de asociado",
+      "password": "Contraseña",
+      "otpCode": "Código de verificación de 6 dígitos",
+      "otpPrompt": "Sofidy le ha enviado un código de verificación por correo electrónico. Introdúzcalo aquí.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "validate": "Validar el código",
+      "validating": "Validando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Partes SCPI sincronizadas.",
+      "clearSession": "Desconectar",
+      "noSession": "Ninguna sesión activa",
+      "sessionActive": "Sesión activa",
+      "scope": "Sincroniza las partes SCPI de su espacio de asociado de Sofidy, al valor de reembolso. Solo se actualizan las cuentas vinculadas a un fondo.",
+      "errors": {
+        "tooManyAttempts": "Demasiados intentos. Espere, por favor.",
+        "invalidCredentials": "Código de asociado o contraseña de Sofidy no válidos.",
+        "invalidCode": "Código de verificación no válido o caducado. Vuelva a iniciar la conexión.",
+        "firstVisitPending": "Termine primero su primera visita en el espacio de asociado de Sofidy y vuelva a intentarlo.",
+        "emailUnreachable": "No hay ninguna dirección de correo asociada a esta cuenta de Sofidy, el código no se puede enviar.",
+        "accountInactive": "Esta cuenta de Sofidy está inactiva. Contacte con el Service Associés.",
+        "appValidationTimeout": "La validación en la aplicación no se confirmó a tiempo. Vuelva a iniciar la conexión.",
+        "authAttemptExpired": "El intento de autenticación ha caducado. Vuelva a intentarlo.",
+        "sessionExpired": "La sesión de Sofidy ha caducado. Vuelva a conectarse.",
+        "multipleContracts": "Este acceso de Sofidy contiene varios contratos inmobiliarios. La sincronización no sabe cuál elegir.",
+        "portfolioIncomplete": "Sofidy ha devuelto una cartera incompleta. Se han conservado sus datos existentes.",
+        "formatChanged": "El formato del sitio de Sofidy ha cambiado. Se han conservado sus datos existentes.",
+        "invalidData": "Sofidy ha devuelto datos incoherentes. Se han conservado sus datos existentes.",
+        "serverError": "No se ha podido conectar con Sofidy. Inténtelo de nuevo."
+      }
+    },
+    "fortuneo": {
+      "title": "Fortuneo",
+      "login": "Usuario",
+      "password": "Contraseña",
+      "otpCode": "Código de seguridad de 6 dígitos",
+      "otpPrompt": "Introduce el código enviado por Fortuneo. Este dispositivo no se marcará como de confianza.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "validate": "Validar código",
+      "validating": "Validando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Cartera sincronizada.",
+      "clearSession": "Desconectar",
+      "noSession": "No hay sesión activa",
+      "sessionActive": "Sesión activa",
+      "scope": "Sincroniza posiciones, coste medio, cotización, valoración y efectivo de cuentas PEA, de valores y corrientes, además de las transacciones recientes.",
+      "errors": {
+        "tooManyAttempts": "Demasiados intentos. Espera un momento.",
+        "invalidCredentials": "Credenciales de Fortuneo no válidas.",
+        "invalidCode": "Código de seguridad no válido o caducado. Reinicia el acceso.",
+        "authAttemptExpired": "El intento de autenticación ha caducado. Reinicia el acceso.",
+        "sessionExpired": "La sesión de Fortuneo ha caducado. Vuelve a conectarte.",
+        "investorProfileRequired": "Fortuneo está bloqueando la cartera con una solicitud de perfil de inversor. Abre Fortuneo, aplaza o completa esa solicitud y vuelve a sincronizar. Tus datos existentes no se modificaron.",
+        "portfolioIncomplete": "Fortuneo devolvió una cartera incompleta. Tus datos existentes no se modificaron.",
+        "formatChanged": "Fortuneo cambió el formato de la cartera. Tus datos existentes no se modificaron.",
+        "invalidData": "Fortuneo devolvió datos de cartera incoherentes. Tus datos existentes no se modificaron.",
+        "serverError": "No se pudo contactar con Fortuneo. Inténtalo de nuevo."
+      }
     }
   },
   "settings": {
@@ -835,7 +1332,42 @@
     "sessionsExpires": "Caduca",
     "sessionsRevoke": "Revocar",
     "sessionsRevokeAllOthers": "Cerrar sesión en otros dispositivos",
-    "sessionsRevoking": "Revocando..."
+    "sessionsRevoking": "Revocando...",
+    "amounts": "Importes",
+    "amountsVisible": "Visibles",
+    "amountsHidden": "Ocultos",
+    "profile": {
+      "title": "Perfil",
+      "description": "Tu contexto personal y fiscal",
+      "hint": "Esta información se queda en tu instancia. Sirve para situar tu cartera en contexto, sobre todo en los datos exportados.",
+      "birthDate": "Fecha de nacimiento",
+      "currentAge": "{{age}} años",
+      "retirementAge": "Edad de jubilación objetivo",
+      "marginalTaxRate": "Tipo marginal de IRPF",
+      "householdStatus": "Situación del hogar",
+      "household": {
+        "SINGLE": "Soltero/a",
+        "COUPLE": "En pareja"
+      },
+      "taxHouseholdParts": "Partes fiscales",
+      "dependents": "Personas a cargo",
+      "annualGrossIncome": "Ingresos brutos anuales",
+      "incomeHint": "El importe bruto de tu nómina. Contexto fiscal — la tasa de ahorro se calcula sobre el neto de abajo.",
+      "netPay": "Lo que llega realmente a la cuenta",
+      "netPayHint": "Ambas cifras están en tu nómina. El bruto no basta: primero se descuentan las cotizaciones sociales, a un tipo que depende de tu situación.",
+      "monthlyNetBeforeTax": "Neto mensual antes de impuestos",
+      "withholdingTaxRate": "Tipo de retención (%)",
+      "netIncomeDerived": "Neto mensual percibido:",
+      "savingsCapacity": "Capacidad de ahorro mensual",
+      "riskProfile": "Perfil de riesgo",
+      "risk": {
+        "PRUDENT": "Prudente",
+        "BALANCED": "Equilibrado",
+        "DYNAMIC": "Dinámico",
+        "AGGRESSIVE": "Agresivo"
+      },
+      "saved": "Perfil guardado"
+    }
   },
   "accessKeys": {
     "sectionTitle": "Claves de acceso y MCP",
@@ -902,6 +1434,10 @@
         "label": "Familia",
         "desc": "Ver el panel familiar compartido"
       },
+      "analysis_read": {
+        "label": "Análisis patrimonial",
+        "desc": "Consultar la asignación, la diversificación, las proyecciones y el resumen inmobiliario"
+      },
       "accounts_write": {
         "label": "Cuentas",
         "desc": "Crear y editar cuentas manuales, saldos y posiciones"
@@ -917,6 +1453,62 @@
       "sync_trigger": {
         "label": "Sincronización",
         "desc": "Actualizar las conexiones existentes de bancos, cripto y brókeres"
+      },
+      "sync_read": {
+        "label": "Estado de sincronización",
+        "desc": "Ver el último resultado y si las conexiones existentes necesitan reconexión"
+      },
+      "budget_categories-read": {
+        "label": "Categorías de presupuesto",
+        "desc": "Ver categorías de presupuesto (ingresos, gastos, transferencias)"
+      },
+      "budget_rules-read": {
+        "label": "Reglas de categorización",
+        "desc": "Ver las reglas de categorización automática de transacciones"
+      },
+      "budget_transactions-read": {
+        "label": "Transacciones presupuestadas",
+        "desc": "Ver transacciones y su categoría"
+      },
+      "budget_recurring-read": {
+        "label": "Suscripciones recurrentes",
+        "desc": "Ver suscripciones, domiciliaciones y nóminas detectadas"
+      },
+      "budget_envelopes-read": {
+        "label": "Sobres de presupuesto",
+        "desc": "Ver los sobres de presupuesto y su progreso"
+      },
+      "budget_dashboard-read": {
+        "label": "Panel de presupuesto",
+        "desc": "Ver el flujo de caja, las principales categorías y las próximas suscripciones"
+      },
+      "oauth2_discover": {
+        "label": "Descubrimiento OAuth2",
+        "desc": "Ver los metadatos públicos del servidor de autorización"
+      },
+      "oauth2_session-status": {
+        "label": "Estado de sesión",
+        "desc": "Ver el estado y los permisos de la sesión actual"
+      },
+      "budget_categories-write": {
+        "label": "Categorías de presupuesto",
+        "desc": "Crear, editar y archivar categorías de presupuesto"
+      },
+      "budget_rules-write": {
+        "label": "Reglas de categorización",
+        "desc": "Crear, editar y eliminar reglas de categorización"
+      },
+      "budget_transactions-write": {
+        "label": "Transacciones presupuestadas",
+        "desc": "Cambiar la categoría de las transacciones"
+      },
+      "budget_recurring-write": {
+        "label": "Suscripciones recurrentes",
+        "desc": "Confirmar, ignorar, declarar, editar y eliminar series recurrentes; volver a ejecutar la detección"
+      },
+      "budget_envelopes-write": {
+        "label": "Sobres de presupuesto",
+        "desc": "Crear, editar y eliminar sobres de presupuesto"
       }
     }
   },
@@ -979,6 +1571,7 @@
       "enablebanking": "Enable Banking",
       "boursobank": "BoursoBank",
       "boursedirect": "Bourse Direct",
+      "fortuneo": "Fortuneo",
       "traderepublic": "Trade Republic",
       "finary": "Finary",
       "crypto": "Cripto"
@@ -1011,6 +1604,43 @@
       "copied": "¡Copiado!",
       "noMembers": "Sin miembros",
       "loading": "Cargando..."
+    },
+    "ai": {
+      "title": "AI categorization",
+      "description": "Optional AI provider used to categorize transactions the deterministic rules leave uncategorized.",
+      "provider": "Provider",
+      "providerNone": "Disabled",
+      "providerOpenAi": "OpenAI / compatible",
+      "model": "Model",
+      "baseUrl": "Base URL",
+      "apiKey": "API key",
+      "apiKeyHintPresent": "A key is already saved — leave blank to keep it.",
+      "apiKeyRequired": "An API key is required when changing provider.",
+      "disabledHint": "AI categorization is off. Choose a provider to enable it.",
+      "test": "Test connection",
+      "testing": "Testing…",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "maxConcurrency": "Parallel requests",
+      "maxConcurrencyHint": "How many AI calls to run at once (1–16). Lower for local Ollama."
+    },
+    "aiActivity": {
+      "title": "AI activity",
+      "description": "Inspect recent AI categorization calls — prompts and token usage.",
+      "view": "View AI tasks",
+      "summary": "{{calls}} calls · {{tokens}} tokens total",
+      "colTime": "Time",
+      "colMerchant": "Merchant",
+      "colModel": "Model",
+      "colTokens": "Tokens",
+      "colStatus": "Status",
+      "prompt": "Prompt",
+      "response": "Response",
+      "prev": "Prev",
+      "next": "Next",
+      "empty": "No AI calls recorded yet.",
+      "loading": "Loading…"
     }
   },
   "error": {
@@ -1162,6 +1792,14 @@
         "crypto": {
           "title": "Exchanges de cripto",
           "description": "Sigue Binance y compañía mediante claves API de solo lectura, cifradas en reposo."
+        },
+        "revolut": {
+          "title": "Revolut",
+          "description": "Sync all your Revolut assets (accounts, pockets, vaults) with your phone number + passcode and an approval on your mobile."
+        },
+        "fortuneo": {
+          "title": "Fortuneo",
+          "description": "Sincroniza tu PEA, cuenta de valores y cuentas corrientes con autenticación de dos factores."
         }
       },
       "hint": {
@@ -1299,6 +1937,21 @@
       "cta": "Abrir mi panel",
       "loginFallback": "Ir al inicio de sesión",
       "loggingIn": "Iniciando tu sesión..."
+    },
+    "revolut": {
+      "surtitle": "REVOLUT",
+      "title": "Revolut is ready to go.",
+      "body": "Nothing to configure here — you'll connect Revolut with your phone number and passcode, then an approval from your mobile app, when you add the account.",
+      "tip": "Head to Accounts → Add account → Revolut once setup is done.",
+      "cta": "Got it",
+      "skip": "Don't enable Revolut"
+    },
+    "fortuneo": {
+      "title": "Fortuneo está listo.",
+      "body": "Tras la configuración, inicia sesión con tus credenciales de Fortuneo y el código de seguridad de 6 dígitos.",
+      "tip": "Picsou solo guarda una sesión cifrada. La contraseña y el código 2FA nunca se almacenan. Las cuentas importadas permanecen vinculadas a su PEA, cuenta de valores o cuenta corriente.",
+      "cta": "Activar Fortuneo",
+      "skip": "No activar Fortuneo"
     }
   },
   "import": {
@@ -1520,5 +2173,458 @@
       "notEstimable": "Este tipo de inmueble no tiene un precio por m² fiable; su valor se introduce manualmente.",
       "error": "No se pudo crear el inmueble"
     }
+  },
+  "export": {
+    "sheet": {
+      "summarySheet": "Resumen",
+      "exportedAt": "Exportado el",
+      "accountFallbackName": "Cuenta",
+      "profile": "Perfil",
+      "age": "Edad",
+      "targetRetirementAge": "Edad de jubilación objetivo",
+      "marginalTaxRate": "Tipo marginal de IRPF (%)",
+      "householdStatus": "Situación del hogar",
+      "taxHouseholdParts": "Partes fiscales",
+      "dependents": "Personas a cargo",
+      "annualGrossIncome": "Ingresos brutos anuales",
+      "monthlyNetBeforeTax": "Neto mensual antes de impuestos",
+      "withholdingTaxRate": "Tipo de retención (%)",
+      "monthlyNetIncome": "Neto mensual percibido",
+      "monthlySavingsCapacity": "Capacidad de ahorro mensual",
+      "riskProfile": "Perfil de riesgo",
+      "recurringInvestments": "Inversiones recurrentes",
+      "savingsRate": "Tasa de ahorro (%)",
+      "monthlyInvestedTotal": "Invertido al mes",
+      "planName": "Plan",
+      "planAccount": "Cuenta",
+      "monthlyAmount": "Importe mensual",
+      "expectedReturn": "Rentabilidad esperada (%)",
+      "positionBreakdown": "Desglose mensual de posiciones",
+      "unallocated": "Sin asignar",
+      "debtSheet": "Deudas",
+      "debts": "Deuda",
+      "noDebt": "Ninguna deuda registrada",
+      "debtScopeNote": "Incluye todos los préstamos registrados, también cuentas fuera de esta exportación",
+      "totalBorrowed": "Total prestado",
+      "totalOutstanding": "Capital pendiente",
+      "totalMonthlyPayment": "Cuotas mensuales",
+      "loanAccount": "Cuenta del préstamo",
+      "propertyDebt": "Deuda sobre este inmueble",
+      "accountName": "Nombre",
+      "accountType": "Tipo",
+      "provider": "Proveedor",
+      "currency": "Divisa",
+      "balance": "Saldo",
+      "balanceEur": "Saldo (EUR)",
+      "cashBalance": "Efectivo",
+      "sharePercent": "Cuota de propiedad",
+      "lastSyncedAt": "Última sincronización",
+      "createdAt": "Creado el",
+      "openedAt": "Apertura",
+      "positions": "Posiciones",
+      "ticker": "Ticker",
+      "positionName": "Nombre",
+      "quantity": "Cantidad",
+      "averageBuyIn": "Precio medio de coste",
+      "currentPrice": "Cotización",
+      "quoteCurrency": "Divisa de cotización",
+      "currentValueEur": "Valor (EUR)",
+      "costBasisEur": "Coste de adquisición (EUR)",
+      "pnlEur": "Ganancia / pérdida (EUR)",
+      "pnlPercent": "Ganancia / pérdida (%)",
+      "priceAsOf": "Cotización a",
+      "priceStale": "Cotización obsoleta",
+      "property": "Inmueble",
+      "purchasePrice": "Precio de compra",
+      "purchaseDate": "Fecha de compra",
+      "agencyFees": "Gastos de agencia",
+      "notaryFees": "Gastos de notaría",
+      "worksCost": "Obras",
+      "costBasis": "Coste de adquisición",
+      "propertyType": "Tipo de inmueble",
+      "propertyCategory": "Categoría",
+      "address": "Dirección",
+      "postalCode": "Código postal",
+      "city": "Ciudad",
+      "country": "País",
+      "surfaceArea": "Superficie habitable (m²)",
+      "landArea": "Superficie del terreno (m²)",
+      "constructionYear": "Año de construcción",
+      "rooms": "Habitaciones",
+      "energyClass": "Clase energética",
+      "rentalIncome": "Alquiler mensual",
+      "valuationMode": "Modo de valoración",
+      "lastValuedAt": "Última valoración",
+      "valuationHistory": "Historial de valoraciones",
+      "valuedAt": "Fecha",
+      "estimatedValue": "Estimación",
+      "lowValue": "Límite inferior",
+      "highValue": "Límite superior",
+      "pricePerSqm": "Precio por m²",
+      "valuationProvider": "Fuente",
+      "confidence": "Confianza",
+      "sampleSize": "Transacciones comparables",
+      "sourceYear": "Año de los datos",
+      "loan": "Préstamo",
+      "lender": "Prestamista",
+      "borrowedAmount": "Capital prestado",
+      "interestRate": "Tipo de interés (%)",
+      "monthlyPayment": "Cuota mensual",
+      "insuranceMonthly": "Seguro mensual",
+      "fileFees": "Gastos de gestión",
+      "startDate": "Fecha de inicio",
+      "endDate": "Fecha de fin",
+      "linkedAccount": "Bien financiado",
+      "remainingBalance": "Capital pendiente",
+      "totalInstallments": "Cuotas",
+      "paidInstallments": "Cuotas pagadas",
+      "totalInterestCost": "Intereses totales",
+      "totalInsuranceCost": "Seguro total",
+      "capitalRepaid": "Capital amortizado",
+      "amortization": "Cuadro de amortización",
+      "installmentNumber": "N.º",
+      "installmentDate": "Fecha",
+      "capital": "Capital",
+      "interest": "Intereses",
+      "insurance": "Seguro",
+      "totalPayment": "Cuota",
+      "yes": "Sí",
+      "no": "No"
+    }
+  },
+  "transactions": {
+    "detail": "Transaction detail",
+    "account": "Account",
+    "filterFrom": "From",
+    "filterTo": "To",
+    "allAccounts": "All accounts",
+    "allCategories": "All categories",
+    "empty": "No transactions for this period.",
+    "error": "Could not load transactions.",
+    "viewAll": "View all transactions"
+  },
+  "budget": {
+    "surtitle": "FINANCES",
+    "title": "Budget & Cashflow",
+    "tab": {
+      "overview": "Overview",
+      "envelopes": "Envelopes",
+      "cashflow": "Cashflow",
+      "allocation": "Allocation",
+      "recurring": "Recurring",
+      "categorize": "To categorize",
+      "transactions": "Transactions",
+      "manage": "Manage"
+    },
+    "a11y": {
+      "edit": "Edit {{name}}",
+      "delete": "Delete {{name}}",
+      "archive": "Archive {{name}}",
+      "unarchive": "Restore {{name}}",
+      "confirm": "Confirm {{name}}",
+      "ignore": "Ignore {{name}}"
+    },
+    "kind": {
+      "income": "Income",
+      "expense": "Expense",
+      "transfer": "Transfer"
+    },
+    "cadence": {
+      "weekly": "Weekly",
+      "biweekly": "Bi-weekly",
+      "monthly": "Monthly",
+      "quarterly": "Quarterly",
+      "yearly": "Yearly"
+    },
+    "period": {
+      "cycle": "Cycle",
+      "ytd": "Year",
+      "prev": "Previous period",
+      "next": "Next period",
+      "jump": "Jump to…"
+    },
+    "asset": {
+      "current": "Checking",
+      "savings": "Savings",
+      "investment": "Investment",
+      "other": "Other"
+    },
+    "overview": {
+      "netThisCycle": "Net this cycle",
+      "incomeVsExpense": "{{income}} € in · {{expense}} € out",
+      "envelopes": "Envelopes",
+      "onTrack": "Everything on track",
+      "overBudget": "{{count}} envelope over budget",
+      "overBudget_other": "{{count}} envelopes over budget",
+      "upcoming30": "Upcoming (30 d)",
+      "upcomingCount": "{{count}} payment due",
+      "upcomingCount_other": "{{count}} payments due",
+      "investable": "Savings & invest.",
+      "contributedThisCycle": "{{amount}} € contributed this cycle",
+      "toCategorize": "{{count}} transaction to categorize",
+      "toCategorize_other": "{{count}} transactions to categorize",
+      "topEnvelopes": "Most-used envelopes",
+      "pastPeriodNote": "Envelope budgets and upcoming charges always reflect the current cycle.",
+      "error": "Couldn't load the overview."
+    },
+    "cashflow": {
+      "subtitle": "Money in, money out and net balance (transfers excluded).",
+      "income": "Income",
+      "expense": "Expense",
+      "net": "Net",
+      "byCycle": "By cycle",
+      "empty": "No transactions in this period.",
+      "error": "Could not load cashflow."
+    },
+    "flow": {
+      "subtitle": "How your money moves.",
+      "diagram": "This cycle's flow",
+      "breakdown": "Where your money goes",
+      "inflows": "In",
+      "outflows": "Out",
+      "empty": "No flow to show for this period.",
+      "error": "Could not load the flow diagram.",
+      "ariaSummary": "Flow diagram: {{income}} in, {{expense}} out, net {{net}}.",
+      "dataTableCaption": "Cashflow breakdown: {{income}} in, {{expense}} out, net {{net}}.",
+      "colDirection": "Direction",
+      "colName": "Item",
+      "colAmount": "Amount",
+      "transactionsCount": "{{count}} transaction",
+      "transactionsCount_other": "{{count}} transactions",
+      "node": {
+        "hub": "Budget",
+        "incomeOther": "Other income",
+        "uncategorized": "Uncategorized",
+        "moreExpenses": "Other spending",
+        "savings": "Savings",
+        "drawdown": "Savings drawdown"
+      }
+    },
+    "detail": {
+      "back": "Back to spending",
+      "total": "Period total",
+      "subcategories": "By sub-category",
+      "empty": "No transactions in this category for the period.",
+      "error": "Could not load category detail.",
+      "notFound": "Category not found."
+    },
+    "allocation": {
+      "subtitle": "How your savings and investments break down.",
+      "stock": "Holdings by asset class",
+      "contributions": "Contributions this period",
+      "totalContributed": "Total contributed",
+      "noStock": "No holdings to show.",
+      "noContributions": "No contributions in this period.",
+      "noContributionsHint": "Transfers into your savings and investment accounts will show up here.",
+      "error": "Could not load allocation."
+    },
+    "envelope": {
+      "add": "New envelope",
+      "edit": "Edit envelope",
+      "subtitle": "One monthly cap per expense category.",
+      "category": "Category",
+      "selectCategory": "Pick a category",
+      "monthlyLimit": "Monthly limit",
+      "formHint": "Set the maximum to spend over the cycle.",
+      "includesSubcategories": "Includes sub-categories",
+      "empty": "No envelopes",
+      "emptyHint": "Create an envelope to track spending by category.",
+      "error": "Could not load envelopes.",
+      "deleteTitle": "Delete envelope",
+      "deleteDescription": "Delete the \"{{name}}\" envelope? Transactions are kept."
+    },
+    "recurring": {
+      "detect": "Detect",
+      "add": "Add",
+      "subtitle": "Subscriptions and recurring payments.",
+      "series": "Recurring series",
+      "upcoming": "Upcoming payments",
+      "noSeries": "No recurring series detected yet.",
+      "noUpcoming": "No upcoming payments",
+      "noUpcomingHint": "Upcoming charges will appear here once detected.",
+      "error": "Couldn't load recurring items.",
+      "label": "Label",
+      "counterparty": "Counterparty",
+      "amount": "Amount",
+      "cadence": "Cadence",
+      "nextDue": "Next due",
+      "category": "Category",
+      "noCategory": "No category",
+      "formHint": "Manually add a recurring payment.",
+      "variable": "Variable amount",
+      "autoConfirmedConfident": "Auto-confirmed · {{percent}}% confidence",
+      "priceFromTo": "{{from}} → {{to}}",
+      "undo": "Undo",
+      "status": {
+        "suggested": "Suggested",
+        "confirmed": "Confirmed",
+        "ignored": "Ignored"
+      },
+      "runtime": {
+        "stale": "Inactive",
+        "late": "Late",
+        "dueSoon": "Due soon"
+      },
+      "activity": {
+        "title": "What changed",
+        "autoConfirmed": "Auto-confirmed",
+        "priceChange": "Price change",
+        "autoConfirmedDesc": "Detected and confirmed automatically",
+        "priceChangeDesc": "Price went from {{from}} to {{to}}",
+        "acknowledge": "Got it"
+      },
+      "creditCardPayment": "Pago con tarjeta de crédito"
+    },
+    "categorize": {
+      "subtitle": "Assign a category to unclassified transactions.",
+      "recategorize": "Re-categorize",
+      "categorizeAi": "Categorize with AI",
+      "aiSuggested": "AI: {{name}} · {{confidence}}%",
+      "selectCategory": "Pick a category",
+      "learnRule": "Remember a rule",
+      "assign": "Assign",
+      "empty": "Everything is categorized",
+      "emptyHint": "New transactions to classify will appear here.",
+      "error": "Couldn't load transactions to categorize.",
+      "aiProgress": "AI categorizing… {{processed}}/{{total}}",
+      "aiDone": "AI done: {{applied}} applied, {{suggested}} suggested",
+      "createRule": "Create rule",
+      "editRule": "Edit rule"
+    },
+    "category": {
+      "title": "Categories",
+      "hint": "Rename, recolor or archive your categories.",
+      "add": "Add",
+      "edit": "Edit category",
+      "name": "Name",
+      "namePlaceholder": "e.g. Groceries",
+      "kind": "Kind",
+      "color": "Color",
+      "default": "Default",
+      "subcategory": "Sub-category",
+      "parent": "Parent category",
+      "parentNone": "None (top-level category)",
+      "parentHint": "Attach this category to a parent to group it as a sub-category.",
+      "parentLocked": "This category already has sub-categories, so it can't become one itself.",
+      "formHint": "The kind sets whether the category counts as income, expense or transfer.",
+      "error": "Couldn't load categories."
+    },
+    "rule": {
+      "title": "Categorization rules",
+      "hint": "Automatically categorize matching transactions.",
+      "add": "New rule",
+      "empty": "No rules defined.",
+      "error": "Couldn't load rules.",
+      "learned": "Auto",
+      "matchType": "Match on",
+      "pattern": "Pattern",
+      "category": "Category",
+      "formHint": "Any matching transaction will be categorized automatically.",
+      "match": {
+        "counterparty": "Counterparty",
+        "keyword": "Keyword",
+        "keywords_all": "All words (AND)",
+        "keywords_any": "Any word (OR)"
+      },
+      "wordPickerTitle": "Select words to match",
+      "matchMode": "Match mode",
+      "matchAll": "All words (AND)",
+      "matchAny": "Any word (OR)",
+      "previewLoading": "Loading preview…",
+      "previewCount": "{{count}} transaction will change",
+      "previewCount_other": "{{count}} transactions will change",
+      "previewCapped": "Showing first 200 of {{count}} matches",
+      "createRule": "Create rule",
+      "editRule": "Edit rule",
+      "ruleActive": "Rule: {{pattern}}"
+    },
+    "settings": {
+      "cycleTitle": "Payday",
+      "cycleHint": "Your budget cycle starts on this day each month, not the 1st.",
+      "cycleStartDay": "Cycle start day",
+      "currentCycle": "Current cycle: {{start}} – {{end}}",
+      "logoTitle": "Brand logos",
+      "logoHint": "Fetch brand logos online to show instead of monograms. Off by default and purely cosmetic — it never influences categorization.",
+      "logoFetchLabel": "Show online logos",
+      "aiTitle": "AI categorization",
+      "aiHint": "Let a model suggest categories for the merchants your rules and the brand list don't recognize. Off by default; it only runs on transactions left uncategorized.",
+      "aiEnableLabel": "Enable AI suggestions",
+      "aiModeLabel": "What the AI does with its answer",
+      "aiModeOption": {
+        "SUGGEST": "Only suggest",
+        "AUTO_HIGH_CONFIDENCE": "Auto-apply when confident",
+        "AUTO_ALL": "Always auto-apply"
+      },
+      "aiModeHint": {
+        "SUGGEST": "The AI only proposes a category in the inbox; nothing is applied until you confirm.",
+        "AUTO_HIGH_CONFIDENCE": "Apply the category automatically above the confidence threshold; otherwise leave a suggestion.",
+        "AUTO_ALL": "Always apply the AI's best guess. Fastest, but expect some mistakes to fix afterwards."
+      },
+      "aiThresholdLabel": "Confidence threshold",
+      "aiThresholdHint": "Below this, the AI leaves a suggestion instead of applying the category.",
+      "error": "Couldn't load settings."
+    }
+  },
+  "oauthConsent": {
+    "title": "Allow {{app}} to access your Picsou data?",
+    "titleGeneric": "Connect an app",
+    "description": "Review the permissions below before allowing this app to connect. You can revoke access at any time from Settings.",
+    "loading": "Loading request…",
+    "scopesIntro": "This app is requesting the following permissions:",
+    "noScopes": "This app is not requesting any permissions.",
+    "missingParams": "This link is missing required information. Please restart the connection from the app.",
+    "error": "Could not load this connection request. It may have expired — please restart it from the app.",
+    "approve": "Approve",
+    "deny": "Deny"
+  },
+  "connectedApps": {
+    "sectionTitle": "Connected apps",
+    "sectionDescription": "Third-party apps you've approved to access your data over MCP via OAuth",
+    "loading": "Loading…",
+    "empty": "No connected apps yet.",
+    "issued": "Connected {{value}}",
+    "lastUsed": "Last used {{value}}",
+    "lastUsedNever": "Never used",
+    "revoke": "Revoke",
+    "revokeTitle": "Revoke access for this app?",
+    "revokeDescription": "This app immediately loses access to your data. You can reconnect it later from the app.",
+    "error": "Could not revoke access. Please try again."
+  },
+  "pockets": {
+    "subAccountsCount": "{{count}} pocket",
+    "subAccountsCount_other": "{{count}} pockets"
+  },
+  "savings": {
+    "configSection": "Savings configuration",
+    "product": "Product",
+    "products": {
+      "LIVRET_A": "Livret A",
+      "LDDS": "LDDS",
+      "LEP": "LEP",
+      "COMMERCIAL": "Commercial savings account"
+    },
+    "annualRate": "Annual rate (%)",
+    "rateBasis": "Rate basis",
+    "gross": "Gross",
+    "net": "Net",
+    "taxRate": "Withholding tax (%)",
+    "taxRateHint": "PFU: 30% (flat tax)",
+    "ceiling": "Legal ceiling (€)",
+    "ceilingOptional": "Optional",
+    "saveConfig": "Save configuration",
+    "deleteConfig": "Remove configuration",
+    "deleteConfigConfirm": "Remove savings configuration?",
+    "configSaved": "Configuration saved",
+    "regulatedNet": "Regulated product — interest is net of tax by law",
+    "projectionTitle": "Estimated interest {{year}}",
+    "projectionYtd": "YTD",
+    "projectionFullYear": "Full year estimate",
+    "projectionNextCapitalization": "Next capitalization",
+    "projectionDisclaimer": "This is an estimate. The bank's annual credit is authoritative.",
+    "projectionBasis": "{{basis}} rate",
+    "suggestionsBanner": "{{count}} savings account to configure",
+    "suggestionsBanner_other": "{{count}} savings accounts to configure",
+    "configureSavings": "Configure",
+    "uncertain": "Uncertain classification — please verify"
   }
 }

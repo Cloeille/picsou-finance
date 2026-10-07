@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { adminApi } from './api'
-import type { AdminSecuritySettings, AdminEnableBankingCredentials } from './api'
+import type { AdminSecuritySettings, AdminEnableBankingCredentials, AdminAiRequest } from './api'
 
 export const adminKeys = {
   all: ['admin'] as const,
@@ -61,5 +61,42 @@ export function useToggleIntegration() {
     mutationFn: ({ key, enabled }: { key: string; enabled: boolean }) =>
       adminApi.toggleIntegration(key, enabled),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.settings() }),
+  })
+}
+
+export function useUpdateAi() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: AdminAiRequest) => adminApi.updateAi(body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.settings() }),
+  })
+}
+
+export function useTestAi() {
+  return useMutation({ mutationFn: (body: AdminAiRequest) => adminApi.testAi(body) })
+}
+
+export function useAiCalls(limit: number, offset: number) {
+  return useQuery({
+    queryKey: [...adminKeys.all, 'ai-calls', limit, offset],
+    queryFn: () => adminApi.listAiCalls(limit, offset),
+    staleTime: 10_000,
+  })
+}
+
+export function useEbCallLog(enabled: boolean) {
+  return useQuery({
+    queryKey: [...adminKeys.all, 'eb-call-log'],
+    queryFn: adminApi.getEbCallLog,
+    enabled,
+    staleTime: 0,
+  })
+}
+
+export function useClearEbCallLog() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: adminApi.clearEbCallLog,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...adminKeys.all, 'eb-call-log'] }),
   })
 }

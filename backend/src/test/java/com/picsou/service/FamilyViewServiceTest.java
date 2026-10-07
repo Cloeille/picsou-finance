@@ -160,7 +160,7 @@ class FamilyViewServiceTest {
             .thenReturn(Optional.of(new SharingSettings(null, owner, "ACCOUNT", SharingLevel.ALL)));
         when(sharingSettingsRepository.findByMemberIdAndResourceType(2L, "GOAL"))
             .thenReturn(Optional.empty());
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(2L))
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(2L))
             .thenReturn(List.of(checking, loan));
         when(accountService.signedLiveBalanceEur(checking)).thenReturn(new BigDecimal("2000"));
         when(accountService.signedLiveBalanceEur(loan)).thenReturn(new BigDecimal("-10000"));
@@ -241,7 +241,7 @@ class FamilyViewServiceTest {
             .thenReturn(Optional.of(new SharingSettings(null, owner, "ACCOUNT", SharingLevel.ALL)));
         when(sharingSettingsRepository.findByMemberIdAndResourceType(2L, "GOAL"))
             .thenReturn(Optional.empty());
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(2L)).thenReturn(accounts);
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(2L)).thenReturn(accounts);
         for (Account a : accounts) {
             when(accountService.signedLiveBalanceEur(a)).thenReturn(a.getCurrentBalance());
         }

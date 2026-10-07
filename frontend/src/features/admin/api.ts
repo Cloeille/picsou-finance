@@ -1,4 +1,5 @@
 import { api } from '@/lib/api-client'
+import type { AiCallLogPage } from '@/types/api'
 
 export interface AdminSecuritySettings {
   allowedOrigins: string[]
@@ -22,10 +23,33 @@ export interface EnableBankingKeypairResponse {
   regenerated: boolean
 }
 
+export interface AdminAiSettings {
+  provider: string   // 'none' | 'openai' | 'openrouter' | 'anthropic' | 'ollama'
+  model: string
+  baseUrl: string
+  apiKeyPresent: boolean
+  maxConcurrency: number
+}
+
+/** Write body. apiKey omitted/empty = keep the existing stored key. */
+export interface AdminAiRequest {
+  provider: string
+  model: string
+  baseUrl: string
+  apiKey?: string
+  maxConcurrency?: number
+}
+
+export interface AiTestResult {
+  ok: boolean
+  message: string
+}
+
 export interface AdminSettings {
   security: AdminSecuritySettings
   enableBanking: AdminEnableBankingSettings
   integrations: Record<string, boolean>
+  ai: AdminAiSettings
 }
 
 export const adminApi = {
@@ -53,4 +77,28 @@ export const adminApi = {
   reloadCorsFromEnv: () =>
     api.post<{ allowedOrigins: string[] }>('/admin/settings/cors/reload-from-env')
       .then(r => r.data),
+
+  updateAi: (body: AdminAiRequest) =>
+    api.put<void>('/admin/settings/ai', body).then(r => r.data),
+
+  testAi: (body: AdminAiRequest) =>
+    api.post<AiTestResult>('/admin/settings/ai/test', body).then(r => r.data),
+
+  listAiCalls: (limit: number, offset: number) =>
+    api.get<AiCallLogPage>('/admin/ai-calls', { params: { limit, offset } }).then(r => r.data),
+
+  getEbCallLog: () =>
+    api.get<EbCallEntry[]>('/admin/enablebanking/call-log').then(r => r.data),
+
+  clearEbCallLog: () =>
+    api.delete<void>('/admin/enablebanking/call-log').then(r => r.data),
+}
+
+export interface EbCallEntry {
+  timestamp: string
+  method: string
+  url: string
+  requestBody: string
+  responseStatus: number
+  responseBody: string
 }

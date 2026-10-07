@@ -19,6 +19,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.IbkrConnectionRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -62,6 +63,7 @@ public class IbkrSyncService {
     private final FamilyMemberRepository familyMemberRepository;
     private final AccountService accountService;
     private final OpenFigiIsinConverter isinConverter;
+    private final SecurityIdentityService identityService;
     private final CryptoEncryption encryption;
     private final IbkrStatusWriter statusWriter;
 
@@ -117,9 +119,12 @@ public class IbkrSyncService {
         return new IbkrConnectionStatusResponse(true, c.getId(), c.getStatus(), c.getLastSyncedAt(), maskedToken);
     }
 
-    public void deleteConnection(Long memberId) {
-        connectionRepository.findByMemberId(memberId).ifPresent(connectionRepository::delete);
+    /** Returns whether a stored connection was there to delete. */
+    public boolean deleteConnection(Long memberId) {
+        var connection = connectionRepository.findByMemberId(memberId);
+        connection.ifPresent(connectionRepository::delete);
         log.info("IBKR connection cleared for member {}", memberId);
+        return connection.isPresent();
     }
 
     // ---------------------------------------------------------------------------
@@ -142,22 +147,26 @@ public class IbkrSyncService {
      * Spring throws {@code UnexpectedRollbackException} at THIS method's proxy exit,
      * after the catch below. Call sites must wrap accordingly (SchedulerService does).
      */
-    public void resyncIfConnected(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
             Optional<IbkrConnection> connection = connectionRepository.findByMemberId(memberId);
             if (connection.isEmpty()) {
-                return;
+                return new SourceSyncResult("ibkr", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No connection");
             }
             syncWithConnection(connection.get(), memberId);
+            return new SourceSyncResult("ibkr", SourceSyncResult.Status.SYNCED, "");
         } catch (SyncException ex) {
-            // Expected operational failures (expired token, IBKR down, non-EUR guard):
-            // the message is the whole story, status is already ERROR.
-            log.warn("IBKR auto-sync failed for member {}: {}", memberId, ex.getMessage());
-        } catch (RuntimeException ex) {
-            // Anything else is a bug or infrastructure problem — keep the stack trace.
-            log.error("IBKR auto-sync hit an unexpected error for member {}", memberId, ex);
+            return SourceSyncResult.fromSyncException("ibkr", ex);
+        } catch (Exception ex) {
+            log.error("IBKR scheduled sync failed unexpectedly for member {}", memberId, ex);
+            return new SourceSyncResult("ibkr", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
+
+    public void resyncIfConnected(Long memberId) {
+        resyncReporting(memberId); // ignore return
+    }
+
 
     private List<AccountResponse> syncWithConnection(IbkrConnection connection, Long memberId) {
         try {
@@ -246,6 +255,7 @@ public class IbkrSyncService {
         // De-dup by resolved ticker (VWAP) exactly like Trade Republic: several IBKR
         // positions (or lot rows across accounts) can map to one ticker.
         Map<String, HoldingDedup.HoldingAgg> deduped = new HashMap<>();
+        Map<String, String> isinByTicker = new HashMap<>();
         for (IbkrPosition p : data.positions()) {
             if (!isReportable(p)) {
                 continue;
@@ -254,6 +264,9 @@ public class IbkrSyncService {
             String ticker = resolved.ticker();
             if (ticker == null || ticker.isBlank()) {
                 continue;
+            }
+            if (p.isin() != null && OpenFigiIsinConverter.isIsin(p.isin())) {
+                isinByTicker.put(ticker, p.isin());
             }
             if (ticker.length() > MAX_TICKER_LEN) {
                 // Options / futures carry long symbols (e.g. "SPY 240119C00470000") that
@@ -268,6 +281,7 @@ public class IbkrSyncService {
                 HoldingDedup::vwapMerge);
         }
         int persisted = 0;
+        identityService.record(isinByTicker);
         for (Map.Entry<String, HoldingDedup.HoldingAgg> entry : deduped.entrySet()) {
             HoldingDedup.HoldingAgg agg = entry.getValue();
             if (agg.quantity().signum() == 0) {

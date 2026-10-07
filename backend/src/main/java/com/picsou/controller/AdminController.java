@@ -1,11 +1,17 @@
 package com.picsou.controller;
 
+import com.picsou.config.AiConfigProvider;
 import com.picsou.config.EnableBankingConfigProvider;
+import com.picsou.dto.AdminAiRequest;
 import com.picsou.dto.AdminEnableBankingRequest;
 import com.picsou.dto.AdminSecurityRequest;
 import com.picsou.dto.AdminSettingsResponse;
+import com.picsou.dto.AiCallLogPage;
+import com.picsou.dto.AiTestResponse;
 import com.picsou.dto.EnableBankingImportRequest;
 import com.picsou.dto.EnableBankingKeypairResponse;
+import com.picsou.service.AiCallLogService;
+import com.picsou.service.EnableBankingCallLogger;
 import com.picsou.service.EnableBankingKeyPairService;
 import com.picsou.service.IntegrationsService;
 import com.picsou.service.SetupService;
@@ -31,17 +37,26 @@ public class AdminController {
     private final IntegrationsService integrationsService;
     private final EnableBankingConfigProvider ebConfigProvider;
     private final EnableBankingKeyPairService keyPairService;
+    private final AiConfigProvider aiConfigProvider;
+    private final AiCallLogService aiCallLogService;
+    private final EnableBankingCallLogger ebCallLogger;
     private final String envAllowedOrigins;
 
     public AdminController(SetupService setupService,
                            IntegrationsService integrationsService,
                            EnableBankingConfigProvider ebConfigProvider,
                            EnableBankingKeyPairService keyPairService,
+                           AiConfigProvider aiConfigProvider,
+                           AiCallLogService aiCallLogService,
+                           EnableBankingCallLogger ebCallLogger,
                            @Value("${app.cors.allowed-origins:}") String envAllowedOrigins) {
         this.setupService = setupService;
         this.integrationsService = integrationsService;
         this.ebConfigProvider = ebConfigProvider;
         this.keyPairService = keyPairService;
+        this.aiConfigProvider = aiConfigProvider;
+        this.aiCallLogService = aiCallLogService;
+        this.ebCallLogger = ebCallLogger;
         this.envAllowedOrigins = envAllowedOrigins;
     }
 
@@ -66,11 +81,20 @@ public class AdminController {
             integrations.put(name, integrationsService.isEffectivelyEnabled(name));
         }
 
+        AdminSettingsResponse.AiSettings ai = new AdminSettingsResponse.AiSettings(
+            aiConfigProvider.storedProvider(),
+            aiConfigProvider.storedModel(),
+            aiConfigProvider.storedBaseUrl(),
+            aiConfigProvider.apiKeyPresent(),
+            aiConfigProvider.maxConcurrency()
+        );
+
         return ResponseEntity.ok(new AdminSettingsResponse(
             new AdminSettingsResponse.SecuritySettings(origins, secureCookies),
             new AdminSettingsResponse.EnableBankingSettings(
                 appId, redirectUri, ebConfigProvider.privateKeyPresent()),
-            integrations
+            integrations,
+            ai
         ));
     }
 
@@ -130,6 +154,35 @@ public class AdminController {
     public ResponseEntity<Void> toggleIntegration(@PathVariable String key, @RequestParam boolean enabled) {
         if (enabled) integrationsService.enable(key);
         else integrationsService.disable(key);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/settings/ai")
+    public ResponseEntity<Void> updateAi(@Valid @RequestBody AdminAiRequest request) {
+        aiConfigProvider.save(request.provider(), request.model(), request.baseUrl(), request.apiKey(), request.maxConcurrency());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/settings/ai/test")
+    public ResponseEntity<AiTestResponse> testAi(@Valid @RequestBody AdminAiRequest request) {
+        return ResponseEntity.ok(aiConfigProvider.test(request.provider(), request.model(), request.baseUrl(), request.apiKey()));
+    }
+
+    @GetMapping("/ai-calls")
+    public AiCallLogPage aiCalls(
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(defaultValue = "0") int offset) {
+        return aiCallLogService.list(limit, offset);
+    }
+
+    @GetMapping("/enablebanking/call-log")
+    public List<EnableBankingCallLogger.CallEntry> ebCallLog() {
+        return ebCallLogger.entries();
+    }
+
+    @DeleteMapping("/enablebanking/call-log")
+    public ResponseEntity<Void> clearEbCallLog() {
+        ebCallLogger.clear();
         return ResponseEntity.noContent().build();
     }
 }

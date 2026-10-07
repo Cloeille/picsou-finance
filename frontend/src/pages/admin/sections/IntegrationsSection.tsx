@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/card'
 import { useToggleIntegration } from '@/features/admin/hooks'
 
-const INTEGRATION_KEYS = ['enablebanking', 'boursobank', 'boursedirect', 'traderepublic', 'finary', 'crypto'] as const
+const INTEGRATION_KEYS = ['enablebanking', 'boursobank', 'boursedirect', 'fortuneo', 'traderepublic', 'finary', 'crypto'] as const
 
 export function IntegrationsSection({ integrations }: { integrations: Record<string, boolean> }) {
   const { t } = useTranslation()

@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -17,14 +18,28 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.access.AccessDeniedHandlerImpl;
+import org.springframework.security.web.access.DelegatingAccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.csrf.CsrfException;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.csrf.DefaultCsrfToken;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.config.Customizer;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Configuration
 @EnableWebSecurity
@@ -79,19 +94,31 @@ public class SecurityConfig {
         return parseHstsEnabled(hstsEnabledRaw);
     }
 
+    // @Order(2): the catch-all API chain. The OAuth2 authorization-server chain
+    // (AuthorizationServerConfig, @Order(1)) matches /oauth2/** ahead of this one; every other
+    // request falls through to here. This chain is otherwise unchanged from the cookie-only design.
     @Bean
+    @Order(2)
     public SecurityFilterChain filterChain(HttpSecurity http,
                                            JwtUtil jwtUtil,
+                                           JwtTokenAuthenticator jwtTokenAuthenticator,
                                            AppUserRepository appUserRepository,
                                            SetupFilter setupFilter,
                                            PersistentSessionService persistentSessionService,
                                            AuthCookieWriter authCookieWriter,
                                            MfaService mfaService,
                                            AccessKeyService accessKeyService,
-                                           @Qualifier("mcpKeyBuckets") Map<Long, Bucket> mcpKeyBuckets) throws Exception {
+                                           @Qualifier("mcpKeyBuckets") Map<Long, Bucket> mcpKeyBuckets,
+                                           CorsConfigurationSource corsConfigurationSource) throws Exception {
         http
             .cors(Customizer.withDefaults())
-            .csrf(csrf -> csrf.disable())   // stateless JWT + SameSite cookies cover this
+            // CSRF without tokens: only a cross-site, cookie-authenticated, state-changing request
+            // requires protection, and the token repository never holds a token, so such a request
+            // always fails the check (403). Everything else skips the filter, which keeps the chain
+            // stateless (no session, no XSRF cookie) and the SPA free of token plumbing.
+            .csrf(csrf -> csrf
+                .requireCsrfProtectionMatcher(new CrossSiteCookieRequestMatcher(corsConfigurationSource))
+                .csrfTokenRepository(new NoStoredCsrfTokenRepository()))
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .headers(headers -> headers
                 .frameOptions(fo -> fo.deny())
@@ -115,6 +142,15 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/auth/mfa/verify").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/activate/*").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                // RFC 9728 protected-resource metadata (Task 7) and RFC 7591 dynamic client
+                // registration (Task 8): unauthenticated by design, so a remote-MCP client can
+                // discover the resource + self-register before the OAuth handshake even starts.
+                // Neither is matched by the AS chain's own securityMatcher (@Order(1) above) —
+                // /.well-known/oauth-protected-resource isn't an AS-native endpoint, and
+                // /oauth2/register is a plain controller, not a configured clientRegistrationEndpoint
+                // — so both fall through to this chain and need an explicit permitAll here.
+                .requestMatchers(ProtectedResourceMetadataController.PATH).permitAll()
+                .requestMatchers(HttpMethod.POST, "/oauth2/register").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/mcp/**").authenticated()
                 .anyRequest().authenticated()
@@ -128,28 +164,77 @@ public class SecurityConfig {
             // active access cookie short-circuits and we don't pay the DB hit per
             // request — registration order below preserves that ordering.
             .addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
-            .addFilterBefore(new JwtAuthenticationFilter(jwtUtil, appUserRepository), UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(new JwtAuthenticationFilter(jwtTokenAuthenticator), UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(
                 new PersistentTokenAuthFilter(persistentSessionService, appUserRepository, jwtUtil, authCookieWriter, mfaService),
                 UsernamePasswordAuthenticationFilter.class
             )
             // Last of the same-anchor filters: only acts on /mcp/** (shouldNotFilter), validates the
-            // Bearer access-key, and sets an AccessKeyAuthentication carrying scope authorities only.
+            // Bearer access-key or MCP JWT, and sets an AccessKeyAuthentication carrying scope
+            // authorities only.
             .addFilterBefore(
-                new AccessKeyAuthFilter(accessKeyService, mcpKeyBuckets),
+                new AccessKeyAuthFilter(accessKeyService, mcpKeyBuckets, jwtTokenAuthenticator, appUserRepository),
                 UsernamePasswordAuthenticationFilter.class
             )
+            // Two "default" entry points rather than one plain authenticationEntryPoint(...):
+            // ExceptionHandlingConfigurer ignores defaultAuthenticationEntryPointFor(...) mappings
+            // entirely once a plain authenticationEntryPoint(...) is set, so /mcp/** gets its own
+            // RFC 9728 challenge (McpAuthenticationEntryPoint) while every other path falls through
+            // to the catch-all matcher below, which reproduces the original problem+json body
+            // unchanged.
             .exceptionHandling(ex -> ex
-                .authenticationEntryPoint((req, res, authEx) -> {
-                    res.setStatus(401);
-                    res.setContentType("application/problem+json");
-                    res.getWriter().write("""
-                        {"status":401,"title":"Unauthorized","detail":"Authentication required"}
-                        """);
-                })
+                // CsrfFilter takes this handler too. Only its CsrfException gets a problem+json
+                // body; every other 403 keeps Spring's default handler.
+                .accessDeniedHandler(crossSiteAwareAccessDeniedHandler())
+                .defaultAuthenticationEntryPointFor(
+                    new McpAuthenticationEntryPoint(),
+                    new AntPathRequestMatcher("/mcp/**")
+                )
+                .defaultAuthenticationEntryPointFor(
+                    (req, res, authEx) -> {
+                        res.setStatus(401);
+                        res.setContentType("application/problem+json");
+                        res.getWriter().write("""
+                            {"status":401,"title":"Unauthorized","detail":"Authentication required"}
+                            """);
+                    },
+                    AnyRequestMatcher.INSTANCE
+                )
             );
 
         return http.build();
+    }
+
+    private static AccessDeniedHandler crossSiteAwareAccessDeniedHandler() {
+        LinkedHashMap<Class<? extends AccessDeniedException>, AccessDeniedHandler> handlers = new LinkedHashMap<>();
+        handlers.put(CsrfException.class, (req, res, denied) -> {
+            res.setStatus(403);
+            res.setContentType("application/problem+json");
+            res.getWriter().write("""
+                {"status":403,"title":"Forbidden","detail":"Cross-site request rejected"}
+                """);
+        });
+        return new DelegatingAccessDeniedHandler(handlers, new AccessDeniedHandlerImpl());
+    }
+
+    /**
+     * Never stores a token, so {@code CsrfFilter} generates a fresh random one for each request it
+     * checks and the submitted value can never match. Saving is a no-op: no session, no cookie.
+     */
+    static final class NoStoredCsrfTokenRepository implements CsrfTokenRepository {
+        @Override
+        public CsrfToken generateToken(HttpServletRequest request) {
+            return new DefaultCsrfToken("X-CSRF-TOKEN", "_csrf", UUID.randomUUID().toString());
+        }
+
+        @Override
+        public void saveToken(CsrfToken token, HttpServletRequest request, HttpServletResponse response) {
+        }
+
+        @Override
+        public CsrfToken loadToken(HttpServletRequest request) {
+            return null;
+        }
     }
 
     @Bean

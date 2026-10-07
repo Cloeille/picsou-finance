@@ -5,8 +5,13 @@ import com.picsou.port.PriceProviderPort;
 import com.picsou.port.SymbolCatalogPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import com.picsou.dto.EquityProfile;
+import com.picsou.port.EquityProfileProvider;
+import com.picsou.util.LogSanitizer;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -32,7 +37,7 @@ import java.util.stream.Collectors;
  * Note: This is an unofficial API. For production use consider Alpha Vantage or similar.
  */
 @Component
-public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatalogPort {
+public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatalogPort, EquityProfileProvider {
 
     private static final Logger log = LoggerFactory.getLogger(YahooFinancePriceProvider.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
@@ -67,20 +72,33 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
         "BTC", "ETH", "SOL", "BNB", "ADA", "XRP", "DOGE", "DOT", "MATIC", "AVAX"
     );
 
+    private static final String SECTOR_SOURCE = "Yahoo Finance";
+
     private final WebClient webClient;
+    private final YahooCooldown cooldown;
     private final Map<String, CachedFx> fxCache = new ConcurrentHashMap<>();
 
     public YahooFinancePriceProvider() {
+        this(new YahooCooldown(java.time.Clock.systemUTC()));
+    }
+
+    @Autowired
+    public YahooFinancePriceProvider(YahooCooldown cooldown) {
         this(WebClient.builder()
             .baseUrl("https://query1.finance.yahoo.com")
             .defaultHeader("Accept", "application/json")
             .defaultHeader("User-Agent", "Mozilla/5.0")
-            .build());
+            .build(), cooldown);
     }
 
-    // Package-private constructor for tests — inject a WebClient backed by an ExchangeFunction.
+    // Package-private constructors for tests — inject a WebClient backed by an ExchangeFunction.
     YahooFinancePriceProvider(WebClient webClient) {
+        this(webClient, new YahooCooldown(java.time.Clock.systemUTC()));
+    }
+
+    YahooFinancePriceProvider(WebClient webClient, YahooCooldown cooldown) {
         this.webClient = webClient;
+        this.cooldown = cooldown;
     }
 
     @Override
@@ -103,7 +121,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
         }
 
         if (!SYMBOL_PATTERN.matcher(upper).matches()) {
-            log.debug("Rejecting non-symbol ticker: {}", ticker);
+            log.debug("Rejecting non-symbol ticker: {}", LogSanitizer.safe(ticker));
             return false;
         }
 
@@ -127,7 +145,12 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
                 BigDecimal price = fetchSinglePrice(ticker);
                 if (price != null) result.put(ticker, price);
             } catch (Exception ex) {
-                log.warn("Yahoo Finance price fetch failed for {}: {}", ticker, ex.getMessage());
+                // Armed, never read here: see YahooCooldown for why prices do not yield to it.
+                if (reactor.core.Exceptions.unwrap(ex) instanceof WebClientResponseException http
+                        && http.getStatusCode().value() == 429) {
+                    cooldown.arm(http.getHeaders());
+                }
+                log.warn("Yahoo Finance price fetch failed for {}: {}", LogSanitizer.safe(ticker), LogSanitizer.safe(ex.getMessage()));
             }
         }
 
@@ -154,9 +177,8 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     }
 
     private Meta fetchMeta(String ticker, Duration timeout) {
-        ChartResult result = fetchChart(TIMEOUT, "/v8/finance/chart/{ticker}?range=1d&interval=1d", ticker);
+        ChartResult result = fetchChart(timeout, "/v8/finance/chart/{ticker}?range=1d&interval=1d", ticker);
         if (result == null || result.meta() == null) return null;
-
         return result.meta();
     }
 
@@ -270,7 +292,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             : BigDecimal.ONE;
         if (fx == null) {
             log.warn("Skipping {} series for {}: FX rate unavailable for {}",
-                    seriesName, ticker, result.meta() != null ? result.meta().currency() : "null");
+                    seriesName, LogSanitizer.safe(ticker), LogSanitizer.safe(result.meta() != null ? result.meta().currency() : null));
             return Map.of();
         }
 
@@ -290,6 +312,67 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     }
 
     /**
+     * The sector Yahoo assigns to a listed share, from the same unauthenticated search endpoint
+     * {@link #searchSymbols} already uses.
+     *
+     * <p>This is the source for equity sectors rather than Boursorama's company page, which was
+     * the obvious candidate and does not work: its {@code Secteur} field is absent for anything
+     * outside Euronext (it reads {@code n-d} for AAPL) and, where present, gives a sub-industry
+     * ("Chimie de base") that never merges with the eleven-value taxonomy ETF slices use. Yahoo
+     * returns that taxonomy verbatim — "Technology", "Basic Materials" — for US and European
+     * listings alike, so normalising is a lowercase and a space-to-underscore, and every
+     * resulting key already has a translation.
+     *
+     * <p>Returns no country: Yahoo exposes only the listing venue, which is wrong for a
+     * Paris-listed US company or an NYSE ADR. {@code BoursoramaEquityProfileProvider} answers
+     * that half from the ISIN.
+     *
+     * <p>An ETF returns no sector at all, which is correct — it has a distribution, and the
+     * existing composition pipeline already resolves it.
+     */
+    @Override
+    public Optional<EquityProfile> fetch(String ticker) {
+        if (!supports(ticker)) return Optional.empty();
+        try {
+            SearchResponse response = webClient.get()
+                .uri("/v1/finance/search?q={query}&quotesCount=6&newsCount=0&listsCount=0"
+                    + "&enableFuzzyQuery=false", ticker)
+                .retrieve()
+                .bodyToMono(SearchResponse.class)
+                .timeout(VERIFY_TIMEOUT)
+                .block();
+
+            return sectorFrom(response, ticker)
+                .map(sector -> new EquityProfile(sector, null, SECTOR_SOURCE, false));
+        } catch (Exception ex) {
+            log.debug("Yahoo equity profile fetch failed for {}: {}", ticker, ex.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * The sector of the quote whose symbol <em>is</em> the one asked for.
+     *
+     * <p>Never {@code quotes[0]}: the search is a relevance ranking, so a query for a thin
+     * European listing can put a better-known foreign namesake first and silently file the
+     * position under its sector.
+     */
+    static Optional<String> sectorFrom(SearchResponse response, String ticker) {
+        if (response == null || response.quotes() == null) return Optional.empty();
+        return response.quotes().stream()
+            .filter(q -> q.symbol() != null && q.symbol().equalsIgnoreCase(ticker))
+            .map(SearchQuote::sector)
+            .filter(sector -> sector != null && !sector.isBlank())
+            .findFirst()
+            .map(YahooFinancePriceProvider::sectorKey);
+    }
+
+    /** "Financial Services" &rarr; {@code financial_services}, the key the ETF slices already use. */
+    static String sectorKey(String yahooSector) {
+        return yahooSector.trim().toLowerCase(Locale.ROOT).replace(' ', '_');
+    }
+
+    /**
      * Returns Yahoo's classification of the instrument ("ETF", "EQUITY",
      * "CRYPTOCURRENCY", "MUTUALFUND"...) read from the same unauthenticated
      * chart endpoint already used for prices. Empty if unavailable.
@@ -301,7 +384,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             if (meta == null) return Optional.empty();
             return Optional.ofNullable(meta.instrumentType()).filter(s -> !s.isBlank());
         } catch (Exception ex) {
-            log.debug("Yahoo instrumentType fetch failed for {}: {}", ticker, ex.getMessage());
+            log.debug("Yahoo instrumentType fetch failed for {}: {}", LogSanitizer.safe(ticker), LogSanitizer.safe(ex.getMessage()));
             return Optional.empty();
         }
     }
@@ -392,7 +475,8 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     record SearchResponse(List<SearchQuote> quotes) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record SearchQuote(String symbol, String shortname, String longname, Boolean isYahooFinance) {}
+    record SearchQuote(String symbol, String shortname, String longname, Boolean isYahooFinance,
+                       String sector, String industry) {}
 
     private record CachedFx(BigDecimal rate, Instant cachedAt) {
         boolean isFresh() {
@@ -424,7 +508,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             log.debug("Fetched {} intraday prices for {} from Yahoo", prices.size(), ticker);
             return prices;
         } catch (Exception ex) {
-            log.warn("Yahoo intraday price fetch failed for {}: {}", ticker, ex.getMessage());
+            log.warn("Yahoo intraday price fetch failed for {}: {}", LogSanitizer.safe(ticker), LogSanitizer.safe(ex.getMessage()));
             return Map.of();
         }
     }

@@ -6,15 +6,27 @@ import com.picsou.config.CryptoEncryption;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
+import com.picsou.model.Category;
+import com.picsou.model.CategoryKind;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.TradeRepublicSession;
+import com.picsou.model.Transaction;
+import com.picsou.model.TransactionType;
+import com.picsou.exception.ResourceNotFoundException;
+import com.picsou.exception.SyncException;
 import com.picsou.port.TradeRepublicPort;
 import com.picsou.port.TradeRepublicPort.TrAccountData;
 import com.picsou.port.TradeRepublicPort.TrPosition;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.CategoryRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
+import com.picsou.repository.TransactionRepository;
+import com.picsou.service.budget.CategorizationService;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import ch.qos.logback.classic.Level;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -22,14 +34,22 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -45,13 +65,97 @@ class TradeRepublicSyncServiceTest {
     @Mock TradeRepublicSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
+    @Mock TransactionRepository transactionRepository;
     @Mock FamilyMemberRepository familyMemberRepository;
     @Mock AccountService accountService;
     @Mock OpenFigiIsinConverter isinConverter;
+    @Mock SecurityIdentityService identityService;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
+    @Mock CategorizationService categorizationService;
+    @Mock CategoryRepository categoryRepository;
 
     @InjectMocks TradeRepublicSyncService service;
+
+    @Test
+    void resyncReporting_logsLookupFailureWithThrowableAndReturnsFailed() {
+        Long memberId = 7L;
+        RuntimeException failure = new RuntimeException("private SQL password=private-marker");
+        when(sessionRepository.findByMemberId(memberId)).thenThrow(failure);
+        ch.qos.logback.classic.Logger logger =
+            (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(TradeRepublicSyncService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            var result = service.resyncReporting(memberId);
+
+            assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+            assertThat(result.message()).isEqualTo("Unexpected sync error").doesNotContain("private-marker");
+            assertThat(appender.list).anySatisfy(event -> assertThat(event.getThrowableProxy()).isNotNull());
+            assertThat(appender.list).anySatisfy(event -> assertThat(event.getThrowableProxy().getMessage())
+                .isEqualTo(failure.getMessage()));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    /**
+     * A {@link SyncException} in the scheduled / MCP full-sync path is logged with its code and
+     * stack trace, while the returned result keeps the generic "Sync failed" text (issue #199).
+     */
+    @Test
+    void resyncReporting_syncException_logsCodeAndStackTraceButKeepsResultGeneric() {
+        Long memberId = 7L;
+        TradeRepublicSession session = TradeRepublicSession.builder().sessionToken("enc-session").build();
+        when(sessionRepository.findByMemberId(memberId)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("enc-session")).thenReturn("plain-session");
+        when(trPort.fetchAccounts("plain-session"))
+            .thenThrow(new SyncException("Trade Republic sidecar unreachable raw-marker", null, "SIDECAR_UNAVAILABLE"));
+
+        ch.qos.logback.classic.Logger logger =
+            (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(TradeRepublicSyncService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            var result = service.resyncReporting(memberId);
+
+            assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+            assertThat(result.message()).isEqualTo("Sync failed").doesNotContain("raw-marker");
+            assertThat(appender.list).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage())
+                    .isEqualTo("Trade Republic scheduled sync failed for member " + memberId + " (code=SIDECAR_UNAVAILABLE)");
+                assertThat(event.getThrowableProxy()).isNotNull();
+                assertThat(event.getThrowableProxy().getClassName()).isEqualTo(SyncException.class.getName());
+                assertThat(event.getThrowableProxy().getStackTraceElementProxyArray()).isNotEmpty();
+            });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void clearSessionReportsTheSessionItDeleted() {
+        TradeRepublicSession session = TradeRepublicSession.builder().build();
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+
+        assertThat(service.clearSession(7L)).isTrue();
+        verify(sessionRepository).delete(session);
+    }
+
+    @Test
+    void clearSessionReportsNothingWhenNoSessionIsStored() {
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+
+        assertThat(service.clearSession(7L)).isFalse();
+        verify(sessionRepository, never()).delete(any());
+    }
 
     /**
      * When two ISINs resolve to the same ticker, the saved holding's averageBuyIn
@@ -292,6 +396,240 @@ class TradeRepublicSyncServiceTest {
         inOrder.verify(accountService).upsertSnapshot(any(Account.class), eq(bd("0")), any());
         verify(holdingRepository).flush();
         verify(holdingRepository, never()).save(any(AccountHolding.class));
+    }
+
+    // ─── CSV transaction import ────────────────────────────────────────────────
+
+    private static final Long MEMBER = 7L;
+
+    private Account trCash() {
+        return Account.builder().id(1L).name("TR Cash").type(AccountType.CHECKING)
+            .provider("Trade Republic").currency("EUR").build();
+    }
+
+    private Account trPea() {
+        return Account.builder().id(2L).name("TR PEA").type(AccountType.PEA)
+            .provider("Trade Republic").currency("EUR").build();
+    }
+
+    /** Seeded TRANSFER category used to tag the investment leg (kept out of cashflow). */
+    private Category investTransferCategory() {
+        return Category.builder().id(9L).name("Investissement").slug("investissement")
+            .kind(CategoryKind.TRANSFER).build();
+    }
+
+    /** EXPENSE category used to tag the cash leg of a buy/sell (counts as spending). */
+    private Category investPurchaseCategory() {
+        return Category.builder().id(10L).name("Investissement").slug("investissement-titres")
+            .kind(CategoryKind.EXPENSE).build();
+    }
+
+    /** Category map as a member who already has both categories would resolve. */
+    private Map<String, Category> categoriesWithBoth(Category transfer, Category purchase) {
+        return Map.of("investissement", transfer, "investissement-titres", purchase);
+    }
+
+    /** Builds one 19-column TR CSV data row with the fields the parser reads at their real indices. */
+    private static String row(String date, String accountType, String category, String type,
+                              String stock, String amount, String description, String externalId) {
+        String[] cols = new String[19];
+        Arrays.fill(cols, "");
+        cols[1] = date;
+        cols[2] = accountType;
+        cols[3] = category;
+        cols[4] = type;
+        cols[6] = stock;
+        // Quote the free-text/amount fields the way a real TR export does — the amount uses a
+        // decimal comma, so it must be quoted to survive comma-delimited splitting.
+        cols[10] = '"' + amount + '"';
+        cols[17] = '"' + description + '"';
+        cols[18] = externalId;
+        return String.join(",", cols);
+    }
+
+    private static MockMultipartFile csv(String... dataRows) {
+        String header = "datetime" + ",".repeat(18); // first line contains "datetime" → skipped as header
+        String body = header + "\n" + String.join("\n", dataRows) + "\n";
+        return new MockMultipartFile("file", "tr.csv", "text/csv", body.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private void stubTrAccounts(Account... accounts) {
+        when(accountRepository.findByIdAndMemberId(1L, MEMBER)).thenReturn(Optional.of(accounts[0]));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER)).thenReturn(List.of(accounts));
+    }
+
+    /**
+     * A BUY on the PEA produces a mirrored double entry: cash leg WITHDRAWAL (−amount) on TR Cash,
+     * investment leg DEPOSIT (+amount) on TR PEA. The cash leg is booked under the "Investissement"
+     * EXPENSE category so cashflow counts the purchase as spending; only the investment leg is
+     * tagged TRANSFER, which keeps the same movement from being counted a second time (as income).
+     */
+    @Test
+    void importTransactions_buyOnPea_cashLegIsExpense_investmentLegIsTransfer() {
+        Account cash = trCash();
+        Account pea = trPea();
+        Category transfer = investTransferCategory();
+        Category purchase = investPurchaseCategory();
+        stubTrAccounts(cash, pea);
+        when(categorizationService.categoriesBySlug(MEMBER)).thenReturn(categoriesWithBoth(transfer, purchase));
+        when(transactionRepository.existsByAccountIdAndExternalId(anyLong(), anyString())).thenReturn(false);
+
+        // FR decimal comma exercised on purpose; BUY amount is negative in the TR export.
+        var file = csv(row("2024-03-01", "PEA", "TRADING", "BUY", "S&P 500", "-59,31", "Buy S&P 500", "ext-1"));
+
+        TradeRepublicSyncService.ImportResult result = service.importTransactionsCsv(1L, file, MEMBER);
+
+        assertThat(result.inserted()).isEqualTo(2);
+        assertThat(result.skipped()).isZero();
+
+        ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(2)).save(captor.capture());
+        List<Transaction> saved = captor.getAllValues();
+
+        Transaction cashLeg = saved.stream().filter(t -> t.getAccount() == cash).findFirst().orElseThrow();
+        assertThat(cashLeg.getAmount()).isEqualByComparingTo("-59.31");
+        assertThat(cashLeg.getTxType()).isEqualTo(TransactionType.WITHDRAWAL);
+        assertThat(cashLeg.getExternalId()).isEqualTo("ext-1_cash");
+        // EXPENSE "Investissement" → cashflow counts the buy as spending.
+        assertThat(cashLeg.getCategoryRef()).isEqualTo(purchase);
+
+        Transaction invLeg = saved.stream().filter(t -> t.getAccount() == pea).findFirst().orElseThrow();
+        assertThat(invLeg.getAmount()).isEqualByComparingTo("59.31");
+        assertThat(invLeg.getTxType()).isEqualTo(TransactionType.DEPOSIT);
+        assertThat(invLeg.getExternalId()).isEqualTo("ext-1_inv");
+        // TRANSFER-kind → excluded from cashflow so the movement is not counted twice.
+        assertThat(invLeg.getCategoryRef()).isEqualTo(transfer);
+        // Never books BUY/SELL as tx_type, so HoldingComputeService ignores these rows.
+        assertThat(invLeg.getTxType()).isNotIn(TransactionType.BUY, TransactionType.SELL);
+    }
+
+    /** A SELL mirrors the other way: cash DEPOSIT (+), investment WITHDRAWAL (−). */
+    @Test
+    void importTransactions_sellOnPea_mirrorsSigns() {
+        Account cash = trCash();
+        Account pea = trPea();
+        stubTrAccounts(cash, pea);
+        when(categorizationService.categoriesBySlug(MEMBER))
+            .thenReturn(categoriesWithBoth(investTransferCategory(), investPurchaseCategory()));
+        when(transactionRepository.existsByAccountIdAndExternalId(anyLong(), anyString())).thenReturn(false);
+
+        var file = csv(row("2024-03-02", "PEA", "TRADING", "SELL", "Dell", "72.72", "Sell Dell", "ext-2"));
+
+        service.importTransactionsCsv(1L, file, MEMBER);
+
+        ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(2)).save(captor.capture());
+        Transaction cashLeg = captor.getAllValues().stream().filter(t -> t.getAccount() == cash).findFirst().orElseThrow();
+        Transaction invLeg = captor.getAllValues().stream().filter(t -> t.getAccount() == pea).findFirst().orElseThrow();
+        assertThat(cashLeg.getAmount()).isEqualByComparingTo("72.72");
+        assertThat(cashLeg.getTxType()).isEqualTo(TransactionType.DEPOSIT);
+        assertThat(invLeg.getAmount()).isEqualByComparingTo("-72.72");
+        assertThat(invLeg.getTxType()).isEqualTo(TransactionType.WITHDRAWAL);
+    }
+
+    /** A plain CASH row (e.g. a card payment) is a single cash leg, left uncategorized so cashflow counts it. */
+    @Test
+    void importTransactions_cashRow_singleUncategorizedLeg() {
+        Account cash = trCash();
+        stubTrAccounts(cash);
+        when(categorizationService.categoriesBySlug(MEMBER)).thenReturn(Map.of("investissement", investTransferCategory()));
+        when(transactionRepository.existsByAccountIdAndExternalId(anyLong(), anyString())).thenReturn(false);
+
+        var file = csv(row("2024-03-03", "DEFAULT", "CASH", "CARD_PAYMENT", "", "-12.50", "Coffee", "ext-3"));
+
+        TradeRepublicSyncService.ImportResult result = service.importTransactionsCsv(1L, file, MEMBER);
+
+        assertThat(result.inserted()).isEqualTo(1);
+        ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(1)).save(captor.capture());
+        Transaction leg = captor.getValue();
+        assertThat(leg.getAccount()).isEqualTo(cash);
+        assertThat(leg.getTxType()).isEqualTo(TransactionType.WITHDRAWAL);
+        assertThat(leg.getCategoryRef()).isNull();
+    }
+
+    /** TRANSFER_IN / TRANSFER_OUT rows are ignored (already covered by the TRADING double-entry). */
+    @Test
+    void importTransactions_transferRows_ignored() {
+        stubTrAccounts(trCash(), trPea());
+        when(categorizationService.categoriesBySlug(MEMBER)).thenReturn(Map.of("investissement", investTransferCategory()));
+
+        var file = csv(
+            row("2024-03-04", "PEA", "TRANSFER", "TRANSFER_IN", "", "100.00", "Top-up", "ext-4"),
+            row("2024-03-05", "PEA", "TRANSFER", "TRANSFER_OUT", "", "-100.00", "Top-up", "ext-5"));
+
+        TradeRepublicSyncService.ImportResult result = service.importTransactionsCsv(1L, file, MEMBER);
+
+        assertThat(result.inserted()).isZero();
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    /** Re-importing the same CSV inserts nothing and counts the row as skipped. */
+    @Test
+    void importTransactions_reimport_skipsExisting() {
+        stubTrAccounts(trCash(), trPea());
+        when(categorizationService.categoriesBySlug(MEMBER)).thenReturn(Map.of("investissement", investTransferCategory()));
+        when(transactionRepository.existsByAccountIdAndExternalId(anyLong(), anyString())).thenReturn(true);
+
+        var file = csv(row("2024-03-01", "PEA", "TRADING", "BUY", "S&P 500", "-59,31", "Buy", "ext-1"));
+
+        TradeRepublicSyncService.ImportResult result = service.importTransactionsCsv(1L, file, MEMBER);
+
+        assertThat(result.inserted()).isZero();
+        assertThat(result.skipped()).isEqualTo(1);
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    /** The triggering {id} must belong to the member — a spoofed id is rejected before any work. */
+    @Test
+    void importTransactions_unauthorizedAccount_throws() {
+        when(accountRepository.findByIdAndMemberId(999L, MEMBER)).thenReturn(Optional.empty());
+
+        var file = csv(row("2024-03-01", "PEA", "TRADING", "BUY", "S&P 500", "-59,31", "Buy", "ext-1"));
+
+        assertThatThrownBy(() -> service.importTransactionsCsv(999L, file, MEMBER))
+            .isInstanceOf(ResourceNotFoundException.class);
+        verify(transactionRepository, never()).save(any(Transaction.class));
+    }
+
+    /**
+     * A member who predates the "investissement-titres" category (existing members are never
+     * re-seeded) gets it created on demand on their first TRADING row, and the cash leg is booked
+     * under it — so the purchase shows as an "Investissement" expense.
+     */
+    @Test
+    void importTransactions_missingExpenseCategory_createsItOnDemand() {
+        Account cash = trCash();
+        Account pea = trPea();
+        stubTrAccounts(cash, pea);
+        // Map has the transfer category but NOT the purchase one → it must be created.
+        when(categorizationService.categoriesBySlug(MEMBER))
+            .thenReturn(Map.of("investissement", investTransferCategory()));
+        when(transactionRepository.existsByAccountIdAndExternalId(anyLong(), anyString())).thenReturn(false);
+        when(familyMemberRepository.getReferenceById(MEMBER))
+            .thenReturn(FamilyMember.builder().id(MEMBER).build());
+        when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> {
+            Category c = inv.getArgument(0);
+            c.setId(100L);
+            return c;
+        });
+
+        var file = csv(row("2024-03-01", "PEA", "TRADING", "BUY", "S&P 500", "-59,31", "Buy", "ext-1"));
+
+        service.importTransactionsCsv(1L, file, MEMBER);
+
+        ArgumentCaptor<Category> catCaptor = ArgumentCaptor.forClass(Category.class);
+        verify(categoryRepository).save(catCaptor.capture());
+        Category created = catCaptor.getValue();
+        assertThat(created.getSlug()).isEqualTo("investissement-titres");
+        assertThat(created.getKind()).isEqualTo(CategoryKind.EXPENSE);
+        assertThat(created.getName()).isEqualTo("Investissement");
+
+        ArgumentCaptor<Transaction> txCaptor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(2)).save(txCaptor.capture());
+        Transaction cashLeg = txCaptor.getAllValues().stream()
+            .filter(t -> t.getAccount() == cash).findFirst().orElseThrow();
+        assertThat(cashLeg.getCategoryRef()).isSameAs(created);
     }
 
     @Test

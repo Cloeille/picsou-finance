@@ -1,8 +1,20 @@
 import '@testing-library/jest-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { TransactionsList } from './TransactionsList'
 import type { Transaction } from '@/types/api'
+
+// jsdom lacks matchMedia, which useIsMobile (TransactionDetailSheet) probes.
+beforeAll(() => {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false, media: query, onchange: null,
+      addEventListener: () => {}, removeEventListener: () => {},
+      addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+    }),
+  })
+})
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -38,6 +50,16 @@ function transaction(overrides: Partial<Transaction>): Transaction {
 }
 
 describe('TransactionsList', () => {
+  it('keeps the header actions reachable on an empty account, and renders nothing without them', () => {
+    const { container, rerender } = render(<TransactionsList transactions={[]} />)
+    expect(container).toBeEmptyDOMElement()
+
+    rerender(<TransactionsList transactions={[]} actions={<button>Add</button>} />)
+    expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument()
+    expect(screen.getByText('accounts.transactions')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('common.search')).not.toBeInTheDocument()
+  })
+
   it('keeps single-year date headings compact', () => {
     render(<TransactionsList transactions={[transaction({ description: 'Single year' })]} />)
 

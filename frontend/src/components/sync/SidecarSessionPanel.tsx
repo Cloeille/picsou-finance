@@ -42,11 +42,26 @@ export interface SidecarAuthInitResponse {
 interface Credentials {
   login: string
   password: string
+  [key: string]: string
 }
 
 interface SecondFactor {
   processId: string
   code?: string
+}
+
+/**
+ * A single extra choice appended to the login form and merged into the
+ * credentials the panel submits, keyed by `id`. AMEX is the only connector
+ * that needs one today (SMS vs e-mail one-time code) -- kept generic rather
+ * than AMEX-specific so a future connector with the same shape of need
+ * doesn't require another one-off panel.
+ */
+export interface SidecarExtraField {
+  id: string
+  label: string
+  options: { value: string; label: string }[]
+  defaultValue: string
 }
 
 /**
@@ -59,9 +74,21 @@ const ERROR_MESSAGE_SUFFIXES: Record<string, string> = {
   INVALID_CREDENTIALS: "invalidCredentials",
   CAPTCHA_BLOCKED: "captchaBlocked",
   INVALID_OTP: "invalidCode",
+  /** Sofidy names it MFA_INVALID: its code is a wrong or expired e-mail code. */
+  MFA_INVALID: "invalidCode",
+  /** Sofidy parks the login until the holder finishes their first visit. */
+  FIRST_VISIT_PENDING: "firstVisitPending",
+  /** No e-mail on the account, so no code can be sent to it. */
+  EMAIL_UNREACHABLE: "emailUnreachable",
+  ACCOUNT_INACTIVE: "accountInactive",
+  /** Sofidy arms a brute-force counter of its own; the fix is to wait. */
+  RATE_LIMITED: "tooManyAttempts",
   APP_VALIDATION_TIMEOUT: "appValidationTimeout",
+  SAFEKEY_TIMEOUT: "appValidationTimeout",
   AUTH_ATTEMPT_EXPIRED: "authAttemptExpired",
   SESSION_EXPIRED: "sessionExpired",
+  /** Only reachable by a provider whose login can see more than one contract. */
+  MULTIPLE_CONTRACTS: "multipleContracts",
   PORTFOLIO_INCOMPLETE: "portfolioIncomplete",
   UPSTREAM_FORMAT_CHANGED: "formatChanged",
   INVALID_DATA: "invalidData",
@@ -81,12 +108,15 @@ export interface SidecarSessionPanelProps<
   loginIcon: LucideIcon
   /** Whether the provider can answer the second factor with a mobile app push. */
   appPush?: boolean
+  /** An extra login-form choice merged into the initiate payload (e.g. AMEX's SMS/e-mail pick). */
+  extraField?: SidecarExtraField
   useStatus: () => UseQueryResult<TStatus>
   useInitiateAuth: () => UseMutationResult<TInit, unknown, Credentials>
   useCompleteAuth: () => UseMutationResult<TStatus, unknown, SecondFactor>
   useSync: () => UseMutationResult<TStatus, unknown, void>
   useClearSession: () => UseMutationResult<unknown, unknown, void>
   onConnected?: () => void
+  recoveryAction?: { label: string; busyLabel: string; description: string; busy: boolean; onRun: () => void }
 }
 
 /**
@@ -103,18 +133,21 @@ export function SidecarSessionPanel<
   fieldIdPrefix,
   loginIcon: LoginIcon,
   appPush = false,
+  extraField,
   useStatus,
   useInitiateAuth,
   useCompleteAuth,
   useSync,
   useClearSession,
   onConnected,
+  recoveryAction,
 }: SidecarSessionPanelProps<TStatus, TInit>) {
   const { t } = useTranslation()
   const [authState, setAuthState] = useState<AuthState>("IDLE")
   const [login, setLogin] = useState("")
   const [password, setPassword] = useState("")
   const [code, setCode] = useState("")
+  const [extraValue, setExtraValue] = useState(extraField?.defaultValue ?? "")
   const [processId, setProcessId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const notifyConnectedOnSuccess = useRef(false)
@@ -249,6 +282,17 @@ export function SidecarSessionPanel<
         </Card>
       )}
 
+      {connected && recoveryAction && (
+        <Card size="sm" className="border-border/60">
+          <CardContent className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center">
+            <p className="flex-1 text-xs text-muted-foreground">{recoveryAction.description}</p>
+            <Button variant="outline" size="sm" disabled={recoveryAction.busy || requestingSync} onClick={recoveryAction.onRun}>
+              {recoveryAction.busy ? recoveryAction.busyLabel : recoveryAction.label}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {connected && (
         <div className="flex flex-wrap gap-3">
           <Button
@@ -292,7 +336,7 @@ export function SidecarSessionPanel<
             event.preventDefault()
             setError(null)
             initiate.mutate(
-              { login, password },
+              { login, password, ...(extraField ? { [extraField.id]: extraValue } : {}) },
               {
                 onSuccess: (result) => {
                   setPassword("")
@@ -356,6 +400,25 @@ export function SidecarSessionPanel<
                   required
                 />
               </div>
+              {extraField && (
+                <div className="space-y-2">
+                  <Label htmlFor={`${fieldIdPrefix}-${extraField.id}`}>
+                    {extraField.label}
+                  </Label>
+                  <select
+                    id={`${fieldIdPrefix}-${extraField.id}`}
+                    className="border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:ring-2"
+                    value={extraValue}
+                    onChange={(event) => setExtraValue(event.target.value)}
+                  >
+                    {extraField.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <Button type="submit" disabled={initiate.isPending}>
                 {initiate.isPending && <RefreshCw className="animate-spin" />}
                 {initiate.isPending
@@ -404,8 +467,8 @@ export function SidecarSessionPanel<
                   id={`${fieldIdPrefix}-otp`}
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  pattern="[0-9]{6}"
-                  maxLength={6}
+                  pattern="[0-9]{4,10}"
+                  maxLength={10}
                   value={code}
                   onChange={(event) =>
                     setCode(event.target.value.replace(/\D/g, ""))
@@ -415,7 +478,7 @@ export function SidecarSessionPanel<
               </div>
               <Button
                 type="submit"
-                disabled={complete.isPending || code.length !== 6}
+                disabled={complete.isPending || code.length < 4}
               >
                 {complete.isPending && <RefreshCw className="animate-spin" />}
                 {complete.isPending

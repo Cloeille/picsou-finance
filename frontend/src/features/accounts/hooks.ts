@@ -1,7 +1,8 @@
+import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, realEstateApi } from './api'
-import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, TransactionImportRequest, TransactionRequest } from '@/types/api'
-import { QUERY_STALE_TIMES } from '@/lib/constants'
+import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, ScpiPositionRequest, TransactionImportRequest, TransactionRequest } from '@/types/api'
+import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
 
 export interface HoldingWithAccount extends HoldingResponse {
   accountName: string
@@ -13,7 +14,15 @@ export interface PortfolioLine {
   id: string
   name: string
   ticker: string | null
+  /** The holding's mark, as in `HoldingResponse`. Absent on the aggregated cash row. */
+  logoUrl?: string | null
+  logoUrlDark?: string | null
   quantity: number
+  /**
+   * Needed to classify the line: the write is authorised by the account it was reached through.
+   * Null on the aggregated cash row, which spans several accounts and belongs to no one of them.
+   */
+  accountId: number | null
   accountName: string
   accountType: Account['type']
   accountColor: string
@@ -26,7 +35,6 @@ export interface PortfolioLine {
   priceUpdatedAt: string | null
 }
 
-const HOLDING_ACCOUNT_TYPES: Account['type'][] = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS']
 
 // Single source of truth: recompute the (value, cost, pnl, pct) trio from a live price.
 // Keeps all four derived numbers consistent with the same price snapshot.
@@ -65,7 +73,10 @@ export function usePortfolio() {
             id: `${account.id}-${h.ticker}`,
             name: h.name ?? h.ticker,
             ticker: h.ticker,
+            logoUrl: h.logoUrl,
+            logoUrlDark: h.logoUrlDark,
             quantity: h.quantity,
+            accountId: account.id,
             accountName: account.name,
             accountType: account.type,
             accountColor: account.color,
@@ -109,14 +120,17 @@ export function usePortfolio() {
         }
       })
 
-      // Cash accounts — aggregate into a single "Euros" line (exclude LOAN accounts)
-      const cashAccounts = accounts.filter(a => !HOLDING_ACCOUNT_TYPES.includes(a.type) && a.type !== 'LOAN')
+      // Cash accounts — aggregate into a single "Euros" line (debts are not cash)
+      const cashAccounts = accounts.filter(
+        a => !HOLDING_ACCOUNT_TYPES.includes(a.type) && !LIABILITY_ACCOUNT_TYPES.includes(a.type),
+      )
       if (cashAccounts.length > 0) {
         enriched.push({
           id: 'cash-aggregated',
           name: 'Euros',
           ticker: 'EUR',
           quantity: 0,
+          accountId: null,
           accountName: cashAccounts.map(a => a.name).join(', '),
           accountType: cashAccounts[0].type,
           accountColor: '#22c55e',
@@ -146,6 +160,43 @@ export function useAccounts() {
     queryFn: accountsApi.list,
     staleTime: QUERY_STALE_TIMES.accounts,
   })
+}
+
+export interface AccountTree {
+  walletGroups: Array<{ wallet: Account; pockets: Account[] }>
+  standaloneAccounts: Account[]
+  nonPocketAccounts: Account[]
+}
+
+/**
+ * Groups a flat account list into wallet -> pockets, matching Account.parentAccountId.
+ * A pocket whose parent isn't present in `accounts` (e.g. the wallet was soft-deleted)
+ * falls back into nonPocketAccounts/standaloneAccounts instead of silently vanishing.
+ */
+export function useAccountTree(accounts: Account[] | undefined): AccountTree {
+  return useMemo(() => {
+    const accountIds = new Set((accounts ?? []).map((a) => a.id))
+
+    const pocketsByParent = new Map<number, Account[]>()
+    for (const a of (accounts ?? [])) {
+      if (a.parentAccountId != null && accountIds.has(a.parentAccountId)) {
+        if (!pocketsByParent.has(a.parentAccountId)) pocketsByParent.set(a.parentAccountId, [])
+        pocketsByParent.get(a.parentAccountId)!.push(a)
+      }
+    }
+
+    const nonPocketAccounts = (accounts ?? []).filter(
+      (a) => a.parentAccountId == null || !accountIds.has(a.parentAccountId),
+    )
+
+    const walletGroups = nonPocketAccounts
+      .filter((a) => pocketsByParent.has(a.id))
+      .map((wallet) => ({ wallet, pockets: pocketsByParent.get(wallet.id)! }))
+
+    const standaloneAccounts = nonPocketAccounts.filter((a) => !pocketsByParent.has(a.id))
+
+    return { walletGroups, standaloneAccounts, nonPocketAccounts }
+  }, [accounts])
 }
 
 export function useAccount(id: number) {
@@ -298,6 +349,21 @@ export function useUpdateRealEstateMetadata() {
   })
 }
 
+export function useUpdateScpiPosition() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: ScpiPositionRequest }) =>
+      accountsApi.updateScpiPosition(id, data),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', variables.id] })
+      queryClient.invalidateQueries({ queryKey: ['real-estate'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['analysis'] })
+    },
+  })
+}
+
 export function useUpdateDebtMetadata() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -380,6 +446,19 @@ export function useLoanSummary(id: number, enabled: boolean = true) {
     queryFn: () => accountsApi.loanSummary(id),
     staleTime: QUERY_STALE_TIMES.accountDetail,
     enabled: enabled && Number.isFinite(id),
+  })
+}
+
+export function useImportTRTransactions(accountId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (file: File) => accountsApi.importTRTransactions(accountId, file),
+    onSuccess: () => {
+      // The CSV import creates transactions on multiple TR accounts (Cash, PEA, Titres),
+      // so we need to invalidate all account-level queries — not just the triggering account.
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
   })
 }
 
@@ -515,5 +594,25 @@ export function usePriceHistory(ticker: string | null, months: number, range: st
     },
     enabled: !!ticker,
     staleTime: 2 * 60 * 1000,
+  })
+}
+
+export function useAllAccounts() {
+  return useQuery({
+    queryKey: ['accounts', 'all'],
+    queryFn: accountsApi.listAll,
+    staleTime: QUERY_STALE_TIMES.accounts,
+  })
+}
+
+export function useToggleAccountVisibility() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, hidden }: { id: number; hidden: boolean }) => accountsApi.setVisibility(id, hidden),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['history'] })
+    },
   })
 }

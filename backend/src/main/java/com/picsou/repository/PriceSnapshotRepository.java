@@ -58,6 +58,16 @@ public interface PriceSnapshotRepository extends JpaRepository<PriceSnapshot, Lo
         @Param("to") LocalDate to
     );
 
+    /**
+     * Which of {@code tickers} a price provider has ever answered for.
+     *
+     * <p>Used by {@code InstrumentLogoService} as proof that a ticker is a real quoted symbol
+     * before spending a quote-page request on it: a fund code or a cash line no provider can
+     * price never gets a row here.
+     */
+    @Query("SELECT DISTINCT ps.ticker FROM PriceSnapshot ps WHERE ps.ticker IN :tickers")
+    Set<String> findPricedTickers(@Param("tickers") Set<String> tickers);
+
     @Modifying
     @Query("""
         DELETE FROM PriceSnapshot ps

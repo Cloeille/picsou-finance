@@ -21,8 +21,11 @@ export default defineConfig({
   webServer: {
     command: 'bun run dev',
     url: process.env.PLAYWRIGHT_DEV_URL || 'https://localhost:5173',
+    env: {
+      VITE_DEMO_MODE: 'true',
+    },
     ignoreHTTPSErrors: true,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120000,
   },
 })

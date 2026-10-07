@@ -241,7 +241,8 @@ Use icons from `lucide-react` as direct JSX components (e.g., `<Pencil className
 - Supported languages live in the `SUPPORTED_LOCALES` registry (`frontend/src/i18n/locales.ts`); selectors and `Intl` formatting derive from it — never hardcode language lists in components. Normalize raw tags with `resolveLocale()`.
 - Flat keys with feature-based grouping.
 - All user-visible text must use `useTranslation()` — no hardcoded strings in any language.
-- Currency/date/number formatting via `Intl.*` through the `frontend/src/lib/utils.ts` helpers (`formatCurrency`, `formatDate`…), which resolve the active locale via `getLocale()`.
+- Date/number formatting via `Intl.*` through the `frontend/src/lib/utils.ts` helpers (`formatDate`…), which resolve the active locale via `getLocale()`.
+- **Amounts go through `<CurrencyDisplay>` or `useMoney()` (`frontend/src/hooks/use-money.ts`), never through `Intl` directly.** Privacy mode blanks every amount on screen, so a figure formatted outside that path stays legible during a demo. The raw formatter is private for that reason, and `frontend/src/lib/money-guard.test.ts` fails the build on a hand-built currency format, a `€` in JSX, or an amount-shaped value printed bare. See [`docs/features/privacy-mode.md`](../features/privacy-mode.md).
 - Full details: [`docs/features/i18n.md`](../features/i18n.md).
 
 ## Types

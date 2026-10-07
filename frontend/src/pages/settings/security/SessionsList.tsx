@@ -23,7 +23,7 @@ export function SessionsList() {
     )
   }
 
-  if (!sessions || sessions.length === 0) {
+  if (!Array.isArray(sessions) || sessions.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-2">{t('settings.sessionsEmpty')}</p>
     )

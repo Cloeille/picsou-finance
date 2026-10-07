@@ -67,7 +67,7 @@ public class RealEstateController {
         Integer sampleSize,
         Short sourceYear
     ) {
-        static ValuationHistoryEntry from(PropertyValuation v) {
+        public static ValuationHistoryEntry from(PropertyValuation v) {
             return new ValuationHistoryEntry(
                 v.getValuedAt(),
                 v.getEstimatedValue(),

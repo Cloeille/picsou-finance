@@ -4,6 +4,7 @@ import com.picsou.model.AppUser;
 import com.picsou.model.UserRole;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.service.SetupAuditService;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -100,7 +101,7 @@ public class AdminRecoveryRunner implements ApplicationRunner {
         log.warn("");
         log.warn(separator);
         log.warn("ADMIN RECOVERY ACTIVATED");
-        log.warn("Username : {}", username);
+        log.warn("Username : {}", LogSanitizer.safe(username));
         log.warn("Valid    : {} hour", TOKEN_TTL_HOURS);
         log.warn("URL      : {}", url);
         log.warn("");

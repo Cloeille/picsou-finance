@@ -3,6 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   ChevronDown,
+  Eye,
+  EyeOff,
+  RefreshCw,
   Settings,
   Users,
   LogOut,
@@ -44,8 +47,17 @@ function AccountMenuFooterItems({
   logoutPending: boolean
 }) {
   const { t } = useTranslation()
+  const location = useLocation()
+  const syncActive = location.pathname.startsWith('/sync')
   return (
     <>
+      <DropdownMenuItem asChild className={cn(syncActive && 'bg-muted text-foreground')}>
+        <NavLink to="/sync">
+          <RefreshCw className="size-4" aria-hidden="true" />
+          <span>{t('nav.sync')}</span>
+        </NavLink>
+      </DropdownMenuItem>
+
       {isAdmin && (
         <DropdownMenuItem onClick={onAdminClick}>
           <Shield className="size-4" aria-hidden="true" />
@@ -115,6 +127,8 @@ export function AppSidebar() {
   const user = useAuthStore((s) => s.user)
   const demoMode = useAppStore((s) => s.demoMode)
   const sidebarStyle = useAppStore((s) => s.sidebarStyle)
+  const hideAmounts = useAppStore((s) => s.hideAmounts)
+  const toggleHideAmounts = useAppStore((s) => s.toggleHideAmounts)
   const activeMemberId = useProfileStore((s) => s.activeMemberId)
   const setActiveMember = useProfileStore((s) => s.setActiveMember)
   const canSwitchProfile = !demoMode && user?.role === 'ADMIN'
@@ -154,15 +168,29 @@ export function AppSidebar() {
         isClassic ? 'h-fit max-h-[calc(100vh-2rem)] w-60' : 'h-[calc(100vh-2rem)] w-72',
       )}
     >
-      {/* Logo */}
-      <img
-        src={picsouLogo}
-        alt="Picsou"
-        className={cn(
-          'h-7 w-auto opacity-90 brightness-0 dark:invert',
-          isClassic ? undefined : 'mb-4 self-start px-4',
-        )}
-      />
+      {/* Logo, and the control that blanks every amount in the app beside it. `self-start` is gone
+          because the img now sits in an items-center row rather than in the flex column. */}
+      <div className={cn('flex items-center justify-between gap-2', isClassic ? undefined : 'mb-4 px-4')}>
+        <img
+          src={picsouLogo}
+          alt="Picsou"
+          className="h-7 w-auto opacity-90 brightness-0 dark:invert"
+        />
+        {/* size-7, not the default size-10: the classic variant aligns its nav block on a
+            hard-coded mt-[47px] tuned to the 28px logo, and a 40px button pushes it down. */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 shrink-0"
+          aria-pressed={hideAmounts}
+          aria-label={t(hideAmounts ? 'nav.showAmounts' : 'nav.hideAmounts')}
+          onClick={toggleHideAmounts}
+        >
+          {hideAmounts
+            ? <EyeOff className="size-4" aria-hidden="true" />
+            : <Eye className="size-4" aria-hidden="true" />}
+        </Button>
+      </div>
 
       <div className={cn('flex flex-col gap-3', isClassic && 'mt-[47px] flex-1 justify-evenly')}>
         {navItems.map((item) => (
@@ -217,7 +245,7 @@ export function AppSidebar() {
             </Item>
           </DropdownMenuTrigger>
 
-          <DropdownMenuContent side="top" align="start" className="w-64">
+          <DropdownMenuContent side="bottom" align="start" className="w-64">
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col gap-0.5">
                 <p className="text-sm font-medium leading-none">{displayName}</p>

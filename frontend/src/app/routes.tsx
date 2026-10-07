@@ -9,8 +9,18 @@ import {
   DashboardPage,
   AccountsPage,
   AccountDetailPage,
+  AnalysisPage,
   GoalsPage,
   GoalCalendarPage,
+  BudgetLayout,
+  BudgetOverviewPage,
+  SpendingPage,
+  CategoryDetailPage,
+  SubscriptionsPage,
+  EnvelopesPage,
+  ReviewPage,
+  BudgetSettingsPage,
+  BudgetTransactionsPage,
   SyncPage,
   SettingsPage,
   ActivationPage,
@@ -26,12 +36,15 @@ import {
   SetupStepEnableBanking,
   SetupStepBoursoBank,
   SetupStepBourseDirect,
+  SetupStepFortuneo,
   SetupStepTradeRepublic,
+  SetupStepRevolut,
   SetupStepFinary,
   SetupStepCrypto,
   NotFoundPage,
   ForbiddenPage,
   ServerErrorPage,
+  ConsentPage,
   SuspensePage,
 } from './lazy-pages'
 
@@ -77,6 +90,22 @@ export const router = createBrowserRouter([
     ),
   },
   {
+    // Spring Authorization Server redirects here (`consentPage("/consent")`) when an
+    // interactive-consent OAuth2 client (every DCR-registered remote-MCP client) reaches
+    // /oauth2/authorize. Deliberately NOT nested under the `/` + RequireAuth tree: the page
+    // calls the cookie-authed `/api/oauth2/consent-info` itself and relies on the shared
+    // api-client's 401 interceptor to bounce to /login?redirect=/consent?... (preserving
+    // client_id/scope/state) when there is no session, exactly like any other API 401 — no
+    // separate guard needed here. Also NOT under /oauth2 — nginx routes that prefix straight
+    // to the backend, so a `/oauth2/*` SPA route would never be reached.
+    path: '/consent',
+    element: (
+      <SuspensePage>
+        <ConsentPage />
+      </SuspensePage>
+    ),
+  },
+  {
     path: '/setup',
     element: (
       <SetupOnly>
@@ -93,7 +122,9 @@ export const router = createBrowserRouter([
       { path: 'integrations/enablebanking', element: <SuspensePage fallback={null}><SetupStepEnableBanking /></SuspensePage> },
       { path: 'integrations/boursobank', element: <SuspensePage fallback={null}><SetupStepBoursoBank /></SuspensePage> },
       { path: 'integrations/boursedirect', element: <SuspensePage fallback={null}><SetupStepBourseDirect /></SuspensePage> },
+      { path: 'integrations/fortuneo', element: <SuspensePage fallback={null}><SetupStepFortuneo /></SuspensePage> },
       { path: 'integrations/traderepublic', element: <SuspensePage fallback={null}><SetupStepTradeRepublic /></SuspensePage> },
+      { path: 'integrations/revolut', element: <SuspensePage fallback={null}><SetupStepRevolut /></SuspensePage> },
       { path: 'integrations/finary', element: <SuspensePage fallback={null}><SetupStepFinary /></SuspensePage> },
       { path: 'integrations/crypto', element: <SuspensePage fallback={null}><SetupStepCrypto /></SuspensePage> },
       { path: 'done', element: <SuspensePage fallback={null}><SetupStepComplete /></SuspensePage> },
@@ -112,8 +143,23 @@ export const router = createBrowserRouter([
       { index: true, element: <SuspensePage><DashboardPage /></SuspensePage> },
       { path: 'accounts', element: <SuspensePage><AccountsPage /></SuspensePage> },
       { path: 'accounts/:id', element: <SuspensePage><AccountDetailPage /></SuspensePage> },
+      { path: 'analysis', element: <SuspensePage><AnalysisPage /></SuspensePage> },
       { path: 'goals', element: <SuspensePage><GoalsPage /></SuspensePage> },
       { path: 'goals/:id/calendar', element: <SuspensePage><GoalCalendarPage /></SuspensePage> },
+      {
+        path: 'budget',
+        element: <SuspensePage><BudgetLayout /></SuspensePage>,
+        children: [
+          { index: true, element: <SuspensePage><BudgetOverviewPage /></SuspensePage> },
+          { path: 'spending', element: <SuspensePage><SpendingPage /></SuspensePage> },
+          { path: 'spending/:categoryId', element: <SuspensePage><CategoryDetailPage /></SuspensePage> },
+          { path: 'transactions', element: <SuspensePage><BudgetTransactionsPage /></SuspensePage> },
+          { path: 'subscriptions', element: <SuspensePage><SubscriptionsPage /></SuspensePage> },
+          { path: 'envelopes', element: <SuspensePage><EnvelopesPage /></SuspensePage> },
+          { path: 'review', element: <SuspensePage><ReviewPage /></SuspensePage> },
+          { path: 'settings', element: <SuspensePage><BudgetSettingsPage /></SuspensePage> },
+        ],
+      },
       { path: 'sync', element: <SuspensePage><SyncPage /></SuspensePage> },
       { path: 'sync/callback', element: <SuspensePage><SyncPage /></SuspensePage> },
       { path: 'settings', element: <SuspensePage><SettingsPage /></SuspensePage> },

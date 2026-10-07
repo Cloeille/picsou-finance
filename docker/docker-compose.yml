@@ -41,15 +41,27 @@ services:
       # internally via application.yml.
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       TR_AUTH_URL: http://tr-auth:8001
+      REVOLUT_AUTH_URL: http://revolut-auth:8002
       BOURSO_AUTH_URL: http://bourso-auth:8001
       BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001
       AMUNDI_AUTH_URL: http://amundi-auth:8001
+      FORTUNEO_AUTH_URL: http://fortuneo-auth:8001
+      CORUM_AUTH_URL: http://corum-auth:8001
+      SOFIDY_AUTH_URL: http://sofidy-auth:8001
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     depends_on:
       - db
       - tr-auth
+      - revolut-auth
       - bourso-auth
       - bourse-direct-auth
       - amundi-auth
+      - fortuneo-auth
+      - corum-auth
+      - sofidy-auth
+    networks:
+      - default
+      - fortuneo-auth-net
 
   # Optional TLS terminator — OFF unless the `tls` profile is requested:
   #   docker compose -f docker/docker-compose.yml --profile tls up -d
@@ -96,6 +108,19 @@ services:
       context: ../services/tr-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+
+  revolut-auth:
+    image: ghcr.io/cloeille/picsou-finance/revolut-auth:latest
+    build:
+      context: ../services/revolut-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    volumes:
+      - revolut_profiles:/data/revolut-profiles
 
   bourso-auth:
     image: ghcr.io/cloeille/picsou-finance/bourso-auth:latest
@@ -103,6 +128,8 @@ services:
       context: ../services/bourso-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
 
   bourse-direct-auth:
     image: ghcr.io/cloeille/picsou-finance/bourse-direct-auth:latest
@@ -110,6 +137,8 @@ services:
       context: ../services/bourse-direct-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
 
   amundi-auth:
     image: ghcr.io/cloeille/picsou-finance/amundi-auth:latest
@@ -117,6 +146,39 @@ services:
       context: ../services/amundi-auth
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+
+  fortuneo-auth:
+    image: ghcr.io/cloeille/picsou-finance/fortuneo-auth:latest
+    build:
+      context: ../services/fortuneo-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    networks:
+      - fortuneo-auth-net
+      - fortuneo-egress
+
+  corum-auth:
+    image: ghcr.io/cloeille/picsou-finance/corum-auth:latest
+    build:
+      context: ../services/corum-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+
+  sofidy-auth:
+    image: ghcr.io/cloeille/picsou-finance/sofidy-auth:latest
+    build:
+      context: ../services/sofidy-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+
 
   db:
     image: postgres:16-alpine
@@ -137,9 +199,24 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    profiles: ["ollama"]
+    volumes:
+      - ollama_models:/root/.ollama
 
 volumes:
   pgdata:
   picsou_data:
+  ollama_models:
+  revolut_profiles:
   caddy_data:
   caddy_config:
+
+networks:
+  fortuneo-auth-net:
+    driver: bridge
+    internal: true
+  fortuneo-egress:
+    driver: bridge

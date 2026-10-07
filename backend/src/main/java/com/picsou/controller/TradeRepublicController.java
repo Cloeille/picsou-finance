@@ -66,10 +66,20 @@ public class TradeRepublicController {
         return trService.getSessionStatus(userContext.currentMemberId());
     }
 
-    /** CSV fallback import. */
+    /** CSV fallback import (accounts/balances). */
     @PostMapping("/import")
     public List<AccountResponse> importCsv(@RequestParam("file") MultipartFile file) {
         return trService.importCsv(file, userContext.currentMemberId());
+    }
+
+    /** CSV import: parses the full TR transaction history CSV and creates double-entry transactions. */
+    @PostMapping("/accounts/{id}/transactions/import-csv")
+    public ResponseEntity<TradeRepublicSyncService.ImportResult> importTransactionsCsv(
+        @PathVariable Long id,
+        @RequestParam("file") MultipartFile file
+    ) {
+        TradeRepublicSyncService.ImportResult result = trService.importTransactionsCsv(id, file, userContext.currentMemberId());
+        return ResponseEntity.ok(result);
     }
 
     /** Clear stored session token (forces re-authentication). */

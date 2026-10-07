@@ -2,10 +2,14 @@ package com.picsou.controller;
 
 import com.picsou.dto.AccountRequest;
 import com.picsou.dto.AccountResponse;
+import com.picsou.dto.AccountVisibilityRequest;
 import com.picsou.dto.DebtRequest;
 import com.picsou.dto.DebtResponse;
 import com.picsou.dto.ExchangePositionResponse;
 import com.picsou.dto.HoldingRequest;
+import com.picsou.dto.HoldingClassificationRequest;
+import com.picsou.dto.HoldingClassificationResponse;
+import com.picsou.dto.HoldingClassificationView;
 import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataRequest;
 import com.picsou.dto.RealEstateMetadataResponse;
@@ -17,7 +21,10 @@ import com.picsou.model.BalanceSnapshot;
 import com.picsou.dto.OwnershipRequest;
 import com.picsou.dto.OwnershipResponse;
 import com.picsou.dto.PropertyValuationResponse;
+import com.picsou.dto.ScpiPositionRequest;
+import com.picsou.dto.ScpiPositionResponse;
 import com.picsou.service.AccountConnectionService;
+import com.picsou.service.ScpiPositionService;
 import com.picsou.service.AccountOwnershipService;
 import com.picsou.service.AccountService;
 import com.picsou.service.CryptoExchangeSyncService;
@@ -25,6 +32,8 @@ import com.picsou.service.LoanAmortizationService;
 import com.picsou.service.ManualTransactionService;
 import com.picsou.service.PropertyValuationService;
 import com.picsou.service.RealizedPnlService;
+import com.picsou.model.HoldingClassification;
+import com.picsou.service.HoldingClassificationService;
 import com.picsou.service.UserContext;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -40,6 +49,7 @@ import java.util.List;
 public class AccountController {
 
     private final AccountService accountService;
+    private final HoldingClassificationService holdingClassificationService;
     private final UserContext userContext;
     private final ManualTransactionService manualTransactionService;
     private final RealizedPnlService realizedPnlService;
@@ -47,6 +57,7 @@ public class AccountController {
     private final PropertyValuationService propertyValuationService;
     private final AccountOwnershipService ownershipService;
     private final AccountConnectionService accountConnectionService;
+    private final ScpiPositionService scpiPositionService;
 
     public AccountController(AccountService accountService, UserContext userContext,
                             ManualTransactionService manualTransactionService,
@@ -54,8 +65,11 @@ public class AccountController {
                             CryptoExchangeSyncService cryptoExchangeSyncService,
                             PropertyValuationService propertyValuationService,
                             AccountOwnershipService ownershipService,
-                            AccountConnectionService accountConnectionService) {
+                            AccountConnectionService accountConnectionService,
+                            HoldingClassificationService holdingClassificationService,
+                            ScpiPositionService scpiPositionService) {
         this.accountConnectionService = accountConnectionService;
+        this.holdingClassificationService = holdingClassificationService;
         this.accountService = accountService;
         this.userContext = userContext;
         this.manualTransactionService = manualTransactionService;
@@ -63,11 +77,12 @@ public class AccountController {
         this.cryptoExchangeSyncService = cryptoExchangeSyncService;
         this.propertyValuationService = propertyValuationService;
         this.ownershipService = ownershipService;
+        this.scpiPositionService = scpiPositionService;
     }
 
     @GetMapping
-    public List<AccountResponse> findAll() {
-        return accountService.findAll(userContext.currentMemberId());
+    public List<AccountResponse> findAll(@RequestParam(defaultValue = "false") boolean includeHidden) {
+        return accountService.findAll(userContext.currentMemberId(), includeHidden);
     }
 
     @GetMapping("/{id}")
@@ -84,6 +99,11 @@ public class AccountController {
     @PutMapping("/{id}")
     public AccountResponse update(@PathVariable Long id, @Valid @RequestBody AccountRequest req) {
         return accountService.update(id, req, userContext.currentMemberId());
+    }
+
+    @PutMapping("/{id}/visibility")
+    public AccountResponse updateVisibility(@PathVariable Long id, @Valid @RequestBody AccountVisibilityRequest req) {
+        return accountService.setHidden(id, userContext.currentMemberId(), req.hidden());
     }
 
     /**
@@ -181,6 +201,33 @@ public class AccountController {
         return accountService.updateHolding(id, userContext.currentMemberId(), ticker, req.quantity(), req.averageBuyIn());
     }
 
+    /**
+     * The member's own verdict on what a holding is — its pyramid tier, its sector, its country.
+     *
+     * <p>Needed because a wrapper does not determine the asset (a gold ETC and a bitcoin ETP both
+     * live in an ordinary brokerage account) and because no provider knows every security. Each
+     * field overrides independently; sending all three as null clears the override entirely.
+     */
+    /** What the classification editor opens on — the override in force, and what was inferred. */
+    @GetMapping("/{id}/holdings/{ticker}/classification")
+    public HoldingClassificationView holdingClassification(
+        @PathVariable Long id,
+        @PathVariable String ticker
+    ) {
+        return holdingClassificationService.view(id, userContext.currentMemberId(), ticker);
+    }
+
+    @PutMapping("/{id}/holdings/{ticker}/classification")
+    public HoldingClassificationResponse classifyHolding(
+        @PathVariable Long id,
+        @PathVariable String ticker,
+        @Valid @RequestBody HoldingClassificationRequest req
+    ) {
+        HoldingClassification saved = holdingClassificationService.classify(
+            id, userContext.currentMemberId(), ticker, req);
+        return HoldingClassificationResponse.from(ticker, saved);
+    }
+
     @DeleteMapping("/{id}/holdings/{ticker}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteHolding(@PathVariable Long id, @PathVariable String ticker) {
@@ -193,6 +240,19 @@ public class AccountController {
         @Valid @RequestBody RealEstateMetadataRequest req
     ) {
         return accountService.updateRealEstateMetadata(id, userContext.currentMemberId(), req);
+    }
+
+    /**
+     * Saves a SCPI position. The account balance becomes withdrawal price × share count.
+     * A missing withdrawal price leaves the previous balance alone and returns
+     * {@code PRICE_INCOMPLETE} — the subscription price is never used as a substitute.
+     */
+    @PutMapping("/{id}/scpi")
+    public ScpiPositionResponse updateScpiPosition(
+        @PathVariable Long id,
+        @Valid @RequestBody ScpiPositionRequest req
+    ) {
+        return scpiPositionService.save(id, userContext.currentMemberId(), req);
     }
 
     /**
