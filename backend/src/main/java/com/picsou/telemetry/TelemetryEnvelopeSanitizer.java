@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
+import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -33,14 +35,14 @@ public final class TelemetryEnvelopeSanitizer {
     /** @return the envelope to forward, or empty when nothing survives (or the input is garbage). */
     public static Optional<byte[]> sanitize(byte[] raw, String configuredDsn, ObjectMapper mapper) {
         try {
-            int[] pos = {0};
-            Map<String, Object> header = readJson(readLine(raw, pos), mapper);
+            ByteBuffer cursor = ByteBuffer.wrap(raw);
+            Map<String, Object> header = readJson(readLine(cursor), mapper);
             if (header == null) {
                 return Optional.empty();
             }
             List<byte[]> events = new ArrayList<>();
-            while (pos[0] < raw.length && events.size() < MAX_EVENTS) {
-                byte[] itemHeaderBytes = readLine(raw, pos);
+            while (cursor.hasRemaining() && events.size() < MAX_EVENTS) {
+                byte[] itemHeaderBytes = readLine(cursor);
                 if (itemHeaderBytes.length == 0) {
                     continue; // blank separator line
                 }
@@ -49,18 +51,24 @@ public final class TelemetryEnvelopeSanitizer {
                     break;
                 }
                 byte[] payload;
-                if (itemHeader.get("length") instanceof Number n) {
-                    int len = n.intValue();
-                    if (len < 0 || pos[0] + len > raw.length) {
-                        break;
+                if (itemHeader.containsKey("length")) {
+                    if (!(itemHeader.get("length") instanceof Number n)) {
+                        return Optional.empty();
                     }
-                    payload = java.util.Arrays.copyOfRange(raw, pos[0], pos[0] + len);
-                    pos[0] += len;
-                    if (pos[0] < raw.length && raw[pos[0]] == '\n') {
-                        pos[0]++;
+                    int len = exactLength(n, cursor.remaining());
+                    if (len < 0) {
+                        return Optional.empty();
+                    }
+                    payload = new byte[len];
+                    cursor.get(payload);
+                    if (cursor.hasRemaining()) {
+                        cursor.mark();
+                        if (cursor.get() != '\n') {
+                            cursor.reset();
+                        }
                     }
                 } else {
-                    payload = readLine(raw, pos);
+                    payload = readLine(cursor);
                 }
                 if (!"event".equals(itemHeader.get("type"))) {
                     continue;
@@ -99,17 +107,25 @@ public final class TelemetryEnvelopeSanitizer {
         }
     }
 
-    private static byte[] readLine(byte[] raw, int[] pos) {
-        int start = pos[0];
-        int end = start;
-        while (end < raw.length && raw[end] != '\n') {
-            end++;
+    private static int exactLength(Number number, int remaining) {
+        try {
+            long length = new BigDecimal(number.toString()).longValueExact();
+            return length >= 0 && length <= remaining ? (int) length : -1;
+        } catch (NumberFormatException | ArithmeticException e) {
+            return -1;
         }
-        pos[0] = Math.min(end + 1, raw.length);
-        if (end == raw.length) {
-            pos[0] = raw.length;
+    }
+
+    private static byte[] readLine(ByteBuffer cursor) {
+        ByteArrayOutputStream line = new ByteArrayOutputStream();
+        while (cursor.hasRemaining()) {
+            byte value = cursor.get();
+            if (value == '\n') {
+                break;
+            }
+            line.write(value);
         }
-        return java.util.Arrays.copyOfRange(raw, start, end);
+        return line.toByteArray();
     }
 
     private static Map<String, Object> readJson(byte[] bytes, ObjectMapper mapper) {
