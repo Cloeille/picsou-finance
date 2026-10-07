@@ -28,6 +28,7 @@ class TelemetryEnvelopeSanitizerTest {
     @Test
     void rejectsFractionalAndNegativeLengths() {
         assertThat(sanitize(item("1.5", "{}"))).isEmpty();
+        assertThat(sanitize(item("2.000000000000000001", "{}"))).isEmpty();
         assertThat(sanitize(item("-1", "{}"))).isEmpty();
         assertThat(sanitize(bytes("{}\n{\"type\":\"event\",\"length\":\"1\"}\n{}"))).isEmpty();
     }

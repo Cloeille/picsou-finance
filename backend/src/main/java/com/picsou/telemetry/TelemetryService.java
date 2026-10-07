@@ -181,7 +181,7 @@ public class TelemetryService {
      */
     public boolean tunnel(byte[] envelope) {
         try {
-            if (envelope == null || envelope.length == 0 || !isEnabled()) {
+            if (!isEnabled()) {
                 return true;
             }
             Optional<TelemetryDsn> parsed = TelemetryDsn.parse(dsn);
@@ -189,14 +189,20 @@ public class TelemetryService {
                 return true;
             }
             TelemetryDsn target = parsed.get();
+            // Bind server-configured collector credentials before inspecting client data. Every
+            // forwarded request uses this builder; malformed envelopes only prevent sending.
+            HttpRequest.Builder authenticatedCollector = HttpRequest.newBuilder(target.envelopeUri())
+                .timeout(TIMEOUT)
+                .header("Content-Type", "application/x-sentry-envelope")
+                .header("X-Sentry-Auth", target.authHeader());
+            if (envelope == null || envelope.length == 0) {
+                return true;
+            }
             Optional<byte[]> body = TelemetryEnvelopeSanitizer.sanitize(envelope, target.raw(), mapper);
             if (body.isEmpty()) {
                 return true;
             }
-            HttpRequest request = HttpRequest.newBuilder(target.envelopeUri())
-                .timeout(TIMEOUT)
-                .header("Content-Type", "application/x-sentry-envelope")
-                .header("X-Sentry-Auth", target.authHeader())
+            HttpRequest request = authenticatedCollector
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body.get()))
                 .build();
             synchronized (sendLock) {

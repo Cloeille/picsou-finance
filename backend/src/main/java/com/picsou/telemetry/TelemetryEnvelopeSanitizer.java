@@ -1,6 +1,7 @@
 package com.picsou.telemetry;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -133,7 +134,8 @@ public final class TelemetryEnvelopeSanitizer {
             return null;
         }
         try {
-            return mapper.readValue(new String(bytes, StandardCharsets.UTF_8), MAP);
+            return mapper.readerFor(MAP).with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                .readValue(new String(bytes, StandardCharsets.UTF_8));
         } catch (Exception e) {
             log.error("telemetry.envelope.parse.failed type={}", e.getClass().getSimpleName());
             return null;

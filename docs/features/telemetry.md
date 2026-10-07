@@ -129,6 +129,10 @@ API, max 200 KB → `413`):
 - Forward failures are logged at `ERROR` and swallowed (`204`), so the endpoint is not an oracle.
 - Parser and SDK scrubber failures log fixed identifiers and exception types only, never raw
   parser excerpts or event contents.
+- Envelope parsing uses a bounded byte-buffer cursor. Declared lengths must be exact integers
+  within the remaining bytes; fractional, overflowing or truncated lengths reject the envelope
+  without forwarding earlier events. Collector credentials are bound from server configuration
+  before any client-envelope-dependent branch.
 
 ## API
 
