@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **You can choose to send anonymous crash reports and usage counts to the Picsou developers.**
+  It is off by default and only exists when the instance sets `APP_TELEMETRY_DSN`; without it
+  nothing changes. An admin is asked once, with the exact list of what is shared and what never is,
+  and can switch it off at any time in Administration — sending stops immediately. Reports carry
+  no amounts, account names, IBANs, emails or identifiers, are scrubbed in the browser and again on
+  your server, and reach the collector through your own server so your IP address is never seen.
+  See `docs/features/telemetry.md`.
+  Error messages are discarded rather than regex-scrubbed. The browser SDK closes on logout,
+  and the server tunnel forwards asynchronously with bounded concurrency and per-user limits.
+
 - **An MCP client can refresh every existing connector and read whether one needs a new login.**
   `trigger_full_sync` runs the same per-member sync as the 08:00 job and returns one line per
   source, so a failed bank or a broker that needs reauthentication is named instead of hidden

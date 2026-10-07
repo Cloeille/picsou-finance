@@ -41,6 +41,9 @@ services:
       # internally via application.yml.
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       TR_AUTH_URL: http://tr-auth:8001
+      # Opt-in anonymous telemetry: empty DSN = feature fully inactive (docs/features/telemetry.md)
+      APP_TELEMETRY_DSN: ${APP_TELEMETRY_DSN:-}
+      APP_TELEMETRY_ENVIRONMENT: ${APP_TELEMETRY_ENVIRONMENT:-production}
       REVOLUT_AUTH_URL: http://revolut-auth:8002
       BOURSO_AUTH_URL: http://bourso-auth:8001
       BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001

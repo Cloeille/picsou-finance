@@ -186,6 +186,16 @@
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
 
+        <!-- Opt-in anonymous telemetry (GlitchTip / Sentry protocol). The plain SDK on purpose, NOT
+             sentry-spring-boot-starter: no autoconfiguration, no request/user/PII capture. It is
+             only initialised in-process when the instance admin consents and a DSN is configured.
+             See docs/features/telemetry.md -->
+        <dependency>
+            <groupId>io.sentry</groupId>
+            <artifactId>sentry</artifactId>
+            <version>8.59.0</version>
+        </dependency>
+
         <!-- Apache POI - Excel file parsing -->
         <dependency>
             <groupId>org.apache.poi</groupId>

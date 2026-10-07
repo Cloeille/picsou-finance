@@ -229,7 +229,9 @@ The wizard itself works identically — only the secrets-generation step differs
 The wizard makes zero outbound requests on first load:
 
 - Homemade Apple is bundled under `frontend/public/fonts/` — no Google Fonts CDN hit.
-- No analytics, no telemetry, no Sentry-style error reporter.
+- No analytics, no telemetry, no Sentry-style error reporter. Opt-in telemetry
+  ([telemetry.md](./telemetry.md)) is never active before an admin consents, and the
+  wizard runs before any admin exists.
 - The only outbound call is the user-initiated "Test connection" for Enable Banking,
   which goes to EB's official API.
 

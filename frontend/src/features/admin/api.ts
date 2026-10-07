@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { AiCallLogPage } from '@/types/api'
+import type { AiCallLogPage, TelemetrySettings } from '@/types/api'
 
 export interface AdminSecuritySettings {
   allowedOrigins: string[]
@@ -50,6 +50,7 @@ export interface AdminSettings {
   enableBanking: AdminEnableBankingSettings
   integrations: Record<string, boolean>
   ai: AdminAiSettings
+  telemetry: TelemetrySettings
 }
 
 export const adminApi = {
@@ -80,6 +81,9 @@ export const adminApi = {
 
   updateAi: (body: AdminAiRequest) =>
     api.put<void>('/admin/settings/ai', body).then(r => r.data),
+
+  updateTelemetry: (enabled: boolean) =>
+    api.put<void>('/admin/settings/telemetry', { enabled }).then(r => r.data),
 
   testAi: (body: AdminAiRequest) =>
     api.post<AiTestResult>('/admin/settings/ai/test', body).then(r => r.data),

@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { captureException } from '@/lib/telemetry'
 import picsouLogo from '@/assets/horizontal-white-picsou.svg'
 
 interface Props {
@@ -43,6 +44,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('ErrorBoundary caught:', error, errorInfo)
+    // No-op unless the instance opted in; the scrubber strips the message before it leaves.
+    captureException(error)
   }
 
   render() {

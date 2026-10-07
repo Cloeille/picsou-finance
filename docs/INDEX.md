@@ -144,6 +144,7 @@
 | 2FA (TOTP) and Remember Me | 2026-06-01 | [mfa-and-remember-me.md](./features/mfa-and-remember-me.md) |
 | Login timing equalization (username-enumeration defense, GHSA-ww5m-pxgq-8qq6) | 2026-06-27 | [login-timing-attack.md](./features/login-timing-attack.md) |
 | GDPR data export (JSON + CSV) | 2026-04-26 | [data-export.md](./features/data-export.md) |
+| Opt-in anonymous telemetry & privacy (GlitchTip) | 2026-10-05 | [telemetry.md](./features/telemetry.md) |
 | Account spreadsheet export (xlsx) | 2026-08-18 | [account-xlsx-export.md](./features/account-xlsx-export.md) |
 | Revolut pockets (reconstruction from PSD2 internal-transfer rows) (removed, 2026-07-14) | 2026-06-28 | [revolut-pockets.md](./features/revolut-pockets.md) |
 | Revolut sidecar (assisted-enrolment login connector) | 2026-07-08 | [revolut-sidecar.md](./features/revolut-sidecar.md) |

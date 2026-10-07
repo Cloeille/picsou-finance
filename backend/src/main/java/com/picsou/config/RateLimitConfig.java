@@ -66,6 +66,12 @@ public class RateLimitConfig {
         return boundedBucketStore();
     }
 
+    /** Per-authenticated-principal browser telemetry tunnel limiter. */
+    @Bean("telemetryBuckets")
+    public Map<String, Bucket> telemetryBuckets() {
+        return boundedBucketStore();
+    }
+
     /**
      * Per-IP TR auth rate limiter: 3 attempts per 10 minutes.
      * Strict because each attempt sends an SMS.
@@ -304,6 +310,15 @@ public class RateLimitConfig {
             .addLimit(Bandwidth.builder()
                 .capacity(5)
                 .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createTelemetryBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(30)
+                .refillIntervally(30, Duration.ofMinutes(1))
                 .build())
             .build();
     }
