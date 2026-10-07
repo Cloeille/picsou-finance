@@ -10,6 +10,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 DOCKER_WORKFLOW = ROOT / ".github/workflows/docker.yml"
 CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
+ROOT_COMPOSE = ROOT / "docker-compose.yml"
+DOCKER_COMPOSE = ROOT / "docker/docker-compose.yml"
 
 
 def _load(path):
@@ -22,6 +24,26 @@ def _run_commands(job):
 
 
 class SidecarWorkflowInventoryTest(unittest.TestCase):
+    def test_ci_pins_the_workflow_yaml_dependency(self):
+        workflow = _load(CI_WORKFLOW)
+        commands = _run_commands(workflow["jobs"]["workflow-inventory"])
+
+        self.assertIn("python -m pip install PyYAML==6.0.3", commands)
+
+    def test_root_backend_configures_the_degiro_sidecar_url(self):
+        compose = _load(ROOT_COMPOSE)
+
+        self.assertEqual(
+            compose["services"]["backend"]["environment"]["DEGIRO_AUTH_URL"],
+            "http://degiro-auth:8001",
+        )
+
+    def test_amex_sidecar_uses_an_init_process_in_both_compose_files(self):
+        for path in (ROOT_COMPOSE, DOCKER_COMPOSE):
+            with self.subTest(compose_file=path.relative_to(ROOT)):
+                compose = _load(path)
+                self.assertIs(compose["services"]["amex-auth"]["init"], True)
+
     def test_every_service_dockerfile_is_in_the_publish_matrix_exactly_once(self):
         workflow = _load(DOCKER_WORKFLOW)
         matrix = workflow["jobs"]["build"]["strategy"]["matrix"]["include"]

@@ -89,8 +89,11 @@ Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy) share one secret.
 Generate it with `openssl rand -base64 32`. Both Compose files forward it
 explicitly to the app and to every sidecar service they define, and refuse to
 start when it is missing or empty. The root `docker-compose.yml` defines all
-ten sidecars, as does `docker/docker-compose.yml`. The
-entrypoint does not generate it: the sidecars run in separate containers and
+ten sidecars, as does `docker/docker-compose.yml`. Both explicitly set
+`DEGIRO_AUTH_URL` on the backend rather than relying on its application default.
+Both AMEX service definitions use `init: true` so an init process reaps orphaned
+browser children during repeated logins. The entrypoint does not generate the
+shared secret: the sidecars run in separate containers and
 cannot read the app's `/data/.secrets/` volume.
 
 - The backend sends it as `X-Picsou-Sidecar-Key` on every sidecar call, through
