@@ -555,6 +555,40 @@ class AccountsWorkbookServiceTest {
         assertThat(rowIndexOf(sheet, "Loan account")).isEqualTo(-1);
     }
 
+    // ─── SimpleFIN ───────────────────────────────────────────────────────────
+
+    /**
+     * The sheet is built from {@link AccountResponse} through the member-scoped
+     * {@code AccountService}; the SimpleFIN access URL lives in {@code simplefin_connection},
+     * which this service neither reads nor can reach. The provider label is the only trace.
+     */
+    @Test
+    void simplefinAccount_exportsItsProviderLabel_butNeverTheStoredAccessUrl() throws IOException {
+        stubAccount(new AccountResponse(1L, "Chase \u2014 Checking", AccountType.CHECKING, "SimpleFIN", "USD",
+            new BigDecimal("10.00"), new BigDecimal("9.20"), null,
+            Instant.parse("2026-08-18T06:00:00Z"), false, "#0d9488", null, null, null,
+            Instant.parse("2026-01-01T00:00:00Z"), null, null, null, null, null, false, null, true, null));
+
+        Workbook wb = export(List.of(1L));
+
+        StringBuilder every = new StringBuilder();
+        for (Sheet sheet : wb) {
+            for (Row row : sheet) {
+                for (Cell cell : row) {
+                    if (cell.getCellType() == CellType.STRING) every.append(cell.getStringCellValue()).append('\n');
+                }
+            }
+        }
+        assertThat(every.toString()).contains("SimpleFIN")
+            .doesNotContainIgnoringCase("simplefin.org")
+            .doesNotContainIgnoringCase("access_url")
+            .doesNotContain("@");
+        assertThat(java.util.Arrays.stream(AccountsWorkbookService.class.getDeclaredFields())
+            .<Class<?>>map(f -> f.getType()).toList())
+            .doesNotContain(com.picsou.repository.SimplefinConnectionRepository.class,
+                com.picsou.model.SimplefinConnection.class);
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private Workbook export(List<Long> ids) throws IOException {
