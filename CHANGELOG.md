@@ -123,6 +123,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only what is still owed on the statement plus the purchases made since. A refund or an
   overpayment larger than the statement now shows as a credit on the card.
 
+- **Dashboard "Sync all" stays in place, including remembered Revolut sessions.** Revolut
+  discovery is auto-confirmed with remembered credentials preserved and deleted accounts
+  excluded. A discovery that completes or fails before the start response arrives no longer
+  leaves the row spinning forever; errors refresh session status and reauthentication routing.
+  Navigating away from the dashboard before discovery finishes still drops client-side confirm
+  ([#207](https://github.com/Cloeille/picsou-finance/issues/207)).
+
 - **MCP sync no longer hides an expired browser session or loses the status report after a database error.**
   BoursoBank, Bourse Direct, Amundi and Fortuneo distinguish an inactive session requiring a new login
   from another recorded failure and from no connection. Exceptions retain server-side diagnostics

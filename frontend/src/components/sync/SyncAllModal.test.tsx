@@ -73,6 +73,10 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null } })
       case '/accounts':
         return Promise.resolve({ data: accountsFixture })
+      case '/revolut/status':
+        return Promise.resolve({ data: revolutStatus })
+      case '/revolut/sync/progress':
+        return Promise.resolve({ data: revolutProgress })
       default:
         return Promise.reject(new Error(`Unexpected GET ${url}`))
     }
@@ -82,6 +86,23 @@ function mockStatusEndpoints() {
 /** Overridden per test to drive the session-provider rows. */
 let amundiStatus: Record<string, unknown>
 let accountsFixture: unknown[]
+let revolutStatus: Record<string, unknown>
+let revolutProgress: Record<string, unknown>
+
+const REVOLUT_NOT_REMEMBERED = { connected: false, remembered: false, lastSyncedAt: null }
+const REVOLUT_REMEMBERED = { connected: false, remembered: true, lastSyncedAt: '2026-08-10T08:00:00Z' }
+const REVOLUT_RUNNING = {
+  running: true, phase: 'LOGIN', elapsedSeconds: 1, remainingSeconds: null,
+  accountsFound: null, done: false, error: null, discovered: [],
+}
+const discoveredAccount = (externalId: string) => ({
+  externalId, name: externalId, type: 'CHECKING', currency: 'EUR', balance: 10,
+  parentExternalId: null, alreadyImported: false, transactionCount: 0,
+})
+const REVOLUT_DONE = {
+  ...REVOLUT_RUNNING, running: false, phase: 'DONE', done: true, accountsFound: 2,
+  discovered: [discoveredAccount('acc-1'), discoveredAccount('acc-2')],
+}
 
 const AMUNDI_INACTIVE = {
   isActive: false, syncStatus: 'IDLE', lastSyncError: null,
@@ -100,6 +121,8 @@ const AMUNDI_ACCOUNT = {
 function resetFixtures() {
   amundiStatus = AMUNDI_INACTIVE
   accountsFixture = [TR_ACCOUNT]
+  revolutStatus = REVOLUT_NOT_REMEMBERED
+  revolutProgress = REVOLUT_DONE
 }
 
 function makeClient() {
@@ -111,7 +134,9 @@ function makeClient() {
   })
 }
 
-function renderModal() {
+const REVOLUT_ACCOUNT = { ...TR_ACCOUNT, id: 3, name: 'Revolut Main', type: 'CHECKING', provider: 'Revolut' }
+
+function renderModal(onOpenChange: (open: boolean) => void = () => {}) {
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={makeClient()}>
@@ -120,7 +145,7 @@ function renderModal() {
     )
   }
 
-  render(<SyncAllModal open onOpenChange={() => {}} />, { wrapper: Wrapper })
+  render(<SyncAllModal open onOpenChange={onOpenChange} />, { wrapper: Wrapper })
 }
 
 /** Opens the TR inline auth form and fills phone + PIN. */
@@ -327,6 +352,184 @@ describe('SyncAllModal session providers', () => {
     fireEvent.click(within(row).getByRole('button'))
 
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amundi/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * #207: "Sync all" used to reach Revolut's navigate('/sync?tab=revolut') for a remembered
+ * session, closing the modal mid-batch. Revolut now syncs in place; only its own row button
+ * (without remembered credentials) opens the tab.
+ */
+describe('SyncAllModal Revolut and "Sync all"', () => {
+  beforeEach(() => {
+    apiGet.mockReset()
+    apiPost.mockReset()
+    apiDelete.mockReset()
+    navigate.mockReset()
+    resetFixtures()
+    // A second batch-syncable row next to Revolut.
+    amundiStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'IDLE' }
+    accountsFixture = [TR_ACCOUNT, AMUNDI_ACCOUNT, REVOLUT_ACCOUNT]
+    mockStatusEndpoints()
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/revolut/sync') return Promise.resolve({ data: REVOLUT_RUNNING })
+      if (url === '/revolut/sync/confirm') return Promise.resolve({ data: undefined })
+      return Promise.resolve({ data: amundiStatus })
+    })
+  })
+
+  async function clickSyncAll(onOpenChange: (open: boolean) => void) {
+    renderModal(onOpenChange)
+    await screen.findByText('Revolut')
+    const button = screen.getByRole('button', { name: /sync\.all\.syncAll/ })
+    await waitFor(() => expect(button).toBeEnabled())
+    fireEvent.click(button)
+  }
+
+  it('never navigates nor closes the modal when Revolut has a remembered session', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    const onOpenChange = vi.fn()
+
+    await clickSyncAll(onOpenChange)
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amundi/sync'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/revolut/sync', {}))
+    expect(navigate).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+  })
+
+  it('never navigates nor closes the modal when Revolut has no remembered session', async () => {
+    revolutStatus = REVOLUT_NOT_REMEMBERED
+    const onOpenChange = vi.fn()
+
+    await clickSyncAll(onOpenChange)
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amundi/sync'))
+    expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync', expect.anything())
+    expect(navigate).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+  })
+
+  it('still opens the Revolut tab from the row button when there is no remembered session', async () => {
+    revolutStatus = REVOLUT_NOT_REMEMBERED
+    const onOpenChange = vi.fn()
+    renderModal(onOpenChange)
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=revolut'))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync', expect.anything())
+  })
+
+  it('syncs a remembered Revolut session in place: discover then auto-confirm everything', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    const onOpenChange = vi.fn()
+    renderModal(onOpenChange)
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/revolut/sync', {}))
+    // The poll reports the finished job; remember=true so the stored credentials survive the
+    // confirm, voluntary=false so accounts the user deleted stay deleted.
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/revolut/sync/confirm', {
+      selectedExternalIds: ['acc-1', 'acc-2'],
+      remember: true,
+      voluntary: false,
+    }))
+    expect(navigate).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it('confirms accounts when discovery finishes before the start request returns', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    const immediateSuccess = { ...REVOLUT_DONE }
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/revolut/sync') return Promise.resolve({ data: immediateSuccess })
+      if (url === '/revolut/sync/confirm') return Promise.resolve({ data: undefined })
+      return Promise.resolve({ data: amundiStatus })
+    })
+    renderModal()
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/revolut/sync/confirm', {
+      selectedExternalIds: ['acc-1', 'acc-2'],
+      remember: true,
+      voluntary: false,
+    }))
+  })
+
+  it('shows an immediate discovery error without confirming accounts', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/revolut/sync') {
+        return Promise.resolve({ data: { ...REVOLUT_DONE, error: 'REVOLUT_LOGIN_FAILED', discovered: [] } })
+      }
+      if (url === '/revolut/sync/confirm') return Promise.resolve({ data: undefined })
+      return Promise.resolve({ data: amundiStatus })
+    })
+    renderModal()
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    expect(await within(row).findByText('REVOLUT_LOGIN_FAILED')).toBeInTheDocument()
+    expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync/confirm', expect.anything())
+    await waitFor(() =>
+      expect(apiGet.mock.calls.filter(([url]) => url === '/revolut/status')).toHaveLength(2))
+  })
+
+  it('clears the spinner and refreshes Revolut status when starting discovery fails', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/revolut/sync') return Promise.reject(new Error('offline'))
+      return Promise.resolve({ data: amundiStatus })
+    })
+    renderModal()
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    const button = within(row).getByRole('button')
+    fireEvent.click(button)
+
+    await waitFor(() => expect(button).toBeEnabled())
+    await waitFor(() =>
+      expect(apiGet.mock.calls.filter(([url]) => url === '/revolut/status')).toHaveLength(2))
+  })
+
+  it('finishes an immediate discovery with no accounts without confirming', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/revolut/sync') {
+        return Promise.resolve({ data: { ...REVOLUT_DONE, discovered: [] } })
+      }
+      if (url === '/revolut/sync/confirm') return Promise.resolve({ data: undefined })
+      return Promise.resolve({ data: amundiStatus })
+    })
+    renderModal()
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    const button = within(row).getByRole('button')
+    fireEvent.click(button)
+
+    await waitFor(() => expect(button).toBeEnabled())
+    expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync/confirm', expect.anything())
+  })
+
+  it('shows the discovery error on the Revolut row and skips the confirm', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    revolutProgress = { ...REVOLUT_DONE, error: 'REVOLUT_LOGIN_FAILED', discovered: [] }
+    renderModal()
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    expect(await within(row).findByText('REVOLUT_LOGIN_FAILED')).toBeInTheDocument()
+    expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync/confirm', expect.anything())
     expect(navigate).not.toHaveBeenCalled()
   })
 })
