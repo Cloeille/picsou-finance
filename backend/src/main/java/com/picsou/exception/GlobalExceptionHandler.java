@@ -3,6 +3,7 @@ package com.picsou.exception;
 import com.picsou.telemetry.TelemetryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.security.access.AccessDeniedException;
@@ -21,10 +22,20 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    // Optional, and field-injected so `new GlobalExceptionHandler()` (standalone MockMvc tests)
-    // keeps working. Capture is a no-op unless the admin opted in to telemetry.
-    @Autowired(required = false)
-    private TelemetryService telemetry;
+    private final TelemetryService telemetry;
+
+    public GlobalExceptionHandler() {
+        this.telemetry = null;
+    }
+
+    @Autowired
+    public GlobalExceptionHandler(ObjectProvider<TelemetryService> telemetryProvider) {
+        this(telemetryProvider.getIfAvailable());
+    }
+
+    GlobalExceptionHandler(TelemetryService telemetry) {
+        this.telemetry = telemetry;
+    }
 
     @ExceptionHandler(ResourceNotFoundException.class)
     ProblemDetail handleNotFound(ResourceNotFoundException ex) {

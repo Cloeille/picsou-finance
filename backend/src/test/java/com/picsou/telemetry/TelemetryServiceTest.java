@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -228,6 +229,8 @@ class TelemetryServiceTest {
         var config = service(DSN).config();
 
         assertThat(config.enabled()).isFalse();
+        assertThat(config.available()).isTrue();
+        assertThat(config.consent()).isEqualTo("UNSET");
         assertThat(config.dsn()).isNull();
         assertThat(config.environment()).isEqualTo("production");
         assertThat(config.release()).isEqualTo("1.2.3");
@@ -240,7 +243,21 @@ class TelemetryServiceTest {
         var config = service(DSN).config();
 
         assertThat(config.enabled()).isTrue();
+        assertThat(config.available()).isTrue();
+        assertThat(config.consent()).isEqualTo("ENABLED");
         assertThat(config.dsn()).isEqualTo(DSN);
+    }
+
+    @Test
+    void config_reportsExplicitDisabledConsent() {
+        consent("DISABLED");
+
+        var config = service(DSN).config();
+
+        assertThat(config.available()).isTrue();
+        assertThat(config.enabled()).isFalse();
+        assertThat(config.consent()).isEqualTo("DISABLED");
+        assertThat(config.dsn()).isNull();
     }
 
     @Test
@@ -250,6 +267,8 @@ class TelemetryServiceTest {
         var config = service("").config();
 
         assertThat(config.enabled()).isFalse();
+        assertThat(config.available()).isFalse();
+        assertThat(config.consent()).isEqualTo("ENABLED");
         assertThat(config.dsn()).isNull();
     }
 
@@ -259,13 +278,14 @@ class TelemetryServiceTest {
     @SuppressWarnings("unchecked")
     void tunnel_forwardsOnlyScrubbedEvents_toTheConfiguredHost() throws Exception {
         consent("ENABLED");
-        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn((HttpResponse) response);
+        when(httpClient.sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+            .thenReturn(CompletableFuture.completedFuture(response));
         when(response.statusCode()).thenReturn(200);
 
         service(DSN).tunnel(envelope().getBytes(StandardCharsets.UTF_8));
 
         ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
-        verify(httpClient).send(captor.capture(), any(HttpResponse.BodyHandler.class));
+        verify(httpClient).sendAsync(captor.capture(), any(HttpResponse.BodyHandler.class));
         HttpRequest sent = captor.getValue();
         assertThat(sent.uri().toString()).isEqualTo("https://glitch.example.org/api/42/envelope/");
         assertThat(sent.method()).isEqualTo("POST");
@@ -283,6 +303,21 @@ class TelemetryServiceTest {
         assertThat(lines[1]).contains("\"type\":\"event\"");
         assertThat(lines[2]).contains("[iban]").contains("\"level\":\"error\"");
         assertThat(lines[1]).contains("\"length\":" + lines[2].getBytes(StandardCharsets.UTF_8).length);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void tunnel_usesAsyncSend_andReturnsWhileCollectorFutureIsIncomplete() throws Exception {
+        consent("ENABLED");
+        CompletableFuture<HttpResponse<Void>> pending = new CompletableFuture<>();
+        when(httpClient.sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(pending);
+        TelemetryService telemetry = service(DSN);
+
+        telemetry.tunnel(envelope().getBytes(StandardCharsets.UTF_8));
+
+        assertThat(pending).isNotCompleted();
+        verify(httpClient).sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        verify(httpClient, never()).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
     }
 
     @Test
@@ -311,11 +346,61 @@ class TelemetryServiceTest {
     @SuppressWarnings("unchecked")
     void tunnel_forwardFailure_isSwallowed() throws Exception {
         consent("ENABLED");
-        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
-            .thenThrow(new java.io.IOException("connection refused"));
+        when(httpClient.sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+            .thenReturn(CompletableFuture.<HttpResponse<Void>>failedFuture(
+                new java.io.IOException("connection refused")));
 
         service(DSN).tunnel(envelope().getBytes(StandardCharsets.UTF_8));
 
-        verify(httpClient).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        verify(httpClient).sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void tunnel_rejectsWhenInFlightLimitIsReached() {
+        consent("ENABLED");
+        when(httpClient.sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+            .thenAnswer(ignored -> new CompletableFuture<>());
+        TelemetryService telemetry = service(DSN);
+        byte[] envelope = envelope().getBytes(StandardCharsets.UTF_8);
+
+        for (int i = 0; i < TelemetryService.MAX_IN_FLIGHT_SENDS; i++) {
+            assertThat(telemetry.tunnel(envelope)).isTrue();
+        }
+
+        assertThat(telemetry.tunnel(envelope)).isFalse();
+        verify(httpClient, org.mockito.Mockito.times(TelemetryService.MAX_IN_FLIGHT_SENDS))
+            .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void disablingTelemetry_cancelsPendingTunnelSends() {
+        consent("ENABLED");
+        CompletableFuture<HttpResponse<Void>> pending = new CompletableFuture<>();
+        when(httpClient.sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(pending);
+        TelemetryService telemetry = service(DSN);
+        telemetry.tunnel(envelope().getBytes(StandardCharsets.UTF_8));
+
+        AppSetting existing = AppSetting.builder().key(TelemetryService.KEY_CONSENT).value("ENABLED").build();
+        when(settings.findByKey(TelemetryService.KEY_CONSENT)).thenReturn(Optional.of(existing));
+        telemetry.setEnabled(false);
+
+        assertThat(pending).isCancelled();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shutdown_cancelsPendingTunnelSends() {
+        consent("ENABLED");
+        CompletableFuture<HttpResponse<Void>> pending = new CompletableFuture<>();
+        when(httpClient.sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(pending);
+        TelemetryService telemetry = service(DSN);
+        telemetry.tunnel(envelope().getBytes(StandardCharsets.UTF_8));
+
+        telemetry.shutdown();
+
+        assertThat(pending).isCancelled();
+        verify(sdk).close();
     }
 }

@@ -19,6 +19,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 
 /**
  * Opt-in anonymous telemetry. Effective state = a DSN is configured AND the instance admin
@@ -34,6 +38,7 @@ public class TelemetryService {
 
     public static final String KEY_CONSENT = "telemetry.consent";
     public static final int MAX_ENVELOPE_BYTES = 200 * 1024;
+    public static final int MAX_IN_FLIGHT_SENDS = 16;
 
     private static final Logger log = LoggerFactory.getLogger(TelemetryService.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
@@ -47,6 +52,9 @@ public class TelemetryService {
     private final String dsn;
     private final String environment;
     private final String release;
+    private final Semaphore sendPermits = new Semaphore(MAX_IN_FLIGHT_SENDS);
+    private final Set<CompletableFuture<?>> pendingSends = ConcurrentHashMap.newKeySet();
+    private final Object sendLock = new Object();
 
     @Autowired
     public TelemetryService(AppSettingRepository settings,
@@ -114,12 +122,18 @@ public class TelemetryService {
         setting.setValue(enabled ? Consent.ENABLED.name() : Consent.DISABLED.name());
         settings.save(setting);
         applySdkState(enabled && isAvailable());
+        if (!enabled) {
+            cancelPendingSends();
+        }
         log.info("telemetry.consent.changed enabled={}", enabled);
     }
 
     public TelemetryConfigResponse config() {
-        boolean enabled = isEnabled();
-        return new TelemetryConfigResponse(enabled, enabled ? dsn : null, environment, release);
+        boolean available = isAvailable();
+        Consent consent = consent();
+        boolean enabled = available && consent == Consent.ENABLED;
+        return new TelemetryConfigResponse(enabled, enabled ? dsn : null, environment, release,
+            available, consent.name());
     }
 
     // ---- SDK lifecycle -----------------------------------------------------------------------
@@ -130,12 +144,13 @@ public class TelemetryService {
             applySdkState(isEnabled());
         } catch (RuntimeException e) {
             // Telemetry must never prevent the application from starting.
-            log.debug("telemetry.startup.failed", e);
+            log.error("telemetry.startup.failed", e);
         }
     }
 
     @PreDestroy
     void shutdown() {
+        cancelPendingSends();
         sdk.close();
     }
 
@@ -154,29 +169,29 @@ public class TelemetryService {
                 sdk.capture(throwable);
             }
         } catch (RuntimeException e) {
-            log.debug("telemetry.capture.failed", e);
+            log.error("telemetry.capture.failed", e);
         }
     }
 
     // ---- tunnel ------------------------------------------------------------------------------
 
     /**
-     * Sanitises a browser envelope and forwards it to the configured collector. Silent in every
-     * failure mode: the caller answers 204 regardless, so the tunnel can't be used as an oracle.
+     * Sanitises a browser envelope and queues a bounded asynchronous send to the configured
+     * collector. Returns false only when the in-flight send limit is full.
      */
-    public void tunnel(byte[] envelope) {
+    public boolean tunnel(byte[] envelope) {
         try {
             if (envelope == null || envelope.length == 0 || !isEnabled()) {
-                return;
+                return true;
             }
             Optional<TelemetryDsn> parsed = TelemetryDsn.parse(dsn);
             if (parsed.isEmpty()) {
-                return;
+                return true;
             }
             TelemetryDsn target = parsed.get();
             Optional<byte[]> body = TelemetryEnvelopeSanitizer.sanitize(envelope, target.raw(), mapper);
             if (body.isEmpty()) {
-                return;
+                return true;
             }
             HttpRequest request = HttpRequest.newBuilder(target.envelopeUri())
                 .timeout(TIMEOUT)
@@ -184,12 +199,44 @@ public class TelemetryService {
                 .header("X-Sentry-Auth", target.authHeader())
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body.get()))
                 .build();
-            HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-            log.debug("telemetry.tunnel.forwarded status={}", response.statusCode());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            synchronized (sendLock) {
+                if (!isEnabled()) {
+                    return true;
+                }
+                if (!sendPermits.tryAcquire()) {
+                    return false;
+                }
+                CompletableFuture<HttpResponse<Void>> future;
+                try {
+                    future = httpClient.sendAsync(request, HttpResponse.BodyHandlers.discarding());
+                } catch (RuntimeException e) {
+                    sendPermits.release();
+                    log.error("telemetry.tunnel.failed", e);
+                    return true;
+                }
+                pendingSends.add(future);
+                future.whenComplete((response, failure) -> {
+                    pendingSends.remove(future);
+                    sendPermits.release();
+                    if (failure != null && !(failure instanceof java.util.concurrent.CancellationException)) {
+                        log.error("telemetry.tunnel.failed", failure);
+                    } else if (response != null) {
+                        log.debug("telemetry.tunnel.forwarded status={}", response.statusCode());
+                    }
+                });
+            }
         } catch (Exception e) {
-            log.debug("telemetry.tunnel.failed {}", e.getClass().getSimpleName());
+            log.error("telemetry.tunnel.failed", e);
+        }
+        return true;
+    }
+
+    private void cancelPendingSends() {
+        synchronized (sendLock) {
+            for (CompletableFuture<?> pending : pendingSends) {
+                pending.cancel(true);
+            }
+            pendingSends.clear();
         }
     }
 }

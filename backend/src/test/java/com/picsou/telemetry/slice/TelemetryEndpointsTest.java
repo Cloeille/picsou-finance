@@ -5,6 +5,7 @@ import com.picsou.config.AuthCookieWriter;
 import com.picsou.config.EnableBankingConfigProvider;
 import com.picsou.config.JwtTokenAuthenticator;
 import com.picsou.config.JwtUtil;
+import com.picsou.config.RateLimitConfig;
 import com.picsou.config.SecurityConfig;
 import com.picsou.config.SetupFilter;
 import com.picsou.controller.AdminController;
@@ -40,6 +41,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -79,6 +81,7 @@ class TelemetryEndpointsTest {
     @MockitoBean AccessKeyService accessKeyService;
     @MockitoBean AppSettingRepository appSettingRepository;
     @MockitoBean @Qualifier("mcpKeyBuckets") Map<Long, Bucket> mcpKeyBuckets;
+    @MockitoBean @Qualifier("telemetryBuckets") Map<String, Bucket> telemetryBuckets;
 
     @Autowired MockMvc mvc;
 
@@ -91,6 +94,9 @@ class TelemetryEndpointsTest {
             chain.doFilter(req, res);
             return null;
         }).when(setupFilter).doFilter(any(), any(), any());
+        when(telemetryBuckets.computeIfAbsent(eq("member"), any()))
+            .thenReturn(RateLimitConfig.createTelemetryBucket());
+        when(telemetry.tunnel(any())).thenReturn(true);
     }
 
     private static MockHttpServletRequestBuilder asMember(MockHttpServletRequestBuilder b) {
@@ -110,24 +116,28 @@ class TelemetryEndpointsTest {
 
     @Test
     void config_disabled_returnsNullDsn() throws Exception {
-        when(telemetry.config()).thenReturn(new TelemetryConfigResponse(false, null, "production", "1.2.3"));
+        when(telemetry.config()).thenReturn(new TelemetryConfigResponse(false, null, "production", "1.2.3", true, "UNSET"));
 
         mvc.perform(asMember(get("/api/telemetry/config")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.enabled").value(false))
             .andExpect(jsonPath("$.dsn").value((Object) null))
             .andExpect(jsonPath("$.environment").value("production"))
-            .andExpect(jsonPath("$.release").value("1.2.3"));
+            .andExpect(jsonPath("$.release").value("1.2.3"))
+            .andExpect(jsonPath("$.available").value(true))
+            .andExpect(jsonPath("$.consent").value("UNSET"));
     }
 
     @Test
     void config_enabled_returnsDsn() throws Exception {
         when(telemetry.config()).thenReturn(
-            new TelemetryConfigResponse(true, "https://k@glitch.example.org/1", "production", "1.2.3"));
+            new TelemetryConfigResponse(true, "https://k@glitch.example.org/1", "production", "1.2.3", true, "ENABLED"));
 
         mvc.perform(asMember(get("/api/telemetry/config")))
             .andExpect(jsonPath("$.enabled").value(true))
-            .andExpect(jsonPath("$.dsn").value("https://k@glitch.example.org/1"));
+            .andExpect(jsonPath("$.dsn").value("https://k@glitch.example.org/1"))
+            .andExpect(jsonPath("$.available").value(true))
+            .andExpect(jsonPath("$.consent").value("ENABLED"));
     }
 
     // ---- POST /api/telemetry/tunnel ----------------------------------------------------------
@@ -188,6 +198,23 @@ class TelemetryEndpointsTest {
         mvc.perform(asMember(post("/api/telemetry/tunnel")
                 .contentType(MediaType.TEXT_PLAIN).content("x".repeat(200 * 1024 + 1))))
             .andExpect(status().isPayloadTooLarge());
+
+        verify(telemetry, never()).tunnel(any());
+    }
+
+    @Test
+    void tunnel_rateLimited_returns429AndRetryAfter_beforeForwarding() throws Exception {
+        when(telemetry.isEnabled()).thenReturn(true);
+        Bucket exhausted = RateLimitConfig.createTelemetryBucket();
+        exhausted.tryConsume(30);
+        when(telemetryBuckets.computeIfAbsent(eq("member"), any())).thenReturn(exhausted);
+
+        mvc.perform(asMember(post("/api/telemetry/tunnel")
+                .contentType(MediaType.TEXT_PLAIN).content("envelope")))
+            .andExpect(status().isTooManyRequests())
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                .string("Retry-After", "60"))
+            .andExpect(jsonPath("$.status").value(429));
 
         verify(telemetry, never()).tunnel(any());
     }

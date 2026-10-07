@@ -11,5 +11,7 @@ public record TelemetryConfigResponse(
     boolean enabled,
     @JsonInclude(JsonInclude.Include.ALWAYS) String dsn,
     String environment,
-    String release
+    String release,
+    boolean available,
+    String consent
 ) {}
