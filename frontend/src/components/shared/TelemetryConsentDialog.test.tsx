@@ -23,8 +23,9 @@ vi.mock('react-i18next', () => ({
 }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
-const api = vi.hoisted(() => ({ getSettings: vi.fn(), updateTelemetry: vi.fn() }))
-vi.mock('@/features/admin/api', () => ({ adminApi: api }))
+const api = vi.hoisted(() => ({ getConfig: vi.fn(), updateTelemetry: vi.fn() }))
+vi.mock('@/features/telemetry/api', () => ({ telemetryApi: api }))
+vi.mock('@/features/admin/api', () => ({ adminApi: { updateTelemetry: api.updateTelemetry } }))
 
 const { TelemetryConsentDialog } = await import('./TelemetryConsentDialog')
 const { useAuthStore } = await import('@/stores/auth-store')
@@ -43,7 +44,7 @@ function renderDialog() {
 }
 
 function settings(available: boolean, consent: 'ENABLED' | 'DISABLED' | 'UNSET') {
-  api.getSettings.mockResolvedValue({ telemetry: { available, consent } })
+  api.getConfig.mockResolvedValue({ available, consent, enabled: consent === 'ENABLED', dsn: null, environment: 'test', release: 'test' })
 }
 
 describe('TelemetryConsentDialog', () => {
@@ -68,7 +69,7 @@ describe('TelemetryConsentDialog', () => {
   ] as const)('stays hidden: %s', async (_name, _admin, _role, available, consent) => {
     settings(available, consent)
     renderDialog()
-    await waitFor(() => expect(api.getSettings).toHaveBeenCalled())
+    await waitFor(() => expect(api.getConfig).toHaveBeenCalled())
     await new Promise((r) => setTimeout(r, 20))
     expect(screen.queryByText('telemetry.consent.title')).not.toBeInTheDocument()
   })
@@ -78,7 +79,7 @@ describe('TelemetryConsentDialog', () => {
     settings(true, 'UNSET')
     renderDialog()
     await new Promise((r) => setTimeout(r, 20))
-    expect(api.getSettings).not.toHaveBeenCalled()
+    expect(api.getConfig).not.toHaveBeenCalled()
     expect(screen.queryByText('telemetry.consent.title')).not.toBeInTheDocument()
   })
 
@@ -95,7 +96,7 @@ describe('TelemetryConsentDialog', () => {
     settings(true, 'UNSET')
     renderDialog()
     await new Promise((r) => setTimeout(r, 20))
-    expect(api.getSettings).not.toHaveBeenCalled()
+    expect(api.getConfig).not.toHaveBeenCalled()
     expect(screen.queryByText('telemetry.consent.title')).not.toBeInTheDocument()
   })
 
@@ -118,7 +119,7 @@ describe('TelemetryConsentDialog', () => {
     renderDialog()
     fireEvent.click(await screen.findByText('telemetry.consent.decline'))
     settings(true, 'DISABLED')
-    await waitFor(() => expect(api.getSettings).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(api.getConfig).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(screen.queryByText('telemetry.consent.title')).not.toBeInTheDocument())
   })
 })

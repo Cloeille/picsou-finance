@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { QUERY_STALE_TIMES } from '@/lib/constants'
 import { telemetryApi } from './api'
 
 export const telemetryKeys = {
@@ -11,7 +12,7 @@ export function useTelemetryConfig(enabled = true) {
     queryKey: telemetryKeys.config(),
     queryFn: telemetryApi.getConfig,
     enabled,
-    staleTime: 5 * 60_000,
+    staleTime: QUERY_STALE_TIMES.dashboard,
     retry: false,
   })
 }

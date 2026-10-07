@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, waitFor } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TelemetryConfig } from '@/types/api'
@@ -30,9 +31,10 @@ vi.mock('@/lib/telemetry', () => tel)
 const { TelemetryRuntime } = await import('./TelemetryRuntime')
 const { useAppStore } = await import('@/stores/app-store')
 
-const ON: TelemetryConfig = { enabled: true, dsn: 'https://k@g.example/1', environment: 'production', release: '1.1.0' }
+const ON: TelemetryConfig = { available: true, consent: 'ENABLED', enabled: true, dsn: 'https://k@g.example/1', environment: 'production', release: '1.1.0' }
+const SDK_ON = { enabled: true, dsn: ON.dsn, environment: ON.environment, release: ON.release }
 
-function renderAt(path: string) {
+function renderAt(path: string, strict = false) {
   const router = createMemoryRouter(
     [
       { path: '/accounts/:id', element: <TelemetryRuntime /> },
@@ -41,23 +43,25 @@ function renderAt(path: string) {
     { initialEntries: [path] },
   )
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const app = (
     <QueryClientProvider client={qc}>
       <RouterProvider router={router} />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   )
+  return { view: render(strict ? <StrictMode>{app}</StrictMode> : app), qc }
 }
 
 describe('TelemetryRuntime', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    tel.initTelemetry.mockReset().mockResolvedValue()
     useAppStore.setState({ demoMode: false })
   })
 
   it('inits and reports the route TEMPLATE, never the real path', async () => {
     api.getConfig.mockResolvedValue(ON)
     renderAt('/accounts/123?x=1')
-    await waitFor(() => expect(tel.initTelemetry).toHaveBeenCalledWith(ON))
+    await waitFor(() => expect(tel.initTelemetry).toHaveBeenCalledWith(SDK_ON))
     await waitFor(() => expect(tel.trackPageView).toHaveBeenCalledWith('/accounts/:id'))
     expect(JSON.stringify(tel.trackPageView.mock.calls)).not.toContain('123')
   })
@@ -84,5 +88,49 @@ describe('TelemetryRuntime', () => {
     await new Promise((r) => setTimeout(r, 20))
     expect(api.getConfig).not.toHaveBeenCalled()
     expect(tel.initTelemetry).not.toHaveBeenCalled()
+  })
+
+  it('shuts down the SDK when the runtime unmounts on logout', async () => {
+    api.getConfig.mockResolvedValue(ON)
+    const { view } = renderAt('/accounts/1')
+    await waitFor(() => expect(tel.initTelemetry).toHaveBeenCalledWith(SDK_ON))
+    tel.shutdownTelemetry.mockClear()
+
+    view.unmount()
+
+    expect(tel.shutdownTelemetry).toHaveBeenCalled()
+  })
+
+  it('cancels a pending initialization when the runtime unmounts', async () => {
+    let completeInit!: () => void
+    tel.initTelemetry.mockImplementation(() => new Promise<void>((resolve) => { completeInit = resolve }))
+    api.getConfig.mockResolvedValue(ON)
+    const { view } = renderAt('/accounts/1')
+    await waitFor(() => expect(tel.initTelemetry).toHaveBeenCalledWith(SDK_ON))
+    tel.shutdownTelemetry.mockClear()
+
+    view.unmount()
+    completeInit()
+    await Promise.resolve()
+
+    expect(tel.shutdownTelemetry).toHaveBeenCalled()
+    expect(tel.trackPageView).not.toHaveBeenCalled()
+  })
+
+  it('survives StrictMode effect replay and can re-enable after consent changes', async () => {
+    api.getConfig.mockResolvedValue(ON)
+    const { view, qc } = renderAt('/accounts/1', true)
+    await waitFor(() => expect(tel.trackPageView).toHaveBeenCalledWith('/accounts/:id'))
+    const initCount = tel.initTelemetry.mock.calls.length
+    expect(initCount).toBeGreaterThanOrEqual(1)
+
+    qc.setQueryData(['telemetry', 'config'], { ...ON, enabled: false, dsn: null, consent: 'DISABLED' })
+    await waitFor(() => expect(tel.shutdownTelemetry).toHaveBeenCalled())
+    const viewCount = tel.trackPageView.mock.calls.length
+    qc.setQueryData(['telemetry', 'config'], ON)
+    await waitFor(() => expect(tel.initTelemetry.mock.calls.length).toBeGreaterThan(initCount))
+    await waitFor(() => expect(tel.trackPageView.mock.calls.length).toBeGreaterThan(viewCount))
+
+    view.unmount()
   })
 })

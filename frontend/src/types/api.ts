@@ -1919,6 +1919,8 @@ export type MemberProfileRequest = Omit<MemberProfile, 'age' | 'monthlyNetIncome
 
 /** `GET /telemetry/config`. `dsn` is null unless telemetry is effectively enabled. */
 export interface TelemetryConfig {
+  available: boolean
+  consent: TelemetryConsent
   enabled: boolean
   dsn: string | null
   environment: string

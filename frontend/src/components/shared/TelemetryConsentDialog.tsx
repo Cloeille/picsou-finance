@@ -10,7 +10,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useAdminSettings, useUpdateTelemetry } from '@/features/admin/hooks'
+import { useUpdateTelemetry } from '@/features/admin/hooks'
+import { useTelemetryConfig } from '@/features/telemetry/hooks'
 import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -27,14 +28,14 @@ export function TelemetryConsentDialog() {
   const { t } = useTranslation()
   const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
   const demoMode = useAppStore((s) => s.demoMode)
-  const { data } = useAdminSettings(isAdmin && !demoMode)
+  const { data } = useTelemetryConfig(isAdmin && !demoMode)
   const update = useUpdateTelemetry()
   // Wait for the one-time sidebar prompt so two modals never stack on first launch.
   const sidebarPromptSeen = useAppStore((s) => s.hasSeenSidebarStylePrompt)
   const [dismissed, setDismissed] = useState(false)
 
   const open =
-    isAdmin && !demoMode && sidebarPromptSeen && !dismissed && data?.telemetry.available === true && data.telemetry.consent === 'UNSET'
+    isAdmin && !demoMode && sidebarPromptSeen && !dismissed && data?.available === true && data.consent === 'UNSET'
 
   function choose(enabled: boolean) {
     update.mutate(enabled, {

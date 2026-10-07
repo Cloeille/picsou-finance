@@ -46,6 +46,7 @@ export function TelemetryRuntime() {
     })
     return () => {
       cancelled = true
+      shutdownTelemetry()
     }
   }, [enabled, dsn, environment, release])
 

@@ -19,10 +19,12 @@ export type FeatureEvent =
 
 export const TELEMETRY_TUNNEL_URL = '/api/telemetry/tunnel'
 
+type TelemetryInitConfig = Pick<TelemetryConfig, 'enabled' | 'dsn' | 'environment' | 'release'>
 type SentryModule = typeof import('@sentry/react')
 
 let sentry: SentryModule | null = null
 let initializing: Promise<void> | null = null
+let closing: Promise<void> | null = null
 // Bumped on every shutdown so an `import()` still in flight can tell it was cancelled.
 let epoch = 0
 
@@ -31,7 +33,7 @@ export function isTelemetryActive(): boolean {
 }
 
 /** Starts the SDK when (and only when) telemetry is enabled with a DSN. Never throws. */
-export function initTelemetry(config: TelemetryConfig): Promise<void> {
+export function initTelemetry(config: TelemetryInitConfig): Promise<void> {
   if (!config.enabled || !config.dsn) return Promise.resolve()
   if (sentry) return Promise.resolve()
   if (initializing) return initializing
@@ -40,6 +42,9 @@ export function initTelemetry(config: TelemetryConfig): Promise<void> {
   const dsn = config.dsn
   const run: Promise<void> = (async () => {
     try {
+      // Sentry owns process-global handlers; don't let a previous client's async close race a new init.
+      await closing
+      if (startedAt !== epoch) return
       const mod = await import('@sentry/react')
       if (startedAt !== epoch) return // shut down while the SDK was loading
       mod.init({
@@ -86,7 +91,13 @@ export function shutdownTelemetry(): void {
   const mod = sentry
   sentry = null
   initializing = null
-  if (mod) void mod.close(2000).catch(() => undefined)
+  if (mod) {
+    const close = Promise.resolve(mod.close(0)).then(() => undefined, () => undefined)
+    closing = close
+    void close.finally(() => {
+      if (closing === close) closing = null
+    })
+  }
 }
 
 export function captureException(error: unknown): void {

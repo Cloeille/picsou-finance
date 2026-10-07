@@ -97,12 +97,27 @@ describe('telemetry', () => {
     const t = await load()
     await t.initTelemetry(CONFIG)
     t.shutdownTelemetry()
-    expect(sentry.close).toHaveBeenCalledTimes(1)
+    expect(sentry.close).toHaveBeenCalledWith(0)
     t.trackPageView('/')
     t.captureException(new Error('x'))
     expect(sentry.captureMessage).not.toHaveBeenCalled()
     expect(sentry.captureException).not.toHaveBeenCalled()
     expect(t.isTelemetryActive()).toBe(false)
+  })
+
+  it('waits for an old client to close before initializing a replacement', async () => {
+    let finishClose!: (value: boolean) => void
+    sentry.close.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finishClose = resolve }))
+    const t = await load()
+    await t.initTelemetry(CONFIG)
+    t.shutdownTelemetry()
+
+    const reinit = t.initTelemetry(CONFIG)
+    expect(sentry.init).toHaveBeenCalledTimes(1)
+    finishClose(true)
+    await reinit
+
+    expect(sentry.init).toHaveBeenCalledTimes(2)
   })
 
   it('shutdown while the SDK is still loading cancels the init', async () => {
