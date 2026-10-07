@@ -1,0 +1,10 @@
+# Same pins as services/bourso-auth (see its requirements.txt for the rationale:
+# the fastapi 0.141 line drops python-multipart/orjson/ujson and patches
+# Starlette; this sidecar serves JSON only).
+fastapi==0.141.1
+uvicorn==0.52.1
+pydantic==2.13.4
+# Production dependency: the data calls replay the session over plain HTTPS.
+httpx==0.28.1
+# Same pin as services/amundi-auth: the login drives Chromium (login.py).
+playwright==1.52.0

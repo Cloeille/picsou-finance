@@ -135,6 +135,29 @@ jobs:
           picsou-bourso-auth:test
           python -m unittest discover -v
 
+  caisse-epargne-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the sidecar image
+        run: docker build --tag picsou-caisse-epargne-auth:test services/caisse-epargne-auth
+      # The parser tests are pytest-style functions, which `unittest discover`
+      # does not collect, so pytest is installed at run time (root, container
+      # only) and kept out of the production image. The whole services/ tree is
+      # mounted read-only: test_dockerfile.py checks this service's Dockerfile
+      # and compares the Playwright pin with amundi-auth.
+      - name: Run parser, replay, fetcher, login and contract tests
+        run: >-
+          docker run --rm --user root
+          --env PYTHONDONTWRITEBYTECODE=1
+          --volume "${{ github.workspace }}/services:/src/services:ro"
+          --env APP_SIDECAR_API_KEY=test-key
+          --workdir /src/services/caisse-epargne-auth
+          picsou-caisse-epargne-auth:test
+          sh -c "pip install --no-cache-dir --quiet pytest==9.1.1 && python -m pytest -q -p no:cacheprovider"
+
   corum-sidecar:
     runs-on: ubuntu-latest
     steps:

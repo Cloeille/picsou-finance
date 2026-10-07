@@ -272,6 +272,7 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 | Amundi Épargne Salariale | PEE/PEG/PERCO/PER sync via internal Python sidecar | `AMUNDI_AUTH_URL` |
 | Fortuneo | Current accounts, PEA/PEA-PME/CTO and transaction history via internal Python sidecar | `FORTUNEO_AUTH_URL` |
 | BoursoBank | Current accounts, livrets and PEA/CTO sync via internal Python sidecar | `BOURSO_AUTH_URL` |
+| Caisse d'Epargne | Current account, Livret A and deferred-debit card read via internal Python sidecar, on demand, no in-app login yet | `CAISSE_EPARGNE_AUTH_URL` |
 | DEGIRO | Compte-titres sync via internal Python sidecar (sidecar off by default — uncomment in `docker-compose.yml`) | `DEGIRO_AUTH_URL` |
 | Binance | Crypto exchange balances | Via CryptoExchangePort |
 | Meria | Crypto exchange balances (wallets + staking + lending) | Via CryptoExchangePort |
