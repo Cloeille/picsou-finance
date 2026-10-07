@@ -71,6 +71,8 @@ import { formatApiError, formatTrAuthError, isTrSessionDeadError } from '@/lib/e
 import { syncKeys } from '@/features/sync/hooks'
 import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 
+const REVOLUT_CONNECTION_ID = 'revolut'
+
 type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
@@ -339,7 +341,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     if (hasRevolutAccount) {
       const revolutAccount = accounts?.find(a => a.provider === 'Revolut')
       list.push({
-        id: 'revolut',
+        id: REVOLUT_CONNECTION_ID,
         providerType: 'revolut',
         name: 'Revolut',
         status: revolutStatus?.remembered ? 'active' : 'SESSION_EXPIRED',
@@ -432,10 +434,19 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         // Remembered credentials: a blank body makes the backend fall back to them. The spinner
         // stays on until the discover → confirm effect below finishes or fails.
         clearRowError()
+        prevRevolutRunningRef.current = undefined
         startRevolutMutation.mutate({}, {
-          onSuccess: () => setRevolutPolling(true),
+          onSuccess: () => {
+            // The hook caches the start response before this callback. Arm the transition
+            // explicitly so a discovery that already finished is handled on the next effect.
+            prevRevolutRunningRef.current = true
+            setRevolutPolling(true)
+          },
           onError: (err: unknown) => {
-            setRowErrors(prev => ({ ...prev, [connection.id]: formatGeneric(err) }))
+            setRowErrors(prev => ({ ...prev, [REVOLUT_CONNECTION_ID]: formatGeneric(err) }))
+            queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
+            prevRevolutRunningRef.current = undefined
+            setRevolutPolling(false)
             clearSyncing()
           },
         })
@@ -461,32 +472,33 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     t,
   ])
 
-  // Revolut discovery job finished (running → done): surface its error, or confirm everything
+  // Revolut discovery job finished: surface its error, or confirm everything
   // it found. remember=true because confirmSync clears the stored credentials otherwise — this
   // row only syncs in place *because* the session is remembered. voluntary=false keeps accounts
   // the user deleted from coming back.
   useEffect(() => {
     const running = revolutProgress.data?.running
-    if (prevRevolutRunningRef.current === true && running === false) {
+    if (revolutPolling && prevRevolutRunningRef.current === true && running === false) {
       setRevolutPolling(false)
       const data = revolutProgress.data
       const clearSyncing = () => setSyncingIds(prev => {
         const next = new Set(prev)
-        next.delete('revolut')
+        next.delete(REVOLUT_CONNECTION_ID)
         return next
       })
-      const setError = (message: string) => setRowErrors(prev => ({ ...prev, revolut: message }))
+      const setError = (message: string) => setRowErrors(prev => ({ ...prev, [REVOLUT_CONNECTION_ID]: message }))
       if (data?.error) {
         setError(data.error)
+        queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
         clearSyncing()
       } else if (data && data.discovered.length > 0) {
         confirmRevolutMutation.mutate(
           { selectedExternalIds: data.discovered.map(d => d.externalId), remember: true, voluntary: false },
           {
             onSuccess: () => setRowErrors(prev => {
-              if (!('revolut' in prev)) return prev
+              if (!(REVOLUT_CONNECTION_ID in prev)) return prev
               const next = { ...prev }
-              delete next.revolut
+              delete next[REVOLUT_CONNECTION_ID]
               return next
             }),
             onError: (err: unknown) => setError(formatApiError(err, t, 'common.errors.serverError')),
@@ -501,7 +513,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     // revolutProgress.data/confirmRevolutMutation/t are read through the running dep on purpose
     // (same pattern as RevolutTab) — the mutation object is a fresh one every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revolutProgress.data?.running])
+  }, [revolutPolling, revolutProgress.data?.running])
 
   const handleSync = useCallback((connection: SyncConnection) => {
     // TR without active session: open inline auth instead of syncing
@@ -642,13 +654,17 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
             {connections.map(connection => {
               const Icon = ProviderIcon[connection.providerType]
               const isSyncing = syncingIds.has(connection.id)
-              const isFinary = connection.providerType === 'finary'
               const isTr = connection.providerType === 'tr'
               const isRevolut = connection.providerType === 'revolut'
               const revolutNeedsEnrolment = isRevolut && !revolutStatus?.remembered
-              // Sends the user to the tab owning that provider's auth form rather than syncing.
-              const opensTab = connection.needsReauth && REAUTH_TAB[connection.providerType] !== undefined
-
+              const tab = ownTab(connection, revolutStatus?.remembered === true)
+              const actionTitle = tab
+                ? tab === 'finary'
+                  ? t('sync.all.openFinary')
+                  : tab === 'revolut'
+                    ? t('sync.all.openRevolut')
+                    : t('sync.all.reconnect')
+                : undefined
               return (
                 <Card key={connection.id} size="sm">
                   <CardContent className="flex flex-col gap-0 py-3">
@@ -732,11 +748,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                           variant="ghost"
                           disabled={isSyncing}
                           onClick={() => handleSync(connection)}
-                          title={isFinary ? t('sync.all.openFinary') : revolutNeedsEnrolment ? t('sync.all.openRevolut') : opensTab ? t('sync.all.reconnect') : undefined}
+                          title={actionTitle}
                         >
                           {isSyncing ? (
                             <Loader2 className="size-4 animate-spin" />
-                          ) : isFinary || revolutNeedsEnrolment || opensTab ? (
+                          ) : tab ? (
                             <ExternalLink className="size-4" />
                           ) : (
                             <RefreshCw className="size-4" />

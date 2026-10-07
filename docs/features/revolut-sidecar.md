@@ -90,6 +90,11 @@ Banking stays as a fallback for the current account.
 - `SyncAllModal` syncs a remembered Revolut session in place (discover → auto-confirm all discovered
   accounts with `remember=true`, `voluntary=false`, so the stored credentials survive and deleted accounts
   stay deleted). Without remembered credentials the row button opens the Revolut tab. "Sync all" never navigates.
+- The in-place discovery/confirm flow is owned by the dashboard modal. Closing the modal keeps
+  its component mounted, but navigating away from the dashboard unmounts it: discovery may
+  finish on the server without the client sending confirm, so no accounts are imported by
+  that attempt. Stay on the dashboard until the row finishes, or retry from the Revolut tab.
+  Moving quick-sync orchestration above the page is a separate lifecycle improvement.
 
 ### Flow
 

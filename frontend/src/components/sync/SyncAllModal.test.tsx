@@ -444,6 +444,82 @@ describe('SyncAllModal Revolut and "Sync all"', () => {
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 
+  it('confirms accounts when discovery finishes before the start request returns', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    const immediateSuccess = { ...REVOLUT_DONE }
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/revolut/sync') return Promise.resolve({ data: immediateSuccess })
+      if (url === '/revolut/sync/confirm') return Promise.resolve({ data: undefined })
+      return Promise.resolve({ data: amundiStatus })
+    })
+    renderModal()
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/revolut/sync/confirm', {
+      selectedExternalIds: ['acc-1', 'acc-2'],
+      remember: true,
+      voluntary: false,
+    }))
+  })
+
+  it('shows an immediate discovery error without confirming accounts', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/revolut/sync') {
+        return Promise.resolve({ data: { ...REVOLUT_DONE, error: 'REVOLUT_LOGIN_FAILED', discovered: [] } })
+      }
+      if (url === '/revolut/sync/confirm') return Promise.resolve({ data: undefined })
+      return Promise.resolve({ data: amundiStatus })
+    })
+    renderModal()
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    expect(await within(row).findByText('REVOLUT_LOGIN_FAILED')).toBeInTheDocument()
+    expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync/confirm', expect.anything())
+    await waitFor(() =>
+      expect(apiGet.mock.calls.filter(([url]) => url === '/revolut/status')).toHaveLength(2))
+  })
+
+  it('clears the spinner and refreshes Revolut status when starting discovery fails', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/revolut/sync') return Promise.reject(new Error('offline'))
+      return Promise.resolve({ data: amundiStatus })
+    })
+    renderModal()
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    const button = within(row).getByRole('button')
+    fireEvent.click(button)
+
+    await waitFor(() => expect(button).toBeEnabled())
+    await waitFor(() =>
+      expect(apiGet.mock.calls.filter(([url]) => url === '/revolut/status')).toHaveLength(2))
+  })
+
+  it('finishes an immediate discovery with no accounts without confirming', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/revolut/sync') {
+        return Promise.resolve({ data: { ...REVOLUT_DONE, discovered: [] } })
+      }
+      if (url === '/revolut/sync/confirm') return Promise.resolve({ data: undefined })
+      return Promise.resolve({ data: amundiStatus })
+    })
+    renderModal()
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    const button = within(row).getByRole('button')
+    fireEvent.click(button)
+
+    await waitFor(() => expect(button).toBeEnabled())
+    expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync/confirm', expect.anything())
+  })
+
   it('shows the discovery error on the Revolut row and skips the confirm', async () => {
     revolutStatus = REVOLUT_REMEMBERED
     revolutProgress = { ...REVOLUT_DONE, error: 'REVOLUT_LOGIN_FAILED', discovered: [] }
