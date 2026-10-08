@@ -1963,6 +1963,73 @@ Authentication rate limiting returns `429`.
 
 ---
 
+### 16b. SimpleFIN — `/api/simplefin`
+
+One connection per member. The member pastes a one-time setup token from SimpleFIN Bridge;
+Picsou claims it and stores the returned access URL encrypted. Only
+`https://beta-bridge.simplefin.org` (port 443) is contacted. Connect and sync share one per-IP
+limit of 6 requests per minute; over it, both return `429`. See
+[`docs/features/simplefin-sync.md`](../../docs/features/simplefin-sync.md).
+
+#### `POST /api/simplefin/connect`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/sync`
+
+**Request body:**
+```json
+{ "token": "base64 setup token (required, at most 4096 characters)" }
+```
+
+**Response `204`.** The access URL is stored; no sync runs yet.
+
+**Errors:** 422 (blank or oversized token, a token that is invalid, already used, or points
+outside SimpleFIN Bridge), 404 (unknown member), 429
+
+---
+
+#### `GET /api/simplefin/status`
+
+- **Auth:** Required
+
+**Response `200` — `SimplefinConnectionStatusResponse`:**
+```json
+{
+  "connected": true,
+  "connectionId": 1,
+  "status": "CONNECTED",
+  "lastSyncedAt": "2026-10-07T06:00:00Z",
+  "maskedToken": "••••ab12"
+}
+```
+
+`status` is `CONNECTED` or `ERROR` (last sync outcome). When not connected, every field but
+`connected: false` is `null`. The access URL is never returned.
+
+---
+
+#### `POST /api/simplefin/sync`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/connect`
+- **Body:** none
+
+**Response `200` — `AccountResponse[]`.** Balances and posted transactions of every linked
+account.
+
+**Errors:** 422 (no connection, Bridge unreachable or refusing). A revoked access carries
+`code: "SESSION_EXPIRED"`; the member connects again with a new setup token. 429
+
+---
+
+#### `DELETE /api/simplefin/connection`
+
+- **Auth:** Required
+
+**Response `204`.** Imported accounts and history are retained.
+
+---
+
 ### 17. Member profile — `/api/me/profile`
 
 The authenticated member's personal and fiscal context: age, marginal tax rate, household,
