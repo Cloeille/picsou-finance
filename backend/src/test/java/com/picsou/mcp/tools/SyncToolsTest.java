@@ -63,7 +63,7 @@ class SyncToolsTest {
     }
 
     @Test
-    void triggerBankSync_filtersEnableBankingThroughTheSharedMethod() {
+    void triggerBankSync_filtersEnableBankingAndSimplefinThroughTheSharedMethod() {
         when(memberSyncService.resyncForUser(MID, SyncTools.BANK_SOURCES))
             .thenReturn(List.of(new SourceSyncResult("enable-banking", Status.FAILED, "denied")));
 

@@ -5,6 +5,7 @@ import com.picsou.model.DegiroSessionStatus;
 import com.picsou.model.FinarySession;
 import com.picsou.model.IbkrConnection;
 import com.picsou.model.Requisition;
+import com.picsou.model.SimplefinConnection;
 import com.picsou.model.RequisitionStatus;
 import com.picsou.model.WalletAddress;
 import com.picsou.model.Chain;
@@ -182,6 +183,33 @@ class SyncStatusServiceTest {
 
         assertThat(text).contains("ibkr: FAILED lastSync=2026-10-04T06:00:00Z reauth=false");
         assertThat(text).doesNotContain("ibkr: CONNECTED");
+    }
+
+    @Test
+    void simplefin_connectedRow_isConnectedWithItsLastSync() {
+        when(simplefinConnectionRepository.findByMemberId(MID)).thenReturn(Optional.of(
+            SimplefinConnection.builder().accessUrl("secret-ciphertext").status("CONNECTED").lastSyncedAt(SYNCED_AT).build()));
+
+        String text = service.describe(MID);
+
+        assertThat(text).contains("simplefin: CONNECTED lastSync=2026-10-04T06:00:00Z reauth=false");
+        assertThat(text).doesNotContain("secret-ciphertext");
+    }
+
+    @Test
+    void simplefin_errorRow_isFailedWithoutRequestingReauthentication() {
+        when(simplefinConnectionRepository.findByMemberId(MID)).thenReturn(Optional.of(
+            SimplefinConnection.builder().status("ERROR").lastSyncedAt(SYNCED_AT).build()));
+
+        String text = service.describe(MID);
+
+        assertThat(text).contains("simplefin: FAILED lastSync=2026-10-04T06:00:00Z reauth=false");
+        assertThat(text).doesNotContain("simplefin: CONNECTED");
+    }
+
+    @Test
+    void simplefin_noRow_isNotConnected() {
+        assertThat(service.describe(MID)).contains("simplefin: NOT_CONNECTED lastSync=none reauth=false");
     }
 
     @ParameterizedTest

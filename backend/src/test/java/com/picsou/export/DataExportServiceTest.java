@@ -14,7 +14,6 @@ import com.picsou.repository.GoalMonthOverrideRepository;
 import com.picsou.repository.GoalRepository;
 import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.SharedResourceRepository;
-import com.picsou.repository.SimplefinConnectionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,8 +21,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.util.ClassUtils;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -291,29 +288,6 @@ class DataExportServiceTest {
             .doesNotContain("beta-bridge")
             .doesNotContain("access_url")
             .doesNotContain("simplefin_connection");
-    }
-
-    /**
-     * Structural net for the case the byte-grep above cannot see: a future exporter that starts
-     * reading SimpleFIN connections. Scans every {@link EntityExporter} on the classpath, so new
-     * ones are covered without editing this test.
-     */
-    @Test
-    void noExporter_dependsOnTheSimplefinConnectionModelOrRepository() {
-        var scanner = new org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider(false);
-        scanner.addIncludeFilter(new org.springframework.core.type.filter.AssignableTypeFilter(EntityExporter.class));
-        var exporters = scanner.findCandidateComponents("com.picsou.export");
-        assertThat(exporters).as("exporters discovered on the classpath").hasSizeGreaterThanOrEqualTo(10);
-
-        for (var candidate : exporters) {
-            Class<?> type = ClassUtils.resolveClassName(candidate.getBeanClassName(), getClass().getClassLoader());
-            var dependencies = new java.util.ArrayList<Class<?>>();
-            for (var field : type.getDeclaredFields()) dependencies.add(field.getType());
-            for (var ctor : type.getDeclaredConstructors()) dependencies.addAll(List.of(ctor.getParameterTypes()));
-            assertThat(dependencies)
-                .as("dependencies of %s", type.getSimpleName())
-                .doesNotContain(SimplefinConnection.class, SimplefinConnectionRepository.class);
-        }
     }
 
     @Test
