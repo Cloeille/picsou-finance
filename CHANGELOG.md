@@ -115,6 +115,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   classified as internal transfers; a generic virement label alone is not.
   ([#213](https://github.com/Cloeille/picsou-finance/issues/213))
 
+- **AMEX and DEGIRO deployments can use CI-built images instead of local builds.**
+  Both authentication sidecars are included in GHCR publishing and image-based
+  CI tests, and the deployment Compose file offers the same image/build choice
+  as the other providers. AMEX selects the pinned browser archive for AMD64 or ARM64.
+  New packages require public visibility before anonymous pulls.
+
+- **AMEX login works again after AMEX changed the page where you choose SMS or e-mail for the security code.**
+  The page now lists your masked phone number and e-mail address as radio choices instead of
+  buttons, so Picsou could not pick one and the login failed with an upstream format error. It
+  now selects the channel you asked for and continues to the code entry.
+
+- **An AMEX card no longer shows a statement you already paid by direct debit as debt.**
+  The card used to count the paid statement again on top of your new purchases. It now shows
+  only what is still owed on the statement plus the purchases made since. A refund or an
+  overpayment larger than the statement now shows as a credit on the card.
+
+
 - **MCP sync no longer hides an expired browser session or loses the status report after a database error.**
   BoursoBank, Bourse Direct, Amundi and Fortuneo distinguish an inactive session requiring a new login
   from another recorded failure and from no connection. Exceptions retain server-side diagnostics
