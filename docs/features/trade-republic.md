@@ -1,6 +1,6 @@
 # Feature: Trade Republic Sync
 
-> Last updated: 2026-08-09
+> Last updated: 2026-10-08 (WebSocket read capped on total elapsed time)
 
 ## Context
 
@@ -208,7 +208,7 @@ Both compose files (`docker-compose.yml` at repo root and `docker/docker-compose
 - **Error message parsing on frontend**: Error handling extracts specific error codes from deeply nested JSON responses (e.g., `NUMBER_INVALID`, `PIN_INVALID`, `VALIDATION_CODE_INVALID`). The backend wraps every TR error in a `SyncException`, which `GlobalExceptionHandler` maps to **HTTP 422** with the code in the ProblemDetail `detail` — so the shared `formatTrAuthError()` (`frontend/src/lib/errors.ts`) matches TR codes on both 422 and 5xx via a single `matchTrDetail()` helper. It is used by `TradeRepublicTab`, `AddAccountModal` **and** `SyncAllModal` (the modal surfaces auth and per-row sync errors inline). If the sidecar changes the error response format, update `matchTrDetail()`.
 - **Session lifetime is TR's call, not ours**: the stored `expiresAt` (+2 h) is a heuristic; sync always *tries* (refreshing on `SESSION_EXPIRED`) and only a TR-rejected refresh clears the session. If TR invalidates refresh tokens quickly, the user still has to re-authenticate — but that decision now comes from TR's actual response, not a hard-coded clock.
 - **WebSocket protocol is reverse-engineered**: The TR WebSocket API is undocumented. Raw responses are logged at INFO level. If TR changes the protocol, the adapter will break and need updating.
-- **timeout-driven completion**: The WebSocket session completes when either all data is received (cash + all portfolios + all tickers) or a 30-second timeout is hit.
+- **timeout-driven completion**: The WebSocket session completes when either all data is received (cash + all portfolios + all tickers) or 30 seconds have elapsed in total (`untilAnsweredOrCapped`). The bound is on elapsed time, not on the gap between two frames: answered tickers keep streaming deltas, so a gap timeout never fires while one position is ticking, and a single subscription TR never answers (a delisted share, a contingent value right) used to hold the read open until the 45s hard timeout failed the whole sync with nothing stored. The silent position falls back to `averageBuyIn`.
 - **Multiple sub-portfolios / PEA**: The adapter extracts wrapper-specific `secAccNo` values from the JWT and subscribes to each one separately. `default` maps to `TR Titres` (`COMPTE_TITRES`); `tax_wrapper_fr` maps to `TR PEA` (`PEA`). This avoids merging CTO and PEA holdings into a single securities account.
 - **Holding deduplication by ticker (VWAP)**: Multiple ISINs can map to the same ticker. When syncing, holdings are deduplicated in-memory before insertion to avoid unique constraint violations. Quantities are summed and `averageBuyIn` is the quantity-weighted average (VWAP) via `HoldingDedup::vwapMerge`. The earlier "keep first averageBuyIn" approach was non-deterministic (HashMap iteration order) and produced wrong gain/loss percentages. See [trade-republic-holding-deduplication.md](./trade-republic-holding-deduplication.md).
 - **Empty WebSocket portfolio clears holdings**: If TR returns a securities account

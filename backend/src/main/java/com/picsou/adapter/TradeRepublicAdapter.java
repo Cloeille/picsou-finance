@@ -32,6 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 
 /**
  * Adapter for Trade Republic's unofficial API.
@@ -57,6 +58,9 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
     private static final String WS_URL     = "wss://api.traderepublic.com/";
     private static final int    WS_VERSION = 31;
     private static final Duration DEFAULT_REFRESH_TIMEOUT = Duration.ofSeconds(15);
+    // Total time the WebSocket read may take before the sync goes on with what it has.
+    // Kept under the 45s hard timeout around the whole exchange, which fails the sync.
+    private static final Duration WS_WAIT_CAP = Duration.ofSeconds(30);
 
     private record SecAccount(
         String wrapper,
@@ -424,7 +428,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
 
                                 return Mono.just(text);
                             })
-                            .takeUntil(text -> {
+                            .transform(frames -> untilAnsweredOrCapped(frames, text -> {
                                 if (authExpired.get()) return true;
                                 boolean cashDone = cashJson.get() != null
                                         && receivedScopedCashSubs.size() >= totalScopedCashSubs;
@@ -434,9 +438,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                         && exp >= 0
                                         && answeredTickerSubs.size() >= exp;
                                 return cashDone && tickersDone;
-                            })
-                            .timeout(Duration.ofSeconds(30))
-                            .onErrorReturn("timeout")
+                            }, WS_WAIT_CAP))
                     )
                     .then()
             )
@@ -583,6 +585,21 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         if (first < 0) return "";
         int second = text.indexOf(' ', first + 1);
         return second < 0 ? text.substring(first + 1) : text.substring(first + 1, second);
+    }
+
+    /**
+     * Reads frames until everything expected has answered, or until {@code cap} has elapsed.
+     *
+     * <p>The cap is on total elapsed time, not on the gap between two frames. A successful
+     * ticker subscription keeps streaming price deltas, so a gap timeout never fires while
+     * a single other position is ticking: one subscription TR never answers (a delisted
+     * share, a contingent value right) kept the read open until the hard timeout around the
+     * whole exchange failed the sync, and no account was stored at all. Completing here
+     * instead lets the positions that did answer be persisted; the silent one falls back to
+     * {@code averageBuyIn} like any other missing ticker price.
+     */
+    static <T> Flux<T> untilAnsweredOrCapped(Flux<T> frames, Predicate<T> allAnswered, Duration cap) {
+        return frames.takeUntil(allAnswered).take(cap);
     }
 
     /**
