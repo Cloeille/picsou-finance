@@ -66,6 +66,11 @@ fiat pocket, including money-boxes/vaults. A vault keeps its persisted money-box
 `internalPocketId`. Synthetic wallet parents are never queried. A real pocket
 whose ID equals its wallet ID is still queried.
 
+Transaction collection fails closed with HTTP 502 if an upstream request fails,
+the response is malformed, the cursor stops advancing before the 90-day cutoff,
+or the page cap is reached. A valid empty transaction list remains a successful
+empty history. A failed harvest is not presented as a complete partial import.
+
 The source's generic `TRANSFER` type alone does not prove an own-account move.
 Both legs are classified as `TRANSFER` only when exactly two distinct harvested
 accounts share a transaction ID, date and currency, with opposite nonzero
@@ -74,6 +79,11 @@ removed before serializing the response. Unmatched, ambiguous and different-ID
 legs are not classified by this detector. This conservative contract is covered
 by synthetic parser fixtures, not a captured live bank response; real-account
 confirmation remains necessary for Revolut payloads using other identifiers.
+
+An unused account with no recent activity can validate login and empty-history
+handling only. It cannot validate pocket/vault activity or mirrored transfers.
+The remaining live acceptance needs a maintainer with existing recent activity;
+do not generate financial activity just to exercise this connector.
 
 Run the Python tests with real installed dependencies:
 `python -m pytest -p no:logging --asyncio-mode=auto -q tests` from

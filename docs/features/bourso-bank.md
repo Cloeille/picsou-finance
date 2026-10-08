@@ -82,6 +82,20 @@ the same transaction, so live legacy reconciliation still needs verification.
 The label `VIR` alone does not classify an own-account transfer: salaries and
 external payments remain available to ordinary Budget categorization rules.
 
+`SidecarBudgetPostgresTest` exercises the real PostgreSQL repositories and
+Flyway migrations with explicitly synthetic payloads. It verifies strict
+multiset overlap, stable historical IDs/manual categories, duplicate-free
+re-syncs, member/provider-scoped IBAN matching, soft-delete guards, and the
+persisted transactions read by Budget and Cashflow in a frozen pay cycle.
+This proves the storage path, not the live Bourso HTML or equivalence of
+labels from two providers.
+
+Before declaring the live acceptance complete, a maintainer with an active
+Bourso current account and LEP must compare recent operations with the bank,
+sync twice, check the current Budget cycle, and inspect any overlap with
+legacy aggregator transactions. Different provider labels remain an explicit
+reconciliation risk; do not infer equality from date and amount alone.
+
 ## How it works
 
 ```text

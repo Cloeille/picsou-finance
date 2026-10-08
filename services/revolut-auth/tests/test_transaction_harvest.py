@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import anyio
+import pytest
+from fastapi import HTTPException
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -28,7 +30,7 @@ def _tx(tx_id, timestamp_ms, amount, tx_type="CARD_PAYMENT"):
 
 
 async def test_harvest_fetches_real_pocket_and_vault_ids_without_exposing_mapping():
-    now_ms = int(time.time() * 1000)
+    now_ms = int(time.time() * 1000) - 1000
     requests = []
     fixtures = {
         "wallet": [_tx("same-id-pocket-tx", now_ms, -1250)],
@@ -36,11 +38,15 @@ async def test_harvest_fetches_real_pocket_and_vault_ids_without_exposing_mappin
         "vault-pocket": [_tx("vault-tx", now_ms, -250)],
         "synthetic-pocket": [_tx("synthetic-child-tx", now_ms, 200)],
     }
+    pocket_calls = {}
 
     async def api_call(_page, _path, _device_id, params=None):
         request_params = params if isinstance(params, dict) else {}
         requests.append(dict(request_params))
         pocket_id = request_params.get("internalPocketId")
+        pocket_calls[pocket_id] = pocket_calls.get(pocket_id, 0) + 1
+        if pocket_calls[pocket_id] > 1:
+            return {"status": 200, "data": []}
         return {"status": 200, "data": fixtures.get(pocket_id, [])}
 
     async def fetch_money_boxes(_page, _device_id):
@@ -93,7 +99,7 @@ async def _empty_fiat(_page, _device_id):
 
 
 async def test_transfer_requires_unique_opposite_mirror_on_distinct_accounts():
-    now_ms = int(time.time() * 1000)
+    now_ms = int(time.time() * 1000) - 1000
     transfer_out = _tx("mirrored", now_ms, -1000, "TRANSFER")
     transfer_in = _tx("mirrored", now_ms, 1000, "TRANSFER")
     external_transfer = _tx("external", now_ms, -1000, "TRANSFER")
@@ -102,13 +108,19 @@ async def test_transfer_requires_unique_opposite_mirror_on_distinct_accounts():
     ambiguous_c = _tx("ambiguous", now_ms, 500, "TRANSFER")
     card = _tx("card", now_ms, -1000, "CARD_PAYMENT")
 
+    pocket_calls = {}
+
     async def api_call(_page, _path, _device_id, params=None):
         request_params = params if isinstance(params, dict) else {}
+        pocket_id = request_params["internalPocketId"]
+        pocket_calls[pocket_id] = pocket_calls.get(pocket_id, 0) + 1
+        if pocket_calls[pocket_id] > 1:
+            return {"status": 200, "data": []}
         txs = {
             "source-pocket": [transfer_out, external_transfer, ambiguous_a, card],
             "destination-pocket": [transfer_in, ambiguous_b],
             "third-pocket": [ambiguous_c],
-        }[request_params["internalPocketId"]]
+        }[pocket_id]
         return {"status": 200, "data": txs}
 
     with patch.object(main, "api_call", api_call):
@@ -171,9 +183,136 @@ async def test_transaction_window_and_page_cap_are_bounded():
         return {"status": 200, "data": [_tx(f"tx-{len(calls)}", now_ms - len(calls), -100)]}
 
     with patch.object(main, "api_call", capped_api_call):
-        await main._fetch_transactions(object(), "device", "pocket")
+        with pytest.raises(HTTPException) as exc_info:
+            await main._fetch_transactions(object(), "device", "pocket")
 
     assert len(calls) == main.MAX_TRANSACTION_PAGES
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "PORTFOLIO_INCOMPLETE"
+
+
+async def test_page_two_http_error_fails_closed():
+    now_ms = int(time.time() * 1000)
+    calls = 0
+
+    async def api_call(_page, _path, _device_id, params=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"status": 200, "data": [_tx("page-1", now_ms - 1000, -100)]}
+        return {"status": 503, "data": None}
+
+    with patch.object(main, "api_call", api_call):
+        with pytest.raises(HTTPException) as exc_info:
+            await main._fetch_transactions(object(), "device", "pocket")
+
+    assert calls == 2
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "UPSTREAM_UNAVAILABLE"
+
+
+async def test_malformed_page_fails_closed():
+    async def api_call(_page, _path, _device_id, params=None):
+        return {"status": 200, "data": {"unexpected": []}}
+
+    with patch.object(main, "api_call", api_call):
+        with pytest.raises(HTTPException) as exc_info:
+            await main._fetch_transactions(object(), "device", "pocket")
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "INVALID_DATA"
+
+
+async def test_blocked_pagination_cursor_fails_closed():
+    now_ms = int(time.time() * 1000)
+
+    async def api_call(_page, _path, _device_id, params=None):
+        return {"status": 200, "data": [_tx("same-page", now_ms, -100)]}
+
+    with patch.object(main, "api_call", api_call):
+        with pytest.raises(HTTPException) as exc_info:
+            await main._fetch_transactions(object(), "device", "pocket")
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "PORTFOLIO_INCOMPLETE"
+
+
+@pytest.mark.parametrize("invalid_id", [{"id": "nested"}, ["id"], True, 123, ""])
+async def test_invalid_transaction_ids_fail_closed(invalid_id):
+    async def api_call(_page, _path, _device_id, params=None):
+        return {"status": 200, "data": [_tx(invalid_id, int(time.time() * 1000), -100)]}
+
+    with patch.object(main, "api_call", api_call):
+        with pytest.raises(HTTPException) as exc_info:
+            await main._fetch_transactions(object(), "device", "pocket")
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "INVALID_DATA"
+
+
+@pytest.mark.parametrize("invalid_timestamp", [None, True, False, 0, -1, float("nan"), float("inf"), -float("inf"), 10**100])
+async def test_invalid_transaction_timestamps_fail_closed(invalid_timestamp):
+    async def api_call(_page, _path, _device_id, params=None):
+        return {"status": 200, "data": [_tx("invalid-ts", invalid_timestamp, -100)]}
+
+    with patch.object(main, "api_call", api_call):
+        with pytest.raises(HTTPException) as exc_info:
+            await main._fetch_transactions(object(), "device", "pocket")
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "INVALID_DATA"
+
+
+async def test_missing_transaction_timestamp_fails_closed():
+    tx = _tx("missing-ts", int(time.time() * 1000), -100)
+    del tx["completedDate"]
+
+    async def api_call(_page, _path, _device_id, params=None):
+        return {"status": 200, "data": [tx]}
+
+    with patch.object(main, "api_call", api_call):
+        with pytest.raises(HTTPException) as exc_info:
+            await main._fetch_transactions(object(), "device", "pocket")
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "INVALID_DATA"
+
+
+@pytest.mark.parametrize("invalid_merchant", ["merchant", ["merchant"], True])
+async def test_invalid_merchant_shapes_fail_closed(invalid_merchant):
+    tx = _tx("invalid-merchant", int(time.time() * 1000), -100)
+    tx["merchant"] = invalid_merchant
+
+    async def api_call(_page, _path, _device_id, params=None):
+        return {"status": 200, "data": [tx]}
+
+    with patch.object(main, "api_call", api_call):
+        with pytest.raises(HTTPException) as exc_info:
+            await main._fetch_transactions(object(), "device", "pocket")
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "INVALID_DATA"
+
+
+@pytest.mark.parametrize("invalid_amount", ["100", True, float("nan"), float("inf"), -float("inf")])
+async def test_invalid_transaction_amounts_fail_closed(invalid_amount):
+    async def api_call(_page, _path, _device_id, params=None):
+        return {"status": 200, "data": [_tx("invalid-amount", int(time.time() * 1000), invalid_amount)]}
+
+    with patch.object(main, "api_call", api_call):
+        with pytest.raises(HTTPException) as exc_info:
+            await main._fetch_transactions(object(), "device", "pocket")
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "INVALID_DATA"
+
+
+async def test_empty_transaction_list_is_successful():
+    async def api_call(_page, _path, _device_id, params=None):
+        return {"status": 200, "data": []}
+
+    with patch.object(main, "api_call", api_call):
+        assert await main._fetch_transactions(object(), "device", "pocket") == []
 
 
 async def _run():
@@ -181,6 +320,10 @@ async def _run():
         test_harvest_fetches_real_pocket_and_vault_ids_without_exposing_mapping,
         test_transfer_requires_unique_opposite_mirror_on_distinct_accounts,
         test_transaction_window_and_page_cap_are_bounded,
+        test_page_two_http_error_fails_closed,
+        test_malformed_page_fails_closed,
+        test_blocked_pagination_cursor_fails_closed,
+        test_empty_transaction_list_is_successful,
     ]
     failures = 0
     for test in tests:
