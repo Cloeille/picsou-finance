@@ -91,6 +91,26 @@ class CashflowFlowServiceTest {
         return transfer(amount, 1L, AccountType.CHECKING);
     }
 
+    private static Transaction tradeRepublicLeg(
+        String amount, long accountId, AccountType type, String externalId,
+        Category category, LocalDate date, String provider
+    ) {
+        return Transaction.builder().amount(bd(amount)).categoryRef(category).externalId(externalId).date(date)
+            .account(Account.builder().id(accountId).name("Acct" + accountId).color("#22c55e")
+                .type(type).provider(provider).build())
+            .build();
+    }
+
+    private static Transaction tradeRepublicCash(String amount, Category category, String stem) {
+        return tradeRepublicLeg(amount, 1L, AccountType.CHECKING, stem + "_cash", category,
+            LocalDate.of(2025, 3, 11), "Trade Republic");
+    }
+
+    private static Transaction tradeRepublicInvestment(String amount, String stem) {
+        return tradeRepublicLeg(amount, 7L, AccountType.PEA, stem + "_inv",
+            cat(99, "Virement", CategoryKind.TRANSFER), LocalDate.of(2025, 3, 11), "Trade Republic");
+    }
+
     private void givenTransfers(List<Transaction> transfers) {
         when(transactionRepository.findByMemberIdAndKindAndDateBetween(
             eq(MEMBER), eq(CategoryKind.TRANSFER), any(), any())).thenReturn(transfers);
@@ -181,6 +201,133 @@ class CashflowFlowServiceTest {
         assertThat(flow.nodes()).noneMatch(n -> n.type() == NodeType.TRANSFER_IN || n.type() == NodeType.TRANSFER_OUT);
         assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("1500");
         assertConserved(flow, "3000");
+    }
+
+    @Test
+    void flow_tradeRepublicBuy_cashExpenseRemains_butMirroredInvestmentLegIsSuppressed() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        List<Transaction> transactions = List.of(
+            tx("3000", salaire), tx("-1000", courses), tradeRepublicCash("-500", courses, "buy-1"));
+        givenTransactions(transactions);
+        givenTransfers(List.of(tradeRepublicInvestment("500", "buy-1")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.income()).isEqualByComparingTo("3000");
+        assertThat(flow.expense()).isEqualByComparingTo("1500");
+        assertThat(flow.net()).isEqualByComparingTo("1500");
+        assertThat(flow.saved()).isEqualByComparingTo("0");
+        assertThat(flow.transferredIn()).isEqualByComparingTo("0");
+        assertThat(flow.transferredOut()).isEqualByComparingTo("0");
+        assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("1500");
+        assertConserved(flow, "3000");
+    }
+
+    @Test
+    void flow_tradeRepublicSell_cashIncomeRemains_butMirroredInvestmentLegIsSuppressed() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        givenTransactions(List.of(tx("3000", salaire), tx("-1000", courses),
+            tradeRepublicCash("500", salaire, "sell-1")));
+        givenTransfers(List.of(tradeRepublicInvestment("-500", "sell-1")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.income()).isEqualByComparingTo("3500");
+        assertThat(flow.expense()).isEqualByComparingTo("1000");
+        assertThat(flow.saved()).isEqualByComparingTo("0");
+        assertThat(flow.withdrawn()).isEqualByComparingTo("0");
+        assertThat(flow.transferredOut()).isEqualByComparingTo("0");
+        assertThat(flow.transferredIn()).isEqualByComparingTo("0");
+        assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("2500");
+        assertConserved(flow, "3500");
+    }
+
+    @Test
+    void flow_tradeRepublicInvestmentLegWithoutCashCounterpart_remainsTransfer() {
+        givenTransactions(List.of(tx("3000", cat(1, "Salaire", CategoryKind.INCOME))));
+        givenTransfers(List.of(tradeRepublicInvestment("500", "orphan")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+        assertThat(flow.transferredOut()).isEqualByComparingTo("0");
+        assertThat(flow.transferredIn()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void flow_tradeRepublicPairWithMismatchedAmount_remainsTransfer() {
+        givenTransactions(List.of(tradeRepublicCash("-499", cat(2, "Courses", CategoryKind.EXPENSE), "amount")));
+        givenTransfers(List.of(tradeRepublicInvestment("500", "amount")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void flow_tradeRepublicPairWithMismatchedDate_remainsTransfer() {
+        Transaction cash = tradeRepublicCash("-500", cat(2, "Courses", CategoryKind.EXPENSE), "date");
+        cash.setDate(LocalDate.of(2025, 3, 10));
+        givenTransactions(List.of(cash));
+        givenTransfers(List.of(tradeRepublicInvestment("500", "date")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void flow_tradeRepublicPairWithDifferentProviders_remainsTransfer() {
+        Transaction cash = tradeRepublicCash("-500", cat(2, "Courses", CategoryKind.EXPENSE), "provider");
+        cash.getAccount().setProvider("Other");
+        givenTransactions(List.of(cash));
+        givenTransfers(List.of(tradeRepublicInvestment("500", "provider")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void flow_tradeRepublicInvestmentLegWithDifferentProvider_remainsTransfer() {
+        Transaction cash = tradeRepublicCash("-500", cat(2, "Courses", CategoryKind.EXPENSE), "investment-provider");
+        Transaction investment = tradeRepublicInvestment("500", "investment-provider");
+        investment.getAccount().setProvider("Other");
+        givenTransactions(List.of(cash));
+        givenTransfers(List.of(investment));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void flow_tradeRepublicPairWithExtendedSuffixes_remainsTransfer() {
+        Transaction cash = tradeRepublicCash("-500", cat(2, "Courses", CategoryKind.EXPENSE), "suffix");
+        cash.setExternalId("suffix_cash_extra");
+        Transaction investment = tradeRepublicInvestment("500", "suffix");
+        investment.setExternalId("suffix_inv_extra");
+        givenTransactions(List.of(cash));
+        givenTransfers(List.of(investment));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void flow_tradeRepublicCashLegCategorizedAsTransfer_remainsGenuineTransfer() {
+        Transaction cash = tradeRepublicCash("-500", cat(99, "Virement", CategoryKind.TRANSFER), "transfer");
+        givenTransactions(List.of(cash));
+        givenTransfers(List.of(cash, tradeRepublicInvestment("500", "transfer")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+        assertThat(flow.transferredOut()).isEqualByComparingTo("0");
+        assertThat(flow.transferredIn()).isEqualByComparingTo("0");
     }
 
     @Test

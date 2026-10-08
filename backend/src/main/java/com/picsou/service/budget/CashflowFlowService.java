@@ -112,8 +112,10 @@ public class CashflowFlowService {
         Map<Long, Agg> expense = new HashMap<>();
         BigDecimal totalIncome = BigDecimal.ZERO;
         BigDecimal totalExpense = BigDecimal.ZERO;
+        List<Transaction> transactions = transactionRepository.findByMemberIdAndDateBetween(memberId, r.from, r.to);
+        Map<TradeRepublicPairKey, Integer> tradeRepublicCashLegs = tradeRepublicCashLegs(transactions);
 
-        for (Transaction tx : transactionRepository.findByMemberIdAndDateBetween(memberId, r.from, r.to)) {
+        for (Transaction tx : transactions) {
             if (isTransfer(tx)) {
                 continue;
             }
@@ -130,7 +132,7 @@ public class CashflowFlowService {
             }
         }
 
-        Transfers transfers = transfers(memberId, r.from, r.to);
+        Transfers transfers = transfers(memberId, r.from, r.to, tradeRepublicCashLegs);
         BigDecimal totalSaved = BigDecimal.ZERO;
         BigDecimal totalWithdrawn = BigDecimal.ZERO;
         for (AccountNet n : transfers.tracked.values()) {
@@ -205,19 +207,75 @@ public class CashflowFlowService {
      * tracked (savings/investment) account, and the signed sum across all accounts. One query
      * returns both legs of every transfer touching a linked account.
      */
-    private Transfers transfers(Long memberId, LocalDate from, LocalDate to) {
+    private Transfers transfers(
+        Long memberId, LocalDate from, LocalDate to, Map<TradeRepublicPairKey, Integer> tradeRepublicCashLegs
+    ) {
         Map<Long, AccountNet> tracked = new LinkedHashMap<>();
         BigDecimal allLegs = BigDecimal.ZERO;
         for (Transaction tx : transactionRepository
             .findByMemberIdAndKindAndDateBetween(memberId, CategoryKind.TRANSFER, from, to)) {
             BigDecimal amount = tx.getAmount();
-            allLegs = allLegs.add(amount);
             Account account = tx.getAccount();
-            if (AssetClass.of(account.getType()).tracksContributions()) {
+            boolean trackedAccount = AssetClass.of(account.getType()).tracksContributions();
+            if (trackedAccount && isMirroredTradeRepublicInvestmentLeg(tx, tradeRepublicCashLegs)) {
+                continue;
+            }
+            allLegs = allLegs.add(amount);
+            if (trackedAccount) {
                 tracked.computeIfAbsent(account.getId(), k -> new AccountNet(account)).add(amount);
             }
         }
         return new Transfers(tracked, allLegs);
+    }
+
+    /** Index actual non-transfer Trade Republic cash legs once, for O(1) investment-leg matching. */
+    private static Map<TradeRepublicPairKey, Integer> tradeRepublicCashLegs(List<Transaction> transactions) {
+        Map<TradeRepublicPairKey, Integer> candidates = new HashMap<>();
+        for (Transaction tx : transactions) {
+            Account account = tx.getAccount();
+            String stem = tradeRepublicStem(tx, "_cash");
+            if (isTransfer(tx) || account == null || !"Trade Republic".equals(account.getProvider())
+                || AssetClass.of(account.getType()).tracksContributions() || stem == null) {
+                continue;
+            }
+            TradeRepublicPairKey key = new TradeRepublicPairKey(stem, tx.getDate(), normalized(tx.getAmount()));
+            candidates.merge(key, 1, Integer::sum);
+        }
+        return candidates;
+    }
+
+    /** Consume at most one cash candidate per investment leg, preserving duplicate-row semantics. */
+    private static boolean isMirroredTradeRepublicInvestmentLeg(
+        Transaction tx, Map<TradeRepublicPairKey, Integer> cashLegs
+    ) {
+        Account account = tx.getAccount();
+        String stem = tradeRepublicStem(tx, "_inv");
+        if (account == null || !"Trade Republic".equals(account.getProvider()) || stem == null) {
+            return false;
+        }
+        TradeRepublicPairKey key = new TradeRepublicPairKey(stem, tx.getDate(), normalized(tx.getAmount().negate()));
+        Integer count = cashLegs.get(key);
+        if (count == null || count == 0) {
+            return false;
+        }
+        if (count == 1) {
+            cashLegs.remove(key);
+        } else {
+            cashLegs.put(key, count - 1);
+        }
+        return true;
+    }
+
+    private static String tradeRepublicStem(Transaction tx, String suffix) {
+        String externalId = tx.getExternalId();
+        if (externalId == null || !externalId.endsWith(suffix) || externalId.length() == suffix.length()) {
+            return null;
+        }
+        return externalId.substring(0, externalId.length() - suffix.length());
+    }
+
+    private static BigDecimal normalized(BigDecimal amount) {
+        return amount.stripTrailingZeros();
     }
 
     /** One {@code SAVINGS} sink per tracked account with a positive net, largest first. */
@@ -415,6 +473,8 @@ public class CashflowFlowService {
 
     /** Result of {@link #transfers}: per-tracked-account nets and the sum of every leg. */
     private record Transfers(Map<Long, AccountNet> tracked, BigDecimal allLegs) {}
+
+    private record TradeRepublicPairKey(String stem, LocalDate date, BigDecimal amount) {}
 
     /** Mutable signed tally of transfer legs on one savings/investment account. */
     private static final class AccountNet {
