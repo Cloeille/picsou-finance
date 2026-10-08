@@ -2373,8 +2373,13 @@
         "incomeOther": "Other income",
         "uncategorized": "Uncategorized",
         "moreExpenses": "Other spending",
-        "savings": "Savings",
-        "drawdown": "Savings drawdown"
+        "unspent": "No gastado",
+        "shortfall": "Tomado del saldo",
+        "savingsAccount": "Ahorro · {{name}}",
+        "investmentAccount": "Inversión · {{name}}",
+        "transferOut": "Transferencias salientes",
+        "transferIn": "Transferencias entrantes",
+        "withdrawalAccount": "Retiro · {{name}}"
       }
     },
     "detail": {

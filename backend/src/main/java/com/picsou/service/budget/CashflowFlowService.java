@@ -10,6 +10,8 @@ import com.picsou.dto.SpendingByCategoryResponse.CategorySpend;
 import com.picsou.dto.SpendingDetailResponse;
 import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
+import com.picsou.model.Account;
+import com.picsou.model.AssetClass;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
 import com.picsou.model.Transaction;
@@ -24,6 +26,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -37,6 +40,11 @@ import java.util.Map;
  * — so the flow totals always equal the cashflow totals. Income/expense are accumulated per
  * category in a single pass; the {@code null}-category bucket is spending with no managed
  * category yet.
+ *
+ * <p>The one deliberate addition over {@link CashflowService} is the transfer side of the
+ * Sankey: transfers are excluded from income/expense but shown net per savings/investment
+ * account (saved or withdrawn) and net across the linked perimeter (transferred in/out), so the
+ * diagram can tell money that was saved from money merely left unspent on the current account.
  */
 @Service
 @Transactional(readOnly = true)
@@ -61,6 +69,42 @@ public class CashflowFlowService {
 
     // ─── Sankey flow ───────────────────────────────────────────────────────────
 
+    /**
+     * Builds the income → hub → expense/savings graph for the period.
+     *
+     * <p>Income and expense come from the non-transfer transactions (sign-based, identical to
+     * {@link CashflowService}). Transfers are then read from a single query returning every
+     * {@code TRANSFER} leg (both signs) booked on the member's accounts, and split in two:
+     *
+     * <ul>
+     *   <li><b>Per tracked account</b> (savings/investment classes): the signed sum of its legs.
+     *       A positive net is money <i>saved</i> there ({@code SAVINGS} sink); a negative net is
+     *       money <i>withdrawn</i> from it to fund the period ({@code WITHDRAWAL} source). Netting
+     *       per account is what keeps a €1,000 out-and-back on a Livret A from counting as
+     *       savings, and makes a Livret A → PEA move a withdrawal plus a saving rather than a
+     *       charge on the current balance.</li>
+     *   <li><b>External net</b>: {@code ext = −Σ(every leg)}. A transfer between two linked
+     *       accounts has both legs in the sum and cancels exactly, so whatever remains left or
+     *       entered the linked perimeter. {@code ext > 0} is money sent to an account Picsou does
+     *       not see ({@code TRANSFER_OUT}); {@code ext < 0} is money received from one
+     *       ({@code TRANSFER_IN}). We can't know the destination is savings, so it is not
+     *       labelled as such.</li>
+     * </ul>
+     *
+     * <p>With {@code in = income + withdrawn + transferIn} and
+     * {@code out = expense + saved + transferOut}, the gap is shown as a {@code SHORTFALL} source
+     * (out &gt; in) or an {@code UNSPENT} sink (in &gt; out), so the hub always balances at
+     * {@code max(in, out)}. Why the formula is right: let {@code L} be the sum of all legs on
+     * non-tracked accounts, and {@code T = saved − withdrawn} the net on tracked ones. Since
+     * {@code ext = −(L + T)}, we get {@code in − out = income − expense + withdrawn − saved +
+     * transferIn − transferOut = income − expense − T − ext = income − expense + L} — i.e.
+     * {@code unspent − shortfall} is exactly the net change of the non-tracked (current)
+     * accounts' balance over the period.
+     *
+     * <p>Known limit: the two legs of one transfer booked on either side of a cycle boundary
+     * appear as a small transfer in/out in each cycle. The allocation view
+     * ({@code AllocationService}) deliberately keeps its own gross rule.
+     */
     public CashflowFlowResponse flow(Long memberId, CashflowPeriod period, LocalDate today) {
         Range r = range(memberId, period, today);
 
@@ -68,8 +112,10 @@ public class CashflowFlowService {
         Map<Long, Agg> expense = new HashMap<>();
         BigDecimal totalIncome = BigDecimal.ZERO;
         BigDecimal totalExpense = BigDecimal.ZERO;
+        List<Transaction> transactions = transactionRepository.findByMemberIdAndDateBetween(memberId, r.from, r.to);
+        Map<TradeRepublicPairKey, Integer> tradeRepublicCashLegs = tradeRepublicCashLegs(transactions);
 
-        for (Transaction tx : transactionRepository.findByMemberIdAndDateBetween(memberId, r.from, r.to)) {
+        for (Transaction tx : transactions) {
             if (isTransfer(tx)) {
                 continue;
             }
@@ -86,20 +132,45 @@ public class CashflowFlowService {
             }
         }
 
+        Transfers transfers = transfers(memberId, r.from, r.to, tradeRepublicCashLegs);
+        BigDecimal totalSaved = BigDecimal.ZERO;
+        BigDecimal totalWithdrawn = BigDecimal.ZERO;
+        for (AccountNet n : transfers.tracked.values()) {
+            if (n.sum.signum() > 0) {
+                totalSaved = totalSaved.add(n.sum);
+            } else if (n.sum.signum() < 0) {
+                totalWithdrawn = totalWithdrawn.add(n.sum.negate());
+            }
+        }
+        BigDecimal external = transfers.allLegs.negate();
+        BigDecimal transferOut = external.signum() > 0 ? external : BigDecimal.ZERO;
+        BigDecimal transferIn = external.signum() < 0 ? external.negate() : BigDecimal.ZERO;
+
         BigDecimal net = totalIncome.subtract(totalExpense);
         List<FlowNode> nodes = new ArrayList<>();
         List<FlowLink> links = new ArrayList<>();
 
         // Nothing to show — let the frontend render an empty state.
-        if (totalIncome.signum() == 0 && totalExpense.signum() == 0) {
+        if (totalIncome.signum() == 0 && totalExpense.signum() == 0 && totalSaved.signum() == 0
+            && totalWithdrawn.signum() == 0 && external.signum() == 0) {
             return new CashflowFlowResponse(period, r.from, r.to,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, nodes, links);
         }
 
-        // Sources (left): income categories, then a drawdown source if we overspent.
+        // Everything entering / leaving the hub. Whichever side is short is balanced by a
+        // shortfall source or an unspent sink (see the identity in the method javadoc).
+        BigDecimal in = totalIncome.add(totalWithdrawn).add(transferIn);
+        BigDecimal out = totalExpense.add(totalSaved).add(transferOut);
+
+        // Sources (left): income categories, savings withdrawals, transfers in, then a shortfall.
         List<NodeValue> sources = incomeNodes(income);
-        if (net.signum() < 0) {
-            sources.add(new NodeValue(synthetic("__drawdown__", NodeType.INCOME), net.negate()));
+        sources.addAll(withdrawalNodes(transfers.tracked));
+        if (transferIn.signum() > 0) {
+            sources.add(new NodeValue(synthetic("__transfer_in__", NodeType.TRANSFER_IN), transferIn));
+        }
+        if (out.compareTo(in) > 0) {
+            sources.add(new NodeValue(synthetic("__shortfall__", NodeType.SHORTFALL), out.subtract(in)));
         }
         for (NodeValue source : sources) {
             nodes.add(source.node);
@@ -111,10 +182,15 @@ public class CashflowFlowService {
             links.add(new FlowLink(i, hubIndex, sources.get(i).value));
         }
 
-        // Sinks (right): expense categories (top-N + rollup), then a savings sink if net positive.
+        // Sinks (right): expense categories (top-N + rollup), one node per savings account that
+        // netted positive, transfers out, then an "unspent" sink for income left on the account.
         List<NodeValue> sinks = expenseNodes(expense);
-        if (net.signum() > 0) {
-            sinks.add(new NodeValue(synthetic("__savings__", NodeType.SAVINGS), net));
+        sinks.addAll(savingsNodes(transfers.tracked));
+        if (transferOut.signum() > 0) {
+            sinks.add(new NodeValue(synthetic("__transfer_out__", NodeType.TRANSFER_OUT), transferOut));
+        }
+        if (in.compareTo(out) > 0) {
+            sinks.add(new NodeValue(synthetic("__unspent__", NodeType.UNSPENT), in.subtract(out)));
         }
         for (NodeValue sink : sinks) {
             int idx = nodes.size();
@@ -122,7 +198,113 @@ public class CashflowFlowService {
             links.add(new FlowLink(hubIndex, idx, sink.value));
         }
 
-        return new CashflowFlowResponse(period, r.from, r.to, totalIncome, totalExpense, net, nodes, links);
+        return new CashflowFlowResponse(period, r.from, r.to, totalIncome, totalExpense, net,
+            totalSaved, totalWithdrawn, transferOut, transferIn, nodes, links);
+    }
+
+    /**
+     * Tallies every {@code TRANSFER} leg of the member over the range: the signed sum per
+     * tracked (savings/investment) account, and the signed sum across all accounts. One query
+     * returns both legs of every transfer touching a linked account.
+     */
+    private Transfers transfers(
+        Long memberId, LocalDate from, LocalDate to, Map<TradeRepublicPairKey, Integer> tradeRepublicCashLegs
+    ) {
+        Map<Long, AccountNet> tracked = new LinkedHashMap<>();
+        BigDecimal allLegs = BigDecimal.ZERO;
+        for (Transaction tx : transactionRepository
+            .findByMemberIdAndKindAndDateBetween(memberId, CategoryKind.TRANSFER, from, to)) {
+            BigDecimal amount = tx.getAmount();
+            Account account = tx.getAccount();
+            boolean trackedAccount = AssetClass.of(account.getType()).tracksContributions();
+            if (trackedAccount && isMirroredTradeRepublicInvestmentLeg(tx, tradeRepublicCashLegs)) {
+                continue;
+            }
+            allLegs = allLegs.add(amount);
+            if (trackedAccount) {
+                tracked.computeIfAbsent(account.getId(), k -> new AccountNet(account)).add(amount);
+            }
+        }
+        return new Transfers(tracked, allLegs);
+    }
+
+    /** Index actual non-transfer Trade Republic cash legs once, for O(1) investment-leg matching. */
+    private static Map<TradeRepublicPairKey, Integer> tradeRepublicCashLegs(List<Transaction> transactions) {
+        Map<TradeRepublicPairKey, Integer> candidates = new HashMap<>();
+        for (Transaction tx : transactions) {
+            Account account = tx.getAccount();
+            String stem = tradeRepublicStem(tx, "_cash");
+            if (isTransfer(tx) || account == null || !"Trade Republic".equals(account.getProvider())
+                || AssetClass.of(account.getType()).tracksContributions() || stem == null) {
+                continue;
+            }
+            TradeRepublicPairKey key = new TradeRepublicPairKey(stem, tx.getDate(), normalized(tx.getAmount()));
+            candidates.merge(key, 1, Integer::sum);
+        }
+        return candidates;
+    }
+
+    /** Consume at most one cash candidate per investment leg, preserving duplicate-row semantics. */
+    private static boolean isMirroredTradeRepublicInvestmentLeg(
+        Transaction tx, Map<TradeRepublicPairKey, Integer> cashLegs
+    ) {
+        Account account = tx.getAccount();
+        String stem = tradeRepublicStem(tx, "_inv");
+        if (account == null || !"Trade Republic".equals(account.getProvider()) || stem == null) {
+            return false;
+        }
+        TradeRepublicPairKey key = new TradeRepublicPairKey(stem, tx.getDate(), normalized(tx.getAmount().negate()));
+        Integer count = cashLegs.get(key);
+        if (count == null || count == 0) {
+            return false;
+        }
+        if (count == 1) {
+            cashLegs.remove(key);
+        } else {
+            cashLegs.put(key, count - 1);
+        }
+        return true;
+    }
+
+    private static String tradeRepublicStem(Transaction tx, String suffix) {
+        String externalId = tx.getExternalId();
+        if (externalId == null || !externalId.endsWith(suffix) || externalId.length() == suffix.length()) {
+            return null;
+        }
+        return externalId.substring(0, externalId.length() - suffix.length());
+    }
+
+    private static BigDecimal normalized(BigDecimal amount) {
+        return amount.stripTrailingZeros();
+    }
+
+    /** One {@code SAVINGS} sink per tracked account with a positive net, largest first. */
+    private static List<NodeValue> savingsNodes(Map<Long, AccountNet> tracked) {
+        List<NodeValue> out = new ArrayList<>();
+        for (AccountNet n : tracked.values()) {
+            if (n.sum.signum() > 0) {
+                out.add(new NodeValue(accountNode(n.account, NodeType.SAVINGS), n.sum));
+            }
+        }
+        out.sort(Comparator.comparing((NodeValue n) -> n.value).reversed());
+        return out;
+    }
+
+    /** One {@code WITHDRAWAL} source per tracked account with a negative net, largest first. */
+    private static List<NodeValue> withdrawalNodes(Map<Long, AccountNet> tracked) {
+        List<NodeValue> out = new ArrayList<>();
+        for (AccountNet n : tracked.values()) {
+            if (n.sum.signum() < 0) {
+                out.add(new NodeValue(accountNode(n.account, NodeType.WITHDRAWAL), n.sum.negate()));
+            }
+        }
+        out.sort(Comparator.comparing((NodeValue n) -> n.value).reversed());
+        return out;
+    }
+
+    private static FlowNode accountNode(Account account, NodeType type) {
+        return new FlowNode("acct:" + account.getId(), account.getName(), account.getColor(), type,
+            AssetClass.of(account.getType()));
     }
 
     /** Income sources, largest first; uncategorized income collapses into one node. */
@@ -278,16 +460,35 @@ public class CashflowFlowService {
     }
 
     private static FlowNode categoryNode(Category cat, NodeType type) {
-        return new FlowNode("cat:" + cat.getId(), cat.getName(), cat.getColor(), type);
+        return new FlowNode("cat:" + cat.getId(), cat.getName(), cat.getColor(), type, null);
     }
 
     private static FlowNode synthetic(String key, NodeType type) {
-        return new FlowNode(key, null, null, type);
+        return new FlowNode(key, null, null, type, null);
     }
 
     private record Range(LocalDate from, LocalDate to) {}
 
     private record NodeValue(FlowNode node, BigDecimal value) {}
+
+    /** Result of {@link #transfers}: per-tracked-account nets and the sum of every leg. */
+    private record Transfers(Map<Long, AccountNet> tracked, BigDecimal allLegs) {}
+
+    private record TradeRepublicPairKey(String stem, LocalDate date, BigDecimal amount) {}
+
+    /** Mutable signed tally of transfer legs on one savings/investment account. */
+    private static final class AccountNet {
+        private final Account account;
+        private BigDecimal sum = BigDecimal.ZERO;
+
+        AccountNet(Account account) {
+            this.account = account;
+        }
+
+        void add(BigDecimal amount) {
+            sum = sum.add(amount);
+        }
+    }
 
     /** Mutable per-category tally (positive magnitude) with a transaction count. */
     private static final class Agg {
