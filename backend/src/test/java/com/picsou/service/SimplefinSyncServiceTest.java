@@ -1,7 +1,14 @@
 package com.picsou.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.dto.AccountResponse;
+import com.picsou.dto.SimplefinConnectionStatusResponse;
+import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
@@ -22,9 +29,12 @@ import com.picsou.service.sync.SourceSyncResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -41,6 +51,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -640,5 +651,110 @@ class SimplefinSyncServiceTest {
             givenBridgeReturns(accounts);
             return service.sync(MEMBER_ID);
         }
+    }
+
+    // ------------------------------------------------------------------------------------
+    // Secrets and failures at the service level (moved from SimplefinClientTest).
+    // The adapter tests own URL validation; here the port is a mock that fails the way it would.
+    // ------------------------------------------------------------------------------------
+
+    private static final String SECRET_USERNAME = "usr98765";
+    private static final String SECRET_PASSWORD = "s3cr3tPassw0rd";
+    private static final String SECRET_ACCESS =
+        "https://" + SECRET_USERNAME + ":" + SECRET_PASSWORD + "@beta-bridge.simplefin.org/simplefin";
+
+    @Test
+    void connect_claimRefused_persistsNothing() {
+        when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(new FamilyMember()));
+        when(simplefinPort.claim("token")).thenThrow(new SyncException("Picsou only connects to SimpleFIN Bridge."));
+
+        assertThatThrownBy(() -> service.connect("token", MEMBER_ID)).isInstanceOf(SyncException.class);
+
+        verifyNoInteractions(connectionRepository, encryption);
+    }
+
+    @Test
+    void connect_unknownMember_neverClaims() {
+        when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.connect("token", MEMBER_ID)).isInstanceOf(ResourceNotFoundException.class);
+
+        verifyNoInteractions(simplefinPort, connectionRepository, encryption);
+    }
+
+    @Test
+    void connect_token_isHandedToThePortUntouched() {
+        when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(new FamilyMember()));
+        when(simplefinPort.claim("  token\n")).thenReturn(ACCESS);
+        when(encryption.encrypt(ACCESS)).thenReturn("ciphertext");
+        when(connectionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.empty());
+
+        service.connect("  token\n", MEMBER_ID);
+
+        verify(simplefinPort).claim("  token\n");
+    }
+
+    @Test
+    void connect_blankToken_isLeftToThePortToRefuse() {
+        when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(new FamilyMember()));
+        when(simplefinPort.claim("  ")).thenThrow(new SyncException("A SimpleFIN setup token is required."));
+
+        assertThatThrownBy(() -> service.connect("  ", MEMBER_ID))
+            .isInstanceOf(SyncException.class).hasMessageContaining("required");
+
+        verifyNoInteractions(connectionRepository, encryption);
+    }
+
+    @Test
+    void resyncReporting_failedFetch_logsAndReportsNoCredentials() {
+        Logger logger = (Logger) LoggerFactory.getLogger(SimplefinSyncService.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            when(connectionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.of(connection()));
+            when(encryption.decrypt("ciphertext")).thenReturn(SECRET_ACCESS);
+            when(transactionImportService.sharedHistoryStart()).thenReturn(LocalDate.now().minusDays(30));
+            when(simplefinPort.fetchAccounts(any(), any())).thenThrow(new SyncException("Bridge refused the request."));
+
+            SourceSyncResult result = service.resyncReporting(MEMBER_ID);
+
+            assertThat(result.status()).isEqualTo(SourceSyncResult.Status.FAILED);
+            assertThat(result.message()).doesNotContain(SECRET_PASSWORD).doesNotContain(SECRET_USERNAME);
+            assertThat(logs.list).isNotEmpty();
+            for (ILoggingEvent event : logs.list) {
+                String text = event.getFormattedMessage();
+                if (event.getThrowableProxy() != null) text += "\n" + ThrowableProxyUtil.asString(event.getThrowableProxy());
+                assertThat(text).doesNotContain(SECRET_PASSWORD).doesNotContain(SECRET_USERNAME);
+            }
+        } finally {
+            logger.detachAppender(logs);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"usr98765,••••8765", "abcd,••••", "ab,••••"})
+    void getConnectionStatus_storedAccess_showsOnlyTheLastFourOfTheUsername(String username, String expectedMask) {
+        when(connectionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.of(connection()));
+        when(encryption.decrypt("ciphertext"))
+            .thenReturn("https://" + username + ":" + SECRET_PASSWORD + "@beta-bridge.simplefin.org/simplefin");
+
+        SimplefinConnectionStatusResponse status = service.getConnectionStatus(MEMBER_ID);
+
+        assertThat(status.maskedToken()).isEqualTo(expectedMask);
+        assertThat(new ObjectMapper().valueToTree(status).toString())
+            .doesNotContain(SECRET_PASSWORD).doesNotContain("ciphertext").doesNotContain("https://");
+    }
+
+    @Test
+    void getConnectionStatus_undecryptableAccess_showsErrorAndAFixedMask() {
+        when(connectionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.of(connection()));
+        when(encryption.decrypt("ciphertext")).thenThrow(new IllegalStateException("bad key for ciphertext"));
+
+        SimplefinConnectionStatusResponse status = service.getConnectionStatus(MEMBER_ID);
+
+        assertThat(status.status()).isEqualTo("ERROR");
+        assertThat(status.maskedToken()).isEqualTo("••••");
+        assertThat(status.toString()).doesNotContain("ciphertext");
     }
 }
