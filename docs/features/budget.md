@@ -140,6 +140,13 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
       **`TRANSFER_OUT`** sink (`__transfer_out__`, "Transferred out"); `ext < 0` → **`TRANSFER_IN`**
       source (`__transfer_in__`, "Transferred in"). This covers a transfer to/from an account Picsou
       does not see (e.g. an external Livret). It is deliberately *not* called savings — we can't know.
+    - **Trade Republic trades** have a non-transfer cash leg (`<externalId>_cash`) already
+      counted as spending for a buy or income for a sale, and a mirrored investment transfer
+      leg (`<externalId>_inv`). When both matching legs are present in the period, the investment
+      leg is excluded from both the per-account and external transfer sums, so the trade is
+      counted once and does not invent an external transfer. Matching requires Trade Republic
+      accounts, the same external-id stem and date, and exactly opposite amounts. An unmatched
+      investment leg keeps the normal transfer treatment; no counterparty is inferred.
   - **Sources**: income categories, `WITHDRAWAL` nodes (largest first), `TRANSFER_IN`, then a
     **`SHORTFALL`** source (`__shortfall__`, "taken from balance") when `out > in`.
   - **Sinks**: expense categories (top 8 + rollup), `SAVINGS` nodes (largest first), `TRANSFER_OUT`,
@@ -151,7 +158,10 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
     at most one of the last two is non-zero); `net` stays `income − expense`.
   - Conservation invariant (test-locked): `intoHub == outOfHub == max(in, out)`.
   - **Known limits**: the two legs of one transfer booked on either side of a cycle boundary show up as a
-    small transfer in/out in each cycle. The allocation view (`AllocationService`) keeps its own gross
+    small transfer in/out in each cycle. Both legs of an internal transfer must be categorised
+    `TRANSFER`: for example, a checking debit categorised as a transfer and an uncategorised
+    Livret credit show an external transfer out rather than savings. The allocation view
+    (`AllocationService`) keeps its own gross
     rule (incoming legs only) and is not changed here, so its contributions can differ from the Sankey's
     net per-account figures.
 - **Endpoints** (member-scoped, under `/api/`):
