@@ -107,6 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Docker deployments with a custom PostgreSQL password no longer crash-loop because Spring uses `picsou`.**
+  The entrypoint now forwards the resolved PostgreSQL password to Spring, while
+  preserving an explicit Spring datasource password override. The database's
+  own password must still be configured to match.
+
 - **AMEX and DEGIRO deployments can use CI-built images instead of local builds.**
   Both authentication sidecars are included in GHCR publishing and image-based
   CI tests, and the deployment Compose file offers the same image/build choice

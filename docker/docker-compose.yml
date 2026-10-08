@@ -35,10 +35,10 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-picsou}?sslmode=prefer
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-picsou}
-      # POSTGRES_PASSWORD intentionally not forwarded here: the entrypoint
-      # resolves it from env or /data/.secrets/postgres_password and exports
-      # SPRING_DATASOURCE_PASSWORD itself. The app reads $POSTGRES_PASSWORD
-      # internally via application.yml.
+      # Match the database service fallback; entrypoint forwards this to Spring
+      # unless explicitly overridden.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picsou}
+      # application.yml reads SPRING_DATASOURCE_PASSWORD, not POSTGRES_PASSWORD.
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       TR_AUTH_URL: http://tr-auth:8001
       REVOLUT_AUTH_URL: http://revolut-auth:8002
@@ -212,12 +212,9 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-picsou}
       POSTGRES_USER: ${POSTGRES_USER:-picsou}
-      # Fallback order: user-supplied POSTGRES_PASSWORD env > default literal
-      # 'picsou'. On first-boot zero-config flows, the app entrypoint writes
-      # the same auto-generated password to /data/.secrets/postgres_password
-      # and the operator is instructed to source it into .env (see
-      # docs/features/setup-wizard.md). On existing installs, .env already
-      # sets POSTGRES_PASSWORD so this fallback never triggers.
+      # Both app and database receive the supplied password, or 'picsou' when
+      # POSTGRES_PASSWORD is unset or empty. The entrypoint persists that value
+      # in /data/.secrets/postgres_password for first-boot use.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picsou}
     volumes:
       - pgdata:/var/lib/postgresql/data
