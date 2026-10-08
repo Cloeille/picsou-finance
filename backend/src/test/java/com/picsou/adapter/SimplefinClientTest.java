@@ -365,22 +365,20 @@ class SimplefinClientTest {
         transport.next = new SimplefinTransport.Response(200, "https://" + USERNAME + ":" + PASSWORD + "@10.0.0.5:8443/simplefin");
         SimplefinConnectionRepository connections = mock(SimplefinConnectionRepository.class);
         CryptoEncryption encryption = mock(CryptoEncryption.class);
-        FamilyMemberRepository members = mock(FamilyMemberRepository.class);
-        SimplefinSyncService service = serviceWith(connections, encryption, members, mock(SimplefinStatusWriter.class));
+        SimplefinSyncService service = serviceWith(connections, encryption, knownMember(), mock(SimplefinStatusWriter.class));
 
         assertThatThrownBy(() -> service.connect(token(CLAIM), 7L)).isInstanceOf(SyncException.class);
 
         assertThat(transport.calls).isEqualTo(1);
         verify(connections, never()).save(any());
         verifyNoInteractions(encryption);
-        verifyNoInteractions(members);
     }
 
     @Test
     void aForeignTokenNeverReachesThePersistenceLayerEither() {
         SimplefinConnectionRepository connections = mock(SimplefinConnectionRepository.class);
         SimplefinSyncService service = serviceWith(
-            connections, mock(CryptoEncryption.class), mock(FamilyMemberRepository.class), mock(SimplefinStatusWriter.class));
+            connections, mock(CryptoEncryption.class), knownMember(), mock(SimplefinStatusWriter.class));
 
         assertThatThrownBy(() -> service.connect(token("https://10.0.0.5/x"), 7L)).isInstanceOf(SyncException.class);
 
@@ -560,6 +558,14 @@ class SimplefinClientTest {
     }
 
     // ---- helpers ------------------------------------------------------------------------------
+
+    private static FamilyMemberRepository knownMember() {
+        FamilyMember member = new FamilyMember();
+        member.setId(7L);
+        FamilyMemberRepository members = mock(FamilyMemberRepository.class);
+        when(members.findById(7L)).thenReturn(Optional.of(member));
+        return members;
+    }
 
     private SimplefinSyncService serviceWith(
         SimplefinConnectionRepository connections,

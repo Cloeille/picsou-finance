@@ -116,7 +116,7 @@ final class SimplefinUrls {
         if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getHost().isBlank()) {
             throw new SyncException("A SimpleFIN URL must be an https address.");
         }
-        if (!BRIDGE_HOST.equalsIgnoreCase(uri.getHost())) {
+        if (!BRIDGE_HOST.equalsIgnoreCase(uri.getHost()) || (uri.getPort() != -1 && uri.getPort() != 443)) {
             throw new SyncException("Picsou only connects to SimpleFIN Bridge (" + BRIDGE_HOST + ").");
         }
         boolean hasUserInfo = uri.getRawUserInfo() != null && !uri.getRawUserInfo().isEmpty();

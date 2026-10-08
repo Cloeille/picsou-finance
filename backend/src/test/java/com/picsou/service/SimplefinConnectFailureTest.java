@@ -61,22 +61,14 @@ class SimplefinConnectFailureTest {
 
     @Test
     void connect_whenTheClaimFails_keepsTheExistingAccessUrl() {
+        when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(member()));
         when(simplefinPort.claim("used-token")).thenThrow(new SyncException("token already used"));
 
         assertThatThrownBy(() -> service.connect("used-token", MEMBER_ID))
             .isInstanceOf(SyncException.class);
 
-        verifyNoInteractions(connectionRepository, encryption, familyMemberRepository);
-        assertThat(existing.getAccessUrl()).isEqualTo(OLD_CIPHERTEXT);
-    }
-
-    @Test
-    void connect_withABlankToken_neverContactsTheBridge() {
-        assertThatThrownBy(() -> service.connect("   ", MEMBER_ID)).isInstanceOf(SyncException.class);
-        assertThatThrownBy(() -> service.connect(null, MEMBER_ID)).isInstanceOf(SyncException.class);
-
-        verify(simplefinPort, never()).claim(anyString());
         verifyNoInteractions(connectionRepository, encryption);
+        assertThat(existing.getAccessUrl()).isEqualTo(OLD_CIPHERTEXT);
     }
 
     @Test
@@ -93,15 +85,14 @@ class SimplefinConnectFailureTest {
     }
 
     @Test
-    void connect_forAnUnknownMember_storesNothing() {
-        when(simplefinPort.claim("fresh")).thenReturn(NEW_ACCESS);
+    void connect_forAnUnknownMember_neverSpendsTheToken() {
         when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.connect("fresh", MEMBER_ID))
             .isInstanceOf(ResourceNotFoundException.class);
 
-        verify(connectionRepository, never()).save(any());
-        verifyNoInteractions(encryption);
+        verify(simplefinPort, never()).claim(anyString());
+        verifyNoInteractions(connectionRepository, encryption);
     }
 
     /** Success path of a re-connect: the same row is updated in place and an ERROR is cleared. */

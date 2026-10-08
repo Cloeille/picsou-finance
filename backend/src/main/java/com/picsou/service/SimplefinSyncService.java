@@ -18,6 +18,7 @@ import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.SimplefinConnectionRepository;
 import com.picsou.service.sync.SourceSyncResult;
+import com.picsou.util.LogSanitizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -62,12 +63,9 @@ public class SimplefinSyncService {
 
     /** Claims the token and stores the access URL. A later sync failure does not drop it. */
     public void connect(String setupToken, Long memberId) {
-        if (setupToken == null || setupToken.isBlank()) {
-            throw new SyncException("A SimpleFIN setup token is required.");
-        }
-        String accessUrl = simplefinPort.claim(setupToken.trim());
         FamilyMember member = familyMemberRepository.findById(memberId)
             .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+        String accessUrl = simplefinPort.claim(setupToken);
 
         SimplefinConnection connection = connectionRepository.findByMemberId(memberId)
             .orElseGet(() -> SimplefinConnection.builder().member(member).build());
@@ -88,7 +86,7 @@ public class SimplefinSyncService {
         try {
             masked = mask(encryption.decrypt(stored.getAccessUrl()));
         } catch (RuntimeException ex) {
-            log.error("SimpleFIN: cannot decrypt stored access for connection {}", stored.getId());
+            log.error("SimpleFIN: cannot decrypt stored access for connection {}", stored.getId(), ex);
             return new SimplefinConnectionStatusResponse(true, stored.getId(), "ERROR", stored.getLastSyncedAt(), "••••");
         }
         return new SimplefinConnectionStatusResponse(
@@ -121,7 +119,7 @@ public class SimplefinSyncService {
             syncWithConnection(connection.get(), memberId);
             return new SourceSyncResult(SOURCE, SourceSyncResult.Status.SYNCED, "");
         } catch (SyncException ex) {
-            log.warn("SimpleFIN auto-sync failed for member {}: {}", memberId, ex.getMessage());
+            log.warn("SimpleFIN scheduled sync failed for member {} (code={})", memberId, ex.getCode(), ex);
             return SourceSyncResult.fromSyncException(SOURCE, ex);
         } catch (RuntimeException ex) {
             log.error("SimpleFIN auto-sync hit an unexpected error for member {}", memberId, ex);
@@ -154,7 +152,7 @@ public class SimplefinSyncService {
         SimplefinAccountSet set = simplefinPort.fetchAccounts(accessUrl, start);
         if (!set.errors().isEmpty()) {
             log.warn("SimpleFIN reported partial error(s) for member {}: {}",
-                memberId, String.join("; ", set.errors()));
+                memberId, LogSanitizer.safe(String.join("; ", set.errors())));
         }
 
         FamilyMember member = familyMemberRepository.findById(memberId)
@@ -245,11 +243,11 @@ public class SimplefinSyncService {
         return BankTransactionImportService.clip(combined, MAX_NAME_LEN);
     }
 
+    /** Real currencies only: XAU, XDR, XXX and the like have no minor unit and are skipped. */
     static boolean isIsoCurrency(String code) {
         if (code == null || code.length() != 3) return false;
         try {
-            Currency.getInstance(code.toUpperCase(Locale.ROOT));
-            return true;
+            return Currency.getInstance(code.toUpperCase(Locale.ROOT)).getDefaultFractionDigits() >= 0;
         } catch (IllegalArgumentException ex) {
             return false;
         }

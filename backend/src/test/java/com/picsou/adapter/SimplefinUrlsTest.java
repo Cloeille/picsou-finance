@@ -215,6 +215,12 @@ class SimplefinUrlsTest {
     }
 
     @Test
+    void claimUri_blankToken_isRefused() {
+        assertThatThrownBy(() -> SimplefinUrls.claimUri("   ")).isInstanceOf(SyncException.class);
+        assertThatThrownBy(() -> SimplefinUrls.claimUri(null)).isInstanceOf(SyncException.class);
+    }
+
+    @Test
     void aTokenOverTheLengthCapIsRefusedBeforeDecoding() {
         String oversized = "A".repeat(SimplefinUrls.MAX_TOKEN_CHARS + 1);
         assertThatThrownBy(() -> SimplefinUrls.claimUri(oversized))

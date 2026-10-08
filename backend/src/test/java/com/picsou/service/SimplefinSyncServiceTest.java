@@ -76,7 +76,7 @@ class SimplefinSyncServiceTest {
         when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(member));
         when(connectionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.empty());
 
-        service.connect(" token ", MEMBER_ID);
+        service.connect("token", MEMBER_ID);
 
         ArgumentCaptor<SimplefinConnection> saved = ArgumentCaptor.forClass(SimplefinConnection.class);
         verify(connectionRepository).save(saved.capture());

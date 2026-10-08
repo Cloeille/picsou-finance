@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -251,13 +252,14 @@ public class BankTransactionImportService {
      * fits {@code transaction.external_transaction_id} (VARCHAR(255)) whatever the
      * description's length, and stays a fixed, index-friendly width.
      *
-     * <p>{@code stripTrailingZeros} normalizes the scale: the provider sends
-     * {@code "12.34"} while the column round-trips it as {@code 12.34000000}, and the
-     * two must hash alike or every sync would re-import the same rows.
+     * <p>The amount is rounded to the column's 8 decimals, then {@code stripTrailingZeros}
+     * normalizes the scale: the provider sends {@code "12.34"} while the column round-trips
+     * it as {@code 12.34000000}, and the two must hash alike or every sync would re-import
+     * the same rows.
      */
     private static String fingerprint(LocalDate date, BigDecimal amount, String description) {
         String canonical = date + "|"
-            + (amount == null ? "" : amount.stripTrailingZeros().toPlainString()) + "|"
+            + (amount == null ? "" : amount.setScale(8, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()) + "|"
             + (description == null ? "" : description.trim());
         return FINGERPRINT_PREFIX + sha256Hex(canonical);
     }

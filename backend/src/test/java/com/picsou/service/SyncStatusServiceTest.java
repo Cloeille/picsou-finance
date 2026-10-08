@@ -13,6 +13,7 @@ import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
 import com.picsou.repository.IbkrConnectionRepository;
 import com.picsou.repository.RequisitionRepository;
+import com.picsou.repository.SimplefinConnectionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import com.picsou.model.BoursoSyncStatus;
@@ -52,6 +53,7 @@ class SyncStatusServiceTest {
     @Mock FortuneoSyncService fortuneoSyncService;
     @Mock AmexSyncService amexSyncService;
     @Mock IbkrConnectionRepository ibkrConnectionRepository;
+    @Mock SimplefinConnectionRepository simplefinConnectionRepository;
     @Mock CryptoExchangeSyncService cryptoExchangeSyncService;
     @Mock WalletAddressRepository walletAddressRepository;
     @Mock FinarySessionRepository finarySessionRepository;
@@ -64,7 +66,8 @@ class SyncStatusServiceTest {
         service = new SyncStatusService(
             revolutSyncService, requisitionRepository, tradeRepublicSyncService, tradeRepublicSessionRepository,
             boursoSyncService, bourseDirectSyncService, amundiSyncService, fortuneoSyncService,
-            amexSyncService, ibkrConnectionRepository, cryptoExchangeSyncService, walletAddressRepository,
+            amexSyncService, ibkrConnectionRepository, simplefinConnectionRepository, cryptoExchangeSyncService,
+            walletAddressRepository,
             finarySessionRepository, degiroSessionRepository);
         when(revolutSyncService.getStatus(MID)).thenReturn(new RevolutSyncService.StatusResponse(false, false, null));
         when(requisitionRepository.findAllByMemberId(MID)).thenReturn(List.of());
@@ -82,6 +85,7 @@ class SyncStatusServiceTest {
         when(amexSyncService.getStatus(MID)).thenReturn(
             new AmexSyncService.SessionStatusResponse(false, AmexSyncStatus.IDLE, null, null, null));
         when(ibkrConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
+        when(simplefinConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
         when(cryptoExchangeSyncService.getStatus(MID)).thenReturn(List.of());
         when(walletAddressRepository.findAllByMemberId(MID)).thenReturn(List.of());
         when(finarySessionRepository.findByMemberId(MID)).thenReturn(Optional.empty());

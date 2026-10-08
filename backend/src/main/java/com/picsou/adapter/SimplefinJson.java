@@ -27,6 +27,7 @@ final class SimplefinJson {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     /** Same {@code VARCHAR(255)} width as {@code BankTransactionImportService.EXTERNAL_ID_MAX}. */
     private static final int MAX_EXTERNAL_ID = 255;
+    private static final int MAX_ERROR_CHARS = 300;
 
     private SimplefinJson() {}
 
@@ -72,16 +73,19 @@ final class SimplefinJson {
         return new SimplefinAccountSet(List.copyOf(errors), List.copyOf(accounts));
     }
 
+    /** Bridge text reaches the UI and logs, so it is kept to one short line. */
     private static void collectErrors(JsonNode node, List<String> errors) {
         if (node == null || !node.isArray()) return;
         for (JsonNode entry : node) {
-            if (entry.isTextual()) {
-                String text = entry.asText().trim();
-                if (!text.isEmpty()) errors.add(text);
-            } else if (entry.hasNonNull("msg")) {
-                String text = entry.get("msg").asText().trim();
-                if (!text.isEmpty()) errors.add(text);
+            JsonNode message = entry.isTextual() ? entry : entry.get("msg");
+            if (message == null || message.isNull()) continue;
+            String text = message.asText().replaceAll("[\\p{Cc}\\p{Zl}\\p{Zp}\\s]+", " ").trim();
+            if (text.isEmpty()) continue;
+            if (text.length() > MAX_ERROR_CHARS) {
+                int end = Character.isHighSurrogate(text.charAt(MAX_ERROR_CHARS - 1)) ? MAX_ERROR_CHARS - 1 : MAX_ERROR_CHARS;
+                text = text.substring(0, end) + "…";
             }
+            errors.add(text);
         }
     }
 

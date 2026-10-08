@@ -90,7 +90,8 @@ public class SimplefinClient implements SimplefinPort {
             "GET", request.uri(), request.authorization(), MAX_ACCOUNTS_BODY);
         if (response.status() == 403) {
             throw new SyncException(
-                "SimpleFIN refused the stored access. It may have been revoked. Disconnect and connect with a new setup token.");
+                "SimpleFIN refused the stored access. It may have been revoked. Disconnect and connect with a new setup token.",
+                null, "SESSION_EXPIRED");
         }
         if (response.status() == 402) {
             throw new SyncException("SimpleFIN requires payment before it will return accounts.");

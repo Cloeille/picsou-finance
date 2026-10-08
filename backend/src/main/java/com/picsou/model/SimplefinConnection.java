@@ -32,6 +32,7 @@ public class SimplefinConnection extends AuditableEntity {
     private FamilyMember member;
 
     /** Access URL (with Basic Auth userinfo), AES-256-GCM encrypted. */
+    @JsonIgnore
     @Column(name = "access_url", nullable = false, columnDefinition = "TEXT")
     private String accessUrl;
 
