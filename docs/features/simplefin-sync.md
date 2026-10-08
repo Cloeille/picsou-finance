@@ -142,31 +142,40 @@ upsert Account + EUR snapshot + ledger rows
 
 ## Tests
 
-- `SimplefinClientTest` — a non-https claim, a token for another host, and a claim that hands back
-  another host are refused without storing anything; a literal `+` kept in the access password,
-  Basic auth without userinfo in the URI, pending rows dropped, an unusable posted date dropped, a
-  hashed account id keeping `sfin_`, partial errors, 402, 403 and redirects
-- `SimplefinSyncServiceTest` — upsert as `CHECKING`, a resync keeping a member-set `CREDIT_CARD`,
-  the 89-day clamp on the UTC date, the daily job reporting instead of throwing, non-ISO skip,
-  balance that does not fit the ledger, soft-delete skip, error status, name cut on a character
-  boundary, a new token for the same Bridge connection reusing accounts and transactions
-- `SimplefinUrlsTest` — the Bridge host in any case and on port 443 is accepted; other hosts,
-  look-alikes, IP literals, userinfo tricks, encoded hosts and other schemes are refused for both
-  URLs; refusals never echo the token or credentials
-- `SimplefinJsonTest` — currency, balance, id, transaction and posted-date parsing edge cases;
-  external ids hashed past 255 characters
-- `SimplefinControllerTest` — every endpoint acts on the current member only, validation and error
-  bodies carry no secret, connect and sync share the per-IP limit
+Backend (`mvn test`):
+- `SimplefinUrlsTest` — the single host, scheme, port and token matrix: only the Bridge host on
+  the default port or 443 is accepted, for the claim URL and the access URL; refusals never echo
+  the token or credentials; Basic auth leaves the request URI free of userinfo; a literal `+`
+  stays a plus
+- `SimplefinClientTest` — one wiring test per path, through the fake transport: a refused host
+  sends nothing, a claim answer for another host is refused after one request, 403 on fetch
+  carries `SESSION_EXPIRED`, 402, other statuses, redirects and body caps
+- `SimplefinJsonTest` — currency, balance, id, transaction and posted-date parsing; pending rows
+  dropped; external ids hashed past 255 characters; Bridge error text collapsed to one line and
+  cut at 300 characters without splitting a surrogate pair
+- `SimplefinSyncServiceTest` — connect (unknown member never claims, a failed claim or encryption
+  keeps the stored access URL, reconnect replaces in place); sync (created as `CHECKING`, a
+  member-set type kept, soft-delete skip, currencies with no minor unit skipped, the 89-day UTC
+  clamp); `resyncReporting` (`SESSION_EXPIRED` gives `NEEDS_REAUTH`, other failures `FAILED`,
+  no credentials in logs); the reconnect and dedup round-trips
+- `SimplefinControllerTest` — each endpoint follows the principal, validation returns 400 or 422
+  without echoing the token, connect and sync share the per-IP limit
 - `SimplefinStatusWriterTest` — the `ERROR` status survives the caller's rollback (H2 slice)
-- `SimplefinConnectFailureTest` — a failed claim or encryption keeps the stored access URL
-- `DataExportServiceTest`, `AccountsWorkbookServiceTest` — exports carry no access URL
+- `SimplefinConnectionTest` — JSON serialization never includes the access URL
+- `BankTransactionImportServiceTest` — clipping on a character boundary, long ids hashed with
+  `fp:`, oversized amounts skipped, repeated ids stored once, the fingerprint rounding to 8
+  decimals
+- `SourceSyncResultTest`, `SyncStatusServiceTest`, `SyncToolsTest` — the `simplefin` reauth
+  mapping, its `get_sync_status` line, and its place in `trigger_bank_sync`
 - `MemberSyncServiceTest` — SimpleFIN runs after IBKR in the scheduled order
-- `BankTransactionImportServiceTest` — a description longer than the ledger column is stored
-  clipped on a character boundary, a repeated id and an oversized amount are dropped, a second
-  import of the same id inserts nothing
+- `DataExportServiceTest` — the export ZIP carries no access URL
 - `AccountConnectionServiceTest` — the connection is removed only with its last account
-- `SimplefinPanel.test.tsx`, `SimplefinTab.test.tsx` — token form, connect-then-sync, connected
-  controls, sync and disconnect errors, disconnect confirmation
+
+Frontend (`bunx vitest run`, `bun run test:e2e`):
+- `SimplefinPanel.test.tsx` — token form, connect failures, connected controls, sync, disconnect
+  through the confirm dialog
+- `SimplefinTab.test.tsx` — smoke test
+- `SyncAllModal.test.tsx`, `AddAccountModal.test.tsx` — the SimpleFIN row and the add-account entry
 - `e2e/simplefin.spec.ts` — demo-mode connect and disconnect, and the add-account entry
 
 ## Links
