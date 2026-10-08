@@ -10,11 +10,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.netty.DisposableServer;
 import reactor.netty.http.server.HttpServer;
 
 import java.time.Duration;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -175,5 +177,34 @@ class TradeRepublicAdapterTest {
     @Test
     void shouldPersist_anAccountThatNeverAnsweredAndHasNothing_isSkipped() {
         assertThat(TradeRepublicAdapter.shouldPersist(java.math.BigDecimal.ZERO, true, false, false)).isFalse();
+    }
+
+    // ─── untilAnsweredOrCapped: how long the WebSocket read may wait ───────────────────────
+
+    /**
+     * The case that stored no account at all: every ticker but one answered and kept
+     * streaming deltas, the last one (an instrument TR never prices) stayed silent. Frames
+     * never stopped, so only a cap on total time ends the read.
+     */
+    @Test
+    void untilAnsweredOrCapped_aSubscriptionThatNeverAnswers_endsAtTheCap_whileOthersKeepTicking() {
+        Flux<Long> endlessDeltas = Flux.interval(Duration.ofMillis(10));
+
+        List<Long> frames = TradeRepublicAdapter
+            .untilAnsweredOrCapped(endlessDeltas, frame -> false, Duration.ofMillis(300))
+            .collectList()
+            .block(Duration.ofSeconds(5));
+
+        assertThat(frames).isNotEmpty();
+    }
+
+    @Test
+    void untilAnsweredOrCapped_everythingAnswered_endsOnThatFrame_withoutWaitingForTheCap() {
+        List<Long> frames = TradeRepublicAdapter
+            .untilAnsweredOrCapped(Flux.interval(Duration.ofMillis(10)), frame -> frame == 2L, Duration.ofSeconds(30))
+            .collectList()
+            .block(Duration.ofSeconds(5));
+
+        assertThat(frames).containsExactly(0L, 1L, 2L);
     }
 }

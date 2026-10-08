@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A Trade Republic position that never gets a price no longer fails the whole
+  sync.** The read waited for every ticker subscription to answer, bounded only by
+  a timeout on the gap between two frames, and answered tickers keep streaming
+  deltas: with one silent subscription (a delisted share, a contingent value
+  right) the gap never opened, the 45-second hard timeout failed the sync and no
+  account was stored, right after a successful login. The read now stops after 30
+  seconds in total and persists what answered; the silent position falls back to
+  its average buy-in price, as a missing ticker price already did.
 - **A BoursoBank contract invested in a single fund syncs instead of failing the
   whole import** ([#154](https://github.com/Cloeille/picsou-finance/issues/154)).
   Its trading summary reports the contract balance and one `fund` node, with no
