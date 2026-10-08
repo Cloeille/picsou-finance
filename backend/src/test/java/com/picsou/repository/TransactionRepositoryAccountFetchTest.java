@@ -83,6 +83,7 @@ class TransactionRepositoryAccountFetchTest {
             .getEntityManagerFactory().getPersistenceUnitUtil();
         assertThat(persistenceUnitUtil.isLoaded(result.get(0), "account")).isTrue();
 
+        testEntityManager.clear();
         List<Transaction> dateRangeResult = transactionRepository.findByMemberIdAndDateBetween(1L, from, to);
 
         assertThat(dateRangeResult).extracting(Transaction::getDescription)
