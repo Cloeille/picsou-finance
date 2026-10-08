@@ -48,6 +48,8 @@ services:
       FORTUNEO_AUTH_URL: http://fortuneo-auth:8001
       CORUM_AUTH_URL: http://corum-auth:8001
       SOFIDY_AUTH_URL: http://sofidy-auth:8001
+      AMEX_AUTH_URL: http://amex-auth:8001
+      DEGIRO_AUTH_URL: http://degiro-auth:8001
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     depends_on:
       - db
@@ -59,6 +61,8 @@ services:
       - fortuneo-auth
       - corum-auth
       - sofidy-auth
+      - amex-auth
+      - degiro-auth
     networks:
       - default
       - fortuneo-auth-net
@@ -179,6 +183,25 @@ services:
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
 
+
+  amex-auth:
+    image: ghcr.io/cloeille/picsou-finance/amex-auth:latest
+    build:
+      context: ../services/amex-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+
+  degiro-auth:
+    image: ghcr.io/cloeille/picsou-finance/degiro-auth:latest
+    build:
+      context: ../services/degiro-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
 
   db:
     image: postgres:16-alpine
