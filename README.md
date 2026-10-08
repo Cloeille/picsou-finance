@@ -129,6 +129,12 @@ On first launch the entrypoint auto-generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_K
 
 Otherwise, open http://localhost:8080 — the **setup wizard** walks you through admin credentials, CORS, and (optionally) Enable Banking.
 
+For subsequent production releases, do not replace the app with a bare `compose up`.
+Use the [migration-safe deployment workflow](docs/features/docker-deployment.md#safe-release-deployment)
+to rehearse migrations on a restored backup, migrate the live database, and verify the API
+before declaring the release ready. Keep Flyway enabled; a historical
+`SPRING_FLYWAY_ENABLED=false` workaround is not a migration strategy.
+
 ### 3. HTTPS (decide before the first launch)
 
 **Required for bank sync.** Enable Banking rejects plain-HTTP callback URLs for PRODUCTION

@@ -45,7 +45,8 @@ Flyway provides the right balance of simplicity and control. Plain SQL migration
 - 13 migration files exist as of now (V1 through V13)
 - New columns/tables always require a new `V{n}__description.sql` file
 - `application.yml` sets `spring.jpa.hibernate.ddl-auto: validate`
-- Flyway runs automatically on application startup; no manual migration step needed
+- Flyway runs automatically on application startup. Production upgrades now rehearse the same
+  packaged migrations before app replacement; see [the release deployment ADR](./2026-10-08-rehearse-release-migrations.md).
 - Enums are defined as PostgreSQL enums via migrations (e.g., `CREATE TYPE account_type AS ENUM (...)`)
 
 Note: This decision was made during initial development. This ADR is documented retroactively.

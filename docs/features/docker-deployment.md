@@ -1,6 +1,6 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-10-06 (AMEX and DEGIRO image publishing)
+> Last updated: 2026-10-08 (migration-safe release deployment)
 
 ## Context
 
@@ -319,12 +319,12 @@ re-running V93–V99.
 
 **If you disabled Flyway as a workaround:**
 
-1. Back up the database (`pg_dump`).
-2. Pull the fixed image and **remove `SPRING_FLYWAY_ENABLED=false`** from your environment. With
+1. **Remove `SPRING_FLYWAY_ENABLED=false`** from your environment. With
    Flyway off, no new migration ever runs, and Hibernate refuses to boot as soon as an entity needs
    a column a skipped migration adds (for example `bourso_session.encrypted_credentials`, V103).
-3. Start the stack and read the backend log. The renumbering line above is expected; the boot
-   should end with the application started.
+2. Use the [safe release deployment](#safe-release-deployment) below. It takes a backup and
+   rehearses the callback and migrations on a restored database before replacing the running app.
+   The renumbering line above is expected. A failed rehearsal leaves the current app untouched.
 
 The callback only renames history rows. It does not reconcile a schema that changed while Flyway
 was off. If objects exist that the history does not record (a table or column created by hand, or
@@ -333,10 +333,21 @@ by an image that ran with Flyway disabled), the first migration that creates the
 only the failing one is rolled back. The renumbered rows and every migration that succeeded earlier
 in that start stay applied and recorded. For example, with a history that stops at the old V80/V81
 rows, V80 `widen tr and degiro session tokens` is applied and committed before V82 fails. The log
-names the failing script. Reconcile by hand: either restore the backup taken before the upgrade and
-fix the drift before starting again, or, once you have checked that every object the failing
-migration creates is present and identical, add its row to `flyway_schema_history` yourself. Do not keep
-`SPRING_FLYWAY_ENABLED=false` as a lasting fix.
+names the failing script. Reconcile on a restored copy first, with a reviewed, incident-specific
+plan: restore a known-good pre-drift database or prove that every migration effect matches before
+repairing its history. Do not simply insert the highest version, run `baseline`/`repair`, or copy
+the incident's ad-hoc SQL. Issue #195's hand-created tables were missing CHECK constraints and V100's
+`CREDIT_CARD` enum value despite successful Hibernate validation. History cannot prove correctness
+of unrecorded or falsely recorded manual changes. Do not keep `SPRING_FLYWAY_ENABLED=false` as a
+lasting fix. The release workflow deliberately refuses to guess how to reconcile that drift.
+
+### Safe release deployment
+
+Follow [the production release runbook](./release-deployment.md). `docker/deploy.sh` is the
+authoritative upgrade path: back up, restore and rehearse the candidate image's complete Flyway
+chain on a temporary database, migrate and verify the live database, then replace only the app
+with that same pinned image and require a real unauthenticated `/api/auth/me` HTTP 401.
+Do not use a bare `compose up` for a production upgrade.
 
 ### Build version shown in the app
 
@@ -384,7 +395,12 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 
 ## Tests
 
-- No dedicated Docker integration tests. Build validation is manual: `docker build -f docker/Dockerfile .`.
+- `python3 -m pytest docker/tests/test_deploy.py -v` exercises deployment ordering and failure
+  isolation against command doubles. CI runs it independently of the application tests.
+- `ReleaseMigrationCliTest` checks strict migration history and idempotency on real PostgreSQL.
+- CI builds the release image and runs `test_deploy_integration.py` against real PostgreSQL,
+  the packaged JAR, the normal application entrypoint, and its Nginx API route.
+- Build validation: `docker build -f docker/Dockerfile .`.
 - Backend unit tests run separately via `./mvnw test` (not in Docker build — skipped with `-DskipTests`).
 - `LegacyMigrationRenumberingTest` (Testcontainers) upgrades databases built under the old V80–V88
   numbering and a fresh database to head, and checks that a second start changes nothing.
