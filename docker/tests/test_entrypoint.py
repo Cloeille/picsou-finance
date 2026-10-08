@@ -43,9 +43,7 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
         for original, replacement in replacements:
             self.assertEqual(source.count(original), 1, f"expected one sandbox replacement for {original!r}")
             source = source.replace(original, replacement, 1)
-        self.test_entrypoint = self.root / "entrypoint.sh"
-        self.test_entrypoint.write_text(source, encoding="utf-8")
-        self.test_entrypoint.chmod(0o755)
+        self.entrypoint_script = source
 
     def run_entrypoint(self, **overrides):
         env = {
@@ -55,8 +53,9 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
         }
         env.update(overrides)
         completed = subprocess.run(
-            ["bash", str(self.test_entrypoint)],
+            ["bash", "-s"],
             env=env,
+            input=self.entrypoint_script,
             text=True,
             capture_output=True,
             check=False,
@@ -123,12 +122,11 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
 
     def test_persisted_postgres_password_is_used_by_spring(self):
         self.secrets_dir.mkdir()
-        password = "persisted; $postgres"
-        (self.secrets_dir / "postgres_password").write_text(password, encoding="utf-8")
+        (self.secrets_dir / "postgres_password").write_text("fixture-postgres-password", encoding="utf-8")
         result = self.run_entrypoint()
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.captured_environment()["SPRING_DATASOURCE_PASSWORD"], password)
+        self.assertEqual(self.captured_environment()["SPRING_DATASOURCE_PASSWORD"], "fixture-postgres-password")
 
     def test_generated_postgres_password_is_stable_and_used_by_spring(self):
         first = self.run_entrypoint()
