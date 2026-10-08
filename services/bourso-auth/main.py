@@ -35,8 +35,10 @@ import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Literal
+from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -50,7 +52,9 @@ from accounts_parser import (
     AccountsFormatError,
     choose_personal_identity,
     guard_symbol_collisions,
+    parse_iban_page,
     parse_dashboard,
+    parse_operations,
     parse_trading_summary,
 )
 from virtual_pad import VirtualPadError, encode_password, extract_challenge, parse_virtual_pad
@@ -85,6 +89,7 @@ PENDING_SWEEP_SECONDS = 30
 APP_VALIDATION_TIMEOUT_SECONDS = 120
 APP_VALIDATION_POLL_SECONDS = 2.0
 REQUEST_TIMEOUT_SECONDS = 30.0
+MAX_MOVEMENT_PAGES = 20
 # Every pending second factor pins an httpx client and its cookie jar. Cheap
 # next to a browser, but the backend's per-IP throttle does not bound this
 # service in aggregate.
@@ -236,6 +241,9 @@ class AccountPayload(BaseModel):
     balanceEur: Decimal
     cashBalance: Decimal | None = None
     positions: list[PositionPayload]
+    iban: str | None = None
+    transactions: list[dict[str, Any]] = Field(default_factory=list)
+    transactionWarning: Literal["TRANSACTIONS_UNAVAILABLE", "TRANSACTIONS_INCOMPLETE"] | None = None
     # A type-level assertion that a partial read can never be serialised.
     snapshotComplete: Literal[True]
 
@@ -633,6 +641,65 @@ async def _dashboard(client: httpx.AsyncClient) -> tuple[str, bool]:
     return response.text, True
 
 
+def _same_origin_url(value: str, base: str) -> str:
+    resolved = urljoin(base, value)
+    target, origin = urlsplit(resolved), urlsplit(BASE_URL)
+    if target.scheme != "https" or target.netloc != origin.netloc:
+        raise ValueError("BoursoBank link left the expected origin")
+    return resolved
+
+
+async def _fetch_operations(
+    client: httpx.AsyncClient, account_href: str, *, today: date | None = None
+) -> tuple[list[dict[str, Any]], bool]:
+    """Fetch at most 20 pages of booked current-account/LEP movements."""
+    today = today or date.today()
+    from_date = today - timedelta(days=90)
+    account_url = _same_origin_url(account_href, BASE_URL)
+    if urlsplit(account_url).path.rstrip("/").endswith("/mouvements"):
+        raise ValueError("Expected an account card URL")
+    movement_url = _same_origin_url(urljoin(account_url.rstrip("/") + "/", "mouvements"), account_url)
+    query = {
+        "movementSearch[fromDate]": from_date.strftime("%d/%m/%Y"),
+        "movementSearch[toDate]": today.strftime("%d/%m/%Y"),
+        "movementSearch[advanced]": "1",
+    }
+    movement_url = urlunsplit((*urlsplit(movement_url)[:3], urlencode(query), ""))
+    collected: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    seen_tokens: set[str] = set()
+    for page_number in range(MAX_MOVEMENT_PAGES):
+        response = await client.get(movement_url, follow_redirects=False)
+        response.raise_for_status()
+        page_transactions, next_token = parse_operations(response.text, from_date, today)
+        for transaction in page_transactions:
+            if transaction["externalId"] not in seen_ids:
+                collected.append(transaction)
+                seen_ids.add(transaction["externalId"])
+        if not next_token:
+            return collected, False
+        if next_token in seen_tokens:
+            return collected, True
+        seen_tokens.add(next_token)
+        parts = urlsplit(movement_url)
+        # Preserve the upstream continuation-token protocol without ever
+        # following a page URL supplied by HTML.
+        movement_url = urlunsplit((
+            parts.scheme, parts.netloc, parts.path,
+            urlencode({"rumroute": "accounts.bank.movements", "continuationToken": next_token}), "",
+        ))
+        _same_origin_url(movement_url, BASE_URL)
+    return collected, True
+
+
+async def _fetch_iban(client: httpx.AsyncClient, account_href: str) -> str | None:
+    account_url = _same_origin_url(account_href, BASE_URL)
+    rib_url = _same_origin_url(urljoin(account_url.rstrip("/") + "/", "rib"), account_url)
+    response = await client.get(rib_url, follow_redirects=False)
+    response.raise_for_status()
+    return parse_iban_page(response.text)
+
+
 async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
     home = await _home(client)
     if _LOGGED_IN_MARKER not in home:
@@ -660,6 +727,9 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
             "balanceEur": account["balanceEur"],
             "cashBalance": None,
             "positions": [],
+            "iban": None,
+            "transactions": [],
+            "transactionWarning": None,
             "snapshotComplete": True,
         }
         if account["section"] == "trading":
@@ -670,6 +740,20 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
             entry["cashBalance"] = summary["cashEur"]
             entry["positions"] = summary["positions"]
             guard_symbol_collisions(entry["positions"])
+        elif account["type"] in {"CHECKING", "LEP"}:
+            try:
+                entry["iban"] = await _fetch_iban(client, account["href"])
+            except (httpx.HTTPError, ValueError):
+                # IBAN is optional matching metadata, not a balance dependency.
+                pass
+            try:
+                entry["transactions"], truncated = await _fetch_operations(client, account["href"])
+                if truncated:
+                    entry["transactionWarning"] = "TRANSACTIONS_INCOMPLETE"
+            except (httpx.HTTPError, ValueError, AccountsFormatError):
+                # Balances remain useful, but never present a failed history read
+                # as a complete transaction import or expose upstream content.
+                entry["transactionWarning"] = "TRANSACTIONS_UNAVAILABLE"
         payloads.append(entry)
 
     unresolved = sum(

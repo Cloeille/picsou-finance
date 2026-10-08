@@ -12,10 +12,12 @@ import com.picsou.model.BoursoSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.BoursoErrorCode;
 import com.picsou.port.BoursoPort;
+import com.picsou.port.SidecarTransaction;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -79,6 +81,8 @@ public class BoursoSyncService {
     private final AccountHoldingRepository holdingRepository;
     private final FamilyMemberRepository memberRepository;
     private final AccountService accountService;
+    private final CategorizationService categorizationService;
+    private final SharedSidecarTransactionImportService transactionImporter;
     private final OpenFigiIsinConverter isinConverter;
     private final SecurityIdentityService identityService;
     private final CryptoEncryption encryption;
@@ -93,6 +97,8 @@ public class BoursoSyncService {
         AccountHoldingRepository holdingRepository,
         FamilyMemberRepository memberRepository,
         AccountService accountService,
+        CategorizationService categorizationService,
+        SharedSidecarTransactionImportService transactionImporter,
         OpenFigiIsinConverter isinConverter,
         SecurityIdentityService identityService,
         CryptoEncryption encryption,
@@ -105,6 +111,8 @@ public class BoursoSyncService {
         this.holdingRepository = holdingRepository;
         this.memberRepository = memberRepository;
         this.accountService = accountService;
+        this.categorizationService = categorizationService;
+        this.transactionImporter = transactionImporter;
         this.isinConverter = isinConverter;
         this.identityService = identityService;
         this.encryption = encryption;
@@ -409,7 +417,9 @@ public class BoursoSyncService {
                 account.balanceEur(),
                 cashBalance,
                 investedAmount,
-                positions
+                positions,
+                account.iban(),
+                account.transactions() == null ? List.of() : account.transactions()
             ));
         }
         return List.copyOf(prepared);
@@ -591,9 +601,11 @@ public class BoursoSyncService {
 
             FamilyMember member = memberRepository.findById(job.memberId())
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+            CategorizationService.CategorizationContext categorizationContext =
+                categorizationService.loadContext(job.memberId());
             Instant syncedAt = Instant.now();
             for (PreparedAccount data : prepared) {
-                upsertAccount(data, member, job.memberId(), syncedAt);
+                upsertAccount(data, member, job.memberId(), syncedAt, categorizationContext);
             }
 
             session.markSuccessful(syncedAt);
@@ -602,11 +614,17 @@ public class BoursoSyncService {
         }));
     }
 
-    private void upsertAccount(PreparedAccount data, FamilyMember member, Long memberId, Instant syncedAt) {
+    private void upsertAccount(PreparedAccount data, FamilyMember member, Long memberId, Instant syncedAt,
+                               CategorizationService.CategorizationContext categorizationContext) {
         Optional<Account> existing = accountRepository
             .findByExternalAccountIdAndMemberId(data.externalId(), memberId);
+        if (existing.isEmpty() && data.iban() != null && !data.iban().isBlank()) {
+            existing = accountRepository.findFirstByIbanAndMemberIdAndProvider(data.iban(), memberId, PROVIDER);
+        }
         if (existing.isEmpty()
-            && accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId)) {
+            && (accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId)
+                || (data.iban() != null && !data.iban().isBlank()
+                    && accountRepository.existsSoftDeletedByIbanAndMemberIdAndProvider(data.iban(), memberId, PROVIDER)))) {
             log.info("BoursoBank skipped a soft-deleted account (member={})", memberId);
             return;
         }
@@ -624,10 +642,13 @@ public class BoursoSyncService {
         account.setProvider(PROVIDER);
         account.setCurrency("EUR");
         account.setManual(false);
+        account.setExternalAccountId(data.externalId());
+        if (data.iban() != null && !data.iban().isBlank()) account.setIban(data.iban());
         account.setCurrentBalance(data.balanceEur());
         account.setCashBalance(data.cashBalance());
         account.setLastSyncedAt(syncedAt);
         Account savedAccount = accountRepository.save(account);
+        transactionImporter.importFor(savedAccount, data.transactions(), categorizationContext, "bourso");
 
         holdingRepository.deleteByAccountId(savedAccount.getId());
         holdingRepository.flush();
@@ -882,7 +903,9 @@ public class BoursoSyncService {
         BigDecimal balanceEur,
         BigDecimal cashBalance,
         BigDecimal investedAmountEur,
-        List<PreparedPosition> positions
+        List<PreparedPosition> positions,
+        String iban,
+        List<SidecarTransaction> transactions
     ) {}
     private record PreparedPosition(
         String ticker,

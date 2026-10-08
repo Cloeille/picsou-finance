@@ -33,7 +33,7 @@ why.
 |---|---|
 | Current accounts → `CHECKING` | Loans (`data-summary-loan`), assurance-vie and insurance, `Bourso Protect` (`data-summary-insurance` / `data-summary-assurance`) |
 | Livrets → `LIVRET_A`, `LDDS`, `LEP`, `LIVRET_JEUNE`, `PEL`, `CEL`, else `SAVINGS` | Accounts BoursoBank aggregates from **other banks** |
-| PEA, PEA-PME → `PEA` | Transactions |
+| PEA, PEA-PME → `PEA` | Securities-account transactions |
 | Compte-titres → `COMPTE_TITRES`, with positions | Orders, statements |
 
 **PEA-PME folds into `PEA`**: Picsou has no separate envelope for it, and the
@@ -53,18 +53,48 @@ connection with worse freshness, so anything whose sub-label is not BoursoBank i
 skipped — and *counted*, then logged, because a connector that quietly drops
 accounts is indistinguishable from one that is broken.
 
-**Transactions are out of scope**, the same exclusion Bourse Direct, Amundi and
-DEGIRO make. BoursoBank's CSV export moved behind a CSRF-protected POST in July
-2026 and its columns shift depending on whether anything in the range is tagged;
-it is a connector of its own, not a free extra. The generic CSV importer
-([csv-transaction-import.md](./csv-transaction-import.md)) still accepts
-BoursoBank's own export.
+**Current-account and LEP transactions** are fetched from each dashboard card's
+own `/mouvements` page, for the last 90 days. The sidecar preserves the card's
+exact URL and follows continuation tokens, capped at 20 pages. Booked rows carry
+their provider ID, date, signed amount and label; securities accounts remain
+holdings-only. The HTML selectors and `/rib` IBAN route follow the public Woob
+Boursorama connector. New operation fixtures are explicitly synthetic, not a
+live BoursoBank capture. The CSV importer still accepts BoursoBank's own export.
 
-⚠️ **Overlap with Enable Banking.** A user who also syncs BoursoBank through
-Enable Banking will see their current accounts twice, as two distinct `Account`
-rows with different `provider` and `external_account_id`. Picsou does not merge
-accounts across providers — `V77__merge_duplicate_sync_accounts.sql` only merges
-within Enable Banking — so the user soft-deletes one side.
+A failed operation read does not discard balances or holdings: the response
+carries `TRANSACTIONS_UNAVAILABLE`; hitting the page cap carries
+`TRANSACTIONS_INCOMPLETE`. Missing optional IBAN metadata must not be treated as
+proof that a legacy aggregator account can be merged by its name.
+
+**Overlap with Enable Banking.** The sidecar passes an optional verified IBAN.
+The backend first matches the sidecar external ID, then the IBAN on an active
+`BoursoBank` account owned by the same member. It never matches account names or
+other providers, and respects soft-deletion guards. Without a matching IBAN or
+external ID, existing separate account rows are not automatically merged.
+
+`SharedSidecarTransactionImportService` is reused by Bourso and Revolut. It
+checks the existing transaction IDs and the bounded provider-prefixed V88 key.
+Legacy overlap is a strict multiset comparison of date, signed amount and
+case/whitespace-normalized description. Each old row can match only one incoming
+row; fresh rows with distinct provider IDs remain distinct. Historical IDs and
+manual categories are preserved. Different labels cannot safely be inferred as
+the same transaction, so live legacy reconciliation still needs verification.
+The label `VIR` alone does not classify an own-account transfer: salaries and
+external payments remain available to ordinary Budget categorization rules.
+
+`SidecarBudgetPostgresTest` exercises the real PostgreSQL repositories and
+Flyway migrations with explicitly synthetic payloads. It verifies strict
+multiset overlap, stable historical IDs/manual categories, duplicate-free
+re-syncs, member/provider-scoped IBAN matching, soft-delete guards, and the
+persisted transactions read by Budget and Cashflow in a frozen pay cycle.
+This proves the storage path, not the live Bourso HTML or equivalence of
+labels from two providers.
+
+Before declaring the live acceptance complete, a maintainer with an active
+Bourso current account and LEP must compare recent operations with the bank,
+sync twice, check the current Budget cycle, and inspect any overlap with
+legacy aggregator transactions. Different provider labels remain an explicit
+reconciliation risk; do not infer equality from date and amount alone.
 
 ## How it works
 

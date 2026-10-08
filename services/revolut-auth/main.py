@@ -33,6 +33,7 @@ Endpoints:
 
 import asyncio
 import logging
+import math
 import os
 import re
 import secrets
@@ -44,7 +45,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from camoufox.async_api import AsyncCamoufox
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -419,39 +420,110 @@ async def _fetch_transactions(page, device_id, pocket_id) -> List[Dict[str, Any]
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     cutoff = now_ms - TRANSACTION_WINDOW_DAYS * 24 * 3600 * 1000
     out, seen, cursor = [], set(), now_ms
-    for _ in range(MAX_TRANSACTION_PAGES):
+    for page_number in range(MAX_TRANSACTION_PAGES):
         resp = await api_call(page, "/api/retail/user/current/transactions/last", device_id,
                               params={"internalPocketId": pocket_id, "to": cursor})
-        if resp.get("status") != 200 or not resp.get("data"):
-            break
-        data = resp["data"]
-        batch = data if isinstance(data, list) else data.get("transactions", [])
+        if not isinstance(resp, dict) or resp.get("status") != 200:
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+        data = resp.get("data")
+        if isinstance(data, list):
+            batch = data
+        elif isinstance(data, dict) and isinstance(data.get("transactions"), list):
+            batch = data["transactions"]
+        else:
+            raise HTTPException(status_code=502, detail="INVALID_DATA")
         if not batch:
             break
         new_count, oldest = 0, cursor
         for t in batch:
+            if not isinstance(t, dict):
+                raise HTTPException(status_code=502, detail="INVALID_DATA")
             tid = _pick(t, "id")
-            if not tid or tid in seen:
+            if not isinstance(tid, str) or not tid.strip():
+                raise HTTPException(status_code=502, detail="INVALID_DATA")
+            ts = _pick(t, "completedDate", "startedDate")
+            if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+                raise HTTPException(status_code=502, detail="INVALID_DATA")
+            try:
+                ts = float(ts)
+                if not math.isfinite(ts) or ts <= 0:
+                    raise ValueError("invalid timestamp")
+                date = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+            except (OverflowError, OSError, ValueError, TypeError):
+                raise HTTPException(status_code=502, detail="INVALID_DATA") from None
+            if ts < oldest:
+                oldest = ts
+            merchant = t.get("merchant")
+            if merchant is None:
+                merchant = {}
+            if not isinstance(merchant, dict):
+                raise HTTPException(status_code=502, detail="INVALID_DATA")
+            raw_amount = _pick(t, "amount", default=0)
+            if isinstance(raw_amount, bool) or not isinstance(raw_amount, (int, float)):
+                raise HTTPException(status_code=502, detail="INVALID_DATA")
+            try:
+                amount = float(raw_amount)
+            except (OverflowError, ValueError):
+                raise HTTPException(status_code=502, detail="INVALID_DATA") from None
+            if not math.isfinite(amount):
+                raise HTTPException(status_code=502, detail="INVALID_DATA")
+            if tid in seen:
                 continue
             seen.add(tid)
             new_count += 1
-            ts = _pick(t, "completedDate", "startedDate", default=0)
-            if ts and ts < oldest:
-                oldest = ts
-            if ts and ts < cutoff:
+            if ts < cutoff:
                 continue
-            merchant = _pick(t, "merchant", default={}) or {}
             out.append({
                 "externalId": tid,
-                "date": datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d") if ts else "",
+                "date": date,
                 "description": _pick(t, "description") or _pick(merchant, "name") or "",
-                "amount": _minor_to_major(_pick(t, "amount", default=0)),
+                "amount": _minor_to_major(amount),
                 "counterparty": _pick(merchant, "name"),
+                "_sourceType": _pick(t, "type"),
             })
-        if new_count == 0 or oldest <= cutoff or oldest >= cursor:
+        if oldest <= cutoff:
             break
+        if new_count == 0:
+            raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
+        if oldest >= cursor:
+            raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
+        if page_number == MAX_TRANSACTION_PAGES - 1:
+            raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
         cursor = oldest
     return out
+
+
+def _classify_internal_transfers(accounts: List[Dict[str, Any]]) -> None:
+    """Classify only transfer legs with a deterministic, cross-pocket mirror."""
+    by_transaction_id: Dict[str, List[tuple]] = {}
+    for account in accounts:
+        account_id = account.get("externalId")
+        currency = account.get("currency")
+        for transaction in account.get("transactions", []):
+            transaction_id = transaction.get("externalId")
+            if transaction_id:
+                by_transaction_id.setdefault(transaction_id, []).append(
+                    (account_id, currency, transaction)
+                )
+
+    for entries in by_transaction_id.values():
+        if len(entries) != 2:
+            continue
+        (account_a, currency_a, transaction_a), (account_b, currency_b, transaction_b) = entries
+        amount_a = transaction_a.get("amount")
+        amount_b = transaction_b.get("amount")
+        if (account_a != account_b and currency_a == currency_b
+                and transaction_a.get("date") == transaction_b.get("date")
+                and transaction_a.get("_sourceType") == "TRANSFER"
+                and transaction_b.get("_sourceType") == "TRANSFER"
+                and isinstance(amount_a, (int, float)) and amount_a != 0
+                and isinstance(amount_b, (int, float)) and amount_a == -amount_b):
+            transaction_a["kind"] = "TRANSFER"
+            transaction_b["kind"] = "TRANSFER"
+
+    for account in accounts:
+        for transaction in account.get("transactions", []):
+            transaction.pop("_sourceType", None)
 
 
 def _with_wallet_parents(accounts: List[Dict[str, Any]], wallet_currencies: Dict[str, str],
@@ -507,6 +579,7 @@ def _with_wallet_parents(accounts: List[Dict[str, Any]], wallet_currencies: Dict
 
 async def harvest_accounts(page, device_id, on_progress: Optional[Callable[[int], None]] = None) -> Dict[str, Any]:
     accounts: List[Dict[str, Any]] = []
+    transaction_pocket_ids: Dict[str, str] = {}
 
     # Money-boxes (vaults) first -- record their pocket ids so those pockets are not
     # also surfaced as current accounts (a vault would otherwise appear twice).
@@ -517,7 +590,9 @@ async def harvest_accounts(page, device_id, on_progress: Optional[Callable[[int]
             continue
         mb_pocket = _pick(mb, "pocket", default={})
         if isinstance(mb_pocket, dict) and _pick(mb_pocket, "id"):
-            mb_pocket_ids.add(_pick(mb_pocket, "id"))
+            mb_pocket_id = _pick(mb_pocket, "id")
+            mb_pocket_ids.add(mb_pocket_id)
+            transaction_pocket_ids[mb_id] = mb_pocket_id
         bal = _pick(mb, "balance", default={})  # nested {"amount": cents, "currency": "EUR"}
         balance = _minor_to_major(_pick(bal, "amount", default=0)) if isinstance(bal, dict) else _minor_to_major(bal)
         currency = _pick(bal, "currency") if isinstance(bal, dict) else None
@@ -554,6 +629,7 @@ async def harvest_accounts(page, device_id, on_progress: Optional[Callable[[int]
                 "parentExternalId": wallet_id if wallet_id and wallet_id != pid else None,
                 "transactions": [],
             })
+            transaction_pocket_ids[pid] = pid
             if wallet_id and ptype == "CURRENT":
                 current_ccy[wallet_id] = currency
     if on_progress:
@@ -578,11 +654,13 @@ async def harvest_accounts(page, device_id, on_progress: Optional[Callable[[int]
     accounts = _with_wallet_parents(accounts, wallet_currencies, ibans)
 
     for acc in accounts:
-        if acc["type"] == "CHECKING" and acc["externalId"] not in wallet_ids:
-            acc["transactions"] = await _fetch_transactions(page, device_id, acc["externalId"])
+        pocket_id = transaction_pocket_ids.get(acc["externalId"])
+        if pocket_id:
+            acc["transactions"] = await _fetch_transactions(page, device_id, pocket_id)
             if on_progress:
                 on_progress(len(accounts))
 
+    _classify_internal_transfers(accounts)
     return {"accounts": accounts}
 
 
@@ -737,6 +815,9 @@ async def sync(req: SyncRequest):
         t0 = time.monotonic()
         try:
             reused = await _harvest_from_profile(req.memberId)
+        except HTTPException:
+            # A typed harvest failure is not an expired session or a reason to log in again.
+            raise
         except Exception as exc:  # noqa: BLE001
             # Headless launch/harvest can fail for reasons unrelated to the session itself
             # (e.g. a broken browser environment) -- don't let that take down the whole

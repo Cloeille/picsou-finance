@@ -13,7 +13,7 @@ import httpx
 from fastapi import HTTPException
 
 from accounts_parser import AccountsFormatError
-from fixtures import DASHBOARD_HTML
+from fixtures import DASHBOARD_HTML, MOVEMENTS_HTML, RIB_HTML
 from main import (
     BASE_URL,
     AccountsRequest,
@@ -98,17 +98,28 @@ def build_client(handler) -> httpx.AsyncClient:
     )
 
 
-def default_handler(*, home=HOME_HTML, dashboard=DASHBOARD_HTML, trading=None, trading_status=200):
+def default_handler(
+    *, home=HOME_HTML, dashboard=DASHBOARD_HTML, trading=None, trading_status=200, movement_status=200
+):
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if request.url.host == "clients.boursobank.com" and path == "/":
             return httpx.Response(200, text=home)
         if path == "/dashboard/liste-comptes":
             return httpx.Response(200, text=dashboard)
+        if path.endswith("/rib"):
+            return httpx.Response(200, text=RIB_HTML)
         if "/trading/accounts/summary/" in path:
             if trading_status != 200:
                 return httpx.Response(trading_status, json={})
             return httpx.Response(200, json=trading if trading is not None else TRADING_SUMMARY)
+        if path.endswith("/mouvements"):
+            if movement_status != 200:
+                return httpx.Response(movement_status, text="temporary upstream error")
+            return httpx.Response(
+                200,
+                text=MOVEMENTS_HTML.replace(' data-operations-next-pagination="fixture-next"', ""),
+            )
         # No instrument-quote call: the trading board ships the ISIN itself, so
         # any extra upstream request here is a regression.
         raise AssertionError(f"unexpected request: {request.url}")
@@ -220,6 +231,9 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(checking.balanceEur, Decimal("20810.50"))
         self.assertIsNone(checking.cashBalance)
         self.assertEqual(checking.positions, [])
+        self.assertEqual(checking.iban, "FR7630006000011234567890189")
+        self.assertEqual([tx["externalId"] for tx in checking.transactions], ["fixture-op-1", "fixture-op-2"])
+        self.assertIsNone(checking.transactionWarning)
 
         # The fixture's passbook is a real LDDS, so it must arrive typed as one
         # rather than as the generic SAVINGS the sidecar used to send.
@@ -231,9 +245,76 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pea.balanceEur, Decimal("143088.89"))
         self.assertEqual(pea.cashBalance, Decimal("3088.89"))
         self.assertEqual(len(pea.positions), 1)
+        self.assertEqual(pea.transactions, [])
         self.assertEqual(pea.positions[0].isin, "IE00B4L5Y983")
         self.assertEqual(pea.positions[0].currentValueEur, Decimal("140000.00"))
         self.assertTrue(pea.snapshotComplete)
+
+    async def test_lep_transactions_are_harvested_but_holdings_are_not(self):
+        lep_dashboard = DASHBOARD_HTML.replace(
+            "LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE", "LIVRET D'ÉPARGNE POPULAIRE"
+        )
+        async with build_client(default_handler(dashboard=lep_dashboard)) as client:
+            accounts = await _collect_accounts(client)
+
+        lep = next(account for account in accounts if account.type == "LEP")
+        self.assertEqual(len(lep.transactions), 2)
+        self.assertEqual(lep.positions, [])
+
+    async def test_movement_outage_keeps_the_balance_and_emits_a_safe_warning(self):
+        async with build_client(default_handler(movement_status=503)) as client:
+            accounts = await _collect_accounts(client)
+
+        checking = next(account for account in accounts if account.type == "CHECKING")
+        self.assertEqual(checking.balanceEur, Decimal("20810.50"))
+        self.assertEqual(checking.transactions, [])
+        self.assertEqual(checking.transactionWarning, "TRANSACTIONS_UNAVAILABLE")
+
+    async def test_repeated_movement_token_keeps_the_balance_and_warns_incomplete(self):
+        movement_requests = []
+        normal_handler = default_handler()
+
+        def handler(request):
+            if request.url.path.endswith("/mouvements"):
+                movement_requests.append(request)
+                return httpx.Response(
+                    200,
+                    text='<ul class="list__movement"><li class="list__movement__range-summary" '
+                    'data-operations-next-pagination="loop"></li></ul>',
+                )
+            return normal_handler(request)
+
+        async with httpx.AsyncClient(
+            base_url=BASE_URL, transport=httpx.MockTransport(handler), follow_redirects=True
+        ) as client:
+            accounts = await _collect_accounts(client)
+
+        checking = next(account for account in accounts if account.type == "CHECKING")
+        self.assertEqual(checking.balanceEur, Decimal("20810.50"))
+        self.assertEqual(checking.transactionWarning, "TRANSACTIONS_INCOMPLETE")
+        self.assertEqual(len(movement_requests), 2)
+
+    async def test_cross_origin_redirect_is_not_followed_and_warns_unavailable(self):
+        foreign_requests = []
+        normal_handler = default_handler()
+
+        def handler(request):
+            if request.url.path.endswith(("/rib", "/mouvements")):
+                return httpx.Response(302, headers={"Location": "https://evil.example/collect"})
+            if request.url.host == "evil.example":
+                foreign_requests.append(request)
+                return httpx.Response(200, text="unexpected")
+            return normal_handler(request)
+
+        async with httpx.AsyncClient(
+            base_url=BASE_URL, transport=httpx.MockTransport(handler), follow_redirects=True
+        ) as client:
+            accounts = await _collect_accounts(client)
+
+        checking = next(account for account in accounts if account.type == "CHECKING")
+        self.assertEqual(checking.balanceEur, Decimal("20810.50"))
+        self.assertEqual(checking.transactionWarning, "TRANSACTIONS_UNAVAILABLE")
+        self.assertEqual(foreign_requests, [])
 
     async def test_a_line_without_an_isin_still_syncs(self):
         stripped = json.loads(json.dumps(TRADING_SUMMARY))
@@ -394,6 +475,8 @@ class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
             [
                 "/",
                 "/dashboard/liste-comptes",
+                f"/compte/cav/{'e2f509c466f5294f15abd873dbbf8a62'}/rib",
+                f"/compte/cav/{'e2f509c466f5294f15abd873dbbf8a62'}/mouvements",
                 f"/services/api/v1.7/_user_/_{USER_HASH}_/trading/accounts/summary/{PEA_ID}",
             ],
         )

@@ -107,6 +107,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Revolut pockets/vaults and Bourso current-account/LEP activity feed Budget.**
+  Real Revolut pockets use their internal pocket ID for the bounded 90-day
+  harvest, without changing persisted vault IDs. Bourso reads booked movements
+  and reuses the shared sidecar importer, preserving legacy IDs and categories
+  during strict overlap matching. Only verified mirrored Revolut legs are
+  classified as internal transfers; a generic virement label alone is not.
+  ([#213](https://github.com/Cloeille/picsou-finance/issues/213))
+
 - **AMEX and DEGIRO deployments can use CI-built images instead of local builds.**
   Both authentication sidecars are included in GHCR publishing and image-based
   CI tests, and the deployment Compose file offers the same image/build choice
@@ -122,6 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The card used to count the paid statement again on top of your new purchases. It now shows
   only what is still owed on the statement plus the purchases made since. A refund or an
   overpayment larger than the statement now shows as a credit on the card.
+
 
 - **MCP sync no longer hides an expired browser session or loses the status report after a database error.**
   BoursoBank, Bourse Direct, Amundi and Fortuneo distinguish an inactive session requiring a new login

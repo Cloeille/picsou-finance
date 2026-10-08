@@ -1,6 +1,7 @@
 package com.picsou.port;
 
 import com.picsou.model.AccountType;
+import com.picsou.model.CategoryKind;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -25,8 +26,19 @@ public interface RevolutPort {
         LocalDate date,
         String description,
         BigDecimal amount,
-        String counterparty
-    ) {}
+        String counterparty,
+        CategoryKind kind
+    ) {
+        public RevolutTxn(String externalId, LocalDate date, String description, BigDecimal amount,
+                          String counterparty) {
+            this(externalId, date, description, amount, counterparty, null);
+        }
+
+        public SidecarTransaction toSidecarTransaction() {
+            return new SidecarTransaction(externalId, date, description, amount, counterparty,
+                kind == null ? null : kind.name());
+        }
+    }
 
     record RevolutAccountData(
         String externalId,

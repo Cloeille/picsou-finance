@@ -202,6 +202,10 @@ class DashboardTest(unittest.TestCase):
         )
         self.assertEqual(accounts[0]["balanceEur"], Decimal("20810.50"))
         self.assertEqual(accounts[2]["balanceEur"], Decimal("143088.89"))
+        self.assertEqual(
+            accounts[0]["href"],
+            "/compte/cav/e2f509c466f5294f15abd873dbbf8a62/",
+        )
 
     def test_the_loan_is_excluded_without_failing_the_completeness_check(self):
         accounts, _ = parse_dashboard(DASHBOARD_HTML)

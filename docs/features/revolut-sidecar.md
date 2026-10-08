@@ -58,6 +58,38 @@ top-level (the sidecar has no FX). Credentials are stored encrypted (AES-256-GCM
 "remember"; otherwise they're passed per sync and not stored. Revolut is the **primary** source; Enable
 Banking stays as a fallback for the current account.
 
+### Transactions for pockets and vaults
+
+The harvest fetches the existing bounded 90-day transaction window for every real
+fiat pocket, including money-boxes/vaults. A vault keeps its persisted money-box
+`externalId`; a private harvest mapping uses its nested `pocket.id` for
+`internalPocketId`. Synthetic wallet parents are never queried. A real pocket
+whose ID equals its wallet ID is still queried.
+
+Transaction collection fails closed with HTTP 502 if an upstream request fails,
+the response is malformed, the cursor stops advancing before the 90-day cutoff,
+or the page cap is reached. A valid empty transaction list remains a successful
+empty history. A failed harvest is not presented as a complete partial import.
+
+The source's generic `TRANSFER` type alone does not prove an own-account move.
+Both legs are classified as `TRANSFER` only when exactly two distinct harvested
+accounts share a transaction ID, date and currency, with opposite nonzero
+amounts and source type `TRANSFER` on both legs. Source-type bookkeeping is
+removed before serializing the response. Unmatched, ambiguous and different-ID
+legs are not classified by this detector. This conservative contract is covered
+by synthetic parser fixtures, not a captured live bank response; real-account
+confirmation remains necessary for Revolut payloads using other identifiers.
+
+An unused account with no recent activity can validate login and empty-history
+handling only. It cannot validate pocket/vault activity or mirrored transfers.
+The remaining live acceptance needs a maintainer with existing recent activity;
+do not generate financial activity just to exercise this connector.
+
+Run the Python tests with real installed dependencies:
+`python -m pytest -p no:logging --asyncio-mode=auto -q tests` from
+`services/revolut-auth/`. Disabling pytest's logging plugin lets the existing
+root-formatter installation test inspect the application's own logger.
+
 ### Key files
 
 - `services/revolut-auth/main.py` — sidecar: `/sync`, `/progress/{memberId}`, Camoufox launch, login
