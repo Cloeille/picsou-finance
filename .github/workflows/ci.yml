@@ -9,6 +9,28 @@ permissions:
   contents: read
 
 jobs:
+  release-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Check deployment shell syntax
+        run: bash -n docker/deploy.sh
+      - name: Install deployment test runner
+        run: python3 -m pip install pytest
+      - name: Test preflight ordering, failure isolation, and API readiness
+        run: python3 -m pytest docker/tests/test_deploy.py -v
+      - name: Build the real release image for migration smoke tests
+        run: docker build --tag picsou-release-smoke:test --file docker/Dockerfile .
+      - name: Exercise packaged CLI, repeat deployment, and incompatible-schema isolation
+        env:
+          PICSOU_RELEASE_TEST_IMAGE: picsou-release-smoke:test
+        run: python3 -m pytest docker/tests/test_deploy_integration.py -v -s
+
   backend:
     runs-on: ubuntu-latest
     steps:
