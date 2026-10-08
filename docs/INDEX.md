@@ -74,6 +74,7 @@
 | 2026-09-23 | [A SCPI share is not a property](./decisions/2026-09-23-scpi-not-a-property.md) | Active |
 | 2026-09-26 | [CORUM client space fills existing SCPI accounts through a browser sidecar](./decisions/2026-09-26-corum-scpi-sidecar.md) | Active |
 | 2026-09-27 | [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](./decisions/2026-09-27-sofidy-scpi-sidecar.md) | Active |
+| 2026-10-08 | [Rehearse release migrations before replacing the production API](./decisions/2026-10-08-rehearse-release-migrations.md) | Active |
 
 ## Feature notes
 
@@ -126,7 +127,8 @@
 | Logos beside holding tickers (crypto: batched CoinGecko lookup; shares/ETFs: Yahoo quote page, stored in PostgreSQL) | 2026-10-03 | [holding-logos.md](./features/holding-logos.md) |
 | Add Account modal (unified sync + manual) | 2026-08-13 | [add-account-modal.md](./features/add-account-modal.md) |
 | Account visibility (hidden accounts, `/sync` Comptes tab) | 2026-07-15 | [account-visibility.md](./features/account-visibility.md) |
-| Docker deployment | 2026-07-19 | [docker-deployment.md](./features/docker-deployment.md) |
+| Docker deployment and migration-safe releases | 2026-10-08 | [docker-deployment.md](./features/docker-deployment.md) |
+| Production release backup, preflight, migration and rollback | 2026-10-08 | [release-deployment.md](./features/release-deployment.md) |
 | Navigation (sidebar + mobile bottom nav) | 2026-07-12 | [sidebar-navigation.md](./features/sidebar-navigation.md) |
 | UI control shape (shadcn theme radius) | 2026-08-10 | [ui-control-shape-system.md](./features/ui-control-shape-system.md) |
 | Privacy mode (hiding amounts for demos) | 2026-08-16 | [privacy-mode.md](./features/privacy-mode.md) |

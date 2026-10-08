@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Release upgrades rehearse database migrations before replacing the running API.**
+  `docker/deploy.sh` retains a PostgreSQL backup, restores it into a temporary database,
+  and runs the candidate image's complete Flyway chain there before touching the live schema.
+  The same pinned image migrates and verifies the live database before cutover. Readiness
+  requires a real unauthenticated `/api/auth/me` response, not a static frontend HTTP 200.
+  Missing lower-numbered migrations, checksum mismatches, and untracked manual DDL fail closed;
+  rollback and incident reconciliation remain explicit operator actions.
+
 - **An MCP client can refresh every existing connector and read whether one needs a new login.**
   `trigger_full_sync` runs the same per-member sync as the 08:00 job and returns one line per
   source, so a failed bank or a broker that needs reauthentication is named instead of hidden
