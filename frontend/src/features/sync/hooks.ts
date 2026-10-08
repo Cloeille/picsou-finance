@@ -18,6 +18,7 @@ import {
   corumApi,
   sofidyApi,
   ibkrApi,
+  simplefinApi,
 } from './api'
 import type {
   ExchangeType,
@@ -50,6 +51,7 @@ export const syncKeys = {
   corum: () => [...syncKeys.all, 'corum'] as const,
   sofidy: () => [...syncKeys.all, 'sofidy'] as const,
   ibkr: () => [...syncKeys.all, 'ibkr'] as const,
+  simplefin: () => [...syncKeys.all, 'simplefin'] as const,
   exchanges: () => [...syncKeys.all, 'exchanges'] as const,
   wallets: () => [...syncKeys.all, 'wallets'] as const,
   finary: () => [...syncKeys.all, 'finary'] as const,
@@ -881,6 +883,49 @@ export function useClearFortuneoSession() {
       queryClient.invalidateQueries({ queryKey: syncKeys.fortuneo() })
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// SimpleFIN
+// ---------------------------------------------------------------------------
+
+export function useSimplefinStatus() {
+  return useQuery({
+    queryKey: syncKeys.simplefin(),
+    queryFn: simplefinApi.getStatus,
+    staleTime: QUERY_STALE_TIMES.sync,
+  })
+}
+
+export function useConnectSimplefin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (token: string) => simplefinApi.connect(token),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: syncKeys.simplefin() }),
+  })
+}
+
+export function useSyncSimplefin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: simplefinApi.sync,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.simplefin() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+export function useDisconnectSimplefin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: simplefinApi.disconnect,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.simplefin() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
     },
   })
 }

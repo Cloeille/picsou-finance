@@ -5,6 +5,7 @@ import com.picsou.model.DegiroSessionStatus;
 import com.picsou.model.FinarySession;
 import com.picsou.model.IbkrConnection;
 import com.picsou.model.Requisition;
+import com.picsou.model.SimplefinConnection;
 import com.picsou.model.RequisitionStatus;
 import com.picsou.model.WalletAddress;
 import com.picsou.model.Chain;
@@ -13,6 +14,7 @@ import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
 import com.picsou.repository.IbkrConnectionRepository;
 import com.picsou.repository.RequisitionRepository;
+import com.picsou.repository.SimplefinConnectionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import com.picsou.model.BoursoSyncStatus;
@@ -52,6 +54,7 @@ class SyncStatusServiceTest {
     @Mock FortuneoSyncService fortuneoSyncService;
     @Mock AmexSyncService amexSyncService;
     @Mock IbkrConnectionRepository ibkrConnectionRepository;
+    @Mock SimplefinConnectionRepository simplefinConnectionRepository;
     @Mock CryptoExchangeSyncService cryptoExchangeSyncService;
     @Mock WalletAddressRepository walletAddressRepository;
     @Mock FinarySessionRepository finarySessionRepository;
@@ -64,7 +67,8 @@ class SyncStatusServiceTest {
         service = new SyncStatusService(
             revolutSyncService, requisitionRepository, tradeRepublicSyncService, tradeRepublicSessionRepository,
             boursoSyncService, bourseDirectSyncService, amundiSyncService, fortuneoSyncService,
-            amexSyncService, ibkrConnectionRepository, cryptoExchangeSyncService, walletAddressRepository,
+            amexSyncService, ibkrConnectionRepository, simplefinConnectionRepository, cryptoExchangeSyncService,
+            walletAddressRepository,
             finarySessionRepository, degiroSessionRepository);
         when(revolutSyncService.getStatus(MID)).thenReturn(new RevolutSyncService.StatusResponse(false, false, null));
         when(requisitionRepository.findAllByMemberId(MID)).thenReturn(List.of());
@@ -82,6 +86,7 @@ class SyncStatusServiceTest {
         when(amexSyncService.getStatus(MID)).thenReturn(
             new AmexSyncService.SessionStatusResponse(false, AmexSyncStatus.IDLE, null, null, null));
         when(ibkrConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
+        when(simplefinConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
         when(cryptoExchangeSyncService.getStatus(MID)).thenReturn(List.of());
         when(walletAddressRepository.findAllByMemberId(MID)).thenReturn(List.of());
         when(finarySessionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
@@ -178,6 +183,33 @@ class SyncStatusServiceTest {
 
         assertThat(text).contains("ibkr: FAILED lastSync=2026-10-04T06:00:00Z reauth=false");
         assertThat(text).doesNotContain("ibkr: CONNECTED");
+    }
+
+    @Test
+    void simplefin_connectedRow_isConnectedWithItsLastSync() {
+        when(simplefinConnectionRepository.findByMemberId(MID)).thenReturn(Optional.of(
+            SimplefinConnection.builder().accessUrl("secret-ciphertext").status("CONNECTED").lastSyncedAt(SYNCED_AT).build()));
+
+        String text = service.describe(MID);
+
+        assertThat(text).contains("simplefin: CONNECTED lastSync=2026-10-04T06:00:00Z reauth=false");
+        assertThat(text).doesNotContain("secret-ciphertext");
+    }
+
+    @Test
+    void simplefin_errorRow_isFailedWithoutRequestingReauthentication() {
+        when(simplefinConnectionRepository.findByMemberId(MID)).thenReturn(Optional.of(
+            SimplefinConnection.builder().status("ERROR").lastSyncedAt(SYNCED_AT).build()));
+
+        String text = service.describe(MID);
+
+        assertThat(text).contains("simplefin: FAILED lastSync=2026-10-04T06:00:00Z reauth=false");
+        assertThat(text).doesNotContain("simplefin: CONNECTED");
+    }
+
+    @Test
+    void simplefin_noRow_isNotConnected() {
+        assertThat(service.describe(MID)).contains("simplefin: NOT_CONNECTED lastSync=none reauth=false");
     }
 
     @ParameterizedTest

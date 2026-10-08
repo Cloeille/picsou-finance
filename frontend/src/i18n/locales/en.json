@@ -973,6 +973,7 @@
       "bourseDirect": "Sync your PEA and securities accounts",
       "degiro": "Sync your DEGIRO securities account",
       "ibkr": "Sync your Interactive Brokers account via Flex Query",
+      "simplefin": "Import bank accounts with a SimpleFIN setup token",
       "finary": "Import from Finary",
       "manual": "Create an account manually",
       "amundi": "PEE, PEG, PERCO, PER held at Amundi",
@@ -1081,6 +1082,28 @@
       "errors": {
         "connectFailed": "Could not save the connection. Check the token and query id.",
         "syncFailed": "Interactive Brokers sync failed. Check your token or try again.",
+        "disconnectFailed": "Could not remove the connection. Please try again."
+      }
+    },
+    "simplefin": {
+      "title": "SimpleFIN",
+      "setupHint": "Link your banks on SimpleFIN Bridge, create a setup token, and paste it here.",
+      "createToken": "Create a setup token",
+      "token": "Setup token",
+      "tokenPlaceholder": "Paste the token from SimpleFIN",
+      "connect": "Connect",
+      "sync": "Sync",
+      "syncing": "Syncing…",
+      "disconnect": "Disconnect",
+      "disconnectConfirm": "Remove the stored SimpleFIN connection? Imported accounts stay, and they stop updating.",
+      "connected": "Connected",
+      "statusError": "Last sync failed",
+      "lastSync": "Last sync",
+      "neverSynced": "Never synced",
+      "syncedToast": "SimpleFIN synced: {{count}} account(s)",
+      "errors": {
+        "connectFailed": "Could not connect to SimpleFIN. Check the setup token and try again.",
+        "syncFailed": "SimpleFIN sync failed. Try again, or create a new setup token if access was revoked.",
         "disconnectFailed": "Could not remove the connection. Please try again."
       }
     },

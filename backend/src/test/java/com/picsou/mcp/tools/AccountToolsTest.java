@@ -168,11 +168,12 @@ class AccountToolsTest {
         com.picsou.service.FortuneoSyncService fortuneoSyncService = mock(com.picsou.service.FortuneoSyncService.class);
         com.picsou.service.DegiroSyncService degiroSyncService = mock(com.picsou.service.DegiroSyncService.class);
         com.picsou.service.IbkrSyncService ibkrSyncService = mock(com.picsou.service.IbkrSyncService.class);
+        com.picsou.service.SimplefinSyncService simplefinSyncService = mock(com.picsou.service.SimplefinSyncService.class);
         AccountConnectionService realService = new AccountConnectionService(
             accountRepository, accountServiceForConn, walletRepository, exchangeSessionRepository,
             requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
-            fortuneoSyncService, degiroSyncService, ibkrSyncService);
+            fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService);
         return new RealServiceFixture(realService, accountRepository, accountServiceForConn,
             boursoSyncService, tradeRepublicSyncService);
     }

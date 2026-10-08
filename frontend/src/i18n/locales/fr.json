@@ -973,6 +973,7 @@
       "bourseDirect": "Synchroniser vos PEA et CTO",
       "degiro": "Synchroniser votre compte-titres DEGIRO",
       "ibkr": "Synchronisez votre compte Interactive Brokers via Flex Query",
+      "simplefin": "Importez vos comptes bancaires avec un jeton SimpleFIN",
       "finary": "Importer depuis Finary",
       "manual": "Créer un compte manuellement",
       "amundi": "PEE, PEG, PERCO, PER chez Amundi",
@@ -1081,6 +1082,28 @@
       "errors": {
         "connectFailed": "Impossible d'enregistrer la connexion. Vérifiez le jeton et l'ID de requête.",
         "syncFailed": "Échec de la synchronisation Interactive Brokers. Vérifiez votre jeton ou réessayez.",
+        "disconnectFailed": "Impossible de supprimer la connexion. Réessayez."
+      }
+    },
+    "simplefin": {
+      "title": "SimpleFIN",
+      "setupHint": "Reliez vos banques sur SimpleFIN Bridge, créez un jeton de configuration, puis collez-le ici.",
+      "createToken": "Créer un jeton",
+      "token": "Jeton de configuration",
+      "tokenPlaceholder": "Collez le jeton SimpleFIN",
+      "connect": "Connecter",
+      "sync": "Synchroniser",
+      "syncing": "Synchronisation…",
+      "disconnect": "Déconnecter",
+      "disconnectConfirm": "Supprimer la connexion SimpleFIN enregistrée ? Les comptes importés restent, et ne se mettent plus à jour.",
+      "connected": "Connecté",
+      "statusError": "Échec de la dernière synchro",
+      "lastSync": "Dernière sync",
+      "neverSynced": "Jamais synchronisé",
+      "syncedToast": "SimpleFIN synchronisé : {{count}} compte(s)",
+      "errors": {
+        "connectFailed": "Connexion à SimpleFIN impossible. Vérifiez le jeton et réessayez.",
+        "syncFailed": "Échec de la synchronisation SimpleFIN. Réessayez, ou créez un nouveau jeton si l'accès a été révoqué.",
         "disconnectFailed": "Impossible de supprimer la connexion. Réessayez."
       }
     },

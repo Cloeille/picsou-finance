@@ -699,6 +699,7 @@
       "bourseDirect": "Sincronizar tus cuentas PEA y de valores",
       "degiro": "Sincronizar tu cuenta de valores DEGIRO",
       "ibkr": "Sincroniza tu cuenta de Interactive Brokers mediante Flex Query",
+      "simplefin": "Importa cuentas bancarias con un token de SimpleFIN",
       "finary": "Importar desde Finary",
       "manual": "Crear una cuenta manualmente",
       "amundi": "PEE, PEG, PERCO, PER en Amundi",
@@ -779,6 +780,28 @@
       "errors": {
         "connectFailed": "No se pudo guardar la conexión. Verifica el token y el ID de consulta.",
         "syncFailed": "Falló la sincronización de Interactive Brokers. Verifica tu token o inténtalo de nuevo.",
+        "disconnectFailed": "No se pudo eliminar la conexión. Inténtalo de nuevo."
+      }
+    },
+    "simplefin": {
+      "title": "SimpleFIN",
+      "setupHint": "Vincula tus bancos en SimpleFIN Bridge, crea un token de configuración y pégalo aquí.",
+      "createToken": "Crear un token",
+      "token": "Token de configuración",
+      "tokenPlaceholder": "Pega el token de SimpleFIN",
+      "connect": "Conectar",
+      "sync": "Sincronizar",
+      "syncing": "Sincronizando…",
+      "disconnect": "Desconectar",
+      "disconnectConfirm": "¿Eliminar la conexión de SimpleFIN guardada? Las cuentas importadas se quedan y dejan de actualizarse.",
+      "connected": "Conectado",
+      "statusError": "Falló la última sincronización",
+      "lastSync": "Última sync",
+      "neverSynced": "Nunca sincronizado",
+      "syncedToast": "SimpleFIN sincronizado: {{count}} cuenta(s)",
+      "errors": {
+        "connectFailed": "No se pudo conectar con SimpleFIN. Revisa el token e inténtalo de nuevo.",
+        "syncFailed": "Falló la sincronización de SimpleFIN. Inténtalo de nuevo o crea un token nuevo si se revocó el acceso.",
         "disconnectFailed": "No se pudo eliminar la conexión. Inténtalo de nuevo."
       }
     },

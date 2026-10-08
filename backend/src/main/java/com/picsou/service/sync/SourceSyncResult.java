@@ -17,7 +17,7 @@ public record SourceSyncResult(String source, Status status, String message) {
       case "ibkr" -> code == null && (endsWithProviderCode(message, "1012")
           || endsWithProviderCode(message, "1015"));
       case "bourso" -> "SESSION_EXPIRED".equals(code) || "INVALID_CREDENTIALS".equals(code);
-      case "bourse-direct", "amundi", "fortuneo", "amex" -> "SESSION_EXPIRED".equals(code);
+      case "bourse-direct", "amundi", "fortuneo", "amex", "simplefin" -> "SESSION_EXPIRED".equals(code);
       default -> false;
     };
     return new SourceSyncResult(source, needsReauth ? Status.NEEDS_REAUTH : Status.FAILED,

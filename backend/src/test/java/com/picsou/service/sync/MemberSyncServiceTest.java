@@ -36,6 +36,7 @@ class MemberSyncServiceTest {
     @Mock private FortuneoSyncService fortuneoSyncService;
     @Mock private AmexSyncService amexSyncService;
     @Mock private IbkrSyncService ibkrSyncService;
+    @Mock private SimplefinSyncService simplefinSyncService;
     @Mock private CryptoExchangeSyncService cryptoExchangeSyncService;
     @Mock private WalletSyncService walletSyncService;
     @Mock private FinaryApiSyncService finaryApiSyncService;
@@ -48,7 +49,7 @@ class MemberSyncServiceTest {
         memberSyncService = new MemberSyncService(
             revolutSyncService, syncService, trSyncService, boursoSyncService,
             bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService,
-            ibkrSyncService, cryptoExchangeSyncService, walletSyncService,
+            ibkrSyncService, simplefinSyncService, cryptoExchangeSyncService, walletSyncService,
             finaryApiSyncService, degiroSyncService
         );
     }
@@ -66,29 +67,34 @@ class MemberSyncServiceTest {
         when(fortuneoSyncService.resyncReporting(memberId)).thenReturn(success("fortuneo"));
         when(amexSyncService.resyncReporting(memberId)).thenReturn(success("amex"));
         when(ibkrSyncService.resyncReporting(memberId)).thenReturn(success("ibkr"));
+        when(simplefinSyncService.resyncReporting(memberId)).thenReturn(success("simplefin"));
         when(cryptoExchangeSyncService.resyncAllReporting(memberId)).thenReturn(success("crypto-exchanges"));
         when(walletSyncService.resyncAll(memberId)).thenReturn(new ResyncSummary(1, 1, List.of()));
         when(finaryApiSyncService.autoSync(memberId)).thenReturn(new FinaryAutoSyncResponse("OK", 1, 0));
 
         List<SourceSyncResult> results = memberSyncService.resyncScheduled(memberId);
 
-        assertEquals(14, results.size());
+        assertEquals(15, results.size());
         assertEquals("revolut", results.get(0).source());
         assertEquals("enable-banking", results.get(1).source());
         assertEquals("enable-banking-retry", results.get(2).source());
         assertEquals("amex", results.get(8).source());
         assertEquals("ibkr", results.get(9).source());
-        assertEquals("degiro", results.get(13).source());
-        assertEquals(SourceSyncResult.Status.SKIPPED, results.get(13).status());
+        assertEquals("simplefin", results.get(10).source());
+        assertEquals("degiro", results.get(14).source());
+        assertEquals(SourceSyncResult.Status.SKIPPED, results.get(14).status());
 
         InOrder inOrder = inOrder(revolutSyncService, syncService, trSyncService, boursoSyncService,
             bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService, ibkrSyncService,
-            cryptoExchangeSyncService, walletSyncService, finaryApiSyncService, degiroSyncService);
+            simplefinSyncService, cryptoExchangeSyncService, walletSyncService, finaryApiSyncService, degiroSyncService);
         inOrder.verify(revolutSyncService).resyncReporting(memberId);
         inOrder.verify(syncService).resyncAllReporting(memberId);
         inOrder.verify(syncService).retryFailedReporting(memberId);
         inOrder.verify(trSyncService).resyncReporting(memberId);
         inOrder.verify(amexSyncService).resyncReporting(memberId);
+        inOrder.verify(ibkrSyncService).resyncReporting(memberId);
+        inOrder.verify(simplefinSyncService).resyncReporting(memberId);
+        inOrder.verify(cryptoExchangeSyncService).resyncAllReporting(memberId);
         verify(degiroSyncService, never()).userSyncReporting(anyLong());
         verify(degiroSyncService, never()).sync(anyLong());
     }

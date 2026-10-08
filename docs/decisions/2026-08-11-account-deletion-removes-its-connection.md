@@ -38,7 +38,7 @@ remains a separate read-only preview for confirmation, which can become stale be
 and must not be reported as the applied result.
 
 "Its connection" is resolved from `external_account_id`, whose namespaces are disjoint —
-`wallet_`, `crypto_exchange_`, `amundi_`, `tr_`, `bd_`, `ibkr_`, `degiro-portfolio` — falling
+`wallet_`, `crypto_exchange_`, `amundi_`, `tr_`, `bd_`, `ibkr_`, `sfin_`, `degiro-portfolio` — falling
 back to `account.requisition_id` for Enable Banking, whose ids are the bank's own opaque
 strings and carry no namespace. V76 adds that column; `SyncService.upsertAccount` had the
 requisition in hand all along and persisted only its name.

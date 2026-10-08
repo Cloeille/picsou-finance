@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -61,6 +62,14 @@ public class BankTransactionImportService {
 
     /** Marks a key as a locally computed fingerprint rather than a provider reference. */
     private static final String FINGERPRINT_PREFIX = "fp:";
+
+    /** Matches {@code transaction.description}, {@code transaction.category}, and the external id. */
+    private static final int DESCRIPTION_MAX = 255;
+    private static final int CATEGORY_MAX = 100;
+    private static final int EXTERNAL_ID_MAX = 255;
+
+    /** {@code numeric(20,8)} holds twelve digits before the decimal point. */
+    private static final BigDecimal LEDGER_LIMIT = new BigDecimal("1000000000000");
 
     private final BankConnectorPort bankConnector;
     private final TransactionRepository transactionRepository;
@@ -117,6 +126,38 @@ public class BankTransactionImportService {
     }
 
     /**
+     * Stores transactions already downloaded with the balances (SimpleFIN returns both
+     * in one response). Same dedup as {@link #importFor}. A write failure propagates:
+     * the rows are already in hand, so this is not an upstream refusal to ignore.
+     *
+     * @return how many new transactions were stored
+     */
+    public int importProvided(Account account, List<TransactionData> fetched) {
+        if (account.getId() == null || fetched == null || fetched.isEmpty()) return 0;
+
+        LocalDate windowStart = windowStart(account.getId(), LocalDate.now());
+        List<Transaction> toInsert = selectNew(account, windowStart, fetched);
+        if (toInsert.isEmpty()) {
+            log.debug("No new transactions for account {} ({} provided, all known)", account.getId(), fetched.size());
+            return 0;
+        }
+
+        transactionRepository.saveAll(toInsert);
+        log.info("Imported {} new transactions for account {} ({} provided)",
+            toInsert.size(), account.getId(), fetched.size());
+        return toInsert.size();
+    }
+
+    /**
+     * How far back one shared download should reach. SimpleFIN returns every account
+     * in a single response, so a shorter per-account window would hide a bank that
+     * was linked after the first sync. Dedup drops the rows already stored.
+     */
+    public LocalDate sharedHistoryStart() {
+        return LocalDate.now().minusDays(initialHistoryDays);
+    }
+
+    /**
      * Start of the window to request. First import of an account: {@link #initialHistoryDays}
      * back. Afterwards: {@link #OVERLAP_DAYS} before the newest entry already stored, so
      * late-booked entries are still picked up without re-downloading the whole history on
@@ -165,6 +206,10 @@ public class BankTransactionImportService {
 
         List<Transaction> toInsert = new ArrayList<>();
         for (TransactionData data : fetched) {
+            if (!fitsLedgerAmount(data.amount())) {
+                log.warn("Skipping a transaction on account {} — amount does not fit the ledger", account.getId());
+                continue;
+            }
             String key = dedupKey(data);
             if (!known.add(key)) continue;
             toInsert.add(toEntity(account, data, key));
@@ -177,8 +222,16 @@ public class BankTransactionImportService {
      * sends one, otherwise a fingerprint of the fields a user would call identical.
      */
     static String dedupKey(TransactionData data) {
-        if (data.externalId() != null && !data.externalId().isBlank()) return data.externalId().trim();
+        if (data.externalId() != null && !data.externalId().isBlank()) {
+            String id = data.externalId().trim();
+            return id.length() <= EXTERNAL_ID_MAX ? id : FINGERPRINT_PREFIX + sha256Hex(id);
+        }
         return fingerprint(data.date(), data.amount(), data.description());
+    }
+
+    /** True when {@code value} can be stored in a {@code numeric(20,8)} money column. */
+    static boolean fitsLedgerAmount(BigDecimal value) {
+        return value != null && value.abs().compareTo(LEDGER_LIMIT) < 0;
     }
 
     /**
@@ -196,16 +249,17 @@ public class BankTransactionImportService {
 
     /**
      * Hash of date + amount + description. Hashed rather than concatenated so the key
-     * fits {@code transaction.external_transaction_id} (VARCHAR(128)) whatever the
+     * fits {@code transaction.external_transaction_id} (VARCHAR(255)) whatever the
      * description's length, and stays a fixed, index-friendly width.
      *
-     * <p>{@code stripTrailingZeros} normalizes the scale: the provider sends
-     * {@code "12.34"} while the column round-trips it as {@code 12.34000000}, and the
-     * two must hash alike or every sync would re-import the same rows.
+     * <p>The amount is rounded to the column's 8 decimals, then {@code stripTrailingZeros}
+     * normalizes the scale: the provider sends {@code "12.34"} while the column round-trips
+     * it as {@code 12.34000000}, and the two must hash alike or every sync would re-import
+     * the same rows.
      */
     private static String fingerprint(LocalDate date, BigDecimal amount, String description) {
         String canonical = date + "|"
-            + (amount == null ? "" : amount.stripTrailingZeros().toPlainString()) + "|"
+            + (amount == null ? "" : amount.setScale(8, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()) + "|"
             + (description == null ? "" : description.trim());
         return FINGERPRINT_PREFIX + sha256Hex(canonical);
     }
@@ -229,13 +283,20 @@ public class BankTransactionImportService {
         return Transaction.builder()
             .account(account)
             .date(data.date())
-            .description(data.description() != null ? data.description() : "")
+            .description(clip(data.description() != null ? data.description() : "", DESCRIPTION_MAX))
             .amount(data.amount())
-            .category(data.category())
+            .category(clip(data.category(), CATEGORY_MAX))
             .nativeCurrency(currencyOf(data, account))
             .externalTransactionId(dedupKey)
             .isManual(false)
             .build();
+    }
+
+    /** Stops on a character boundary so a cut value is still valid text. */
+    static String clip(String value, int max) {
+        if (value == null || value.length() <= max) return value;
+        int end = Character.isHighSurrogate(value.charAt(max - 1)) ? max - 1 : max;
+        return value.substring(0, Math.max(end, 0));
     }
 
     private static String currencyOf(TransactionData data, Account account) {

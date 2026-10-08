@@ -20,6 +20,7 @@ test.describe('Sync page tabs', () => {
       'Bourse Direct',
       'DEGIRO',
       'Interactive Brokers',
+      'SimpleFIN',
       'Amundi',
       'Fortuneo',
       'American Express',

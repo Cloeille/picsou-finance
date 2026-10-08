@@ -61,6 +61,8 @@ import {
   useSyncDegiro,
   useIbkrStatus,
   useSyncIbkr,
+  useSimplefinStatus,
+  useSyncSimplefin,
 } from '@/features/sync/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
@@ -71,7 +73,7 @@ import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
-    | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr'
+    | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -94,6 +96,7 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   'bourse-direct': LineChart,
   degiro: LineChart,
   ibkr: LineChart,
+  simplefin: Landmark,
 }
 
 /** Which Sync-page tab each provider re-authenticates on. */
@@ -104,6 +107,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   'bourse-direct': 'bourse-direct',
   degiro: 'degiro',
   ibkr: 'ibkr',
+  simplefin: 'simplefin',
   finary: 'finary',
 }
 
@@ -149,6 +153,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: bourseDirectStatus } = useBourseDirectStatus()
   const { data: degiroStatus } = useDegiroSessionStatus()
   const { data: ibkrStatus } = useIbkrStatus()
+  const { data: simplefinStatus } = useSimplefinStatus()
   const { data: accounts } = useAccounts()
 
   // Show TR in modal if: there are active TR accounts, the session is active, or the session
@@ -206,7 +211,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       active: ibkrStatus?.connected ?? false, lastSyncedAt: ibkrStatus?.lastSyncedAt ?? null,
       failed: ibkrStatus?.status === 'ERROR',
     },
-  ], [amundiStatus, fortuneoStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus])
+    {
+      type: 'simplefin' as const, name: 'SimpleFIN', provider: 'SimpleFIN',
+      active: simplefinStatus?.connected ?? false, lastSyncedAt: simplefinStatus?.lastSyncedAt ?? null,
+      failed: simplefinStatus?.status === 'ERROR',
+    },
+  ], [amundiStatus, fortuneoStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -221,6 +231,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncBourseDirectMutation = useSyncBourseDirect()
   const syncDegiroMutation       = useSyncDegiro()
   const syncIbkrMutation         = useSyncIbkr()
+  const syncSimplefinMutation    = useSyncSimplefin()
 
   // Track syncing state per connection
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set())
@@ -421,6 +432,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'ibkr':
         syncIbkrMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'simplefin':
+        syncSimplefinMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'revolut':
         // Revolut's on-demand flow is discover → pick accounts → confirm, which lives in the
         // dedicated tab; SyncAll routes there rather than blind-importing everything.
@@ -451,6 +465,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncBourseDirectMutation,
     syncDegiroMutation,
     syncIbkrMutation,
+    syncSimplefinMutation,
     navigate,
     onOpenChange,
     queryClient,

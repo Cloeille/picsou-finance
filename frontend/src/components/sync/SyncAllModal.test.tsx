@@ -71,6 +71,8 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: { isActive: false, status: null, lastSyncedAt: null } })
       case '/ibkr/status':
         return Promise.resolve({ data: { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null } })
+      case '/simplefin/status':
+        return Promise.resolve({ data: simplefinStatus })
       case '/accounts':
         return Promise.resolve({ data: accountsFixture })
       default:
@@ -81,7 +83,12 @@ function mockStatusEndpoints() {
 
 /** Overridden per test to drive the session-provider rows. */
 let amundiStatus: Record<string, unknown>
+let simplefinStatus: Record<string, unknown>
 let accountsFixture: unknown[]
+
+const SIMPLEFIN_DISCONNECTED = {
+  connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null,
+}
 
 const AMUNDI_INACTIVE = {
   isActive: false, syncStatus: 'IDLE', lastSyncError: null,
@@ -99,6 +106,7 @@ const AMUNDI_ACCOUNT = {
 /** Resets the per-test fixtures to "only Trade Republic exists". */
 function resetFixtures() {
   amundiStatus = AMUNDI_INACTIVE
+  simplefinStatus = SIMPLEFIN_DISCONNECTED
   accountsFixture = [TR_ACCOUNT]
 }
 
@@ -234,6 +242,19 @@ describe('SyncAllModal session providers', () => {
     expect(screen.queryByText('Bourse Direct')).not.toBeInTheDocument()
     expect(screen.queryByText('DEGIRO')).not.toBeInTheDocument()
     expect(screen.queryByText('Interactive Brokers')).not.toBeInTheDocument()
+    expect(screen.queryByText('SimpleFIN')).not.toBeInTheDocument()
+  })
+
+  it('lists SimpleFIN when connected and syncs through its endpoint', async () => {
+    simplefinStatus = { ...SIMPLEFIN_DISCONNECTED, connected: true, connectionId: 1, status: 'CONNECTED' }
+    apiPost.mockResolvedValue({ data: [] })
+    renderModal()
+
+    const row = (await screen.findByText('SimpleFIN')).closest('[data-slot="card"]') as HTMLElement
+    expect(row).not.toBeNull()
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/simplefin/sync'))
   })
 
   it('lists a provider whose session is live', async () => {
