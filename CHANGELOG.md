@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arrive as checking accounts, like Enable Banking's; set a savings account or a
   credit card in the account form and later syncs keep that type. Pending
   transactions and non-ISO currencies are skipped. There is no institution search:
-  banks are linked on SimpleFIN Bridge, then one token is brought back.
+  banks are linked on SimpleFIN Bridge, then one token is brought back. See
+  [ADR](docs/decisions/2026-10-04-simplefin-beside-enable-banking.md) and
+  [feature note](docs/features/simplefin-sync.md).
 
 - **An MCP client can refresh every existing connector and read whether one needs a new login.**
   `trigger_full_sync` runs the same per-member sync as the 08:00 job and returns one line per

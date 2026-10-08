@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow;
 
@@ -30,16 +31,18 @@ public class SimplefinClient implements SimplefinPort {
     private static final Logger log = LoggerFactory.getLogger(SimplefinClient.class);
     private static final int MAX_CLAIM_BODY = 8_192;
     private static final int MAX_ACCOUNTS_BODY = 2_000_000;
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
 
     private final SimplefinTransport transport;
 
     public SimplefinClient() {
         HttpClient http = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NEVER)
-            .connectTimeout(Duration.ofSeconds(10))
+            .connectTimeout(CONNECT_TIMEOUT)
             .build();
         this.transport = (method, uri, authorization, maxBody) -> {
-            HttpRequest.Builder builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30));
+            HttpRequest.Builder builder = HttpRequest.newBuilder(uri).timeout(REQUEST_TIMEOUT);
             if ("POST".equals(method)) builder.POST(HttpRequest.BodyPublishers.noBody());
             else builder.GET();
             if (authorization != null) builder.header("Authorization", authorization);
@@ -131,8 +134,7 @@ public class SimplefinClient implements SimplefinPort {
 
     private static HttpResponse.BodySubscriber<String> boundedSubscriber(int maxBody, boolean alreadyTooBig) {
         return new HttpResponse.BodySubscriber<>() {
-            private final java.util.concurrent.CompletableFuture<String> body =
-                new java.util.concurrent.CompletableFuture<>();
+            private final CompletableFuture<String> body = new CompletableFuture<>();
             private final ByteArrayOutputStream out = new ByteArrayOutputStream();
             private Flow.Subscription subscription;
             private int seen;

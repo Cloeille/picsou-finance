@@ -13,6 +13,9 @@ import java.util.List;
  */
 public interface SimplefinPort {
 
+    /** Longest setup token accepted, checked by the request DTO and again by the adapter. */
+    int MAX_SETUP_TOKEN_CHARS = 4096;
+
     /** Exchange a setup token for an access URL. The token cannot be claimed twice. */
     String claim(String setupToken);
 

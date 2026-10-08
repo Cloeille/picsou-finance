@@ -891,6 +891,9 @@ handlers.set(key('POST', '/ibkr/connect'), () => null)
 handlers.set(key('POST', '/ibkr/sync'), () => [])
 handlers.set(key('DELETE', '/ibkr/connection'), () => null)
 
+// SimpleFIN keeps its status in memory so the demo can walk the whole flow:
+// connect flips the panel to connected, sync stamps lastSyncedAt, disconnect resets.
+// A page reload starts disconnected again.
 const demoSimplefin = {
   connected: false,
   connectionId: null as number | null,

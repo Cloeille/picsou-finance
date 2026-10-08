@@ -25,6 +25,7 @@ import java.util.Map;
 final class SimplefinJson {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    /** Same {@code VARCHAR(255)} width as {@code BankTransactionImportService.EXTERNAL_ID_MAX}. */
     private static final int MAX_EXTERNAL_ID = 255;
 
     private SimplefinJson() {}
@@ -37,6 +38,7 @@ final class SimplefinJson {
         try {
             root = MAPPER.readTree(json);
         } catch (Exception ex) {
+            // No cause: Jackson's message quotes part of the body, which is account data.
             throw new SyncException("SimpleFIN returned a response Picsou could not read.");
         }
         if (root == null || !root.isObject()) {

@@ -290,7 +290,8 @@ public class BankTransactionImportService {
             .build();
     }
 
-    private static String clip(String value, int max) {
+    /** Stops on a character boundary so a cut value is still valid text. */
+    static String clip(String value, int max) {
         if (value == null || value.length() <= max) return value;
         int end = Character.isHighSurrogate(value.charAt(max - 1)) ? max - 1 : max;
         return value.substring(0, Math.max(end, 0));

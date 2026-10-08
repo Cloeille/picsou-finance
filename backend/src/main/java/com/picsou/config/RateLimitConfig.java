@@ -180,8 +180,8 @@ public class RateLimitConfig {
      * Connect claims a single-use token and sync hits the bridge, which expects
      * roughly a daily poll rather than a tight loop.
      */
-    @Bean("simplefinBuckets")
-    public Map<String, Bucket> simplefinBuckets() {
+    @Bean("simplefinRequestBuckets")
+    public Map<String, Bucket> simplefinRequestBuckets() {
         return boundedBucketStore();
     }
 
@@ -438,7 +438,7 @@ public class RateLimitConfig {
             .build();
     }
 
-    public static Bucket createSimplefinBucket() {
+    public static Bucket createSimplefinRequestBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(6)

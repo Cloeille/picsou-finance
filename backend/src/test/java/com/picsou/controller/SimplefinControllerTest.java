@@ -59,7 +59,7 @@ class SimplefinControllerTest {
 
     private static final long MEMBER_ID = 42L;
     private static final long OTHER_MEMBER_ID = 99L;
-    /** Mirrors RateLimitConfig.createSimplefinBucket(): 6 requests per minute per IP. */
+    /** Mirrors RateLimitConfig.createSimplefinRequestBucket(): 6 requests per minute per IP. */
     private static final int BUDGET_PER_MINUTE = 6;
 
     private static final String SETUP_TOKEN = "SECRET-SETUP-TOKEN-aGVsbG8";
@@ -68,15 +68,15 @@ class SimplefinControllerTest {
     @Mock SimplefinSyncService simplefinService;
     @Mock UserContext userContext;
 
-    Map<String, Bucket> simplefinBuckets;
+    Map<String, Bucket> simplefinRequestBuckets;
     SimplefinController controller;
     MockHttpServletRequest httpReq;
     MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        simplefinBuckets = new HashMap<>();
-        controller = new SimplefinController(simplefinService, userContext, simplefinBuckets);
+        simplefinRequestBuckets = new HashMap<>();
+        controller = new SimplefinController(simplefinService, userContext, simplefinRequestBuckets);
         httpReq = new MockHttpServletRequest();
         httpReq.setRemoteAddr("10.0.0.5");
         mockMvc = MockMvcBuilders.standaloneSetup(controller)

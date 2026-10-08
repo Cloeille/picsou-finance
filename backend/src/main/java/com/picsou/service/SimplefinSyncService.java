@@ -242,14 +242,7 @@ public class SimplefinSyncService {
         String combined = bank.isEmpty() || account.toLowerCase(Locale.ROOT).contains(bank.toLowerCase(Locale.ROOT))
             ? account
             : bank + " — " + account;
-        return clip(combined, MAX_NAME_LEN);
-    }
-
-    /** Stops on a character boundary so a name cut at 100 is still valid text. */
-    private static String clip(String value, int max) {
-        if (value.length() <= max) return value;
-        int end = Character.isHighSurrogate(value.charAt(max - 1)) ? max - 1 : max;
-        return value.substring(0, end);
+        return BankTransactionImportService.clip(combined, MAX_NAME_LEN);
     }
 
     static boolean isIsoCurrency(String code) {

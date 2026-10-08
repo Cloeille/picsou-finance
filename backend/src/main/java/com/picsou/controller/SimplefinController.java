@@ -29,16 +29,16 @@ public class SimplefinController {
 
     private final SimplefinSyncService simplefinService;
     private final UserContext userContext;
-    private final Map<String, Bucket> simplefinBuckets;
+    private final Map<String, Bucket> simplefinRequestBuckets;
 
     public SimplefinController(
         SimplefinSyncService simplefinService,
         UserContext userContext,
-        @Qualifier("simplefinBuckets") Map<String, Bucket> simplefinBuckets
+        @Qualifier("simplefinRequestBuckets") Map<String, Bucket> simplefinRequestBuckets
     ) {
         this.simplefinService = simplefinService;
         this.userContext = userContext;
-        this.simplefinBuckets = simplefinBuckets;
+        this.simplefinRequestBuckets = simplefinRequestBuckets;
     }
 
     /** Claim a setup token and store the access URL. Rate-limited: the token is single-use. */
@@ -49,11 +49,13 @@ public class SimplefinController {
         return ResponseEntity.noContent().build();
     }
 
+    /** Connection status: connected?, last sync, masked username. */
     @GetMapping("/status")
     public SimplefinConnectionStatusResponse getStatus() {
         return simplefinService.getConnectionStatus(userContext.currentMemberId());
     }
 
+    /** Manual sync using the stored access URL. Shares the per-IP limit with connect. */
     @PostMapping("/sync")
     public ResponseEntity<?> sync(HttpServletRequest request) {
         if (!checkRateLimit(request)) return tooManyRequests();
@@ -61,6 +63,7 @@ public class SimplefinController {
         return ResponseEntity.ok(accounts);
     }
 
+    /** Clear the stored connection. Imported accounts stay. */
     @DeleteMapping("/connection")
     public ResponseEntity<Void> clearConnection() {
         simplefinService.deleteConnection(userContext.currentMemberId());
@@ -69,7 +72,7 @@ public class SimplefinController {
 
     private boolean checkRateLimit(HttpServletRequest request) {
         String ip = ClientIp.resolve(request);
-        Bucket bucket = simplefinBuckets.computeIfAbsent(ip, k -> RateLimitConfig.createSimplefinBucket());
+        Bucket bucket = simplefinRequestBuckets.computeIfAbsent(ip, k -> RateLimitConfig.createSimplefinRequestBucket());
         return bucket.tryConsume(1);
     }
 

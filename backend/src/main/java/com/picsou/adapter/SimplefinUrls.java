@@ -1,8 +1,10 @@
 package com.picsou.adapter;
 
 import com.picsou.exception.SyncException;
+import com.picsou.port.SimplefinPort;
 
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -17,7 +19,7 @@ import java.util.Base64;
 final class SimplefinUrls {
 
     static final String BRIDGE_HOST = "beta-bridge.simplefin.org";
-    static final int MAX_TOKEN_CHARS = 4096;
+    static final int MAX_TOKEN_CHARS = SimplefinPort.MAX_SETUP_TOKEN_CHARS;
     static final int MAX_ACCESS_URL_CHARS = 8192;
 
     private SimplefinUrls() {}
@@ -78,7 +80,7 @@ final class SimplefinUrls {
         URI accounts;
         try {
             accounts = new URI(uri.getScheme(), null, uri.getHost(), uri.getPort(), path + "accounts", query, null);
-        } catch (java.net.URISyntaxException ex) {
+        } catch (URISyntaxException ex) {
             throw new SyncException("The SimpleFIN access URL could not be used.", ex);
         }
         return new AccountsRequest(accounts, "Basic " + token, username);
@@ -104,7 +106,8 @@ final class SimplefinUrls {
     private static URI parse(String value) {
         try {
             return new URI(value);
-        } catch (java.net.URISyntaxException ex) {
+        } catch (URISyntaxException ex) {
+            // No cause: its message quotes the whole input, which may carry credentials.
             throw new SyncException("That does not look like a SimpleFIN setup token.");
         }
     }
