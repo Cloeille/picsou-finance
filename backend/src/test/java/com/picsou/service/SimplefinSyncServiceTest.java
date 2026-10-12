@@ -262,6 +262,20 @@ class SimplefinSyncServiceTest {
     }
 
     @Test
+    void sync_cardPaidBeyondItsDebt_keepsThePositiveBalanceAsACredit() {
+        givenBridgeReturns(account("sfin_CON-1_card", "Chase", "Sapphire Reserve", "USD", "150.00"));
+        Account card = Account.builder().id(5L).type(AccountType.CREDIT_CARD)
+            .currentBalance(new BigDecimal("-1000.00")).externalAccountId("sfin_CON-1_card").build();
+        when(accountRepository.findByExternalAccountIdAndMemberId("sfin_CON-1_card", MEMBER_ID))
+            .thenReturn(Optional.of(card));
+
+        service.sync(MEMBER_ID);
+
+        assertThat(card.getCurrentBalance()).isEqualByComparingTo("150.00");
+        verify(accountService).upsertSnapshotFromNative(eq(card), eq(new BigDecimal("150.00")), any());
+    }
+
+    @Test
     void sync_lowercaseCurrency_isStoredUpperCase() {
         givenBridgeReturns(account("sfin_C_a", "Chase", "Checking", "usd", "1.00"));
 

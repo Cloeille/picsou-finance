@@ -124,6 +124,9 @@ upsert Account + EUR snapshot + ledger rows
   types the debt without its minus sign. The amount itself is ignored: a synced account's balance
   only comes from Bridge. A bank that reported card debt as a positive number would show as a
   credit after the change; none has been seen on Bridge.
+- A card paid beyond its debt arrives with a positive balance and is stored as sent. As a
+  credit card it lowers total liabilities and raises net worth by that amount, and the dashboard
+  lists it under debts as a negative figure. This is the AMEX sign rule too.
 - Reward points and other custom currencies (a URL instead of an ISO code) are skipped, and so are
   ISO codes with no minor unit (`XAU`, `XDR`, `XXX`). The cash accounts in the same response still
   import.
@@ -155,7 +158,7 @@ Backend (`mvn test`):
   cut at 300 characters without splitting a surrogate pair
 - `SimplefinSyncServiceTest` — connect (unknown member never claims, a failed claim or encryption
   keeps the stored access URL, reconnect replaces in place); sync (created as `CHECKING`, a
-  member-set type kept, soft-delete skip, currencies with no minor unit skipped, the 89-day UTC
+  member-set type kept, a card in credit kept positive, soft-delete skip, currencies with no minor unit skipped, the 89-day UTC
   clamp); `resyncReporting` (`SESSION_EXPIRED` gives `NEEDS_REAUTH`, other failures `FAILED`,
   no credentials in logs); the reconnect and dedup round-trips
 - `SimplefinControllerTest` — each endpoint follows the principal, validation returns 400 or 422
