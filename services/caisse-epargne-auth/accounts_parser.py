@@ -38,12 +38,13 @@ Facts deliberately NOT guessed (the fixtures and findings do not settle them):
 import math
 import re
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Optional, Union
 
 INVALID_SYNTHESIS = "INVALID_SYNTHESIS"
 INVALID_TRANSACTIONS = "INVALID_TRANSACTIONS"
 MISSING_TRANSACTIONS = "MISSING_TRANSACTIONS"
+INVALID_LOAN_DETAIL = "INVALID_LOAN_DETAIL"
 
 # Observed on the real bank, 2026-10-07: Active = "100", Indéterminé = "XXX".
 CARD_STATUS_ACTIVE = "100"
@@ -453,6 +454,88 @@ def card_outstanding(pages: Pages, *, today: Optional[date] = None) -> Decimal:
         if date.fromisoformat(row["dueDate"]) > today:
             total += row["amount"]
     return total
+
+
+# ─── Personal-loan detail ───────────────────────────────────────────────────
+#
+# `GET /bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/{contractId.id}`,
+# observed live 2026-10-13. Dates are `DD/MM/YYYY`, `folder.tNC` is the nominal
+# rate in percent. `participants` (names) and `linkedAccount.label` are never
+# read: the import does not need them.
+
+_FR_DATE_RE = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
+_CENT = Decimal("0.01")
+
+
+def _fr_date(value: Any, where: str) -> date:
+    match = _FR_DATE_RE.match(value) if isinstance(value, str) else None
+    if match is None:
+        raise ParseError(INVALID_LOAN_DETAIL, f"{where}: expected a DD/MM/YYYY date")
+    day, month, year = (int(g) for g in match.groups())
+    try:
+        return date(year, month, day)
+    except ValueError:
+        raise ParseError(INVALID_LOAN_DETAIL, f"{where}: expected a valid date") from None
+
+
+def _positive_amount(value: Any, where: str) -> Decimal:
+    obj = _object(value, INVALID_LOAN_DETAIL, where)
+    amount = _decimal(obj.get("value"), INVALID_LOAN_DETAIL, f"{where}.value")
+    if amount <= 0:
+        raise ParseError(INVALID_LOAN_DETAIL, f"{where}.value: expected a positive amount")
+    return amount
+
+
+def _annuity(borrowed: Decimal, rate: Decimal, months: int) -> Decimal:
+    """Constant monthly installment of a `months`-long loan at the yearly `rate`."""
+    if rate == 0:
+        return borrowed / months
+    monthly = rate / 12
+    return borrowed * monthly / (1 - (1 + monthly) ** -months)
+
+
+def parse_loan_detail(payload: Any) -> dict:
+    """`personalLoanPrdSynthesisView` -> the `loan` block of a LOAN account.
+
+    Decimals and dates are returned as `Decimal` / `date`; the fetcher
+    serialises them. Any missing or malformed field raises `ParseError`.
+    """
+    root = _object(payload, INVALID_LOAN_DETAIL, "loan")
+    view = _object(root.get("personalLoanPrdSynthesisView"), INVALID_LOAN_DETAIL, "loan.view")
+    offer = _object(view.get("offer"), INVALID_LOAN_DETAIL, "loan.offer")
+    folder = _object(view.get("folder"), INVALID_LOAN_DETAIL, "loan.folder")
+    linked = _object(view.get("linkedAccount"), INVALID_LOAN_DETAIL, "loan.linkedAccount")
+
+    borrowed = _positive_amount(offer.get("proposedAmount"), "loan.offer.proposedAmount")
+    duration = offer.get("duration")
+    if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
+        raise ParseError(INVALID_LOAN_DETAIL, "loan.offer.duration: expected a positive integer")
+    percent = _decimal(folder.get("tNC"), INVALID_LOAN_DETAIL, "loan.folder.tNC")
+    rate = percent / 100
+    if not 0 <= rate <= 1:
+        raise ParseError(INVALID_LOAN_DETAIL, "loan.folder.tNC: expected a rate between 0 and 100 %")
+    installment = _positive_amount(
+        folder.get("nextMonthlyPaymentAmount"), "loan.folder.nextMonthlyPaymentAmount"
+    )
+
+    # Derived, not read: the bank's installment exceeds the annuity at the
+    # nominal rate because of the borrower insurance (types D and I seen live).
+    # Picsou's amortisation schedule takes the insurance back out of the
+    # installment, so it is sent apart. Below the annuity: no insurance figure.
+    annuity = _annuity(borrowed, rate, duration).quantize(_CENT, rounding=ROUND_HALF_UP)
+    insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
+
+    return {
+        "borrowedAmount": borrowed,
+        "interestRate": rate,
+        "monthlyPayment": installment,
+        "insuranceMonthly": insurance if insurance >= 0 else None,
+        "signatureDate": _fr_date(offer.get("signatureDate"), "loan.offer.signatureDate"),
+        "firstDueDate": _fr_date(offer.get("firstDueDate"), "loan.offer.firstDueDate"),
+        "lastDueDate": _fr_date(folder.get("lastDueDate"), "loan.folder.lastDueDate"),
+        "durationMonths": duration,
+        "linkedIban": _text(linked.get("iban"), INVALID_LOAN_DETAIL, "loan.linkedAccount.iban"),
+    }
 
 
 # ─── Whole import ───────────────────────────────────────────────────────────

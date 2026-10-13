@@ -31,6 +31,8 @@ LABEL_MARKER = "FAKE ACHAT 1"  # a transaction label in the fixtures
 BALANCE_MARKER = "1234.56"  # the current account balance in the fixtures
 PER_ID = "contract:00000     FAKE00000014"  # synthesis_products
 LOAN_ID = "contract:00000000000015"
+LOAN_PATH = "/bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/"
+LOAN_TOKEN = "loan-access-token-secret-LLLL"
 
 
 def synthesis() -> dict:
@@ -61,9 +63,13 @@ class FakeCE:
         tx_http: int = 200,
         tx_body: bytes | None = None,
         tx_override: Callable[[httpx.Request], httpx.Response | None] | None = None,
+        loan_http: int = 200,
+        loan_detail: dict | None = None,
         **bank_kwargs,
     ):
         self.bank = FakeBank(**bank_kwargs)
+        self.loan_http = loan_http
+        self.loan_detail = copy.deepcopy(FIXTURES["loan_detail"]) if loan_detail is None else loan_detail
         self.pages = default_pages() if pages is None else pages
         self.synth = synthesis() if synth is None else synth
         self.synthesis_http = synthesis_http
@@ -97,7 +103,14 @@ class FakeCE:
             if self.tx_http != 200:
                 return httpx.Response(self.tx_http, content=b"")
             return httpx.Response(200, json=self._page(request))
+        if request.url.path.startswith(LOAN_PATH):
+            if self.loan_http != 200:
+                return httpx.Response(self.loan_http, content=b"")
+            return httpx.Response(200, json=self.loan_detail)
         return httpx.Response(404)
+
+    def loan_requests(self) -> list[httpx.Request]:
+        return [r for r in self.data_requests if r.url.path.startswith(LOAN_PATH)]
 
     def _page(self, request: httpx.Request) -> dict:
         account = request.url.params.get("accountIds")
@@ -137,6 +150,7 @@ class HappyPathTest(unittest.IsolatedAsyncioTestCase):
             "externalId", "kind", "name", "balance", "currency", "iban", "ibanAmbiguous",
             "authorizedOverdraft", "ceiling", "remainingDepositCapacity", "fillingRatio",
             "cardNature", "parentExternalId", "nextDueDate", "transactions", "snapshotComplete",
+            "loan",
         }
         for account in result["accounts"]:
             self.assertEqual(set(account), keys)
@@ -486,6 +500,142 @@ class UnsupportedPassThroughTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(by_id[ext]["transactions"], [])
             self.assertIsNone(by_id[ext]["iban"])
             self.assertFalse(by_id[ext]["ibanAmbiguous"])
+
+
+def loan_token_provider(calls: list, *, raises: Exception | None = None):
+    async def provide() -> str:
+        calls.append(1)
+        if raises is not None:
+            raise raises
+        return LOAN_TOKEN
+
+    return provide
+
+
+def products_ce(**kwargs) -> FakeCE:
+    return FakeCE(synth=copy.deepcopy(FIXTURES["synthesis_products"]), **kwargs)
+
+
+class LoanDetailTest(unittest.IsolatedAsyncioTestCase):
+    async def test_loan_account_carries_the_parsed_detail_as_strings(self):
+        ce = products_ce()
+        calls: list = []
+
+        result = await run_fetch(ce, loan_token=loan_token_provider(calls))
+
+        by_id = {a["externalId"]: a for a in result["accounts"]}
+        self.assertEqual(
+            by_id[LOAN_ID]["loan"],
+            {
+                "borrowedAmount": "12000",
+                "interestRate": "0.03",
+                "monthlyPayment": "280.0",
+                "insuranceMonthly": "14.39",
+                "signatureDate": "2026-09-15",
+                "firstDueDate": "2026-11-05",
+                "lastDueDate": "2030-10-05",
+                "durationMonths": 48,
+                "linkedIban": IBAN_A,
+            },
+        )
+        for ext, account in by_id.items():
+            if ext != LOAN_ID:
+                self.assertIsNone(account["loan"], ext)
+        self.assertEqual(len(calls), 1)
+
+    async def test_detail_is_read_with_the_loan_token_on_the_stripped_contract_id(self):
+        ce = products_ce()
+
+        await run_fetch(ce, loan_token=loan_token_provider([]))
+
+        [request] = ce.loan_requests()
+        self.assertEqual(request.method, "GET")
+        self.assertEqual(request.url.host, DATA_HOST)
+        self.assertEqual(request.url.path, LOAN_PATH + "00000000000015")
+        self.assertEqual(request.headers["Authorization"], f"Bearer {LOAN_TOKEN}")
+        # The main token never reads the loan detail, the loan token nothing else.
+        for other in ce.data_requests:
+            if other is not request:
+                self.assertEqual(other.headers["Authorization"], f"Bearer {SECRET_TOKEN}")
+
+    async def test_no_loan_contract_means_no_loan_token_and_no_detail_call(self):
+        ce = FakeCE()
+        calls: list = []
+
+        result = await run_fetch(ce, loan_token=loan_token_provider(calls))
+
+        self.assertEqual(calls, [])
+        self.assertEqual(ce.loan_requests(), [])
+        self.assertTrue(all(a["loan"] is None for a in result["accounts"]))
+
+    async def test_without_a_loan_token_provider_the_loan_is_null(self):
+        ce = products_ce()
+
+        result = await run_fetch(ce)
+
+        self.assertEqual(ce.loan_requests(), [])
+        by_id = {a["externalId"]: a for a in result["accounts"]}
+        self.assertIsNone(by_id[LOAN_ID]["loan"])
+        self.assertEqual(by_id[LOAN_ID]["balance"], "-9876.54")
+
+    async def test_a_failed_detail_gives_a_null_loan_and_the_rest_imported(self):
+        bad_detail = copy.deepcopy(FIXTURES["loan_detail"])
+        del bad_detail["personalLoanPrdSynthesisView"]["offer"]["duration"]
+        cases = {
+            "5xx": products_ce(loan_http=503),
+            "403": products_ce(loan_http=403),
+            "format": products_ce(loan_detail=bad_detail),
+        }
+        for name, ce in cases.items():
+            with self.subTest(name):
+                result = await run_fetch(ce, loan_token=loan_token_provider([]))
+                by_id = {a["externalId"]: a for a in result["accounts"]}
+                self.assertIsNone(by_id[LOAN_ID]["loan"])
+                self.assertEqual(by_id[LOAN_ID]["balance"], "-9876.54")
+                self.assertEqual(len([a for a in result["accounts"] if a["kind"] != "CARD"]), 5)
+
+    async def test_a_failed_loan_oauth_gives_a_null_loan_and_the_rest_imported(self):
+        for exc in (replay.UpstreamError("x"), replay.HostNotAllowed("x")):
+            with self.subTest(type(exc).__name__):
+                ce = products_ce()
+                result = await run_fetch(ce, loan_token=loan_token_provider([], raises=exc))
+                by_id = {a["externalId"]: a for a in result["accounts"]}
+                self.assertIsNone(by_id[LOAN_ID]["loan"])
+                self.assertEqual(ce.loan_requests(), [])
+                self.assertEqual(len([a for a in result["accounts"] if a["kind"] != "CARD"]), 5)
+
+    async def test_session_expired_on_the_detail_or_the_loan_oauth_propagates(self):
+        with self.assertRaises(replay.SessionExpired):
+            await run_fetch(products_ce(loan_http=401), loan_token=loan_token_provider([]))
+        with self.assertRaises(replay.SessionExpired):
+            await run_fetch(
+                products_ce(), loan_token=loan_token_provider([], raises=replay.SessionExpired("x"))
+            )
+
+    async def test_loan_failure_logs_the_code_only(self):
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        root = logging.getLogger()
+        old_level = root.level
+        root.addHandler(handler)
+        root.setLevel(logging.DEBUG)
+        bad = copy.deepcopy(FIXTURES["loan_detail"])
+        bad["personalLoanPrdSynthesisView"]["offer"]["signatureDate"] = "secret-date-value"
+        try:
+            await run_fetch(products_ce(loan_detail=bad), loan_token=loan_token_provider([]))
+            await run_fetch(products_ce(loan_http=500), loan_token=loan_token_provider([]))
+            await run_fetch(products_ce(), loan_token=loan_token_provider([]))
+        finally:
+            root.removeHandler(handler)
+            root.setLevel(old_level)
+        rendered = stream.getvalue()
+        self.assertIn("INVALID_LOAN_DETAIL", rendered)
+        self.assertIn("UPSTREAM_UNAVAILABLE", rendered)
+        for value in (
+            "secret-date-value", "00000000000015", IBAN_A, "12000", "280", "FAKEFIRST",
+            "FAKELAST", "FAKE LINKED", LOAN_TOKEN, SECRET_TOKEN,
+        ):
+            self.assertNotIn(value, rendered)
 
 
 class LogHygieneTest(unittest.IsolatedAsyncioTestCase):

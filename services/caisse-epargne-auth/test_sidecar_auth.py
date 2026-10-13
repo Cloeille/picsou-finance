@@ -5,6 +5,7 @@ network, no real credentials, no bank data.
 """
 
 import asyncio
+import copy
 import io
 import json
 import logging
@@ -16,7 +17,7 @@ from fastapi.testclient import TestClient
 
 import main
 import replay
-from test_fetcher import DATA_HOST, FakeCE, default_pages
+from test_fetcher import DATA_HOST, FIXTURES, LOAN_ID, FakeCE, default_pages
 from test_replay import (
     ALL_SECRETS,
     SECRET_TOKEN,
@@ -418,6 +419,59 @@ class AccountsEndpointTest(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.json(), {"detail": "UPSTREAM_UNAVAILABLE"})
         self.assertNotIn("accounts", response.text)
+
+    def products_ce(self, **kwargs) -> FakeCE:
+        return FakeCE(synth=copy.deepcopy(FIXTURES["synthesis_products"]), **kwargs)
+
+    def test_a_loan_gets_its_detail_through_the_second_oauth_chain(self):
+        ce = self.products_ce()
+
+        response = self.accounts(ce)
+
+        self.assertEqual(response.status_code, 200)
+        by_id = {a["externalId"]: a for a in response.json()["accounts"]}
+        self.assertEqual(by_id[LOAN_ID]["loan"]["durationMonths"], 48)
+        self.assertEqual(by_id[LOAN_ID]["loan"]["interestRate"], "0.03")
+        self.assertIsNone(by_id["1001"]["loan"])
+        # Two chains: the main token, then the personal-loan one.
+        self.assertEqual(len(ce.bank.requests), 8)
+        client_ids = [
+            r.url.params.get("client_id") for r in ce.bank.requests if r.url.path.endswith("/authorize")
+        ]
+        self.assertEqual(client_ids, [make_params()["client_id"], replay.LOAN_CLIENT_ID])
+        self.assertEqual(len(ce.loan_requests()), 1)
+
+    def test_both_tokens_are_served_from_the_cache_on_the_next_call(self):
+        ce = self.products_ce()
+
+        self.accounts(ce)
+        self.accounts(ce)
+
+        self.assertEqual(len(ce.bank.requests), 8)
+
+    def test_no_loan_contract_never_mints_the_loan_token(self):
+        ce = FakeCE()
+
+        self.accounts(ce)
+
+        self.assertEqual(len(ce.bank.requests), 4)
+
+    def test_a_failed_loan_detail_still_imports_the_rest(self):
+        response = self.accounts(self.products_ce(loan_http=503))
+
+        self.assertEqual(response.status_code, 200)
+        by_id = {a["externalId"]: a for a in response.json()["accounts"]}
+        self.assertIsNone(by_id[LOAN_ID]["loan"])
+        self.assertEqual(by_id[LOAN_ID]["balance"], "-9876.54")
+
+    def test_a_401_on_the_loan_detail_evicts_both_tokens_and_retries_once(self):
+        ce = self.products_ce(loan_http=401)
+
+        response = self.accounts(ce)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json(), {"detail": "SESSION_EXPIRED"})
+        self.assertEqual(len(ce.bank.requests), 16)  # both chains, twice: one retry, no loop
 
     def test_the_default_deadline_is_below_the_backend_120_seconds_timeout(self):
         self.assertEqual(main.ACCOUNTS_DEADLINE_SECONDS, 100)

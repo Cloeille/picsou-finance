@@ -20,7 +20,7 @@ import logging
 import urllib.parse
 from datetime import date
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 
@@ -32,6 +32,9 @@ log = logging.getLogger("caisse-epargne-auth")
 DATA_BASE_URL = "https://www.rs-ext-bad-ce.caisse-epargne.fr"
 SYNTHESIS_PATH = "/bapi/contract/v2/augmentedSynthesisViews"
 TRANSACTIONS_PATH = "/pfm/user/v1.1/transactions"
+# Observed live 2026-10-13, read with the personal-loan token (the main token
+# gets 403). The last segment is the synthesis `contractId.id`, blanks stripped.
+LOAN_DETAIL_PATH = "/bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/"
 SYNTHESIS_QUERY = {
     "pfmCharacteristicsIndicator": "true",
     "productFamilyPFM": "1,2,3,4,6,7,17,18,20,19",
@@ -69,12 +72,18 @@ class UpstreamFormatChanged(FetchError):
 # --- Bounded GET ---------------------------------------------------------------
 
 
-async def _get_json(client: httpx.AsyncClient, url: str, params: dict) -> Any:
-    """GET and decode a JSON body capped at `replay.MAX_RESPONSE_BYTES`."""
+async def _get_json(
+    client: httpx.AsyncClient, url: str, params: dict, *, bearer: Optional[str] = None
+) -> Any:
+    """GET and decode a JSON body capped at `replay.MAX_RESPONSE_BYTES`.
+
+    `bearer` replaces the client's token for this one call (the loan detail).
+    """
+    headers = {"Accept": "application/json"}
+    if bearer is not None:
+        headers["Authorization"] = f"Bearer {bearer}"
     try:
-        async with client.stream(
-            "GET", url, params=params, headers={"Accept": "application/json"}
-        ) as response:
+        async with client.stream("GET", url, params=params, headers=headers) as response:
             chunks: list = []
             size = 0
             async for chunk in response.aiter_bytes():
@@ -173,7 +182,25 @@ def _iso(value: Optional[date]) -> Optional[str]:
     return None if value is None else value.isoformat()
 
 
-def _serialise_account(account: dict, transactions: list) -> dict:
+def _serialise_loan(loan: Optional[dict]) -> Optional[dict]:
+    if loan is None:
+        return None
+    return {
+        "borrowedAmount": _dec(loan["borrowedAmount"]),
+        "interestRate": _dec(loan["interestRate"]),
+        "monthlyPayment": _dec(loan["monthlyPayment"]),
+        "insuranceMonthly": None
+        if loan["insuranceMonthly"] is None
+        else _dec(loan["insuranceMonthly"]),
+        "signatureDate": _iso(loan["signatureDate"]),
+        "firstDueDate": _iso(loan["firstDueDate"]),
+        "lastDueDate": _iso(loan["lastDueDate"]),
+        "durationMonths": loan["durationMonths"],
+        "linkedIban": loan["linkedIban"],
+    }
+
+
+def _serialise_account(account: dict, transactions: list, loan: Optional[dict] = None) -> dict:
     balance = account["balance"]
     kind = account["kind"]
     card = kind == "CARD"
@@ -207,7 +234,49 @@ def _serialise_account(account: dict, transactions: list) -> dict:
             for t in transactions
         ],
         "snapshotComplete": True,
+        "loan": _serialise_loan(loan) if kind == "LOAN" else None,
     }
+
+
+# --- Personal-loan detail -----------------------------------------------------------
+
+
+LoanTokenProvider = Callable[[], Awaitable[str]]
+
+
+async def _fetch_loan_details(
+    client: httpx.AsyncClient, base_url: str, accounts: list, loan_token: Optional[LoanTokenProvider]
+) -> dict:
+    """`{externalId: parsed loan or None}` for every LOAN account.
+
+    Best effort: the balance comes from the synthesis, so a detail that cannot
+    be read (second OAuth chain refused, 5xx, format change) leaves `loan` null
+    and the import goes on. Only the error code is logged. A `SessionExpired`
+    propagates: the session itself is dead, and the caller replays or fails.
+    """
+    loans = [a["externalId"] for a in accounts if a["kind"] == "LOAN"]
+    details: dict = {ext: None for ext in loans}
+    if not loans or loan_token is None:
+        return details
+    try:
+        token = await loan_token()
+    except replay.SessionExpired:
+        raise
+    except replay.ReplayError as exc:
+        log.warning("loan token unavailable: %s", exc.code)
+        return details
+    for ext in loans:
+        contract_id = ext[len(accounts_parser.CONTRACT_ID_PREFIX):]
+        url = base_url + LOAN_DETAIL_PATH + urllib.parse.quote(contract_id, safe="")
+        # A 401 raises `replay.SessionExpired`, which is not caught here.
+        try:
+            payload = await _get_json(client, url, {}, bearer=token)
+            details[ext] = accounts_parser.parse_loan_detail(payload)
+        except FetchError as exc:
+            log.warning("loan detail unavailable: %s", exc.code)
+        except accounts_parser.ParseError as exc:
+            log.warning("loan detail unavailable: %s", exc.code)
+    return details
 
 
 # --- Entry point ---------------------------------------------------------------------
@@ -219,8 +288,13 @@ async def fetch_import(
     transport: Optional[httpx.AsyncBaseTransport] = None,
     base_url: str = DATA_BASE_URL,
     today: Optional[date] = None,
+    loan_token: Optional[LoanTokenProvider] = None,
 ) -> dict:
-    """The `POST /accounts` response body, or a typed error (no partial result)."""
+    """The `POST /accounts` response body, or a typed error (no partial result).
+
+    `loan_token` mints the personal-loan token; it is only awaited when the
+    synthesis holds a LOAN contract. Without it, every `loan` is null.
+    """
     if not replay.is_allowed_url(base_url):
         raise replay.HostNotAllowed("Refused a URL outside https *.caisse-epargne.fr")
     base_url = base_url.rstrip("/")
@@ -253,10 +327,13 @@ async def fetch_import(
             # Code only: the parser's messages name fields, but stay on the safe side.
             log.warning("accounts import rejected: %s", exc.code)
             raise UpstreamFormatChanged("Payload does not match the observed format") from None
+        loans = await _fetch_loan_details(client, base_url, built["accounts"], loan_token)
         try:
             return {
                 "accounts": [
-                    _serialise_account(a, built["transactions"][a["externalId"]])
+                    _serialise_account(
+                        a, built["transactions"][a["externalId"]], loans.get(a["externalId"])
+                    )
                     for a in built["accounts"]
                 ],
                 "unsupported": [

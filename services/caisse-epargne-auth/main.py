@@ -235,16 +235,26 @@ async def token_check(req: TokenCheckRequest) -> dict:
 
 
 
-async def _fetch_accounts(session_state: str) -> dict:
+async def _fetch_once(session_state: str) -> dict:
     token = await _token_cache.get(session_state, transport=_TRANSPORT)
+
+    async def loan_token() -> str:
+        # Second OAuth chain, minted only when the synthesis holds a loan.
+        result = await _token_cache.get(session_state, transport=_TRANSPORT, chain=replay.LOAN_CHAIN)
+        return result.access_token
+
+    return await fetcher.fetch_import(token.access_token, transport=_TRANSPORT, loan_token=loan_token)
+
+
+async def _fetch_accounts(session_state: str) -> dict:
     try:
-        return await fetcher.fetch_import(token.access_token, transport=_TRANSPORT)
+        return await _fetch_once(session_state)
     except replay.SessionExpired:
-        # A cached token can be revoked before its expiry: drop it and replay once more.
+        # A cached token can be revoked before its expiry: drop both and replay once more.
         # A second rejection (or a failed replay) means the session itself is dead.
         _token_cache.evict(session_state)
-        token = await _token_cache.get(session_state, transport=_TRANSPORT)
-        return await fetcher.fetch_import(token.access_token, transport=_TRANSPORT)
+        _token_cache.evict(session_state, chain=replay.LOAN_CHAIN)
+        return await _fetch_once(session_state)
 
 
 @app.post("/accounts")

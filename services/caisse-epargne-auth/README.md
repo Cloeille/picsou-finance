@@ -47,24 +47,68 @@ GET-only calls on `https://www.rs-ext-bad-ce.caisse-epargne.fr` with
 `Authorization: Bearer <token>` and `Accept: application/json`:
 
 - `GET /bapi/contract/v2/augmentedSynthesisViews?pfmCharacteristicsIndicator=true&productFamilyPFM=1,2,3,4,6,7,17,18,20,19`
-- per imported account, `GET /pfm/user/v1.1/transactions` with the query observed in the spike (`accountIds=<id>`, ...), then `pageToken=<meta.nextPageToken>` until the token is absent. Hard cap: 20 pages per account, beyond that `UPSTREAM_FORMAT_CHANGED` (never a silent truncation).
+- per imported account with PFM transactions (current account, Livret A, LDDS, card), `GET /pfm/user/v1.1/transactions` with the query observed in the spike (`accountIds=<id>`, ...), then `pageToken=<meta.nextPageToken>` until the token is absent. Hard cap: 20 pages per account, beyond that `UPSTREAM_FORMAT_CHANGED` (never a silent truncation). A PER or a loan has no PFM transactions: no call, no IBAN.
+- per loan, `GET /bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/<contractId.id>` with the **personal-loan token** (see below).
+
+Supported products, from `productFamilyPFM.code` / `subProductFamilyPFM.code`
+(observed live 2026-10-13):
+
+| Family / sub | `kind` | `externalId` |
+| --- | --- | --- |
+| `1` | `CURRENT_ACCOUNT` | `contractPfmId` |
+| `3` / `01` (or label `LIVRET A` without a sub code) | `LIVRET_A` | `contractPfmId` |
+| `3` / `28` | `LDDS` | `contractPfmId` |
+| `4` / `05` | `PER` (balance only, >= 0) | `contract:<contractId.id>` |
+| `6` / `12` | `LOAN` (balance = outstanding capital, <= 0) | `contract:<contractId.id>` |
+| anything else (home insurance `5`, other sub codes) | listed in `unsupported`, never imported, never fatal | pfm id, else `contract:<id>` |
+
+#### Second token: personal loan
+
+The loan detail is refused (403) to the main token. A second OAuth chain mints
+its own token from the same SSO session: the replay above with three authorize
+overrides (`client_id=30c229b8-…`, `scope=managePersonalLoanPrd readPersonalLoanPrd readUser`,
+`redirect_uri=https://www.caisse-epargne.fr/espace-gestion/pret-personnel/postMessage/index.html`)
+and no `claims`; every other captured parameter is kept, PKCE and nonce are
+fresh (`replay.LOAN_CHAIN`). It is cached apart from the main token and only
+minted when the synthesis holds a loan. A 401 on any data call drops both
+tokens and the whole read is replayed once.
+
+The detail fills `loan` on the LOAN account. Dates come as `DD/MM/YYYY`, the
+nominal rate `folder.tNC` in percent. `participants` (names) and
+`linkedAccount.label` are never read. `insuranceMonthly` is derived, not read:
+installment minus the annuity at the nominal rate, rounded to the cent, null
+when negative (the bank's installment includes the borrower insurance).
+A detail that cannot be read (loan OAuth refused, 5xx, format change) gives
+`loan: null`, logs only its error code, and the rest of the import goes on.
 
 Response 200 (money as decimal strings, never floats; a card's `balance` is its
 outstanding, the sum of operations with a future `dueDate`, so <= 0):
 
 ```json
-{"accounts": [{"externalId": "1001", "kind": "CURRENT_ACCOUNT|LIVRET_A|CARD", "name": "str|null",
+{"accounts": [{"externalId": "1001", "kind": "CURRENT_ACCOUNT|LIVRET_A|LDDS|PER|LOAN|CARD", "name": "str|null",
   "balance": "1234.56", "currency": "EUR", "iban": "str|null", "ibanAmbiguous": false,
   "authorizedOverdraft": "str|null", "ceiling": "str|null", "remainingDepositCapacity": "str|null",
   "fillingRatio": "str|null", "cardNature": "CREDIT|DEFERRED_DEBIT|IMMEDIATE_DEBIT|null",
   "parentExternalId": "str|null",
   "transactions": [{"externalId": "9001", "date": "YYYY-MM-DD", "dueDate": "YYYY-MM-DD",
                     "amount": "-12.5", "currency": "EUR", "label": "str"}],
-  "snapshotComplete": true}],
+  "snapshotComplete": true,
+  "loan": null}],
  "unsupported": [{"externalId": "1003", "familyCode": "7"}]}
 ```
 
+`loan` is null except on a LOAN account whose detail was read:
+
+```json
+{"borrowedAmount": "12000", "interestRate": "0.03", "monthlyPayment": "280.0",
+ "insuranceMonthly": "14.39|null", "signatureDate": "YYYY-MM-DD", "firstDueDate": "YYYY-MM-DD",
+ "lastDueDate": "YYYY-MM-DD", "durationMonths": 48, "linkedIban": "str"}
+```
+
+`interestRate` is a fraction (0.03 = 3 %), within [0, 1].
+
 All-or-nothing: any parse error gives `UPSTREAM_FORMAT_CHANGED`, never a partial list.
+The loan detail is the one exception: it only fills `loan`, so its failure gives `loan: null`.
 
 | HTTP | `detail` | Meaning |
 | --- | --- | --- |

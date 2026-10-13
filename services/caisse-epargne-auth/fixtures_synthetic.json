@@ -1475,5 +1475,86 @@
     }
    }
   ]
+ },
+ "loan_detail": {
+  "personalLoanPrdSynthesisView": {
+   "identification": {
+    "personalLoanPrdId": "00000000000015"
+   },
+   "linkedAccount": {
+    "bic": "FAKEFRPPXXX",
+    "iban": "FR7600000000000000000000001",
+    "label": "FAKE LINKED ACCOUNT LABEL"
+   },
+   "offer": {
+    "progressivePaymentIndicator": false,
+    "numberOfMonthlyDeferredPayments": 0,
+    "duration": 48,
+    "proposedAmount": {
+     "value": 12000,
+     "currencyCode": "EUR"
+    },
+    "signatureDate": "15/09/2026",
+    "firstDueDate": "05/11/2026",
+    "numberOfDeferredMonths": 0,
+    "bankId": "00000",
+    "personalLoanProductCode": {
+     "code": "XXX",
+     "shortLabel": "FAKE PRODUCT",
+     "label": "FAKE PRODUCT LABEL"
+    },
+    "personalLoanUniverseCode": "FAKE UNIVERSE"
+   },
+   "participants": [
+    {
+     "personId": {
+      "entityCode": "00000000",
+      "id": "000000000"
+     },
+     "firstName": "FAKEFIRST",
+     "lastName": "FAKELAST",
+     "role": {
+      "code": "XXX",
+      "label": "FAKE ROLE"
+     },
+     "subscribedInsurances": [
+      {
+       "subscribedInsuranceType": {
+        "code": "X",
+        "label": "FAKE"
+       }
+      }
+     ]
+    }
+   ],
+   "folder": {
+    "statusCode": {
+     "code": "XXX",
+     "label": "FAKE"
+    },
+    "requestedAmount": {
+     "value": 12000,
+     "currencyCode": "EUR"
+    },
+    "nextDueDate": "05/11/2026",
+    "lastDueDate": "05/10/2030",
+    "nextMonthlyPaymentAmount": {
+     "value": 280.0,
+     "currencyCode": "EUR"
+    },
+    "remainingAllowedCreditAmount": null,
+    "remainingMonthlyPayment": 48,
+    "remainingFundingRequests": null,
+    "fundingRequestDeadline": null,
+    "tNC": 3,
+    "tAEG": 3.5,
+    "outstandingCapitalAmount": {
+     "value": 9876.54,
+     "currencyCode": "EUR"
+    },
+    "rollingYearRemainingDeferrals": 0,
+    "totalRemainingDeferrals": 0
+   }
+  }
  }
 }
