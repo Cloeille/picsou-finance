@@ -379,6 +379,26 @@ def test_build_import_of_six_contracts_needs_transactions_for_imported_ones_only
     assert result["unsupported"] == [{"externalId": "contract:0000000016", "familyCode": "5"}]
 
 
+def test_build_import_never_extracts_an_iban_for_per_or_loan():
+    # Even if pages were handed over, a PER or a loan has no PFM IBAN.
+    inputs = {k: [] for k in ("1001", "2001", "1002", "1003")}
+    inputs[PER_ID] = [tx("livret_a")]
+    inputs[LOAN_ID] = [tx("livret_a")]
+    accounts = {a["externalId"]: a for a in build_import(products(), inputs, today=TODAY)["accounts"]}
+    for ext in (PER_ID, LOAN_ID):
+        assert accounts[ext]["iban"] is None
+        assert accounts[ext]["ibanAmbiguous"] is False
+
+
+def test_build_import_ignores_pages_handed_over_for_per_or_loan():
+    inputs = {k: [] for k in ("1001", "2001", "1002", "1003")}
+    inputs[PER_ID] = [tx("livret_a")]
+    inputs[LOAN_ID] = [tx("livret_a")]
+    result = build_import(products(), inputs, today=TODAY)
+    assert result["transactions"][PER_ID] == []
+    assert result["transactions"][LOAN_ID] == []
+
+
 def test_sub_family_code_decides_the_savings_kind_over_the_label():
     s = products()
     family(s, "3", "01")["identity"]["productLabel"] = "SOMETHING ELSE"

@@ -29,6 +29,8 @@ TX_PATH = "/pfm/user/v1.1/transactions"
 IBAN_A = "FR7600000000000000000000001"
 LABEL_MARKER = "FAKE ACHAT 1"  # a transaction label in the fixtures
 BALANCE_MARKER = "1234.56"  # the current account balance in the fixtures
+PER_ID = "contract:00000     FAKE00000014"  # synthesis_products
+LOAN_ID = "contract:00000000000015"
 
 
 def synthesis() -> dict:
@@ -462,6 +464,28 @@ class UnsupportedPassThroughTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["unsupported"], [{"externalId": "1003", "familyCode": "7"}])
         self.assertNotIn("1003", {a["externalId"] for a in result["accounts"]})
         self.assertNotIn("1003", {r.url.params["accountIds"] for r in ce.tx_requests()})
+
+    async def test_per_and_loan_get_no_transactions_call_and_no_iban(self):
+        # PER and loan have no PFM transactions: their contract id must never
+        # reach the transactions endpoint, and they carry no IBAN.
+        pages = default_pages()
+        iban_page = copy.deepcopy(FIXTURES["transactions"]["livret_a"])
+        pages[PER_ID] = [iban_page]
+        pages[LOAN_ID] = [copy.deepcopy(iban_page)]
+        ce = FakeCE(synth=copy.deepcopy(FIXTURES["synthesis_products"]), pages=pages)
+
+        result = await run_fetch(ce)
+
+        fetched = {r.url.params["accountIds"] for r in ce.tx_requests()}
+        self.assertNotIn(PER_ID, fetched)
+        self.assertNotIn(LOAN_ID, fetched)
+        self.assertFalse(any(a.startswith("contract:") for a in fetched))
+        self.assertIn("1003", fetched)  # the LDDS still reads its PFM transactions
+        by_id = {a["externalId"]: a for a in result["accounts"]}
+        for ext in (PER_ID, LOAN_ID):
+            self.assertEqual(by_id[ext]["transactions"], [])
+            self.assertIsNone(by_id[ext]["iban"])
+            self.assertFalse(by_id[ext]["ibanAmbiguous"])
 
 
 class LogHygieneTest(unittest.IsolatedAsyncioTestCase):

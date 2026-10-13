@@ -239,8 +239,11 @@ async def fetch_import(
             external_id = account["externalId"]
             if account["kind"] == "CARD":
                 pages_by_account[external_id] = await _fetch_card_pages(client, base_url, external_id)
-            else:
+            elif account["kind"] in accounts_parser.PFM_KINDS:
                 pages_by_account[external_id] = await _fetch_pages(client, base_url, external_id)
+            else:
+                # PER and loan: no PFM transactions, so no call and no IBAN.
+                pages_by_account[external_id] = []
 
         try:
             built = accounts_parser.build_import(

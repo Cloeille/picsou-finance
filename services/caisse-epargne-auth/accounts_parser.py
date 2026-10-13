@@ -470,6 +470,12 @@ def build_import(synthesis: Any, transactions_by_account: dict, *, today: Option
     transactions: dict = {}
     for account in accounts:
         ext = account["externalId"]
+        if account["kind"] != "CARD" and account["kind"] not in PFM_KINDS:
+            # PER and loan have no PFM transactions and no IBAN: nothing is
+            # fetched for them, and any pages handed over are ignored.
+            transactions[ext] = []
+            account["iban"], account["ibanAmbiguous"] = None, False
+            continue
         if ext not in transactions_by_account:
             raise ParseError(MISSING_TRANSACTIONS, "transactions missing for an imported account")
         pages = transactions_by_account[ext]
