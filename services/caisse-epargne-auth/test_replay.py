@@ -737,6 +737,130 @@ class TokenCacheTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(bank.requests), 8)  # a second full chain after the eviction
 
 
+def params_with_claims() -> dict:
+    # The main chain's captured query carries `claims`; the loan chain must not.
+    return {**make_params(), "claims": '{"id_token":{"x":null}}', "bpcesta": "{}", "display": "page"}
+
+
+def authorize_query_of(bank: FakeBank) -> dict:
+    return dict(urllib.parse.parse_qsl(bank.requests[0].url.query.decode()))
+
+
+class LoanChainTest(unittest.IsolatedAsyncioTestCase):
+    """Second OAuth chain (personal-loan detail): same captured query, three overrides."""
+
+    async def run_chain(self, bank: FakeBank, **kwargs) -> replay.TokenResult:
+        state = replay.parse_session_state(make_state(params=params_with_claims()))
+        return await replay.replay_chain(state, transport=bank.transport(), **kwargs)
+
+    async def test_loan_authorize_carries_the_overrides_and_no_claims(self):
+        bank = FakeBank()
+        await self.run_chain(bank, chain=replay.LOAN_CHAIN)
+
+        query = authorize_query_of(bank)
+        self.assertEqual(query["client_id"], replay.LOAN_CLIENT_ID)
+        self.assertEqual(query["scope"], replay.LOAN_SCOPE)
+        self.assertEqual(query["redirect_uri"], replay.LOAN_REDIRECT_URI)
+        self.assertNotIn("claims", query)
+
+    async def test_loan_authorize_keeps_every_other_captured_param(self):
+        bank = FakeBank()
+        await self.run_chain(bank, chain=replay.LOAN_CHAIN)
+
+        query = authorize_query_of(bank)
+        captured = params_with_claims()
+        for key in ("bpcesta", "display", "login_hint", "response_mode", "response_type"):
+            self.assertEqual(query[key], captured[key])
+        self.assertEqual(query["code_challenge_method"], "S256")
+        self.assertNotEqual(query["code_challenge"], captured["code_challenge"])
+        self.assertNotEqual(query["nonce"], captured["nonce"])
+        overridden = {"client_id", "scope", "redirect_uri", "claims"}
+        fresh = {"code_challenge", "nonce"}
+        self.assertEqual(set(query) - fresh, set(captured) - overridden - fresh | {"client_id", "scope", "redirect_uri"})
+
+    async def test_loan_token_request_uses_the_overridden_client_and_redirect(self):
+        bank = FakeBank()
+        await self.run_chain(bank, chain=replay.LOAN_CHAIN)
+
+        form = form_of(bank.requests[3])
+        self.assertEqual(form["client_id"], replay.LOAN_CLIENT_ID)
+        self.assertEqual(form["redirect_uri"], replay.LOAN_REDIRECT_URI)
+        query = authorize_query_of(bank)
+        expected = (
+            base64.urlsafe_b64encode(hashlib.sha256(form["code_verifier"].encode()).digest())
+            .decode()
+            .rstrip("=")
+        )
+        self.assertEqual(query["code_challenge"], expected)
+
+    async def test_main_chain_is_unchanged_and_keeps_claims(self):
+        default, explicit = FakeBank(), FakeBank()
+        await self.run_chain(default)
+        await self.run_chain(explicit, chain=replay.MAIN_CHAIN)
+
+        captured = params_with_claims()
+        for bank in (default, explicit):
+            query = authorize_query_of(bank)
+            for key in ("client_id", "scope", "redirect_uri", "claims", "login_hint"):
+                self.assertEqual(query[key], captured[key])
+            form = form_of(bank.requests[3])
+            self.assertEqual(form["client_id"], captured["client_id"])
+            self.assertEqual(form["redirect_uri"], captured["redirect_uri"])
+
+    def test_loan_redirect_and_detail_path_are_allow_listed(self):
+        self.assertTrue(replay.is_allowed_url(replay.LOAN_REDIRECT_URI))
+        self.assertTrue(
+            replay.is_allowed_url(
+                "https://www.rs-ext-bad-ce.caisse-epargne.fr"
+                "/bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/TESTLOAN0001"
+            )
+        )
+
+
+class LoanTokenCacheTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.now = 1000.0
+        self.cache = replay.TokenCache(clock=lambda: self.now)
+
+    async def test_loan_and_main_tokens_are_cached_under_distinct_keys(self):
+        bank = FakeBank()
+        raw = make_state()
+        main = await self.cache.get(raw, transport=bank.transport())
+        loan = await self.cache.get(raw, transport=bank.transport(), chain=replay.LOAN_CHAIN)
+        # Each one is served from its own entry afterwards.
+        await self.cache.get(raw, transport=bank.transport())
+        await self.cache.get(raw, transport=bank.transport(), chain=replay.LOAN_CHAIN)
+
+        self.assertEqual(len(bank.requests), 8)  # exactly two chains, one per token
+        self.assertEqual(len(self.cache), 2)
+        self.assertEqual(authorize_query_of(bank)["client_id"], make_params()["client_id"])
+        loan_authorize = bank.requests[4]
+        self.assertEqual(
+            dict(urllib.parse.parse_qsl(loan_authorize.url.query.decode()))["client_id"],
+            replay.LOAN_CLIENT_ID,
+        )
+        self.assertEqual(main.access_token, loan.access_token)  # same fake bank, distinct entries
+
+    def test_cache_keys_differ_per_chain(self):
+        state = replay.parse_session_state(make_state())
+        self.assertNotEqual(
+            replay.TokenCache._key(state, replay.MAIN_CHAIN),
+            replay.TokenCache._key(state, replay.LOAN_CHAIN),
+        )
+
+    async def test_evicting_the_loan_token_keeps_the_main_one(self):
+        bank = FakeBank()
+        raw = make_state()
+        await self.cache.get(raw, transport=bank.transport())
+        await self.cache.get(raw, transport=bank.transport(), chain=replay.LOAN_CHAIN)
+        self.cache.evict(raw, chain=replay.LOAN_CHAIN)
+        await self.cache.get(raw, transport=bank.transport())
+
+        self.assertEqual(len(bank.requests), 8)  # main token still served from the cache
+        await self.cache.get(raw, transport=bank.transport(), chain=replay.LOAN_CHAIN)
+        self.assertEqual(len(bank.requests), 12)  # the loan one is replayed
+
+
 class LogHygieneTest(unittest.IsolatedAsyncioTestCase):
     async def test_no_secret_reaches_the_logs_or_exception_text(self):
         scenarios = [
