@@ -9,6 +9,7 @@ import com.picsou.port.CaisseEpargneErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,6 +55,7 @@ class CaisseEpargneSyncServiceAuthTest {
     @Mock AccountRepository accountRepository;
     @Mock TransactionRepository transactionRepository;
     @Mock FamilyMemberRepository memberRepository;
+    @Mock DebtRepository debtRepository;
     @Mock AccountService accountService;
     @Mock com.picsou.service.budget.CategorizationService categorizationService;
     @Mock CryptoEncryption encryption;
@@ -72,7 +74,7 @@ class CaisseEpargneSyncServiceAuthTest {
         clock = new MutableClock(T0);
         service = new CaisseEpargneSyncService(
             port, sessionRepository, accountRepository, transactionRepository,
-            memberRepository, accountService, categorizationService, encryption, txTemplate, Runnable::run, clock);
+            memberRepository, debtRepository, accountService, categorizationService, encryption, txTemplate, Runnable::run, clock);
     }
 
     private static CaisseEpargnePort.Keypad keypad() {

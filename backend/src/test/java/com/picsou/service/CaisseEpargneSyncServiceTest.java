@@ -9,12 +9,14 @@ import com.picsou.model.CaisseEpargneSession;
 import com.picsou.model.CaisseEpargneSyncStatus;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
+import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
 import com.picsou.port.CaisseEpargneErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
@@ -66,12 +68,14 @@ class CaisseEpargneSyncServiceTest {
     @Mock AccountRepository accountRepository;
     @Mock TransactionRepository transactionRepository;
     @Mock FamilyMemberRepository memberRepository;
+    @Mock DebtRepository debtRepository;
     @Mock AccountService accountService;
     @Mock CategorizationService categorizationService;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
     @Captor ArgumentCaptor<Account> accountCaptor;
+    @Captor ArgumentCaptor<Debt> debtCaptor;
     @Captor ArgumentCaptor<Iterable<Transaction>> transactionsCaptor;
 
     CaisseEpargneSyncService service;
@@ -964,6 +968,149 @@ class CaisseEpargneSyncServiceTest {
         assertThat(writtenRows().values().stream().filter(r -> r.getCategoryRef() != null)).hasSize(1);
     }
 
+    // -- loan debt ----------------------------------------------------------
+
+    @Test
+    void queueSync_createsTheDebtOfALoanFromTheBankDetails() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.current(), f.withLoan(f.loan(), f.loanDetails(f.current().iban())));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        verify(accountRepository, times(2)).save(accountCaptor.capture());
+        Account current = accountCaptor.getAllValues().get(0);
+        Account loan = accountCaptor.getAllValues().get(1);
+        verify(debtRepository).save(debtCaptor.capture());
+        Debt debt = debtCaptor.getValue();
+        assertThat(debt.getAccount()).isSameAs(loan);
+        assertThat(debt.getMember().getId()).isEqualTo(7L);
+        assertThat(debt.getLinkedAccount()).isSameAs(current);
+        assertThat(debt.getBorrowedAmount()).isEqualByComparingTo("10000.00");
+        assertThat(debt.getInterestRate()).isEqualByComparingTo("0.045");
+        assertThat(debt.getMonthlyPayment()).isEqualByComparingTo("230.00");
+        assertThat(debt.getInsuranceMonthly()).isEqualByComparingTo("2.00");
+        assertThat(debt.getLenderName()).isEqualTo("Caisse d'Epargne");
+        // The schedule dates installment i at startDate + i months.
+        assertThat(debt.getStartDate()).isEqualTo(LocalDate.of(2026, 1, 5));
+        assertThat(debt.getEndDate()).isEqualTo(LocalDate.of(2028, 1, 5));
+    }
+
+    @Test
+    void queueSync_givesTheLoanDebtOneInstallmentPerMonthFromTheFirstDueDate() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.withLoan(f.loan(), f.loanDetails(null)));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        verify(debtRepository).save(debtCaptor.capture());
+        LoanAmortizationService.LoanScheduleResponse schedule =
+            new LoanAmortizationService().compute(debtCaptor.getValue(), TODAY);
+        assertThat(schedule.schedule()).hasSize(24);
+        assertThat(schedule.schedule().get(0).date()).isEqualTo(LocalDate.of(2026, 2, 5));
+        assertThat(schedule.schedule().get(23).date()).isEqualTo(LocalDate.of(2028, 1, 5));
+        assertThat(schedule.schedule().get(23).remainingBalance()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void queueSync_updatesTheExistingDebtOfTheLoanAndKeepsWhatTheBankDoesNotSend() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.withLoan(f.loan(), f.loanDetails(null)));
+        Debt existing = Debt.builder().id(99L).borrowedAmount(new BigDecimal("1.00"))
+            .lenderName("typed by the user").fileFees(new BigDecimal("50.00")).build();
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.of(existing));
+
+        service.queueSync(7L);
+
+        verify(debtRepository).save(debtCaptor.capture());
+        Debt debt = debtCaptor.getValue();
+        assertThat(debt).isSameAs(existing);
+        assertThat(debt.getBorrowedAmount()).isEqualByComparingTo("10000.00");
+        assertThat(debt.getStartDate()).isEqualTo(LocalDate.of(2026, 1, 5));
+        assertThat(debt.getFileFees()).isEqualByComparingTo("50.00");
+    }
+
+    @Test
+    void queueSync_leavesTheDebtUntouchedWhenTheLoanDetailsAreMissing() {
+        arrangeCommittableSync(new Fixture().loan());
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(any(Account.class));
+        verify(debtRepository, never()).save(any());
+    }
+
+    @Test
+    void queueSync_linksTheDebtToAnotherAccountOfTheMemberWithThatIban() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.withLoan(f.loan(), f.loanDetails("FR7600000000000000000000099")));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+        Account elsewhere = Account.builder().id(500L).build();
+        when(accountRepository.findByIbanAndMemberId("FR7600000000000000000000099", 7L))
+            .thenReturn(Optional.of(elsewhere));
+
+        service.queueSync(7L);
+
+        verify(debtRepository).save(debtCaptor.capture());
+        assertThat(debtCaptor.getValue().getLinkedAccount()).isSameAs(elsewhere);
+    }
+
+    @Test
+    void queueSync_leavesTheDebtUnlinkedWhenNoAccountHasThatIban() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.current(), f.withLoan(f.loan(), f.loanDetails("FR7600000000000000000000099")));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+        when(accountRepository.findByIbanAndMemberId("FR7600000000000000000000099", 7L))
+            .thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        verify(debtRepository).save(debtCaptor.capture());
+        assertThat(debtCaptor.getValue().getLinkedAccount()).isNull();
+    }
+
+    @Test
+    void queueSync_doesNotLinkTheDebtThroughAnAmbiguousIban() {
+        Fixture f = new Fixture();
+        CaisseEpargnePort.AccountData current = f.current();
+        arrangeCommittableSync(f.ambiguousIban(current), f.withLoan(f.loan(), f.loanDetails(current.iban())));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+        lenient().when(accountRepository.findByIbanAndMemberId(current.iban(), 7L))
+            .thenReturn(Optional.of(Account.builder().id(500L).build()));
+
+        service.queueSync(7L);
+
+        verify(debtRepository).save(debtCaptor.capture());
+        assertThat(debtCaptor.getValue().getLinkedAccount()).isNull();
+    }
+
+    @Test
+    void queueSync_ignoresIncompleteLoanDetailsButImportsTheLoan() {
+        Fixture f = new Fixture();
+        CaisseEpargnePort.LoanDetails full = f.loanDetails(null);
+        CaisseEpargnePort.LoanDetails noFirstDue = new CaisseEpargnePort.LoanDetails(full.borrowedAmount(),
+            full.interestRate(), full.monthlyPayment(), full.insuranceMonthly(), full.signatureDate(),
+            null, full.lastDueDate(), full.durationMonths(), null);
+        CaisseEpargneSession session = arrangeCommittableSync(f.withLoan(f.loan(), noFirstDue));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(accountRepository).save(any(Account.class));
+        verify(debtRepository, never()).save(any());
+    }
+
+    @Test
+    void queueSync_neverCreatesADebtForAnAccountThatIsNotALoan() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.withLoan(f.current(), f.loanDetails(null)));
+
+        service.queueSync(7L);
+
+        verify(debtRepository, never()).save(any());
+    }
+
     // -- helpers ------------------------------------------------------------
 
     private void assertFailedWithNothingWritten(CaisseEpargneSession session, CaisseEpargneErrorCode code) {
@@ -1010,7 +1157,7 @@ class CaisseEpargneSyncServiceTest {
     private CaisseEpargneSyncService serviceWith(TransactionTemplate template, Executor executor) {
         return new CaisseEpargneSyncService(
             port, sessionRepository, accountRepository, transactionRepository,
-            memberRepository, accountService, categorizationService, encryption, template, executor,
+            memberRepository, debtRepository, accountService, categorizationService, encryption, template, executor,
             Clock.fixed(TODAY.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC));
     }
 
@@ -1098,6 +1245,27 @@ class CaisseEpargneSyncServiceTest {
             return new CaisseEpargnePort.AccountData("contract:L0001", "LOAN", "PRET PERSONNEL",
                 new BigDecimal("-9000.00"), "EUR", null, false,
                 null, null, null, null, null, null, null, List.of(), true, null);
+        }
+
+        /** Synthetic 24-month personal loan, first installment 2026-02-05. */
+        CaisseEpargnePort.LoanDetails loanDetails(String linkedIban) {
+            return new CaisseEpargnePort.LoanDetails(new BigDecimal("10000.00"), new BigDecimal("0.045"),
+                new BigDecimal("230.00"), new BigDecimal("2.00"), LocalDate.of(2026, 1, 10),
+                LocalDate.of(2026, 2, 5), LocalDate.of(2028, 1, 5), 24, linkedIban);
+        }
+
+        CaisseEpargnePort.AccountData withLoan(CaisseEpargnePort.AccountData a, CaisseEpargnePort.LoanDetails loan) {
+            return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), a.balance(), a.currency(),
+                a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(),
+                a.snapshotComplete(), loan);
+        }
+
+        CaisseEpargnePort.AccountData ambiguousIban(CaisseEpargnePort.AccountData a) {
+            return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), a.balance(), a.currency(),
+                a.iban(), true, a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(),
+                a.snapshotComplete(), a.loan());
         }
 
         CaisseEpargnePort.AccountData card() {

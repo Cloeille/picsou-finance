@@ -14,12 +14,14 @@ import com.picsou.model.CaisseEpargneSyncStatus;
 import com.picsou.model.CardNature;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
+import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
 import com.picsou.port.CaisseEpargneErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
@@ -87,6 +89,7 @@ public class CaisseEpargneSyncService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final FamilyMemberRepository memberRepository;
+    private final DebtRepository debtRepository;
     private final AccountService accountService;
     private final CategorizationService categorizationService;
     private final CryptoEncryption encryption;
@@ -107,13 +110,14 @@ public class CaisseEpargneSyncService {
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
+        DebtRepository debtRepository,
         AccountService accountService,
         CategorizationService categorizationService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         @Qualifier("caisseEpargneSyncExecutor") Executor syncExecutor
     ) {
-        this(port, sessionRepository, accountRepository, transactionRepository, memberRepository,
+        this(port, sessionRepository, accountRepository, transactionRepository, memberRepository, debtRepository,
             accountService, categorizationService, encryption, txTemplate, syncExecutor, Clock.systemUTC());
     }
 
@@ -123,6 +127,7 @@ public class CaisseEpargneSyncService {
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
+        DebtRepository debtRepository,
         AccountService accountService,
         CategorizationService categorizationService,
         CryptoEncryption encryption,
@@ -136,6 +141,7 @@ public class CaisseEpargneSyncService {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.memberRepository = memberRepository;
+        this.debtRepository = debtRepository;
         this.accountService = accountService;
         this.categorizationService = categorizationService;
         this.encryption = encryption;
@@ -444,7 +450,10 @@ public class CaisseEpargneSyncService {
                 cardNature,
                 parentExternalId,
                 account.nextDueDate(),
-                prepareTransactions(account.transactions())
+                prepareTransactions(account.transactions()),
+                clean(account.iban()),
+                account.ibanAmbiguous(),
+                type == AccountType.LOAN ? usableLoan(account.loan()) : null
             ));
         }
 
@@ -501,12 +510,14 @@ public class CaisseEpargneSyncService {
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             Instant syncedAt = Instant.now();
             Map<String, Map<String, Transaction>> rowsByAccount = new LinkedHashMap<>();
+            Map<String, Account> savedById = new LinkedHashMap<>();
             for (PreparedAccount data : prepared.accounts()) {
-                Map<String, Transaction> rows = upsertAccount(data, member, job.memberId(), syncedAt);
+                Map<String, Transaction> rows = upsertAccount(data, member, job.memberId(), syncedAt, savedById);
                 if (rows != null) {
                     rowsByAccount.put(data.externalId(), rows);
                 }
             }
+            upsertLoanDebts(prepared, savedById, member, job.memberId());
             tagCardSettlements(prepared, rowsByAccount, job.memberId());
 
             session.recordUnsupportedContracts(serializeUnsupported(prepared.unsupported()));
@@ -517,7 +528,9 @@ public class CaisseEpargneSyncService {
     }
 
     /** The account's upserted rows by prefixed external id, or null when the user deleted it. */
-    private Map<String, Transaction> upsertAccount(PreparedAccount data, FamilyMember member, Long memberId, Instant syncedAt) {
+    private Map<String, Transaction> upsertAccount(
+        PreparedAccount data, FamilyMember member, Long memberId, Instant syncedAt, Map<String, Account> savedById
+    ) {
         Optional<Account> existing = accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), memberId);
         if (existing.isEmpty()
             && accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId)) {
@@ -551,9 +564,81 @@ public class CaisseEpargneSyncService {
         // The IBAN is deliberately not stored: matching by IBAN is outside this slice, and a
         // stored IBAN would let the Enable Banking sync adopt this account by itself.
         Account saved = accountRepository.save(account);
+        savedById.put(data.externalId(), saved);
 
         accountService.upsertSnapshot(saved, data.balance(), LocalDate.now());
         return upsertTransactions(saved, data.transactions());
+    }
+
+    /**
+     * The loan details the schedule can use, or null. A missing or odd field never fails the
+     * sync: the loan account is still imported, only its Debt is left as it was.
+     */
+    private static CaisseEpargnePort.LoanDetails usableLoan(CaisseEpargnePort.LoanDetails loan) {
+        if (loan == null
+            || loan.borrowedAmount() == null || loan.borrowedAmount().signum() <= 0
+            || loan.interestRate() == null || loan.interestRate().signum() < 0
+            || loan.interestRate().compareTo(BigDecimal.ONE) > 0
+            || loan.monthlyPayment() == null || loan.monthlyPayment().signum() <= 0
+            || (loan.insuranceMonthly() != null && loan.insuranceMonthly().signum() < 0)
+            || loan.firstDueDate() == null || loan.lastDueDate() == null
+            || loan.lastDueDate().isBefore(loan.firstDueDate())) {
+            if (loan != null) {
+                log.warn("Caisse d'Epargne loan details unusable; the loan's debt is left unchanged");
+            }
+            return null;
+        }
+        return loan;
+    }
+
+    /**
+     * Creates or updates the Debt of each loan the bank described. Only the fields the bank
+     * sends are written: file fees, or anything else the user typed, stay. {@code startDate} is
+     * one month before the first due date because the schedule dates installment i at
+     * {@code startDate + i months}. The debited account is the member's account with that IBAN:
+     * one of this import (its IBAN is never stored), else one already stored, else none.
+     */
+    private void upsertLoanDebts(
+        PreparedSnapshot prepared, Map<String, Account> savedById, FamilyMember member, Long memberId
+    ) {
+        for (PreparedAccount data : prepared.accounts()) {
+            Account loanAccount = savedById.get(data.externalId());
+            CaisseEpargnePort.LoanDetails loan = data.loan();
+            if (data.type() != AccountType.LOAN || loan == null || loanAccount == null) {
+                continue;
+            }
+            Debt debt = debtRepository.findByAccountId(loanAccount.getId())
+                .orElseGet(() -> Debt.builder().account(loanAccount).member(member).build());
+            debt.setLinkedAccount(debitedAccount(clean(loan.linkedIban()), prepared, savedById, memberId));
+            debt.setBorrowedAmount(loan.borrowedAmount());
+            debt.setInterestRate(loan.interestRate());
+            debt.setMonthlyPayment(loan.monthlyPayment());
+            debt.setInsuranceMonthly(loan.insuranceMonthly());
+            debt.setLenderName(PROVIDER);
+            debt.setStartDate(loan.firstDueDate().minusMonths(1));
+            debt.setEndDate(loan.lastDueDate());
+            debtRepository.save(debt);
+        }
+    }
+
+    private Account debitedAccount(
+        String iban, PreparedSnapshot prepared, Map<String, Account> savedById, Long memberId
+    ) {
+        if (iban == null) {
+            return null;
+        }
+        List<PreparedAccount> inImport = prepared.accounts().stream()
+            .filter(a -> iban.equals(a.iban()))
+            .toList();
+        if (inImport.isEmpty()) {
+            return accountRepository.findByIbanAndMemberId(iban, memberId).orElse(null);
+        }
+        // The bank itself shows this IBAN on this import: never guess past an ambiguity there,
+        // nor fall back to another account that happens to carry the same IBAN.
+        if (inImport.size() != 1 || inImport.get(0).ibanAmbiguous()) {
+            return null;
+        }
+        return savedById.get(inImport.get(0).externalId());
     }
 
     /**
@@ -899,7 +984,12 @@ public class CaisseEpargneSyncService {
         CardNature cardNature,
         String parentExternalId,
         LocalDate nextDueDate,
-        List<PreparedTransaction> transactions
+        List<PreparedTransaction> transactions,
+        /** Never stored on the account; only used to find a loan's debited account. */
+        String iban,
+        boolean ibanAmbiguous,
+        /** LOAN only, and only when every field the schedule needs is usable; else null. */
+        CaisseEpargnePort.LoanDetails loan
     ) {}
     private record PreparedTransaction(
         String externalId, LocalDate date, LocalDate dueDate, BigDecimal amount, String label, String typeCode
