@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An individual retirement plan (PER) has its own account type.** It used to be entered as
+  an assurance-vie or as employee savings, which misdescribed it. A PER holds unit-linked
+  lines and a euro fund like an assurance-vie, counts as equity in the wealth pyramid, sits
+  under Stocks on the accounts page, and records its opening date.
+
 - **An MCP client can refresh every existing connector and read whether one needs a new login.**
   `trigger_full_sync` runs the same per-member sync as the 08:00 job and returns one line per
   source, so a failed bank or a broker that needs reauthentication is named instead of hidden
