@@ -63,10 +63,13 @@ public interface CaisseEpargnePort {
 
     /**
      * Money is carried as {@link BigDecimal} parsed from the sidecar's decimal strings; a
-     * float never appears. {@code kind} is {@code CURRENT_ACCOUNT}, {@code LIVRET_A} or
-     * {@code CARD}; an unknown kind is rejected by the sync service, not guessed here.
-     * A card's {@code balance} is its outstanding (sum of operations with a future
-     * {@code dueDate}), zero or negative.
+     * float never appears. {@code kind} is {@code CURRENT_ACCOUNT}, {@code LIVRET_A},
+     * {@code LDDS}, {@code PER}, {@code LOAN} or {@code CARD}; an unknown kind is rejected by
+     * the sync service, not guessed here. A card's {@code balance} is its outstanding (sum of
+     * operations with a future {@code dueDate}), zero or negative. A loan's {@code balance} is
+     * its outstanding capital as the bank shows it, zero or negative; a PER's is zero or more.
+     * {@code loan} is set on a {@code LOAN} only, and only when the sidecar could read the
+     * loan's details; null otherwise.
      */
     record AccountData(
         String externalId,
@@ -86,12 +89,31 @@ public interface CaisseEpargnePort {
         /** Cards only: smallest {@code dueDate} after today among the card's operations, or null. */
         LocalDate nextDueDate,
         List<Transaction> transactions,
-        boolean snapshotComplete
+        boolean snapshotComplete,
+        LoanDetails loan
     ) {
         public AccountData {
             transactions = transactions == null ? List.of() : List.copyOf(transactions);
         }
     }
+
+    /**
+     * A personal loan's terms as the bank states them. {@code interestRate} is the nominal rate as
+     * a fraction (0.03 for 3 %). {@code insuranceMonthly} is derived by the sidecar (installment
+     * minus the annuity at the nominal rate) and null when that difference would be negative.
+     * {@code linkedIban} is the account the installments are debited from.
+     */
+    record LoanDetails(
+        BigDecimal borrowedAmount,
+        BigDecimal interestRate,
+        BigDecimal monthlyPayment,
+        BigDecimal insuranceMonthly,
+        LocalDate signatureDate,
+        LocalDate firstDueDate,
+        LocalDate lastDueDate,
+        int durationMonths,
+        String linkedIban
+    ) {}
 
     /** {@code amount} is signed: negative is an outflow. */
     record Transaction(

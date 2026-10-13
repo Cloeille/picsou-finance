@@ -423,6 +423,15 @@ public class CaisseEpargneSyncService {
                 // A card balance is its outstanding: money owed, never a credit.
                 throw invalid("a card with a positive outstanding");
             }
+            if (type == AccountType.LOAN && account.balance().signum() > 0) {
+                // The bank shows a loan's outstanding capital as a negative figure.
+                throw invalid("a loan with a positive outstanding");
+            }
+            if (type == AccountType.PER && account.balance().signum() < 0) {
+                throw invalid("a retirement plan with a negative balance");
+            }
+            // Picsou stores a loan positive and applies the liability sign itself.
+            BigDecimal balance = type == AccountType.LOAN ? account.balance().negate() : account.balance();
             CardNature cardNature = type == AccountType.CREDIT_CARD ? natureOf(account.cardNature()) : null;
             String parentExternalId = cardNature == null || clean(account.parentExternalId()) == null
                 ? null
@@ -431,7 +440,7 @@ public class CaisseEpargneSyncService {
                 externalId,
                 limit(account.name(), 100, fallbackName(type)),
                 type,
-                account.balance(),
+                balance,
                 cardNature,
                 parentExternalId,
                 account.nextDueDate(),
@@ -760,6 +769,9 @@ public class CaisseEpargneSyncService {
         return switch (kind) {
             case "CURRENT_ACCOUNT" -> AccountType.CHECKING;
             case "LIVRET_A" -> AccountType.LIVRET_A;
+            case "LDDS" -> AccountType.LDDS;
+            case "PER" -> AccountType.PER;
+            case "LOAN" -> AccountType.LOAN;
             case "CARD" -> AccountType.CREDIT_CARD;
             // Never guess: an unknown kind means the format moved under us.
             default -> throw invalid("an unknown account kind");
@@ -770,13 +782,19 @@ public class CaisseEpargneSyncService {
         return switch (type) {
             case CREDIT_CARD -> "Caisse d'Epargne card";
             case LIVRET_A -> "Livret A";
+            case LDDS -> "LDDS";
+            case PER -> "PER";
+            case LOAN -> "Caisse d'Epargne loan";
             default -> "Caisse d'Epargne account";
         };
     }
 
     private static String colorFor(AccountType type) {
         return switch (type) {
-            case LIVRET_A -> "#f59e0b";
+            // Same colour for every regulated savings book, as the Bourso connector does.
+            case LIVRET_A, LDDS -> "#f59e0b";
+            case PER -> "#8b5cf6";
+            case LOAN -> "#64748b";
             case CREDIT_CARD -> "#2563eb";
             default -> "#dc2626";
         };

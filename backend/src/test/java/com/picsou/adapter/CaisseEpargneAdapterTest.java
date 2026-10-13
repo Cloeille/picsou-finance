@@ -130,6 +130,53 @@ class CaisseEpargneAdapterTest {
         });
     }
 
+    /** Synthetic loan, same shape as the sidecar's `loan` block: decimals as strings, ISO dates. */
+    private static final String LOAN_CONTRACT = """
+        {
+          "accounts": [
+            {"externalId": "contract:L0001", "kind": "LOAN", "name": "PRET PERSONNEL",
+             "balance": "-9000.00", "currency": "EUR", "iban": null, "ibanAmbiguous": false,
+             "authorizedOverdraft": null, "ceiling": null, "remainingDepositCapacity": null,
+             "fillingRatio": null, "cardNature": null, "parentExternalId": null,
+             "transactions": [], "snapshotComplete": true,
+             "loan": {"borrowedAmount": "12000.00", "interestRate": "0.03", "monthlyPayment": "280.00",
+                      "insuranceMonthly": "14.39", "signatureDate": "2025-01-10",
+                      "firstDueDate": "2025-02-05", "lastDueDate": "2029-01-05",
+                      "durationMonths": 48, "linkedIban": "FR0000000000000000000000000"}},
+            {"externalId": "contract:L0002", "kind": "LOAN", "name": "PRET PERSONNEL",
+             "balance": "-100.00", "currency": "EUR", "iban": null, "ibanAmbiguous": false,
+             "transactions": [], "snapshotComplete": true, "loan": null},
+            {"externalId": "contract:P0001", "kind": "PER", "name": "PER",
+             "balance": "4200.00", "currency": "EUR", "iban": null, "ibanAmbiguous": false,
+             "transactions": [], "snapshotComplete": true}
+          ],
+          "unsupported": []
+        }
+        """;
+
+    @Test
+    void fetchAccounts_mapsTheLoanDetailsAndToleratesANullOrAbsentLoan() {
+        CaisseEpargneAdapter adapter = adapterReturning(HttpStatus.OK, LOAN_CONTRACT);
+
+        CaisseEpargnePort.AccountsSnapshot snapshot = adapter.fetchAccounts("state");
+
+        assertThat(snapshot.accounts()).hasSize(3);
+        CaisseEpargnePort.LoanDetails loan = snapshot.accounts().get(0).loan();
+        assertThat(loan).isNotNull();
+        assertThat(loan.borrowedAmount()).isEqualByComparingTo("12000.00");
+        assertThat(loan.interestRate()).isEqualByComparingTo("0.03");
+        assertThat(loan.monthlyPayment()).isEqualByComparingTo("280.00");
+        assertThat(loan.insuranceMonthly()).isEqualByComparingTo("14.39");
+        assertThat(loan.signatureDate()).isEqualTo(LocalDate.of(2025, 1, 10));
+        assertThat(loan.firstDueDate()).isEqualTo(LocalDate.of(2025, 2, 5));
+        assertThat(loan.lastDueDate()).isEqualTo(LocalDate.of(2029, 1, 5));
+        assertThat(loan.durationMonths()).isEqualTo(48);
+        assertThat(loan.linkedIban()).isEqualTo("FR0000000000000000000000000");
+        assertThat(snapshot.accounts().get(1).loan()).isNull();
+        assertThat(snapshot.accounts().get(2).loan()).isNull();
+        assertThat(snapshot.accounts().get(2).kind()).isEqualTo("PER");
+    }
+
     @Test
     void fetchAccounts_postsTheSessionStateToAccounts() {
         List<String> paths = new ArrayList<>();

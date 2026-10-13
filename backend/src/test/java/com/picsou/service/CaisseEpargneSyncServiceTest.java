@@ -106,6 +106,81 @@ class CaisseEpargneSyncServiceTest {
     }
 
     @Test
+    void queueSync_mapsLddsPerAndLoanToTheirPicsouAccountTypes() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.ldds(), f.per(), f.loan());
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(accountRepository, times(3)).save(accountCaptor.capture());
+        List<Account> saved = accountCaptor.getAllValues();
+        assertThat(saved).extracting(Account::getType).containsExactly(
+            AccountType.LDDS, AccountType.PER, AccountType.LOAN);
+        assertThat(saved).extracting(Account::getExternalAccountId)
+            .containsExactly("ce_1003", "ce_contract:P0001", "ce_contract:L0001");
+    }
+
+    @Test
+    void queueSync_givesTheLddsTheSameColourAsTheLivretA() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.livret(), f.ldds());
+
+        service.queueSync(7L);
+
+        verify(accountRepository, times(2)).save(accountCaptor.capture());
+        assertThat(accountCaptor.getAllValues().get(1).getColor())
+            .isEqualTo(accountCaptor.getAllValues().get(0).getColor());
+    }
+
+    @Test
+    void queueSync_fallsBackToAReadableNameForEachNewKind() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.withName(f.ldds(), null), f.withName(f.per(), " "), f.withName(f.loan(), null));
+
+        service.queueSync(7L);
+
+        verify(accountRepository, times(3)).save(accountCaptor.capture());
+        assertThat(accountCaptor.getAllValues()).extracting(Account::getName)
+            .containsExactly("LDDS", "PER", "Caisse d'Epargne loan");
+    }
+
+    @Test
+    void queueSync_storesTheLoanOutstandingAsAPositiveBalance() {
+        // Picsou stores a LOAN positive and applies the liability sign when it sums net worth;
+        // the bank sends the outstanding capital negative.
+        arrangeCommittableSync(new Fixture().loan());
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        Account loan = accountCaptor.getValue();
+        assertThat(loan.getCurrentBalance()).isEqualByComparingTo("9000.00");
+        assertThat(loan.getType().isLiability()).isTrue();
+        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("9000.00")), eq(LocalDate.now()));
+    }
+
+    @Test
+    void queueSync_refusesTheWholeSnapshotWhenALoanHasAPositiveBalance() {
+        Fixture f = new Fixture();
+        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withBalance(f.loan(), "9000.00"));
+
+        service.queueSync(7L);
+
+        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+    }
+
+    @Test
+    void queueSync_refusesTheWholeSnapshotWhenAPerHasANegativeBalance() {
+        Fixture f = new Fixture();
+        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withBalance(f.per(), "-1.00"));
+
+        service.queueSync(7L);
+
+        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+    }
+
+    @Test
     void queueSync_storesTheCardAsALiabilityWithItsOutstandingAsBalance() {
         arrangeCommittableSync(new Fixture().current(), new Fixture().card());
 
@@ -167,7 +242,7 @@ class CaisseEpargneSyncServiceTest {
         Fixture f = new Fixture();
         CaisseEpargnePort.AccountData settled = new CaisseEpargnePort.AccountData("2001", "CARD", null,
             BigDecimal.ZERO, "EUR", null, false, null, null, null, null, "DEFERRED_DEBIT", "1001", null,
-            List.of(), true);
+            List.of(), true, null);
         Account stored = Account.builder().id(40L).externalAccountId("ce_2001")
             .paymentDueAmount(new BigDecimal("87.10")).paymentDueDate(LocalDate.of(2026, 9, 30)).build();
         arrangeCommittableSync(f.current(), settled);
@@ -989,21 +1064,40 @@ class CaisseEpargneSyncServiceTest {
             return new CaisseEpargnePort.AccountData(base.externalId(), base.kind(), base.name(), base.balance(),
                 base.currency(), base.iban(), base.ibanAmbiguous(), base.authorizedOverdraft(), base.ceiling(),
                 base.remainingDepositCapacity(), base.fillingRatio(), nature, parent, base.nextDueDate(),
-                List.of(rows), base.snapshotComplete());
+                List.of(rows), base.snapshotComplete(), base.loan());
         }
 
         CaisseEpargnePort.AccountData current() {
             return new CaisseEpargnePort.AccountData("1001", "CURRENT_ACCOUNT", "COMPTE COURANT",
                 new BigDecimal("1234.56"), "EUR", "FR0000000000000000000000000", false,
                 new BigDecimal("500.00"), null, null, null, null, null, null,
-                List.of(tx("t1", "2026-10-01", "-12.30", "SUPERMARCHE")), true);
+                List.of(tx("t1", "2026-10-01", "-12.30", "SUPERMARCHE")), true, null);
         }
 
         CaisseEpargnePort.AccountData livret() {
             return new CaisseEpargnePort.AccountData("1002", "LIVRET_A", "LIVRET A",
                 new BigDecimal("5000.00"), "EUR", null, false,
                 null, new BigDecimal("22950.00"), new BigDecimal("17950.00"), new BigDecimal("0.2179"),
-                null, null, null, List.of(), true);
+                null, null, null, List.of(), true, null);
+        }
+
+        CaisseEpargnePort.AccountData ldds() {
+            return new CaisseEpargnePort.AccountData("1003", "LDDS", "LIVRET DEV DURABLE",
+                new BigDecimal("3000.00"), "EUR", null, false,
+                null, new BigDecimal("12000.00"), new BigDecimal("9000.00"), new BigDecimal("0.25"),
+                null, null, null, List.of(), true, null);
+        }
+
+        CaisseEpargnePort.AccountData per() {
+            return new CaisseEpargnePort.AccountData("contract:P0001", "PER", "PLAN EPARGNE RETRAITE",
+                new BigDecimal("4200.00"), "EUR", null, false,
+                null, null, null, null, null, null, null, List.of(), true, null);
+        }
+
+        CaisseEpargnePort.AccountData loan() {
+            return new CaisseEpargnePort.AccountData("contract:L0001", "LOAN", "PRET PERSONNEL",
+                new BigDecimal("-9000.00"), "EUR", null, false,
+                null, null, null, null, null, null, null, List.of(), true, null);
         }
 
         CaisseEpargnePort.AccountData card() {
@@ -1011,45 +1105,51 @@ class CaisseEpargneSyncServiceTest {
                 new BigDecimal("-87.10"), "EUR", null, false,
                 null, null, null, null, "DEFERRED_DEBIT", "1001", LocalDate.of(2026, 10, 31),
                 List.of(new CaisseEpargnePort.Transaction("c1", LocalDate.of(2026, 10, 2),
-                    LocalDate.of(2026, 10, 31), new BigDecimal("-87.10"), "EUR", "RESTAURANT", "04")), true);
+                    LocalDate.of(2026, 10, 31), new BigDecimal("-87.10"), "EUR", "RESTAURANT", "04")), true, null);
         }
 
         CaisseEpargnePort.AccountData with(CaisseEpargnePort.AccountData a, List<CaisseEpargnePort.Transaction> txs) {
             return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), a.balance(), a.currency(),
                 a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
-                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), txs, a.snapshotComplete());
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), txs, a.snapshotComplete(), a.loan());
         }
 
         CaisseEpargnePort.AccountData withKind(CaisseEpargnePort.AccountData a, String kind) {
             return new CaisseEpargnePort.AccountData(a.externalId(), kind, a.name(), a.balance(), a.currency(),
                 a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
-                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(), a.snapshotComplete());
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(), a.snapshotComplete(), a.loan());
+        }
+
+        CaisseEpargnePort.AccountData withName(CaisseEpargnePort.AccountData a, String name) {
+            return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), name, a.balance(), a.currency(),
+                a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(), a.snapshotComplete(), a.loan());
         }
 
         CaisseEpargnePort.AccountData withBalance(CaisseEpargnePort.AccountData a, String balance) {
             return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), new BigDecimal(balance),
                 a.currency(), a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(),
                 a.remainingDepositCapacity(), a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(),
-                a.transactions(), a.snapshotComplete());
+                a.transactions(), a.snapshotComplete(), a.loan());
         }
 
         CaisseEpargnePort.AccountData withCurrency(CaisseEpargnePort.AccountData a, String currency) {
             return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), a.balance(), currency,
                 a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
-                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(), a.snapshotComplete());
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(), a.snapshotComplete(), a.loan());
         }
 
         CaisseEpargnePort.AccountData withNature(CaisseEpargnePort.AccountData a, String nature) {
             return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), a.balance(), a.currency(),
                 a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
                 a.fillingRatio(), nature, a.parentExternalId(), a.nextDueDate(), a.transactions(),
-                a.snapshotComplete());
+                a.snapshotComplete(), a.loan());
         }
 
         CaisseEpargnePort.AccountData incomplete(CaisseEpargnePort.AccountData a) {
             return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), a.balance(), a.currency(),
                 a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
-                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(), false);
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(), false, a.loan());
         }
     }
 }
