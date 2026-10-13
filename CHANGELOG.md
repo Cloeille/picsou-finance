@@ -9,13 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **A Caisse d'Epargne sidecar and on-demand sync are in the codebase, but you cannot sign in
-  from Picsou yet.** A new internal `caisse-epargne-auth` container reads a Caisse d'Epargne
-  current account, a Livret A and an active deferred-debit card (shown as a credit card account
-  holding the amount still to be debited) with their transactions, and the backend can store
-  the bank session encrypted and sync it on request. There is no login screen and no setup
-  page yet, so today you cannot connect an account from the app, and nothing syncs
-  automatically. Disconnecting deletes the stored session in Picsou but does not end the
+- **You can connect a Caisse d'Epargne account and sync it on request.** From the Sync page or
+  the add-account window, you enter your identifier, click your own digits on the bank's
+  keypad shown in a pop-up, then approve in Sécur'Pass. Picsou never sees your password and
+  never stores it: it keeps only the encrypted bank session. A new internal
+  `caisse-epargne-auth` container imports the current account, the Livret A and the LDDS (each
+  its own account) with their transactions. A PER comes in
+  with its balance only. A personal loan comes in as a debt, with its amount, rate, monthly
+  payment and repayment schedule filled from the bank. On the current account, the loan payout
+  is marked as an internal transfer and each installment as a "Crédit" expense. A
+  deferred-debit card shows as a credit card account holding the amount still to be debited,
+  and its monthly settlement is marked as an internal transfer so it is not counted twice. Home
+  insurance and other contracts are listed as not supported and are not imported. Nothing
+  syncs automatically. Disconnecting deletes the stored session in Picsou but does not end the
   session at the bank, which stays open until it expires. Enable Banking is unchanged for
   Caisse d'Epargne accounts.
 - **An individual retirement plan (PER) has its own account type.** It used to be entered as

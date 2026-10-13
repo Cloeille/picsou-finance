@@ -1,11 +1,11 @@
-# Feature: Caisse d'Epargne sync (backend, slice 2)
+# Feature: Caisse d'Epargne sync
 
 > Last updated: 2026-10-13
-> Status: backend integration offline-tested only (read path and login endpoints). No frontend, no compose wiring yet. The login has never run against the real bank, and the sidecar keypad table is still empty until it is captured live.
+> Status: sidecar, backend and frontend are in the codebase. `docker-compose.yml` runs the `caisse-epargne-auth` sidecar and gives the backend its URL. The user connects from the Sync page (Caisse d'Epargne tab) or the add-account modal: a pop-up shows the bank's virtual keypad, the user clicks his own digits, then approves in Sécur'Pass. There is no keypad table: the sidecar never maps a key image to a digit. Sync is on demand only. Tested offline only: no test covers a full login against the real bank, and the card-transaction `accountIds` is still unverified live (see the sidecar README).
 
 ## Context
 
-The `caisse-epargne-auth` sidecar replays a stored bank session to a bearer token and reads accounts and transactions (`POST /token-check`, `POST /accounts`). This backend slice stores that session encrypted, calls the sidecar on demand and writes the result. It mirrors the BoursoBank connector with the differences below.
+The `caisse-epargne-auth` sidecar drives the browser login (`POST /initiate`, `POST /keypad`, `POST /complete`), then replays the stored bank session to a bearer token and reads accounts and transactions (`POST /token-check`, `POST /accounts`). The backend stores that session encrypted, calls the sidecar on demand and writes the result. It mirrors the BoursoBank connector with the differences below.
 
 ## How it works
 
@@ -25,7 +25,7 @@ Table `caisse_epargne_session` (migration `V109`) is `bourso_session` without `e
 - **LDDS** (`LDDS` → `LDDS`), with its transactions. It is a product of its own: it shares the Livret A's regulated rate, never its ceiling. The bank sends each account's own ceiling (`ceiling` in the sidecar contract); nothing hardcodes an LDDS ceiling or reuses the Livret A's.
 - **PER** (`PER` → `PER`): balance only, zero or more. No transactions are read, no IBAN. A negative balance refuses the sync.
 - **Personal loan** (`LOAN` → `LOAN`): the bank shows the outstanding capital as a figure <= 0; Picsou stores it positive (like any `LOAN`) and applies the liability sign itself. A positive outstanding refuses the sync. No transactions are read on the loan itself. See "Personal loan" below.
-- **Card** (`CARD` → `CREDIT_CARD`): liability; balance = outstanding, stored <= 0 like the Amex card; a positive outstanding refuses the sync.
+- **Card** (`CARD` → `CREDIT_CARD`): liability; balance = outstanding, stored <= 0 like the Amex card; a positive outstanding refuses the sync. Its nature (`IMMEDIATE_DEBIT`, `DEFERRED_DEBIT`, `CREDIT`) is stored in `account.card_nature` (migration `V111`), with `paymentDueAmount` (the outstanding) and `paymentDueDate` (next due date).
 - **Not supported:** home insurance and any other contract family or sub code (PEA, life insurance, other savings). The sidecar lists them in `unsupported` by id and family code only; they never become accounts and never fail the sync.
 
 ### Personal loan
@@ -33,6 +33,10 @@ Table `caisse_epargne_session` (migration `V109`) is `bourso_session` without `e
 - **Second token.** The loan detail is refused to the main token. The sidecar mints a second OAuth token from the same stored SSO session (another client and scope), cached apart from the main one and only when the synthesis holds a loan. Nothing new is stored by the backend: the same encrypted session serves both.
 - **Loan → Debt.** When the sidecar could read the detail (`loan` not null and every field usable), the sync creates or updates the loan account's `Debt`: borrowed amount, nominal rate, monthly payment (insurance included), monthly insurance, lender `Caisse d'Epargne`, `startDate = firstDueDate − 1 month` (the amortization schedule dates installment *i* at `startDate + i months`, so the first lands on the first due date), `endDate = lastDueDate`. Only these fields are written: file fees and anything else the user typed stay. A missing or odd detail never fails the sync; the account is still imported and an existing `Debt` is left as it was.
 - **Debited account.** `Debt.linkedAccount` is the member's account with the loan's debit IBAN: the one in this import when the bank shows that IBAN exactly once, else an account already stored with it, else none. The IBAN itself is still never stored on a Caisse d'Epargne account.
+
+### Budget tagging of the deferred-debit card settlement
+
+The card's operations already count once as expenses on the card account. The monthly debit that settles a `DEFERRED_DEBIT` card on its current account is therefore tagged `virement-interne` (internal transfer), so it is not counted twice. Strict on purpose: the current account is the card's parent as the bank reports it (`parentExternalId`) and must be in this import, the due date must be reached, the debit must fall on that day for exactly the sum of the card's operations for that due date, with a settlement type code (or none), exactly one candidate and no category yet. Anything else stays untouched; re-running changes nothing. A member with no `virement-interne` transfer category gets no tagging. The card account itself is never given a `parentAccountId` (see gaps).
 
 ### Budget tagging of loan rows
 
@@ -47,11 +51,11 @@ On the current account the loan is debited from, two kinds of rows are categoriz
 - Anything unexpected refuses the whole snapshot with `UPSTREAM_FORMAT_CHANGED`: unknown `kind`, non-EUR, missing balance, duplicate account, `snapshotComplete=false`, empty list, id over 100 characters.
 - A positive computed card outstanding refuses the whole sync (`UPSTREAM_FORMAT_CHANGED`) on purpose: the sign of the amount is unconfirmed, and it stays refused until a live run confirms it.
 - `unsupported` contracts are only counted in the status. They never become accounts.
-- The IBAN is **not stored** and the card is **not linked** to its current account (see gaps).
+- The IBAN is **not stored** and the card account is **not linked** to its current account (see gaps).
 
 ### Error codes
 
-`SESSION_EXPIRED`, `UPSTREAM_UNAVAILABLE`, `UPSTREAM_FORMAT_CHANGED`, `INVALID_SESSION_STATE`, `INTERNAL_ERROR`, plus the login codes `INVALID_CREDENTIALS`, `KEYPAD_CHANGED`, `APP_VALIDATION_TIMEOUT`, `AUTH_ATTEMPT_EXPIRED`. Same RFC 7807 `detail` scheme as Bourso.
+`SESSION_EXPIRED`, `UPSTREAM_UNAVAILABLE`, `UPSTREAM_FORMAT_CHANGED`, `INVALID_SESSION_STATE`, `INTERNAL_ERROR`, plus the login codes `INVALID_CREDENTIALS`, `KEYPAD_CHANGED`, `APP_VALIDATION_TIMEOUT`, `AUTH_ATTEMPT_EXPIRED`, `KEYPAD_EXPIRED`, `INVALID_POSITIONS` (the last two added to the `last_sync_error` CHECK by `V110`). Same RFC 7807 `detail` scheme as Bourso.
 
 ### Configuration
 
@@ -59,20 +63,22 @@ On the current account the loan is debited from, two kinds of rows are categoriz
 
 ## Authentication
 
-Login is two backend calls that drive the sidecar's browser login (`POST /initiate`, `POST /complete`). The human approves the sign-in in the Sécur'Pass app: nothing automates that step.
+Login is three backend calls that drive the sidecar's browser login (`POST /initiate`, `POST /keypad`, `POST /complete`). The bank's password page is a virtual keypad whose ten key images are shuffled at every connection. The sidecar does not read them: it sends the images to the UI, the user clicks his own digits in a pop-up (`CaisseEpargnePanel`), and only the clicked positions come back. The human then approves the sign-in in the Sécur'Pass app: nothing automates that step.
 
 | Endpoint | Body | Answer |
 |---|---|---|
-| `POST /api/caisse-epargne/auth/initiate` | `{customerId, password}` | `{processId, mfaRequired: true, mfaType: "SECURPASS", expiresInSeconds}` |
+| `POST /api/caisse-epargne/auth/initiate` | `{customerId}` | `{processId, keypad: {images: [10 PNG data URIs], columns: 5}, expiresInSeconds}` |
+| `POST /api/caisse-epargne/auth/keypad` | `{processId, positions}` | `{processId}` |
 | `POST /api/caisse-epargne/auth/complete` | `{processId}` | `{connected: true}` |
 
-- `customerId` is 1 to 20 digits and `password` 4 to 20 digits; anything else is a 4xx before the sidecar is called and before an attempt is consumed. The password is read once and handed to the sidecar.
-- **The password is never stored** (decision D5): not in the database, not in a service field, not in the pending-login map. The request DTO redacts it in `toString`, the adapter's request body does the same, and no error message or log line carries it.
-- **No retry anywhere.** A wrong password consumes a bank attempt and can lock the account. The adapter has no retry filter (asserted against a real HTTP server), the service calls the sidecar once per request, and a process id is single use: it is removed before `/complete` is called, so a failure cannot be replayed from the backend.
-- `/auth/initiate` is limited to **3 attempts per 15 minutes per IP** (`caisseEpargneAuthBuckets`, stricter than Bourso's 5). A refused call answers 429 with `Retry-After`. `/auth/complete` takes no password, so it does not draw from that bucket.
-- The service keeps the pending login (`processId`, member, deadline) in memory only. `/complete` refuses an unknown, expired or other member's process id with `AUTH_ATTEMPT_EXPIRED` without contacting the sidecar. A restart drops the attempt and the user starts again.
+- Bodies are read strictly: an unexpected field (a password, typically) is refused, never ignored. `customerId` is 1 to 20 digits; `positions` is 6 to 12 indexes, each 0 to 9, in the user's click order. Anything else is a 4xx before the sidecar is called and before an attempt is consumed.
+- **No password reaches Picsou.** It only exists in the user's browser, as clicks on key images. The positions are the password in disguise: they are never stored, logged, echoed or put in an error, and the adapter's request bodies redact the identifier and the positions in `toString`. Decision D5 still holds: only the session cookies are stored.
+- The keypad the sidecar returns is checked before it is shown: exactly 10 images in 5 columns, each a PNG data URI of at most 16 KB with a plain base64 payload. Anything else is `KEYPAD_CHANGED` and the process is never registered. The UI renders the images with `<img src>`.
+- **No retry anywhere.** A wrong password consumes a bank attempt and can lock the account. The adapter has no retry filter (asserted against a real HTTP server), the service calls the sidecar once per request, and each step takes the process id out before calling the sidecar, so a failure cannot be replayed from the backend. `/keypad` is accepted once per process.
+- Rate limits per IP: `/auth/initiate` **3 per 15 minutes** (`caisseEpargneAuthBuckets`, stricter than Bourso's 5); `/auth/keypad` 5 per 15 minutes in its own bucket, so it never eats a login attempt. A refused call answers 429 with `Retry-After`. `/auth/complete` takes no secret and draws from no bucket.
+- The service keeps the pending login (`processId`, member, deadlines) in memory only: the keypad deadline is the sidecar's `expiresInSeconds`, the approval window 180 s after the keypad step. An unknown, used, expired or other member's process id is refused with `AUTH_ATTEMPT_EXPIRED` (or `KEYPAD_EXPIRED` when the user took too long to click) without contacting the sidecar. A restart drops the attempt and the user starts again.
 - On success `completeAuth` stores the encrypted session through `storeSession` and does **not** queue a sync (sync stays on demand). A failed login never deactivates or deletes an existing session; only a sync that ends `SESSION_EXPIRED` or `INVALID_SESSION_STATE` does.
-- Timeouts: `/initiate` 90 s, `/complete` 170 s (above the sidecar's 150 s wait for the phone).
+- Timeouts: `/initiate` 90 s, `/keypad` 70 s, `/complete` 170 s (above the sidecar's 150 s wait for the phone).
 
 ### Sidecar to backend error mapping
 
@@ -80,27 +86,27 @@ Login is two backend calls that drive the sidecar's browser login (`POST /initia
 |---|---|
 | 401 `INVALID_CREDENTIALS` | `INVALID_CREDENTIALS` |
 | 409 `KEYPAD_CHANGED` | `KEYPAD_CHANGED` |
-| 408 `APP_VALIDATION_TIMEOUT` | `APP_VALIDATION_TIMEOUT` |
+| 408 on `/keypad` | `KEYPAD_EXPIRED` |
+| 408 on `/initiate` or `/complete` | `APP_VALIDATION_TIMEOUT` |
+| 422 on `/keypad` | `INVALID_POSITIONS` |
 | 410 `AUTH_ATTEMPT_EXPIRED` | `AUTH_ATTEMPT_EXPIRED` |
 | 429 `TOO_MANY_PENDING` | `UPSTREAM_UNAVAILABLE`, "too many pending" message |
 | 502 / 5xx / timeout | `UPSTREAM_UNAVAILABLE` (or `UPSTREAM_FORMAT_CHANGED` when the sidecar says so) |
 
-The four login codes are in `CaisseEpargneErrorCode` and in the `last_sync_error` CHECK of `V109`, which was edited in place because it is not applied anywhere yet.
+The login codes are in `CaisseEpargneErrorCode` and in the `last_sync_error` CHECK (`V109`, extended by `V110` for `KEYPAD_EXPIRED` and `INVALID_POSITIONS`).
 
 ## Not in this slice
 
-- A live login: the sidecar keypad table is empty until captured, so every login answers `KEYPAD_CHANGED` for now.
+- A live end-to-end login: everything above is tested offline only (the sidecar README lists the selectors not yet observed live).
+- Automatic sync: no scheduler, no startup sync, no auto-resync hook.
 - Preview LINK / CREATE / SKIP at first sync.
 - Matching with Enable Banking accounts by IBAN (the IBAN is deliberately not stored, so the EB sync cannot adopt these accounts by accident).
-- Monthly card debit as an internal transfer excluded from the budget (needed to avoid double counting with the card account).
-- Card link to its parent current account (`Account.parentAccountId` is documented for Revolut pockets only).
-- Card nature (`CREDIT` / `DEFERRED_DEBIT` / `IMMEDIATE_DEBIT`): `Account` has no suitable field and no column is added in this slice. The adapter carries it; the service drops it.
-- Livret A and LDDS ceiling, remaining deposit capacity, filling ratio and the current account overdraft: carried by the port, not persisted.
+- Card account link to its parent current account (`Account.parentAccountId` is documented for Revolut pockets only, and the dashboard skips any account with a parent, which would drop the card liability).
+- Livret A and LDDS ceiling, remaining deposit capacity, filling ratio and the current account overdraft: carried by the port, not persisted. Each account keeps its own ceiling from the bank; nothing is shared between the two.
 - PER holdings and contributions (balance only), and any insurance contract.
 - Best-effort bank logout on delete.
-- Frontend and docker-compose wiring.
 - Sync status feeds (`SyncStatusService`, `MemberSyncService`, MCP `SyncTools`) do not know this connector.
 
 ## Verification boundaries
 
-Covered offline: adapter against canned responses, session state machine, service mapping and atomicity (rollback with a real `TransactionTemplate`), controller rate limits, login service/adapter, V109 on real PostgreSQL (Testcontainers) and the entity/schema validation. Not covered: any call to the real sidecar or bank, the real `/accounts` payload beyond the contract in the slice spec, and card `accountIds=<cardPfmId>` (marked UNVERIFIED in the sidecar).
+Covered offline: sidecar login and read path against canned pages and responses, adapter against canned responses, session state machine, service mapping and atomicity (rollback with a real `TransactionTemplate`), controller rate limits, login service/adapter, the sync tab and login panel (vitest), the Caisse d'Epargne migrations on real PostgreSQL (Testcontainers) and the entity/schema validation. Not covered: any call to the real sidecar or bank, the real `/accounts` payload beyond the contract in the slice spec, and card `accountIds=<cardPfmId>` (marked UNVERIFIED in the sidecar).
