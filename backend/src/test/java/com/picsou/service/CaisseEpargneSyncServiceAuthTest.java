@@ -58,6 +58,7 @@ class CaisseEpargneSyncServiceAuthTest {
     @Mock DebtRepository debtRepository;
     @Mock AccountService accountService;
     @Mock com.picsou.service.budget.CategorizationService categorizationService;
+    @Mock com.picsou.service.budget.CategoryService categoryService;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
@@ -74,7 +75,7 @@ class CaisseEpargneSyncServiceAuthTest {
         clock = new MutableClock(T0);
         service = new CaisseEpargneSyncService(
             port, sessionRepository, accountRepository, transactionRepository,
-            memberRepository, debtRepository, accountService, categorizationService, encryption, txTemplate, Runnable::run, clock);
+            memberRepository, debtRepository, accountService, categorizationService, categoryService, encryption, txTemplate, Runnable::run, clock);
     }
 
     private static CaisseEpargnePort.Keypad keypad() {

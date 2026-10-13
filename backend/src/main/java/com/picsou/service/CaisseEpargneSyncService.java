@@ -25,6 +25,7 @@ import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
+import com.picsou.service.budget.CategoryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -68,6 +69,13 @@ public class CaisseEpargneSyncService {
     private static final String TRANSFER_SLUG = "virement-interne";
     /** The bank's {@code transactionTypeCode} on the current-account debit that settles a card. */
     private static final String SETTLEMENT_TYPE_CODE = "04";
+    /** Slug of the default EXPENSE category for loan installments, created on demand. */
+    private static final String CREDIT_SLUG = "credit";
+    /** Word the bank puts in the label of the credit that pays a personal loan out. */
+    private static final String DISBURSEMENT_LABEL = "FINANCEMENT";
+    /** How far a loan row may sit from the date it is expected on. */
+    private static final int LOAN_DATE_TOLERANCE_DAYS = 5;
+    private static final BigDecimal CENT = new BigDecimal("0.01");
     /** Same width the other identified-transaction connectors use for the external id. */
     private static final int MAX_EXTERNAL_ID_LENGTH = 100;
     private static final int MAX_UNSUPPORTED = 100;
@@ -92,6 +100,7 @@ public class CaisseEpargneSyncService {
     private final DebtRepository debtRepository;
     private final AccountService accountService;
     private final CategorizationService categorizationService;
+    private final CategoryService categoryService;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
@@ -113,12 +122,14 @@ public class CaisseEpargneSyncService {
         DebtRepository debtRepository,
         AccountService accountService,
         CategorizationService categorizationService,
+        CategoryService categoryService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         @Qualifier("caisseEpargneSyncExecutor") Executor syncExecutor
     ) {
         this(port, sessionRepository, accountRepository, transactionRepository, memberRepository, debtRepository,
-            accountService, categorizationService, encryption, txTemplate, syncExecutor, Clock.systemUTC());
+            accountService, categorizationService, categoryService, encryption, txTemplate, syncExecutor,
+            Clock.systemUTC());
     }
 
     CaisseEpargneSyncService(
@@ -130,11 +141,13 @@ public class CaisseEpargneSyncService {
         DebtRepository debtRepository,
         AccountService accountService,
         CategorizationService categorizationService,
+        CategoryService categoryService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         Executor syncExecutor,
         Clock clock
     ) {
+        this.categoryService = categoryService;
         this.clock = clock;
         this.port = port;
         this.sessionRepository = sessionRepository;
@@ -519,6 +532,7 @@ public class CaisseEpargneSyncService {
             }
             upsertLoanDebts(prepared, savedById, member, job.memberId());
             tagCardSettlements(prepared, rowsByAccount, job.memberId());
+            tagLoanRows(prepared, rowsByAccount, job.memberId());
 
             session.recordUnsupportedContracts(serializeUnsupported(prepared.unsupported()));
             session.markSuccessful(syncedAt);
@@ -707,6 +721,134 @@ public class CaisseEpargneSyncService {
             }
         }
         log.info("Caisse d'Epargne card settlements: tagged={}, left alone={} (member={})", tagged, skipped, memberId);
+    }
+
+    /**
+     * On the current account a loan is debited from, the disbursement is money moving in from
+     * the member's own loan (an internal transfer, not income) and each installment is a loan
+     * expense. Same guards as {@link #tagCardSettlements}: the debited account must be in this
+     * import under an unambiguous IBAN, exactly one row must match each expected event, and only
+     * a row without a category is touched. Anything else stays untouched. Counts only are logged.
+     */
+    private void tagLoanRows(
+        PreparedSnapshot prepared, Map<String, Map<String, Transaction>> rowsByAccount, Long memberId
+    ) {
+        LoanCategories categories = new LoanCategories(memberId);
+        int tagged = 0;
+        int skipped = 0;
+        for (PreparedAccount data : prepared.accounts()) {
+            CaisseEpargnePort.LoanDetails loan = data.loan();
+            if (data.type() != AccountType.LOAN || loan == null) {
+                continue;
+            }
+            PreparedAccount debited = debitedInImport(clean(loan.linkedIban()), prepared);
+            Map<String, Transaction> storedById = debited == null ? null : rowsByAccount.get(debited.externalId());
+            if (storedById == null) {
+                continue;
+            }
+            List<Transaction> changed = new ArrayList<>();
+            if (loan.signatureDate() != null) {
+                LocalDate from = loan.signatureDate().minusDays(LOAN_DATE_TOLERANCE_DAYS);
+                List<PreparedTransaction> credits = debited.transactions().stream()
+                    .filter(tx -> tx.amount().signum() > 0)
+                    .filter(tx -> sameToTheCent(tx.amount(), loan.borrowedAmount()))
+                    .filter(tx -> tx.label() != null
+                        && tx.label().toUpperCase(java.util.Locale.ROOT).contains(DISBURSEMENT_LABEL))
+                    .filter(tx -> !tx.date().isBefore(from) && !tx.date().isAfter(loan.firstDueDate()))
+                    .toList();
+                if (tag(credits, storedById, categories::transfer, changed)) tagged++; else skipped++;
+            }
+            // Always from the first due date: plusMonths on the previous one would drift a 31st to the 28th.
+            for (int k = 0; !loan.firstDueDate().plusMonths(k).isAfter(loan.lastDueDate()); k++) {
+                LocalDate due = loan.firstDueDate().plusMonths(k);
+                LocalDate from = due.minusDays(LOAN_DATE_TOLERANCE_DAYS);
+                LocalDate to = due.plusDays(LOAN_DATE_TOLERANCE_DAYS);
+                List<PreparedTransaction> debits = debited.transactions().stream()
+                    .filter(tx -> tx.amount().signum() < 0)
+                    .filter(tx -> sameToTheCent(tx.amount().negate(), loan.monthlyPayment()))
+                    .filter(tx -> !tx.date().isBefore(from) && !tx.date().isAfter(to))
+                    .toList();
+                if (debits.isEmpty()) {
+                    continue;
+                }
+                if (tag(debits, storedById, categories::credit, changed)) tagged++; else skipped++;
+            }
+            if (!changed.isEmpty()) {
+                transactionRepository.saveAllAndFlush(changed);
+            }
+        }
+        log.info("Caisse d'Epargne loan rows: tagged={}, left alone={} (member={})", tagged, skipped, memberId);
+    }
+
+    /** Tags the single candidate when it has no category yet; false when nothing was tagged. */
+    private static boolean tag(
+        List<PreparedTransaction> candidates, Map<String, Transaction> storedById,
+        java.util.function.Supplier<Category> category, List<Transaction> changed
+    ) {
+        Transaction row = candidates.size() == 1 ? storedById.get(candidates.get(0).externalId()) : null;
+        if (row == null || row.getCategoryRef() != null) {
+            return false;
+        }
+        Category target = category.get();
+        if (target == null) {
+            return false;
+        }
+        row.setCategoryRef(target);
+        changed.add(row);
+        return true;
+    }
+
+    private static boolean sameToTheCent(BigDecimal amount, BigDecimal expected) {
+        return amount.subtract(expected).abs().compareTo(CENT) <= 0;
+    }
+
+    /** The loan's debited account in this import, only under an IBAN the bank shows once. */
+    private static PreparedAccount debitedInImport(String iban, PreparedSnapshot prepared) {
+        if (iban == null) {
+            return null;
+        }
+        List<PreparedAccount> inImport = prepared.accounts().stream()
+            .filter(a -> iban.equals(a.iban()))
+            .toList();
+        return inImport.size() == 1 && !inImport.get(0).ibanAmbiguous() ? inImport.get(0) : null;
+    }
+
+    /** Loads each category at most once, and only when a row actually needs it. */
+    private final class LoanCategories {
+        private final Long memberId;
+        private Category transfer;
+        private boolean transferLoaded;
+        private Category credit;
+        private boolean creditLoaded;
+
+        LoanCategories(Long memberId) {
+            this.memberId = memberId;
+        }
+
+        Category transfer() {
+            if (!transferLoaded) {
+                transferLoaded = true;
+                Category found = categorizationService.loadContext(memberId).categoriesBySlug().get(TRANSFER_SLUG);
+                transfer = found != null && found.getKind() == CategoryKind.TRANSFER ? found : null;
+                if (transfer == null) {
+                    log.warn("Caisse d'Epargne loan disbursement left alone: no transfer category (member={})", memberId);
+                }
+            }
+            return transfer;
+        }
+
+        Category credit() {
+            if (!creditLoaded) {
+                creditLoaded = true;
+                credit = categoryService.findOrCreateDefault(memberId, CREDIT_SLUG)
+                    .filter(c -> c.getKind() == CategoryKind.EXPENSE)
+                    .orElse(null);
+                if (credit == null) {
+                    log.info("Caisse d'Epargne loan installments left alone: no credit category (member={})", memberId);
+                }
+            }
+            return credit;
+        }
     }
 
     /** Upsert by (account, external id); rows are never deleted, manual rows are never touched. */

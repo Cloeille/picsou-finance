@@ -20,6 +20,7 @@ import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
+import com.picsou.service.budget.CategoryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -71,6 +72,7 @@ class CaisseEpargneSyncServiceTest {
     @Mock DebtRepository debtRepository;
     @Mock AccountService accountService;
     @Mock CategorizationService categorizationService;
+    @Mock CategoryService categoryService;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
@@ -1111,6 +1113,232 @@ class CaisseEpargneSyncServiceTest {
         verify(debtRepository, never()).save(any());
     }
 
+    // -- loan budget tagging --------------------------------------------------
+
+    /** The synthetic loan of {@link Fixture#loanDetails}, debited from the current account 1001. */
+    private CaisseEpargnePort.AccountData linkedLoan(Fixture f) {
+        return f.withLoan(f.loan(), f.loanDetails(f.current().iban()));
+    }
+
+    private Category creditCategory() {
+        Category credit = Category.builder().id(901L).slug("credit").name("Crédit")
+            .kind(CategoryKind.EXPENSE).build();
+        lenient().when(categoryService.findOrCreateDefault(7L, "credit")).thenReturn(Optional.of(credit));
+        return credit;
+    }
+
+    /** Rows listed get exactly that category; every other written row stays uncategorized. */
+    private void assertCategories(java.util.Map<String, Category> expected) {
+        writtenRows().forEach((id, row) -> {
+            if (expected.containsKey(id)) {
+                assertThat(row.getCategoryRef()).as(id).isSameAs(expected.get(id));
+            } else {
+                assertThat(row.getCategoryRef()).as(id).isNull();
+            }
+        });
+    }
+
+    @Test
+    void queueSync_tagsTheLoanDisbursementOnTheLinkedAccountAsAnInternalTransfer() {
+        Fixture f = new Fixture();
+        Category transfer = transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("d1", "2026-01-12", "10000.00", "VIR SEPA BANQUE financement"),
+                f.tx("d2", "2026-01-12", "10000.00", "VIR SEPA SALAIRE"),
+                f.tx("d3", "2026-01-13", "9999.00", "VIR SEPA BANQUE FINANCEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of("ce_d1", transfer));
+    }
+
+    @Test
+    void queueSync_acceptsTheDisbursementAtTheEdgesOfItsWindowAndToTheCent() {
+        Fixture f = new Fixture();
+        Category transfer = transferCategory();
+        arrangeCommittableSync(f.currentWith(f.tx("d1", "2026-01-05", "10000.01", "FINANCEMENT")), linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of("ce_d1", transfer));
+    }
+
+    @Test
+    void queueSync_leavesADisbursementOutsideItsWindowAlone() {
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("d1", "2026-01-04", "10000.00", "FINANCEMENT"),
+                f.tx("d2", "2026-02-06", "10000.00", "FINANCEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of());
+    }
+
+    @Test
+    void queueSync_leavesTheDisbursementAloneWhenTwoCreditsMatch() {
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("d1", "2026-01-12", "10000.00", "FINANCEMENT"),
+                f.tx("d2", "2026-01-20", "10000.00", "FINANCEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of());
+    }
+
+    @Test
+    void queueSync_tagsEachInstallmentWithinFiveDaysOfItsDueDateAsCredit() {
+        Fixture f = new Fixture();
+        Category credit = creditCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("i1", "2026-02-05", "-230.00", "PRELEVEMENT ECHEANCE"),
+                f.tx("i2", "2026-03-10", "-229.99", "PRELEVEMENT ECHEANCE"),
+                f.tx("i3", "2026-03-31", "-230.00", "PRELEVEMENT ECHEANCE"),
+                f.tx("i4", "2026-04-11", "-230.00", "PRELEVEMENT ECHEANCE"),
+                f.tx("i5", "2026-05-05", "-231.00", "PRELEVEMENT ECHEANCE"),
+                f.tx("i6", "2026-06-05", "230.00", "REMBOURSEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        // i3 is 5 days before the April due date, i4 6 days after it: only i3 is the April one.
+        assertCategories(java.util.Map.of("ce_i1", credit, "ce_i2", credit, "ce_i3", credit));
+    }
+
+    @Test
+    void queueSync_neverTagsAnInstallmentBeforeTheFirstOrAfterTheLastDueDate() {
+        Fixture f = new Fixture();
+        creditCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("i0", "2026-01-05", "-230.00", "PRELEVEMENT"),
+                f.tx("i9", "2028-02-05", "-230.00", "PRELEVEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of());
+    }
+
+    @Test
+    void queueSync_leavesAnInstallmentAloneWhenTwoDebitsMatchTheSameDueDate() {
+        Fixture f = new Fixture();
+        Category credit = creditCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("i1", "2026-02-04", "-230.00", "PRELEVEMENT"),
+                f.tx("i2", "2026-02-06", "-230.00", "PRELEVEMENT"),
+                f.tx("i3", "2026-03-05", "-230.00", "PRELEVEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of("ce_i3", credit));
+    }
+
+    @Test
+    void queueSync_neverOverwritesACategoryTheUserChoseOnALoanRow() {
+        Fixture f = new Fixture();
+        transferCategory();
+        creditCategory();
+        Category mine = Category.builder().id(42L).slug(null).name("Mine").kind(CategoryKind.EXPENSE).build();
+        Transaction installment = Transaction.builder().externalId("ce_i1").categoryRef(mine).build();
+        Transaction disbursement = Transaction.builder().externalId("ce_d1").categoryRef(mine).build();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("d1", "2026-01-12", "10000.00", "FINANCEMENT"),
+                f.tx("i1", "2026-02-05", "-230.00", "PRELEVEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+        when(transactionRepository.findByAccountIdAndIsManualFalse(11L)).thenReturn(List.of(installment, disbursement));
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of("ce_i1", mine, "ce_d1", mine));
+    }
+
+    @Test
+    void queueSync_tagsTheLoanRowsOnceWhenTheSyncRunsAgain() {
+        Fixture f = new Fixture();
+        Category transfer = transferCategory();
+        Category credit = creditCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("d1", "2026-01-12", "10000.00", "FINANCEMENT"),
+                f.tx("i1", "2026-02-05", "-230.00", "PRELEVEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+        service.queueSync(7L);
+        java.util.Map<String, Transaction> first = writtenRows();
+        when(transactionRepository.findByAccountIdAndIsManualFalse(11L))
+            .thenReturn(List.of(first.get("ce_d1"), first.get("ce_i1")));
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of("ce_d1", transfer, "ce_i1", credit));
+        assertThat(writtenRows().get("ce_i1")).isSameAs(first.get("ce_i1"));
+    }
+
+    @Test
+    void queueSync_leavesInstallmentsAloneWhenTheMemberArchivedTheCreditCategory() {
+        Fixture f = new Fixture();
+        when(categoryService.findOrCreateDefault(7L, "credit")).thenReturn(Optional.empty());
+        CaisseEpargneSession session = arrangeCommittableSync(
+            f.currentWith(f.tx("i1", "2026-02-05", "-230.00", "PRELEVEMENT")), linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertCategories(java.util.Map.of());
+    }
+
+    @Test
+    void queueSync_tagsNothingWhenTheLoanIsNotLinkedToAnImportedAccount() {
+        Fixture f = new Fixture();
+        transferCategory();
+        creditCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("d1", "2026-01-12", "10000.00", "FINANCEMENT"),
+                f.tx("i1", "2026-02-05", "-230.00", "PRELEVEMENT")),
+            f.withLoan(f.loan(), f.loanDetails(null)));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of());
+        verify(categoryService, never()).findOrCreateDefault(any(), any());
+    }
+
+    @Test
+    void queueSync_createsNoCreditCategoryWhenNoInstallmentMatches() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.current(), linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        verify(categoryService, never()).findOrCreateDefault(any(), any());
+    }
+
     // -- helpers ------------------------------------------------------------
 
     private void assertFailedWithNothingWritten(CaisseEpargneSession session, CaisseEpargneErrorCode code) {
@@ -1157,7 +1385,7 @@ class CaisseEpargneSyncServiceTest {
     private CaisseEpargneSyncService serviceWith(TransactionTemplate template, Executor executor) {
         return new CaisseEpargneSyncService(
             port, sessionRepository, accountRepository, transactionRepository,
-            memberRepository, debtRepository, accountService, categorizationService, encryption, template, executor,
+            memberRepository, debtRepository, accountService, categorizationService, categoryService, encryption, template, executor,
             Clock.fixed(TODAY.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC));
     }
 
