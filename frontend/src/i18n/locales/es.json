@@ -712,7 +712,7 @@
       "property": "Casa, piso, terreno…",
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Sincronizar tus cuentas Fortuneo",
-      "caisseEpargne": "Cuenta corriente, Livret A y tarjetas en Caisse d'Epargne"
+      "caisseEpargne": "Cuenta corriente, Livret A, LDDS, PER, préstamos y tarjetas en Caisse d'Epargne"
     },
     "revolutConnected": "Revolut connected!"
   },
@@ -993,7 +993,7 @@
       "disconnectConfirmAction": "Borrar la sesión guardada",
       "noSession": "Sin sesión activa",
       "sessionActive": "Sesión activa",
-      "scope": "Sincroniza bajo demanda tus cuentas corrientes y de ahorro de Caisse d'Epargne. Solo se guarda la sesión, cifrada. Los contratos que Picsou no puede importar se listan pero nunca se crean.",
+      "scope": "Sincroniza bajo demanda tus cuentas corrientes, Livret A, LDDS, PER (solo saldo), préstamos personales y tarjetas de Caisse d'Epargne. Solo se guarda la sesión, cifrada. Los contratos que Picsou no puede importar se listan pero nunca se crean.",
       "notice": {
         "neverStored": "Picsou nunca ve ni guarda tu contraseña. La pulsas tú mismo en el teclado del banco; solo se envían las posiciones de las teclas, una única vez.",
         "noRetry": "Picsou nunca reintenta un inicio de sesión. Si falla, no se vuelve a enviar nada hasta que envíes el formulario tú mismo.",

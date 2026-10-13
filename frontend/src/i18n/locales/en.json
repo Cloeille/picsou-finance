@@ -986,7 +986,7 @@
       "amex": "American Express credit card: balance and transactions",
       "property": "House, apartment, land…",
       "fortuneo": "Sync your Fortuneo accounts",
-      "caisseEpargne": "Current account, Livret A and cards at Caisse d'Epargne"
+      "caisseEpargne": "Current account, Livret A, LDDS, PER, loans and cards at Caisse d'Epargne"
     }
   },
   "sync": {
@@ -1296,7 +1296,7 @@
       "disconnectConfirmAction": "Delete the stored session",
       "noSession": "No active session",
       "sessionActive": "Session active",
-      "scope": "Syncs your Caisse d'Epargne current and savings accounts on demand. Only the session is kept, encrypted. Contracts Picsou cannot import are listed but never created.",
+      "scope": "Syncs your Caisse d'Epargne current accounts, Livret A, LDDS, PER (balance only), personal loans and cards on demand. Only the session is kept, encrypted. Contracts Picsou cannot import are listed but never created.",
       "notice": {
         "neverStored": "Picsou never sees or stores your password. You click it on the bank's keypad yourself; only the positions of the keys are sent, once.",
         "noRetry": "Picsou never retries a sign-in. If it fails, nothing is sent again until you submit the form yourself.",
