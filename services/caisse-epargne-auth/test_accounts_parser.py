@@ -15,6 +15,7 @@ import pytest
 
 from accounts_parser import (
     ParseError,
+    _parse_synthesis,
     build_import,
     card_outstanding,
     extract_iban,
@@ -140,13 +141,13 @@ def test_unsupported_family_is_skipped_not_guessed_and_does_not_block_the_rest()
 
 def test_family_3_other_than_livret_a_is_skipped():
     s = synthesis()
-    contract(s, 1002)["identity"]["productLabel"] = "LDDS"
+    contract(s, 1002)["identity"]["subProductFamilyPFM"]["code"] = "99"
     assert "1002" not in {a["externalId"] for a in parse_synthesis(s)}
 
 
 def test_build_import_reports_unsupported_contracts_by_id_and_family_only():
     s = synthesis()
-    contract(s, 1002)["identity"]["productLabel"] = "LDDS"
+    contract(s, 1002)["identity"]["subProductFamilyPFM"]["code"] = "99"
     inputs = full_inputs()
     del inputs["1002"]
     result = build_import(s, inputs, today=TODAY)
@@ -156,8 +157,9 @@ def test_build_import_reports_unsupported_contracts_by_id_and_family_only():
 def test_unsupported_contract_with_malformed_identification_still_raises():
     s = synthesis()
     item = contract(s, 1002)
-    item["identity"]["productLabel"] = "LDDS"
+    item["identity"]["subProductFamilyPFM"]["code"] = "99"
     item["identification"].pop("contractPfmId")
+    item["identification"].pop("contractId")  # no id left to report it by
     with pytest.raises(ParseError) as e:
         parse_synthesis(s)
     assert e.value.code == "INVALID_SYNTHESIS"
@@ -332,6 +334,161 @@ def test_parse_does_not_mutate_its_input():
     before = copy.deepcopy(s)
     parse_synthesis(s)
     assert s == before
+
+
+# ─── Product families: LDDS, PER, loan (six-contract synthesis) ─────────────
+
+
+def products():
+    return copy.deepcopy(FIXTURES["synthesis_products"])
+
+
+def family(s, code, sub=None):
+    return next(
+        i
+        for i in s["items"]
+        if i["identity"]["productFamilyPFM"]["code"] == code
+        and (sub is None or (i["identity"]["subProductFamilyPFM"] or {}).get("code") == sub)
+    )
+
+
+PER_ID = "contract:00000     FAKE00000014"
+LOAN_ID = "contract:00000000000015"
+
+
+def test_six_contracts_give_five_accounts_and_one_unsupported_without_error():
+    # PER, loan and insurance carry a null contractPfmId: none of them may
+    # fail the sync of the others.
+    accounts, unsupported = _parse_synthesis(products())
+    kinds = {a["externalId"]: a["kind"] for a in accounts if a["kind"] != "CARD"}
+    assert kinds == {
+        "1001": "CURRENT_ACCOUNT",
+        "1002": "LIVRET_A",
+        "1003": "LDDS",
+        PER_ID: "PER",
+        LOAN_ID: "LOAN",
+    }
+    assert unsupported == [{"externalId": "contract:0000000016", "familyCode": "5"}]
+
+
+def test_build_import_of_six_contracts_needs_transactions_for_imported_ones_only():
+    # The current account keeps its active card (2001) from the base fixture.
+    inputs = {k: [] for k in ("1001", "2001", "1002", "1003", PER_ID, LOAN_ID)}
+    result = build_import(products(), inputs, today=TODAY)
+    assert len([a for a in result["accounts"] if a["kind"] != "CARD"]) == 5
+    assert result["unsupported"] == [{"externalId": "contract:0000000016", "familyCode": "5"}]
+
+
+def test_sub_family_code_decides_the_savings_kind_over_the_label():
+    s = products()
+    family(s, "3", "01")["identity"]["productLabel"] = "SOMETHING ELSE"
+    family(s, "3", "28")["identity"]["productLabel"] = "LIVRET A"
+    kinds = {a["externalId"]: a["kind"] for a in parse_synthesis(s)}
+    assert kinds["1002"] == "LIVRET_A"
+    assert kinds["1003"] == "LDDS"
+
+
+def test_livret_a_label_still_counts_when_the_sub_family_is_absent():
+    s = synthesis()
+    contract(s, 1002)["identity"]["subProductFamilyPFM"] = None
+    assert by_id(parse_synthesis(s))["1002"]["kind"] == "LIVRET_A"
+
+
+@pytest.mark.parametrize(
+    "fam, sub",
+    [("3", "99"), ("4", "99"), ("6", "99"), ("5", "99"), ("7", "01"), ("2", "05")],
+)
+def test_other_family_and_sub_family_pairs_are_unsupported_never_fatal(fam, sub):
+    s = products()
+    item = family(s, "6", "12")
+    item["identity"]["productFamilyPFM"]["code"] = fam
+    item["identity"]["subProductFamilyPFM"]["code"] = sub
+    accounts, unsupported = _parse_synthesis(s)
+    assert LOAN_ID not in {a["externalId"] for a in accounts}
+    assert {"externalId": LOAN_ID, "familyCode": fam} in unsupported
+
+
+def test_ldds_carries_the_savings_fields():
+    a = by_id(parse_synthesis(products()))["1003"]
+    assert a["balance"] == {"value": Decimal("1200.0"), "currency": "EUR"}
+    assert a["ceiling"] == {"value": Decimal("22950.0"), "currency": "EUR"}
+
+
+def test_per_and_loan_ids_are_the_stripped_contract_id():
+    s = products()
+    accounts = by_id(parse_synthesis(s))
+    assert accounts[PER_ID]["kind"] == "PER"
+    assert accounts[LOAN_ID]["kind"] == "LOAN"  # leading/trailing blanks stripped
+    assert accounts[PER_ID]["iban"] is None and accounts[LOAN_ID]["iban"] is None
+
+
+def test_per_and_loan_tolerate_an_integer_pfm_id_but_keep_the_contract_id():
+    s = products()
+    family(s, "4", "05")["identification"]["contractPfmId"] = 4004
+    family(s, "6", "12")["identification"].pop("contractPfmId")
+    ids = {a["externalId"] for a in parse_synthesis(s)}
+    assert {PER_ID, LOAN_ID} <= ids and "4004" not in ids
+
+
+def test_loan_balance_is_kept_negative():
+    a = by_id(parse_synthesis(products()))[LOAN_ID]
+    assert a["balance"] == {"value": Decimal("-9876.54"), "currency": "EUR"}
+
+
+def test_zero_loan_and_zero_per_balances_are_accepted():
+    s = products()
+    family(s, "6", "12")["identity"]["balance"]["value"] = 0
+    family(s, "4", "05")["identity"]["balance"]["value"] = 0.0
+    accounts = by_id(parse_synthesis(s))
+    assert accounts[LOAN_ID]["balance"]["value"] == 0
+    assert accounts[PER_ID]["balance"]["value"] == 0
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        # A positive loan or a negative PER is a format change, not a value to keep.
+        lambda s: family(s, "6", "12")["identity"]["balance"].update(value=0.01),
+        lambda s: family(s, "4", "05")["identity"]["balance"].update(value=-0.01),
+        lambda s: family(s, "6", "12")["identity"].update(balance=None),
+        lambda s: family(s, "4", "05")["identification"]["contractId"].update(id="   "),
+        lambda s: family(s, "4", "05")["identification"]["contractId"].pop("id"),
+        lambda s: family(s, "6", "12")["identification"].pop("contractId"),
+        lambda s: family(s, "6", "12")["identification"].update(contractPfmId="7"),
+        lambda s: family(s, "3", "28")["identification"].update(contractPfmId=None),
+        lambda s: family(s, "3", "28")["identity"].update(subProductFamilyPFM="28"),
+        lambda s: family(s, "3", "28")["identity"]["subProductFamilyPFM"].update(code=28),
+        lambda s: family(s, "5")["identification"]["contractId"].pop("id"),
+    ],
+)
+def test_malformed_product_contracts_raise_parse_error(mutate):
+    s = products()
+    mutate(s)
+    with pytest.raises(ParseError) as e:
+        parse_synthesis(s)
+    assert e.value.code == "INVALID_SYNTHESIS"
+
+
+def test_unsupported_contract_uses_its_integer_pfm_id_when_it_has_one():
+    s = products()
+    family(s, "5")["identification"]["contractPfmId"] = 5005
+    assert _parse_synthesis(s)[1] == [{"externalId": "5005", "familyCode": "5"}]
+
+
+def test_contract_ids_never_reach_error_messages():
+    s = products()
+    family(s, "6", "12")["identity"]["balance"]["value"] = 1.0
+    with pytest.raises(ParseError) as e:
+        parse_synthesis(s)
+    assert "00000000000015" not in str(e.value) and "1.0" not in str(e.value)
+
+
+def test_duplicate_contract_id_between_per_entries_raises():
+    s = products()
+    s["items"].append(copy.deepcopy(family(s, "4", "05")))
+    with pytest.raises(ParseError) as e:
+        parse_synthesis(s)
+    assert e.value.code == "INVALID_SYNTHESIS"
 
 
 # ─── Transactions ───────────────────────────────────────────────────────────

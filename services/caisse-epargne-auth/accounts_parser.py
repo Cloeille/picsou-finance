@@ -18,10 +18,14 @@ Facts deliberately NOT guessed (the fixtures and findings do not settle them):
 
 * the unit of `fillingRatio` (21.8 in the fixture): passed through untouched;
 * the meaning of contract `status` (`2 Actif`): contracts are not filtered on it;
-* which other product families exist beyond `1` and `3 / LIVRET A`: they are
-  skipped (with their cards) and reported in `build_import(...)["unsupported"]`
-  by id and family code only, never mapped to a guessed kind, so a PER or PEA
-  opened later cannot block the sync of the supported accounts;
+* which product families exist beyond those observed (`1`, `3/01` Livret A,
+  `3/28` LDDS, `4/05` PER, `6/12` loan): they are skipped (with their cards)
+  and reported in `build_import(...)["unsupported"]` by id and family code
+  only, never mapped to a guessed kind, so a PEA or an insurance contract
+  cannot block the sync of the supported accounts. PER, loan and insurance
+  contracts carry a null `contractPfmId`: they are keyed by
+  `contract:<contractId.id>` instead, and the kind is decided before any id
+  is read;
 * a card carries no currency of its own: its balance currency is its parent
   contract's;
 * whether `dueDate` can be null on real rows: it is treated as required;
@@ -46,6 +50,19 @@ CARD_STATUS_ACTIVE = "100"
 FAMILY_CURRENT = "1"
 FAMILY_SAVINGS_AVAILABLE = "3"
 LIVRET_A_LABEL = "LIVRET A"
+
+# Observed live 2026-10-13: `productFamilyPFM.code` / `subProductFamilyPFM.code`.
+# Any other pair (insurance `5`, other sub codes) is unsupported, never fatal.
+_KINDS_BY_FAMILY = {
+    (FAMILY_SAVINGS_AVAILABLE, "01"): "LIVRET_A",
+    (FAMILY_SAVINGS_AVAILABLE, "28"): "LDDS",
+    ("4", "05"): "PER",
+    ("6", "12"): "LOAN",
+}
+# Kinds with PFM transactions, keyed by `contractPfmId`. PER and loan contracts
+# carry a null `contractPfmId` and are keyed by `contract:<contractId.id>`.
+PFM_KINDS = frozenset({"CURRENT_ACCOUNT", "LIVRET_A", "LDDS"})
+CONTRACT_ID_PREFIX = "contract:"
 
 # Observed live 2026-10-07: transaction dates carry a time part
 # (`YYYY-MM-DDTHH:MM:SS`). Only the day is kept.
@@ -146,6 +163,14 @@ def _contract_kind(identity: dict, where: str) -> Optional[str]:
     code = _text(family.get("code"), INVALID_SYNTHESIS, f"{where}.productFamilyPFM.code")
     if code == FAMILY_CURRENT:
         return "CURRENT_ACCOUNT"
+    sub = identity.get("subProductFamilyPFM")
+    if sub is not None:
+        sub = _object(sub, INVALID_SYNTHESIS, f"{where}.subProductFamilyPFM")
+        sub_code = _text(sub.get("code"), INVALID_SYNTHESIS, f"{where}.subProductFamilyPFM.code")
+        # PEA, insurance, other savings...: skipped, never mapped to a guessed
+        # kind, and never allowed to block the sync of the supported accounts.
+        return _KINDS_BY_FAMILY.get((code, sub_code))
+    # No sub family: only the Livret A label is recognised (older payloads).
     label = identity.get("productLabel")
     if (
         code == FAMILY_SAVINGS_AVAILABLE
@@ -153,21 +178,56 @@ def _contract_kind(identity: dict, where: str) -> Optional[str]:
         and label.strip().upper() == LIVRET_A_LABEL
     ):
         return "LIVRET_A"
-    # PER, PEA, other savings...: skipped, never mapped to a guessed kind, and
-    # never allowed to block the sync of the supported accounts.
     return None
+
+
+def _contract_id(identification: dict, where: str) -> str:
+    """`contract:<contractId.id>`, blanks stripped; the key when there is no PFM id."""
+    contract_id = _object(identification.get("contractId"), INVALID_SYNTHESIS, f"{where}.contractId")
+    raw = _text(contract_id.get("id"), INVALID_SYNTHESIS, f"{where}.contractId.id")
+    stripped = raw.strip()
+    if not stripped:
+        raise ParseError(INVALID_SYNTHESIS, f"{where}.contractId.id: expected a non-empty string")
+    return CONTRACT_ID_PREFIX + stripped
+
+
+def _external_id(kind: Optional[str], identification: dict, where: str) -> str:
+    pfm = identification.get("contractPfmId")
+    if kind in PFM_KINDS:
+        return _pfm_id(pfm, INVALID_SYNTHESIS, f"{where}.contractPfmId")
+    if pfm is not None:
+        # Null or absent on PER and loans as observed; an integer is tolerated,
+        # anything else is a format change.
+        pfm_id = _pfm_id(pfm, INVALID_SYNTHESIS, f"{where}.contractPfmId")
+        if kind is None:
+            return pfm_id
+    return _contract_id(identification, where)
+
+
+def _check_balance_sign(kind: str, balance: Optional[dict], where: str) -> None:
+    # A loan is outstanding capital, negative on the bank side; a PER is an
+    # asset. The other sign means the field changed meaning.
+    if balance is None:  # `_money(required=True)` has already refused it
+        raise ParseError(INVALID_SYNTHESIS, f"{where}.balance: missing")
+    value = balance["value"]
+    if (kind == "LOAN" and value > 0) or (kind == "PER" and value < 0):
+        raise ParseError(INVALID_SYNTHESIS, f"{where}.balance.value: unexpected sign for this kind")
 
 
 def _contract_account(item: dict, where: str) -> tuple:
     """`(account, None)` for a supported contract, `(None, unsupported)` otherwise."""
     identification = _object(item.get("identification"), INVALID_SYNTHESIS, f"{where}.identification")
     identity = _object(item.get("identity"), INVALID_SYNTHESIS, f"{where}.identity")
-    external_id = _pfm_id(identification.get("contractPfmId"), INVALID_SYNTHESIS, f"{where}.contractPfmId")
+    # The kind decides which id to read: PER, loan and insurance contracts have
+    # a null `contractPfmId`, and must not fail the sync of the others.
     kind = _contract_kind(identity, where)
+    external_id = _external_id(kind, identification, where)
     if kind is None:
         # Id and family code only: no label, no balance leaves the parser.
         return None, {"externalId": external_id, "familyCode": identity["productFamilyPFM"]["code"]}
 
+    balance = _money(identity.get("balance"), f"{where}.balance", required=True)
+    _check_balance_sign(kind, balance, where)
     filling = identity.get("fillingRatio")
     filling_ratio = (
         None if filling is None else _decimal(filling, INVALID_SYNTHESIS, f"{where}.fillingRatio")
@@ -177,7 +237,7 @@ def _contract_account(item: dict, where: str) -> tuple:
         "externalId": external_id,
         "kind": kind,
         "name": name if isinstance(name, str) else None,
-        "balance": _money(identity.get("balance"), f"{where}.balance", required=True),
+        "balance": balance,
         "authorizedOverdraft": _money(
             identity.get("authorizedOverdraft"), f"{where}.authorizedOverdraft", required=False
         ),
