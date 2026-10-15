@@ -8,6 +8,9 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -28,7 +31,9 @@ class ReleaseMigrationCliTest {
     }
 
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+        .withUsername("release_cli_user_marker")
+        .withPassword("release-cli-password-marker");
 
     static boolean dockerAvailable() {
         boolean available = DockerClientFactory.instance().isDockerAvailable();
@@ -58,6 +63,7 @@ class ReleaseMigrationCliTest {
         execute(url, "DELETE FROM flyway_schema_history WHERE version = '100'");
 
         assertThat(run("verify", url)).isNotZero();
+        assertThat(verifyDiagnosis(url)).contains("V100 (V100__account_type_credit_card.sql)");
     }
 
     @Test
@@ -92,6 +98,7 @@ class ReleaseMigrationCliTest {
         execute(url, "UPDATE flyway_schema_history SET checksum = checksum + 1 WHERE version = '100'");
 
         assertThat(run("verify", url)).isNotZero();
+        assertThat(verifyDiagnosis(url)).contains("V100", "CHECKSUM_MISMATCH");
     }
 
     @Test
@@ -125,6 +132,35 @@ class ReleaseMigrationCliTest {
         execute(url, "ALTER TABLE account DROP COLUMN payment_due_amount");
 
         assertThat(run("verify", url)).isNotZero();
+        assertThat(verifyDiagnosis(url)).contains("payment_due_amount", "account");
+    }
+
+    @Test
+    void namesTheFailingScriptWhenMigrateFails() throws Exception {
+        String url = createDatabase("failing_script");
+        assertThat(run("migrate", url)).isZero();
+        // V101's table stays behind while its history row disappears: migrate re-runs V101 and fails.
+        execute(url, "DELETE FROM flyway_schema_history WHERE version = '101'");
+
+        String diagnosis = diagnosis("migrate", url);
+        assertThat(diagnosis).contains("Failing migration: V101 (V101__amex_session.sql)");
+        assertThat(diagnosis).doesNotContain("CREATE TABLE");
+    }
+
+    @Test
+    void rejectsMissingLabelInAnyMappedNamedEnum() throws Exception {
+        String url = createDatabase("missing_rate_basis_label");
+        assertThat(run("migrate", url)).isZero();
+        execute(url, "BEGIN; ALTER TABLE savings_interest_config ALTER COLUMN rate_basis DROP DEFAULT; "
+            + "ALTER TYPE rate_basis RENAME TO rate_basis_old; "
+            + "CREATE TYPE rate_basis AS ENUM ('NET'); "
+            + "ALTER TABLE savings_interest_config ALTER COLUMN rate_basis TYPE rate_basis "
+            + "USING rate_basis::text::rate_basis; "
+            + "ALTER TABLE savings_interest_config ALTER COLUMN rate_basis SET DEFAULT 'NET'; "
+            + "DROP TYPE rate_basis_old; COMMIT");
+
+        assertThat(run("verify", url)).isNotZero();
+        assertThat(verifyDiagnosis(url)).contains("PostgreSQL enum rate_basis is missing labels [GROSS]");
     }
 
     @Test
@@ -134,6 +170,7 @@ class ReleaseMigrationCliTest {
         replaceAccountTypeWithoutCreditCard(url);
 
         assertThat(run("verify", url)).isNotZero();
+        assertThat(verifyDiagnosis(url)).contains("account_type", "CREDIT_CARD");
     }
 
     @Test
@@ -162,6 +199,28 @@ class ReleaseMigrationCliTest {
             "SPRING_DATASOURCE_URL", url,
             "SPRING_DATASOURCE_USERNAME", POSTGRES.getUsername(),
             "SPRING_DATASOURCE_PASSWORD", POSTGRES.getPassword()));
+    }
+
+    private static String verifyDiagnosis(String url) {
+        return diagnosis("verify", url);
+    }
+
+    /** Runs the CLI with stderr captured and asserts that no connection detail leaked into it. */
+    private static String diagnosis(String command, String url) {
+        PrintStream original = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        int status;
+        try (PrintStream capture = new PrintStream(captured, true, StandardCharsets.UTF_8)) {
+            System.setErr(capture);
+            status = run(command, url);
+        } finally {
+            System.setErr(original);
+        }
+        String output = captured.toString(StandardCharsets.UTF_8);
+        assertThat(status).isNotZero();
+        assertThat(output).contains("Migration command failed", "Command: " + command)
+            .doesNotContain(url, "jdbc:", POSTGRES.getUsername(), POSTGRES.getPassword());
+        return output;
     }
 
     private static String createDatabase(String name) throws Exception {

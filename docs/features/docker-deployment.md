@@ -336,8 +336,9 @@ by an image that ran with Flyway disabled), the first migration that creates the
 `already exists` and the application does not start. Flyway commits each migration on its own, so
 only the failing one is rolled back. The renumbered rows and every migration that succeeded earlier
 in that start stay applied and recorded. For example, with a history that stops at the old V80/V81
-rows, V80 `widen tr and degiro session tokens` is applied and committed before V82 fails. The log
-names the failing script. Reconcile on a restored copy first, with a reviewed, incident-specific
+rows, V80 `widen tr and degiro session tokens` is applied and committed before V82 fails. The
+release CLI's error output names the failing script and version (the redacted diagnosis in the
+release runbook); at application startup the Flyway log names it. Reconcile on a restored copy first, with a reviewed, incident-specific
 plan: restore a known-good pre-drift database or prove that every migration effect matches before
 repairing its history. Do not simply insert the highest version, run `baseline`/`repair`, or copy
 the incident's ad-hoc SQL. Issue #195's hand-created tables were missing CHECK constraints and V100's

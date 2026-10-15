@@ -42,8 +42,11 @@ def test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema(tmp_p
       SPRING_FLYWAY_ENABLED: "true"
 """)
     flags = ["-p", project, "--env-file", str(env_file), "-f", str(override)]
+    stray_flags = ["-p", project + "-stray", *flags[2:]]
     compose = ["docker", "compose", "--project-directory", str(REPO / "docker"),
                "-f", str(REPO / "docker/docker-compose.yml"), *flags]
+    stray_compose = ["docker", "compose", "--project-directory", str(REPO / "docker"),
+                     "-f", str(REPO / "docker/docker-compose.yml"), *stray_flags]
     environment = {key: value for key, value in os.environ.items()
                    if not key.startswith(("POSTGRES_", "SPRING_DATASOURCE_", "DEPLOY_", "PICSOU_DEPLOY_"))}
     environment["APP_SIDECAR_API_KEY"] = "release-test-only"
@@ -70,19 +73,29 @@ def test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema(tmp_p
     try:
         image_id = command(["docker", "image", "inspect", "--format", "{{.Id}}", IMAGE]).stdout.strip()
         deploy = ["bash", str(REPO / "docker/deploy.sh"), image_id, origin, str(backup_dir), *flags]
-        first = command(deploy)
+        # Without --fresh, an unknown project must be refused before any container is created.
+        stray = command(["bash", str(REPO / "docker/deploy.sh"), image_id, origin, str(backup_dir),
+                         *stray_flags], check=False)
+        assert stray.returncode != 0
+        assert "COMPOSE_PROJECT_NAME" in stray.stderr
+        assert command([*stray_compose, "ps", "-aq"]).stdout.strip() == ""
+        assert not list(backup_dir.glob("picsou-*.dump"))
+        first = command(["bash", str(REPO / "docker/deploy.sh"), "--fresh", image_id, origin,
+                         str(backup_dir), *flags])
         assert "API returned 401" in first.stdout
         assert probe() == "401"
         container = app_id()
         assert container
         actual_image = command(["docker", "inspect", "--format", "{{.Image}}", container]).stdout.strip()
         assert actual_image == image_id
+        assert not list(backup_dir.glob("*.previous-image"))
         history = sql("SELECT count(*) FROM flyway_schema_history WHERE success;")
         assert int(history) > 100
         assert sql("SELECT 'CREDIT_CARD' = ANY(enum_range(NULL::account_type)::text[]);") == "t"
         sql("CREATE TABLE deploy_test_marker (id integer PRIMARY KEY, value text);"
             " INSERT INTO deploy_test_marker VALUES (1, 'preserved');")
-        command(deploy)
+        repeat = command(deploy)
+        assert f"Previous app image: {image_id}" in repeat.stdout
         assert sql("SELECT count(*) FROM flyway_schema_history WHERE success;") == history
         assert sql("SELECT value FROM deploy_test_marker WHERE id = 1;") == "preserved"
         assert probe() == "401"
@@ -117,5 +130,6 @@ def test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema(tmp_p
         (tmp_path / "app.log").write_text(diagnostics.stdout + diagnostics.stderr)
         print("Synthetic application diagnostics:", tmp_path / "app.log")
         # Only this uniquely named synthetic project is destroyed, including its test volumes.
+        command([*stray_compose, "down", "--volumes", "--remove-orphans"], check=False)
         cleanup = command([*compose, "down", "--volumes", "--remove-orphans"], check=False)
         assert cleanup.returncode == 0, cleanup.stderr

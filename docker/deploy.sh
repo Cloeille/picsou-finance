@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
+# Single-quoted command strings are expanded by the shell inside the db container, on purpose.
+# shellcheck disable=SC2016
 set -Eeuo pipefail
 umask 077
 
 usage() {
-    printf 'Usage: %s IMAGE API_BASE_URL BACKUP_DIRECTORY [extra Compose flags ...]\n' "$0" >&2
+    printf 'Usage: %s [--fresh] IMAGE API_BASE_URL BACKUP_DIRECTORY [extra Compose flags ...]\n' "$0" >&2
     exit 2
 }
 
+fresh=0
+if [[ "${1:-}" == --fresh ]]; then
+    fresh=1
+    shift
+fi
 [[ $# -ge 3 ]] || usage
 image=$1
 if [[ "$image" == sha256:* && ! "$image" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
@@ -37,8 +44,19 @@ fi
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 compose_file="$script_dir/docker-compose.yml"
-mkdir -p -- "$backup_dir"
-chmod 0700 -- "$backup_dir"
+# Never change the mode of an existing directory: it may be shared (/var/backups, $HOME).
+if [[ -e "$backup_dir" || -L "$backup_dir" ]]; then
+    [[ -d "$backup_dir" ]] || { echo 'Backup path exists and is not a directory.' >&2; exit 2; }
+    backup_mode=$(stat -L -c '%a' -- "$backup_dir")
+    if (( 8#$backup_mode & 8#077 )); then
+        printf 'Backup directory is accessible by group or others (mode %s). Pass a private subdirectory such as /var/backups/picsou; a missing one is created with mode 0700.\n' \
+            "$backup_mode" >&2
+        exit 2
+    fi
+else
+    mkdir -p -- "$(dirname -- "$backup_dir")"
+    mkdir -m 0700 -- "$backup_dir"
+fi
 backup_dir=$(cd -- "$backup_dir" && pwd)
 exec 9>"$backup_dir/.deploy.lock"
 flock -n 9 || { echo 'Another deployment is already running for this backup directory.' >&2; exit 1; }
@@ -54,6 +72,7 @@ docker_compose() {
         -u SPRING_DATASOURCE_URL -u SPRING_DATASOURCE_USERNAME -u SPRING_DATASOURCE_PASSWORD \
         "${compose_base[@]}" "$@"
 }
+# shellcheck disable=SC2329  # Invoked through the EXIT trap.
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
@@ -75,10 +94,29 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+single_container() {
+    [[ -n "$1" && "$1" != *[[:space:]]* ]]
+}
+
+# Bind the run to the stack being upgraded. A forgotten -p or COMPOSE_PROJECT_NAME would
+# otherwise create, back up and migrate an empty database in another Compose project.
+existing_db=$(docker_compose ps -aq db)
+existing_app=$(docker_compose ps -aq app)
+if (( ! fresh )) && ! { single_container "$existing_db" && single_container "$existing_app"; }; then
+    echo 'No existing db and app container in the addressed Compose project.' >&2
+    echo 'Pass the production project name (-p or COMPOSE_PROJECT_NAME) and the same Compose flags,' >&2
+    echo 'or put --fresh first for a first installation.' >&2
+    exit 1
+fi
+
 # Start the database before reading its authoritative runtime configuration.
 docker_compose up -d --no-deps --no-recreate db
+db_container=$(docker_compose ps -q db)
+single_container "$db_container" || { echo 'Could not identify the running db container.' >&2; exit 1; }
+project_name=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$db_container")
+printf 'Compose project: %s; database container: %s\n' "$project_name" "$db_container"
 ready=0
-for attempt in {1..30}; do
+for _ in {1..30}; do
     if docker_compose exec -T db pg_isready -q; then
         ready=1
         break
@@ -105,9 +143,7 @@ fi
 }
 
 # Resolve mutable references once, then pin every later Compose invocation.
-if [[ "$image" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
-    candidate_image=$image
-else
+if [[ ! "$image" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
     docker pull "$image" >/dev/null
 fi
 candidate_image=$(docker image inspect --format '{{.Id}}' "$image")
@@ -115,6 +151,26 @@ candidate_image=$(docker image inspect --format '{{.Id}}' "$image")
     echo 'Could not resolve the candidate to an immutable image ID.' >&2
     exit 1
 }
+# The containerd image store can report an index digest that Compose cannot run.
+if ! docker image inspect "$candidate_image" >/dev/null 2>&1; then
+    echo 'The resolved candidate ID is not a runnable local image. Pass the local image ID (sha256:...).' >&2
+    exit 1
+fi
+
+# The dump needs host space; the restored clone needs about the database size again.
+db_size_kib=$(docker_compose exec -T db sh -ceu \
+    'export PGPASSWORD="$POSTGRES_PASSWORD"; psql -At -v ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" -c "SELECT pg_database_size(current_database()) / 1024"')
+db_free_kib=$(docker_compose exec -T db sh -ceu \
+    'df -Pk "${PGDATA:-/var/lib/postgresql/data}" | tail -n 1 | tr -s " " | cut -d " " -f 4')
+host_free_kib=$(df -Pk -- "$backup_dir" | tail -n 1 | tr -s ' ' | cut -d ' ' -f 4)
+for value in "$db_size_kib" "$db_free_kib" "$host_free_kib"; do
+    [[ "$value" =~ ^[0-9]+$ ]] || { echo 'Could not measure database size or free disk space.' >&2; exit 1; }
+done
+if (( host_free_kib < db_size_kib || db_free_kib < db_size_kib )); then
+    printf 'Not enough free disk space: database %d MiB, free %d MiB for the backup, %d MiB for the clone.\n' \
+        $(( db_size_kib / 1024 )) $(( host_free_kib / 1024 )) $(( db_free_kib / 1024 )) >&2
+    exit 1
+fi
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup_file="$backup_dir/picsou-${stamp}-$$.dump"
@@ -123,6 +179,16 @@ docker_compose exec -T db sh -ceu \
     > "$backup_file"
 chmod 0600 "$backup_file"
 backup_complete=1
+printf 'Backup retained: %s\n' "$backup_file"
+
+# Record the rollback input before anything changes.
+if single_container "$existing_app"; then
+    previous_image=$(docker inspect --format '{{.Image}}' "$existing_app")
+    previous_file="$backup_dir/picsou-${stamp}-$$.previous-image"
+    printf '%s\n' "$previous_image" > "$previous_file"
+    chmod 0600 "$previous_file"
+    printf 'Previous app image: %s\n' "$previous_image"
+fi
 
 # Emit literal YAML scalars. JSON strings are valid YAML; doubling dollars
 # prevents Compose interpolation while preserving the actual database password.
@@ -175,8 +241,17 @@ run_migration_cli verify
 
 docker_pinned up -d --no-deps --pull never --no-build app
 
+# The probe URL may reach another stack: first prove this project now runs the candidate.
+app_container=$(docker_pinned ps -q app)
+single_container "$app_container" || { echo 'Cutover did not leave exactly one running app container.' >&2; exit 1; }
+app_state=$(docker inspect --format '{{.State.Running}} {{.Image}}' "$app_container")
+if [[ "$app_state" != "true $candidate_image" ]]; then
+    echo 'The app container is not running the candidate image after cutover.' >&2
+    exit 1
+fi
+
 probe_url="$api_base/api/auth/me"
-for attempt in {1..20}; do
+for _ in {1..20}; do
     status=$(curl --disable --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 3 "$probe_url" 2>/dev/null || true)
     [[ "$status" == 401 ]] && { echo 'Deployment verified: API returned 401.'; exit 0; }
     sleep 2

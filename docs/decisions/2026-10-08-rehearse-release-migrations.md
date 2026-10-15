@@ -18,9 +18,12 @@ Spring-context-free migration/verification entry point in the application JAR, a
 
 Before app cutover, take a retained PostgreSQL custom-format backup, restore it into a temporary
 database, and rehearse the candidate image's migration chain there. Validate its complete applied
-history, ORM-mapped schema, and required native account-type enum labels. Only then migrate and
-verify production and replace the app with the same immutable image ID. Readiness requires an
-unauthenticated HTTP 401 from `/api/auth/me` through the real proxy.
+history, ORM-mapped schema (with Spring Boot's naming strategies), and the labels of every native
+PostgreSQL enum an entity maps. Only then migrate and verify production and replace the app with the
+same immutable image ID. The script refuses a Compose project without existing `db` and `app`
+containers unless `--fresh` is given, and requires the cutover container to run that image ID
+before probing. Readiness requires an unauthenticated HTTP 401 from `/api/auth/me` through the real
+proxy.
 
 Application-startup Flyway remains enabled as defence in depth. The explicit CLI never cleans,
 baselines, or broadly repairs history. Existing narrowly matched legacy renumbering remains

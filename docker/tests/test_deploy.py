@@ -19,6 +19,19 @@ def fake_tools(tmp_path):
     docker.write_text(r'''#!/usr/bin/env bash
 { printf 'docker'; printf ' <%s>' "$@"; printf '\n'; } >> "$MOCK_LOG"
 args="$*"
+if [[ "$args" == *" ps -aq db"* ]]; then [[ -n "${MOCK_NO_DB:-}" ]] || echo db-container; exit 0; fi
+if [[ "$args" == *" ps -aq app"* ]]; then [[ -n "${MOCK_NO_APP:-}" ]] || echo old-app-container; exit 0; fi
+if [[ "$args" == *" ps -q db"* ]]; then echo db-container; exit 0; fi
+if [[ "$args" == *" ps -q app"* ]]; then [[ -n "${MOCK_CUTOVER_NO_APP:-}" ]] || echo new-app-container; exit 0; fi
+if [[ "$1" == inspect ]]; then
+  [[ "$args" == *"com.docker.compose.project"* ]] && { echo picsou_prod; exit 0; }
+  [[ "$args" == *"State.Running"* ]] && { printf '%s %s\n' "${MOCK_APP_RUNNING:-true}" "${MOCK_APP_IMAGE:-sha256:$(printf '%064d' 1)}"; exit 0; }
+  [[ "${!#}" == old-app-container ]] && { printf 'sha256:%064d\n' 7; exit 0; }
+  exit 1
+fi
+if [[ "$args" == *"pg_database_size"* ]]; then echo "${MOCK_DB_SIZE_KIB:-1024}"; exit 0; fi
+if [[ "$args" == *"df -Pk"* ]]; then echo "${MOCK_DB_FREE_KIB:-10485760}"; exit 0; fi
+if [[ "$args" == "image inspect sha256:"* && "$args" != *"--format"* && -n "${MOCK_ID_UNRUNNABLE:-}" ]]; then exit 1; fi
 if [[ "$args" == *"pg_isready"* ]]; then
   file="$MOCK_LOG.ready"; n=0; [[ -f "$file" ]] && read -r n < "$file"
   n=$((n + 1)); printf '%s\n' "$n" > "$file"
@@ -70,10 +83,12 @@ printf '%s\n' "${MOCK_HTTP_STATUS:-401}"
     return bindir, log
 
 
-def run_deploy(fake_tools, tmp_path, *extra, fail=None, status="401", image="ghcr.io/picsou:stable", **extra_env):
+def run_deploy(fake_tools, tmp_path, *extra, fail=None, status="401", image="ghcr.io/picsou:stable",
+               leading=(), **extra_env):
     bindir, log = fake_tools
     backup = tmp_path / "backups"
-    backup.mkdir(exist_ok=True)
+    backup.mkdir(mode=0o700, exist_ok=True)
+    backup.chmod(0o700)
     env = os.environ.copy()
     env.update(PATH=f"{bindir}:{env['PATH']}", MOCK_LOG=str(log), MOCK_HTTP_STATUS=status)
     env.pop("POSTGRES_PASSWORD", None)
@@ -81,7 +96,7 @@ def run_deploy(fake_tools, tmp_path, *extra, fail=None, status="401", image="ghc
         env["MOCK_FAIL"] = fail
     env.update(extra_env)
     result = subprocess.run(
-        ["bash", str(SCRIPT), image, "https://picsou.example", str(backup), *extra],
+        ["bash", str(SCRIPT), *leading, image, "https://picsou.example", str(backup), *extra],
         text=True,
         capture_output=True,
         env=env,
@@ -254,3 +269,102 @@ def test_probe_disables_curlrc_credentials_and_redacts_failure_url(fake_tools, t
     probe = next(line for line in commands if line.startswith("curl"))
     assert probe.startswith("curl <--disable>")
     assert "https://picsou.example" not in result.stdout + result.stderr
+
+
+def _app_started(commands):
+    return any("<up>" in line and "<app>" in line for line in commands)
+
+
+@pytest.mark.parametrize("missing", ["MOCK_NO_DB", "MOCK_NO_APP"])
+def test_missing_production_containers_refuse_before_backup(fake_tools, tmp_path, missing):
+    result, commands, backup = run_deploy(fake_tools, tmp_path, **{missing: "1"})
+    assert result.returncode != 0
+    assert "COMPOSE_PROJECT_NAME" in result.stderr
+    assert not any("<up>" in line for line in commands)
+    assert not any("pg_dump" in line for line in commands)
+    assert not list(backup.glob("picsou-*.dump"))
+
+
+def test_fresh_flag_allows_first_installation(fake_tools, tmp_path):
+    result, commands, backup = run_deploy(fake_tools, tmp_path, leading=("--fresh",),
+                                          MOCK_NO_DB="1", MOCK_NO_APP="1")
+    assert result.returncode == 0, f"{result.stderr}\n{commands}"
+    assert _app_started(commands)
+    assert not list(backup.glob("*.previous-image"))
+
+
+def test_project_and_database_container_are_reported(fake_tools, tmp_path):
+    result, _, _ = run_deploy(fake_tools, tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "Compose project: picsou_prod; database container: db-container" in result.stdout
+
+
+def test_previous_app_image_is_recorded_before_any_migration(fake_tools, tmp_path):
+    result, commands, backup = run_deploy(fake_tools, tmp_path)
+    assert result.returncode == 0, result.stderr
+    previous = list(backup.glob("picsou-*.previous-image"))
+    assert len(previous) == 1
+    assert previous[0].read_text().strip() == "sha256:" + "0" * 63 + "7"
+    assert previous[0].stat().st_mode & 0o777 == 0o600
+    assert previous[0].name.removesuffix(".previous-image") == list(backup.glob("picsou-*.dump"))[0].stem
+    assert "Previous app image: sha256:" in result.stdout
+    recorded = next(i for i, line in enumerate(commands) if "<old-app-container>" in line)
+    first_cli = next(i for i, line in enumerate(commands) if "ReleaseMigrationCli" in line)
+    assert recorded < first_cli
+
+
+@pytest.mark.parametrize("knob", [
+    {"MOCK_CUTOVER_NO_APP": "1"},
+    {"MOCK_APP_IMAGE": "sha256:" + "9" * 64},
+    {"MOCK_APP_RUNNING": "false"},
+])
+def test_cutover_must_run_candidate_before_probe_counts(fake_tools, tmp_path, knob):
+    result, commands, _ = run_deploy(fake_tools, tmp_path, **knob)
+    assert result.returncode != 0
+    assert "Deployment verified" not in result.stdout
+    assert not any(line.startswith("curl") for line in commands)
+
+
+def test_unrunnable_candidate_id_fails_before_backup(fake_tools, tmp_path):
+    result, commands, _ = run_deploy(fake_tools, tmp_path, MOCK_ID_UNRUNNABLE="1")
+    assert result.returncode != 0
+    assert "local image ID" in result.stderr
+    assert not any("pg_dump" in line for line in commands)
+    assert not _app_started(commands)
+
+
+@pytest.mark.parametrize("knob", [{"MOCK_DB_SIZE_KIB": "99999999999"}, {"MOCK_DB_FREE_KIB": "1"}])
+def test_insufficient_disk_space_fails_before_backup(fake_tools, tmp_path, knob):
+    result, commands, _ = run_deploy(fake_tools, tmp_path, **knob)
+    assert result.returncode != 0
+    assert "Not enough free disk space" in result.stderr
+    assert "mock-password" not in result.stderr
+    assert not any("pg_dump" in line for line in commands)
+
+
+def test_existing_shared_backup_directory_is_refused_and_left_unchanged(fake_tools, tmp_path):
+    bindir, log = fake_tools
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    shared.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "image", "https://picsou.example", str(shared)],
+        capture_output=True, text=True,
+        env={**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "MOCK_LOG": str(log)},
+    )
+    assert result.returncode != 0
+    assert "private subdirectory" in result.stderr
+    assert shared.stat().st_mode & 0o777 == 0o755
+    assert not log.exists()
+    assert not (shared / ".deploy.lock").exists()
+
+
+def test_missing_backup_directory_is_created_private(fake_tools, tmp_path):
+    bindir, log = fake_tools
+    target = tmp_path / "parent" / "picsou"
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "MOCK_LOG": str(log)}
+    env.pop("POSTGRES_PASSWORD", None)
+    result = subprocess.run(["bash", str(SCRIPT), "image", "https://picsou.example", str(target)],
+                            capture_output=True, text=True, env=env, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert target.stat().st_mode & 0o777 == 0o700

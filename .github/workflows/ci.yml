@@ -20,6 +20,8 @@ jobs:
           python-version: '3.12'
       - name: Check deployment shell syntax
         run: bash -n docker/deploy.sh
+      - name: Lint deployment shell script
+        run: shellcheck -x docker/deploy.sh
       - name: Install deployment test runner
         run: python3 -m pip install pytest
       - name: Test preflight ordering, failure isolation, and API readiness

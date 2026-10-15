@@ -1,6 +1,6 @@
 # Feature: Migration-safe release deployment
 
-> Last updated: 2026-10-08
+> Last updated: 2026-10-16
 
 ## Context
 
@@ -31,6 +31,13 @@ bash docker/deploy.sh ghcr.io/cloeille/picsou-finance:1.1.0 \
   https://picsou.example.internal "$HOME/picsou-backups" -p picsou_prod
 ```
 
+The script refuses to run unless the addressed Compose project already has a `db` and an `app`
+container, and prints the project name and database container it backs up. A forgotten `-p` or
+`COMPOSE_PROJECT_NAME` would otherwise address a new, empty project: back up and migrate an empty
+database, start a second app, and possibly probe the untouched production URL. For a first
+installation only, put `--fresh` before the image to allow missing containers:
+`bash docker/deploy.sh --fresh IMAGE URL BACKUP_DIR [flags...]`.
+
 Preserve the existing Compose project name and all its flags. Additional Compose flags follow the
 three required arguments, for example `--profile tls` and `-f docker/docker-compose.no-http.yml`.
 Supply the real origin of this application, not another deployment behind the same proxy.
@@ -39,26 +46,40 @@ and disables curl's default configuration so it cannot silently inherit authenti
 The image reference is resolved once to an immutable local ID; every phase uses that same ID.
 An already-built `sha256:` image ID can be supplied directly without a registry pull.
 All deployments of one project must use the same backup directory so its lock serializes them.
+The backup directory must be private: a missing one is created with mode 0700, and an existing one
+with any group or other permission is refused rather than changed. Pass a dedicated subdirectory
+such as `/var/backups/picsou`, not a shared directory like `/var/backups` or `$HOME`.
 
 ## Ordered gates
 
-1. Lock deployment and resolve the candidate image. Start only the database if needed.
-2. Take a full custom-format PostgreSQL backup. The archive is retained on success and failure,
-   with mode 0600 in a private directory. Store it on encrypted storage and manage retention:
-   it includes sensitive financial data and encrypted bank sessions.
+1. Lock deployment, require the existing `db` and `app` containers (unless `--fresh`), and resolve
+   the candidate image to a runnable local image ID. Start only the database if needed.
+2. Check free space: the backup directory and the PostgreSQL data directory must each have at
+   least the current database size free. Then take a full custom-format PostgreSQL backup. The
+   archive is retained on success and failure, with mode 0600 in a private directory. Store it on
+   encrypted storage and manage retention: it includes sensitive financial data and encrypted bank
+   sessions. Backups are never pruned by the script. The image ID of the app that is running before
+   the upgrade is written next to it as `picsou-<stamp>-<pid>.previous-image` and printed as
+   `Previous app image:`.
 3. Restore it into a uniquely named temporary database on the same PostgreSQL server. Run the
    candidate image's standalone `ReleaseMigrationCli migrate`, then `verify`, against that copy.
-   The candidate also validates every ORM-mapped table/column and the required `account_type` enum
-   labels, including `CREDIT_CARD`. A missing physical object fails even if history claims success.
+   The candidate also validates every ORM-mapped table/column, with Spring Boot's naming
+   strategies, and the labels of every PostgreSQL enum an entity maps (for example
+   `account_type` with `CREDIT_CARD`). A missing physical object fails even if history claims success.
    No Spring server, scheduler, banking request, or secret-bootstrap entrypoint starts.
 4. Only after clone migration and verification pass, migrate and verify the live database with
    the same image. Flyway executes packaged SQL, with strict validation, out-of-order migrations,
    and the existing narrowly matched legacy-renumbering callback. No baseline, clean, or broad
    history repair is attempted.
-5. Recreate only `app` with the pinned image and probe `/api/auth/me` without credentials. A bounded
-   wait must receive HTTP **401**. Static HTML 200, redirects, gateway 502, and connection failure
-   never report success.
-6. Drop the temporary database and remove temporary credentials/configuration. Retain the backup.
+5. Recreate only `app` with the pinned image. Require that this project's `app` container is
+   running the candidate image ID, then probe `/api/auth/me` without credentials. A bounded wait
+   must receive HTTP **401**. Static HTML 200, redirects, gateway 502, and connection failure never
+   report success.
+
+On every exit, success or failure, an `EXIT` trap drops the temporary database and removes the
+temporary credentials/configuration. The backup is retained. A `SIGKILL` or power loss skips the
+trap: it can leave `<backup dir>/.deploy-*/override.yml` (0600, contains the database password)
+and a `picsou_deploy_*` database behind. Remove both after such an interruption.
 
 `verify` is read-only and checks the physical ORM schema and enum labels as well as every packaged
 migration against successful applied history. It
@@ -67,6 +88,12 @@ rejects pending, ignored, failed, missing, future, and baselined-away migrations
 migrations through Flyway; rerunning it does not execute already-applied SQL. A clone migration also
 catches untracked manual objects that collide with the authoritative SQL. A schema with falsely
 recorded history requires an independent audit: checksums cannot prove correctness of manual DDL.
+
+On failure the CLI prints a redacted diagnosis after the generic error: the command, the exception
+class chain, the failing migration version and script, Flyway error codes such as
+`CHECKSUM_MISMATCH`, the Hibernate schema-validation message (table and column names), missing enum
+labels, and the SQLState. It never prints the JDBC URL, user name, password, SQL text or row data;
+Flyway and Hibernate logging stays off because it can contain SQL.
 
 Dump, restore, candidate CLI, or clone validation failures leave the current application running
 and do not migrate the live schema. The rehearsal database contains sensitive production data too;
@@ -93,15 +120,22 @@ than guessing that reconciliation.
 ## Backup, rollback, and API verification
 
 Also securely back up `picsou_data` and operator configuration/key files before upgrading. A database
-archive does not preserve the crypto key needed to decrypt stored credentials. Record the current
-app image ID and retain it locally; do not prune it during upgrade. No automatic production restore
+archive does not preserve the crypto key needed to decrypt stored credentials. The script records
+the previous app image ID in the backup directory; keep that image locally and do not prune it
+during the upgrade.
+
+The cutover passes the database user and password to the new `app` container through a temporary
+Compose override, so they appear in its environment (`docker inspect`) the same way as values from
+`.env`. They differ from the checked-in Compose specification only in form; a later plain
+`docker compose up` recreates `app` from `.env` as usual. Anyone allowed to run `docker inspect`
+already has full control of the host's containers. No automatic production restore
 is attempted, because it would silently discard writes made since backup.
 
 - **Preflight failure:** leave the old API running. Investigate and reconcile drift on a restored
   copy. Rerun without bypassing the gate or disabling Hibernate validation.
 - **Live migration failure:** retain the backup and inspect migration history with an approved
   diagnostic plan. Do not assume earlier migrations were rolled back or blindly retry manual SQL.
-- **API failure after cutover:** restore the recorded old app image only if that binary is compatible
+- **API failure after cutover:** restore the image in `picsou-<stamp>-<pid>.previous-image` only if that binary is compatible
   with the upgraded schema. Test this against the migrated clone first. Future-history validation
   may prevent arbitrary downgrade. Verify the API again.
 - **Database restore needed:** schedule downtime, block writes and stop app/schedulers. Restore the
@@ -123,15 +157,22 @@ container. Do not put passwords in command arguments or print `compose config` i
 ## Tests
 
 - `python3 -m pytest docker/tests/test_deploy.py -v`: real shell script exercised against command
-  doubles, checking ordering, failure isolation, cleanup, image pinning, and real API readiness gates.
+  doubles, checking ordering, failure isolation, cleanup, image pinning, real API readiness gates,
+  refusal of an unknown Compose project, the post-cutover image check, the backup-directory mode,
+  the previous-image record, and the free-space check. CI also runs `shellcheck -x docker/deploy.sh`.
+- `ReleaseMigrationCliConfigurationTest` (no Docker): Spring Boot naming-strategy parity, the
+  discovered named enums, and redaction of an unreachable connection.
 - `ReleaseMigrationCliTest`: real PostgreSQL migration chain, repeated migration, lower-version gaps,
   incompatible history, and drift. Backend CI requires Docker so this coverage cannot silently skip.
 - `PICSOU_RELEASE_TEST_IMAGE=<built-image> python3 -m pytest docker/tests/test_deploy_integration.py -v -s`:
-  full isolated production Compose smoke test using synthetic data. It covers the packaged JAR via
+  full isolated production Compose smoke test using synthetic data. It covers refusal of an unknown
+  project without `--fresh`, the packaged JAR via
   Spring Boot's `PropertiesLauncher`, normal entrypoint/API 401, repeat deployment with data preserved,
   missing physical schema and future-history failures that leave the running API untouched. CI builds
   the actual release image and runs it. With no image supplied, only this expensive integration test skips.
-- Migration CLI errors return nonzero and redact raw JDBC/SQL details; sensitive diagnostics require
-  a separate controlled investigation.
+- Migration CLI errors return nonzero with an allow-listed diagnosis; tests assert that it names the
+  table, column, migration or enum while never containing the JDBC URL, user name or password.
+- Not covered: an image pulled from a registry under the containerd image store. The script checks
+  that the resolved ID is runnable and fails early otherwise; pass the local `sha256:` image ID then.
 
 Related: [Docker deployment](./docker-deployment.md), [Flyway schema ownership](../decisions/2026-01-01-flyway-schema-ownership.md).

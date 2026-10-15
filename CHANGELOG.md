@@ -27,8 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and runs the candidate image's complete Flyway chain there before touching the live schema.
   The same pinned image migrates and verifies the live database before cutover. Readiness
   requires a real unauthenticated `/api/auth/me` response, not a static frontend HTTP 200.
-  Missing lower-numbered migrations, checksum mismatches, and untracked manual DDL fail closed;
-  rollback and incident reconciliation remain explicit operator actions.
+  Missing lower-numbered migrations, checksum mismatches, untracked manual DDL, and a missing
+  label in any mapped PostgreSQL enum fail closed, with a redacted diagnosis naming the migration,
+  table or enum. The script refuses a Compose project without existing `db` and `app` containers
+  (`--fresh` for a first install), records the previous app image, and checks free disk space.
+  Rollback and incident reconciliation remain explicit operator actions.
 
 - **An MCP client can refresh every existing connector and read whether one needs a new login.**
   `trigger_full_sync` runs the same per-member sync as the 08:00 job and returns one line per
