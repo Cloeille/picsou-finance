@@ -808,6 +808,19 @@ class AccountIsolationTest(unittest.IsolatedAsyncioTestCase):
             result["unavailable"], [{"externalId": PER_ID, "kind": "PER", "code": "UPSTREAM_ERROR"}]
         )
 
+    async def test_a_per_routed_to_an_unknown_insurer_host_is_isolated(self):
+        # A PER URL refused by the host guard must not drop the current account,
+        # the livrets or the cards.
+        async def detail(_contract_id, _entity_code):
+            raise replay.HostNotAllowed("Refused a PER URL outside the exact HTTPS host")
+
+        result = await run_fetch(products_ce(), per_detail=detail)
+
+        self.assertEqual(self.ids(result["accounts"]), ALL_IDS - {PER_ID})
+        self.assertEqual(
+            result["unavailable"], [{"externalId": PER_ID, "kind": "PER", "code": replay.HostNotAllowed.code}]
+        )
+
     async def test_a_raw_transport_error_on_the_per_detail_is_isolated_too(self):
         async def detail(_contract_id, _entity_code):
             raise httpx.ConnectError("refused")

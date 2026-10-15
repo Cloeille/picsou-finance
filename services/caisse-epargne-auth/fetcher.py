@@ -10,7 +10,7 @@ or `UpstreamFormatChanged`). Any other account that cannot
 be read or serialised is left out of `accounts` and listed in `unavailable`
 (`{externalId, kind, code}`, synthesis order). `replay.SessionExpired` always
 propagates (main.py replays once), as do `InvalidSessionState` and `HostNotAllowed`
-raised outside the loan token. Nothing read from the bank (balance, label, IBAN) or
+raised outside the loan token and the PER detail. Nothing read from the bank (balance, label, IBAN) or
 the token is logged or put in an error message: errors carry a stable code and a
 fixed text.
 
@@ -280,8 +280,9 @@ async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvide
 
     A missing provider is legacy compatibility for direct callers. Production supplies it
     using the stored session and never substitutes a successful balance-only import on failure.
-    `SessionExpired`, `InvalidSessionState` and `HostNotAllowed` propagate: they are not
-    specific to one contract.
+    `SessionExpired` and `InvalidSessionState` propagate: they are not specific to one
+    contract. `HostNotAllowed` does not: the guard has already refused the request before
+    anything was sent, and only this PER is left out.
     """
     details: dict = {}
     unavailable: dict = {}
@@ -302,7 +303,7 @@ async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvide
             continue
         try:
             raw = await provider(ext[len(accounts_parser.CONTRACT_ID_PREFIX):], entity_code)
-        except (replay.SessionExpired, replay.InvalidSessionState, replay.HostNotAllowed):
+        except (replay.SessionExpired, replay.InvalidSessionState):
             raise
         except replay.ReplayError as exc:
             unavailable[ext] = exc.code
