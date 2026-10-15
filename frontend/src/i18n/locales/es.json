@@ -214,6 +214,7 @@
       "CREDIT": "Crédito"
     },
     "cashBalance": "Efectivo en la cuenta PEA/de valores",
+    "perEuroFundBalance": "Fondo en euros del PER (última sincronización)",
     "snapshots": "Registros mensuales",
     "addSnapshot": "Guardar",
     "monthlyHistory": "Saldo a fin de mes",

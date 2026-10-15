@@ -9,6 +9,12 @@ The `caisse-epargne-auth` sidecar drives the browser login (`POST /initiate`, `P
 
 ## How it works
 
+**PER verification limit:** owned-support data was inspected in the insurer portal, but
+the implemented insurer SSO/bootstrap exchange has not been exercised live. Mixed
+euro-fund/support classification is inferred and tested with synthetic fixtures only.
+Offline parser, transport, persistence and UI tests are not proof of a successful real
+PER synchronization. A new authorized live check is required before claiming that result.
+
 - `POST /api/caisse-epargne/sync` queues one sync (202). It is **on demand only**: no scheduler, no startup sync, no auto-resync hook. It is rate-limited like the other sync endpoints (10 requests/min per IP, shared `syncBuckets`).
 - `GET /api/caisse-epargne/status` returns `isActive`, `syncStatus`, timestamps, `lastSyncError`, `unsupportedCount` and the `unsupported` list (`externalId`, `familyCode`).
 - `DELETE /api/caisse-epargne/session` deletes the stored row and answers `{removed, bankSessionRevoked: false, message}`. **It does not revoke the bank session**, which may stay active until it expires. The UI must say so and must not claim a logout.
@@ -23,7 +29,7 @@ Table `caisse_epargne_session` (migration `V109`) is `bourso_session` without `e
 - **Current account** (`CURRENT_ACCOUNT` → `CHECKING`), with its transactions.
 - **Livret A** (`LIVRET_A` → `LIVRET_A`), with its transactions.
 - **LDDS** (`LDDS` → `LDDS`), with its transactions. It is a product of its own: it shares the Livret A's regulated rate, never its ceiling. The bank sends each account's own ceiling (`ceiling` in the sidecar contract); nothing hardcodes an LDDS ceiling or reuses the Livret A's.
-- **PER** (`PER` → `PER`): balance only, zero or more. No transactions are read, no IBAN. A negative balance refuses the sync.
+- **PER** (`PER` → `PER`): owned unit-linked positions (ISIN, quantity, bank NAV, NAV date and line value) and the separate euro-fund pocket when complete insurer details are available. EUR market quotes update each resolved line between bank syncs; other lines retain their bank value, marked stale with the bank NAV date. The euro fund stays fixed until another sync. No transactions are read, no IBAN. Negative or unreconciled details refuse the sync. Legacy payloads without PER details preserve existing positions rather than clearing them.
 - **Personal loan** (`LOAN` → `LOAN`): the bank shows the outstanding capital as a figure <= 0; Picsou stores it positive (like any `LOAN`) and applies the liability sign itself. A positive outstanding refuses the sync. No transactions are read on the loan itself. See "Personal loan" below.
 - **Card** (`CARD` → `CREDIT_CARD`): liability; balance = outstanding, stored <= 0 like the Amex card; a positive outstanding refuses the sync. Its nature (`IMMEDIATE_DEBIT`, `DEFERRED_DEBIT`, `CREDIT`) is stored in `account.card_nature` (migration `V111`), with `paymentDueAmount` (the outstanding) and `paymentDueDate` (next due date).
 - **Not supported:** home insurance and any other contract family or sub code (PEA, life insurance, other savings). The sidecar lists them in `unsupported` by id and family code only; they never become accounts and never fail the sync.
@@ -103,7 +109,7 @@ The login codes are in `CaisseEpargneErrorCode` and in the `last_sync_error` CHE
 - Matching with Enable Banking accounts by IBAN (the IBAN is deliberately not stored, so the EB sync cannot adopt these accounts by accident).
 - Card account link to its parent current account (`Account.parentAccountId` is documented for Revolut pockets only, and the dashboard skips any account with a parent, which would drop the card liability).
 - Livret A and LDDS ceiling, remaining deposit capacity, filling ratio and the current account overdraft: carried by the port, not persisted. Each account keeps its own ceiling from the bank; nothing is shared between the two.
-- PER holdings and contributions (balance only), and any insurance contract.
+- PER contributions and historical unit counts, and other insurance contracts. Current PER quantities are never used to reconstruct past ownership; portfolio history uses actual balance observations, not a backfilled series multiplied by today's quantities. Investment P&L is unavailable when acquisition cost is unknown. Scheduled snapshots can update today's PER observation using current prices.
 - Best-effort bank logout on delete.
 - Sync status feeds (`SyncStatusService`, `MemberSyncService`, MCP `SyncTools`) do not know this connector.
 

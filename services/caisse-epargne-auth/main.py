@@ -40,6 +40,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 import fetcher
 import login
+import per_client
 import replay
 
 logging.basicConfig(level=logging.INFO)
@@ -243,7 +244,14 @@ async def _fetch_once(session_state: str) -> dict:
         result = await _token_cache.get(session_state, transport=_TRANSPORT, chain=replay.LOAN_CHAIN)
         return result.access_token
 
-    return await fetcher.fetch_import(token.access_token, transport=_TRANSPORT, loan_token=loan_token)
+    async def per_detail(contract_id: str, entity_code: str) -> dict:
+        return await per_client.fetch_per_detail(
+            token.access_token, session_state, contract_id, entity_code=entity_code, transport=_TRANSPORT
+        )
+
+    return await fetcher.fetch_import(
+        token.access_token, transport=_TRANSPORT, loan_token=loan_token, per_detail=per_detail
+    )
 
 
 async def _fetch_accounts(session_state: str) -> dict:

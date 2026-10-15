@@ -10,7 +10,7 @@ import io
 import json
 import logging
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable
 from unittest.mock import patch
@@ -33,6 +33,7 @@ PER_ID = "contract:00000     FAKE00000014"  # synthesis_products
 LOAN_ID = "contract:00000000000015"
 LOAN_PATH = "/bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/"
 LOAN_TOKEN = "loan-access-token-secret-LLLL"
+ALL_IDS = {"1001", "1002", "1003", PER_ID, LOAN_ID, "2001"}  # FIXTURES["synthesis"], every account
 
 
 def synthesis() -> dict:
@@ -138,7 +139,7 @@ class HappyPathTest(unittest.IsolatedAsyncioTestCase):
 
         result = await run_fetch(ce)
 
-        self.assertEqual(set(result), {"accounts", "unsupported"})
+        self.assertEqual(set(result), {"accounts", "unsupported", "unavailable"})
         self.assertEqual(result["unsupported"], [])
         by_id = {a["externalId"]: a for a in result["accounts"]}
         self.assertEqual(set(by_id), {"1001", "1002", "2001"})  # card 2002 is XXX: not imported
@@ -398,49 +399,42 @@ class ErrorMappingTest(unittest.IsolatedAsyncioTestCase):
             with self.subTest(name), self.assertRaises(fetcher.UpstreamFormatChanged):
                 await run_fetch(ce)
 
-    async def test_a_serialisation_failure_is_format_changed_never_internal_or_partial(self):
-        for exc in (KeyError("missing"), TypeError("bad"), ValueError("bad")):
-            calls = {"n": 0}
-            real = fetcher._serialise_account
+    async def test_a_serialisation_failure_fails_the_whole_import_only_for_the_current_account(self):
+        real = fetcher._serialise_account
 
-            def flaky(account, transactions, _real=real, _calls=calls, _exc=exc):
-                _calls["n"] += 1
-                if _calls["n"] == 2:  # the first account serialises, the second breaks
-                    raise _exc
-                return _real(account, transactions)
+        def failing_for(target: str):
+            def flaky(account, transactions, loan=None, per=None):
+                if account["externalId"] == target:
+                    raise TypeError("bad")  # the type only: the message is never embedded
+                return real(account, transactions, loan, per)
 
-            with self.subTest(exc=type(exc).__name__):
-                result = None
-                with patch.object(fetcher, "_serialise_account", flaky), self.assertRaises(
-                    fetcher.UpstreamFormatChanged
-                ) as ctx:
-                    result = await run_fetch(FakeCE())
-                self.assertIsNone(result)
-                self.assertEqual(ctx.exception.code, "UPSTREAM_FORMAT_CHANGED")
+            return flaky
+
+        with patch.object(fetcher, "_serialise_account", failing_for("1001")):
+            with self.assertRaises(fetcher.UpstreamFormatChanged) as ctx:
+                await run_fetch(FakeCE())
+        self.assertEqual(ctx.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+        with patch.object(fetcher, "_serialise_account", failing_for("1002")):
+            result = await run_fetch(FakeCE())
+        self.assertEqual(
+            result["unavailable"],
+            [{"externalId": "1002", "kind": "LIVRET_A", "code": "UPSTREAM_FORMAT_CHANGED"}],
+        )
 
     async def test_oversized_response_is_upstream_unavailable(self):
         big = b"{" + b" " * (replay.MAX_RESPONSE_BYTES + 1) + b"}"
         with self.assertRaises(fetcher.UpstreamUnavailable):
             await run_fetch(FakeCE(synthesis_body=big))
 
-    async def test_a_parse_error_anywhere_gives_no_partial_result(self):
-        broken = default_pages()
-        broken["1002"][0]["data"][0]["amount"] = "12,5"  # a string where a number is expected
-        mismatch = default_pages()
-        mismatch["2001"][0]["data"][0]["accountId"] = 1001  # card rows filed under another account
+    async def test_a_current_account_parse_error_gives_no_partial_result(self):
         missing_due_date = default_pages()
-        del missing_due_date["1001"][1]["data"][0]["dueDate"]
-        for name, pages in (
-            ("bad amount", broken),
-            ("card accountId mismatch", mismatch),
-            ("missing dueDate on page 2", missing_due_date),
-        ):
-            with self.subTest(name):
-                result = None
-                with self.assertRaises(fetcher.UpstreamFormatChanged) as ctx:
-                    result = await run_fetch(FakeCE(pages=pages))
-                self.assertIsNone(result)
-                self.assertNotIn("12,5", str(ctx.exception))
+        del missing_due_date["1001"][1]["data"][0]["dueDate"]  # current account, page 2
+
+        with self.assertRaises(fetcher.UpstreamFormatChanged) as ctx:
+            await run_fetch(FakeCE(pages=missing_due_date))
+
+        self.assertEqual(ctx.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
     async def test_a_host_outside_the_allow_list_is_refused_before_any_request(self):
         ce = FakeCE()
@@ -578,31 +572,34 @@ class LoanDetailTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(by_id[LOAN_ID]["loan"])
         self.assertEqual(by_id[LOAN_ID]["balance"], "-9876.54")
 
-    async def test_a_failed_detail_gives_a_null_loan_and_the_rest_imported(self):
+    async def test_a_failed_detail_leaves_the_loan_unavailable_and_the_rest_imported(self):
         bad_detail = copy.deepcopy(FIXTURES["loan_detail"])
         del bad_detail["personalLoanPrdSynthesisView"]["offer"]["duration"]
         cases = {
-            "5xx": products_ce(loan_http=503),
-            "403": products_ce(loan_http=403),
-            "format": products_ce(loan_detail=bad_detail),
+            "5xx": (products_ce(loan_http=503), "UPSTREAM_UNAVAILABLE"),
+            "403": (products_ce(loan_http=403), "UPSTREAM_UNAVAILABLE"),
+            "format": (products_ce(loan_detail=bad_detail), "INVALID_LOAN_DETAIL"),
         }
-        for name, ce in cases.items():
+        for name, (ce, code) in cases.items():
             with self.subTest(name):
                 result = await run_fetch(ce, loan_token=loan_token_provider([]))
-                by_id = {a["externalId"]: a for a in result["accounts"]}
-                self.assertIsNone(by_id[LOAN_ID]["loan"])
-                self.assertEqual(by_id[LOAN_ID]["balance"], "-9876.54")
-                self.assertEqual(len([a for a in result["accounts"] if a["kind"] != "CARD"]), 5)
+                self.assertNotIn(LOAN_ID, {a["externalId"] for a in result["accounts"]})
+                self.assertEqual(
+                    result["unavailable"], [{"externalId": LOAN_ID, "kind": "LOAN", "code": code}]
+                )
+                self.assertEqual(len([a for a in result["accounts"] if a["kind"] != "CARD"]), 4)
 
-    async def test_a_failed_loan_oauth_gives_a_null_loan_and_the_rest_imported(self):
+    async def test_a_failed_loan_oauth_leaves_every_loan_unavailable(self):
         for exc in (replay.UpstreamError("x"), replay.HostNotAllowed("x")):
             with self.subTest(type(exc).__name__):
                 ce = products_ce()
                 result = await run_fetch(ce, loan_token=loan_token_provider([], raises=exc))
-                by_id = {a["externalId"]: a for a in result["accounts"]}
-                self.assertIsNone(by_id[LOAN_ID]["loan"])
+                self.assertNotIn(LOAN_ID, {a["externalId"] for a in result["accounts"]})
+                self.assertEqual(
+                    result["unavailable"], [{"externalId": LOAN_ID, "kind": "LOAN", "code": exc.code}]
+                )
                 self.assertEqual(ce.loan_requests(), [])
-                self.assertEqual(len([a for a in result["accounts"] if a["kind"] != "CARD"]), 5)
+                self.assertEqual(len([a for a in result["accounts"] if a["kind"] != "CARD"]), 4)
 
     async def test_session_expired_on_the_detail_or_the_loan_oauth_propagates(self):
         with self.assertRaises(replay.SessionExpired):
@@ -638,6 +635,67 @@ class LoanDetailTest(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(value, rendered)
 
 
+class PerHoldingsImportTest(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def payload():
+        stamp = int(datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp() * 1000)
+        return {"detailContratVie": {"valorisation": {
+            "montant": 1700, "date": stamp,
+            "globalInvestCalcRest": {"globalAmountFondEuros": 1000, "globalAmountUnitesCompte": 700},
+            "supports": [{"nom": "Synthetic fund", "codeIsin": "XX0000000001",
+                          "nombreUnitesCompte": 10, "valeurUniteCompte": 70,
+                          "montant": 700, "dateValeurUniteCompte": stamp,
+                          "idCompartment": 1, "familleFondsGeneraux": False}],
+        }}}
+
+    async def test_complete_positions_and_euro_pocket_replace_only_per_synthesis_total(self):
+        calls = []
+
+        async def detail(contract_id, entity_code):
+            calls.append((contract_id, entity_code))
+            return self.payload()
+
+        result = await run_fetch(products_ce(), per_detail=detail)
+        account = next(a for a in result["accounts"] if a["externalId"] == PER_ID)
+        self.assertEqual(calls, [(PER_ID.removeprefix("contract:"), "00000")])
+        self.assertEqual(account["balance"], "1700")
+        self.assertEqual(account["per"]["euroFundBalance"], "1000")
+        self.assertEqual(account["per"]["valuationDate"], "2026-10-01")
+        self.assertEqual(account["per"]["positions"][0]["isin"], "XX0000000001")
+        self.assertEqual(account["per"]["positions"][0]["quantity"], "10")
+        self.assertEqual(account["per"]["positions"][0]["unitPrice"], "70")
+        self.assertEqual(account["transactions"], [])
+        self.assertFalse(any("per" in a for a in result["accounts"] if a["externalId"] != PER_ID))
+
+    async def test_without_per_contract_the_provider_is_never_called(self):
+        async def detail(_, _entity_code):
+            self.fail("Non-PER import must not contact the insurer")
+
+        result = await run_fetch(FakeCE(), per_detail=detail)
+        self.assertFalse(any("per" in a for a in result["accounts"]))
+
+    async def test_bad_insurer_detail_leaves_the_per_unavailable_and_the_rest_imported(self):
+        async def detail(_, _entity_code):
+            payload = self.payload()
+            payload["detailContratVie"]["valorisation"]["montant"] = 999999
+            return payload
+
+        result = await run_fetch(products_ce(), per_detail=detail)
+
+        self.assertNotIn(PER_ID, {a["externalId"] for a in result["accounts"]})
+        self.assertEqual(
+            result["unavailable"], [{"externalId": PER_ID, "kind": "PER", "code": "INVALID_PER_DETAIL"}]
+        )
+        self.assertIn(LOAN_ID, {a["externalId"] for a in result["accounts"]})
+
+    async def test_expired_insurer_session_is_not_a_successful_balance_only_import(self):
+        async def detail(_, _entity_code):
+            raise replay.SessionExpired("Insurer session expired")
+
+        with self.assertRaises(replay.SessionExpired):
+            await run_fetch(products_ce(), per_detail=detail)
+
+
 class LogHygieneTest(unittest.IsolatedAsyncioTestCase):
     async def test_no_value_in_logs_or_error_messages(self):
         stream = io.StringIO()
@@ -671,6 +729,132 @@ class LogHygieneTest(unittest.IsolatedAsyncioTestCase):
             SECRET_TOKEN, IBAN_A, BALANCE_MARKER, LABEL_MARKER, "FAKE CPT", "FAKE LIVRET",
             "secret-amount-string", "Bearer", "Authorization",
         ):
+            self.assertNotIn(value, rendered)
+
+
+def fail_transactions(account_id: str, status: int = 500):
+    """The transactions call for one account answers `status`; every other call is served."""
+
+    def override(request: httpx.Request):
+        if request.url.params.get("accountIds") == account_id:
+            return httpx.Response(status, content=b"")
+        return None
+
+    return override
+
+
+class AccountIsolationTest(unittest.IsolatedAsyncioTestCase):
+    """Only the current account may fail the whole import; any other account is listed as unavailable."""
+
+    @staticmethod
+    def ids(accounts) -> set:
+        return {a["externalId"] for a in accounts}
+
+    async def test_livret_a_transactions_failure_leaves_only_that_account_unavailable(self):
+        result = await run_fetch(FakeCE(tx_override=fail_transactions("1002")))
+
+        self.assertEqual(self.ids(result["accounts"]), ALL_IDS - {"1002"})
+        self.assertEqual(
+            result["unavailable"],
+            [{"externalId": "1002", "kind": "LIVRET_A", "code": "UPSTREAM_UNAVAILABLE"}],
+        )
+
+    async def test_card_transactions_failure_leaves_only_the_card_unavailable(self):
+        result = await run_fetch(FakeCE(tx_override=fail_transactions("2001")))
+
+        self.assertEqual(self.ids(result["accounts"]), ALL_IDS - {"2001"})
+        self.assertEqual(
+            result["unavailable"],
+            [{"externalId": "2001", "kind": "CARD", "code": "UPSTREAM_UNAVAILABLE"}],
+        )
+
+    async def test_current_account_transactions_failure_still_fails_the_whole_import(self):
+        with self.assertRaises(fetcher.UpstreamUnavailable):
+            await run_fetch(FakeCE(tx_override=fail_transactions("1001")))
+
+    async def test_livret_a_format_change_is_unavailable_with_its_code(self):
+        pages = default_pages()
+        pages["1002"][0]["data"][0]["amount"] = "12,5"  # a string where a number is expected
+
+        result = await run_fetch(FakeCE(pages=pages))
+
+        self.assertEqual(self.ids(result["accounts"]), ALL_IDS - {"1002"})
+        self.assertEqual(
+            result["unavailable"],
+            [{"externalId": "1002", "kind": "LIVRET_A", "code": "INVALID_TRANSACTIONS"}],
+        )
+
+    async def test_card_rows_filed_under_another_account_make_only_the_card_unavailable(self):
+        pages = default_pages()
+        pages["2001"][0]["data"][0]["accountId"] = 1001  # card rows filed under the current account
+
+        result = await run_fetch(FakeCE(pages=pages))
+
+        self.assertEqual(self.ids(result["accounts"]), ALL_IDS - {"2001"})
+        self.assertEqual(
+            result["unavailable"],
+            [{"externalId": "2001", "kind": "CARD", "code": "INVALID_TRANSACTIONS"}],
+        )
+
+    async def test_per_detail_refusal_leaves_only_the_per_unavailable(self):
+        async def detail(_contract_id, _entity_code):
+            raise replay.UpstreamError("PER insurer refused the request with insurer status 461")
+
+        result = await run_fetch(products_ce(), per_detail=detail)
+
+        self.assertEqual(self.ids(result["accounts"]), ALL_IDS - {PER_ID})
+        self.assertEqual(
+            result["unavailable"], [{"externalId": PER_ID, "kind": "PER", "code": "UPSTREAM_ERROR"}]
+        )
+
+    async def test_a_raw_transport_error_on_the_per_detail_is_isolated_too(self):
+        async def detail(_contract_id, _entity_code):
+            raise httpx.ConnectError("refused")
+
+        result = await run_fetch(products_ce(), per_detail=detail)
+
+        self.assertEqual(self.ids(result["accounts"]), ALL_IDS - {PER_ID})
+        self.assertEqual(
+            result["unavailable"], [{"externalId": PER_ID, "kind": "PER", "code": "UPSTREAM_UNAVAILABLE"}]
+        )
+
+    async def test_per_and_loan_failures_are_listed_together(self):
+        async def detail(_contract_id, _entity_code):
+            raise replay.UpstreamError("PER insurer refused the request")
+
+        result = await run_fetch(
+            products_ce(loan_http=503), loan_token=loan_token_provider([]), per_detail=detail
+        )
+
+        self.assertEqual(self.ids(result["accounts"]), ALL_IDS - {PER_ID, LOAN_ID})
+        self.assertEqual(
+            sorted((u["kind"], u["code"]) for u in result["unavailable"]),
+            [("LOAN", "UPSTREAM_UNAVAILABLE"), ("PER", "UPSTREAM_ERROR")],
+        )
+
+    async def test_nothing_is_unavailable_when_every_account_reads(self):
+        result = await run_fetch(FakeCE())
+
+        self.assertEqual(result["unavailable"], [])
+        self.assertEqual(self.ids(result["accounts"]), ALL_IDS)
+
+    async def test_unavailable_accounts_log_their_code_and_no_value(self):
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        root = logging.getLogger()
+        old_level = root.level
+        root.addHandler(handler)
+        root.setLevel(logging.DEBUG)
+        try:
+            await run_fetch(FakeCE(tx_override=fail_transactions("1002")))
+            await run_fetch(products_ce(loan_http=503), loan_token=loan_token_provider([]))
+        finally:
+            root.removeHandler(handler)
+            root.setLevel(old_level)
+        rendered = stream.getvalue()
+        self.assertIn("kind=LIVRET_A code=UPSTREAM_UNAVAILABLE", rendered)
+        self.assertIn("kind=LOAN code=UPSTREAM_UNAVAILABLE", rendered)
+        for value in (LABEL_MARKER, BALANCE_MARKER, IBAN_A, LOAN_TOKEN, SECRET_TOKEN):
             self.assertNotIn(value, rendered)
 
 

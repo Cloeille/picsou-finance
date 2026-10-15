@@ -234,7 +234,7 @@ def _contract_account(item: dict, where: str) -> tuple:
         None if filling is None else _decimal(filling, INVALID_SYNTHESIS, f"{where}.fillingRatio")
     )
     name = identity.get("contractLabel")
-    return {
+    account = {
         "externalId": external_id,
         "kind": kind,
         "name": name if isinstance(name, str) else None,
@@ -252,7 +252,12 @@ def _contract_account(item: dict, where: str) -> tuple:
         # Filled from the transactions by `build_import`; the synthesis has none.
         "iban": None,
         "ibanAmbiguous": False,
-    }, None
+    }
+    if kind == "PER":
+        # Routing uses the contract's actual entity, not an assumed login-query field.
+        contract_id = identification.get("contractId")
+        account["perEntityCode"] = contract_id.get("entityCode") if isinstance(contract_id, dict) else None
+    return account, None
 
 
 def _card_account(card: Any, parent: dict, where: str) -> Optional[dict]:

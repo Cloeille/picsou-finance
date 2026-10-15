@@ -104,6 +104,7 @@ public class CaisseEpargneSyncService {
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
+    private final CaisseEpargnePerService perService;
     private final Clock clock;
     /**
      * Logins waiting for the human to approve on the phone. Holds the process id, the member and a
@@ -125,11 +126,12 @@ public class CaisseEpargneSyncService {
         CategoryService categoryService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
-        @Qualifier("caisseEpargneSyncExecutor") Executor syncExecutor
+        @Qualifier("caisseEpargneSyncExecutor") Executor syncExecutor,
+        CaisseEpargnePerService perService
     ) {
         this(port, sessionRepository, accountRepository, transactionRepository, memberRepository, debtRepository,
             accountService, categorizationService, categoryService, encryption, txTemplate, syncExecutor,
-            Clock.systemUTC());
+            perService, Clock.systemUTC());
     }
 
     CaisseEpargneSyncService(
@@ -145,10 +147,12 @@ public class CaisseEpargneSyncService {
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         Executor syncExecutor,
+        CaisseEpargnePerService perService,
         Clock clock
     ) {
         this.categoryService = categoryService;
         this.clock = clock;
+        this.perService = perService;
         this.port = port;
         this.sessionRepository = sessionRepository;
         this.accountRepository = accountRepository;
@@ -375,6 +379,18 @@ public class CaisseEpargneSyncService {
             CaisseEpargnePort.AccountsSnapshot fetched = port.fetchAccounts(job.plainState());
             PreparedSnapshot prepared = prepare(fetched);
             if (commit(job, prepared)) {
+                for (PreparedAccount account : prepared.accounts()) {
+                    if (account.per() == null) continue;
+                    try {
+                        perService.backfill(account.per());
+                    } catch (RuntimeException ex) {
+                        // Market/identity enrichment is optional and runs after the account
+                        // transaction. A proxy commit failure must not mark that import failed
+                        // or prevent enrichment for later PER accounts.
+                        log.warn("Caisse d'Epargne PER post-sync enrichment failed (member={}; type={})",
+                            job.memberId(), ex.getClass().getSimpleName());
+                    }
+                }
                 log.info("Caisse d'Epargne sync completed (member={}; accounts={})",
                     job.memberId(), prepared.accounts().size());
             } else {
@@ -450,7 +466,16 @@ public class CaisseEpargneSyncService {
                 throw invalid("a retirement plan with a negative balance");
             }
             // Picsou stores a loan positive and applies the liability sign itself.
-            BigDecimal balance = type == AccountType.LOAN ? account.balance().negate() : account.balance();
+            if (account.per() != null && type != AccountType.PER) {
+                throw invalid("PER details on another account type");
+            }
+            // Validated and resolved here, outside any database transaction: it may call market providers.
+            CaisseEpargnePerService.Prepared per = type == AccountType.PER
+                ? perService.prepare(account.per(), account.currency())
+                : null;
+            BigDecimal balance = per != null
+                ? per.balance()
+                : type == AccountType.LOAN ? account.balance().negate() : account.balance();
             CardNature cardNature = type == AccountType.CREDIT_CARD ? natureOf(account.cardNature()) : null;
             String parentExternalId = cardNature == null || clean(account.parentExternalId()) == null
                 ? null
@@ -467,6 +492,7 @@ public class CaisseEpargneSyncService {
                 clean(account.iban()),
                 account.ibanAmbiguous(),
                 type == AccountType.LOAN ? usableLoan(account.loan()) : null
+                , per
             ));
         }
 
@@ -566,6 +592,10 @@ public class CaisseEpargneSyncService {
         account.setCurrency("EUR");
         account.setManual(false);
         account.setCurrentBalance(data.balance());
+        if (data.per() != null) {
+            // The euro-fund sleeve is stored, not quoted; UC lines are revalued from market prices.
+            account.setCashBalance(data.per().euroFundBalance());
+        }
         account.setLastSyncedAt(syncedAt);
         if (data.cardNature() != null) {
             // Same shape as the Amex card: what is still to be debited, and when. The card is
@@ -580,7 +610,17 @@ public class CaisseEpargneSyncService {
         Account saved = accountRepository.save(account);
         savedById.put(data.externalId(), saved);
 
-        accountService.upsertSnapshot(saved, data.balance(), LocalDate.now());
+        if (data.per() != null) {
+            perService.apply(saved, data.per(), syncedAt);
+        }
+        LocalDate snapshotDate = data.per() != null ? data.per().valuationDate() : LocalDate.now();
+        if (data.per() != null) {
+            // The bank NAV is an observation, not an acquisition cost. Pair it with itself so
+            // this historical snapshot does not derive its baseline from today's market quote.
+            accountService.upsertSnapshot(saved, data.balance(), data.balance(), snapshotDate);
+        } else {
+            accountService.upsertSnapshot(saved, data.balance(), snapshotDate);
+        }
         return upsertTransactions(saved, data.transactions());
     }
 
@@ -1131,7 +1171,9 @@ public class CaisseEpargneSyncService {
         String iban,
         boolean ibanAmbiguous,
         /** LOAN only, and only when every field the schedule needs is usable; else null. */
-        CaisseEpargnePort.LoanDetails loan
+        CaisseEpargnePort.LoanDetails loan,
+        /** PER only, and only when the insurer valuation was complete; null keeps existing holdings. */
+        CaisseEpargnePerService.Prepared per
     ) {}
     private record PreparedTransaction(
         String externalId, LocalDate date, LocalDate dueDate, BigDecimal amount, String label, String typeCode

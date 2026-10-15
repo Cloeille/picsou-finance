@@ -226,6 +226,7 @@
     },
     "tabOverview": "Overview",
     "cashBalance": "Cash in the PEA/securities account",
+    "perEuroFundBalance": "PER euro fund (last sync)",
     "snapshots": "Monthly snapshots",
     "changeCategory": "Change category",
     "importCsvTR": "+ Add CSV (TR)",

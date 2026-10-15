@@ -226,6 +226,7 @@
     },
     "tabOverview": "Aperçu",
     "cashBalance": "Liquidités dans le PEA/CTO",
+    "perEuroFundBalance": "Fonds en euros du PER (dernière synchro)",
     "snapshots": "Relevés mensuels",
     "changeCategory": "Changer la catégorie",
     "importCsvTR": "+ Ajouter CSV (TR)",

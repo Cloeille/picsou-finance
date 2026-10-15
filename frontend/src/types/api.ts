@@ -594,7 +594,7 @@ export interface DashboardData {
   totalNetWorth: number
   totalLiabilities: number
   totalMonthlyPayment?: number | null
-  netWorthHistory: { date: string; total: number; invested: number; pnl: number }[]
+  netWorthHistory: { date: string; total: number; invested: number | null; pnl: number | null }[]
   distribution: {
     accountId: number
     name: string

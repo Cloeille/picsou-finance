@@ -130,9 +130,13 @@ export function AccountDetailPage() {
 
   // PnL from unified history endpoint (pre-computed by backend)
   const pnlLatest = pnlData && pnlData.length > 0 ? pnlData[pnlData.length - 1] : null
-  const pnl = pnlLatest && pnlLatest.invested > 0 ? pnlLatest.pnl : null
-  const pnlPct = pnlLatest && pnlLatest.invested > 0
-    ? ((pnlLatest.pnl / pnlLatest.invested) * 100).toFixed(1) : null
+  const canShowPnl = pnlLatest !== null
+    && pnlLatest.invested !== null
+    && pnlLatest.invested > 0
+    && pnlLatest.pnl !== null
+  const pnl = canShowPnl ? pnlLatest.pnl : null
+  const pnlPct = pnl !== null && pnlLatest !== null && pnlLatest.invested !== null && pnlLatest.invested > 0
+    ? ((pnl / pnlLatest.invested) * 100).toFixed(1) : null
   const pnlPositive = pnl !== null && pnl >= 0
 
   // History + holdings + transactions + snapshots. Rendered flat for most accounts,
@@ -315,7 +319,7 @@ export function AccountDetailPage() {
             <CurrencyDisplay value={displayBalance} className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`} />
             {showHoldings && account.cashBalance != null && (
               <p className="mt-1 text-xs text-muted-foreground">
-                {t('accounts.cashBalance')}: <CurrencyDisplay value={account.cashBalance} />
+                {t(account.type === 'PER' ? 'accounts.perEuroFundBalance' : 'accounts.cashBalance')}: <CurrencyDisplay value={account.cashBalance} />
               </p>
             )}
             {account.currency !== 'EUR' && (

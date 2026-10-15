@@ -25,6 +25,7 @@ from typing import Any, Awaitable, Callable, Optional
 import httpx
 
 import accounts_parser
+import per_parser
 import replay
 
 log = logging.getLogger("caisse-epargne-auth")
@@ -200,11 +201,28 @@ def _serialise_loan(loan: Optional[dict]) -> Optional[dict]:
     }
 
 
-def _serialise_account(account: dict, transactions: list, loan: Optional[dict] = None) -> dict:
+def _serialise_per(per: dict) -> dict:
+    return {
+        "balance": _dec(per["balance"]),
+        "euroFundBalance": _dec(per["euroFundBalance"]),
+        "valuationDate": per["valuationDate"],
+        "positions": [
+            {
+                **{key: position[key] for key in ("isin", "name", "priceDate", "compartmentId")},
+                **{key: _dec(position[key]) for key in ("quantity", "unitPrice", "value")},
+            }
+            for position in per["positions"]
+        ],
+    }
+
+
+def _serialise_account(
+    account: dict, transactions: list, loan: Optional[dict] = None, per: Optional[dict] = None
+) -> dict:
     balance = account["balance"]
     kind = account["kind"]
     card = kind == "CARD"
-    return {
+    result = {
         "externalId": account["externalId"],
         "kind": kind,
         "name": account.get("name"),
@@ -236,12 +254,42 @@ def _serialise_account(account: dict, transactions: list, loan: Optional[dict] =
         "snapshotComplete": True,
         "loan": _serialise_loan(loan) if kind == "LOAN" else None,
     }
+    if per is not None and kind == "PER":
+        # The insurer valuation can be newer than the bank's synthesis total.
+        result["balance"] = _dec(per["balance"])
+        result["per"] = _serialise_per(per)
+    return result
 
 
 # --- Personal-loan detail -----------------------------------------------------------
 
 
 LoanTokenProvider = Callable[[], Awaitable[str]]
+PerDetailProvider = Callable[[str, str], Awaitable[Any]]
+
+
+async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvider]) -> dict:
+    """Read complete owned positions, or refuse the snapshot; never silently erase them.
+
+    A missing provider is legacy compatibility for direct callers. Production supplies it
+    using the stored session and never substitutes a successful balance-only import on failure.
+    """
+    details = {}
+    if provider is None:
+        return details
+    for account in accounts:
+        if account["kind"] != "PER":
+            continue
+        ext = account["externalId"]
+        entity_code = account.get("perEntityCode")
+        if not isinstance(entity_code, str) or len(entity_code) != 5 or not entity_code.isascii() or not entity_code.isdecimal():
+            raise UpstreamFormatChanged("PER contract has no usable entity code")
+        raw = await provider(ext[len(accounts_parser.CONTRACT_ID_PREFIX):], entity_code)
+        try:
+            details[ext] = per_parser.parse_per_detail(raw, currency=account["balance"]["currency"])
+        except accounts_parser.ParseError:
+            raise UpstreamFormatChanged("PER detail does not match the observed format") from None
+    return details
 
 
 async def _fetch_loan_details(
@@ -289,6 +337,7 @@ async def fetch_import(
     base_url: str = DATA_BASE_URL,
     today: Optional[date] = None,
     loan_token: Optional[LoanTokenProvider] = None,
+    per_detail: Optional[PerDetailProvider] = None,
 ) -> dict:
     """The `POST /accounts` response body, or a typed error (no partial result).
 
@@ -328,11 +377,13 @@ async def fetch_import(
             log.warning("accounts import rejected: %s", exc.code)
             raise UpstreamFormatChanged("Payload does not match the observed format") from None
         loans = await _fetch_loan_details(client, base_url, built["accounts"], loan_token)
+        pensions = await _fetch_per_details(built["accounts"], per_detail)
         try:
             return {
                 "accounts": [
                     _serialise_account(
-                        a, built["transactions"][a["externalId"]], loans.get(a["externalId"])
+                        a, built["transactions"][a["externalId"]], loans.get(a["externalId"]),
+                        pensions.get(a["externalId"]),
                     )
                     for a in built["accounts"]
                 ],

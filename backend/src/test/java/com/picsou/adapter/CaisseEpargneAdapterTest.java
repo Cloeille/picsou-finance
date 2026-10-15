@@ -34,6 +34,37 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CaisseEpargneAdapterTest {
 
+    @Test
+    void fetchAccounts_keepsOwnedPerUnitsAndSeparateEuroFundPocket() {
+        String wire = """
+            {"accounts":[{"externalId":"contract:00000     PERIC12345678","kind":"PER",
+              "name":"Synthetic pension","balance":"1700.00","currency":"EUR",
+              "transactions":[],"snapshotComplete":true,
+              "per":{"balance":"1700.00","euroFundBalance":"1000.00",
+                "valuationDate":"2026-10-01","positions":[
+                  {"isin":"XX0000000001","name":"Synthetic fund","quantity":"10.000000",
+                   "unitPrice":"70.00","value":"700.00","priceDate":"2026-09-30",
+                   "compartmentId":1}]}}],"unsupported":[]}
+            """;
+        var snapshot = adapterReturning(HttpStatus.OK, wire).fetchAccounts("synthetic-state");
+        var per = new ObjectMapper().findAndRegisterModules()
+            .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            .valueToTree(snapshot)
+            .path("accounts").get(0).path("per");
+
+        assertThat(per.isObject()).isTrue();
+        assertThat(new BigDecimal(per.path("euroFundBalance").asText())).isEqualByComparingTo("1000.00");
+        assertThat(per.path("valuationDate").asText()).isEqualTo("2026-10-01");
+        assertThat(per.path("positions")).hasSize(1);
+        var position = per.path("positions").get(0);
+        assertThat(position.path("isin").asText()).isEqualTo("XX0000000001");
+        assertThat(new BigDecimal(position.path("quantity").asText())).isEqualByComparingTo("10");
+        assertThat(new BigDecimal(position.path("unitPrice").asText())).isEqualByComparingTo("70");
+        assertThat(new BigDecimal(position.path("value").asText())).isEqualByComparingTo("700");
+        assertThat(position.path("priceDate").asText()).isEqualTo("2026-09-30");
+        assertThat(position.path("compartmentId").asInt()).isEqualTo(1);
+    }
+
     private static final String CONTRACT = """
         {
           "accounts": [

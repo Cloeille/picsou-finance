@@ -143,11 +143,14 @@ public class SchedulerService {
                 // losing the whole day's is not.
                 try {
                     Optional<BalanceSnapshot> existing = snapshotRepository.findByAccountIdAndDate(account.getId(), today);
-                    if (existing.isEmpty()) {
+                    boolean refreshCaisseEpargnePer = isCaisseEpargnePer(account) && existing.isPresent();
+                    if (existing.isEmpty() || refreshCaisseEpargnePer) {
                         // One valuation, not two: liveBalanceEur and calculateInvestedAmount each
                         // run the whole pass, and two passes can straddle a price-cache change --
                         // the value excluding an asset the cost basis then includes is exactly
                         // the disagreement that reported an untouched account as an 85% loss.
+                        // Refresh same-day Caisse d'Epargne PER rows: their provider-supplied NAV
+                        // can change after the morning snapshot was first written.
                         AccountService.Valuation valuation = accountService.valuation(account);
                         if (!valuation.anyPriced()) {
                             // Not a small balance -- a blank one. Writing it stamps a permanent
@@ -159,12 +162,13 @@ public class SchedulerService {
                                 account.getId(), member.getId());
                             continue;
                         }
-                        snapshotRepository.save(BalanceSnapshot.builder()
+                        BalanceSnapshot snapshot = existing.orElseGet(() -> BalanceSnapshot.builder()
                             .account(account)
                             .date(today)
-                            .balance(valuation.liveEur())
-                            .investedAmount(valuation.investedEur())
                             .build());
+                        snapshot.setBalance(valuation.liveEur());
+                        snapshot.setInvestedAmount(valuation.investedEur());
+                        snapshotRepository.save(snapshot);
                     }
                 } catch (Exception ex) {
                     // ERROR, not WARN: the price adapters swallow expected upstream failures
@@ -179,6 +183,11 @@ public class SchedulerService {
         }
 
         log.debug("Snapshots taken for all members");
+    }
+
+    private boolean isCaisseEpargnePer(Account account) {
+        return account.getType() == AccountType.PER
+            && CaisseEpargneSyncService.PROVIDER.equals(account.getProvider());
     }
 
     /**

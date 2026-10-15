@@ -304,7 +304,7 @@ class AccountsEndpointTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(set(body), {"accounts", "unsupported"})
+        self.assertEqual(set(body), {"accounts", "unsupported", "unavailable"})
         # Synthesis order: a card follows its parent contract.
         self.assertEqual([a["externalId"] for a in body["accounts"]], ["1001", "2001", "1002"])
         self.assertEqual(body["accounts"][0]["balance"], "1234.56")
@@ -421,7 +421,14 @@ class AccountsEndpointTest(unittest.TestCase):
         self.assertNotIn("accounts", response.text)
 
     def products_ce(self, **kwargs) -> FakeCE:
-        return FakeCE(synth=copy.deepcopy(FIXTURES["synthesis_products"]), **kwargs)
+        # Isolate the second loan OAuth chain here; the complete PER HTTP flow has
+        # its own insurer-routing fixture in test_per_main.py.
+        synthesis = copy.deepcopy(FIXTURES["synthesis_products"])
+        synthesis["items"] = [
+            item for item in synthesis["items"]
+            if item["identity"]["productFamilyPFM"]["code"] != "4"
+        ]
+        return FakeCE(synth=synthesis, **kwargs)
 
     def test_a_loan_gets_its_detail_through_the_second_oauth_chain(self):
         ce = self.products_ce()

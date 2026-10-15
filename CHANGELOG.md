@@ -14,8 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keypad shown in a pop-up, then approve in Sécur'Pass. Picsou never sees your password and
   never stores it: it keeps only the encrypted bank session. A new internal
   `caisse-epargne-auth` container imports the current account, the Livret A and the LDDS (each
-  its own account) with their transactions. A PER comes in
-  with its balance only. A personal loan comes in as a debt, with its amount, rate, monthly
+  its own account) with their transactions. A PER can import its owned unit-linked positions
+  and its separate euro-fund balance. Available EUR market quotes update the unit-linked value
+  without a bank sync; an unquoted line retains its last bank valuation. The euro fund stays
+  fixed until the next sync. Unknown acquisition costs are not reported as investment gains,
+  and current quantities are not projected into past ownership. The insurer SSO exchange and
+  mixed euro-fund classification still require live verification. A personal loan comes in as a debt, with its amount, rate, monthly
   payment and repayment schedule filled from the bank. On the current account, the loan payout
   is marked as an internal transfer and each installment as a "Crédit" expense. A
   deferred-debit card shows as a credit card account holding the amount still to be debited,

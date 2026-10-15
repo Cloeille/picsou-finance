@@ -90,12 +90,51 @@ public interface CaisseEpargnePort {
         LocalDate nextDueDate,
         List<Transaction> transactions,
         boolean snapshotComplete,
-        LoanDetails loan
+        LoanDetails loan,
+        /** Null means legacy/unavailable detail, never an empty portfolio. PER only. */
+        PerDetails per
     ) {
         public AccountData {
             transactions = transactions == null ? List.of() : List.copyOf(transactions);
         }
+
+        /** Compatibility with balance-only snapshots and existing callers. */
+        public AccountData(
+            String externalId, String kind, String name, BigDecimal balance, String currency,
+            String iban, boolean ibanAmbiguous, BigDecimal authorizedOverdraft, BigDecimal ceiling,
+            BigDecimal remainingDepositCapacity, BigDecimal fillingRatio, String cardNature,
+            String parentExternalId, LocalDate nextDueDate, List<Transaction> transactions,
+            boolean snapshotComplete, LoanDetails loan
+        ) {
+            this(externalId, kind, name, balance, currency, iban, ibanAmbiguous, authorizedOverdraft,
+                ceiling, remainingDepositCapacity, fillingRatio, cardNature, parentExternalId,
+                nextDueDate, transactions, snapshotComplete, loan, null);
+        }
     }
+
+    /** Complete insurer valuation: euro-fund pocket plus owned UC, not the product catalogue. */
+    record PerDetails(
+        BigDecimal balance,
+        BigDecimal euroFundBalance,
+        LocalDate valuationDate,
+        List<PerPosition> positions
+    ) {
+        public PerDetails {
+            // Missing is not an explicit empty, complete portfolio.
+            positions = positions == null ? null : List.copyOf(positions);
+        }
+    }
+
+    /** Bank NAV is a fallback, not an acquisition price or a historical market quote. */
+    record PerPosition(
+        String isin,
+        String name,
+        BigDecimal quantity,
+        BigDecimal unitPrice,
+        BigDecimal value,
+        LocalDate priceDate,
+        Integer compartmentId
+    ) {}
 
     /**
      * A personal loan's terms as the bank states them. {@code interestRate} is the nominal rate as

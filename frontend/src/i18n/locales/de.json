@@ -214,6 +214,7 @@
       "CREDIT": "Kredit"
     },
     "cashBalance": "Bargeld im PEA/Wertpapierkonto",
+    "perEuroFundBalance": "PER-Eurofonds (letzte Synchronisierung)",
     "snapshots": "Monatliche Stände",
     "addSnapshot": "Speichern",
     "monthlyHistory": "Saldo zum Monatsende",

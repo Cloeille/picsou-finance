@@ -11,8 +11,8 @@ export interface IntradayPoint {
 
 export interface PnlData {
   total: number
-  invested: number
-  pnl: number
+  invested: number | null
+  pnl: number | null
   pnlPercent: number | null
   valueAtFrom: number | null
   rangePnl: number | null

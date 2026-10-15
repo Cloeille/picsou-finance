@@ -61,7 +61,7 @@ class DockerfileCopyTest(unittest.TestCase):
             needed,
             {
                 "main.py", "replay.py", "fetcher.py", "accounts_parser.py",
-                "login.py", "keypad_table.py",
+                "per_parser.py", "per_client.py", "login.py", "keypad_table.py",
             },
         )
 

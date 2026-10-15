@@ -75,7 +75,8 @@ class CaisseEpargneSyncServiceAuthTest {
         clock = new MutableClock(T0);
         service = new CaisseEpargneSyncService(
             port, sessionRepository, accountRepository, transactionRepository,
-            memberRepository, debtRepository, accountService, categorizationService, categoryService, encryption, txTemplate, Runnable::run, clock);
+            memberRepository, debtRepository, accountService, categorizationService, categoryService, encryption, txTemplate, Runnable::run,
+            org.mockito.Mockito.mock(CaisseEpargnePerService.class), clock);
     }
 
     private static CaisseEpargnePort.Keypad keypad() {

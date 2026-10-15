@@ -3,7 +3,9 @@ package com.picsou.service;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
+import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
+import com.picsou.model.BalanceSnapshot;
 import com.picsou.model.CardNature;
 import com.picsou.model.CaisseEpargneSession;
 import com.picsou.model.CaisseEpargneSyncStatus;
@@ -15,9 +17,15 @@ import com.picsou.model.Transaction;
 import com.picsou.port.CaisseEpargneErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.AccountHoldingRepository;
+import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.PropertyValuationRepository;
+import com.picsou.repository.RealEstateMetadataRepository;
+import com.picsou.repository.SavingsInterestConfigRepository;
+import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.CategoryService;
@@ -40,6 +48,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
@@ -73,6 +82,7 @@ class CaisseEpargneSyncServiceTest {
     @Mock AccountService accountService;
     @Mock CategorizationService categorizationService;
     @Mock CategoryService categoryService;
+    @Mock CaisseEpargnePerService perService;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
@@ -125,6 +135,135 @@ class CaisseEpargneSyncServiceTest {
             AccountType.LDDS, AccountType.PER, AccountType.LOAN);
         assertThat(saved).extracting(Account::getExternalAccountId)
             .containsExactly("ce_1003", "ce_contract:P0001", "ce_contract:L0001");
+    }
+
+    @Test
+    void queueSync_persistsTheCompletePerPocketAndSchedulesBackfillOnlyAfterTheCommit() {
+        Fixture f = new Fixture();
+        LocalDate valuationDate = TODAY.minusDays(3);
+        CaisseEpargnePort.PerDetails detail = new CaisseEpargnePort.PerDetails(
+            new BigDecimal("4200.00"), new BigDecimal("1000.00"), valuationDate,
+            List.of(new CaisseEpargnePort.PerPosition("XX0000000001", "Synthetic fund",
+                new BigDecimal("10"), new BigDecimal("320"), new BigDecimal("3200.00"), valuationDate, 1)));
+        CaisseEpargnePort.AccountData source = f.per();
+        CaisseEpargnePort.AccountData withPer = new CaisseEpargnePort.AccountData(
+            source.externalId(), source.kind(), source.name(), source.balance(), source.currency(),
+            source.iban(), source.ibanAmbiguous(), source.authorizedOverdraft(), source.ceiling(),
+            source.remainingDepositCapacity(), source.fillingRatio(), source.cardNature(),
+            source.parentExternalId(), source.nextDueDate(), source.transactions(), true, null, detail);
+        CaisseEpargnePerService.Prepared prepared = new CaisseEpargnePerService.Prepared(
+            new BigDecimal("4200.00"), new BigDecimal("1000.00"), valuationDate, List.of(),
+            java.util.Map.of(), java.util.Set.of("SYN.PA"));
+        when(perService.prepare(detail, "EUR")).thenReturn(prepared);
+        arrangeCommittableSync(withPer);
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getCashBalance()).isEqualByComparingTo("1000.00");
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(perService, accountService);
+        order.verify(perService).prepare(detail, "EUR");
+        order.verify(perService).apply(eq(accountCaptor.getValue()), eq(prepared), any());
+        order.verify(accountService).upsertSnapshot(
+            eq(accountCaptor.getValue()), eq(new BigDecimal("4200.00")),
+            eq(new BigDecimal("4200.00")), eq(valuationDate));
+        order.verify(perService).backfill(prepared);
+    }
+
+    @Test
+    void queueSync_pairsTheBankNavSnapshotWithItsOwnNeutralBaseline() {
+        Fixture f = new Fixture();
+        LocalDate navDate = TODAY.minusDays(3);
+        CaisseEpargnePort.PerPosition bankPosition = new CaisseEpargnePort.PerPosition(
+            "XX0000000001", "Synthetic fund", new BigDecimal("10"), new BigDecimal("100"),
+            new BigDecimal("1000"), navDate, 1);
+        CaisseEpargnePort.PerDetails detail = new CaisseEpargnePort.PerDetails(
+            new BigDecimal("1000"), BigDecimal.ZERO, navDate, List.of(bankPosition));
+        CaisseEpargnePort.AccountData source = f.per();
+        CaisseEpargnePort.AccountData withPer = new CaisseEpargnePort.AccountData(
+            source.externalId(), source.kind(), source.name(), new BigDecimal("1000"), source.currency(),
+            source.iban(), source.ibanAmbiguous(), source.authorizedOverdraft(), source.ceiling(),
+            source.remainingDepositCapacity(), source.fillingRatio(), source.cardNature(),
+            source.parentExternalId(), source.nextDueDate(), source.transactions(), true, null, detail);
+        CaisseEpargnePerService.Prepared prepared = new CaisseEpargnePerService.Prepared(
+            new BigDecimal("1000"), BigDecimal.ZERO, navDate,
+            List.of(new CaisseEpargnePerService.PreparedPosition(
+                "TEST.PA", "Synthetic fund", new BigDecimal("10"), new BigDecimal("100"),
+                new BigDecimal("1000"), navDate, "XX0000000001")), Map.of(), java.util.Set.of());
+        BalanceSnapshotRepository snapshots = mock(BalanceSnapshotRepository.class);
+        AccountHoldingRepository holdings = mock(AccountHoldingRepository.class);
+        PriceService prices = mock(PriceService.class);
+        AccountHolding currentHolding = AccountHolding.builder()
+            .ticker("TEST.PA")
+            .quantity(new BigDecimal("10"))
+            .providerValueEur(new BigDecimal("1000"))
+            .providerPriceDate(navDate)
+            .build();
+        lenient().when(holdings.findByAccount_Id(anyLong())).thenReturn(List.of(currentHolding));
+        lenient().when(prices.getQuotes(any())).thenReturn(Map.of("TEST.PA",
+            new PriceService.Quote(new BigDecimal("120"), TODAY, true)));
+        when(snapshots.findByAccountIdAndDate(anyLong(), eq(navDate))).thenReturn(Optional.empty());
+        when(snapshots.save(any(BalanceSnapshot.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        AccountService actualAccountService = new AccountService(
+            accountRepository, snapshots, holdings, transactionRepository,
+            mock(RealEstateMetadataRepository.class), mock(PropertyValuationRepository.class), debtRepository,
+            mock(SavingsInterestConfigRepository.class), prices, mock(LoanAmortizationService.class),
+            mock(AccountAccessResolver.class), mock(BankLogoResolver.class), mock(CryptoLogoService.class),
+            mock(InstrumentLogoService.class), mock(ScpiPositionRepository.class));
+        when(perService.prepare(detail, "EUR")).thenReturn(prepared);
+        CaisseEpargneSyncService sync = serviceWith(txTemplate, Runnable::run, actualAccountService);
+        arrangeCommittableSync(withPer);
+
+        sync.queueSync(7L);
+
+        ArgumentCaptor<BalanceSnapshot> snapshot = ArgumentCaptor.forClass(BalanceSnapshot.class);
+        verify(snapshots).save(snapshot.capture());
+        assertThat(snapshot.getValue().getDate()).isEqualTo(navDate);
+        assertThat(snapshot.getValue().getBalance()).isEqualByComparingTo("1000");
+        assertThat(snapshot.getValue().getInvestedAmount()).isEqualByComparingTo("1000");
+        verify(prices, never()).getQuotes(any());
+    }
+
+    @Test
+    void queueSync_keepsCommittedImportSuccessfulAndRunsLaterPerBackfillsAfterOneFails() {
+        PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
+        when(txManager.getTransaction(any())).thenReturn(transactionStatus);
+        CaisseEpargneSyncService transactional = serviceWith(new TransactionTemplate(txManager), Runnable::run);
+        Fixture f = new Fixture();
+        LocalDate valuationDate = TODAY.minusDays(2);
+        CaisseEpargnePerService.Prepared first = new CaisseEpargnePerService.Prepared(
+            new BigDecimal("4200.00"), new BigDecimal("4200.00"), valuationDate,
+            List.of(), java.util.Map.of(), java.util.Set.of());
+        CaisseEpargnePerService.Prepared second = new CaisseEpargnePerService.Prepared(
+            new BigDecimal("5100.00"), new BigDecimal("5100.00"), valuationDate,
+            List.of(), java.util.Map.of(), java.util.Set.of());
+        when(perService.prepare(any(), eq("EUR"))).thenReturn(first, second);
+        CaisseEpargnePort.AccountData firstPer = f.perWithDetails("contract:P0001", "4200.00", valuationDate);
+        CaisseEpargnePort.AccountData secondPer = f.perWithDetails("contract:P0002", "5100.00", valuationDate);
+        CaisseEpargneSession session = arrangeCommittableSync(firstPer, secondPer);
+        org.mockito.Mockito.doThrow(new IllegalStateException("post-commit proxy failure"))
+            .when(perService).backfill(first);
+
+        CaisseEpargneSyncService.SessionStatusResponse result = transactional.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(txManager, times(3)).commit(any());
+        verify(txManager, never()).rollback(any());
+        verify(perService).backfill(first);
+        verify(perService).backfill(second);
+    }
+
+    @Test
+    void queueSync_withoutPerDetailKeepsTheBalanceOnlySnapshotAndNeverClearsHoldings() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.per());
+
+        service.queueSync(7L);
+
+        verify(perService, never()).apply(any(), any(), any());
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getCashBalance()).isNull();
     }
 
     @Test
@@ -1383,10 +1522,17 @@ class CaisseEpargneSyncServiceTest {
     }
 
     private CaisseEpargneSyncService serviceWith(TransactionTemplate template, Executor executor) {
+        return serviceWith(template, executor, accountService);
+    }
+
+    private CaisseEpargneSyncService serviceWith(
+        TransactionTemplate template, Executor executor, AccountService snapshotService
+    ) {
         return new CaisseEpargneSyncService(
             port, sessionRepository, accountRepository, transactionRepository,
-            memberRepository, debtRepository, accountService, categorizationService, categoryService, encryption, template, executor,
-            Clock.fixed(TODAY.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC));
+            memberRepository, debtRepository, snapshotService, categorizationService, categoryService, encryption,
+            template, executor,
+            perService, Clock.fixed(TODAY.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC));
     }
 
     private void arrangeQueuedSession(CaisseEpargneSession session) {
@@ -1467,6 +1613,14 @@ class CaisseEpargneSyncServiceTest {
             return new CaisseEpargnePort.AccountData("contract:P0001", "PER", "PLAN EPARGNE RETRAITE",
                 new BigDecimal("4200.00"), "EUR", null, false,
                 null, null, null, null, null, null, null, List.of(), true, null);
+        }
+
+        CaisseEpargnePort.AccountData perWithDetails(String externalId, String balance, LocalDate valuationDate) {
+            CaisseEpargnePort.PerDetails details = new CaisseEpargnePort.PerDetails(
+                new BigDecimal(balance), new BigDecimal(balance), valuationDate, List.of());
+            return new CaisseEpargnePort.AccountData(externalId, "PER", "PLAN EPARGNE RETRAITE",
+                new BigDecimal(balance), "EUR", null, false, null, null, null, null, null, null, null,
+                List.of(), true, null, details);
         }
 
         CaisseEpargnePort.AccountData loan() {

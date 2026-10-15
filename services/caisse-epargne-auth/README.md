@@ -58,7 +58,7 @@ Supported products, from `productFamilyPFM.code` / `subProductFamilyPFM.code`
 | `1` | `CURRENT_ACCOUNT` | `contractPfmId` |
 | `3` / `01` (or label `LIVRET A` without a sub code) | `LIVRET_A` | `contractPfmId` |
 | `3` / `28` | `LDDS` | `contractPfmId` |
-| `4` / `05` | `PER` (balance only, >= 0) | `contract:<contractId.id>` |
+| `4` / `05` | `PER` (complete owned UC + euro-fund detail, total >= 0) | `contract:<contractId.id>` |
 | `6` / `12` | `LOAN` (balance = outstanding capital, <= 0) | `contract:<contractId.id>` |
 | anything else (home insurance `5`, other sub codes) | listed in `unsupported`, never imported, never fatal | pfm id, else `contract:<id>` |
 
@@ -106,6 +106,40 @@ outstanding, the sum of operations with a future `dueDate`, so <= 0):
 ```
 
 `interestRate` is a fraction (0.03 = 3 %), within [0, 1].
+
+`per` is optional for legacy callers. When present, it contains `balance`,
+`euroFundBalance`, `valuationDate`, and `positions` with `isin`, `name`, `quantity`,
+`unitPrice`, `value`, `priceDate` and `compartmentId`. Monetary values and quantities
+are decimal strings. Only owned positions from `detailContratVie.valorisation.supports`
+are imported, never the product catalogue or scheduled allocations. The bank contract's
+entity code is taken from the synthesis. Complete EUR details must reconcile within EUR 0.02.
+Production refuses a failed PER detail fetch rather than silently returning a balance-only
+success; legacy omission must not erase holdings in the application.
+
+**Insurer navigation (observed live, 2026-10-15):**
+
+1. `POST prepareRouting` (bearer) -> **201** JSON, routing mode `0`, `formParameters`
+   (14 technical fields, `urlPing` included) and no `queryParameters`.
+2. `POST /espaceinternet-ce/views/common/routage-itce.xhtml` (form parameters plus the
+   authentication key) -> 200, a JSF page with one `formRoutage` form (`formRoutage`,
+   `javax.faces.ViewState`, `javax.faces.ClientWindow`, submit `formRoutageButton`) and an
+   inline script that clicks that button.
+3. The sidecar posts that form without running JavaScript -> 302 to `/etna-ihs-ce/#...`.
+   The fragment is client-side and is dropped.
+4. `GET /etna-ihs-ce/` -> 200, the insurer single-page app shell (no form). Navigation ends.
+
+**Known verification limit:** after step 4, `GET .../contratVie/load/PER/IC/<id>`
+answered the proprietary status `461`, reported as its own upstream error. The current
+contract-detail endpoint still has to be identified from the insurer app. The mixed
+euro-fund classification is inferred and covered only with synthetic fixtures. Besides
+that exact JSF routing page and landing path, the transport supports only bounded
+redirects and simple hidden-field POST relays (`SAMLResponse`, `RelayState`), not new
+login challenges or arbitrary JavaScript. Credential-like field names (`pin`, `password`,
+`login`, ...) are matched as whole words or unambiguous parts, so `urlPing` is not a PIN.
+The bank bearer is confined to the routing endpoint. HTTP 403 is an upstream failure,
+not an expired session: it must not trigger token eviction/replay. Market-price history
+is security data, not proof of past ownership; the application keeps unknown acquisition
+costs and historical quantities unavailable.
 
 All-or-nothing: any parse error gives `UPSTREAM_FORMAT_CHANGED`, never a partial list.
 The loan detail is the one exception: it only fills `loan`, so its failure gives `loan: null`.
