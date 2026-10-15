@@ -72,7 +72,8 @@ docker_compose() {
         -u SPRING_DATASOURCE_URL -u SPRING_DATASOURCE_USERNAME -u SPRING_DATASOURCE_PASSWORD \
         "${compose_base[@]}" "$@"
 }
-# shellcheck disable=SC2329  # Invoked through the EXIT trap.
+# Invoked through the EXIT trap: SC2329 (shellcheck >= 0.10) / SC2317 (older runners).
+# shellcheck disable=SC2317,SC2329
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
