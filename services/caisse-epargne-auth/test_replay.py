@@ -817,6 +817,49 @@ class LoanChainTest(unittest.IsolatedAsyncioTestCase):
         )
 
 
+class PerChainTest(unittest.IsolatedAsyncioTestCase):
+    """Third OAuth chain (insurer app, observed live 2026-10-15)."""
+
+    async def run_chain(self, bank: FakeBank) -> replay.TokenResult:
+        state = replay.parse_session_state(make_state(params=params_with_claims()))
+        return await replay.replay_chain(state, transport=bank.transport(), chain=replay.PER_CHAIN)
+
+    async def test_per_authorize_carries_the_insurer_client_an_empty_scope_and_no_claims(self):
+        bank = FakeBank()
+        await self.run_chain(bank)
+
+        query = dict(urllib.parse.parse_qsl(bank.requests[0].url.query.decode(), keep_blank_values=True))
+        self.assertEqual(query["client_id"], replay.PER_CLIENT_ID)
+        self.assertEqual(query["scope"], "")  # sent empty, as the insurer app does
+        self.assertEqual(query["redirect_uri"], replay.PER_REDIRECT_URI)
+        self.assertNotIn("claims", query)
+        captured = params_with_claims()
+        for key in ("bpcesta", "display", "login_hint", "response_mode", "response_type"):
+            self.assertEqual(query[key], captured[key])
+
+    async def test_per_token_request_uses_the_insurer_client_and_redirect(self):
+        bank = FakeBank()
+        await self.run_chain(bank)
+
+        form = form_of(bank.requests[3])
+        self.assertEqual(form["client_id"], replay.PER_CLIENT_ID)
+        self.assertEqual(form["redirect_uri"], replay.PER_REDIRECT_URI)
+
+    def test_per_cache_key_is_distinct_from_main_and_loan(self):
+        state = replay.parse_session_state(make_state())
+        keys = {replay.TokenCache._key(state, chain)
+                for chain in (replay.MAIN_CHAIN, replay.LOAN_CHAIN, replay.PER_CHAIN)}
+        self.assertEqual(len(keys), 3)
+
+    def test_per_redirect_and_insurer_urls_are_allow_listed(self):
+        for url in (
+            replay.PER_REDIRECT_URI,
+            "https://www.rs-ext-bad-ce.caisse-epargne.fr/natixis/assurance/assuranceVieAuth/v1/clientToken/PERIC1",
+            "https://www.espace-assurances-de-personnes.caisse-epargne.fr/etna-web/rest/v2/contratVie/load/PER/IC/1",
+        ):
+            self.assertTrue(replay.is_allowed_url(url), url)
+
+
 class LoanTokenCacheTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.now = 1000.0

@@ -1,6 +1,6 @@
 # Feature: Caisse d'Epargne sync
 
-> Last updated: 2026-10-13
+> Last updated: 2026-10-15
 > Status: sidecar, backend and frontend are in the codebase. `docker-compose.yml` runs the `caisse-epargne-auth` sidecar and gives the backend its URL. The user connects from the Sync page (Caisse d'Epargne tab) or the add-account modal: a pop-up shows the bank's virtual keypad, the user clicks his own digits, then approves in Sécur'Pass. There is no keypad table: the sidecar never maps a key image to a digit. Sync is on demand only. Tested offline only: no test covers a full login against the real bank, and the card-transaction `accountIds` is still unverified live (see the sidecar README).
 
 ## Context
@@ -9,11 +9,14 @@ The `caisse-epargne-auth` sidecar drives the browser login (`POST /initiate`, `P
 
 ## How it works
 
-**PER verification limit:** owned-support data was inspected in the insurer portal, but
-the implemented insurer SSO/bootstrap exchange has not been exercised live. Mixed
-euro-fund/support classification is inferred and tested with synthetic fixtures only.
-Offline parser, transport, persistence and UI tests are not proof of a successful real
-PER synchronization. A new authorized live check is required before claiming that result.
+**PER detail:** the sidecar reads the insurer detail the way the bank's insurer app does
+(observed live 2026-10-15): `prepareRouting` for the insurer's own contract id, a third OAuth
+token from the same stored session, the insurer's `clientToken` JWT, then
+`etna-web/rest/v2/contratVie/load`. See the sidecar README. A PER whose
+detail cannot be read is listed in `unavailable` and keeps its last values; it never fails the
+other accounts. Mixed euro-fund/support classification is still tested with synthetic fixtures
+only (the observed contract held no euro fund). A real end-to-end sync is still required
+before claiming a successful PER import.
 
 - `POST /api/caisse-epargne/sync` queues one sync (202). It is **on demand only**: no scheduler, no startup sync, no auto-resync hook. It is rate-limited like the other sync endpoints (10 requests/min per IP, shared `syncBuckets`).
 - `GET /api/caisse-epargne/status` returns `isActive`, `syncStatus`, timestamps, `lastSyncError`, `unsupportedCount` and the `unsupported` list (`externalId`, `familyCode`).

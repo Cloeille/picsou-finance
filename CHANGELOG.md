@@ -18,8 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and its separate euro-fund balance. Available EUR market quotes update the unit-linked value
   without a bank sync; an unquoted line retains its last bank valuation. The euro fund stays
   fixed until the next sync. Unknown acquisition costs are not reported as investment gains,
-  and current quantities are not projected into past ownership. The insurer SSO exchange and
-  mixed euro-fund classification still require live verification. A personal loan comes in as a debt, with its amount, rate, monthly
+  and current quantities are not projected into past ownership. The PER detail is read from the
+  insurer with its own short-lived token; if it cannot be read, only the PER keeps its last
+  values and every other account still syncs. Mixed euro-fund classification still requires
+  live verification. A personal loan comes in as a debt, with its amount, rate, monthly
   payment and repayment schedule filled from the bank. On the current account, the loan payout
   is marked as an internal transfer and each installment as a "Crédit" expense. A
   deferred-debit card shows as a credit card account holding the amount still to be debited,

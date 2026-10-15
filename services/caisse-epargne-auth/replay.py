@@ -350,6 +350,22 @@ LOAN_CHAIN = ChainProfile(
     drop=("claims",),
 )
 
+# The PER insurer app (espace-assurances-de-personnes) mints its own token too
+# (observed live 2026-10-15): public client and redirect from its `conf/conf.json`,
+# an empty `scope` (the bank grants `assuranceVieAuth_get_<id> readUser`), no
+# `claims`. Every other authorize parameter is the one the main chain sends.
+PER_CLIENT_ID = "4f601b77-a48e-4473-8ddd-eae246505206"
+PER_REDIRECT_URI = "https://www.espace-assurances-de-personnes.caisse-epargne.fr/postMessage/index.html"
+PER_CHAIN = ChainProfile(
+    name="per",
+    overrides=(
+        ("client_id", PER_CLIENT_ID),
+        ("scope", ""),
+        ("redirect_uri", PER_REDIRECT_URI),
+    ),
+    drop=("claims",),
+)
+
 
 async def replay_chain(
     state: SessionState,

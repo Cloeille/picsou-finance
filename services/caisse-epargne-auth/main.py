@@ -248,9 +248,24 @@ async def _fetch_once(session_state: str) -> dict:
         return result.access_token
 
     async def per_detail(contract_id: str, entity_code: str) -> dict:
-        return await per_client.fetch_per_detail(
-            token.access_token, session_state, contract_id, entity_code=entity_code, transport=_TRANSPORT
-        )
+        # Third OAuth chain (insurer app), minted only when the synthesis holds a PER.
+        # The main token already proved the session alive, so a refusal here is
+        # PER-specific: one fresh PER token is tried, then only this PER is left out.
+        for attempt in (1, 2):
+            try:
+                per_token = await _token_cache.get(session_state, transport=_TRANSPORT, chain=replay.PER_CHAIN)
+                return await per_client.fetch_per_detail(
+                    per_token.access_token,
+                    contract_id,
+                    entity_code=entity_code,
+                    routing_token=token.access_token,
+                    transport=_TRANSPORT,
+                )
+            except replay.SessionExpired:
+                _token_cache.evict(session_state, chain=replay.PER_CHAIN)
+                if attempt == 2:
+                    raise replay.UpstreamError("PER token refused twice") from None
+        raise AssertionError("unreachable")
 
     return await fetcher.fetch_import(
         token.access_token, transport=_TRANSPORT, loan_token=loan_token, per_detail=per_detail
@@ -265,6 +280,7 @@ async def _fetch_accounts(session_state: str) -> dict:
         # A second rejection (or a failed replay) means the session itself is dead.
         _token_cache.evict(session_state)
         _token_cache.evict(session_state, chain=replay.LOAN_CHAIN)
+        _token_cache.evict(session_state, chain=replay.PER_CHAIN)
         return await _fetch_once(session_state)
 
 

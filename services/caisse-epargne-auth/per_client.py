@@ -1,20 +1,40 @@
-"""Conservative PER insurer routing and raw-detail HTTP transport.
+"""PER insurer detail transport (bearer + insurer JWT, no HTML navigation).
 
-The routing contract and insurer handshake follow the shapes observed live:
-`prepareRouting` answers 201 with form parameters only, the insurer serves one
-JSF routing page whose inline script clicks `formRoutageButton`, then a 302
-(with a client-side fragment) lands on the insurer single-page app, which has
-no form. The raw-detail endpoint after that landing is not yet verified live.
-This module does not execute JavaScript or initiate a username, password, or
-OTP challenge; every step is fail-closed.
+Observed live on 2026-10-15 in the bank's own web front, for a Millevie PER:
+
+  0. The bank front calls POST .../bapi/contract/v1/contracts/{entity}-{contractId}/
+     prepareRouting with the MAIN bearer -> 201, routing mode 1 to the insurer host and
+     query parameters `cdEtab`, `codeTransaction`, `producerContratId`, `urlRetour`.
+     The insurer's `producerContratId` (product 3 chars, company 2, then the number) is
+     NOT derivable from the bank contract id: a computed `PERIC<suffix>` made
+     clientToken answer 500 and the detail 403. Only the id read here works, and the
+     routing call itself is kept because the insurer may rely on its server-side context.
+     The routing URL is never followed.
+  1. The insurer app mints its own OAuth token with the SSO session (see
+     `replay.PER_CHAIN`): granted scope `assuranceVieAuth_get_<id> readUser`,
+     `expires_in` 3600.
+  2. GET https://www.rs-ext-bad-ce.caisse-epargne.fr/natixis/assurance/
+         assuranceVieAuth/v1/clientToken/{producerContratId}
+     headers: Authorization: Bearer <token>, iw4-user-token: <token>,
+              iw4-app-code: IW4, iw4-company-code: <cdetab>,
+              iw4-product-code: <first 3 chars of producerContratId>
+     -> 200, the insurer JWT in the `iw4-jwt-token` RESPONSE header.
+  3. GET https://www.espace-assurances-de-personnes.caisse-epargne.fr/etna-web/
+         rest/v2/contratVie/load/{product}/{company}/{number}
+     same headers plus `iw4-jwt-token: <JWT>` -> 200 JSON with
+     `donneesContrat` and `detailContratVie`.
+
+No cookie is sent
+to either host, no redirect is followed, and nothing read from the insurer
+(tokens, JWT, amounts) is logged: failures log a stage name and an HTTP status.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 import urllib.parse
-from html.parser import HTMLParser
 from typing import Any
 
 import httpx
@@ -22,63 +42,37 @@ import httpx
 import replay
 
 
-ROUTING_API_HOST = "www.rs-ext-bad-ce.caisse-epargne.fr"
-ROUTING_API_BASE = f"https://{ROUTING_API_HOST}/bapi/contract/v1"
-INSURER_HOST = "www.espace-assurances.caisse-epargne.fr"
-INSURER_BASE = f"https://{INSURER_HOST}"
-MAX_SSO_HOPS = 5
+log = logging.getLogger("caisse-epargne-auth")
 
-_ENTITY_CODE_RE = re.compile(r"[0-9]{1,10}\Z")
-_CONTRACT_ID_RE = re.compile(r"[0-9]{5} {1,16}PERIC(?P<suffix>[0-9]{1,64})\Z")
-_BEARER_RE = re.compile(r"[A-Za-z0-9._~+/-]+={0,}\Z")
-_BAD_PERCENT_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
-# Whole name words that denote a credential or challenge field. Matching words
-# (not substrings) keeps the live `urlPing` routing parameter from reading as a PIN.
-_CHALLENGE_WORDS = frozenset((
-    "pwd",
-    "login",
-    "user",
-    "secret",
-    "username",
-    "userid",
-    "password",
-    "passwd",
-    "passcode",
-    "otp",
-    "onetime",
-    "verificationcode",
-    "pin",
-    "securpass",
-))
-# Long, unambiguous parts that are refused even when glued to other words.
-_CHALLENGE_SUBSTRINGS = (
-    "pwd",
-    "login",
-    "password",
-    "passwd",
-    "passcode",
-    "username",
-    "userid",
-    "secret",
-    "securpass",
-    "verificationcode",
-    "onetime",
-)
-_NAME_WORD_RE = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
-_SUPPORTED_SSO_RELAY_FIELDS = frozenset(("SAMLResponse", "RelayState"))
-_ROUTING_SUCCESS_STATUSES = (200, 201)
-_JSF_ROUTING_PATH = "/espaceinternet-ce/views/common/routage-itce.xhtml"
-_JSF_ROUTING_FORM_ID = "formRoutage"
-_JSF_ROUTING_SUBMIT = "formRoutageButton"
-_JSF_VIEW_STATE = "javax.faces.ViewState"
-_JSF_STATE_FIELDS = frozenset((_JSF_VIEW_STATE, "javax.faces.ClientWindow"))
-# Live inline script: `if (false) {...location...href} else {...formRoutageButton...click()}`;
-# only punctuation separates the button id from the click call.
-_JSF_CLICK_RE = re.compile(re.escape(_JSF_ROUTING_SUBMIT) + r"[^A-Za-z_]{0,20}click\s*\(\s*\)")
-_INSURER_LANDING_PATH = "/etna-ihs-ce/"
-_INSURER_STATUS_MESSAGES = {
-    461: "PER insurer refused the request with insurer status 461",
+GATEWAY_HOST = "www.rs-ext-bad-ce.caisse-epargne.fr"
+CLIENT_TOKEN_BASE = f"https://{GATEWAY_HOST}/natixis/assurance/assuranceVieAuth/v1/clientToken"
+INSURER_HOST = "www.espace-assurances-de-personnes.caisse-epargne.fr"
+DETAIL_BASE = f"https://{INSURER_HOST}/etna-web/rest/v2/contratVie/load"
+
+APP_CODE = "IW4"
+JWT_HEADER = "iw4-jwt-token"
+PRODUCT_CODE = "PER"
+COMPANY_CODE = "IC"
+
+_ENTITY_CODE_RE = re.compile(r"[0-9]{5}\Z")
+_CONTRACT_ID_RE = re.compile(r"[0-9]{5} {1,16}PERIC(?P<number>[0-9]{1,64})\Z")
+_PRODUCER_ID_RE = re.compile(r"(?P<product>PER)(?P<company>IC)(?P<number>[0-9]{1,32})\Z")
+ROUTING_BASE = f"https://{GATEWAY_HOST}/bapi/contract/v1/contracts"
+_ROUTING_BODY = {
+    "characteristics": {
+        "contractActionType": {"code": "", "label": ""},
+        "productFamilyPFM": {"code": "", "label": ""},
+        "returnUrl": {},
+        "routingContext": {
+            "suppliedName": "routingContext",
+            "value": {"queryParameters": {}, "formParameters": {}},
+        },
+    },
+    "response": {"code": "", "interactionId": "", "label": ""},
 }
+_BEARER_RE = re.compile(r"[A-Za-z0-9._~+/-]+=*\Z")
+_JWT_RE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\Z")
+_MAX_TOKEN_LENGTH = 8192
 
 
 class InvalidPerRequest(replay.ReplayError):
@@ -104,49 +98,34 @@ def _reject_json_constant(_: str) -> None:
     raise ValueError
 
 
-def _parse_state(raw: str) -> replay.SessionState:
-    try:
-        if not isinstance(raw, str):
-            raise ValueError
-        # replay.parse_session_state performs the canonical field validation;
-        # this first pass additionally rejects ambiguous duplicate JSON keys.
-        json.loads(raw, object_pairs_hook=_unique_object, parse_constant=_reject_json_constant)
-        return replay.parse_session_state(raw)
-    except (replay.InvalidSessionState, ValueError, TypeError, UnicodeError):
-        raise replay.InvalidSessionState("Invalid PER session state") from None
-
-
-def _entity_code(state: replay.SessionState, supplied: str | None = None) -> str:
-    value = supplied if supplied is not None else state.authorize_params.get("cdetab")
-    if not isinstance(value, str) or not _ENTITY_CODE_RE.fullmatch(value):
-        raise replay.InvalidSessionState("Session state has no unambiguous entity code")
-    return value
-
-
-def _contract_suffix(contract_id: str) -> str:
+def _contract_number(contract_id: Any) -> str:
     if not isinstance(contract_id, str) or len(contract_id) > 128:
         raise InvalidPerRequest("Invalid PER contract identifier")
     match = _CONTRACT_ID_RE.fullmatch(contract_id)
     if match is None:
         raise InvalidPerRequest("Invalid PER contract identifier")
-    return match.group("suffix")
+    return match.group("number")
 
 
-def _validate_token(access_token: str) -> None:
+def _validate_entity_code(entity_code: Any) -> str:
+    if not isinstance(entity_code, str) or _ENTITY_CODE_RE.fullmatch(entity_code) is None:
+        raise InvalidPerRequest("Invalid PER entity code")
+    return entity_code
+
+
+def _validate_token(access_token: Any) -> str:
     if (
         not isinstance(access_token, str)
         or not access_token
-        or len(access_token) > 8192
+        or len(access_token) > _MAX_TOKEN_LENGTH
         or _BEARER_RE.fullmatch(access_token) is None
     ):
         raise InvalidPerRequest("Invalid access token")
+    return access_token
 
 
-def _guard_url(url: Any, expected_host: str) -> str:
-    if not isinstance(url, str) or not url or "\\" in url:
-        raise replay.HostNotAllowed("Refused a PER URL outside the exact HTTPS host")
-    if any(char.isspace() or ord(char) < 0x20 or ord(char) == 0x7F for char in url):
-        raise replay.HostNotAllowed("Refused a PER URL outside the exact HTTPS host")
+def _guard_url(url: str, expected_host: str) -> str:
+    """Belt and braces: the exact https host, default port, no credentials."""
     try:
         parsed = urllib.parse.urlsplit(url)
         port = parsed.port
@@ -154,43 +133,15 @@ def _guard_url(url: Any, expected_host: str) -> str:
         raise replay.HostNotAllowed("Refused a PER URL outside the exact HTTPS host") from None
     if (
         parsed.scheme != "https"
-        or parsed.hostname is None
-        or parsed.hostname.lower() != expected_host
+        or (parsed.hostname or "").lower() != expected_host
         or parsed.username is not None
         or parsed.password is not None
         or port not in (None, 443)
-        or bool(parsed.fragment)
-        or _BAD_PERCENT_RE.search(url)
+        or parsed.fragment
+        or not replay.is_allowed_url(url)
     ):
         raise replay.HostNotAllowed("Refused a PER URL outside the exact HTTPS host")
     return url
-
-
-def _is_challenge_name(name: str) -> bool:
-    words = [word.casefold() for word in _NAME_WORD_RE.findall(name)]
-    if any(word in _CHALLENGE_WORDS for word in words):
-        return True
-    normalized = re.sub(r"[^a-z0-9]", "", name.casefold())
-    return normalized in _CHALLENGE_WORDS or any(
-        part in normalized for part in _CHALLENGE_SUBSTRINGS
-    )
-
-
-def _string_parameters(value: Any) -> dict[str, str]:
-    if not isinstance(value, dict):
-        raise replay.UpstreamError("PER routing parameters are malformed")
-    result: dict[str, str] = {}
-    for key, item in value.items():
-        if (
-            not isinstance(key, str)
-            or not key
-            or not isinstance(item, str)
-            or any(ord(char) < 0x20 or ord(char) == 0x7F for char in key)
-            or _is_challenge_name(key)
-        ):
-            raise replay.UpstreamError("PER routing parameters are malformed")
-        result[key] = item
-    return result
 
 
 def _json_object(body: bytes) -> dict[str, Any]:
@@ -200,36 +151,28 @@ def _json_object(body: bytes) -> dict[str, Any]:
             object_pairs_hook=_unique_object,
             parse_constant=_reject_json_constant,
         )
-    except (ValueError, TypeError, UnicodeError):
-        raise replay.UpstreamError("PER upstream returned invalid JSON") from None
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        # RecursionError: a deeply nested body under the size cap.
+        raise replay.UpstreamError("PER insurer returned invalid JSON") from None
     if not isinstance(decoded, dict):
-        raise replay.UpstreamError("PER upstream returned an invalid object")
+        raise replay.UpstreamError("PER insurer returned an invalid object")
     return decoded
 
 
-async def _bounded_request(
+async def _get(
     client: httpx.AsyncClient,
-    method: str,
     url: str,
+    headers: dict[str, str],
     *,
-    headers: dict[str, str] | None = None,
+    stage: str,
+    method: str = "GET",
     json_body: dict[str, Any] | None = None,
-    form: dict[str, str] | None = None,
-) -> tuple[int, bytes, str | None, str | None]:
+) -> tuple[int, bytes, httpx.Headers]:
+    """One request with a capped body. Statuses are checked by the caller."""
     try:
-        async with client.stream(
-            method,
-            url,
-            headers=headers,
-            json=json_body,
-            data=form,
-        ) as response:
-            location = response.headers.get("location")
-            content_type = response.headers.get("content-type")
-            if response.status_code in (401, 403):
-                return response.status_code, b"", location, content_type
-            declared_length = response.headers.get("content-length", "")
-            if declared_length.isdecimal() and int(declared_length) > replay.MAX_RESPONSE_BYTES:
+        async with client.stream(method, url, headers=headers, json=json_body) as response:
+            declared = response.headers.get("content-length", "")
+            if declared.isdecimal() and int(declared) > replay.MAX_RESPONSE_BYTES:
                 raise replay.UpstreamError("PER upstream response is too large")
             chunks: list[bytes] = []
             size = 0
@@ -238,590 +181,147 @@ async def _bounded_request(
                 if size > replay.MAX_RESPONSE_BYTES:
                     raise replay.UpstreamError("PER upstream response is too large")
                 chunks.append(chunk)
-            return response.status_code, b"".join(chunks), location, content_type
+            return response.status_code, b"".join(chunks), response.headers
     except replay.ReplayError:
         raise
     except (httpx.HTTPError, UnicodeError, ValueError):
-        # Transport exceptions may include request headers, URLs, or response data.
+        # Transport exceptions may quote request headers or URLs.
+        log.warning("PER detail transport failed: stage=%s", stage)
         raise replay.UpstreamError("PER upstream request failed") from None
 
 
-def _routing_context(characteristics: dict[str, Any]) -> tuple[dict[str, str], dict[str, str]]:
+def _check_status(status: int, *, stage: str) -> None:
+    if 200 <= status < 300:
+        return
+    log.warning("PER detail refused: stage=%s status=%d", stage, status)
+    if status == 401:
+        raise replay.SessionExpired("PER token is no longer accepted")
+    # 403 is a denial, not an expired session: it must not trigger a replay.
+    raise replay.UpstreamError("PER insurer request failed")
+
+
+def _producer_id(body: bytes, *, entity_code: str) -> str:
+    """The insurer contract id from a prepareRouting answer, bound to this contract."""
+    root = _json_object(body)
+    # Three shapes: the characteristics object itself (logged live), or wrapped in
+    # `characteristics`, or in `prepareRouting.characteristics`.
+    wrapped = root.get("prepareRouting")
+    holder = wrapped if isinstance(wrapped, dict) else root
+    characteristics = holder.get("characteristics", holder if "routingMode" in holder else None)
+    if not isinstance(characteristics, dict):
+        raise replay.UpstreamError("PER routing response is incomplete")
+    href = (characteristics.get("routingUrl") or {}).get("href") if isinstance(
+        characteristics.get("routingUrl"), dict) else None
     context = characteristics.get("routingContext")
     value = context.get("value") if isinstance(context, dict) else None
-    if not isinstance(value, dict):
-        raise replay.UpstreamError("PER routing context is malformed")
-    return (
-        _optional_parameters(value, "queryParameters"),
-        _optional_parameters(value, "formParameters"),
-    )
-
-
-def _optional_parameters(value: dict[str, Any], key: str) -> dict[str, str]:
-    # Live mode-0 routing omits `queryParameters`; absent or null means "none".
-    if value.get(key) is None:
-        return {}
-    return _string_parameters(value[key])
-
-
-def _authentication_pair(characteristics: dict[str, Any]) -> tuple[str, str] | None:
-    name = characteristics.get("authenticationKeyName", "")
-    if not isinstance(name, str):
-        raise replay.UpstreamError("PER routing authentication parameters are malformed")
-    if not name or name == "null":
-        return None
-    value = characteristics.get("authenticationKeyValue")
-    if not isinstance(value, str):
-        raise replay.UpstreamError("PER routing authentication parameters are malformed")
+    query = value.get("queryParameters") if isinstance(value, dict) else None
+    if not isinstance(href, str) or not isinstance(query, dict):
+        log.warning("PER detail refused: stage=routing reason=incomplete")
+        raise replay.UpstreamError("PER routing response is incomplete")
+    # The routing target is never followed; it must still be the insurer we call.
+    if (urllib.parse.urlsplit(href).hostname or "").lower() != INSURER_HOST:
+        log.warning("PER detail refused: stage=routing reason=other-host")
+        raise replay.HostNotAllowed("Refused a PER URL outside the exact HTTPS host")
+    producer_id = query.get("producerContratId")
+    if not isinstance(producer_id, str) or (match := _PRODUCER_ID_RE.fullmatch(producer_id)) is None:
+        log.warning("PER detail refused: stage=routing reason=producer-id-format")
+        raise replay.UpstreamError("PER routing returned an unusable contract id")
+    if query.get("cdEtab") != entity_code:
+        log.warning("PER detail refused: stage=routing reason=other-establishment")
+        raise replay.UpstreamError("PER routing answered for another establishment")
+    # Consistency of the answer. Observed live: `contractId` echoes the INSURER id
+    # (`PERIC` + 6 digits, 11 chars), not the bank id asked for (23 chars), with the
+    # requested entity code. The bank id is bound by the request URL; the answer must
+    # agree with itself on the insurer id and with us on the establishment.
+    echoed = characteristics.get("contractId")
     if (
-        any(char.isspace() or ord(char) < 0x20 or ord(char) == 0x7F for char in name)
-        or _is_challenge_name(name)
+        not isinstance(echoed, dict)
+        or echoed.get("id") != producer_id
+        or echoed.get("entityCode") != entity_code
     ):
-        raise replay.UpstreamError("PER routing authentication parameters are malformed")
-    return name, value
+        log.warning("PER detail refused: stage=routing reason=other-contract")
+        raise replay.UpstreamError("PER routing answered for another contract")
+    return producer_id
 
 
-def _with_authentication(
-    parameters: dict[str, str], authentication: tuple[str, str] | None
-) -> dict[str, str]:
-    result = dict(parameters)
-    if authentication is not None:
-        name, value = authentication
-        if name in result:
-            raise replay.UpstreamError("PER routing parameters conflict")
-        result[name] = value
-    return result
-
-
-def _routing_details(root: dict[str, Any]) -> tuple[str, str, dict[str, str], dict[str, str], tuple[str, str] | None]:
-    prepared = root.get("prepareRouting")
-    if prepared is None:
-        prepared = root
-    if not isinstance(prepared, dict):
-        raise replay.UpstreamError("PER routing response is malformed")
-    characteristics = prepared.get("characteristics")
-    if not isinstance(characteristics, dict):
-        raise replay.UpstreamError("PER routing response is malformed")
-    mode_info = characteristics.get("routingMode")
-    routing_url = characteristics.get("routingUrl")
-    mode = mode_info.get("code") if isinstance(mode_info, dict) else None
-    href = routing_url.get("href") if isinstance(routing_url, dict) else None
-    if mode not in ("0", "1") or not isinstance(href, str):
-        raise replay.UpstreamError("PER routing classification is unsupported")
-    query_parameters, form_parameters = _routing_context(characteristics)
-    authentication = _authentication_pair(characteristics)
-    return mode, href, query_parameters, form_parameters, authentication
-
-
-def _existing_query(url: str) -> tuple[urllib.parse.SplitResult, list[tuple[str, str]]]:
-    _guard_url(url, INSURER_HOST)
-    parts = urllib.parse.urlsplit(url)
-    try:
-        existing = urllib.parse.parse_qsl(
-            parts.query,
-            keep_blank_values=True,
-            strict_parsing=bool(parts.query),
-            encoding="utf-8",
-            errors="strict",
-        )
-    except (ValueError, UnicodeError):
-        raise replay.UpstreamError("PER routing query is malformed") from None
-    names = [name for name, _ in existing]
-    if len(names) != len(set(names)):
-        raise replay.UpstreamError("PER routing query parameters conflict")
-    return parts, existing
-
-
-def _ensure_url_parameters_unique(url: str, parameters: dict[str, str]) -> None:
-    _, existing = _existing_query(url)
-    names = {name for name, _ in existing}
-    if any(name in names for name in parameters):
-        raise replay.UpstreamError("PER routing query parameters conflict")
-
-
-def _append_query(url: str, parameters: dict[str, str]) -> str:
-    parts, existing = _existing_query(url)
-    existing_names = {name for name, _ in existing}
-    if any(name in existing_names for name in parameters):
-        raise replay.UpstreamError("PER routing query parameters conflict")
-    try:
-        additions = urllib.parse.urlencode(list(parameters.items()), doseq=False)
-    except (TypeError, UnicodeError, ValueError):
-        raise replay.UpstreamError("PER routing query is malformed") from None
-    query = parts.query
-    if additions:
-        query = f"{query}&{additions}" if query else additions
-    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
-
-
-def _simple_submit_script(source: str) -> bool:
-    return re.fullmatch(
-        r"\s*document\s*\.\s*forms\s*\[\s*0\s*\]\s*\.\s*submit\s*\(\s*\)\s*;?\s*",
-        source,
-    ) is not None
-
-
-class _HiddenPostFormParser(HTMLParser):
-    """Accept only one hidden-only POST form and a literal auto-submit signal."""
-
-    _allowed_tags = {"html", "head", "title", "body", "meta", "form", "input", "script"}
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.invalid = False
-        self.form_count = 0
-        self.action: str | None = None
-        self.fields: dict[str, str] = {}
-        self.auto_submit = False
-        self.in_form = False
-        self.in_script = False
-        self.in_title = False
-        self.script_parts: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes: dict[str, str | None] = {}
-        for key, value in attrs:
-            lowered = key.lower()
-            if lowered in attributes:
-                self.invalid = True
-            attributes[lowered] = value
-        if tag not in self._allowed_tags:
-            self.invalid = True
-            return
-        if any(key.startswith("on") for key in attributes if key != "onload"):
-            self.invalid = True
-        if tag == "body":
-            onload = attributes.get("onload")
-            if onload is not None:
-                if _simple_submit_script(onload):
-                    self.auto_submit = True
-                else:
-                    self.invalid = True
-        elif "onload" in attributes:
-            self.invalid = True
-        if tag == "meta":
-            if (attributes.get("http-equiv") or "").casefold() == "refresh":
-                self.invalid = True
-        elif tag == "form":
-            self.form_count += 1
-            if self.form_count != 1 or self.in_form:
-                self.invalid = True
-            self.in_form = True
-            self.action = attributes.get("action")
-            if (
-                (attributes.get("method") or "").casefold() != "post"
-                or not self.action
-                or (attributes.get("enctype") or "application/x-www-form-urlencoded").casefold()
-                != "application/x-www-form-urlencoded"
-                or "target" in attributes
-            ):
-                self.invalid = True
-        elif tag == "input":
-            name = attributes.get("name")
-            value = attributes.get("value")
-            if (
-                not self.in_form
-                or (attributes.get("type") or "").casefold() != "hidden"
-                or not isinstance(name, str)
-                or not name
-                or not isinstance(value, str)
-                or _is_challenge_name(name)
-                or name not in _SUPPORTED_SSO_RELAY_FIELDS
-                or name in self.fields
-            ):
-                self.invalid = True
-            elif isinstance(name, str) and isinstance(value, str):
-                self.fields[name] = value
-        elif tag == "script":
-            if self.in_script or "src" in attributes:
-                self.invalid = True
-            self.in_script = True
-            self.script_parts = []
-        elif tag == "title":
-            self.in_title = True
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag == "form":
-            if not self.in_form:
-                self.invalid = True
-            self.in_form = False
-        elif tag == "script":
-            if not self.in_script or not _simple_submit_script("".join(self.script_parts)):
-                self.invalid = True
-            else:
-                self.auto_submit = True
-            self.in_script = False
-        elif tag == "title":
-            self.in_title = False
-        elif tag not in self._allowed_tags:
-            self.invalid = True
-
-    def handle_data(self, data: str) -> None:
-        if self.in_script:
-            self.script_parts.append(data)
-        elif data.strip() and not self.in_title:
-            self.invalid = True
-
-    def handle_comment(self, data: str) -> None:
-        if data.strip():
-            self.invalid = True
-
-    def handle_decl(self, decl: str) -> None:
-        if decl.casefold() != "doctype html":
-            self.invalid = True
-
-
-class _JsfRoutingPageParser(HTMLParser):
-    """Read the live insurer JSF routing page without trusting its other markup.
-
-    The page carries external scripts, RichFaces widgets and links, none of which
-    are executed. Only its single form and inline scripts are inspected.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.invalid = False
-        self.form_count = 0
-        self.in_form = False
-        self.form_id: str | None = None
-        self.action: str | None = None
-        self.hidden: dict[str, str] = {}
-        self.submit: tuple[str, str] | None = None
-        self.in_script = False
-        self.script_parts: list[str] = []
-        self.scripts: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes: dict[str, str | None] = {}
-        for key, value in attrs:
-            lowered = key.lower()
-            if lowered in attributes:
-                self.invalid = True
-            attributes[lowered] = value
-        if tag == "meta" and (attributes.get("http-equiv") or "").casefold() == "refresh":
-            self.invalid = True
-        elif tag == "form":
-            self.form_count += 1
-            if self.in_form:
-                self.invalid = True
-            self.in_form = True
-            self.form_id = attributes.get("id")
-            self.action = attributes.get("action")
-            if (
-                (attributes.get("method") or "").casefold() != "post"
-                or (attributes.get("enctype") or "application/x-www-form-urlencoded").casefold()
-                != "application/x-www-form-urlencoded"
-                or "target" in attributes
-            ):
-                self.invalid = True
-        elif tag in ("input", "select", "textarea", "button") and self.in_form:
-            self._form_control(tag, attributes)
-        elif tag in ("input", "select", "textarea"):
-            # A data-entry control anywhere else on the page means a challenge.
-            if tag != "input" or (attributes.get("type") or "").casefold() != "hidden":
-                self.invalid = True
-        elif tag == "script":
-            if self.in_script:
-                self.invalid = True
-            self.in_script = "src" not in attributes
-            self.script_parts = []
-
-    def _form_control(self, tag: str, attributes: dict[str, str | None]) -> None:
-        name = attributes.get("name")
-        value = attributes.get("value")
-        kind = (attributes.get("type") or "").casefold()
-        if (
-            tag != "input"
-            or not isinstance(name, str)
-            or not isinstance(value, str)
-            or _is_challenge_name(name)
-            or name in self.hidden
-        ):
-            self.invalid = True
-        elif kind == "hidden" and name in _JSF_STATE_FIELDS | {_JSF_ROUTING_FORM_ID}:
-            self.hidden[name] = value
-        elif kind == "submit" and name == _JSF_ROUTING_SUBMIT and self.submit is None:
-            self.submit = (name, value)
-        else:
-            self.invalid = True
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag == "form":
-            if not self.in_form:
-                self.invalid = True
-            self.in_form = False
-        elif tag == "script":
-            if self.in_script:
-                self.scripts.append("".join(self.script_parts))
-            self.in_script = False
-
-    def handle_data(self, data: str) -> None:
-        if self.in_script:
-            self.script_parts.append(data)
-
-
-class _LandingPageParser(HTMLParser):
-    """The insurer single-page app shell: no form and no data-entry control."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.invalid = False
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes = {key.lower(): value for key, value in attrs}
-        if tag in ("form", "input", "select", "textarea"):
-            self.invalid = True
-        elif tag == "meta" and (attributes.get("http-equiv") or "").casefold() == "refresh":
-            self.invalid = True
-
-
-def _parse_html(parser: HTMLParser, source: str) -> None:
-    try:
-        parser.feed(source)
-        parser.close()
-    except (AssertionError, ValueError):
-        raise replay.UpstreamError("PER insurer returned unsupported form markup") from None
-
-
-def _is_jsf_routing_path(path: str) -> bool:
-    return path == _JSF_ROUTING_PATH or path.startswith(f"{_JSF_ROUTING_PATH};")
-
-
-def _jsf_routing_form(url: str, source: str) -> tuple[str, dict[str, str]] | None:
-    if not _is_jsf_routing_path(urllib.parse.urlsplit(url).path):
-        return None
-    parser = _JsfRoutingPageParser()
-    _parse_html(parser, source)
-    if (
-        parser.invalid
-        or parser.form_count != 1
-        or parser.in_form
-        or parser.in_script
-        or parser.form_id != _JSF_ROUTING_FORM_ID
-        or not parser.action
-        or set(parser.hidden) != _JSF_STATE_FIELDS | {_JSF_ROUTING_FORM_ID}
-        or parser.submit is None
-        or not any(_JSF_CLICK_RE.search(script) for script in parser.scripts)
-    ):
-        raise replay.UpstreamError("PER insurer returned an unsupported JSF routing page")
-    target = urllib.parse.urljoin(url, parser.action)
-    _guard_url(target, INSURER_HOST)
-    if not _is_jsf_routing_path(urllib.parse.urlsplit(target).path):
-        raise replay.UpstreamError("PER insurer returned an unsupported JSF routing page")
-    fields = dict(parser.hidden)
-    name, value = parser.submit
-    fields[name] = value
-    return target, fields
-
-
-def _is_landing_page(url: str, source: str) -> bool:
-    if urllib.parse.urlsplit(url).path != _INSURER_LANDING_PATH:
-        return False
-    parser = _LandingPageParser()
-    _parse_html(parser, source)
-    if parser.invalid:
-        raise replay.UpstreamError("PER insurer landing page contains a form")
-    return True
-
-
-def _insurer_page_step(
-    url: str, body: bytes, content_type: str | None
-) -> tuple[str, dict[str, str]] | None:
-    """Return the next POST for an insurer HTML page, or None when navigation ends."""
-    text_start = body.lstrip()[:32].lower()
-    looks_html = bool(content_type and content_type.split(";", 1)[0].strip().casefold() == "text/html")
-    looks_html = looks_html or text_start.startswith((b"<!doctype html", b"<html", b"<form", b"<body"))
-    if not looks_html:
-        return None
-    try:
-        source = body.decode("utf-8")
-    except UnicodeError:
-        raise replay.UpstreamError("PER insurer returned unsupported form markup") from None
-    jsf_form = _jsf_routing_form(url, source)
-    if jsf_form is not None:
-        return jsf_form
-    if _is_landing_page(url, source):
-        return None
-    action, fields = _hidden_post_form(source)
-    target = urllib.parse.urljoin(url, action)
-    _guard_url(target, INSURER_HOST)
-    return target, fields
-
-
-def _hidden_post_form(source: str) -> tuple[str, dict[str, str]]:
-    parser = _HiddenPostFormParser()
-    _parse_html(parser, source)
-    if (
-        parser.invalid
-        or parser.form_count != 1
-        or parser.in_form
-        or parser.in_script
-        or not parser.auto_submit
-        or not parser.action
-    ):
-        raise replay.UpstreamError("PER insurer returned unsupported form markup")
-    return parser.action, parser.fields
-
-
-class _HopBudget:
-    def __init__(self) -> None:
-        self.used = 0
-
-    def consume(self) -> None:
-        if self.used >= MAX_SSO_HOPS:
-            raise replay.UpstreamError("PER insurer navigation exceeded its hop limit")
-        self.used += 1
-
-
-async def _navigate_insurer(
-    client: httpx.AsyncClient,
-    url: str,
-    *,
-    method: str,
-    form: dict[str, str] | None,
-    budget: _HopBudget,
-) -> bytes:
-    _guard_url(url, INSURER_HOST)
-    while True:
-        _guard_url(url, INSURER_HOST)
-        status, body, location, content_type = await _bounded_request(
-            client,
-            method,
-            url,
-            form=form,
-        )
-        if status == 401:
-            raise replay.SessionExpired("PER session is no longer accepted")
-        if status == 403:
-            raise replay.UpstreamError("PER upstream denied access")
-        if status in (301, 302, 303, 307, 308):
-            if not location:
-                raise replay.UpstreamError("PER insurer redirect has no location")
-            # The live landing redirect carries a client-side route fragment
-            # (`/etna-ihs-ce/#...`); a fragment is never sent over HTTP.
-            target = urllib.parse.urldefrag(urllib.parse.urljoin(url, location))[0]
-            _guard_url(target, INSURER_HOST)
-            if status == 303 or (status in (301, 302) and method == "POST"):
-                method, form = "GET", None
-            elif status in (301, 302, 307, 308):
-                pass
-            else:
-                raise replay.UpstreamError("PER insurer redirect is unsupported")
-            budget.consume()
-            url = target
-            continue
-        if not 200 <= status < 300:
-            raise replay.UpstreamError(
-                _INSURER_STATUS_MESSAGES.get(status, "PER insurer request failed")
-            )
-        next_step = _insurer_page_step(url, body, content_type)
-        if next_step is not None:
-            target, form = next_step
-            budget.consume()
-            url, method = target, "POST"
-            continue
-        return body
-
-
-def _detail_url(suffix: str) -> str:
-    encoded = urllib.parse.quote(suffix, safe="")
-    return f"{INSURER_BASE}/espaceinternet-ce/rest/v2/contratVie/load/PER/IC/{encoded}"
+def build_headers(access_token: str, entity_code: str, producer_id: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {access_token}",
+        "iw4-user-token": access_token,
+        "iw4-app-code": APP_CODE,
+        "iw4-company-code": entity_code,
+        "iw4-product-code": producer_id[:3],
+        "Accept": "application/json, text/plain, */*",
+    }
 
 
 async def fetch_per_detail(
     access_token: str,
-    session_state: str,
     contract_id: str,
     *,
-    entity_code: str | None = None,
+    entity_code: str,
+    routing_token: str,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
-    """Return the raw insurer JSON object for one validated PER contract.
+    """Return the raw `contratVie/load` JSON object of one PER contract.
 
-    The bearer token is attached only to the exact routing API POST. Every
-    insurer request uses the same short-lived client for cookie continuity and
-    carries no Authorization header.
+    `routing_token` is the MAIN bearer, sent only to prepareRouting. `access_token`
+    is the PER-chain token (`replay.PER_CHAIN`), sent only to clientToken and the
+    detail. Raises `InvalidPerRequest` for a malformed request (nothing is sent),
+    `SessionExpired` on a 401 with the PER token, `HostNotAllowed` if a URL leaves
+    its exact host, and `UpstreamError` for any other failure (a routing 401 too:
+    the main token has just read the synthesis, so it is PER-specific).
     """
     _validate_token(access_token)
-    state = _parse_state(session_state)
-    entity_code = _entity_code(state, entity_code)
-    suffix = _contract_suffix(contract_id)
+    _validate_token(routing_token)
+    entity_code = _validate_entity_code(entity_code)
+    _contract_number(contract_id)
     route_segment = urllib.parse.quote(f"{entity_code}-{contract_id}", safe="")
-    route_url = (
-        f"{ROUTING_API_BASE}/contracts/{route_segment}/prepareRouting"
-    )
-    _guard_url(route_url, ROUTING_API_HOST)
+    routing_url = _guard_url(f"{ROUTING_BASE}/{route_segment}/prepareRouting", GATEWAY_HOST)
 
-    request_body = {
-        "characteristics": {
-            "contractActionType": {"code": "", "label": ""},
-            "productFamilyPFM": {"code": "", "label": ""},
-            "returnUrl": {},
-            "routingContext": {
-                "suppliedName": "routingContext",
-                "value": {"queryParameters": {}, "formParameters": {}},
-            },
-        },
-        "response": {"code": "", "interactionId": "", "label": ""},
-    }
     client = replay.new_client(transport)
     try:
-        try:
-            replay.restore_cookies(client, state.cookies)
-        except (httpx.HTTPError, TypeError, UnicodeError, ValueError):
-            raise replay.InvalidSessionState("Session state has unusable cookies") from None
-        status, body, _, _ = await _bounded_request(
-            client,
-            "POST",
-            route_url,
-            headers={"Authorization": f"Bearer {access_token}"},
-            json_body=request_body,
+        # No cookie ever goes to the gateway or the insurer: the jar is emptied before
+        # each call, so a Set-Cookie on one step is not replayed on the next.
+        client.cookies.clear()
+        status, body, _ = await _get(
+            client, routing_url, {"Authorization": f"Bearer {routing_token}",
+                                  "Accept": "application/json, text/plain, */*"},
+            stage="routing", method="POST", json_body=_ROUTING_BODY,
         )
-        if status == 401:
-            raise replay.SessionExpired("PER session is no longer accepted")
-        if status == 403:
-            raise replay.UpstreamError("PER upstream denied access")
-        if status not in _ROUTING_SUCCESS_STATUSES:
+        if not 200 <= status < 300:
+            log.warning("PER detail refused: stage=routing status=%d", status)
             raise replay.UpstreamError("PER routing request failed")
-        root = _json_object(body)
-        mode, href, query_parameters, form_parameters, authentication = _routing_details(root)
-        _guard_url(href, INSURER_HOST)
-        budget = _HopBudget()
-        if mode == "0":
-            target_form = _with_authentication(form_parameters, authentication)
-            _ensure_url_parameters_unique(href, target_form)
-            await _navigate_insurer(
-                client,
-                href,
-                method="POST",
-                form=target_form,
-                budget=budget,
-            )
-        else:
-            target_query = _with_authentication(query_parameters, authentication)
-            target_url = _append_query(href, target_query)
-            await _navigate_insurer(
-                client,
-                target_url,
-                method="GET",
-                form=None,
-                budget=budget,
-            )
-        raw_body = await _navigate_insurer(
-            client,
-            _detail_url(suffix),
-            method="GET",
-            form=None,
-            budget=budget,
+        producer_id = _producer_id(body, entity_code=entity_code)
+        match = _PRODUCER_ID_RE.fullmatch(producer_id)
+        token_url = _guard_url(f"{CLIENT_TOKEN_BASE}/{producer_id}", GATEWAY_HOST)
+        detail_url = _guard_url(
+            f"{DETAIL_BASE}/{match.group('product')}/{match.group('company')}/{match.group('number')}",
+            INSURER_HOST,
         )
-        result = _json_object(raw_body)
-        if "detailContratVie" not in result or not isinstance(result["detailContratVie"], dict):
+        headers = build_headers(access_token, entity_code, producer_id)
+
+        client.cookies.clear()
+        status, _, response_headers = await _get(client, token_url, headers, stage="client-token")
+        _check_status(status, stage="client-token")
+        jwt = response_headers.get(JWT_HEADER, "")
+        if not jwt or len(jwt) > _MAX_TOKEN_LENGTH or _JWT_RE.fullmatch(jwt) is None:
+            log.warning("PER detail refused: stage=client-token reason=no-jwt")
+            raise replay.UpstreamError("PER insurer token is missing")
+
+        client.cookies.clear()
+        status, body, _ = await _get(
+            client, detail_url, {**headers, JWT_HEADER: jwt}, stage="contract-detail"
+        )
+        _check_status(status, stage="contract-detail")
+        result = _json_object(body)
+        if not isinstance(result.get("detailContratVie"), dict):
             raise replay.UpstreamError("PER insurer detail response is incomplete")
         try:
             serialized = json.dumps(result, ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError):
             raise replay.UpstreamError("PER insurer detail response is malformed") from None
-        if access_token in serialized:
+        if access_token in serialized or routing_token in serialized or jwt in serialized:
             raise replay.UpstreamError("PER insurer detail response contained forbidden data")
         return result
     finally:

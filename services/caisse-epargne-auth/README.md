@@ -119,28 +119,39 @@ entity code is taken from the synthesis. Complete EUR details must reconcile wit
 Production refuses a failed PER detail fetch rather than silently returning a balance-only
 success; legacy omission must not erase holdings in the application.
 
-**Insurer navigation (observed live, 2026-10-15):**
+**Insurer detail (observed live, 2026-10-15):**
 
-1. `POST prepareRouting` (bearer) -> **201** JSON, routing mode `0`, `formParameters`
-   (14 technical fields, `urlPing` included) and no `queryParameters`.
-2. `POST /espaceinternet-ce/views/common/routage-itce.xhtml` (form parameters plus the
-   authentication key) -> 200, a JSF page with one `formRoutage` form (`formRoutage`,
-   `javax.faces.ViewState`, `javax.faces.ClientWindow`, submit `formRoutageButton`) and an
-   inline script that clicks that button.
-3. The sidecar posts that form without running JavaScript -> 302 to `/etna-ihs-ce/#...`.
-   The fragment is client-side and is dropped.
-4. `GET /etna-ihs-ce/` -> 200, the insurer single-page app shell (no form). Navigation ends.
+The insurer detail is read the way the bank's own insurer app reads it (observed live in
+the web front, 2026-10-15, Millevie PER on `www.espace-assurances-de-personnes.caisse-epargne.fr`):
 
-**Known verification limit:** after step 4, `GET .../contratVie/load/PER/IC/<id>`
-answered the proprietary status `461`, reported as its own upstream error. The current
-contract-detail endpoint still has to be identified from the insurer app. The mixed
-euro-fund classification is inferred and covered only with synthetic fixtures. Besides
-that exact JSF routing page and landing path, the transport supports only bounded
-redirects and simple hidden-field POST relays (`SAMLResponse`, `RelayState`), not new
-login challenges or arbitrary JavaScript. Credential-like field names (`pin`, `password`,
-`login`, ...) are matched as whole words or unambiguous parts, so `urlPing` is not a PIN.
-The bank bearer is confined to the routing endpoint. HTTP 403 is an upstream failure,
-not an expired session: it must not trigger token eviction/replay. Market-price history
+0. `POST https://www.rs-ext-bad-ce.caisse-epargne.fr/bapi/contract/v1/contracts/<entity>-<contract>/prepareRouting`
+   with the main bearer -> 201, routing mode `1` to the insurer host. Its query parameters
+   carry `producerContratId`, the insurer's own contract id. It is **not** derivable from the
+   bank contract id (observed: `PERIC` + 6 digits against 8 in the bank id; a computed one
+   makes `clientToken` answer 500). The answer's `contractId` echoes that insurer id and the
+   requested establishment; both must agree, and the routing URL must point at the insurer
+   host. That URL itself is never followed.
+1. A third OAuth token is minted from the same SSO session (`replay.PER_CHAIN`): the insurer
+   app's public client and `postMessage` redirect, an empty `scope`, no `claims`. The bank
+   grants `assuranceVieAuth_get_<id> readUser` for one hour. It is minted only when the
+   synthesis holds a PER.
+2. `GET https://www.rs-ext-bad-ce.caisse-epargne.fr/natixis/assurance/assuranceVieAuth/v1/clientToken/<producerContratId>`
+   with `Authorization: Bearer <token>`, `iw4-user-token` (same token), `iw4-app-code: IW4`,
+   `iw4-company-code` (entity code) and `iw4-product-code: PER`. The insurer JWT comes back in
+   the `iw4-jwt-token` response header.
+3. `GET https://www.espace-assurances-de-personnes.caisse-epargne.fr/etna-web/rest/v2/contratVie/load/<product>/<company>/<number>`
+   (the three parts of `producerContratId`)
+   with the same headers plus `iw4-jwt-token`. The JSON holds `donneesContrat` and
+   `detailContratVie`.
+
+No cookie is sent to either host and no redirect is followed. A 401 on the PER chain evicts
+the PER token and retries once; a second one leaves only the PER unavailable, since the main
+token already proved the session alive. A 403 is an upstream failure, never a replay.
+
+Each owned support carries its ISIN (`codeIsin`), units, NAV and NAV date, so the application
+can reprice it between syncs. `detailProduit.supports` is the product catalogue (about a
+hundred funds): it is never imported. The mixed euro-fund classification is still covered
+by synthetic fixtures only: the observed contract held no euro fund. Market-price history
 is security data, not proof of past ownership; the application keeps unknown acquisition
 costs and historical quantities unavailable.
 
