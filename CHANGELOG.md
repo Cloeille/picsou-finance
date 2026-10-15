@@ -122,6 +122,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HomeBank iOS imports retain the opening amount when mapped to an existing manual account.**
   The non-zero opening is added once as a stable transfer ledger row before rebuilding
   the balance and snapshots. Repeat imports do not duplicate it; synced balances stay untouched.
+- **The budget money-flow chart no longer calls unspent money "savings".** Income left on the
+  current account is now shown as "Unspent", and spending above income as "Taken from balance".
+  Only money actually transferred to a savings or investment account appears as savings, with one
+  band per account labelled "Savings · Livret A" or "Investment · PEA", taken out of the unspent
+  part. Savings are counted net per account, so money moved out and back is not savings;
+  withdrawals from a savings account and transfers to or from accounts not linked in Picsou are
+  shown as such. Trade Republic purchases and sales with matching cash and investment legs are
+  counted once, without a fictitious incoming or outgoing transfer.
 
 - **AMEX and DEGIRO deployments can use CI-built images instead of local builds.**
   Both authentication sidecars are included in GHCR publishing and image-based
@@ -138,6 +146,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The card used to count the paid statement again on top of your new purchases. It now shows
   only what is still owed on the statement plus the purchases made since. A refund or an
   overpayment larger than the statement now shows as a credit on the card.
+
+- **Dashboard "Sync all" stays in place, including remembered Revolut sessions.** Revolut
+  discovery is auto-confirmed with remembered credentials preserved and deleted accounts
+  excluded. A discovery that completes or fails before the start response arrives no longer
+  leaves the row spinning forever; errors refresh session status and reauthentication routing.
+  Navigating away from the dashboard before discovery finishes still drops client-side confirm
+  ([#207](https://github.com/Cloeille/picsou-finance/issues/207)).
 
 - **MCP sync no longer hides an expired browser session or loses the status report after a database error.**
   BoursoBank, Bourse Direct, Amundi and Fortuneo distinguish an inactive session requiring a new login
