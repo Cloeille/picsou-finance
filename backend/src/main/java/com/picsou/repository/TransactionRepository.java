@@ -159,6 +159,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     /** All member transactions in a date range (cashflow / detection input). */
     @Query("""
         SELECT t FROM Transaction t
+        JOIN FETCH t.account
         WHERE t.account.member.id = :memberId AND t.date BETWEEN :from AND :to
         ORDER BY t.date ASC, t.id ASC
         """)
@@ -239,6 +240,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     /** Member transactions with a given category kind in a range (allocation flux). */
     @Query("""
         SELECT t FROM Transaction t
+        JOIN FETCH t.account
         WHERE t.account.member.id = :memberId AND t.categoryRef.kind = :kind
         AND t.date BETWEEN :from AND :to
         """)

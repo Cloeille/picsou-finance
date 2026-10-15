@@ -107,6 +107,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The budget money-flow chart no longer calls unspent money "savings".** Income left on the
+  current account is now shown as "Unspent", and spending above income as "Taken from balance".
+  Only money actually transferred to a savings or investment account appears as savings, with one
+  band per account labelled "Savings · Livret A" or "Investment · PEA", taken out of the unspent
+  part. Savings are counted net per account, so money moved out and back is not savings;
+  withdrawals from a savings account and transfers to or from accounts not linked in Picsou are
+  shown as such. Trade Republic purchases and sales with matching cash and investment legs are
+  counted once, without a fictitious incoming or outgoing transfer.
+
 - **AMEX and DEGIRO deployments can use CI-built images instead of local builds.**
   Both authentication sidecars are included in GHCR publishing and image-based
   CI tests, and the deployment Compose file offers the same image/build choice
