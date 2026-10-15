@@ -57,6 +57,7 @@ On the current account the loan is debited from, two kinds of rows are categoriz
 - Anything unexpected refuses the whole snapshot with `UPSTREAM_FORMAT_CHANGED`: unknown `kind`, non-EUR, missing balance, duplicate account, `snapshotComplete=false`, empty list, id over 100 characters.
 - A positive computed card outstanding refuses the whole sync (`UPSTREAM_FORMAT_CHANGED`) on purpose: the sign of the amount is unconfirmed, and it stays refused until a live run confirms it.
 - `unsupported` contracts are only counted in the status. They never become accounts.
+- Only the synthesis and the current account can fail the whole sidecar import. Any other account the sidecar cannot read (Livret A, LDDS, card, loan detail, PER detail) is left out of `accounts` and listed in `unavailable` (`externalId`, `kind`, `code`). The backend ignores that key: the account is simply not updated this run, and nothing is deleted.
 - The IBAN is **not stored** and the card account is **not linked** to its current account (see gaps).
 
 ### Error codes

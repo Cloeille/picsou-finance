@@ -4,10 +4,15 @@ Read-only: GET calls only, with the Bearer token minted by `replay`. The raw
 JSON goes to `accounts_parser.build_import`, whose result is serialised to the
 `POST /accounts` contract (money as decimal strings, never floats).
 
-All-or-nothing: any parse error, malformed page or exceeded page cap raises
-`UpstreamFormatChanged`; a partial list is never returned. Nothing read from
-the bank (balance, label, IBAN) or the token is logged or put in an error
-message: errors carry a stable code and a fixed text.
+Fatal, all-or-nothing: the synthesis call and the current account (a transport error,
+a parse error, a malformed page or an exceeded page cap on it raises `UpstreamUnavailable`
+or `UpstreamFormatChanged`). Any other account that cannot
+be read or serialised is left out of `accounts` and listed in `unavailable`
+(`{externalId, kind, code}`, synthesis order). `replay.SessionExpired` always
+propagates (main.py replays once), as do `InvalidSessionState` and `HostNotAllowed`
+raised outside the loan token. Nothing read from the bank (balance, label, IBAN) or
+the token is logged or put in an error message: errors carry a stable code and a
+fixed text.
 
 Observed on the real bank (spike/E2E_FINDINGS.md): the synthesis call, the
 transactions query, and the `meta.nextPageToken` / `pageToken` pagination
@@ -267,52 +272,72 @@ def _serialise_account(
 LoanTokenProvider = Callable[[], Awaitable[str]]
 PerDetailProvider = Callable[[str, str], Awaitable[Any]]
 
+_CURRENT_KIND = "CURRENT_ACCOUNT"
 
-async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvider]) -> dict:
-    """Read complete owned positions, or refuse the snapshot; never silently erase them.
+
+async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvider]) -> tuple[dict, dict]:
+    """`({externalId: parsed PER}, {externalId: code})`: complete positions, or the PER unavailable.
 
     A missing provider is legacy compatibility for direct callers. Production supplies it
     using the stored session and never substitutes a successful balance-only import on failure.
+    `SessionExpired`, `InvalidSessionState` and `HostNotAllowed` propagate: they are not
+    specific to one contract.
     """
-    details = {}
+    details: dict = {}
+    unavailable: dict = {}
     if provider is None:
-        return details
+        return details, unavailable
     for account in accounts:
         if account["kind"] != "PER":
             continue
         ext = account["externalId"]
         entity_code = account.get("perEntityCode")
-        if not isinstance(entity_code, str) or len(entity_code) != 5 or not entity_code.isascii() or not entity_code.isdecimal():
-            raise UpstreamFormatChanged("PER contract has no usable entity code")
-        raw = await provider(ext[len(accounts_parser.CONTRACT_ID_PREFIX):], entity_code)
+        if (
+            not isinstance(entity_code, str)
+            or len(entity_code) != 5
+            or not entity_code.isascii()
+            or not entity_code.isdecimal()
+        ):
+            unavailable[ext] = UpstreamFormatChanged.code
+            continue
+        try:
+            raw = await provider(ext[len(accounts_parser.CONTRACT_ID_PREFIX):], entity_code)
+        except (replay.SessionExpired, replay.InvalidSessionState, replay.HostNotAllowed):
+            raise
+        except replay.ReplayError as exc:
+            unavailable[ext] = exc.code
+            continue
+        except httpx.HTTPError:
+            unavailable[ext] = UpstreamUnavailable.code
+            continue
         try:
             details[ext] = per_parser.parse_per_detail(raw, currency=account["balance"]["currency"])
-        except accounts_parser.ParseError:
-            raise UpstreamFormatChanged("PER detail does not match the observed format") from None
-    return details
+        except accounts_parser.ParseError as exc:
+            unavailable[ext] = exc.code
+    return details, unavailable
 
 
 async def _fetch_loan_details(
     client: httpx.AsyncClient, base_url: str, accounts: list, loan_token: Optional[LoanTokenProvider]
-) -> dict:
-    """`{externalId: parsed loan or None}` for every LOAN account.
+) -> tuple[dict, dict]:
+    """`({externalId: parsed loan or None}, {externalId: code})` for every LOAN account.
 
-    Best effort: the balance comes from the synthesis, so a detail that cannot
-    be read (second OAuth chain refused, 5xx, format change) leaves `loan` null
-    and the import goes on. Only the error code is logged. A `SessionExpired`
-    propagates: the session itself is dead, and the caller replays or fails.
+    Without a token provider every loan is null and imported (legacy). A token that cannot be
+    minted leaves every loan unavailable with its code; a detail that cannot be read leaves only
+    its own loan unavailable. A `SessionExpired` propagates: the session itself is dead, and the
+    caller replays or fails.
     """
     loans = [a["externalId"] for a in accounts if a["kind"] == "LOAN"]
     details: dict = {ext: None for ext in loans}
+    unavailable: dict = {}
     if not loans or loan_token is None:
-        return details
+        return details, unavailable
     try:
         token = await loan_token()
     except replay.SessionExpired:
         raise
     except replay.ReplayError as exc:
-        log.warning("loan token unavailable: %s", exc.code)
-        return details
+        return details, {ext: exc.code for ext in loans}
     for ext in loans:
         contract_id = ext[len(accounts_parser.CONTRACT_ID_PREFIX):]
         url = base_url + LOAN_DETAIL_PATH + urllib.parse.quote(contract_id, safe="")
@@ -320,11 +345,9 @@ async def _fetch_loan_details(
         try:
             payload = await _get_json(client, url, {}, bearer=token)
             details[ext] = accounts_parser.parse_loan_detail(payload)
-        except FetchError as exc:
-            log.warning("loan detail unavailable: %s", exc.code)
-        except accounts_parser.ParseError as exc:
-            log.warning("loan detail unavailable: %s", exc.code)
-    return details
+        except (FetchError, accounts_parser.ParseError) as exc:
+            unavailable[ext] = exc.code
+    return details, unavailable
 
 
 # --- Entry point ---------------------------------------------------------------------
@@ -339,7 +362,11 @@ async def fetch_import(
     loan_token: Optional[LoanTokenProvider] = None,
     per_detail: Optional[PerDetailProvider] = None,
 ) -> dict:
-    """The `POST /accounts` response body, or a typed error (no partial result).
+    """The `POST /accounts` response body, or a typed error.
+
+    Only the current account can fail the whole import. Any other account that cannot be
+    read or serialised is left out of `accounts` and listed in `unavailable`, in synthesis
+    order, with its error code; the rest is returned.
 
     `loan_token` mints the personal-loan token; it is only awaited when the
     synthesis holds a LOAN contract. Without it, every `loan` is null.
@@ -353,49 +380,70 @@ async def fetch_import(
         client.headers["Authorization"] = f"Bearer {access_token}"
         synthesis = await _get_json(client, base_url + SYNTHESIS_PATH, dict(SYNTHESIS_QUERY))
         try:
-            accounts = accounts_parser.parse_synthesis(synthesis)
-        except accounts_parser.ParseError as exc:
+            accounts, unsupported = accounts_parser._parse_synthesis(copy.deepcopy(synthesis))
+        except accounts_parser.ParseError:
             raise UpstreamFormatChanged("Synthesis does not match the observed format") from None
 
-        pages_by_account: dict = {}
+        transactions: dict = {}
+        unavailable: dict = {}  # externalId -> code
         for account in accounts:
             external_id = account["externalId"]
-            if account["kind"] == "CARD":
-                pages_by_account[external_id] = await _fetch_card_pages(client, base_url, external_id)
-            elif account["kind"] in accounts_parser.PFM_KINDS:
-                pages_by_account[external_id] = await _fetch_pages(client, base_url, external_id)
-            else:
-                # PER and loan: no PFM transactions, so no call and no IBAN.
-                pages_by_account[external_id] = []
+            kind = account["kind"]
+            try:
+                if kind == "CARD":
+                    pages = await _fetch_card_pages(client, base_url, external_id)
+                elif kind in accounts_parser.PFM_KINDS:
+                    pages = await _fetch_pages(client, base_url, external_id)
+                else:
+                    # PER and loan: no PFM transactions, so no call and no IBAN.
+                    pages = []
+                transactions[external_id] = accounts_parser.build_account(account, pages, today=today)
+            except FetchError as exc:
+                if kind == _CURRENT_KIND:
+                    raise
+                unavailable[external_id] = exc.code
+            except accounts_parser.ParseError as exc:
+                if kind == _CURRENT_KIND:
+                    # Code only: the parser's messages name fields, but stay on the safe side.
+                    log.warning("accounts import rejected: %s", exc.code)
+                    raise UpstreamFormatChanged("Payload does not match the observed format") from None
+                unavailable[external_id] = exc.code
 
-        try:
-            built = accounts_parser.build_import(
-                copy.deepcopy(synthesis), pages_by_account, today=today
-            )
-        except accounts_parser.ParseError as exc:
-            # Code only: the parser's messages name fields, but stay on the safe side.
-            log.warning("accounts import rejected: %s", exc.code)
-            raise UpstreamFormatChanged("Payload does not match the observed format") from None
-        loans = await _fetch_loan_details(client, base_url, built["accounts"], loan_token)
-        pensions = await _fetch_per_details(built["accounts"], per_detail)
-        try:
-            return {
-                "accounts": [
+        loans, loan_unavailable = await _fetch_loan_details(client, base_url, accounts, loan_token)
+        pensions, per_unavailable = await _fetch_per_details(accounts, per_detail)
+        unavailable.update(loan_unavailable)
+        unavailable.update(per_unavailable)
+
+        result_accounts: list = []
+        for account in accounts:
+            external_id = account["externalId"]
+            if external_id in unavailable:
+                continue
+            try:
+                result_accounts.append(
                     _serialise_account(
-                        a, built["transactions"][a["externalId"]], loans.get(a["externalId"]),
-                        pensions.get(a["externalId"]),
+                        account, transactions[external_id], loans.get(external_id), pensions.get(external_id)
                     )
-                    for a in built["accounts"]
-                ],
-                "unsupported": [
-                    {"externalId": u["externalId"], "familyCode": u["familyCode"]}
-                    for u in built["unsupported"]
-                ],
-            }
-        except (KeyError, TypeError, ValueError) as exc:
-            # Type only: the message may embed amounts or identifiers.
-            log.warning("accounts serialisation rejected: %s", type(exc).__name__)
-            raise UpstreamFormatChanged("Payload does not match the observed format") from None
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                if account["kind"] == _CURRENT_KIND:
+                    # Type only: the message may embed amounts or identifiers.
+                    log.warning("accounts serialisation rejected: %s", type(exc).__name__)
+                    raise UpstreamFormatChanged("Payload does not match the observed format") from None
+                unavailable[external_id] = UpstreamFormatChanged.code
+
+        unavailable_list = [
+            {"externalId": a["externalId"], "kind": a["kind"], "code": unavailable[a["externalId"]]}
+            for a in accounts
+            if a["externalId"] in unavailable
+        ]
+        for item in unavailable_list:
+            log.warning("account unavailable: kind=%s code=%s", item["kind"], item["code"])
+        return {
+            "accounts": result_accounts,
+            "unsupported": [{"externalId": u["externalId"], "familyCode": u["familyCode"]} for u in unsupported],
+            "unavailable": unavailable_list,
+        }
     except FetchError as exc:
         log.warning("accounts fetch failed: %s", exc.code)
         raise

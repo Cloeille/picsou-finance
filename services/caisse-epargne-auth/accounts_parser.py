@@ -546,6 +546,28 @@ def parse_loan_detail(payload: Any) -> dict:
 # ─── Whole import ───────────────────────────────────────────────────────────
 
 
+def build_account(account: dict, pages: Pages, *, today: Optional[date] = None) -> list:
+    """Attach what `pages` says to one account and return its transactions.
+
+    Sets the IBAN, or a card's outstanding, next due date and balance, on `account`.
+    PER and loan have no PFM transactions and no IBAN: `pages` is ignored for them.
+    Raises `ParseError` for this account's data only; the caller decides what that costs.
+    """
+    kind = account["kind"]
+    if kind != "CARD" and kind not in PFM_KINDS:
+        account["iban"], account["ibanAmbiguous"] = None, False
+        return []
+    transactions = parse_transactions(pages, account_external_id=account["externalId"])
+    if kind == "CARD":
+        outstanding = card_outstanding(pages, today=today)
+        account["outstanding"] = outstanding
+        account["nextDueDate"] = next_due_date(pages, today=today)
+        account["balance"] = {"value": outstanding, "currency": account["currency"]}
+    else:
+        account["iban"], account["ibanAmbiguous"] = extract_iban(pages)
+    return transactions
+
+
 def build_import(synthesis: Any, transactions_by_account: dict, *, today: Optional[date] = None) -> dict:
     """Accounts (with IBAN and card outstanding) plus their transactions.
 
@@ -561,18 +583,9 @@ def build_import(synthesis: Any, transactions_by_account: dict, *, today: Option
         if account["kind"] != "CARD" and account["kind"] not in PFM_KINDS:
             # PER and loan have no PFM transactions and no IBAN: nothing is
             # fetched for them, and any pages handed over are ignored.
-            transactions[ext] = []
-            account["iban"], account["ibanAmbiguous"] = None, False
+            transactions[ext] = build_account(account, [], today=today)
             continue
         if ext not in transactions_by_account:
             raise ParseError(MISSING_TRANSACTIONS, "transactions missing for an imported account")
-        pages = transactions_by_account[ext]
-        transactions[ext] = parse_transactions(pages, account_external_id=ext)
-        if account["kind"] == "CARD":
-            outstanding = card_outstanding(pages, today=today)
-            account["outstanding"] = outstanding
-            account["nextDueDate"] = next_due_date(pages, today=today)
-            account["balance"] = {"value": outstanding, "currency": account["currency"]}
-        else:
-            account["iban"], account["ibanAmbiguous"] = extract_iban(pages)
+        transactions[ext] = build_account(account, transactions_by_account[ext], today=today)
     return {"accounts": accounts, "transactions": transactions, "unsupported": unsupported}

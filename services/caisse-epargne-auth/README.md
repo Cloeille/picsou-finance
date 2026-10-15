@@ -78,8 +78,10 @@ nominal rate `folder.tNC` in percent. `participants` (names) and
 `linkedAccount.label` are never read. `insuranceMonthly` is derived, not read:
 installment minus the annuity at the nominal rate, rounded to the cent, null
 when negative (the bank's installment includes the borrower insurance).
-A detail that cannot be read (loan OAuth refused, 5xx, format change) gives
-`loan: null`, logs only its error code, and the rest of the import goes on.
+A detail that cannot be read (loan OAuth refused, 5xx, format change) leaves the
+LOAN out of `accounts` and lists it in `unavailable`; only its error code is
+logged, and the rest of the import goes on. Without a loan token provider,
+`loan` stays null.
 
 Response 200 (money as decimal strings, never floats; a card's `balance` is its
 outstanding, the sum of operations with a future `dueDate`, so <= 0):
@@ -94,7 +96,8 @@ outstanding, the sum of operations with a future `dueDate`, so <= 0):
                     "amount": "-12.5", "currency": "EUR", "label": "str"}],
   "snapshotComplete": true,
   "loan": null}],
- "unsupported": [{"externalId": "1003", "familyCode": "7"}]}
+ "unsupported": [{"externalId": "1003", "familyCode": "7"}],
+ "unavailable": [{"externalId": "1002", "kind": "LIVRET_A", "code": "UPSTREAM_UNAVAILABLE"}]}
 ```
 
 `loan` is null except on a LOAN account whose detail was read:
@@ -141,8 +144,11 @@ not an expired session: it must not trigger token eviction/replay. Market-price 
 is security data, not proof of past ownership; the application keeps unknown acquisition
 costs and historical quantities unavailable.
 
-All-or-nothing: any parse error gives `UPSTREAM_FORMAT_CHANGED`, never a partial list.
-The loan detail is the one exception: it only fills `loan`, so its failure gives `loan: null`.
+Only the synthesis and the current account are all-or-nothing: a failure there gives
+`UPSTREAM_UNAVAILABLE` or `UPSTREAM_FORMAT_CHANGED` and no partial list. Any other account
+(Livret A, LDDS, card, loan detail, PER detail) that cannot be read is left out of
+`accounts` and listed in `unavailable` as `{externalId, kind, code}`. An expired session
+still fails the whole import, and so does the overall deadline.
 
 | HTTP | `detail` | Meaning |
 | --- | --- | --- |

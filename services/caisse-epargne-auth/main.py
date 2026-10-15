@@ -20,9 +20,12 @@ Login (`/initiate`, `/complete`): 400 INVALID_REQUEST, 401 INVALID_CREDENTIALS,
   408 APP_VALIDATION_TIMEOUT, 409 KEYPAD_CHANGED, 410 AUTH_ATTEMPT_EXPIRED,
   429 TOO_MANY_PENDING, 502 UPSTREAM_UNAVAILABLE / UPSTREAM_FORMAT_CHANGED.
 `POST /accounts` uses the bourso-style codes instead of UPSTREAM_ERROR:
-  502 UPSTREAM_UNAVAILABLE    bank-side or transport failure
-  502 UPSTREAM_FORMAT_CHANGED a payload that does not match the observed format
-                              (all-or-nothing: never a partial account list)
+  502 UPSTREAM_UNAVAILABLE    bank-side or transport failure (synthesis or current account)
+  502 UPSTREAM_FORMAT_CHANGED a payload (synthesis or current account) that does not match
+                              the observed format
+  Any other account that cannot be read is absent from `accounts` and listed in
+  `unavailable` (`{externalId, kind, code}`). The deadline below still drops the whole
+  import (502 UPSTREAM_UNAVAILABLE).
 """
 
 import asyncio

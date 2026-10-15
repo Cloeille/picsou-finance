@@ -467,9 +467,13 @@ class AccountsEndpointTest(unittest.TestCase):
         response = self.accounts(self.products_ce(loan_http=503))
 
         self.assertEqual(response.status_code, 200)
-        by_id = {a["externalId"]: a for a in response.json()["accounts"]}
-        self.assertIsNone(by_id[LOAN_ID]["loan"])
-        self.assertEqual(by_id[LOAN_ID]["balance"], "-9876.54")
+        body = response.json()
+        self.assertNotIn(LOAN_ID, {a["externalId"] for a in body["accounts"]})
+        self.assertIn("1001", {a["externalId"] for a in body["accounts"]})
+        self.assertEqual(
+            body["unavailable"],
+            [{"externalId": LOAN_ID, "kind": "LOAN", "code": "UPSTREAM_UNAVAILABLE"}],
+        )
 
     def test_a_401_on_the_loan_detail_evicts_both_tokens_and_retries_once(self):
         ce = self.products_ce(loan_http=401)
@@ -492,7 +496,7 @@ class AccountsEndpointTest(unittest.TestCase):
 
     def test_parse_error_is_format_changed_and_never_partial(self):
         pages = default_pages()
-        pages["1002"][0]["data"][0]["amount"] = "not-a-number"
+        pages["1001"][0]["data"][0]["amount"] = "not-a-number"
 
         response = self.accounts(FakeCE(pages=pages))
 
@@ -520,7 +524,7 @@ class AccountsEndpointTest(unittest.TestCase):
         root.addHandler(handler)
         root.setLevel(logging.DEBUG)
         bad = default_pages()
-        bad["1002"][0]["data"][0]["amount"] = "secret-amount-string"
+        bad["1001"][0]["data"][0]["amount"] = "secret-amount-string"
         bodies = []
         try:
             bodies.append(self.accounts(FakeCE()).text.replace("FAKE", "").replace("1234.56", ""))

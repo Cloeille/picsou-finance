@@ -33,7 +33,8 @@ PER_ID = "contract:00000     FAKE00000014"  # synthesis_products
 LOAN_ID = "contract:00000000000015"
 LOAN_PATH = "/bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/"
 LOAN_TOKEN = "loan-access-token-secret-LLLL"
-ALL_IDS = {"1001", "1002", "1003", PER_ID, LOAN_ID, "2001"}  # FIXTURES["synthesis"], every account
+ALL_IDS = {"1001", "1002", "1003", PER_ID, LOAN_ID, "2001"}  # every account of products_ce()
+DEFAULT_IDS = {"1001", "1002", "2001"}  # what FakeCE() imports: no 1003, PER or LOAN
 
 
 def synthesis() -> dict:
@@ -710,7 +711,7 @@ class LogHygieneTest(unittest.IsolatedAsyncioTestCase):
             for row in page["data"]:
                 row["parsedData"]["clientIBAN"] = IBAN_A
         bad = default_pages()
-        bad["1002"][0]["data"][0]["amount"] = "secret-amount-string"
+        bad["1001"][0]["data"][0]["amount"] = "secret-amount-string"
         messages = []
         try:
             await run_fetch(FakeCE(pages=pages))
@@ -753,7 +754,7 @@ class AccountIsolationTest(unittest.IsolatedAsyncioTestCase):
     async def test_livret_a_transactions_failure_leaves_only_that_account_unavailable(self):
         result = await run_fetch(FakeCE(tx_override=fail_transactions("1002")))
 
-        self.assertEqual(self.ids(result["accounts"]), ALL_IDS - {"1002"})
+        self.assertEqual(self.ids(result["accounts"]), DEFAULT_IDS - {"1002"})
         self.assertEqual(
             result["unavailable"],
             [{"externalId": "1002", "kind": "LIVRET_A", "code": "UPSTREAM_UNAVAILABLE"}],
@@ -762,7 +763,7 @@ class AccountIsolationTest(unittest.IsolatedAsyncioTestCase):
     async def test_card_transactions_failure_leaves_only_the_card_unavailable(self):
         result = await run_fetch(FakeCE(tx_override=fail_transactions("2001")))
 
-        self.assertEqual(self.ids(result["accounts"]), ALL_IDS - {"2001"})
+        self.assertEqual(self.ids(result["accounts"]), DEFAULT_IDS - {"2001"})
         self.assertEqual(
             result["unavailable"],
             [{"externalId": "2001", "kind": "CARD", "code": "UPSTREAM_UNAVAILABLE"}],
@@ -778,7 +779,7 @@ class AccountIsolationTest(unittest.IsolatedAsyncioTestCase):
 
         result = await run_fetch(FakeCE(pages=pages))
 
-        self.assertEqual(self.ids(result["accounts"]), ALL_IDS - {"1002"})
+        self.assertEqual(self.ids(result["accounts"]), DEFAULT_IDS - {"1002"})
         self.assertEqual(
             result["unavailable"],
             [{"externalId": "1002", "kind": "LIVRET_A", "code": "INVALID_TRANSACTIONS"}],
@@ -790,7 +791,7 @@ class AccountIsolationTest(unittest.IsolatedAsyncioTestCase):
 
         result = await run_fetch(FakeCE(pages=pages))
 
-        self.assertEqual(self.ids(result["accounts"]), ALL_IDS - {"2001"})
+        self.assertEqual(self.ids(result["accounts"]), DEFAULT_IDS - {"2001"})
         self.assertEqual(
             result["unavailable"],
             [{"externalId": "2001", "kind": "CARD", "code": "INVALID_TRANSACTIONS"}],
@@ -836,7 +837,7 @@ class AccountIsolationTest(unittest.IsolatedAsyncioTestCase):
         result = await run_fetch(FakeCE())
 
         self.assertEqual(result["unavailable"], [])
-        self.assertEqual(self.ids(result["accounts"]), ALL_IDS)
+        self.assertEqual(self.ids(result["accounts"]), DEFAULT_IDS)
 
     async def test_unavailable_accounts_log_their_code_and_no_value(self):
         stream = io.StringIO()
