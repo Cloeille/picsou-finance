@@ -13,6 +13,8 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -121,10 +123,14 @@ public class TelemetryService {
             .orElseGet(() -> AppSetting.builder().key(KEY_CONSENT).build());
         setting.setValue(enabled ? Consent.ENABLED.name() : Consent.DISABLED.name());
         settings.save(setting);
-        applySdkState(enabled && isAvailable());
-        if (!enabled) {
-            cancelPendingSends();
-        }
+        boolean effective = enabled && isAvailable();
+        // Sentry.close() flushes (up to its shutdown timeout): never hold the DB transaction for it.
+        afterCommit(() -> {
+            applySdkState(effective);
+            if (!enabled) {
+                cancelPendingSends();
+            }
+        });
         log.info("telemetry.consent.changed enabled={}", enabled);
     }
 
@@ -152,6 +158,19 @@ public class TelemetryService {
     void shutdown() {
         cancelPendingSends();
         sdk.close();
+    }
+
+    private static void afterCommit(Runnable action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                action.run();
+            }
+        });
     }
 
     private void applySdkState(boolean enabled) {

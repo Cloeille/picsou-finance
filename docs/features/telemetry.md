@@ -67,7 +67,9 @@ Usage (browser only, no payload):
   (`sync_triggered`, `export_downloaded`, `goal_created`, `budget_viewed`).
 
 Tags are allowlisted: `route`, `event`, `feature`, and keys starting with `ab.` (reserved for the
-1.2 A/B tests). Values are scrubbed and capped at 64 characters.
+1.2 A/B tests). Values are scrubbed and capped at 64 characters. The tunnel also enforces the
+closed lists server-side: a `feature` outside the four names above, a `route` that is not a route
+template, or an `event` / `ab.*` value outside `[A-Za-z0-9_.-]` is dropped.
 
 ## What is never sent
 
@@ -109,6 +111,11 @@ Applied identically in `frontend/src/lib/telemetry-scrub.ts` and
 | Any other number of 4+ digits | `[n]` |
 | URL | origin, query and fragment removed; numeric / UUID / long hex or base64 segments → `:id` |
 
+The backend runs these rules on the tunnel's request thread, so they must stay linear on hostile
+input: a pattern may only start a match at a token boundary (lookbehind) and uses possessive
+quantifiers where backtracking buys nothing. Each field is also cut to twice its final maximum
+*before* scrubbing, dropping the partial token at the cut so a cut email or IBAN leaves no fragment.
+
 ## Server-side tunnel
 
 `POST /api/telemetry/tunnel` (any authenticated user, same-origin CSRF rules as the rest of the
@@ -138,7 +145,7 @@ API, max 200 KB → `413`):
 
 | Method | Path | Who | Notes |
 |---|---|---|---|
-| `GET` | `/api/telemetry/config` | authenticated | `{enabled, dsn, environment, release, available, consent}`; `dsn` is `null` unless enabled |
+| `GET` | `/api/telemetry/config` | authenticated | `{enabled, dsn, environment, release, available, consent}`; `dsn` is `null` unless enabled. When enabled, every signed-in member sees the DSN: its public key is not a secret by Sentry design, but it reveals which collector host is used |
 | `POST` | `/api/telemetry/tunnel` | authenticated | Sentry envelope, see above |
 | `GET` | `/api/admin/settings` | admin | gains `telemetry: {available, consent}` |
 | `PUT` | `/api/admin/settings/telemetry` | admin | `{enabled: boolean}` → `204`; `409` without DSN |
@@ -147,7 +154,7 @@ API, max 200 KB → `413`):
 
 | Env var | Default | Effect |
 |---|---|---|
-| `APP_TELEMETRY_DSN` | empty | Collector DSN. Empty = feature fully inactive |
+| `APP_TELEMETRY_DSN` | empty | Collector DSN. Empty = feature fully inactive. `https` is recommended; `http` is accepted (operator's choice) |
 | `APP_TELEMETRY_ENVIRONMENT` | `production` | Environment tag |
 | `APP_VERSION` | `dev` | Release tag (already used for the version display) |
 
@@ -171,6 +178,10 @@ API, max 200 KB → `413`):
 - Route ids replaced by templates: `TelemetryScrubberTest#routeTemplate_*`,
   `telemetry-scrub.test.ts`, `TelemetryRuntime.test.tsx`.
 - Tunnel host pinning and 200 KB limit: `TelemetryServiceTest#tunnel_*`, `TelemetryEndpointsTest`.
+- Scrubbing stays linear on adversarial text (a 150 KB envelope of never-matching frame text in
+  well under a second): `TelemetryScrubberTest#scrubText_isLinearOnAdversarialInput`,
+  `TelemetryEnvelopeSanitizerTest#adversarialFrameText_isSanitizedWellUnderASecond`.
+- Tags are closed lists server-side: `TelemetryScrubberTest#scrubEvent_tagsAreClosedListsServerSide`.
 
 ## GlitchTip server-side hardening (recommended)
 

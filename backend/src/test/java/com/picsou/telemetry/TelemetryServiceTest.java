@@ -9,6 +9,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -200,6 +202,24 @@ class TelemetryServiceTest {
         verify(settings).save(existing);
         verify(sdk).close();
         verify(sdk, never()).init(any(), any(), any());
+    }
+
+    @Test
+    void setEnabled_false_insideTransaction_closesSdkOnlyAfterCommit() {
+        AppSetting existing = AppSetting.builder().key(TelemetryService.KEY_CONSENT).value("ENABLED").build();
+        when(settings.findByKey(TelemetryService.KEY_CONSENT)).thenReturn(Optional.of(existing));
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service(DSN).setEnabled(false);
+
+            verify(settings).save(existing);
+            verify(sdk, never()).close(); // the flush must not hold the DB transaction
+
+            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+            verify(sdk).close();
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test

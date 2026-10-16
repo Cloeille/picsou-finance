@@ -65,6 +65,31 @@ class TelemetryEnvelopeSanitizerTest {
         assertThat(sanitize(envelope)).isEmpty();
     }
 
+    /** Review repro: ~150 KB of frame text that never matches took 6.2 s of CPU on the request thread. */
+    @Test
+    void adversarialFrameText_isSanitizedWellUnderASecond() {
+        for (String unit : new String[] {"a.", "1.000", "1-"}) {
+            String field = unit.repeat(3800 / unit.length());
+            StringBuilder frames = new StringBuilder();
+            for (int i = 0; i < 20; i++) {
+                frames.append(i == 0 ? "" : ",")
+                    .append("{\"filename\":\"").append(field).append("\",\"function\":\"").append(field).append("\"}");
+            }
+            String event = "{\"level\":\"error\",\"exception\":{\"values\":[{\"type\":\"Error\","
+                + "\"stacktrace\":{\"frames\":[" + frames + "]}}]}}";
+            byte[] envelope = item(String.valueOf(utf8(event).length), event);
+            assertThat(envelope.length).isGreaterThan(140_000);
+
+            sanitize(envelope); // warm-up (JIT)
+            long start = System.nanoTime();
+            Optional<byte[]> sanitized = sanitize(envelope);
+            long millis = (System.nanoTime() - start) / 1_000_000;
+
+            assertThat(sanitized).as("unit %s", unit).isPresent();
+            assertThat(millis).as("unit %s", unit).isLessThan(1_000);
+        }
+    }
+
     private static Optional<byte[]> sanitize(byte[] envelope) {
         return TelemetryEnvelopeSanitizer.sanitize(envelope, "https://configured.example/42", MAPPER);
     }

@@ -147,7 +147,8 @@ class TelemetryScrubberTest {
         assertThat(tags).containsEntry("route", "/accounts/:id").containsEntry("event", "page_view")
             .containsEntry("ab.variant", "b");
         assertThat(tags.keySet()).doesNotContain("user_email", "random");
-        assertThat((String) tags.get("feature")).contains("[email]");
+        // Not one of the four feature names: dropped server-side, not forwarded scrubbed.
+        assertThat(tags).doesNotContainKey("feature");
 
         @SuppressWarnings("unchecked")
         Map<String, Object> contexts = (Map<String, Object>) out.get("contexts");
@@ -175,12 +176,81 @@ class TelemetryScrubberTest {
         Map<String, Object> out = TelemetryScrubber.scrubEvent(Map.of(
             "level", "<script>",
             "event_id", "not an id!",
-            "tags", Map.of("feature", "x".repeat(200))));
+            "tags", Map.of("event", "x".repeat(100))));
 
         assertThat(out).doesNotContainKeys("level", "event_id");
         @SuppressWarnings("unchecked")
         Map<String, Object> tags = (Map<String, Object>) out.get("tags");
-        assertThat((String) tags.get("feature")).hasSize(64);
+        assertThat((String) tags.get("event")).hasSize(64);
+    }
+
+    @Test
+    void scrubEvent_tagsAreClosedListsServerSide() {
+        Map<String, Object> tags = new java.util.HashMap<>();
+        tags.put("feature", "budget_viewed");
+        tags.put("route", "/accounts/:id/edit");
+        tags.put("event", "page_view");
+        tags.put("ab.layout", "variant-b");
+        assertThat(TelemetryScrubber.scrubEvent(Map.of("tags", tags)).get("tags")).isEqualTo(tags);
+
+        assertThat(TelemetryScrubber.scrubEvent(Map.of("tags", Map.of("route", "not-found"))).get("tags"))
+            .isEqualTo(Map.of("route", "not-found"));
+
+        Map<String, Object> forged = Map.of(
+            "feature", "Livret A Jean Dupont",
+            "route", "Jean Dupont",
+            "event", "paid rent",
+            "ab.layout", "Jean Dupont");
+        assertThat(TelemetryScrubber.scrubEvent(Map.of("tags", forged))).doesNotContainKey("tags");
+    }
+
+    // ---- CPU bound (regex work on the tunnel request thread) -------------------------------------
+
+    private static final List<String> ADVERSARIAL = List.of(
+        "a.".repeat(2000), "1.000".repeat(800), "1-".repeat(2000), "1 ".repeat(2000), "1,".repeat(2000),
+        "a@".repeat(2000), "a@b.".repeat(1000), "FR76" + "A".repeat(3996), "€1 000".repeat(666),
+        "1".repeat(4000), "1.".repeat(2000), "eyJa.".repeat(800), "+".repeat(4000));
+
+    @Test
+    void scrubText_isLinearOnAdversarialInput() {
+        ADVERSARIAL.forEach(TelemetryScrubber::scrubText); // warm-up (JIT)
+        for (String input : ADVERSARIAL) {
+            long start = System.nanoTime();
+            TelemetryScrubber.scrubText(input);
+            long millis = (System.nanoTime() - start) / 1_000_000;
+            assertThat(millis).as("scrubText(%s…)", input.substring(0, 8)).isLessThan(50);
+        }
+    }
+
+    @Test
+    void scrubText_emailStillMatchedAfterLinearRewrite() {
+        assertThat(TelemetryScrubber.scrubText("a.b+c-d@mail.example.co.uk x")).isEqualTo("[email] x");
+        assertThat(TelemetryScrubber.scrubText("(" + EMAIL + ")")).isEqualTo("([email])");
+        assertThat(TelemetryScrubber.scrubText("no at sign. here")).isEqualTo("no at sign. here");
+    }
+
+    @Test
+    void preCut_dropsThePartialTokenAtTheCut() {
+        String head = "x ".repeat(198); // 396 chars, the email straddles the 400-char pre-cut
+        String cut = TelemetryScrubber.preCut(head + "jane.doe@example.com tail", 200);
+        assertThat(cut).isEqualTo(head);
+
+        String iban = TelemetryScrubber.preCut("y".repeat(390) + "/" + IBAN, 200);
+        assertThat(iban).endsWith("/").doesNotContain("FR76").doesNotContain("30006");
+
+        assertThat(TelemetryScrubber.preCut("short", 200)).isEqualTo("short");
+        // One token longer than twice the field max has no safe cut point: it is dropped whole.
+        assertThat(TelemetryScrubber.preCut("z".repeat(500), 200)).isEmpty();
+    }
+
+    @Test
+    void frameFields_neverKeepAFragmentOfACutEmail() throws Exception {
+        String function = "f ".repeat(198) + "jane.doe@example.com";
+        Map<String, Object> out = TelemetryScrubber.scrubEvent(json("""
+            {"exception": {"values": [{"type": "Error", "stacktrace": {"frames": [
+              {"function": "%F%", "filename": "%F%"}]}}]}}
+            """.replace("%F%", function)));
+        assertThat(MAPPER.writeValueAsString(out)).doesNotContain("jane").doesNotContain("example");
     }
 
     @Test

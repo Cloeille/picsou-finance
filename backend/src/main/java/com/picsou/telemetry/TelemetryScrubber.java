@@ -43,6 +43,15 @@ public final class TelemetryScrubber {
     private static final Pattern VERSION = Pattern.compile("^[\\w.+\\-]{1,32}$");
     private static final Pattern CONTEXT_NAME = Pattern.compile("^[\\w .+\\-]{1,64}$");
     private static final Pattern TAG_KEY = Pattern.compile("^(?:route|event|feature|ab\\.[\\w.\\-]{1,60})$");
+    /** Must stay in sync with {@code FeatureEvent} in {@code frontend/src/lib/telemetry.ts}. */
+    private static final Set<String> FEATURES = Set.of(
+        "sync_triggered", "export_downloaded", "goal_created", "budget_viewed");
+    /** Unknown routes are reported as this literal by {@code TelemetryRuntime.tsx}. */
+    private static final String ROUTE_NOT_FOUND = "not-found";
+    private static final Pattern ROUTE_TAG = Pattern.compile("^/[A-Za-z0-9_:./\\-]{0,63}$");
+    private static final Pattern NAME_TAG = Pattern.compile("^[A-Za-z0-9_.\\-]{1,64}$");
+    /** Characters that end a token; a pre-cut never keeps a partial token after the last one. */
+    private static final String TOKEN_SEPARATORS = "/\\(),;:'\"<>[]{}|=&?#";
 
     // ---- string rules ------------------------------------------------------------------------
     private static final Pattern URL = Pattern.compile("https?://[^\\s\"'<>()\\[\\]{}]+");
@@ -52,7 +61,10 @@ public final class TelemetryScrubber {
     private static final Pattern SECRET_PAIR = Pattern.compile(
         "(?i)\\b(key|token|password|passwd|secret|api[_-]?key|access[_-]?token|authorization)"
             + "([\"']?\\s*[=:]\\s*[\"']?)[^\\s&;,\"'}]+");
-    private static final Pattern EMAIL = Pattern.compile("[\\w.+\\-]+@[\\w\\-]+(?:\\.[\\w\\-]+)+");
+    // The lookbehind lets a match start only where a local part starts, and the possessive
+    // quantifiers never give back: a long run without '@' is scanned once, not once per offset.
+    private static final Pattern EMAIL = Pattern.compile(
+        "(?<![\\w.+\\-])[\\w.+\\-]++@[\\w\\-]++(?:\\.[\\w\\-]++)+");
     private static final Pattern IBAN = Pattern.compile("\\b[A-Z]{2}\\d{2}(?: ?[A-Z0-9]){10,30}\\b");
     private static final Pattern CARD = Pattern.compile("(?<!\\d)(?:\\d[ -]?){12,18}\\d(?!\\d)");
     private static final Pattern IPV4 = Pattern.compile("(?<![\\d.])\\d{1,3}(?:\\.\\d{1,3}){3}(?![\\d.])");
@@ -116,7 +128,7 @@ public final class TelemetryScrubber {
         if (filename == null) {
             return null;
         }
-        return cut(scrubText(routeTemplate(filename)), MAX_NAME);
+        return cut(scrubText(routeTemplate(preCut(filename, MAX_NAME))), MAX_NAME);
     }
 
     // ---- public event API --------------------------------------------------------------------
@@ -169,7 +181,7 @@ public final class TelemetryScrubber {
         }
         // Transaction names survive only when they are a route, and then only templated.
         if (raw.get("transaction") instanceof String t && t.startsWith("/")) {
-            out.put("transaction", cut(scrubText(routeTemplate(t)), MAX_NAME));
+            out.put("transaction", cut(scrubText(routeTemplate(preCut(t, MAX_NAME))), MAX_NAME));
         }
         return out;
     }
@@ -281,11 +293,14 @@ public final class TelemetryScrubber {
             if (!(v instanceof String || v instanceof Number || v instanceof Boolean)) {
                 continue;
             }
-            String value = String.valueOf(v);
+            String value = preCut(String.valueOf(v), MAX_TAG_VALUE);
             if ("route".equals(key)) {
                 value = routeTemplate(value);
             }
-            out.put(key, cut(scrubText(value), MAX_TAG_VALUE));
+            value = cut(scrubText(value), MAX_TAG_VALUE);
+            if (closedSetValue(key, value)) {
+                out.put(key, value);
+            }
         }
         return out;
     }
@@ -323,7 +338,7 @@ public final class TelemetryScrubber {
                     break;
                 }
                 if (o instanceof String s) {
-                    out.add(cut(scrubText(s), 100));
+                    out.add(cut(scrubText(preCut(s, 100)), 100));
                 }
             }
         }
@@ -416,8 +431,43 @@ public final class TelemetryScrubber {
 
     private static void putText(Map<String, Object> out, String key, Object value, int max) {
         if (value instanceof String s) {
-            out.put(key, cut(scrubText(s), max));
+            out.put(key, cut(scrubText(preCut(s, max)), max));
         }
+    }
+
+    /**
+     * Server-side closed lists: a client can only send the tags an honest frontend sends.
+     * {@code feature} is one of {@link #FEATURES}, {@code route} is a route template, other
+     * allowlisted keys ({@code event}, {@code ab.*}) are plain names.
+     */
+    private static boolean closedSetValue(String key, String value) {
+        return switch (key) {
+            case "feature" -> FEATURES.contains(value);
+            case "route" -> ROUTE_NOT_FOUND.equals(value) || ROUTE_TAG.matcher(value).matches();
+            default -> NAME_TAG.matcher(value).matches();
+        };
+    }
+
+    /**
+     * Bounds the regex work per field: a field is kept to at most {@code max}, so scrubbing more
+     * than {@code 2 * max} characters is wasted CPU on the request thread. The partial token left at
+     * the cut is dropped, so a cut email, IBAN or number never survives as a fragment the rules can
+     * no longer recognise.
+     */
+    static String preCut(String s, int max) {
+        int limit = 2 * max;
+        if (s.length() <= limit) {
+            return s;
+        }
+        int end = limit;
+        while (end > 0 && !isSeparator(s.charAt(end - 1))) {
+            end--;
+        }
+        return s.substring(0, end);
+    }
+
+    private static boolean isSeparator(char c) {
+        return Character.isWhitespace(c) || TOKEN_SEPARATORS.indexOf(c) >= 0;
     }
 
     private static String cut(String s, int max) {
