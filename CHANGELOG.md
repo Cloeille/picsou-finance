@@ -50,6 +50,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   above it otherwise; the default style keeps it opening upwards because its profile
   sits at the bottom of the screen.
 
+- **Import HomeBank iOS and desktop history from `.hbk`, `.hbexport` or `.qif`.**
+  Review the source accounts, transactions, payees and notes, then map accounts and
+  budget categories before confirming. Amounts, currencies and calendar dates are
+  kept as exported. The import is atomic, repeated source IDs are skipped, and
+  internal transfers and opening balances do not inflate spending or income.
+  Desktop QIF requires an explicit currency, preserves category splits and
+  transfer legs, and derives new balances from the exported history. Native iOS
+  exports retain password-protected import. Desktop `.xhb` XML is not supported.
+  Importing again into an existing manual account refreshes its balance and
+  history. QIF dates may be year-, day- or month-first, and a transfer to an
+  account missing from the file is imported as a plain row.
+
 - **Crypto holdings show the coin's logo next to their ticker.** A position is easier to
   recognise at a glance than by reading its ticker. The mark comes from CoinGecko, which
   already prices the same coins, and a whole page resolves in a single request — nothing
@@ -107,6 +119,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **HomeBank iOS imports retain the opening amount when mapped to an existing manual account.**
+  The non-zero opening is added once as a stable transfer ledger row before rebuilding
+  the balance and snapshots. Repeat imports do not duplicate it; synced balances stay untouched.
 - **The budget money-flow chart no longer calls unspent money "savings".** Income left on the
   current account is now shown as "Unspent", and spending above income as "Taken from balance".
   Only money actually transferred to a savings or investment account appears as savings, with one

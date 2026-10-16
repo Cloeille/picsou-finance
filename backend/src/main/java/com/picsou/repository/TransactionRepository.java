@@ -129,6 +129,9 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
                                                            @Param("accountIds") Collection<Long> accountIds,
                                                            @Param("prefix") String prefix);
 
+    /** Member-scoped bulk lookup used to prevent moving imported HomeBank IDs between accounts. */
+    List<Transaction> findByAccountMemberIdAndExternalIdIn(Long memberId, Collection<String> externalIds);
+
     /** Member-scoped single transaction lookup (categorize endpoint). */
     Optional<Transaction> findByIdAndAccountMemberId(Long id, Long memberId);
 
