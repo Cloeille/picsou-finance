@@ -23,6 +23,7 @@ import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
@@ -120,6 +121,23 @@ class AuthorizationServerConfigTest {
     }
 
     @Test
+    void restartReconcilesTheStoredIosClientWithNewConfiguration() throws Exception {
+        String id = registeredClientRepository.findByClientId(oAuthClientProperties.getClientId()).getId();
+        OAuthClientProperties changed = new OAuthClientProperties();
+        changed.setRefreshTokenTtlDays(7);
+        try {
+            config.seedIosClientRunner(registeredClientRepository, changed).run(null);
+
+            RegisteredClient client = registeredClientRepository.findByClientId(changed.getClientId());
+            assertThat(client.getId()).isEqualTo(id);
+            assertThat(client.getTokenSettings().getRefreshTokenTimeToLive()).isEqualTo(java.time.Duration.ofDays(7));
+            assertThat(client.getTokenSettings().isReuseRefreshTokens()).isFalse();
+        } finally {
+            config.seedIosClientRunner(registeredClientRepository, oAuthClientProperties).run(null);
+        }
+    }
+
+    @Test
     void customizerStampsResourceServerClaimsAndForcesHs256() {
         JwtEncodingContext context = accessTokenContext(user);
 
@@ -159,7 +177,7 @@ class AuthorizationServerConfigTest {
         // 2) End-to-end through the shared authenticator (with the user present + tv matching).
         AppUserRepository repo = mock(AppUserRepository.class);
         when(repo.findByIdWithMember(42L)).thenReturn(java.util.Optional.of(user));
-        JwtTokenAuthenticator authenticator = new JwtTokenAuthenticator(jwtUtil, repo);
+        JwtTokenAuthenticator authenticator = new JwtTokenAuthenticator(jwtUtil, repo, mock(com.picsou.service.NativeAppSessionService.class));
 
         assertThat(authenticator.authenticate(tokenValue)).isPresent();
     }
@@ -206,7 +224,7 @@ class AuthorizationServerConfigTest {
 
         // The existing web/API access-token path must reject it (only type=access authenticates there).
         AppUserRepository repo = mock(AppUserRepository.class);
-        JwtTokenAuthenticator authenticator = new JwtTokenAuthenticator(jwtUtil, repo);
+        JwtTokenAuthenticator authenticator = new JwtTokenAuthenticator(jwtUtil, repo, mock(com.picsou.service.NativeAppSessionService.class));
         assertThat(authenticator.authenticate(tokenValue)).isEmpty();
     }
 
@@ -222,6 +240,29 @@ class AuthorizationServerConfigTest {
         assertThat((String) claims.getClaim("role")).isEqualTo("ADMIN");
         assertThat(claims.getAudience()).isNullOrEmpty();
         assertThat((Object) claims.getClaim("scope")).isNull();
+    }
+
+    @Test
+    void iosToken_namesItsAuthorization_soRevocationCanReachTheAccessToken() {
+        JwtEncodingContext base = accessTokenContext(user);
+        OAuth2Authorization authorization = OAuth2Authorization.withRegisteredClient(base.getRegisteredClient())
+            .id("auth-123")
+            .principalName("alice")
+            .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+            .build();
+        JwtEncodingContext context = JwtEncodingContext.with(JwsHeader.with(SignatureAlgorithm.RS256),
+                JwtClaimsSet.builder().subject("placeholder").issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(900)))
+            .registeredClient(base.getRegisteredClient())
+            .principal(base.getPrincipal())
+            .authorization(authorization)
+            .tokenType(OAuth2TokenType.ACCESS_TOKEN)
+            .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+            .build();
+
+        config.jwtTokenCustomizer().customize(context);
+
+        assertThat((String) context.getClaims().build().getClaim(AuthorizationServerConfig.AUTHORIZATION_ID_CLAIM))
+            .isEqualTo("auth-123");
     }
 
     // ─── helpers ──────────────────────────────────────────────────────────

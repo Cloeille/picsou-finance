@@ -2,6 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.config.AuthorizationServerConfig;
 import com.picsou.config.JwtUtil;
+import com.picsou.config.OAuthClientProperties;
 import com.picsou.model.AppSetting;
 import com.picsou.model.AppUser;
 import com.picsou.model.FamilyMember;
@@ -71,6 +72,7 @@ class ConnectedAppsControllerTest {
     @Autowired RegisteredClientRepository registeredClientRepository;
     @Autowired OAuth2AuthorizationService authorizationService;
     @Autowired JwtUtil jwtUtil;
+    @Autowired OAuthClientProperties oAuthClientProperties;
 
     private String callerBearer;
     private String callerUsername;
@@ -153,6 +155,18 @@ class ConnectedAppsControllerTest {
             .andExpect(jsonPath("$[0].scopes", org.hamcrest.Matchers.containsInAnyOrder(
                 "accounts:read", "goals:read")))
             .andExpect(jsonPath("$[0].issuedAt").exists());
+    }
+
+    @Test
+    void list_leavesOutTheIosAppWhichSessionsLists() throws Exception {
+        RegisteredClient ios = registeredClientRepository.findByClientId(oAuthClientProperties.getClientId());
+        seedAuthorization(ios, callerUsername, Set.of("read"));
+        seedAuthorization(seedMcpClient("claude-list-ios", "claude.ai"), callerUsername, Set.of("accounts:read"));
+
+        mockMvc.perform(get("/api/connected-apps").header("Authorization", callerBearer))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", org.hamcrest.Matchers.hasSize(1)))
+            .andExpect(jsonPath("$[0].clientName").value("claude.ai"));
     }
 
     @Test

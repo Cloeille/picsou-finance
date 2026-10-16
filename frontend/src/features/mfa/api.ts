@@ -15,10 +15,15 @@ export interface RecoveryCodes {
   recoveryCodes: string[]
 }
 
+/** REMEMBER_ME: a browser "Remember me" session. IOS_APP: the native app, signed in via OAuth2. */
+export type SessionKind = 'REMEMBER_ME' | 'IOS_APP'
+
 export interface SessionItem {
-  id: number
-  userAgent: string | null
-  ipPrefix: string | null
+  /** Opaque: pass it back unchanged to revoke the row. */
+  id: string
+  kind: SessionKind
+  userAgent?: string | null
+  ipPrefix?: string | null
   createdAt: string
   lastUsedAt: string
   expiresAt: string
@@ -94,7 +99,7 @@ export const mfaApi = {
 
   listSessions: () => api.get<SessionItem[]>('/auth/sessions').then(r => r.data),
 
-  revokeSession: (id: number) => api.delete(`/auth/sessions/${id}`),
+  revokeSession: (id: string) => api.delete(`/auth/sessions/${id}`),
 
   revokeAllSessionsExceptCurrent: () => api.delete('/auth/sessions'),
 

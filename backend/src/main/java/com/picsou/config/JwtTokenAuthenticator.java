@@ -2,6 +2,7 @@ package com.picsou.config;
 
 import com.picsou.model.AppUser;
 import com.picsou.repository.AppUserRepository;
+import com.picsou.service.NativeAppSessionService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -28,10 +29,13 @@ public class JwtTokenAuthenticator {
 
     private final JwtUtil jwtUtil;
     private final AppUserRepository userRepository;
+    private final NativeAppSessionService nativeAppSessions;
 
-    public JwtTokenAuthenticator(JwtUtil jwtUtil, AppUserRepository userRepository) {
+    public JwtTokenAuthenticator(JwtUtil jwtUtil, AppUserRepository userRepository,
+                                 NativeAppSessionService nativeAppSessions) {
         this.jwtUtil = jwtUtil;
         this.userRepository = userRepository;
+        this.nativeAppSessions = nativeAppSessions;
     }
 
     /**
@@ -39,7 +43,8 @@ public class JwtTokenAuthenticator {
      * {@code tv} claim still matches the persisted token version, return the corresponding
      * authentication carrying a single {@code ROLE_*} authority. Returns empty for any
      * failure (missing/invalid/expired token, wrong token type, revoked version, unknown or
-     * deactivated user) — callers simply stay unauthenticated.
+     * deactivated user, or a native-app token whose authorization was revoked) — callers
+     * simply stay unauthenticated.
      */
     public Optional<Authentication> authenticate(String token) {
         if (token == null || token.isBlank()) {
@@ -53,6 +58,10 @@ public class JwtTokenAuthenticator {
             Long userId = claims.get("uid", Long.class);
             Long tv = jwtUtil.getTokenVersion(claims);
             if (userId == null) {
+                return Optional.empty();
+            }
+            String authorizationId = claims.get(AuthorizationServerConfig.AUTHORIZATION_ID_CLAIM, String.class);
+            if (authorizationId != null && !nativeAppSessions.isAccessTokenActive(authorizationId)) {
                 return Optional.empty();
             }
             AppUser user = userRepository.findByIdWithMember(userId).orElse(null);

@@ -74,8 +74,9 @@ function SessionRow({
   disabled: boolean
 }) {
   const { t } = useTranslation()
-  const isMobile = isProbablyMobile(session.userAgent)
-  const Icon = isMobile ? Smartphone : Monitor
+  const isApp = session.kind === 'IOS_APP'
+  const Icon = isApp || isProbablyMobile(session.userAgent) ? Smartphone : Monitor
+  const label = isApp ? t('settings.sessionsIosApp') : prettyUserAgent(session.userAgent) || 'Unknown device'
 
   return (
     <li className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3">
@@ -83,7 +84,7 @@ function SessionRow({
       <div className="flex-1 min-w-0 space-y-0.5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium truncate">
-            {prettyUserAgent(session.userAgent) || 'Unknown device'}
+            {label}
           </span>
           {session.current && (
             <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
@@ -125,7 +126,7 @@ function SessionRow({
 
 // ─── helpers ───────────────────────────────────────────────────────────
 
-function isProbablyMobile(ua: string | null): boolean {
+function isProbablyMobile(ua: string | null | undefined): boolean {
   if (!ua) return false
   return /Mobile|Android|iPhone|iPad/i.test(ua)
 }
@@ -135,7 +136,7 @@ function isProbablyMobile(ua: string | null): boolean {
  * rabbit hole — we extract just enough for "is this my phone or my laptop?"
  * recognition. The full UA is intentionally not shown (noisy + low value).
  */
-function prettyUserAgent(ua: string | null): string {
+function prettyUserAgent(ua: string | null | undefined): string {
   if (!ua) return ''
   const browser =
     /Edg\//.test(ua) ? 'Edge' :

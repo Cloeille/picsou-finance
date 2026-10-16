@@ -30,6 +30,7 @@ import {
   mockUncategorized,
 } from './data/budget'
 import type { CashflowPeriod } from '@/types/api'
+import type { SessionItem } from '@/features/mfa/api'
 
 function randomDelay(): number {
   return 200 + Math.random() * 400
@@ -54,10 +55,12 @@ function key(method: string, url: string): string {
 handlers.set(key('POST', '/auth/login'), () => ({ username: 'demo' }))
 handlers.set(key('POST', '/auth/refresh'), () => ({ username: 'demo' }))
 
-// Persistent sessions — demo shows one current desktop session
-handlers.set(key('GET', '/auth/sessions'), () => [
+// Sessions — demo shows the current desktop session and a signed-in iPhone
+const DEMO_IOS_SESSION_ID = '3f2b8c1e-5d4a-4e7b-9c6f-1a2b3c4d5e6f'
+handlers.set(key('GET', '/auth/sessions'), (): SessionItem[] => [
   {
-    id: 1,
+    id: '1',
+    kind: 'REMEMBER_ME',
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
     ipPrefix: '192.168.1',
     createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -66,8 +69,18 @@ handlers.set(key('GET', '/auth/sessions'), () => [
     trustedFor2fa: true,
     current: true,
   },
+  {
+    id: DEMO_IOS_SESSION_ID,
+    kind: 'IOS_APP',
+    createdAt: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString(),
+    lastUsedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    expiresAt: new Date(Date.now() + 18 * 24 * 60 * 60 * 1000).toISOString(),
+    trustedFor2fa: false,
+    current: false,
+  },
 ])
 handlers.set(key('DELETE', '/auth/sessions'), () => null)
+handlers.set(key('DELETE', `/auth/sessions/${DEMO_IOS_SESSION_ID}`), () => ({}))
 
 // Access keys — demo shows one active key (read-only)
 handlers.set(key('GET', '/access-keys'), () => [
@@ -1058,24 +1071,12 @@ handlers.set(key('GET', '/admin/ai-calls'), () => ({
 }))
 
 // Finary - configured
-// Settings — security (2FA off in demo, one active session)
+// Settings — security (2FA off in demo; sessions are served above)
 handlers.set(key('GET', '/auth/mfa/status'), () => ({
   enabled: false,
   enrolledAt: null,
   remainingRecoveryCodes: 0,
 }))
-handlers.set(key('GET', '/auth/sessions'), () => ([
-  {
-    id: 1,
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Demo Browser',
-    ipPrefix: '192.168.1.x',
-    createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
-    lastUsedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 87 * 86_400_000).toISOString(),
-    trustedFor2fa: false,
-    current: true,
-  },
-]))
 
 // Settings — access keys (MCP). One mutable array backs list/create/revoke so
 // the UI's refetch after a mutation actually reflects it (in-memory only,

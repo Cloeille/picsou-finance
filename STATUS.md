@@ -1,6 +1,6 @@
 # STATUS: OAuth2 + Budget MCP tools
 
-Brief: `docs/briefs/oauth2-budget-mcp.md`. All work is inside `backend/src/main/java/com/picsou/mcp/`
+All work is inside `backend/src/main/java/com/picsou/mcp/`
 and its tests, plus the two lines in `McpToolConfig` that wire the new components — nothing else touched.
 
 ## Done

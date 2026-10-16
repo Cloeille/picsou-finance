@@ -3,6 +3,7 @@ package com.picsou.config;
 import com.picsou.model.AppUser;
 import com.picsou.model.UserRole;
 import com.picsou.repository.AppUserRepository;
+import com.picsou.service.NativeAppSessionService;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +35,7 @@ class JwtTokenAuthenticatorTest {
     private static final String SECRET = "0123456789abcdef0123456789abcdef-test";
 
     @Mock AppUserRepository userRepository;
+    @Mock NativeAppSessionService nativeAppSessions;
 
     JwtUtil jwtUtil;
     JwtTokenAuthenticator authenticator;
@@ -42,7 +44,7 @@ class JwtTokenAuthenticatorTest {
     @BeforeEach
     void setUp() {
         jwtUtil = new JwtUtil(SECRET, 15, 7, 5);
-        authenticator = new JwtTokenAuthenticator(jwtUtil, userRepository);
+        authenticator = new JwtTokenAuthenticator(jwtUtil, userRepository, nativeAppSessions);
         user = AppUser.builder()
             .id(42L)
             .username("alice")
@@ -114,6 +116,31 @@ class JwtTokenAuthenticatorTest {
     void nullOrBlankToken_isRejected() {
         assertThat(authenticator.authenticate(null)).isEmpty();
         assertThat(authenticator.authenticate("   ")).isEmpty();
+    }
+
+    @Test
+    void nativeAppToken_withLiveAuthorization_authenticates() {
+        when(userRepository.findByIdWithMember(42L)).thenReturn(Optional.of(user));
+        when(nativeAppSessions.isAccessTokenActive("auth-1")).thenReturn(true);
+
+        assertThat(authenticator.authenticate(nativeAppToken(user, "auth-1"))).isPresent();
+    }
+
+    @Test
+    void nativeAppToken_whoseAuthorizationWasRevoked_isRejected() {
+        // Settings > Sessions removed the authorization: the still-unexpired access token dies with it.
+        lenient().when(userRepository.findByIdWithMember(42L)).thenReturn(Optional.of(user));
+        when(nativeAppSessions.isAccessTokenActive("auth-1")).thenReturn(false);
+
+        assertThat(authenticator.authenticate(nativeAppToken(user, "auth-1"))).isEmpty();
+    }
+
+    @Test
+    void webAccessToken_neverConsultsTheAuthorizationStore() {
+        when(userRepository.findByIdWithMember(42L)).thenReturn(Optional.of(user));
+
+        assertThat(authenticator.authenticate(jwtUtil.generateAccessToken(user))).isPresent();
+        org.mockito.Mockito.verifyNoInteractions(nativeAppSessions);
     }
 
     // ─── Task 4: authenticateMcpToken — path-scoped MCP validation ─────────
@@ -224,6 +251,20 @@ class JwtTokenAuthenticatorTest {
      * authorization server's {@code jwtTokenCustomizer} would, signed with the shared test secret. */
     private String mcpToken(AppUser u, String scope, Instant expiry) {
         return mcpToken(SIGNING_KEY, u, scope, expiry);
+    }
+
+    private String nativeAppToken(AppUser u, String authorizationId) {
+        return Jwts.builder()
+            .subject(u.getUsername())
+            .claim("uid", u.getId())
+            .claim("type", "access")
+            .claim("tv", u.getTokenVersion())
+            .claim("role", u.getRole().name())
+            .claim(AuthorizationServerConfig.AUTHORIZATION_ID_CLAIM, authorizationId)
+            .issuedAt(Date.from(Instant.now()))
+            .expiration(Date.from(Instant.now().plusSeconds(900)))
+            .signWith(SIGNING_KEY)
+            .compact();
     }
 
     private String mcpToken(SecretKey key, AppUser u, String scope, Instant expiry) {

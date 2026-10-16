@@ -94,6 +94,18 @@ class PersistentTokenAuthFilterTest {
         verifyNoInteractions(persistentSessionService, userRepository, jwtUtil, cookieWriter);
     }
 
+    @Test
+    void noOps_whenARejectedBearerRidesAlongAPersistentCookie() throws Exception {
+        request.setCookies(new Cookie(AuthCookieWriter.PERSISTENT_COOKIE, "good-cookie"));
+        request.addHeader("Authorization", "Bearer expired-app-jwt");
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        verifyNoInteractions(persistentSessionService, userRepository, jwtUtil, cookieWriter);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
     // ─── failure paths clear the cookie ──────────────────────────────────
 
     @Test

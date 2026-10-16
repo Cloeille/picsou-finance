@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -80,7 +81,17 @@ class McpAuthenticationEntryPointTest {
         // (JSON problem+json body, no WWW-Authenticate header) is unchanged for everything but /mcp.
         mockMvc.perform(get("/api/accounts"))
             .andExpect(status().isUnauthorized())
-            .andExpect(header().doesNotExist("WWW-Authenticate"));
+            .andExpect(header().doesNotExist("WWW-Authenticate"))
+            .andExpect(jsonPath("$.type").value("urn:picsou:problem:authentication-required"));
+    }
+
+    @Test
+    void rejectedBearerOnApi_carriesTheAuthenticationRequiredType() throws Exception {
+        // The iOS app refreshes or signs out only on this type; a 401 from a credential check
+        // (wrong current password) keeps the default ProblemDetail type and stays on screen.
+        mockMvc.perform(get("/api/accounts").header("Authorization", "Bearer not-a-valid-jwt"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.type").value(SecurityConfig.AUTHENTICATION_REQUIRED_TYPE));
     }
 
     // ─── McpAuthenticationEntryPoint in isolation (no Spring context needed) ───
