@@ -6,12 +6,12 @@ import com.picsou.exception.SyncException;
 import com.picsou.model.CorumSession;
 import com.picsou.model.CorumSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.model.ScpiPosition;
+import com.picsou.model.ScpiFundOutcome;
+import com.picsou.model.ScpiProvider;
 import com.picsou.port.CorumErrorCode;
 import com.picsou.port.CorumPort;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
-import com.picsou.repository.ScpiPositionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -24,6 +24,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
@@ -54,31 +55,28 @@ public class CorumSyncService {
 
     private final CorumPort port;
     private final CorumSessionRepository sessionRepository;
-    private final ScpiPositionRepository positionRepository;
-    private final ScpiPositionService positionService;
     private final FamilyMemberRepository memberRepository;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
+    private final ScpiFundReconciler fundReconciler;
 
     public CorumSyncService(
         CorumPort port,
         CorumSessionRepository sessionRepository,
-        ScpiPositionRepository positionRepository,
-        ScpiPositionService positionService,
         FamilyMemberRepository memberRepository,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
-        @Qualifier("corumSyncExecutor") Executor syncExecutor
+        @Qualifier("corumSyncExecutor") Executor syncExecutor,
+        ScpiFundReconciler fundReconciler
     ) {
         this.port = port;
         this.sessionRepository = sessionRepository;
-        this.positionRepository = positionRepository;
-        this.positionService = positionService;
         this.memberRepository = memberRepository;
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
+        this.fundReconciler = fundReconciler;
     }
 
     public SessionStatusResponse authenticate(String login, String password, Long memberId) {
@@ -187,20 +185,18 @@ public class CorumSyncService {
     }
 
     /**
-     * Writes the snapshot onto the linked accounts.
+     * Writes the snapshot onto the member's SCPI accounts.
      *
-     * <p>One holding maps to at most one account, matched on the fund code the
-     * user linked when creating the account. A holding with no linked account is
-     * skipped rather than creating one: the manual model owns account creation,
-     * and a sync that silently opened a new account would bypass the Immobilier
-     * flow a share is supposed to go through.
-     *
-     * <p>A holding whose withdrawal price is missing still updates the share
-     * count -- that is real information -- but leaves the balance alone and
-     * reports {@code PRICE_INCOMPLETE}, which is what
-     * {@link ScpiPositionService#save} already does.
+     * <p>A fund already linked to an account updates it. A fund seen for the first
+     * time adopts the one manual SCPI account named like it, or gets a new account;
+     * a fund the member ignored writes nothing. {@link ScpiFundReconciler} owns those
+     * rules, and the withdrawal-price rule stays in
+     * {@link ScpiPositionService#applySyncedPosition}: a holding whose withdrawal
+     * price is missing still updates the share count but leaves the balance alone.
      */
-    private int applySnapshot(Long memberId, CorumPort.Snapshot snapshot) {
+    private Map<String, ScpiFundOutcome> applySnapshot(
+        Long memberId, CorumPort.Snapshot snapshot, Instant syncedAt
+    ) {
         if (snapshot == null || !snapshot.snapshotComplete()) {
             throw error(
                 CorumErrorCode.PORTFOLIO_INCOMPLETE,
@@ -231,29 +227,16 @@ public class CorumSyncService {
         }
         checkDeclaredTotal(snapshot);
 
-        int updated = 0;
-        for (CorumPort.Holding holding : snapshot.holdings()) {
-            Optional<ScpiPosition> linked =
-                positionRepository.findByMemberIdAndCorumFundCode(memberId, holding.fundCode());
-            if (linked.isEmpty()) {
-                log.info(
-                    "No Picsou account is linked to this CORUM fund (member={}; fund={})",
-                    memberId,
-                    holding.fundCode()
-                );
-                continue;
-            }
-            ScpiPosition position = linked.get();
-            positionService.applySyncedPosition(
-                position,
+        List<ScpiFundReconciler.SyncedFund> funds = snapshot.holdings().stream()
+            .map(holding -> new ScpiFundReconciler.SyncedFund(
+                holding.fundCode(),
+                holding.label(),
                 holding.quantity(),
                 holding.subscriptionPrice(),
-                holding.withdrawalPrice(),
-                null
-            );
-            updated++;
-        }
-        return updated;
+                holding.withdrawalPrice()
+            ))
+            .toList();
+        return fundReconciler.reconcile(memberId, ScpiProvider.CORUM, funds, syncedAt);
     }
 
     /**
@@ -323,10 +306,11 @@ public class CorumSyncService {
                     || current.get().getSyncStatus() != CorumSyncStatus.RUNNING) {
                 return;
             }
-            int updated = applySnapshot(job.memberId(), snapshot);
-            current.get().markSuccessful(Instant.now());
+            Instant now = Instant.now();
+            Map<String, ScpiFundOutcome> outcomes = applySnapshot(job.memberId(), snapshot, now);
+            current.get().markSuccessful(now);
             sessionRepository.save(current.get());
-            log.info("CORUM sync completed (member={}; positions={})", job.memberId(), updated);
+            log.info("CORUM sync completed (member={}; funds={})", job.memberId(), outcomes);
         });
     }
 

@@ -82,7 +82,7 @@ class SofidyAuthSessionTest {
             return null;
         }).when(sessions).delete(any());
         service = new SofidySyncService(port, sessions, positions, positionService, members,
-            encryption, tx, command -> {});
+            encryption, tx, command -> {}, mock(ScpiFundReconciler.class));
     }
 
     @Test

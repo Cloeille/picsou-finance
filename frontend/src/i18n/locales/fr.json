@@ -427,9 +427,9 @@
     "withdrawalValue": "Valeur au prix de retrait",
     "subscriptionHint": "Affiché à côté du solde, jamais à sa place. Les frais d'entrée s'y trouvent.",
     "corumFundCode": "Code fonds CORUM",
-    "corumFundHint": "Facultatif. Renseignez le code du fonds (US, XL…) pour que la synchronisation CORUM mette ce compte à jour. Laissez vide pour une saisie manuelle.",
+    "corumFundHint": "Facultatif. La synchronisation CORUM rattache ses fonds d'elle-même ; ne saisissez un code que pour forcer un rattachement.",
     "sofidyFundCode": "Code fonds Sofidy",
-    "sofidyFundHint": "Facultatif. Le code produit Sofidy (DY, IM…) permet à la synchronisation Sofidy de mettre ce compte à jour. Laissez vide pour une saisie manuelle.",
+    "sofidyFundHint": "Facultatif. La synchronisation Sofidy rattache ses fonds d'elle-même ; ne saisissez un code que pour forcer un rattachement.",
     "dividendPolicy": "Dividendes",
     "cash": "Versés",
     "reinvest": "Réinvestis",
@@ -446,7 +446,35 @@
       "net": "Net",
       "hint": "Hors estimation au mètre carré. Le prix de souscription n'entre pas dans ce total.",
       "incomplete": "Une part utilise encore son dernier solde connu : le prix de retrait manque."
-    }
+    },
+    "sync": {
+      "found_one": "1 fonds trouvé",
+      "found_other": "{{count}} fonds trouvés",
+      "noFund": "Aucun fonds SCPI trouvé dans cet espace.",
+      "noneApplied_one": "1 fonds trouvé, mais aucun compte n'a été mis à jour.",
+      "noneApplied_other": "{{count}} fonds trouvés, mais aucun compte n'a été mis à jour.",
+      "outcome": {
+        "CREATED_one": "1 compte créé",
+        "CREATED_other": "{{count}} comptes créés",
+        "LINKED_one": "1 compte existant rattaché",
+        "LINKED_other": "{{count}} comptes existants rattachés",
+        "UPDATED_one": "1 mis à jour",
+        "UPDATED_other": "{{count}} mis à jour"
+      },
+      "detail": {
+        "PRICE_INCOMPLETE": "parts mises à jour, prix de retrait manquant : solde conservé",
+        "AMBIGUOUS": "plusieurs comptes SCPI portent ce nom, aucun n'a été rattaché. Choisissez-le en ajoutant une SCPI, ou renommez-en un.",
+        "IGNORED": "ignoré, non synchronisé",
+        "MISSING_AT_PROVIDER": "n'apparaît plus chez le fournisseur, compte conservé"
+      }
+    },
+    "ignoreFund": "Ignorer ce fonds",
+    "ignoreFundConfirm": "Détacher ce fonds ? Le compte et son historique restent, et les prochaines synchronisations ne le mettront plus à jour ni ne le recréeront.",
+    "advancedLinks": "Avancé : codes de fonds du fournisseur",
+    "seenFund": "Fonds trouvé par une synchronisation",
+    "seenFundNone": "Aucun — saisie manuelle",
+    "seenFundHint": "Remplit le nom et le code du fonds, pour que la prochaine synchronisation mette ce compte à jour.",
+    "seenFundIgnored": "ignoré — le choisir le resynchronise"
   },
   "realEstate": {
     "purchasePrice": "Prix d'achat",
@@ -1473,7 +1501,7 @@
       "clearSession": "Déconnecter",
       "noSession": "Aucune session active",
       "sessionActive": "Session active",
-      "scope": "Synchronise les parts de SCPI de vos contrats CORUM, au prix de retrait. Seuls les comptes que vous avez rattachés à un fonds sont mis à jour.",
+      "scope": "Synchronise les parts de SCPI de vos contrats CORUM, au prix de retrait. Un fonds sans compte en reçoit un, ou est rattaché au compte SCPI du même nom.",
       "errors": {
         "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
         "invalidCredentials": "Identifiants CORUM invalides.",
@@ -1505,7 +1533,7 @@
       "clearSession": "Déconnecter",
       "noSession": "Aucune session active",
       "sessionActive": "Session active",
-      "scope": "Synchronise les parts de SCPI de votre espace associé Sofidy, au prix de retrait. Seuls les comptes rattachés à un fonds sont mis à jour.",
+      "scope": "Synchronise les parts de SCPI de votre espace associé Sofidy, au prix de retrait. Un fonds sans compte en reçoit un, ou est rattaché au compte SCPI du même nom.",
       "errors": {
         "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
         "invalidCredentials": "Code associé ou mot de passe Sofidy invalide.",

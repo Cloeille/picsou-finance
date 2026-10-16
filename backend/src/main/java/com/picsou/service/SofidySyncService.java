@@ -4,7 +4,9 @@ import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.model.FamilyMember;
+import com.picsou.model.ScpiFundOutcome;
 import com.picsou.model.ScpiPosition;
+import com.picsou.model.ScpiProvider;
 import com.picsou.model.SofidySession;
 import com.picsou.model.SofidySyncStatus;
 import com.picsou.port.SofidyErrorCode;
@@ -24,6 +26,7 @@ import java.time.Instant;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Objects;
 import java.util.UUID;
@@ -76,6 +79,7 @@ public class SofidySyncService {
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
+    private final ScpiFundReconciler fundReconciler;
 
     public SofidySyncService(
         SofidyPort port,
@@ -85,7 +89,8 @@ public class SofidySyncService {
         FamilyMemberRepository memberRepository,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
-        @Qualifier("sofidySyncExecutor") Executor syncExecutor
+        @Qualifier("sofidySyncExecutor") Executor syncExecutor,
+        ScpiFundReconciler fundReconciler
     ) {
         this.port = port;
         this.sessionRepository = sessionRepository;
@@ -95,6 +100,7 @@ public class SofidySyncService {
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
+        this.fundReconciler = fundReconciler;
     }
 
     /**
@@ -303,20 +309,20 @@ public class SofidySyncService {
     }
 
     /**
-     * Writes the snapshot onto the linked accounts.
+     * Writes the snapshot onto the member's SCPI accounts.
      *
-     * <p>One holding maps to at most one account, matched on Sofidy's own product
-     * code the user linked when creating the account. A holding with no linked
-     * account is skipped rather than creating one: the manual model owns account
-     * creation, and a sync that silently opened a new account would bypass the
-     * Immobilier flow a share is supposed to go through.
+     * <p>A fund already linked to an account updates it. A fund seen for the first
+     * time adopts the one manual SCPI account named like it, or gets a new account;
+     * a fund the member ignored writes nothing. {@link ScpiFundReconciler} owns those
+     * rules. Sofidy quotes no subscription price, so null is passed and a price the
+     * user typed by hand survives the sync.
      *
-     * <p>A holding whose withdrawal price is missing still updates the share count
-     * -- that is real information -- but leaves the balance alone and reports
-     * {@code PRICE_INCOMPLETE}, which is what
-     * {@link ScpiPositionService#save} already does.
+     * <p>A linked fund Sofidy no longer lists is then closed at zero shares by
+     * {@link #reconcileSoldFunds}; its account is kept, never deleted.
      */
-    private int applySnapshot(Long memberId, SofidyPort.Snapshot snapshot) {
+    private Map<String, ScpiFundOutcome> applySnapshot(
+        Long memberId, SofidyPort.Snapshot snapshot, Instant syncedAt
+    ) {
         if (snapshot == null || !snapshot.snapshotComplete()) {
             throw error(
                 SofidyErrorCode.PORTFOLIO_INCOMPLETE,
@@ -347,32 +353,19 @@ public class SofidySyncService {
         }
         checkDeclaredTotal(snapshot);
 
-        int updated = 0;
-        for (SofidyPort.Holding holding : snapshot.holdings()) {
-            Optional<ScpiPosition> linked =
-                positionRepository.findByMemberIdAndSofidyFundCode(memberId, holding.fundCode());
-            if (linked.isEmpty()) {
-                log.info(
-                    "No Picsou account is linked to this Sofidy fund (member={}; fund={})",
-                    memberId,
-                    holding.fundCode()
-                );
-                continue;
-            }
-            // Null subscription price: Sofidy publishes the redemption value and
-            // nothing else, and the manual form treats that price as display-only.
-            // A null here means "not quoted", so a price the user typed by hand
-            // survives the sync instead of being deleted by it.
-            positionService.applySyncedPosition(
-                linked.get(),
+        List<ScpiFundReconciler.SyncedFund> funds = snapshot.holdings().stream()
+            .map(holding -> new ScpiFundReconciler.SyncedFund(
+                holding.fundCode(),
+                holding.label(),
                 holding.quantity(),
                 null,
-                holding.withdrawalPrice(),
-                null
-            );
-            updated++;
-        }
-        return updated + reconcileSoldFunds(memberId, snapshot.holdings());
+                holding.withdrawalPrice()
+            ))
+            .toList();
+        Map<String, ScpiFundOutcome> outcomes =
+            fundReconciler.reconcile(memberId, ScpiProvider.SOFIDY, funds, syncedAt);
+        reconcileSoldFunds(memberId, snapshot.holdings());
+        return outcomes;
     }
 
     /**
@@ -481,10 +474,11 @@ public class SofidySyncService {
                     || current.get().getSyncStatus() != SofidySyncStatus.RUNNING) {
                 return;
             }
-            int updated = applySnapshot(job.memberId(), snapshot);
-            current.get().markSuccessful(Instant.now());
+            Instant now = Instant.now();
+            Map<String, ScpiFundOutcome> outcomes = applySnapshot(job.memberId(), snapshot, now);
+            current.get().markSuccessful(now);
             sessionRepository.save(current.get());
-            log.info("Sofidy sync completed (member={}; positions={})", job.memberId(), updated);
+            log.info("Sofidy sync completed (member={}; funds={})", job.memberId(), outcomes);
         });
     }
 

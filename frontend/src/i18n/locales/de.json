@@ -416,9 +416,9 @@
     "withdrawalValue": "Wert zum Rücknahmepreis",
     "subscriptionHint": "Neben dem Saldo angezeigt, nie als Saldo. Die Einstiegsgebühren stecken in diesem Preis.",
     "corumFundCode": "CORUM-Fondscode",
-    "corumFundHint": "Optional. Der Fondscode (US, XL…) ermöglicht der CORUM-Synchronisierung, dieses Konto zu aktualisieren. Für eine manuelle Erfassung leer lassen.",
+    "corumFundHint": "Optional. Die CORUM-Synchronisierung verknüpft ihre Fonds selbst; geben Sie einen Code nur ein, um eine Verknüpfung zu erzwingen.",
     "sofidyFundCode": "Sofidy-Fondscode",
-    "sofidyFundHint": "Optional. Der Sofidy-Produktcode (DY, IM…) ermöglicht der Sofidy-Synchronisierung, dieses Konto zu aktualisieren. Für eine manuelle Erfassung leer lassen.",
+    "sofidyFundHint": "Optional. Die Sofidy-Synchronisierung verknüpft ihre Fonds selbst; geben Sie einen Code nur ein, um eine Verknüpfung zu erzwingen.",
     "dividendPolicy": "Dividenden",
     "cash": "Ausgezahlt",
     "reinvest": "Reinvestiert",
@@ -435,8 +435,35 @@
       "net": "Netto",
       "hint": "Nicht in der Quadratmeter-Schätzung. Der Ausgabepreis steht nicht in dieser Summe.",
       "incomplete": "Ein Anteil nutzt noch den letzten bekannten Saldo: der Rücknahmepreis fehlt."
-    }
-
+    },
+    "sync": {
+      "found_one": "1 Fonds gefunden",
+      "found_other": "{{count}} Fonds gefunden",
+      "noFund": "Kein SCPI-Fonds in diesem Bereich gefunden.",
+      "noneApplied_one": "1 Fonds gefunden, aber kein Konto wurde aktualisiert.",
+      "noneApplied_other": "{{count}} Fonds gefunden, aber kein Konto wurde aktualisiert.",
+      "outcome": {
+        "CREATED_one": "1 Konto erstellt",
+        "CREATED_other": "{{count}} Konten erstellt",
+        "LINKED_one": "1 bestehendes Konto verknüpft",
+        "LINKED_other": "{{count}} bestehende Konten verknüpft",
+        "UPDATED_one": "1 aktualisiert",
+        "UPDATED_other": "{{count}} aktualisiert"
+      },
+      "detail": {
+        "PRICE_INCOMPLETE": "Anteile aktualisiert, Rücknahmepreis fehlt: Saldo beibehalten",
+        "AMBIGUOUS": "mehrere SCPI-Konten tragen diesen Namen, keines wurde verknüpft. Wählen Sie ihn beim Hinzufügen einer SCPI oder benennen Sie eines um.",
+        "IGNORED": "ignoriert, nicht synchronisiert",
+        "MISSING_AT_PROVIDER": "beim Anbieter nicht mehr aufgeführt, Konto beibehalten"
+      }
+    },
+    "ignoreFund": "Diesen Fonds ignorieren",
+    "ignoreFundConfirm": "Diesen Fonds trennen? Das Konto und sein Verlauf bleiben, und spätere Synchronisierungen werden es weder aktualisieren noch neu anlegen.",
+    "advancedLinks": "Erweitert: Fondscodes des Anbieters",
+    "seenFund": "Von einer Synchronisierung gefundener Fonds",
+    "seenFundNone": "Keiner — manuelle Eingabe",
+    "seenFundHint": "Füllt Name und Fondscode aus, damit die nächste Synchronisierung dieses Konto aktualisiert.",
+    "seenFundIgnored": "ignoriert — Auswahl synchronisiert ihn wieder"
   },
   "realEstate": {
     "purchasePrice": "Kaufpreis",
@@ -1231,7 +1258,7 @@
       "clearSession": "Trennen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Sitzung aktiv",
-      "scope": "Synchronisiert die SCPI-Anteile Ihrer CORUM-Verträge zum Rückgabepreis. Aktualisiert werden nur die Konten, die Sie einem Fonds zugeordnet haben.",
+      "scope": "Synchronisiert die SCPI-Anteile Ihrer CORUM-Verträge zum Rücknahmepreis. Ein Fonds ohne Konto erhält eines oder wird mit dem gleichnamigen SCPI-Konto verknüpft.",
       "errors": {
         "tooManyAttempts": "Zu viele Versuche. Bitte warten.",
         "invalidCredentials": "Ungültige CORUM-Zugangsdaten.",
@@ -1263,7 +1290,7 @@
       "clearSession": "Trennen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Sitzung aktiv",
-      "scope": "Synchronisiert die SCPI-Anteile Ihres Sofidy-Kundenbereichs zum Rückgabepreis. Nur die Konten, die Sie einem Fonds zugeordnet haben, werden aktualisiert.",
+      "scope": "Synchronisiert die SCPI-Anteile Ihres Sofidy-Kontos zum Rücknahmepreis. Ein Fonds ohne Konto erhält eines oder wird mit dem gleichnamigen SCPI-Konto verknüpft.",
       "errors": {
         "tooManyAttempts": "Zu viele Versuche. Bitte warten.",
         "invalidCredentials": "Ungültiger Sofidy-Partner-Code oder ungültiges Passwort.",

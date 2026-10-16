@@ -11,7 +11,9 @@ import com.picsou.model.SofidySyncStatus;
 import com.picsou.port.SofidyErrorCode;
 import com.picsou.port.SofidyPort;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.AccountRepository;
 import com.picsou.repository.ScpiPositionRepository;
+import com.picsou.repository.ScpiProviderFundRepository;
 import com.picsou.repository.SofidySessionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,6 +62,8 @@ class SofidySyncServiceTest {
     @Mock ScpiPositionService positionService;
     @Mock FamilyMemberRepository memberRepository;
     @Mock CryptoEncryption encryption;
+    @Mock AccountRepository accountRepository;
+    @Mock ScpiProviderFundRepository fundRepository;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
 
@@ -86,7 +90,9 @@ class SofidySyncServiceTest {
             memberRepository,
             encryption,
             txTemplate,
-            Runnable::run
+            Runnable::run,
+            new ScpiFundReconciler(
+                positionRepository, positionService, accountRepository, fundRepository, memberRepository)
         );
     }
 

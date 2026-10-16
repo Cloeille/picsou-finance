@@ -416,9 +416,9 @@
     "withdrawalValue": "Valor al precio de reembolso",
     "subscriptionHint": "Se muestra junto al saldo, nunca como saldo. Las comisiones de entrada están en este precio.",
     "corumFundCode": "Código de fondo CORUM",
-    "corumFundHint": "Opcional. El código de fondo (US, XL…) permite que la sincronización de CORUM actualice esta cuenta. Déjelo vacío para una entrada manual.",
+    "corumFundHint": "Opcional. La sincronización CORUM vincula sus fondos por sí sola; escriba un código solo para forzar una vinculación.",
     "sofidyFundCode": "Código de fondo Sofidy",
-    "sofidyFundHint": "Opcional. El código de producto de Sofidy (DY, IM…) permite que la sincronización de Sofidy actualice esta cuenta. Déjelo vacío para una entrada manual.",
+    "sofidyFundHint": "Opcional. La sincronización Sofidy vincula sus fondos por sí sola; escriba un código solo para forzar una vinculación.",
     "dividendPolicy": "Dividendos",
     "cash": "Pagados",
     "reinvest": "Reinvertidos",
@@ -435,8 +435,35 @@
       "net": "Neto",
       "hint": "Fuera de la estimación por metro cuadrado. El precio de suscripción no entra en este total.",
       "incomplete": "Una participación sigue usando su último saldo conocido: falta el precio de reembolso."
-    }
-
+    },
+    "sync": {
+      "found_one": "1 fondo encontrado",
+      "found_other": "{{count}} fondos encontrados",
+      "noFund": "No se encontró ningún fondo SCPI en este espacio.",
+      "noneApplied_one": "1 fondo encontrado, pero no se actualizó ninguna cuenta.",
+      "noneApplied_other": "{{count}} fondos encontrados, pero no se actualizó ninguna cuenta.",
+      "outcome": {
+        "CREATED_one": "1 cuenta creada",
+        "CREATED_other": "{{count}} cuentas creadas",
+        "LINKED_one": "1 cuenta existente vinculada",
+        "LINKED_other": "{{count}} cuentas existentes vinculadas",
+        "UPDATED_one": "1 actualizada",
+        "UPDATED_other": "{{count}} actualizadas"
+      },
+      "detail": {
+        "PRICE_INCOMPLETE": "participaciones actualizadas, falta el precio de reembolso: saldo conservado",
+        "AMBIGUOUS": "varias cuentas SCPI tienen este nombre, ninguna se vinculó. Elíjalo al añadir una SCPI o renombre una.",
+        "IGNORED": "ignorado, no sincronizado",
+        "MISSING_AT_PROVIDER": "el proveedor ya no lo muestra, cuenta conservada"
+      }
+    },
+    "ignoreFund": "Ignorar este fondo",
+    "ignoreFundConfirm": "¿Desvincular este fondo? La cuenta y su historial se conservan, y las próximas sincronizaciones no la actualizarán ni la volverán a crear.",
+    "advancedLinks": "Avanzado: códigos de fondo del proveedor",
+    "seenFund": "Fondo encontrado por una sincronización",
+    "seenFundNone": "Ninguno — entrada manual",
+    "seenFundHint": "Rellena el nombre y el código del fondo, para que la próxima sincronización actualice esta cuenta.",
+    "seenFundIgnored": "ignorado — elegirlo lo vuelve a sincronizar"
   },
   "realEstate": {
     "purchasePrice": "Precio de compra",
@@ -1231,7 +1258,7 @@
       "clearSession": "Desconectar",
       "noSession": "Ninguna sesión activa",
       "sessionActive": "Sesión activa",
-      "scope": "Sincroniza las partes SCPI de sus contratos CORUM, valoradas al precio de retirada. Solo se actualizan las cuentas que haya vinculado a un fondo.",
+      "scope": "Sincroniza las participaciones SCPI de sus contratos CORUM, al precio de reembolso. Un fondo sin cuenta recibe una, o se vincula a la cuenta SCPI con el mismo nombre.",
       "errors": {
         "tooManyAttempts": "Demasiados intentos. Espere un momento.",
         "invalidCredentials": "Credenciales de CORUM no válidas.",
@@ -1263,7 +1290,7 @@
       "clearSession": "Desconectar",
       "noSession": "Ninguna sesión activa",
       "sessionActive": "Sesión activa",
-      "scope": "Sincroniza las partes SCPI de su espacio de asociado de Sofidy, al valor de reembolso. Solo se actualizan las cuentas vinculadas a un fondo.",
+      "scope": "Sincroniza las participaciones SCPI de su cuenta Sofidy, al precio de reembolso. Un fondo sin cuenta recibe una, o se vincula a la cuenta SCPI con el mismo nombre.",
       "errors": {
         "tooManyAttempts": "Demasiados intentos. Espere, por favor.",
         "invalidCredentials": "Código de asociado o contraseña de Sofidy no válidos.",

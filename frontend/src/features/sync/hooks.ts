@@ -88,6 +88,7 @@ function useSidecarSessionStatus<
     queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     queryClient.invalidateQueries({ queryKey: ['real-estate'] })
     queryClient.invalidateQueries({ queryKey: ['analysis'] })
+    queryClient.invalidateQueries({ queryKey: ['scpi-funds'] })
   }, [completedAt, queryClient, succeeded])
 
   return query

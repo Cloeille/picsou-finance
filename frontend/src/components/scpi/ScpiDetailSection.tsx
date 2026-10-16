@@ -7,10 +7,11 @@ import { Label } from '@/components/ui/label'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { DateInput } from '@/components/shared/DateInput'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
-import { useUpdateScpiPosition } from '@/features/accounts/hooks'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { useIgnoreScpiFund, useUpdateScpiPosition } from '@/features/accounts/hooks'
 import { formatApiError } from '@/lib/errors'
 import { parseAmount } from '@/lib/utils'
-import type { Account, DividendPolicy, ScpiPositionRequest } from '@/types/api'
+import type { Account, DividendPolicy, ScpiPositionRequest, ScpiProvider } from '@/types/api'
 
 const selectControlClassName =
   'flex h-10 w-full rounded-md border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]'
@@ -24,6 +25,8 @@ const num = (v: string): number | undefined => (v.trim() === '' ? undefined : pa
 export function ScpiDetailSection({ account }: { account: Account }) {
   const { t } = useTranslation()
   const updatePosition = useUpdateScpiPosition()
+  const ignoreFund = useIgnoreScpiFund()
+  const [fundToIgnore, setFundToIgnore] = useState<{ provider: ScpiProvider; fundCode: string } | null>(null)
   const position = account.scpi
   const canEdit = account.isOwner !== false
   const [editing, setEditing] = useState(canEdit && !position)
@@ -126,14 +129,29 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                 <dd>{position.jouissanceDate}</dd>
               </div>
             )}
-            <div>
-              <dt className="text-muted-foreground">{t('scpi.corumFundCode')}</dt>
-              <dd>{position.corumFundCode || '—'}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('scpi.sofidyFundCode')}</dt>
-              <dd>{position.sofidyFundCode || '—'}</dd>
-            </div>
+            {([
+              ['CORUM', 'scpi.corumFundCode', position.corumFundCode],
+              ['SOFIDY', 'scpi.sofidyFundCode', position.sofidyFundCode],
+            ] as const).map(([provider, label, code]) => (
+              <div key={provider}>
+                <dt className="text-muted-foreground">{t(label)}</dt>
+                <dd className="flex items-center gap-2">
+                  <span>{code || '—'}</span>
+                  {code && canEdit && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-auto px-2 py-0 text-xs"
+                      disabled={ignoreFund.isPending}
+                      onClick={() => setFundToIgnore({ provider, fundCode: code })}
+                    >
+                      {t('scpi.ignoreFund')}
+                    </Button>
+                  )}
+                </dd>
+              </div>
+            ))}
           </dl>
         )}
 
@@ -159,6 +177,8 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                 <NumericInput id="scpi-edit-withdrawal" value={withdrawalPrice} onChange={(e) => setWithdrawalPrice(e.target.value)} />
               </div>
             </div>
+            <details className="space-y-4 rounded-md border p-3">
+            <summary className="cursor-pointer text-sm text-muted-foreground">{t('scpi.advancedLinks')}</summary>
             <div className="space-y-2">
               <Label htmlFor="scpi-edit-corum-fund">{t('scpi.corumFundCode')}</Label>
               <Input id="scpi-edit-corum-fund" value={corumFundCode} maxLength={40} onChange={(e) => setCorumFundCode(e.target.value)} />
@@ -169,6 +189,7 @@ export function ScpiDetailSection({ account }: { account: Account }) {
               <Input id="scpi-edit-sofidy-fund" value={sofidyFundCode} maxLength={40} onChange={(e) => setSofidyFundCode(e.target.value)} />
               <p className="text-xs text-muted-foreground">{t('scpi.sofidyFundHint')}</p>
             </div>
+            </details>
             <div className="space-y-2">
               <Label htmlFor="scpi-edit-subscription">{t('scpi.subscriptionPrice')}</Label>
               <NumericInput id="scpi-edit-subscription" value={subscriptionPrice} onChange={(e) => setSubscriptionPrice(e.target.value)} />
@@ -208,6 +229,19 @@ export function ScpiDetailSection({ account }: { account: Account }) {
           </div>
         )}
       </CardContent>
+      <ConfirmDialog
+        open={fundToIgnore != null}
+        onOpenChange={(open) => { if (!open) setFundToIgnore(null) }}
+        title={t('scpi.ignoreFund')}
+        description={t('scpi.ignoreFundConfirm')}
+        confirmLabel={t('scpi.ignoreFund')}
+        loading={ignoreFund.isPending}
+        error={ignoreFund.error ? formatApiError(ignoreFund.error, t, 'common.error') : undefined}
+        onConfirm={() => {
+          if (!fundToIgnore) return
+          ignoreFund.mutate(fundToIgnore, { onSuccess: () => setFundToIgnore(null) })
+        }}
+      />
     </Card>
   )
 }

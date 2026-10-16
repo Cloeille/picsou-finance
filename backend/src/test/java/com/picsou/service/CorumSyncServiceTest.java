@@ -8,7 +8,9 @@ import com.picsou.model.FamilyMember;
 import com.picsou.port.CorumPort;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.AccountRepository;
 import com.picsou.repository.ScpiPositionRepository;
+import com.picsou.repository.ScpiProviderFundRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -41,6 +43,8 @@ class CorumSyncServiceTest {
     @Mock ScpiPositionService positionService;
     @Mock FamilyMemberRepository memberRepository;
     @Mock CryptoEncryption encryption;
+    @Mock AccountRepository accountRepository;
+    @Mock ScpiProviderFundRepository fundRepository;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
     CorumSyncService service;
@@ -55,8 +59,10 @@ class CorumSyncServiceTest {
             ((Consumer<TransactionStatus>) inv.getArgument(0)).accept(transactionStatus);
             return null;
         }).when(txTemplate).executeWithoutResult(any());
-        service = new CorumSyncService(port, sessionRepository, positionRepository, positionService,
-            memberRepository, encryption, txTemplate, Runnable::run);
+        ScpiFundReconciler reconciler = new ScpiFundReconciler(
+            positionRepository, positionService, accountRepository, fundRepository, memberRepository);
+        service = new CorumSyncService(port, sessionRepository, memberRepository, encryption,
+            txTemplate, Runnable::run, reconciler);
     }
 
     @ParameterizedTest

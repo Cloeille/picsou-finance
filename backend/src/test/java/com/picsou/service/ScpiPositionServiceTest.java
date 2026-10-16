@@ -7,6 +7,7 @@ import com.picsou.model.AccountType;
 import com.picsou.model.DividendPolicy;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.ScpiPosition;
+import com.picsou.model.ScpiProvider;
 import com.picsou.model.ScpiValuationStatus;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.ScpiPositionRepository;
@@ -39,6 +40,7 @@ class ScpiPositionServiceTest {
 
     @Mock AccountRepository accountRepository;
     @Mock ScpiPositionRepository positionRepository;
+    @Mock ScpiFundService scpiFundService;
     @InjectMocks ScpiPositionService service;
 
     @Test
@@ -129,6 +131,8 @@ class ScpiPositionServiceTest {
         service.save(10L, 1L, withFundCode("12.345678", "1135", "1000.50", ""));
 
         assertThat(existing.getCorumFundCode()).isNull();
+        // #232: a sync would otherwise adopt or recreate an account for the fund.
+        verify(scpiFundService).tombstone(1L, ScpiProvider.CORUM, "FUND-42");
     }
 
     @Test
@@ -144,6 +148,7 @@ class ScpiPositionServiceTest {
         ArgumentCaptor<ScpiPosition> saved = ArgumentCaptor.forClass(ScpiPosition.class);
         verify(positionRepository).save(saved.capture());
         assertThat(saved.getValue().getCorumFundCode()).isEqualTo("FUND-42");
+        verify(scpiFundService).clearTombstone(1L, ScpiProvider.CORUM, "FUND-42");
     }
 
     private static Account scpiAccount(String balance) {

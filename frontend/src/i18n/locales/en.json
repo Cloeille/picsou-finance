@@ -427,9 +427,9 @@
     "withdrawalValue": "Value at withdrawal price",
     "subscriptionHint": "Shown beside the balance, never as the balance. Entry fees sit in this price.",
     "corumFundCode": "CORUM fund code",
-    "corumFundHint": "Optional. The fund code (US, XL…) lets the CORUM sync update this account. Leave empty for a manual entry.",
+    "corumFundHint": "Optional. A CORUM sync links its funds on its own; type a code only to force a link.",
     "sofidyFundCode": "Sofidy fund code",
-    "sofidyFundHint": "Optional. The Sofidy product code (DY, IM…) lets the Sofidy sync update this account. Leave empty for a manual entry.",
+    "sofidyFundHint": "Optional. A Sofidy sync links its funds on its own; type a code only to force a link.",
     "dividendPolicy": "Dividends",
     "cash": "Paid out",
     "reinvest": "Reinvested",
@@ -446,7 +446,35 @@
       "net": "Net",
       "hint": "Kept out of the price-per-square-metre estimate. The subscription price is not in this total.",
       "incomplete": "One share still uses its last known balance: the withdrawal price is missing."
-    }
+    },
+    "sync": {
+      "found_one": "1 fund found",
+      "found_other": "{{count}} funds found",
+      "noFund": "No SCPI fund found in this space.",
+      "noneApplied_one": "1 fund found, but no account was updated.",
+      "noneApplied_other": "{{count}} funds found, but no account was updated.",
+      "outcome": {
+        "CREATED_one": "1 account created",
+        "CREATED_other": "{{count}} accounts created",
+        "LINKED_one": "1 existing account linked",
+        "LINKED_other": "{{count}} existing accounts linked",
+        "UPDATED_one": "1 updated",
+        "UPDATED_other": "{{count}} updated"
+      },
+      "detail": {
+        "PRICE_INCOMPLETE": "shares updated, withdrawal price missing: balance kept",
+        "AMBIGUOUS": "several SCPI accounts have this name, none was linked. Pick it when adding a SCPI, or rename one.",
+        "IGNORED": "ignored, not synced",
+        "MISSING_AT_PROVIDER": "no longer listed by the provider, account kept"
+      }
+    },
+    "ignoreFund": "Ignore this fund",
+    "ignoreFundConfirm": "Unlink this fund? The account and its history stay, and later syncs will neither update nor recreate it.",
+    "advancedLinks": "Advanced: provider fund codes",
+    "seenFund": "Fund found by a sync",
+    "seenFundNone": "None — manual entry",
+    "seenFundHint": "Fills the name and the fund code, so the next sync updates this account.",
+    "seenFundIgnored": "ignored — picking it syncs it again"
   },
   "realEstate": {
     "purchasePrice": "Purchase price",
@@ -1473,7 +1501,7 @@
       "clearSession": "Disconnect",
       "noSession": "No active session",
       "sessionActive": "Session active",
-      "scope": "Syncs the SCPI shares in your CORUM contracts, valued at the withdrawal price. Only the accounts you linked to a fund are updated.",
+      "scope": "Syncs the SCPI shares in your CORUM contracts, valued at the withdrawal price. A fund without an account gets one, or is linked to the SCPI account with the same name.",
       "errors": {
         "tooManyAttempts": "Too many attempts. Please wait.",
         "invalidCredentials": "Invalid CORUM credentials.",
@@ -1505,7 +1533,7 @@
       "clearSession": "Disconnect",
       "noSession": "No active session",
       "sessionActive": "Session active",
-      "scope": "Syncs the SCPI shares in your Sofidy account, valued at the withdrawal price. Only the accounts you linked to a fund are updated.",
+      "scope": "Syncs the SCPI shares in your Sofidy account, valued at the withdrawal price. A fund without an account gets one, or is linked to the SCPI account with the same name.",
       "errors": {
         "tooManyAttempts": "Too many attempts. Please wait.",
         "invalidCredentials": "Invalid Sofidy associate code or password.",
