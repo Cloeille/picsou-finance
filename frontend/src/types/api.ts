@@ -1,7 +1,7 @@
 export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'OTHER'
+  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'PER' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
@@ -1439,12 +1439,27 @@ export interface CashflowResponse {
   series: CashflowBucket[]
 }
 
-/** Sankey node role — drives colour/position; HUB and SAVINGS/drawdown are synthetic. */
-export type FlowNodeType = 'INCOME' | 'HUB' | 'EXPENSE' | 'SAVINGS'
+/**
+ * Sankey node role — drives colour/position. HUB, UNSPENT, SHORTFALL, TRANSFER_IN and
+ * TRANSFER_OUT are synthetic. SAVINGS (right) / WITHDRAWAL (left) are one node per
+ * savings/investment account whose transfers netted in / out over the period; TRANSFER_OUT/IN
+ * are money sent to / received from accounts Picsou does not see.
+ */
+export type FlowNodeType =
+  | 'INCOME'
+  | 'HUB'
+  | 'EXPENSE'
+  | 'SAVINGS'
+  | 'WITHDRAWAL'
+  | 'TRANSFER_IN'
+  | 'TRANSFER_OUT'
+  | 'UNSPENT'
+  | 'SHORTFALL'
 
 /**
  * One node in the income→budget→expense Sankey. `key` is `cat:<id>` for a real category,
- * or a `__…__` sentinel for a synthetic node (hub, "other income", savings, drawdown,
+ * `acct:<id>` for a savings/investment account, sink or withdrawal source (carries the account's name/colour), or a
+ * `__…__` sentinel for a synthetic node (hub, "other income", unspent, shortfall,
  * uncategorized, rolled-up tail). Synthetic nodes carry `label`/`color` null and are
  * labelled/coloured on the frontend.
  */
@@ -1453,6 +1468,8 @@ export interface FlowNode {
   label: string | null
   color: string | null
   type: FlowNodeType
+  /** Only on account (`SAVINGS`/`WITHDRAWAL`) nodes: SAVINGS or INVESTMENT; the UI prefixes the name with it. */
+  assetClass?: AssetClass | null
 }
 
 /** A weighted edge: indices into the response's `nodes` array. */
@@ -1469,6 +1486,10 @@ export interface CashflowFlowResponse {
   income: number
   expense: number   // positive magnitude
   net: number
+  saved: number     // net moved into savings/investment accounts (sum of positive per-account nets)
+  withdrawn: number // net taken out of savings/investment accounts (sum of negative per-account nets, positive magnitude)
+  transferredOut: number // net sent to accounts not linked in Picsou (>= 0, mutually exclusive with transferredIn)
+  transferredIn: number  // net received from accounts not linked in Picsou (>= 0)
   nodes: FlowNode[]
   links: FlowLink[]
 }

@@ -32,7 +32,7 @@ const accountSchema = z.object({
   type: z.enum([
     'LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL',
     'PEA', 'COMPTE_TITRES', 'CRYPTO', 'CHECKING', 'SAVINGS',
-    'ASSURANCE_VIE', 'REAL_ESTATE', 'SCPI', 'LOAN', 'CREDIT_CARD', 'EMPLOYEE_SAVINGS', 'OTHER',
+    'ASSURANCE_VIE', 'PER', 'REAL_ESTATE', 'SCPI', 'LOAN', 'CREDIT_CARD', 'EMPLOYEE_SAVINGS', 'OTHER',
   ]),
   provider: z.string().max(100).optional(),
   currency: z.string().min(1),
@@ -61,12 +61,13 @@ const accountSchema = z.object({
 
 /**
  * Account types that carry an opening date, because their taxation turns on the plan's age: a
- * PEA's gains escape income tax at five years, an assurance-vie's at eight.
+ * PEA's gains escape income tax at five years, an assurance-vie's at eight, and a PER stays
+ * locked until retirement.
  *
  * `createdAt` cannot stand in for it — a PEA opened in 2014 and typed into Picsou last month has
  * a decade between the two, and the whole point of the field is that decade.
  */
-const OPENING_DATE_TYPES: AccountType[] = ['PEA', 'ASSURANCE_VIE']
+const OPENING_DATE_TYPES: AccountType[] = ['PEA', 'ASSURANCE_VIE', 'PER']
 
 type AccountFormData = z.infer<typeof accountSchema>
 
