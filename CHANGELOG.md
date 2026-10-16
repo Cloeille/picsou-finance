@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A Caisse d'Epargne sidecar and on-demand sync are in the codebase, but you cannot sign in
+  from Picsou yet.** A new internal `caisse-epargne-auth` container reads a Caisse d'Epargne
+  current account, a Livret A and an active deferred-debit card (shown as a credit card account
+  holding the amount still to be debited) with their transactions, and the backend can store
+  the bank session encrypted and sync it on request. There is no login screen and no setup
+  page yet, so today you cannot connect an account from the app, and nothing syncs
+  automatically. Disconnecting deletes the stored session in Picsou but does not end the
+  session at the bank, which stays open until it expires. Enable Banking is unchanged for
+  Caisse d'Epargne accounts.
 - **An individual retirement plan (PER) has its own account type.** It used to be entered as
   an assurance-vie or as employee savings, which misdescribed it. A PER holds unit-linked
   lines and a euro fund like an assurance-vie, counts as equity in the wealth pyramid, sits
