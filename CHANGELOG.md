@@ -107,6 +107,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An investment account's detail page shows its positions once.** The Positions card and the
+  realized gains on closed positions were each rendered twice, one under the other, on any
+  account with holdings (PEA, CTO, PER, crypto…). Values were right; only the display repeated.
+
 - **The budget money-flow chart no longer calls unspent money "savings".** Income left on the
   current account is now shown as "Unspent", and spending above income as "Taken from balance".
   Only money actually transferred to a savings or investment account appears as savings, with one
