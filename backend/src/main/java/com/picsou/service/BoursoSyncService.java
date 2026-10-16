@@ -57,6 +57,7 @@ public class BoursoSyncService {
     private static final Logger log = LoggerFactory.getLogger(BoursoSyncService.class);
     static final String PROVIDER = "BoursoBank";
     private static final String EXTERNAL_ID_PREFIX = "bourso_";
+    private static final List<String> PROVIDER_FAMILY = List.of(PROVIDER, "Boursorama", "Boursorama Banque");
     private static final BigDecimal ABSOLUTE_RECONCILIATION_TOLERANCE = new BigDecimal("0.05");
     private static final BigDecimal RELATIVE_RECONCILIATION_TOLERANCE = new BigDecimal("0.001");
     private static final int MAX_TICKER_LENGTH = 30;
@@ -614,17 +615,38 @@ public class BoursoSyncService {
         }));
     }
 
+    private static boolean isVerifiedIban(String iban) {
+        if (iban == null) return false;
+        String normalized = iban.replaceAll("\\s", "").toUpperCase(Locale.ROOT);
+        if (!normalized.matches("[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}")) return false;
+
+        String rearranged = normalized.substring(4) + normalized.substring(0, 4);
+        int remainder = 0;
+        for (int index = 0; index < rearranged.length(); index++) {
+            char character = rearranged.charAt(index);
+            if (character >= '0' && character <= '9') {
+                remainder = (remainder * 10 + character - '0') % 97;
+            } else {
+                remainder = (remainder * 100 + character - 'A' + 10) % 97;
+            }
+        }
+        return remainder == 1;
+    }
+
     private void upsertAccount(PreparedAccount data, FamilyMember member, Long memberId, Instant syncedAt,
                                CategorizationService.CategorizationContext categorizationContext) {
         Optional<Account> existing = accountRepository
             .findByExternalAccountIdAndMemberId(data.externalId(), memberId);
-        if (existing.isEmpty() && data.iban() != null && !data.iban().isBlank()) {
-            existing = accountRepository.findFirstByIbanAndMemberIdAndProvider(data.iban(), memberId, PROVIDER);
+        boolean hasVerifiedIban = isVerifiedIban(data.iban());
+        if (existing.isEmpty() && hasVerifiedIban) {
+            existing = accountRepository.findFirstByIbanAndMemberIdAndProviderIn(
+                data.iban(), memberId, PROVIDER_FAMILY);
         }
         if (existing.isEmpty()
             && (accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId)
-                || (data.iban() != null && !data.iban().isBlank()
-                    && accountRepository.existsSoftDeletedByIbanAndMemberIdAndProvider(data.iban(), memberId, PROVIDER)))) {
+                || (hasVerifiedIban
+                    && accountRepository.existsSoftDeletedByIbanAndMemberIdAndProviderIn(
+                        data.iban(), memberId, PROVIDER_FAMILY)))) {
             log.info("BoursoBank skipped a soft-deleted account (member={})", memberId);
             return;
         }

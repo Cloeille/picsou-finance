@@ -63,13 +63,17 @@ live BoursoBank capture. The CSV importer still accepts BoursoBank's own export.
 
 A failed operation read does not discard balances or holdings: the response
 carries `TRANSACTIONS_UNAVAILABLE`; hitting the page cap carries
-`TRANSACTIONS_INCOMPLETE`. Missing optional IBAN metadata must not be treated as
+`TRANSACTIONS_INCOMPLETE`. These fields are sidecar diagnostics only: the backend
+currently ignores them and does not display a warning in the sync result. The
+sidecar also logs a fixed warning code without bank URLs or account data.
+Missing optional IBAN metadata must not be treated as
 proof that a legacy aggregator account can be merged by its name.
 
 **Overlap with Enable Banking.** The sidecar passes an optional verified IBAN.
 The backend first matches the sidecar external ID, then the IBAN on an active
-`BoursoBank` account owned by the same member. It never matches account names or
-other providers, and respects soft-deletion guards. Without a matching IBAN or
+account in the explicit BoursoBank/Boursorama/Boursorama Banque provider family
+owned by the same member. It never matches account names or unrelated providers,
+and respects soft-deletion guards. Without a matching IBAN or
 external ID, existing separate account rows are not automatically merged.
 
 `SharedSidecarTransactionImportService` is reused by Bourso and Revolut. It
@@ -79,6 +83,13 @@ case/whitespace-normalized description. Each old row can match only one incoming
 row; fresh rows with distinct provider IDs remain distinct. Historical IDs and
 manual categories are preserved. Different labels cannot safely be inferred as
 the same transaction, so live legacy reconciliation still needs verification.
+Comparisons use the persisted 255-codepoint description and PostgreSQL's
+eight-decimal amount precision (`HALF_UP`), so database round-trips do not create
+new operations. Enable Banking references may be reused: identical rows retain
+their snapshot multiplicity and consume stored rows one-for-one on replay.
+Without a distinct source identifier, identical page overlap cannot be
+distinguished from two real identical purchases; the importer preserves the
+provider's multiplicity rather than silently dropping an operation.
 The label `VIR` alone does not classify an own-account transfer: salaries and
 external payments remain available to ordinary Budget categorization rules.
 

@@ -10,6 +10,7 @@ import com.picsou.service.budget.CategorizationService;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -27,6 +28,9 @@ import java.util.regex.Pattern;
 public class SharedSidecarTransactionImportService {
     private static final String TRANSFER_CATEGORY = "virement-interne";
     private static final int KEY_LIMIT = 128;
+    private static final int TEXT_LIMIT = 255;
+    private static final int AMOUNT_SCALE = 8;
+    private static final int EXTERNAL_ID_LIMIT = 255;
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     private final TransactionRepository transactionRepository;
@@ -45,6 +49,15 @@ public class SharedSidecarTransactionImportService {
     public int importFor(Account account, List<SidecarTransaction> transactions,
                          CategorizationService.CategorizationContext context, String providerKeyPrefix) {
         if (transactions == null || transactions.isEmpty()) return 0;
+        if (account.getCurrency() != null && !"EUR".equalsIgnoreCase(account.getCurrency())) return 0;
+
+        Set<String> snapshotIds = new HashSet<>();
+        for (SidecarTransaction data : transactions) {
+            if (data == null) continue;
+            String sourceId = cleanId(data.externalId());
+            addIfPresent(snapshotIds, sourceId);
+            if (sourceId != null) addIfPresent(snapshotIds, boundedExternalId(sourceId));
+        }
 
         List<Transaction> existing = transactionRepository
             .findByAccountIdAndIsManualFalse(account.getId());
@@ -56,15 +69,23 @@ public class SharedSidecarTransactionImportService {
             if (!isSidecarKey(row.getExternalTransactionId())) legacyRows.add(row);
         }
 
-        Set<String> batchKeys = new HashSet<>();
         Set<Integer> consumedLegacy = new HashSet<>();
+        for (int i = 0; i < legacyRows.size(); i++) {
+            Transaction legacy = legacyRows.get(i);
+            if (snapshotIds.contains(legacy.getExternalId())
+                || snapshotIds.contains(legacy.getExternalTransactionId())) {
+                consumedLegacy.add(i);
+            }
+        }
+
+        Set<String> batchKeys = new HashSet<>();
         int inserted = 0;
         for (int index = 0; index < transactions.size(); index++) {
             SidecarTransaction data = transactions.get(index);
             if (data == null || data.date() == null || data.amount() == null) continue;
             String sourceId = cleanId(data.externalId());
             String sourceKey = sourceId != null ? sourceId : syntheticKey(data, transactions, index);
-            String externalId = sourceId != null && sourceId.length() <= 255 ? sourceId : sourceKey;
+            String externalId = boundedExternalId(sourceId == null ? sourceKey : sourceId);
             String storedKey = providerKeyPrefix + ":" + sourceKey;
             if (storedKey.length() > KEY_LIMIT) storedKey = providerKeyPrefix + ":" + sha256(sourceKey);
 
@@ -80,9 +101,9 @@ public class SharedSidecarTransactionImportService {
             Transaction transaction = Transaction.builder()
                 .account(account)
                 .date(data.date())
-                .description(data.description() == null ? "" : data.description())
-                .amount(data.amount())
-                .counterparty(data.counterparty())
+                .description(boundedText(data.description() == null ? "" : data.description()))
+                .amount(normalizeAmount(data.amount()))
+                .counterparty(boundedText(data.counterparty()))
                 .externalId(externalId)
                 .externalTransactionId(storedKey)
                 .nativeCurrency(account.getCurrency() == null ? "EUR" : account.getCurrency())
@@ -110,7 +131,8 @@ public class SharedSidecarTransactionImportService {
             if (consumed.contains(i)) continue;
             Transaction old = legacyRows.get(i);
             if (old.getDate() != null && old.getDate().equals(incoming.date())
-                && old.getAmount() != null && old.getAmount().compareTo(incoming.amount()) == 0
+                && old.getAmount() != null
+                && normalizeAmount(old.getAmount()).compareTo(normalizeAmount(incoming.amount())) == 0
                 && normalizeDescription(old.getDescription()).equals(description)) return i;
         }
         return -1;
@@ -121,12 +143,27 @@ public class SharedSidecarTransactionImportService {
     }
 
     private static String normalizeDescription(String description) {
-        return WHITESPACE.matcher(description == null ? "" : description.trim())
-            .replaceAll(" ").toLowerCase(Locale.ROOT);
+        String bounded = boundedText(description == null ? "" : description);
+        return WHITESPACE.matcher(bounded.trim()).replaceAll(" ").toLowerCase(Locale.ROOT);
+    }
+
+    private static BigDecimal normalizeAmount(BigDecimal amount) {
+        return amount == null ? null : amount.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
     }
 
     private static String cleanId(String externalId) {
         return externalId == null || externalId.isBlank() ? null : externalId;
+    }
+
+    private static String boundedExternalId(String externalId) {
+        return externalId.codePointCount(0, externalId.length()) <= EXTERNAL_ID_LIMIT
+            ? externalId
+            : sha256(externalId);
+    }
+
+    private static String boundedText(String value) {
+        if (value == null || value.codePointCount(0, value.length()) <= TEXT_LIMIT) return value;
+        return value.substring(0, value.offsetByCodePoints(0, TEXT_LIMIT));
     }
 
     private static void addIfPresent(Set<String> target, String key) {
@@ -134,14 +171,15 @@ public class SharedSidecarTransactionImportService {
     }
 
     private static String syntheticKey(SidecarTransaction transaction, List<SidecarTransaction> batch, int index) {
-        String fingerprint = sha256(transaction.date() + "|" + transaction.amount().stripTrailingZeros().toPlainString()
+        String fingerprint = sha256(transaction.date() + "|" + normalizeAmount(transaction.amount()).stripTrailingZeros().toPlainString()
             + "|" + normalizeDescription(transaction.description()));
         int occurrence = 0;
         for (int i = 0; i < index; i++) {
             SidecarTransaction row = batch.get(i);
             if (row != null && cleanId(row.externalId()) == null
                 && row.date() != null && row.date().equals(transaction.date())
-                && row.amount() != null && row.amount().compareTo(transaction.amount()) == 0
+                && row.amount() != null
+                && normalizeAmount(row.amount()).compareTo(normalizeAmount(transaction.amount())) == 0
                 && normalizeDescription(row.description()).equals(normalizeDescription(transaction.description()))) {
                 occurrence++;
             }

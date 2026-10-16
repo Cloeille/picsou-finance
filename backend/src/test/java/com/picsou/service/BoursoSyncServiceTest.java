@@ -127,16 +127,78 @@ class BoursoSyncServiceTest {
         Account legacyBourso = Account.builder().id(88L).member(member()).name("Old label")
             .type(AccountType.CHECKING).provider("BoursoBank").iban(iban).externalAccountId("old-bourso-id")
             .isManual(false).build();
-        when(accountRepository.findFirstByIbanAndMemberIdAndProvider(iban, 7L, "BoursoBank"))
+        when(accountRepository.findFirstByIbanAndMemberIdAndProviderIn(
+            iban, 7L, List.of("BoursoBank", "Boursorama", "Boursorama Banque")))
             .thenReturn(Optional.of(legacyBourso));
 
         service.queueSync(7L);
 
-        verify(accountRepository).findFirstByIbanAndMemberIdAndProvider(iban, 7L, "BoursoBank");
+        verify(accountRepository).findFirstByIbanAndMemberIdAndProviderIn(
+            iban, 7L, List.of("BoursoBank", "Boursorama", "Boursorama Banque"));
         verify(accountRepository).save(accountCaptor.capture());
         assertThat(accountCaptor.getValue().getId()).isEqualTo(88L);
         assertThat(accountCaptor.getValue().getExternalAccountId()).isEqualTo(CHECKING_ID);
         assertThat(accountCaptor.getValue().getProvider()).isEqualTo("BoursoBank");
+    }
+
+    @Test
+    void queueSync_reusesAnEnableBankingBoursoramaAccountByVerifiedIban() {
+        String iban = "FR7630006000011234567890189";
+        BoursoPort.AccountData refreshed = new BoursoPort.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
+            new BigDecimal("20810.50"), null, List.of(), true, iban, List.of());
+        arrangeCommittableSync(refreshed);
+        Account enableBanking = Account.builder().id(88L).member(member()).name("Boursorama Banque")
+            .type(AccountType.CHECKING).provider("Boursorama Banque").iban(iban)
+            .externalAccountId("eb-account-id").isManual(false).build();
+        List<String> providerFamily = List.of("BoursoBank", "Boursorama", "Boursorama Banque");
+        when(accountRepository.findFirstByIbanAndMemberIdAndProviderIn(iban, 7L, providerFamily))
+            .thenReturn(Optional.of(enableBanking));
+
+        service.queueSync(7L);
+
+        verify(accountRepository).findFirstByIbanAndMemberIdAndProviderIn(iban, 7L, providerFamily);
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getId()).isEqualTo(88L);
+        assertThat(accountCaptor.getValue().getExternalAccountId()).isEqualTo(CHECKING_ID);
+        assertThat(accountCaptor.getValue().getProvider()).isEqualTo("BoursoBank");
+    }
+
+    @Test
+    void queueSync_doesNotMatchBoursoramaAliasByInvalidIban() {
+        String invalidIban = "FR7630006000011234567890188";
+        BoursoPort.AccountData refreshed = new BoursoPort.AccountData(CHECKING_ID, "BoursoBank",
+            AccountType.CHECKING, new BigDecimal("20810.50"), null, List.of(), true, invalidIban, List.of());
+        arrangeCommittableSync(refreshed);
+
+        service.queueSync(7L);
+
+        verify(accountRepository, never()).findFirstByIbanAndMemberIdAndProviderIn(
+            any(), eq(7L), any());
+        verify(accountRepository, never()).existsSoftDeletedByIbanAndMemberIdAndProviderIn(
+            any(), eq(7L), any());
+    }
+
+    @Test
+    void queueSync_doesNotResurrectASoftDeletedBoursoramaAliasByIban() {
+        String iban = "FR7630006000011234567890189";
+        BoursoPort.AccountData deleted = new BoursoPort.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
+            new BigDecimal("20810.50"), null, List.of(), true, iban, List.of());
+        FamilyMember familyMember = member();
+        arrangeQueuedSession(activeSession(familyMember));
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(deleted));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(familyMember));
+        when(categorizationService.loadContext(7L)).thenReturn(
+            new CategorizationService.CategorizationContext(List.of(), Map.of()));
+        when(accountRepository.findByExternalAccountIdAndMemberId(CHECKING_ID, 7L)).thenReturn(Optional.empty());
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(CHECKING_ID, 7L)).thenReturn(false);
+        List<String> providerFamily = List.of("BoursoBank", "Boursorama", "Boursorama Banque");
+        when(accountRepository.existsSoftDeletedByIbanAndMemberIdAndProviderIn(iban, 7L, providerFamily))
+            .thenReturn(true);
+
+        service.queueSync(7L);
+
+        verify(accountRepository).existsSoftDeletedByIbanAndMemberIdAndProviderIn(iban, 7L, providerFamily);
+        verify(accountRepository, never()).save(any());
     }
 
     /**

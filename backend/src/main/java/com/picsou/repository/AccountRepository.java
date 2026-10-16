@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -72,8 +73,11 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
      */
     Optional<Account> findByIbanAndMemberId(String iban, Long memberId);
 
-    /** Match legacy BoursoBank accounts by IBAN without merging another provider's account. */
+    /** Match a legacy provider value exactly, without merging a different provider's account. */
     Optional<Account> findFirstByIbanAndMemberIdAndProvider(String iban, Long memberId, String provider);
+
+    /** Match the explicitly supported BoursoBank/Boursorama provider family by IBAN and member. */
+    Optional<Account> findFirstByIbanAndMemberIdAndProviderIn(String iban, Long memberId, Collection<String> providers);
 
     /**
      * Returns true if any soft-deleted account exists with this IBAN for the member.
@@ -93,6 +97,11 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
         "AND provider = :provider AND deleted_at IS NOT NULL)", nativeQuery = true)
     boolean existsSoftDeletedByIbanAndMemberIdAndProvider(@Param("iban") String iban,
         @Param("memberId") Long memberId, @Param("provider") String provider);
+
+    @Query(value = "SELECT EXISTS(SELECT 1 FROM account WHERE iban = :iban AND member_id = :memberId " +
+        "AND provider IN (:providers) AND deleted_at IS NOT NULL)", nativeQuery = true)
+    boolean existsSoftDeletedByIbanAndMemberIdAndProviderIn(@Param("iban") String iban,
+        @Param("memberId") Long memberId, @Param("providers") Collection<String> providers);
 
     // ─── Revolut pockets (1.1.0) ──────────────────────────────────────────────
 

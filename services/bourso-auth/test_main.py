@@ -262,8 +262,12 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(lep.positions, [])
 
     async def test_movement_outage_keeps_the_balance_and_emits_a_safe_warning(self):
-        async with build_client(default_handler(movement_status=503)) as client:
-            accounts = await _collect_accounts(client)
+        with self.assertLogs("bourso-auth", level="WARNING") as captured:
+            async with build_client(default_handler(movement_status=503)) as client:
+                accounts = await _collect_accounts(client)
+
+        self.assertTrue(any("TRANSACTIONS_UNAVAILABLE" in line for line in captured.output))
+        self.assertFalse(any("20810.50" in line or "FR763" in line for line in captured.output))
 
         checking = next(account for account in accounts if account.type == "CHECKING")
         self.assertEqual(checking.balanceEur, Decimal("20810.50"))
@@ -284,11 +288,14 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
                 )
             return normal_handler(request)
 
-        async with httpx.AsyncClient(
-            base_url=BASE_URL, transport=httpx.MockTransport(handler), follow_redirects=True
-        ) as client:
-            accounts = await _collect_accounts(client)
+        with self.assertLogs("bourso-auth", level="WARNING") as captured:
+            async with httpx.AsyncClient(
+                base_url=BASE_URL, transport=httpx.MockTransport(handler), follow_redirects=True
+            ) as client:
+                accounts = await _collect_accounts(client)
 
+        self.assertTrue(any("TRANSACTIONS_INCOMPLETE" in line for line in captured.output))
+        self.assertFalse(any("loop" in line or "/mouvements" in line for line in captured.output))
         checking = next(account for account in accounts if account.type == "CHECKING")
         self.assertEqual(checking.balanceEur, Decimal("20810.50"))
         self.assertEqual(checking.transactionWarning, "TRANSACTIONS_INCOMPLETE")

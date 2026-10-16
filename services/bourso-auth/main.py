@@ -750,10 +750,12 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
                 entry["transactions"], truncated = await _fetch_operations(client, account["href"])
                 if truncated:
                     entry["transactionWarning"] = "TRANSACTIONS_INCOMPLETE"
+                    log.warning("BoursoBank transaction history: TRANSACTIONS_INCOMPLETE")
             except (httpx.HTTPError, ValueError, AccountsFormatError):
                 # Balances remain useful, but never present a failed history read
                 # as a complete transaction import or expose upstream content.
                 entry["transactionWarning"] = "TRANSACTIONS_UNAVAILABLE"
+                log.warning("BoursoBank transaction history: TRANSACTIONS_UNAVAILABLE")
         payloads.append(entry)
 
     unresolved = sum(

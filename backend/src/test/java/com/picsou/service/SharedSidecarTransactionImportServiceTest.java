@@ -59,6 +59,90 @@ class SharedSidecarTransactionImportServiceTest {
     }
 
     @Test
+    void legacyRevolutRowMatchingSnapshotIdDoesNotConsumeReplacementRegardlessOfSnapshotOrder() {
+        Account account = account(1L);
+        List<SidecarTransaction> oldThenNew = List.of(
+            transaction("rev-1", DATE, "Coffee", "-3.50", CategoryKind.EXPENSE),
+            transaction("rev-2", DATE, "Coffee", "-3.50", CategoryKind.EXPENSE));
+        List<SidecarTransaction> newThenOld = List.of(oldThenNew.get(1), oldThenNew.get(0));
+
+        for (List<SidecarTransaction> snapshot : List.of(oldThenNew, newThenOld)) {
+            stored.clear();
+            stored.add(Transaction.builder().account(account).date(DATE).description("Coffee")
+                .amount(new BigDecimal("-3.50")).externalId("rev-1").externalTransactionId(null).build());
+
+            assertThat(service.importFor(account, snapshot, context(), "revolut")).isEqualTo(1);
+            assertThat(stored).hasSize(2);
+            assertThat(stored).extracting(Transaction::getExternalId).containsExactly("rev-1", "rev-2");
+            assertThat(service.importFor(account, snapshot, context(), "revolut")).isZero();
+            assertThat(stored).hasSize(2);
+        }
+    }
+
+    @Test
+    void normalizesAmountsToPostgresScaleForPersistenceAndStableReplay() {
+        Account account = account(1L);
+        SidecarTransaction fetched = transaction("rounded-ref", DATE, "Coffee", "1.123456789", CategoryKind.EXPENSE);
+
+        assertThat(service.importFor(account, List.of(fetched), context(), "bourso")).isEqualTo(1);
+
+        assertThat(stored).hasSize(1);
+        assertThat(stored.getFirst().getAmount()).isEqualByComparingTo("1.12345679");
+        assertThat(stored.getFirst().getAmount().scale()).isEqualTo(8);
+        assertThat(service.importFor(account, List.of(fetched), context(), "bourso")).isZero();
+        assertThat(stored).hasSize(1);
+    }
+
+    @Test
+    void matchesLegacyRowsAfterAmountAndDescriptionPersistenceNormalization() {
+        Account account = account(1L);
+        String description = "🪙".repeat(260);
+        stored.add(Transaction.builder().account(account).date(DATE).description("🪙".repeat(255))
+            .amount(new BigDecimal("1.12345679")).externalId("eb-rounded-reference")
+            .externalTransactionId("eb-rounded-reference").isManual(false).build());
+        SidecarTransaction fetched = new SidecarTransaction("bourso-rounded-reference", DATE, description,
+            new BigDecimal("1.123456789"), "Merchant", "EXPENSE");
+
+        assertThat(service.importFor(account, List.of(fetched), context(), "bourso")).isZero();
+
+        assertThat(stored).hasSize(1);
+        assertThat(stored.getFirst().getExternalId()).isEqualTo("eb-rounded-reference");
+        assertThat(stored.getFirst().getDescription()).isEqualTo("🪙".repeat(255));
+        assertThat(stored.getFirst().getAmount()).isEqualByComparingTo("1.12345679");
+    }
+
+    @Test
+    void truncatesProviderTextAndHashesOversizedExternalId() {
+        Account account = account(1L);
+        String externalId = "rev-" + "x".repeat(300);
+        String description = "D".repeat(300);
+        String counterparty = "C".repeat(300);
+        SidecarTransaction sidecarTransaction = new SidecarTransaction(externalId, DATE, description,
+            new BigDecimal("-1.00"), counterparty, null);
+
+        assertThat(service.importFor(account, List.of(sidecarTransaction), context(), "revolut")).isEqualTo(1);
+
+        Transaction imported = stored.getFirst();
+        assertThat(imported.getDescription()).hasSize(255);
+        assertThat(imported.getCounterparty()).hasSize(255);
+        assertThat(imported.getExternalId()).matches("[0-9a-f]{64}");
+        assertThat(imported.getExternalTransactionId()).hasSizeLessThanOrEqualTo(128);
+    }
+
+    @Test
+    void skipsUnconvertedForeignCurrencyTransactionsWithoutChangingAccountBalance() {
+        Account account = Account.builder().id(2L).name("Dollar account").currency("USD")
+            .currentBalance(new BigDecimal("123.45")).build();
+        SidecarTransaction transaction = transaction("usd-1", DATE, "Coffee", "-3.50", CategoryKind.EXPENSE);
+
+        assertThat(service.importFor(account, List.of(transaction), context(), "revolut")).isZero();
+
+        assertThat(stored).isEmpty();
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("123.45");
+        assertThat(account.getCurrency()).isEqualTo("USD");
+    }
+
+    @Test
     void matchesLegacyEnableBankingRowByStrictFingerprintWithoutChangingItsCategory() {
         Account account = account(1L);
         Category manualCategory = Category.builder().name("User choice").kind(CategoryKind.EXPENSE).build();
