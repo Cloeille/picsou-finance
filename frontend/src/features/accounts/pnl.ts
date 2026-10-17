@@ -34,14 +34,14 @@ function propertyCostBasis(account: Account): number | null {
  * balance stayed in the numerator is exactly the partial-basis mismatch that once showed -85%
  * on an account that had not moved.
  */
-export function accountInvestedAt(account: Account, point: AccountPoint): number {
+export function accountInvestedAt(account: Account, point: AccountPoint): number | null {
   const basis = propertyCostBasis(account)
   if (account.type === 'REAL_ESTATE') return basis ?? point.total
   return point.invested
 }
 
 /** Gain/loss of {@code account} at {@code point}, measured against {@link accountInvestedAt}. */
-export function accountPnlAt(account: Account, point: AccountPoint): number {
+export function accountPnlAt(account: Account, point: AccountPoint): number | null {
   if (account.type !== 'REAL_ESTATE') return point.pnl
   const basis = propertyCostBasis(account)
   return basis == null ? 0 : point.total - basis

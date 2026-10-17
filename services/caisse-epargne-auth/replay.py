@@ -313,14 +313,71 @@ class TokenResult:
     expires_in: float
 
 
+@dataclass(frozen=True)
+class ChainProfile:
+    """Which token a replay mints: the captured authorize query, with overrides.
+
+    `overrides` replaces captured parameters, `drop` removes them. PKCE and the
+    nonce are always fresh, whatever the profile.
+    """
+
+    name: str
+    overrides: tuple[tuple[str, str], ...] = ()
+    drop: tuple[str, ...] = ()
+
+    def authorize_params(self, captured: dict[str, str]) -> dict[str, str]:
+        params = {k: v for k, v in captured.items() if k not in self.drop}
+        params.update(self.overrides)
+        return params
+
+
+# The token used for accounts and transactions: the query captured at login, as is.
+MAIN_CHAIN = ChainProfile(name="main")
+
+# The personal-loan pages of the web front mint their own token (observed live
+# 2026-10-13): another public client, scope and redirect, and no `claims`; every
+# other authorize parameter is the one the main chain sends.
+LOAN_CLIENT_ID = "30c229b8-047f-49a0-aad4-198008c1cdd7"
+LOAN_SCOPE = "managePersonalLoanPrd readPersonalLoanPrd readUser"
+LOAN_REDIRECT_URI = "https://www.caisse-epargne.fr/espace-gestion/pret-personnel/postMessage/index.html"
+LOAN_CHAIN = ChainProfile(
+    name="personal-loan",
+    overrides=(
+        ("client_id", LOAN_CLIENT_ID),
+        ("scope", LOAN_SCOPE),
+        ("redirect_uri", LOAN_REDIRECT_URI),
+    ),
+    drop=("claims",),
+)
+
+# The PER insurer app (espace-assurances-de-personnes) mints its own token too
+# (observed live 2026-10-15): public client and redirect from its `conf/conf.json`,
+# an empty `scope` (the bank grants `assuranceVieAuth_get_<id> readUser`), no
+# `claims`. Every other authorize parameter is the one the main chain sends.
+PER_CLIENT_ID = "4f601b77-a48e-4473-8ddd-eae246505206"
+PER_REDIRECT_URI = "https://www.espace-assurances-de-personnes.caisse-epargne.fr/postMessage/index.html"
+PER_CHAIN = ChainProfile(
+    name="per",
+    overrides=(
+        ("client_id", PER_CLIENT_ID),
+        ("scope", ""),
+        ("redirect_uri", PER_REDIRECT_URI),
+    ),
+    drop=("claims",),
+)
+
+
 async def replay_chain(
     state: SessionState,
     *,
     transport: httpx.AsyncBaseTransport | None = None,
     authorize_url: str = AUTHORIZE_URL,
     token_url: str = TOKEN_URL,
+    chain: ChainProfile = MAIN_CHAIN,
 ) -> TokenResult:
     """Run authorize -> AuthnRequest -> consume -> token with the session cookies.
+
+    `chain` selects which token is minted (MAIN_CHAIN or LOAN_CHAIN).
 
     Raises SessionExpired when the bank no longer accepts the SSO session,
     HostNotAllowed (an UpstreamError) when any URL leaves the allow-list, and
@@ -329,7 +386,7 @@ async def replay_chain(
     """
     _require_allowed(authorize_url)
     _require_allowed(token_url)
-    params = state.authorize_params
+    params = chain.authorize_params(state.authorize_params)
 
     verifier = secrets.token_urlsafe(48)
     query = {
@@ -442,14 +499,15 @@ class TokenCache:
             del self._entries[next(iter(self._entries))]
 
     @staticmethod
-    def _key(state: "SessionState") -> str:
+    def _key(state: "SessionState", chain: ChainProfile = MAIN_CHAIN) -> str:
+        # The chain name is part of the key: one session holds one token per chain.
         return hashlib.sha256(
-            json.dumps([state.cookies, state.authorize_params], sort_keys=True).encode()
+            json.dumps([chain.name, state.cookies, state.authorize_params], sort_keys=True).encode()
         ).hexdigest()
 
-    def evict(self, raw_state: Any) -> None:
-        """Forget the cached token of this session (e.g. after the bank rejected it)."""
-        self._entries.pop(self._key(parse_session_state(raw_state)), None)
+    def evict(self, raw_state: Any, *, chain: ChainProfile = MAIN_CHAIN) -> None:
+        """Forget this session's token for `chain` (e.g. after the bank rejected it)."""
+        self._entries.pop(self._key(parse_session_state(raw_state), chain), None)
 
     async def get(
         self,
@@ -458,9 +516,10 @@ class TokenCache:
         transport: httpx.AsyncBaseTransport | None = None,
         authorize_url: str = AUTHORIZE_URL,
         token_url: str = TOKEN_URL,
+        chain: ChainProfile = MAIN_CHAIN,
     ) -> TokenResult:
         state = parse_session_state(raw_state)
-        key = self._key(state)
+        key = self._key(state, chain)
         lock = self._locks.get(key)
         if lock is None:
             lock = self._locks[key] = asyncio.Lock()
@@ -475,7 +534,11 @@ class TokenCache:
                 del self._entries[key]
 
             result = await replay_chain(
-                state, transport=transport, authorize_url=authorize_url, token_url=token_url
+                state,
+                transport=transport,
+                authorize_url=authorize_url,
+                token_url=token_url,
+                chain=chain,
             )
             now = self._clock()
             if result.expires_in > TOKEN_SAFETY_MARGIN_SECONDS:

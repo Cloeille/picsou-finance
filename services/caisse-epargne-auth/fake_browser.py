@@ -1,7 +1,7 @@
 """Test double for the Playwright objects `login.py` drives. Test-only module.
 
-Plays the Caisse d'Epargne login page: identifier step, a 10-key image keypad,
-the Sécur'Pass wait and the client space. No browser, no network, no real data.
+Plays the Caisse d'Epargne login page: identifier step, a 10-key image keypad
+(read by `/initiate`, clicked by `/keypad`), the Sécur'Pass wait and the client space. No browser, no network, no real data.
 """
 
 import asyncio
@@ -60,13 +60,14 @@ def png_digest(png: bytes) -> str:
     return hashlib.sha256(png).hexdigest()
 
 
-def synthetic_table() -> dict[str, str]:
-    """digest -> digit for the 10 generated PNGs (what L4 will capture for real)."""
-    return {png_digest(make_png(d)): d for d in DIGITS}
+def data_uri(png: bytes, mime: str = "image/png") -> str:
+    return f"data:{mime};base64,{base64.b64encode(png).decode()}"
 
 
 _ref = make_png("0")
 UNKNOWN_PNG = _ref[:-12] + b"unknown-key" + _ref[-12:]
+# Decoded size just above the 16 KB cap the sidecar accepts per key image.
+OVERSIZE_PNG = _ref[:-12] + b"x" * (16 * 1024) + _ref[-12:]
 
 
 def default_cookies() -> list[dict]:
@@ -88,7 +89,9 @@ class World:
         self.layout = layout
         # scenario
         self.key_count = 10
-        self.unknown_key: int | None = None
+        self.unknown_key: int | None = None  # key i shows a PNG that is not one of the pad's
+        self.oversize_key: int | None = None  # key i shows a PNG above the 16 KB cap
+        self.css_by_key: dict[int, str] = {}  # per-key CSS value (e.g. no data URI)
         self.same_image: tuple[int, int] | None = None  # key i shows key j's image
         self.css_override: str | None = None  # every key shows this CSS value
         self.identifier_ok = True
@@ -125,18 +128,24 @@ class World:
     def key_png(self, index: int) -> bytes:
         if index == self.unknown_key:
             return UNKNOWN_PNG
+        if index == self.oversize_key:
+            return OVERSIZE_PNG
         if self.same_image and index == self.same_image[0]:
             index = self.same_image[1]
         return make_png(self.layout[index % 10])
 
     def key_css(self, index: int) -> str:
+        if index in self.css_by_key:
+            return self.css_by_key[index]
         if self.css_override is not None:
             return self.css_override
-        b64 = base64.b64encode(self.key_png(index)).decode()
-        return f'url("data:image/png;base64,{b64}")'
+        return f'url("{data_uri(self.key_png(index))}")'
 
     def all_digests_hex(self) -> list[str]:
         return [png_digest(self.key_png(i)) for i in range(10)]
+
+    def all_data_uris(self) -> list[str]:
+        return [data_uri(self.key_png(i)) for i in range(10)]
 
     def maybe_fail(self, name: str) -> None:
         if name in self.fail_on:
@@ -429,6 +438,7 @@ class FakeKey:
         world = self.page.world
         world.key_clicks.append(self.index)  # the attempt counts, even if it then fails
         world.maybe_fail("key_click")
+        await world.maybe_hang("key_click")
         world.typed.append(world.layout[self.index % 10])
         world.events.append(f"key:{self.index}")
         if world.reshuffle_after is not None and len(world.key_clicks) == world.reshuffle_after:

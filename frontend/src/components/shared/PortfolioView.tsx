@@ -24,6 +24,7 @@ const SORT_OPTIONS: { value: SortBy; labelKey: string }[] = [
 function PortfolioItem({ line }: { line: PortfolioLine }) {
   const { t } = useTranslation()
   const isPositive = (line.pnlEur ?? 0) >= 0
+  const displayName = line.nameKey ? t(line.nameKey) : line.name
 
   return (
     <div className="flex items-center gap-4 rounded-xl bg-muted/30 px-4 py-3 transition-colors hover:bg-muted/60">
@@ -37,7 +38,7 @@ function PortfolioItem({ line }: { line: PortfolioLine }) {
 
       {/* Info */}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{line.name}</p>
+        <p className="truncate text-sm font-medium">{displayName}</p>
         {line.ticker && (
           <p className="text-sm text-muted-foreground">
             {line.accountName}
@@ -67,7 +68,10 @@ function PortfolioItem({ line }: { line: PortfolioLine }) {
             {t('portfolio.value')}
           </span>
           <div className="inline-flex items-center gap-1.5">
-            <PriceFreshnessDot priceUpdatedAt={line.priceUpdatedAt} />
+            <PriceFreshnessDot
+              priceUpdatedAt={line.priceUpdatedAt}
+              staleAsOf={line.priceStale ? line.priceAsOf : null}
+            />
             <CurrencyDisplay value={line.valueEur} className="font-medium tabular-nums" />
           </div>
         </div>
@@ -88,7 +92,7 @@ export function PortfolioView() {
     if (search) {
       const q = search.toLowerCase()
       result = result.filter(l =>
-        l.name.toLowerCase().includes(q) ||
+        (l.nameKey ? t(l.nameKey) : l.name).toLowerCase().includes(q) ||
         (l.ticker ?? '').toLowerCase().includes(q) ||
         l.accountName.toLowerCase().includes(q)
       )
@@ -101,7 +105,7 @@ export function PortfolioView() {
     }
 
     return result
-  }, [lines, sortBy, search])
+  }, [lines, sortBy, search, t])
 
   const totalValue = useMemo(
     () => (sorted ?? []).reduce((sum, l) => sum + l.valueEur, 0),

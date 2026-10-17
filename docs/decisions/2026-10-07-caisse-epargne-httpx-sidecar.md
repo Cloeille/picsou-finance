@@ -109,8 +109,9 @@ screen.
   `CaisseEpargneSyncStatus`, `CaisseEpargneErrorCode`, `CaisseEpargneSyncConfig`,
   `CaisseEpargneSyncRecovery`, migration `V109__caisse_epargne_session.sql`.
 - New CI job `caisse-epargne-sidecar` and a GHCR image `caisse-epargne-auth`.
-- The sidecar tests mix pytest functions and `unittest` classes, so CI runs
-  pytest (installed at run time, not in the image).
+- The sidecar tests are stdlib `unittest` cases, like the other sidecars. CI
+  runs `python -m unittest discover` in the production image, with no
+  test-only dependency.
 - Not wired, on purpose: the member sync, `SyncStatusService`, MCP `SyncTools`
   and the setup wizard health check, until login and a frontend exist.
 - Details and open gaps: [docs/features/caisse-epargne.md](../features/caisse-epargne.md).
