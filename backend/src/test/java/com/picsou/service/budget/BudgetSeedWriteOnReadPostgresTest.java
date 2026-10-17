@@ -71,7 +71,7 @@ class BudgetSeedWriteOnReadPostgresTest {
     }
 
     /** The number of default categories {@link CategoryService} seeds for a brand-new member. */
-    private static final int DEFAULT_CATEGORY_COUNT = 18;
+    private static final int DEFAULT_CATEGORY_COUNT = 19;
 
     @Autowired CategoryService categoryService;
     @Autowired BudgetSettingsService budgetSettingsService;

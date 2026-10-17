@@ -34,6 +34,37 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CaisseEpargneAdapterTest {
 
+    @Test
+    void fetchAccounts_keepsOwnedPerUnitsAndSeparateEuroFundPocket() {
+        String wire = """
+            {"accounts":[{"externalId":"contract:00000     PERIC12345678","kind":"PER",
+              "name":"Synthetic pension","balance":"1700.00","currency":"EUR",
+              "transactions":[],"snapshotComplete":true,
+              "per":{"balance":"1700.00","euroFundBalance":"1000.00",
+                "valuationDate":"2026-10-01","positions":[
+                  {"isin":"XX0000000001","name":"Synthetic fund","quantity":"10.000000",
+                   "unitPrice":"70.00","value":"700.00","priceDate":"2026-09-30",
+                   "compartmentId":1}]}}],"unsupported":[]}
+            """;
+        var snapshot = adapterReturning(HttpStatus.OK, wire).fetchAccounts("synthetic-state");
+        var per = new ObjectMapper().findAndRegisterModules()
+            .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            .valueToTree(snapshot)
+            .path("accounts").get(0).path("per");
+
+        assertThat(per.isObject()).isTrue();
+        assertThat(new BigDecimal(per.path("euroFundBalance").asText())).isEqualByComparingTo("1000.00");
+        assertThat(per.path("valuationDate").asText()).isEqualTo("2026-10-01");
+        assertThat(per.path("positions")).hasSize(1);
+        var position = per.path("positions").get(0);
+        assertThat(position.path("isin").asText()).isEqualTo("XX0000000001");
+        assertThat(new BigDecimal(position.path("quantity").asText())).isEqualByComparingTo("10");
+        assertThat(new BigDecimal(position.path("unitPrice").asText())).isEqualByComparingTo("70");
+        assertThat(new BigDecimal(position.path("value").asText())).isEqualByComparingTo("700");
+        assertThat(position.path("priceDate").asText()).isEqualTo("2026-09-30");
+        assertThat(position.path("compartmentId").asInt()).isEqualTo(1);
+    }
+
     private static final String CONTRACT = """
         {
           "accounts": [
@@ -45,7 +76,7 @@ class CaisseEpargneAdapterTest {
              "cardNature": null, "parentExternalId": null,
              "transactions": [
                {"externalId": "t1", "date": "2026-10-01", "dueDate": "2026-10-01",
-                "amount": "-12.30", "currency": "EUR", "label": "SUPERMARCHE"}
+                "amount": "-12.30", "currency": "EUR", "label": "SUPERMARCHE", "typeCode": "04"}
              ],
              "snapshotComplete": true},
             {"externalId": "1002", "kind": "LIVRET_A", "name": "LIVRET A",
@@ -61,6 +92,7 @@ class CaisseEpargneAdapterTest {
              "authorizedOverdraft": null, "ceiling": null,
              "remainingDepositCapacity": null, "fillingRatio": null,
              "cardNature": "DEFERRED_DEBIT", "parentExternalId": "1001",
+             "nextDueDate": "2026-10-31",
              "transactions": [
                {"externalId": "c1", "date": "2026-10-02", "dueDate": "2026-10-31",
                 "amount": "-87.10", "currency": "EUR", "label": "RESTAURANT"}
@@ -72,11 +104,11 @@ class CaisseEpargneAdapterTest {
         """;
 
     @Test
-    void portExposesTheReadPathAndTheTwoStepLoginAndNothingElse() {
-        // initiate/complete exist; no method takes or returns anything password-shaped but initiate.
+    void portExposesTheReadPathAndTheKeypadLoginAndNothingElse() {
+        // initiate/keypad/complete exist; no method takes a password: only key positions.
         var names = new TreeSet<String>();
         for (Method method : CaisseEpargnePort.class.getMethods()) names.add(method.getName());
-        assertThat(names).containsExactly("checkSession", "completeAuth", "fetchAccounts", "initiateAuth");
+        assertThat(names).containsExactly("checkSession", "completeAuth", "fetchAccounts", "initiateAuth", "submitKeypad");
     }
 
     @Test
@@ -101,7 +133,9 @@ class CaisseEpargneAdapterTest {
             assertThat(tx.dueDate()).isEqualTo(LocalDate.of(2026, 10, 1));
             assertThat(tx.amount()).isEqualByComparingTo("-12.30");
             assertThat(tx.label()).isEqualTo("SUPERMARCHE");
+            assertThat(tx.typeCode()).isEqualTo("04");
         });
+        assertThat(current.nextDueDate()).isNull();
 
         CaisseEpargnePort.AccountData livret = snapshot.accounts().get(1);
         assertThat(livret.kind()).isEqualTo("LIVRET_A");
@@ -118,11 +152,60 @@ class CaisseEpargneAdapterTest {
         assertThat(card.cardNature()).isEqualTo("DEFERRED_DEBIT");
         assertThat(card.parentExternalId()).isEqualTo("1001");
         assertThat(card.transactions().getFirst().dueDate()).isEqualTo(LocalDate.of(2026, 10, 31));
+        assertThat(card.transactions().getFirst().typeCode()).isNull(); // absent in the payload
+        assertThat(card.nextDueDate()).isEqualTo(LocalDate.of(2026, 10, 31));
 
         assertThat(snapshot.unsupported()).singleElement().satisfies(u -> {
             assertThat(u.externalId()).isEqualTo("9001");
             assertThat(u.familyCode()).isEqualTo("7");
         });
+    }
+
+    /** Synthetic loan, same shape as the sidecar's `loan` block: decimals as strings, ISO dates. */
+    private static final String LOAN_CONTRACT = """
+        {
+          "accounts": [
+            {"externalId": "contract:L0001", "kind": "LOAN", "name": "PRET PERSONNEL",
+             "balance": "-9000.00", "currency": "EUR", "iban": null, "ibanAmbiguous": false,
+             "authorizedOverdraft": null, "ceiling": null, "remainingDepositCapacity": null,
+             "fillingRatio": null, "cardNature": null, "parentExternalId": null,
+             "transactions": [], "snapshotComplete": true,
+             "loan": {"borrowedAmount": "12000.00", "interestRate": "0.03", "monthlyPayment": "280.00",
+                      "insuranceMonthly": "14.39", "signatureDate": "2025-01-10",
+                      "firstDueDate": "2025-02-05", "lastDueDate": "2029-01-05",
+                      "durationMonths": 48, "linkedIban": "FR0000000000000000000000000"}},
+            {"externalId": "contract:L0002", "kind": "LOAN", "name": "PRET PERSONNEL",
+             "balance": "-100.00", "currency": "EUR", "iban": null, "ibanAmbiguous": false,
+             "transactions": [], "snapshotComplete": true, "loan": null},
+            {"externalId": "contract:P0001", "kind": "PER", "name": "PER",
+             "balance": "4200.00", "currency": "EUR", "iban": null, "ibanAmbiguous": false,
+             "transactions": [], "snapshotComplete": true}
+          ],
+          "unsupported": []
+        }
+        """;
+
+    @Test
+    void fetchAccounts_mapsTheLoanDetailsAndToleratesANullOrAbsentLoan() {
+        CaisseEpargneAdapter adapter = adapterReturning(HttpStatus.OK, LOAN_CONTRACT);
+
+        CaisseEpargnePort.AccountsSnapshot snapshot = adapter.fetchAccounts("state");
+
+        assertThat(snapshot.accounts()).hasSize(3);
+        CaisseEpargnePort.LoanDetails loan = snapshot.accounts().get(0).loan();
+        assertThat(loan).isNotNull();
+        assertThat(loan.borrowedAmount()).isEqualByComparingTo("12000.00");
+        assertThat(loan.interestRate()).isEqualByComparingTo("0.03");
+        assertThat(loan.monthlyPayment()).isEqualByComparingTo("280.00");
+        assertThat(loan.insuranceMonthly()).isEqualByComparingTo("14.39");
+        assertThat(loan.signatureDate()).isEqualTo(LocalDate.of(2025, 1, 10));
+        assertThat(loan.firstDueDate()).isEqualTo(LocalDate.of(2025, 2, 5));
+        assertThat(loan.lastDueDate()).isEqualTo(LocalDate.of(2029, 1, 5));
+        assertThat(loan.durationMonths()).isEqualTo(48);
+        assertThat(loan.linkedIban()).isEqualTo("FR0000000000000000000000000");
+        assertThat(snapshot.accounts().get(1).loan()).isNull();
+        assertThat(snapshot.accounts().get(2).loan()).isNull();
+        assertThat(snapshot.accounts().get(2).kind()).isEqualTo("PER");
     }
 
     @Test
@@ -212,7 +295,8 @@ class CaisseEpargneAdapterTest {
             .containsExactlyInAnyOrder(
                 "SESSION_EXPIRED", "UPSTREAM_UNAVAILABLE", "UPSTREAM_FORMAT_CHANGED",
                 "INVALID_SESSION_STATE", "INTERNAL_ERROR",
-                "INVALID_CREDENTIALS", "KEYPAD_CHANGED", "APP_VALIDATION_TIMEOUT", "AUTH_ATTEMPT_EXPIRED");
+                "INVALID_CREDENTIALS", "KEYPAD_CHANGED", "APP_VALIDATION_TIMEOUT", "AUTH_ATTEMPT_EXPIRED",
+                "KEYPAD_EXPIRED", "INVALID_POSITIONS");
     }
 
     // -- helpers ------------------------------------------------------------

@@ -6,6 +6,7 @@ import com.picsou.dto.DashboardResponse.NetWorthPoint;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
+import com.picsou.model.BalanceSnapshot;
 import com.picsou.model.PriceSnapshot;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -136,6 +137,16 @@ public class HistoryService {
 
         // Per-account forward-filled balance + invested snapshots + sorted dates.
         ForwardFillData ffData = buildPerAccountForwardFill(from, accounts);
+        Set<Long> caisseEpargnePerIds = accounts.stream()
+            .filter(this::isCaisseEpargnePer)
+            .filter(account -> shares.getOrDefault(account.getId(), BigDecimal.ZERO).signum() > 0)
+            .map(Account::getId)
+            .collect(Collectors.toSet());
+        Set<Long> unknownPerBasisIds = accounts.stream()
+            .filter(account -> caisseEpargnePerIds.contains(account.getId()))
+            .filter(account -> !hasCompleteCostBasis(account, holdingRepository.findByAccount_Id(account.getId())))
+            .map(Account::getId)
+            .collect(Collectors.toSet());
 
         // Build the history points directly from forward-filled snapshots.
         List<NetWorthPoint> result = new ArrayList<>();
@@ -143,6 +154,7 @@ public class HistoryService {
             BigDecimal aggTotal = BigDecimal.ZERO;
             BigDecimal aggInvested = BigDecimal.ZERO;
             BigDecimal aggPnl = BigDecimal.ZERO;
+            boolean unknownPnl = false;
             Map<Long, AccountPoint> accountPoints = split ? new HashMap<>() : null;
 
             for (Account account : accounts) {
@@ -155,6 +167,11 @@ public class HistoryService {
                 var balEntry = balMap != null ? balMap.floorEntry(date) : null;
                 var invEntry = invMap != null ? invMap.floorEntry(date) : null;
 
+                if (caisseEpargnePerIds.contains(accId) && balEntry == null) {
+                    unknownPnl = true;
+                    continue;
+                }
+
                 // Snapshots hold 100% of the account's value; the member's share is applied
                 // here, on read. Weighting at write time would mean rewriting the whole
                 // history every time a split changes.
@@ -166,28 +183,41 @@ public class HistoryService {
                 // Match live-path semantics: liabilities contribute 0 to invested; assets
                 // use the forward-filled snapshot (falling back to balance if the row
                 // predates V18 / the account has no prior snapshot).
+                boolean unknownAccountPnl = unknownPerBasisIds.contains(accId)
+                    || caisseEpargnePerIds.contains(accId) && invEntry == null;
                 BigDecimal accInvested = isLiability
                     ? BigDecimal.ZERO
-                    : (invEntry != null ? weigh(invEntry.getValue(), shares, accId) : rawBalance);
-                aggInvested = aggInvested.add(accInvested);
+                    : unknownAccountPnl
+                        ? null
+                        : (invEntry != null ? weigh(invEntry.getValue(), shares, accId) : rawBalance);
+                if (accInvested == null) {
+                    unknownPnl = true;
+                } else {
+                    aggInvested = aggInvested.add(accInvested);
+                }
 
                 // Debt-neutral pnl (issue #18): liabilities contribute 0 — outstanding debt
                 // is a liability, not an investment loss.
-                BigDecimal accPnl = isLiability ? BigDecimal.ZERO : accTotal.subtract(accInvested);
-                aggPnl = aggPnl.add(accPnl);
+                BigDecimal accPnl = isLiability ? BigDecimal.ZERO
+                    : accInvested == null ? null : accTotal.subtract(accInvested);
+                if (accPnl != null) {
+                    aggPnl = aggPnl.add(accPnl);
+                }
 
                 if (split) {
                     accountPoints.put(accId, new AccountPoint(accTotal, accInvested, accPnl));
                 }
             }
 
-            result.add(new NetWorthPoint(date, aggTotal, aggInvested, aggPnl, accountPoints));
+            result.add(new NetWorthPoint(
+                date, aggTotal, unknownPnl ? null : aggInvested, unknownPnl ? null : aggPnl, accountPoints));
         }
 
         // Replace today's point with live-calculated values
         BigDecimal liveTotal = BigDecimal.ZERO;
         BigDecimal liveInvested = BigDecimal.ZERO;
         BigDecimal livePnl = BigDecimal.ZERO;
+        boolean unknownLivePnl = false;
         Map<Long, AccountPoint> liveAccountPoints = split ? new HashMap<>() : null;
 
         for (Account account : accounts) {
@@ -198,18 +228,25 @@ public class HistoryService {
             // Both halves are then weighted by the same share, so the pairing survives.
             AccountService.Valuation valuation = accountService.valuation(account);
             BigDecimal accLive = weigh(valuation.liveEur(), shares, account.getId());
-            BigDecimal accInvested = weigh(valuation.investedEur(), shares, account.getId());
+            boolean unknownAccountPnl = unknownPerBasisIds.contains(account.getId());
+            BigDecimal accInvested = unknownAccountPnl
+                ? null : weigh(valuation.investedEur(), shares, account.getId());
             boolean isLiability = account.getType().isLiability();
             BigDecimal total = account.getType() == AccountType.LOAN ? accLive.negate() : accLive;
 
             liveTotal = liveTotal.add(total);
-            if (!isLiability) {
+            if (!isLiability && accInvested != null) {
                 liveInvested = liveInvested.add(accInvested);
             }
 
             // Debt-neutral pnl (issue #18): liabilities contribute 0.
-            BigDecimal accPnl = isLiability ? BigDecimal.ZERO : accLive.subtract(accInvested);
-            livePnl = livePnl.add(accPnl);
+            BigDecimal accPnl = isLiability ? BigDecimal.ZERO
+                : accInvested == null ? null : accLive.subtract(accInvested);
+            if (accPnl == null) {
+                unknownLivePnl = true;
+            } else {
+                livePnl = livePnl.add(accPnl);
+            }
 
             if (split) {
                 BigDecimal invested = isLiability ? BigDecimal.ZERO : accInvested;
@@ -218,7 +255,8 @@ public class HistoryService {
         }
 
         LocalDate today = LocalDate.now();
-        NetWorthPoint livePoint = new NetWorthPoint(today, liveTotal, liveInvested, livePnl, liveAccountPoints);
+        NetWorthPoint livePoint = new NetWorthPoint(today, liveTotal,
+            unknownLivePnl ? null : liveInvested, unknownLivePnl ? null : livePnl, liveAccountPoints);
 
         boolean replaced = false;
         for (int i = result.size() - 1; i >= 0; i--) {
@@ -233,7 +271,7 @@ public class HistoryService {
         }
 
         log.info("buildHistory: {} dates, {} accounts, split={}, livePoint total={} invested={}",
-            result.size(), accounts.size(), split, liveTotal, liveInvested);
+            result.size(), accounts.size(), split, liveTotal, livePoint.invested());
 
         return result;
     }
@@ -262,9 +300,14 @@ public class HistoryService {
         Map<Long, BigDecimal> accountHoldingsInvested = new HashMap<>();
         Map<Long, BigDecimal> accountCash = new HashMap<>(); // cash pocket of investment accounts, unweighted
         Map<Long, BigDecimal> accountBankBalance = new HashMap<>(); // non-investment account balances
+        Map<Long, NavigableMap<LocalDate, BalanceSnapshot>> caisseEpargnePerSnapshots = new HashMap<>();
+        Map<Long, BigDecimal> caisseEpargnePerLiveBalance = new HashMap<>();
+        Map<Long, BigDecimal> caisseEpargnePerLiveInvested = new HashMap<>();
         Set<String> allTickers = new HashSet<>();
         Set<Long> loanIds = new HashSet<>();
         Set<Long> liabilityIds = new HashSet<>();
+        Set<Long> caisseEpargnePerIds = new HashSet<>();
+        Set<Long> unknownPerBasisIds = new HashSet<>();
 
         LocalDate today = LocalDate.now();
 
@@ -276,6 +319,26 @@ public class HistoryService {
             }
             if (account.getType().isLiability()) {
                 liabilityIds.add(accId);
+            }
+
+            if (isCaisseEpargnePer(account)) {
+                caisseEpargnePerIds.add(accId);
+                List<AccountHolding> holdings = holdingRepository.findByAccount_Id(accId);
+                if (shares.getOrDefault(accId, BigDecimal.ZERO).signum() > 0
+                    && !hasCompleteCostBasis(account, holdings)) {
+                    unknownPerBasisIds.add(accId);
+                }
+                NavigableMap<LocalDate, BalanceSnapshot> snapshotsByDate = new TreeMap<>();
+                for (BalanceSnapshot snapshot : snapshotRepository.findByAccountIdOrderByDateAsc(accId)) {
+                    snapshotsByDate.put(snapshot.getDate(), snapshot);
+                }
+                caisseEpargnePerSnapshots.put(accId, snapshotsByDate);
+
+                AccountService.Valuation valuation = accountService.valuation(account);
+                caisseEpargnePerLiveBalance.put(accId, weigh(valuation.liveEur(), shares, accId));
+                caisseEpargnePerLiveInvested.put(accId, weigh(valuation.investedEur(), shares, accId));
+                accountHoldings.put(accId, List.of());
+                continue;
             }
 
             List<AccountHolding> holdings = holdingRepository.findByAccount_Id(accId);
@@ -335,14 +398,54 @@ public class HistoryService {
 
         // Generate hourly timestamps from `from` to `now`
         List<NetWorthIntradayPoint> result = new ArrayList<>();
+        LocalDateTime currentHour = now.withMinute(0).withSecond(0).withNano(0);
         for (LocalDateTime ts = from.withMinute(0).withSecond(0).withNano(0);
              !ts.isAfter(now); ts = ts.plusHours(1)) {
 
             BigDecimal aggTotal = BigDecimal.ZERO;
             BigDecimal aggInvested = BigDecimal.ZERO;
+            boolean unknownPnl = false;
+            boolean hasObservedAccount = false;
 
             for (Account account : accounts) {
                 Long accId = account.getId();
+                if (caisseEpargnePerIds.contains(accId)) {
+                    boolean positivelyOwned = shares.getOrDefault(accId, BigDecimal.ZERO).signum() > 0;
+                    BigDecimal balance;
+                    BigDecimal invested;
+                    if (ts.equals(currentHour)) {
+                        balance = caisseEpargnePerLiveBalance.get(accId);
+                        invested = unknownPerBasisIds.contains(accId)
+                            ? null : caisseEpargnePerLiveInvested.get(accId);
+                    } else {
+                        Map.Entry<LocalDate, BalanceSnapshot> observation =
+                            caisseEpargnePerSnapshots.get(accId).floorEntry(ts.toLocalDate());
+                        if (observation == null) {
+                            if (positivelyOwned) unknownPnl = true;
+                            continue;
+                        }
+                        BalanceSnapshot snapshot = observation.getValue();
+                        balance = weigh(snapshot.getBalance(), shares, accId);
+                        BigDecimal snapshotInvested = snapshot.getInvestedAmount();
+                        boolean unknownAccountPnl = positivelyOwned
+                            && (unknownPerBasisIds.contains(accId) || snapshotInvested == null);
+                        if (unknownAccountPnl) unknownPnl = true;
+                        invested = unknownAccountPnl
+                            ? null
+                            : snapshotInvested != null ? weigh(snapshotInvested, shares, accId) : BigDecimal.ZERO;
+                    }
+                    if (unknownPerBasisIds.contains(accId)) unknownPnl = true;
+                    aggTotal = aggTotal.add(balance);
+                    if (invested == null) {
+                        if (positivelyOwned) unknownPnl = true;
+                    } else {
+                        aggInvested = aggInvested.add(invested);
+                    }
+                    hasObservedAccount = true;
+                    continue;
+                }
+
+                hasObservedAccount = true;
                 List<HoldingData> holdings = accountHoldings.getOrDefault(accId, List.of());
 
                 if (holdings.isEmpty()) {
@@ -385,7 +488,8 @@ public class HistoryService {
                 }
             }
 
-            result.add(new NetWorthIntradayPoint(ts, aggTotal, aggInvested));
+            if (!hasObservedAccount) continue;
+            result.add(new NetWorthIntradayPoint(ts, aggTotal, unknownPnl ? null : aggInvested));
         }
 
         log.info("buildIntradayHistory: {} hourly points, {} accounts, {} tickers",
@@ -413,16 +517,20 @@ public class HistoryService {
         BigDecimal liveInvested = BigDecimal.ZERO;
         BigDecimal liveNonLoanValue = BigDecimal.ZERO;
 
-        // Collect all holdings for historical lookup, remembering which account each came
-        // from so the range PnL below can weight it by that account's share.
-        List<AccountHolding> allHoldings = new ArrayList<>();
-        Map<Long, Long> accountIdByHolding = new HashMap<>();
+        // Historical PER quantities are only today's positions. They cannot be projected back
+        // across a range, so only other providers enter the price-based comparison.
+        List<AccountHolding> rangeHoldings = new ArrayList<>();
+        Map<AccountHolding, Long> accountIdByHolding = new IdentityHashMap<>();
+        boolean hasUnknownPerBasis = false;
 
         for (Account account : accounts) {
             List<AccountHolding> holdings = holdingRepository.findByAccount_Id(account.getId());
-            allHoldings.addAll(holdings);
-            for (AccountHolding h : holdings) {
-                accountIdByHolding.put(h.getId(), account.getId());
+            boolean caisseEpargnePer = isCaisseEpargnePer(account);
+            if (!caisseEpargnePer) {
+                rangeHoldings.addAll(holdings);
+                for (AccountHolding h : holdings) {
+                    accountIdByHolding.put(h, account.getId());
+                }
             }
 
             // One valuation per account, for the same reason as buildHistory above: the P&L
@@ -436,9 +544,15 @@ public class HistoryService {
                 liveTotal = liveTotal.add(accLive);
             } else {
                 liveTotal = liveTotal.add(accLive);
-                liveNonLoanValue = liveNonLoanValue.add(accLive);
-                liveInvested = liveInvested.add(
-                    weigh(valuation.investedEur(), shares, account.getId()));
+                if (caisseEpargnePer
+                    && shares.getOrDefault(account.getId(), BigDecimal.ZERO).signum() > 0
+                    && !hasCompleteCostBasis(account, holdings)) {
+                    hasUnknownPerBasis = true;
+                } else {
+                    liveNonLoanValue = liveNonLoanValue.add(accLive);
+                    liveInvested = liveInvested.add(
+                        weigh(valuation.investedEur(), shares, account.getId()));
+                }
             }
         }
 
@@ -446,9 +560,14 @@ public class HistoryService {
         BigDecimal pnlPercent = liveInvested.compareTo(BigDecimal.ZERO) > 0
             ? pnl.multiply(BigDecimal.valueOf(100)).divide(liveInvested, 1, java.math.RoundingMode.HALF_UP)
             : null;
+        if (hasUnknownPerBasis) {
+            liveInvested = null;
+            pnl = null;
+            pnlPercent = null;
+        }
 
         // If no fromDate, return live PnL only
-        if (fromDate == null || allHoldings.isEmpty()) {
+        if (fromDate == null || rangeHoldings.isEmpty() || hasUnknownPerBasis) {
             return new com.picsou.dto.PnlResponse(liveTotal, liveInvested, pnl, pnlPercent);
         }
 
@@ -461,7 +580,7 @@ public class HistoryService {
         // Same ticker can appear across several accounts — look each price up once.
         Map<String, Optional<PriceSnapshot>> snapByTicker = new HashMap<>();
         Map<String, BigDecimal> livePriceByTicker = new HashMap<>();
-        for (AccountHolding h : allHoldings) {
+        for (AccountHolding h : rangeHoldings) {
             String ticker = h.getTicker();
             if (ticker == null) continue;
             Optional<PriceSnapshot> snap = snapByTicker.computeIfAbsent(ticker,
@@ -474,7 +593,7 @@ public class HistoryService {
             if (livePrice == null) continue;
             // Both sides weighted by the same share, so the ratio -- and therefore the
             // percentage -- is unchanged; only the absolute figures shrink to the member's part.
-            Long holdingAccountId = accountIdByHolding.get(h.getId());
+            Long holdingAccountId = accountIdByHolding.get(h);
             valueAtFrom = valueAtFrom.add(
                 weigh(h.getQuantity().multiply(snap.get().getPriceEur()), shares, holdingAccountId));
             liveMatchedValue = liveMatchedValue.add(
@@ -483,7 +602,7 @@ public class HistoryService {
         }
 
         if (matchedPrices == 0) {
-            log.warn("buildPnl: no historical prices found for {} holdings at {}", allHoldings.size(), fromDate);
+            log.warn("buildPnl: no historical prices found for {} holdings at {}", rangeHoldings.size(), fromDate);
             return new com.picsou.dto.PnlResponse(liveTotal, liveInvested, pnl, pnlPercent);
         }
 
@@ -501,6 +620,18 @@ public class HistoryService {
 
     public com.picsou.dto.PnlResponse buildPnl(List<Long> accountIds, Long memberId) {
         return buildPnl(accountIds, memberId, null);
+    }
+
+    private boolean isCaisseEpargnePer(Account account) {
+        return account.getType() == AccountType.PER
+            && CaisseEpargneSyncService.PROVIDER.equals(account.getProvider());
+    }
+
+    private boolean hasCompleteCostBasis(Account account, List<AccountHolding> holdings) {
+        return !holdings.isEmpty()
+            && (account.getCashBalance() == null || account.getCashBalance().signum() <= 0)
+            && holdings.stream().allMatch(holding -> holding.getAverageBuyIn() != null
+                || holding.getProviderValueEur() != null && holding.getProviderPnlEur() != null);
     }
 
     /** Per-account forward-filled snapshot data. */
@@ -528,6 +659,19 @@ public class HistoryService {
                 investedByAccount.computeIfAbsent(accId, k -> new TreeMap<>()).put(date, invested);
             }
             allDates.add(date);
+        }
+
+        for (Account account : accounts) {
+            if (!isCaisseEpargnePer(account)) continue;
+            snapshotRepository.findFirstByAccountIdAndDateLessThanEqualOrderByDateDesc(
+                account.getId(), from.minusDays(1)).ifPresent(snapshot -> {
+                    balanceByAccount.computeIfAbsent(account.getId(), ignored -> new TreeMap<>())
+                        .put(snapshot.getDate(), snapshot.getBalance());
+                    if (snapshot.getInvestedAmount() != null) {
+                        investedByAccount.computeIfAbsent(account.getId(), ignored -> new TreeMap<>())
+                            .put(snapshot.getDate(), snapshot.getInvestedAmount());
+                    }
+                });
         }
 
         return new ForwardFillData(allDates, balanceByAccount, investedByAccount);

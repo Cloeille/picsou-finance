@@ -1,9 +1,12 @@
 package com.picsou.service;
 
+import com.picsou.model.Account;
 import com.picsou.model.AccountType;
+import com.picsou.model.BalanceSnapshot;
 import com.picsou.model.FamilyMember;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -12,12 +15,17 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -28,11 +36,20 @@ class SchedulerServiceTest {
 
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
+    @Mock BalanceSnapshotRepository snapshotRepository;
+    @Mock AccountService accountService;
     @Mock PriceService priceService;
     @Mock InstrumentLogoService instrumentLogoService;
     @Mock FamilyMemberRepository familyMemberRepository;
     @Mock MemberSyncService memberSyncService;
     @InjectMocks SchedulerService scheduler;
+
+    private static Account perAccount(long id, String provider, FamilyMember member) {
+        return Account.builder()
+            .id(id).name("Retirement plan").type(AccountType.PER)
+            .provider(provider).currency("EUR").currentBalance(new BigDecimal("1200"))
+            .member(member).build();
+    }
 
     @Test
     void dailyBankSync_delegatesOncePerMemberAndContinuesAfterOneFailure() {
@@ -83,4 +100,47 @@ class SchedulerServiceTest {
 
         verify(instrumentLogoService, never()).requestResolution();
     }
+
+    @Test
+    void dailySnapshots_refreshesOnlyPricedCaisseEpargnePerSnapshots() {
+        LocalDate today = LocalDate.now();
+        FamilyMember member = FamilyMember.builder().id(7L).displayName("member").build();
+        Account valuedPer = perAccount(1L, CaisseEpargneSyncService.PROVIDER, member);
+        Account unpricedPer = perAccount(2L, CaisseEpargneSyncService.PROVIDER, member);
+        Account otherProviderPer = perAccount(3L, "Amundi", member);
+        BalanceSnapshot valuedSnapshot = snapshot(valuedPer, today, "900");
+        BalanceSnapshot unpricedSnapshot = snapshot(unpricedPer, today, "800");
+        BalanceSnapshot otherSnapshot = snapshot(otherProviderPer, today, "700");
+
+        when(familyMemberRepository.findAllByOrderByCreatedAtAsc()).thenReturn(List.of(member));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(7L))
+            .thenReturn(List.of(valuedPer, unpricedPer, otherProviderPer));
+        when(snapshotRepository.findByAccountIdAndDate(1L, today)).thenReturn(Optional.of(valuedSnapshot));
+        when(snapshotRepository.findByAccountIdAndDate(2L, today)).thenReturn(Optional.of(unpricedSnapshot));
+        when(snapshotRepository.findByAccountIdAndDate(3L, today)).thenReturn(Optional.of(otherSnapshot));
+        lenient().when(accountService.valuation(valuedPer)).thenReturn(new AccountService.Valuation(
+            new BigDecimal("1200"), new BigDecimal("1100"), true, true, false));
+        lenient().when(accountService.valuation(unpricedPer)).thenReturn(new AccountService.Valuation(
+            BigDecimal.ZERO, BigDecimal.ZERO, false, false, true));
+
+        scheduler.dailySnapshots();
+
+        assertThat(valuedSnapshot.getBalance()).isEqualByComparingTo("1200");
+        assertThat(valuedSnapshot.getInvestedAmount()).isEqualByComparingTo("1100");
+        assertThat(unpricedSnapshot.getBalance()).isEqualByComparingTo("800");
+        assertThat(otherSnapshot.getBalance()).isEqualByComparingTo("700");
+        verify(snapshotRepository).save(valuedSnapshot);
+        verify(snapshotRepository, never()).save(unpricedSnapshot);
+        verify(snapshotRepository, never()).save(otherSnapshot);
+        verify(accountService).valuation(valuedPer);
+        verify(accountService).valuation(unpricedPer);
+        verify(accountService, never()).valuation(otherProviderPer);
+    }
+
+    private static BalanceSnapshot snapshot(Account account, LocalDate date, String balance) {
+        return BalanceSnapshot.builder()
+            .account(account).date(date).balance(new BigDecimal(balance))
+            .investedAmount(new BigDecimal(balance)).build();
+    }
+
 }

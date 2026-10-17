@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && chmod -R a+rX /app/playwright-browsers
 
 # Every module main.py imports, transitively (test_dockerfile.py enforces it).
-COPY main.py replay.py fetcher.py accounts_parser.py login.py keypad_table.py ./
+COPY main.py replay.py fetcher.py accounts_parser.py per_parser.py per_client.py login.py keypad_table.py ./
 
 USER caisse
 EXPOSE 8001

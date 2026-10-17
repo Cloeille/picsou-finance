@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from './pnl'
 import type { AccountPoint } from '@/features/history/api'
 import type { Account, AccountType, RealEstateMetadata } from '@/types/api'
@@ -32,6 +32,16 @@ describe('accountPnlAt / accountInvestedAt', () => {
     const p = point(12000, 10000, 2000)
     expect(accountPnlAt(pea, p)).toBe(2000)
     expect(accountInvestedAt(pea, p)).toBe(10000)
+  })
+
+  it('preserves unknown investment basis and PnL as null', () => {
+    const per = account('PER')
+    const p: AccountPoint = { total: 12000, invested: null, pnl: null }
+
+    expectTypeOf(accountInvestedAt).returns.toEqualTypeOf<number | null>()
+    expectTypeOf(accountPnlAt).returns.toEqualTypeOf<number | null>()
+    expect(accountInvestedAt(per, p)).toBeNull()
+    expect(accountPnlAt(per, p)).toBeNull()
   })
 
   it('measures a property against its cost basis, not the snapshot invested amount', () => {
