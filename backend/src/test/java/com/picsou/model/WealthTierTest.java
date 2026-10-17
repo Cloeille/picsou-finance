@@ -35,6 +35,9 @@ class WealthTierTest {
         // The pyramid counts life insurance as listed equity: a euro-fund-only policy is the
         // exception, and it is what the per-account override exists for.
         assertThat(WealthTier.of(AccountType.ASSURANCE_VIE)).isEqualTo(WealthTier.EQUITY);
+        // Same reading for an individual PER: unit-linked lines by default, the override for
+        // a plan held entirely in the euro fund.
+        assertThat(WealthTier.of(AccountType.PER)).isEqualTo(WealthTier.EQUITY);
     }
 
     @Test

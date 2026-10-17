@@ -49,6 +49,11 @@ jobs:
             context: services/bourso-auth
             dockerfile: services/bourso-auth/Dockerfile
             versioned: false
+          - name: caisse-epargne-auth
+            image: ${{ github.repository }}/caisse-epargne-auth
+            context: services/caisse-epargne-auth
+            dockerfile: services/caisse-epargne-auth/Dockerfile
+            versioned: false
           - name: fortuneo-auth
             image: ${{ github.repository }}/fortuneo-auth
             context: services/fortuneo-auth
@@ -63,6 +68,16 @@ jobs:
             image: ${{ github.repository }}/sofidy-auth
             context: services/sofidy-auth
             dockerfile: services/sofidy-auth/Dockerfile
+            versioned: false
+          - name: amex-auth
+            image: ${{ github.repository }}/amex-auth
+            context: services/amex-auth
+            dockerfile: services/amex-auth/Dockerfile
+            versioned: false
+          - name: degiro-auth
+            image: ${{ github.repository }}/degiro-auth
+            context: services/degiro-auth
+            dockerfile: services/degiro-auth/Dockerfile
             versioned: false
 
     steps:

@@ -149,6 +149,17 @@ class TransactionImportServiceTest {
     }
 
     @Test
+    void preview_rejectsFilesAboveTenMiB() {
+        when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(pea()));
+        MockMultipartFile oversized = new MockMultipartFile("file", "large.csv", "text/csv",
+            new byte[10 * 1024 * 1024 + 1]);
+
+        assertThatThrownBy(() -> service.preview(2L, 10L, oversized))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("10 MiB");
+    }
+
+    @Test
     void executeImport_expiredToken_throws() {
         when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(pea()));
         TransactionImportRequest req =
@@ -172,6 +183,19 @@ class TransactionImportServiceTest {
         assertThatThrownBy(() -> service.executeImport(3L, 10L, req))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("does not belong");
+    }
+
+    @Test
+    void executeImport_tokenBoundToAnotherMember_throwsAsExpired() {
+        when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(pea()));
+        when(accountRepository.findByIdAndMemberId(2L, 11L)).thenReturn(Optional.of(pea()));
+        String token = service.preview(2L, 10L, file(CSV)).fileToken();
+        TransactionImportRequest req =
+            new TransactionImportRequest(token, mapping(), dialect(), true, false, null);
+
+        assertThatThrownBy(() -> service.executeImport(2L, 11L, req))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("expired");
     }
 
     @Test

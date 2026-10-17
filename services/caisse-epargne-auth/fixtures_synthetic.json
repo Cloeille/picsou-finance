@@ -1,0 +1,765 @@
+{
+ "_fixture": {
+  "synthetic": true,
+  "note": "Valeurs inventées. Clés recopiées des structures observées en spike R6 (2026-10-06). Aucune valeur réelle n'a été lue.",
+  "unverified": [
+   "valeur réelle des codes famille/statut/type",
+   "IBAN : absent de la synthèse, vient peut-être de accountSynthesisView",
+   "sémantique des encours carte (outstandingCard null en synthèse)",
+   "sens du statut « Indéterminé »",
+   "mapping de la nature (crédit / débit différé / immédiat) et priorité si les deux indicateurs sont vrais",
+   "date de prélèvement du débit différé et sens de outstandingCard.currentMonth/nextMonth",
+   "type exact de fillingRatio (nombre ou pourcentage ?)",
+   "sens de status=UP sur les mouvements de carte",
+   "IBAN absent de la synthèse : lu dans parsedData.clientIBAN des mouvements",
+   "valeurs posées dans le POST du clavier virtuel (option A)"
+  ],
+  "expected_import": {
+   "rule": "import si statut actif ; statut « Indéterminé » = inactive = non importée. La nature de la carte n'est jamais un critère d'import.",
+   "import": [
+    {
+     "ref": "contractPfmId 1001",
+     "kind": "compte courant"
+    },
+    {
+     "ref": "contractPfmId 1002",
+     "kind": "Livret A"
+    },
+    {
+     "ref": "cardPfmId 2001",
+     "kind": "carte",
+     "status": "Active",
+     "nature": "DEFERRED_DEBIT",
+     "linkedAccount": "contractPfmId 1001"
+    }
+   ],
+   "ignore": [
+    {
+     "ref": "cardPfmId 2002",
+     "status": "Indéterminé",
+     "reason": "inactive"
+    }
+   ],
+   "nature_mapping_candidate": {
+    "cardCreditIndicator=true": "CREDIT",
+    "defferedDebitIndicator=true": "DEFERRED_DEBIT",
+    "sinon": "IMMEDIATE_DEBIT"
+   }
+  },
+  "verified_2026-10-07": [
+   "statut carte Active=100 / Indéterminé=XXX",
+   "Bearer, expires_in~267 s",
+   "pageToken, dernière page sans nextPageToken",
+   "signe négatif = sortie",
+   "accountId = contractPfmId",
+   "IBAN dans clientIBAN"
+  ]
+ },
+ "token": {
+  "access_token": "FAKE.ACCESS.TOKEN",
+  "token_type": "Bearer",
+  "expires_in": 268,
+  "scope": "FAKE_SCOPE_A FAKE_SCOPE_B",
+  "id_token": "FAKE.ID.TOKEN"
+ },
+ "synthesis": {
+  "_links": {
+   "self": {
+    "href": "/fake/augmentedSynthesisViews"
+   },
+   "first": null,
+   "prev": null,
+   "next": null,
+   "last": null
+  },
+  "page": null,
+  "sort": null,
+  "items": [
+   {
+    "_links": {
+     "transactions": {
+      "href": null
+     },
+     "pfmTransactions": null,
+     "pfmUpcomingTransactions": null,
+     "accountSynthesisView": {
+      "href": "/fake/accountSynthesisView/0000000011"
+     },
+     "financialSavingSynthesisView": {
+      "href": "/fake/financialSavingSynthesisView/0000000011"
+     },
+     "loanSynthesisView": {
+      "href": null
+     }
+    },
+    "identification": {
+     "contractId": {
+      "entityCode": "00000",
+      "id": "0000000011"
+     },
+     "contractPfmId": 1001,
+     "augmentedSynthesisViewId": {
+      "entityCode": "00000",
+      "id": "0000000011",
+      "identifierType": "0"
+     },
+     "caseId": null,
+     "contractInstructionOrigin": null,
+     "marketType": null,
+     "envelopeId": null
+    },
+    "identity": {
+     "customerReference": "0000000001",
+     "status": {
+      "code": "2",
+      "label": "Actif"
+     },
+     "statusDate": null,
+     "balance": {
+      "value": 1234.56,
+      "currencyCode": "EUR"
+     },
+     "upcomingTransactionsTotalAmount": null,
+     "contractLabel": "FAKE CPT DEPOT PART.",
+     "bankingClientId": {
+      "entityCode": "00000",
+      "id": "0000000001"
+     },
+     "bankingClientLabel": "FAKE CLIENT",
+     "holderIndicator": true,
+     "productLabel": "CPT DEPOT PART.",
+     "bankingInstitutionLabel": "FAKE BANQUE",
+     "aggregationDate": null,
+     "pfmExcludedIndicator": false,
+     "internalIndicator": true,
+     "relationContext": {
+      "code": "1",
+      "label": "Personnel"
+     },
+     "entityCode": "00000",
+     "outstandingCardsTotalAmount": null,
+     "augmentedCards": [
+      {
+       "primaryAccountNumberMask": "************0001",
+       "cardStatusType": {
+        "code": "100",
+        "label": "Active"
+       },
+       "outstandingCard": {
+        "currentMonth": null,
+        "nextMonth": null
+       },
+       "cardCreditIndicator": false,
+       "cardPaymentNetworkType": {
+        "code": "0",
+        "label": "Autre"
+       },
+       "defferedDebitIndicator": true,
+       "cardHolder": "FAKE HOLDER",
+       "cardProductLabel": "Carte Bancaire",
+       "_links": {
+        "self": {
+         "href": "/fake/cards/2001"
+        },
+        "pfmTransactions": {
+         "href": "/fake/cards/2001/tx"
+        },
+        "pfmUpcomingTransactions": {
+         "href": "/fake/cards/2001/upcoming"
+        }
+       },
+       "cardId": {
+        "entityCode": "00000",
+        "id": "FAKECARD2001"
+       },
+       "cardPfmId": 2001,
+       "cardRangeRenderingType": null,
+       "expirationDate": null,
+       "cardUserType": null,
+       "visualId": {
+        "id": "FAKEVISUAL"
+       }
+      },
+      {
+       "primaryAccountNumberMask": "************0002",
+       "cardStatusType": {
+        "code": "XXX",
+        "label": "Indéterminé"
+       },
+       "outstandingCard": {
+        "currentMonth": null,
+        "nextMonth": null
+       },
+       "cardCreditIndicator": false,
+       "cardPaymentNetworkType": {
+        "code": "0",
+        "label": "Autre"
+       },
+       "defferedDebitIndicator": true,
+       "cardHolder": "FAKE HOLDER",
+       "cardProductLabel": "Carte Bancaire",
+       "_links": {
+        "self": {
+         "href": "/fake/cards/2002"
+        },
+        "pfmTransactions": {
+         "href": "/fake/cards/2002/tx"
+        },
+        "pfmUpcomingTransactions": {
+         "href": "/fake/cards/2002/upcoming"
+        }
+       },
+       "cardId": {
+        "entityCode": "00000",
+        "id": "FAKECARD2002"
+       },
+       "cardPfmId": 2002,
+       "cardRangeRenderingType": null,
+       "expirationDate": null,
+       "cardUserType": null,
+       "visualId": {
+        "id": "FAKEVISUAL"
+       }
+      }
+     ],
+     "bic": "FAKEFRPPXXX",
+     "productFamilyPFM": {
+      "code": "1",
+      "label": "Comptes courants"
+     },
+     "subProductFamilyPFM": null,
+     "authorizedOverdraft": {
+      "value": 0.0,
+      "currencyCode": "EUR"
+     },
+     "subscriptionDate": null,
+     "userPfmRef": null,
+     "producerContractId": "0000000011",
+     "pfmBankCode": null,
+     "routingIndicator": false,
+     "pfmSynchronizationIndicator": true,
+     "pfmCharacteristicsIndicator": null,
+     "siren": null,
+     "siret": null,
+     "effectiveDate": null,
+     "contractComplementaryLabel": null,
+     "contractLabelOrigine": null,
+     "tradingName": null,
+     "contractExpiryDate": null,
+     "balanceWithoutCheckReserve": null,
+     "ribIndicator": true,
+     "authorizedCeilingAmount": null,
+     "fillingRatio": null,
+     "remainingDepositCapacity": null,
+     "roleContractType": {
+      "code": "Z",
+      "label": "Non concerné"
+     },
+     "childIndicator": false,
+     "pendingDecisionTransactionsCount": null,
+     "pendingDecisionTransactionsAmount": null
+    }
+   },
+   {
+    "_links": {
+     "transactions": {
+      "href": null
+     },
+     "pfmTransactions": null,
+     "pfmUpcomingTransactions": null,
+     "accountSynthesisView": {
+      "href": "/fake/accountSynthesisView/0000000012"
+     },
+     "financialSavingSynthesisView": {
+      "href": "/fake/financialSavingSynthesisView/0000000012"
+     },
+     "loanSynthesisView": {
+      "href": null
+     }
+    },
+    "identification": {
+     "contractId": {
+      "entityCode": "00000",
+      "id": "0000000012"
+     },
+     "contractPfmId": 1002,
+     "augmentedSynthesisViewId": {
+      "entityCode": "00000",
+      "id": "0000000012",
+      "identifierType": "0"
+     },
+     "caseId": null,
+     "contractInstructionOrigin": null,
+     "marketType": null,
+     "envelopeId": null
+    },
+    "identity": {
+     "customerReference": "0000000001",
+     "status": {
+      "code": "2",
+      "label": "Actif"
+     },
+     "statusDate": null,
+     "balance": {
+      "value": 5000.0,
+      "currencyCode": "EUR"
+     },
+     "upcomingTransactionsTotalAmount": null,
+     "contractLabel": "FAKE LIVRET A",
+     "bankingClientId": {
+      "entityCode": "00000",
+      "id": "0000000001"
+     },
+     "bankingClientLabel": "FAKE CLIENT",
+     "holderIndicator": true,
+     "productLabel": "LIVRET A",
+     "bankingInstitutionLabel": "FAKE BANQUE",
+     "aggregationDate": null,
+     "pfmExcludedIndicator": false,
+     "internalIndicator": true,
+     "relationContext": {
+      "code": "1",
+      "label": "Personnel"
+     },
+     "entityCode": "00000",
+     "outstandingCardsTotalAmount": null,
+     "augmentedCards": [],
+     "bic": "FAKEFRPPXXX",
+     "productFamilyPFM": {
+      "code": "3",
+      "label": "Epargne disponible"
+     },
+     "subProductFamilyPFM": {
+      "code": "01",
+      "label": "Epargne disponible réglementée"
+     },
+     "authorizedOverdraft": {
+      "value": 0.0,
+      "currencyCode": "EUR"
+     },
+     "subscriptionDate": null,
+     "userPfmRef": null,
+     "producerContractId": "0000000012",
+     "pfmBankCode": null,
+     "routingIndicator": false,
+     "pfmSynchronizationIndicator": true,
+     "pfmCharacteristicsIndicator": null,
+     "siren": null,
+     "siret": null,
+     "effectiveDate": null,
+     "contractComplementaryLabel": null,
+     "contractLabelOrigine": null,
+     "tradingName": null,
+     "contractExpiryDate": null,
+     "balanceWithoutCheckReserve": null,
+     "ribIndicator": true,
+     "authorizedCeilingAmount": {
+      "value": 22950.0,
+      "currencyCode": "EUR"
+     },
+     "fillingRatio": 21.8,
+     "remainingDepositCapacity": {
+      "value": 17950.0,
+      "currencyCode": "EUR"
+     },
+     "roleContractType": {
+      "code": "Z",
+      "label": "Non concerné"
+     },
+     "childIndicator": false,
+     "pendingDecisionTransactionsCount": null,
+     "pendingDecisionTransactionsAmount": null
+    }
+   }
+  ],
+  "messageResponse": null
+ },
+ "transactions": {
+  "courant_page1": {
+   "data": [
+    {
+     "id": 9001,
+     "amount": -12.5,
+     "currency": "EUR",
+     "text": "FAKE ACHAT 1",
+     "comments": [],
+     "categoryId": 10,
+     "date": "2026-10-01",
+     "dueDate": "2026-10-01",
+     "originalDate": "2026-10-01",
+     "accountId": 1001,
+     "detectedCategories": [
+      {
+       "categoryId": 10,
+       "score": 0.9
+      }
+     ],
+     "merchantId": 7001,
+     "isFlagged": null,
+     "counterpartyAccountIdentifier": null,
+     "parsedData": {
+      "accountingDate": "2026-10-01",
+      "bankReference": "FAKEREF1",
+      "creditorCountry": "FR",
+      "creditorName": "FAKE CREDITOR",
+      "creditorReference": null,
+      "debtorName": null,
+      "ics": null,
+      "label2": "FAKE LABEL2",
+      "originalText": "FAKE ORIGINAL",
+      "otherLabel": null,
+      "presentationSequence": "1",
+      "rum": null,
+      "status": "BOOKED",
+      "transactionAccounting": "D",
+      "transactionGranularityCode": "1",
+      "transactionReference": "FAKETR1",
+      "transactionTypeCode": "1"
+     }
+    },
+    {
+     "id": 9002,
+     "amount": -30.0,
+     "currency": "EUR",
+     "text": "FAKE ACHAT 2",
+     "comments": [],
+     "categoryId": 10,
+     "date": "2026-10-02",
+     "dueDate": "2026-10-02",
+     "originalDate": "2026-10-02",
+     "accountId": 1001,
+     "detectedCategories": [
+      {
+       "categoryId": 10,
+       "score": 0.9
+      }
+     ],
+     "merchantId": null,
+     "isFlagged": null,
+     "counterpartyAccountIdentifier": null,
+     "parsedData": {
+      "accountingDate": "2026-10-01",
+      "bankReference": "FAKEREF2",
+      "creditorCountry": "FR",
+      "creditorName": "FAKE CREDITOR",
+      "creditorReference": null,
+      "debtorName": null,
+      "ics": null,
+      "label2": "FAKE LABEL2",
+      "originalText": "FAKE ORIGINAL",
+      "otherLabel": null,
+      "presentationSequence": "2",
+      "rum": null,
+      "status": "BOOKED",
+      "transactionAccounting": "D",
+      "transactionGranularityCode": "1",
+      "transactionReference": "FAKETR2",
+      "transactionTypeCode": "1"
+     }
+    },
+    {
+     "id": 9003,
+     "amount": 1500.0,
+     "currency": "EUR",
+     "text": "FAKE VIREMENT RECU",
+     "comments": [],
+     "categoryId": 10,
+     "date": "2026-10-03",
+     "dueDate": "2026-10-03",
+     "originalDate": "2026-10-03",
+     "accountId": 1001,
+     "detectedCategories": [
+      {
+       "categoryId": 10,
+       "score": 0.9
+      }
+     ],
+     "merchantId": null,
+     "isFlagged": null,
+     "counterpartyAccountIdentifier": null,
+     "parsedData": {
+      "accountingDate": "2026-10-01",
+      "bankReference": "FAKEREF3",
+      "creditorCountry": "FR",
+      "creditorName": "FAKE CREDITOR",
+      "creditorReference": null,
+      "debtorName": null,
+      "ics": null,
+      "label2": "FAKE LABEL2",
+      "originalText": "FAKE ORIGINAL",
+      "otherLabel": null,
+      "presentationSequence": "3",
+      "rum": null,
+      "status": "BOOKED",
+      "transactionAccounting": "D",
+      "transactionGranularityCode": "1",
+      "transactionReference": "FAKETR3",
+      "transactionTypeCode": "2"
+     }
+    }
+   ],
+   "meta": {
+    "totalCount": 4,
+    "totalAmount": 0.0,
+    "nextPageToken": "FAKE_PAGE_TOKEN_2"
+   },
+   "included": {
+    "accounts": [],
+    "merchants": [
+     {
+      "id": 7001,
+      "identifier": "FAKEMERCH",
+      "name": "FAKE MARCHAND",
+      "customAttributes": {},
+      "address": {
+       "city": "FAKEVILLE",
+       "streetLine1": "1 RUE FAKE",
+       "latitude": null,
+       "longitude": null,
+       "postalCode": "00000"
+      }
+     }
+    ]
+   }
+  },
+  "courant_page2": {
+   "data": [
+    {
+     "id": 9004,
+     "amount": -8.0,
+     "currency": "EUR",
+     "text": "FAKE ACHAT 4",
+     "comments": [],
+     "categoryId": 10,
+     "date": "2026-09-30",
+     "dueDate": "2026-09-30",
+     "originalDate": "2026-09-30",
+     "accountId": 1001,
+     "detectedCategories": [
+      {
+       "categoryId": 10,
+       "score": 0.9
+      }
+     ],
+     "merchantId": null,
+     "isFlagged": null,
+     "counterpartyAccountIdentifier": null,
+     "parsedData": {
+      "accountingDate": "2026-10-01",
+      "bankReference": "FAKEREF4",
+      "creditorCountry": "FR",
+      "creditorName": "FAKE CREDITOR",
+      "creditorReference": null,
+      "debtorName": null,
+      "ics": null,
+      "label2": "FAKE LABEL2",
+      "originalText": "FAKE ORIGINAL",
+      "otherLabel": null,
+      "presentationSequence": "4",
+      "rum": null,
+      "status": "BOOKED",
+      "transactionAccounting": "D",
+      "transactionGranularityCode": "1",
+      "transactionReference": "FAKETR4",
+      "transactionTypeCode": "1"
+     }
+    }
+   ],
+   "meta": {
+    "totalCount": 4,
+    "totalAmount": 0.0,
+    "nextPageToken": null
+   },
+   "included": {
+    "accounts": [],
+    "merchants": []
+   }
+  },
+  "livret_a": {
+   "data": [
+    {
+     "id": 9011,
+     "amount": 100.0,
+     "currency": "EUR",
+     "text": "FAKE VIREMENT VERS LIVRET",
+     "comments": [],
+     "categoryId": 10,
+     "date": "2026-09-15",
+     "dueDate": "2026-09-15",
+     "originalDate": "2026-09-15",
+     "accountId": 1002,
+     "detectedCategories": [
+      {
+       "categoryId": 10,
+       "score": 0.9
+      }
+     ],
+     "merchantId": null,
+     "isFlagged": null,
+     "counterpartyAccountIdentifier": null,
+     "parsedData": {
+      "accountingDate": "2026-10-01",
+      "bankReference": "FAKEREF11",
+      "creditorCountry": "FR",
+      "creditorName": "FAKE CREDITOR",
+      "creditorReference": null,
+      "debtorName": null,
+      "ics": null,
+      "label2": "FAKE LABEL2",
+      "originalText": "FAKE ORIGINAL",
+      "otherLabel": null,
+      "presentationSequence": "11",
+      "rum": null,
+      "status": "BOOKED",
+      "transactionAccounting": "D",
+      "transactionGranularityCode": "1",
+      "transactionReference": "FAKETR11",
+      "transactionTypeCode": "2"
+     }
+    },
+    {
+     "id": 9012,
+     "amount": 0.42,
+     "currency": "EUR",
+     "text": "FAKE INTERETS",
+     "comments": [],
+     "categoryId": 10,
+     "date": "2026-01-01",
+     "dueDate": "2026-01-01",
+     "originalDate": "2026-01-01",
+     "accountId": 1002,
+     "detectedCategories": [
+      {
+       "categoryId": 10,
+       "score": 0.9
+      }
+     ],
+     "merchantId": null,
+     "isFlagged": null,
+     "counterpartyAccountIdentifier": null,
+     "parsedData": {
+      "accountingDate": "2026-10-01",
+      "bankReference": "FAKEREF12",
+      "creditorCountry": "FR",
+      "creditorName": "FAKE CREDITOR",
+      "creditorReference": null,
+      "debtorName": null,
+      "ics": null,
+      "label2": "FAKE LABEL2",
+      "originalText": "FAKE ORIGINAL",
+      "otherLabel": null,
+      "presentationSequence": "12",
+      "rum": null,
+      "status": "BOOKED",
+      "transactionAccounting": "D",
+      "transactionGranularityCode": "1",
+      "transactionReference": "FAKETR12",
+      "transactionTypeCode": "3"
+     }
+    }
+   ],
+   "meta": {
+    "totalCount": 2,
+    "totalAmount": 0.0,
+    "nextPageToken": null
+   },
+   "included": {
+    "accounts": [],
+    "merchants": []
+   }
+  },
+  "carte_active": {
+   "data": [
+    {
+     "id": 9021,
+     "amount": -25.0,
+     "currency": "EUR",
+     "text": "FAKE CB COMMERCE A",
+     "comments": [],
+     "categoryId": 10,
+     "date": "2026-10-02",
+     "dueDate": "2026-10-02",
+     "originalDate": "2026-10-02",
+     "accountId": 2001,
+     "detectedCategories": [
+      {
+       "categoryId": 10,
+       "score": 0.9
+      }
+     ],
+     "merchantId": null,
+     "isFlagged": null,
+     "counterpartyAccountIdentifier": null,
+     "parsedData": {
+      "instructionId": "FAKEINS21",
+      "label2": "FAKE CARD LABEL",
+      "transactionTypeCode": "11",
+      "transactionGranularityCode": "1",
+      "transactionAccounting": "D",
+      "status": "BOOKED",
+      "siret": "00000000000000",
+      "originalText": "FAKE CARD ORIGINAL",
+      "cardOperationId": "FAKECOP21"
+     }
+    },
+    {
+     "id": 9022,
+     "amount": -9.9,
+     "currency": "EUR",
+     "text": "FAKE CB COMMERCE B",
+     "comments": [],
+     "categoryId": 10,
+     "date": "2026-10-04",
+     "dueDate": "2026-10-04",
+     "originalDate": "2026-10-04",
+     "accountId": 2001,
+     "detectedCategories": [
+      {
+       "categoryId": 10,
+       "score": 0.9
+      }
+     ],
+     "merchantId": null,
+     "isFlagged": null,
+     "counterpartyAccountIdentifier": null,
+     "parsedData": {
+      "instructionId": "FAKEINS22",
+      "label2": "FAKE CARD LABEL",
+      "transactionTypeCode": "11",
+      "transactionGranularityCode": "1",
+      "transactionAccounting": "D",
+      "status": "BOOKED",
+      "siret": "00000000000000",
+      "originalText": "FAKE CARD ORIGINAL",
+      "cardOperationId": "FAKECOP22"
+     }
+    }
+   ],
+   "meta": {
+    "totalCount": 2,
+    "totalAmount": 0.0,
+    "nextPageToken": null
+   },
+   "included": {
+    "accounts": [],
+    "merchants": []
+   }
+  },
+  "carte_indeterminee": {
+   "data": [],
+   "meta": {
+    "totalCount": 0,
+    "totalAmount": 0.0,
+    "nextPageToken": null
+   },
+   "included": {
+    "accounts": [],
+    "merchants": []
+   }
+  },
+  "synthetic_markers": {
+   "amount_sign": "négatif = sortie",
+   "card_dueDate": "tous les 28-31 jours = date de débit mensuelle"
+  }
+ }
+}

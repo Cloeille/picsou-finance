@@ -127,6 +127,11 @@ in `AccountForm`'s zod enum, in `AccountsPage`'s `ASSET_FILTER_MAP`/`TYPE_TO_GRO
 an `accountTypes.*` label in all four locales — `src/lib/constants.test.ts` fails if
 `ACCOUNT_TYPES` misses one, and the locale parity test fails if a label does.
 
+`PER` (individual retirement plan, V112) followed the same path. It is neither
+`EMPLOYEE_SAVINGS`, the employer-sponsored family the Amundi sync fills, nor
+`ASSURANCE_VIE`: the money is locked until retirement. It holds positions like an
+assurance-vie and carries an opening date.
+
 ## Gotchas / Pitfalls
 
 - **Never replace wizard content with a parent-level overlay during mutations.** When the wizard unmounts and remounts after an error, any `setError(...)` called on the old instance is silently ignored by React 18. Each wizard must stay mounted while its mutation is in flight.

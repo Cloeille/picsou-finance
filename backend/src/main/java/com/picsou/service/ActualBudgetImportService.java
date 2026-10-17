@@ -99,7 +99,7 @@ public class ActualBudgetImportService {
     private static final int LARGE_DELETION_PERCENT = 20;
     /** Actual holds cash ledgers; holding-based accounts derive their value from positions instead. */
     private static final Set<AccountType> NON_LEDGER_TYPES = Set.of(AccountType.PEA, AccountType.COMPTE_TITRES,
-            AccountType.CRYPTO, AccountType.ASSURANCE_VIE, AccountType.EMPLOYEE_SAVINGS,
+            AccountType.CRYPTO, AccountType.ASSURANCE_VIE, AccountType.PER, AccountType.EMPLOYEE_SAVINGS,
             AccountType.REAL_ESTATE, AccountType.SCPI);
 
     record CachedPreview(Long memberId, ParsedActualBudget budget, Instant createdAt) { }

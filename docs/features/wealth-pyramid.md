@@ -26,7 +26,7 @@ silently vanish from a chart. A `Map` cannot have this property; a switch expres
 |---|---|
 | `SAFETY_NET` | `SAVINGS`, `LEP`, `LIVRET_A`, `LDDS`, `LIVRET_JEUNE`, `PEL`, `CEL` — and `CHECKING`, which the service then sets aside (below) |
 | `REAL_ESTATE` | `REAL_ESTATE`, `SCPI` (and `LOAN`, only so the switch stays total — loans never enter as assets) |
-| `EQUITY` | `PEA`, `COMPTE_TITRES`, `EMPLOYEE_SAVINGS`, `ASSURANCE_VIE` |
+| `EQUITY` | `PEA`, `COMPTE_TITRES`, `EMPLOYEE_SAVINGS`, `ASSURANCE_VIE`, `PER` |
 | `CRYPTO` | `CRYPTO` |
 | `ALTERNATIVE` | `OTHER` |
 
@@ -250,7 +250,7 @@ GET /api/analysis/pyramid
 ## Tests
 
 - `WealthTierTest` — every `AccountType` maps; the family placements that carry a decision
-- `AccountTypeTest` — `ASSURANCE_VIE` holds positions, `SCPI` does not
+- `AccountTypeTest` — `ASSURANCE_VIE` and `PER` hold positions, `SCPI` does not
 - `WealthPyramidServiceTest` (19) — classification incl. the crypto-in-a-CTO case and the manual
   override, envelope cash residual, shares applied once, property net of debt, the three
   safety-net regimes, the excess entering the vector, half-L1 on a known vector, crypto penalty
