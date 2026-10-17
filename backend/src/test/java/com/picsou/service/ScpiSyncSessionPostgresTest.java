@@ -6,6 +6,7 @@ import com.picsou.port.CorumPort;
 import com.picsou.port.SofidyPort;
 import com.picsou.repository.*;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,7 @@ import static org.mockito.Mockito.when;
 @Testcontainers(disabledWithoutDocker = true)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({CorumSyncService.class, SofidySyncService.class, ScpiPositionService.class,
+    ScpiFundReconciler.class, ScpiFundService.class,
     ScpiSyncSessionPostgresTest.Transactions.class})
 class ScpiSyncSessionPostgresTest {
     @Container
@@ -64,6 +66,8 @@ class ScpiSyncSessionPostgresTest {
     @Autowired ScpiPositionRepository positions;
     @Autowired CorumSessionRepository corumSessions;
     @Autowired SofidySessionRepository sofidySessions;
+    @Autowired ScpiProviderFundRepository funds;
+    @Autowired ScpiFundService fundService;
     @MockitoBean CorumPort corumPort;
     @MockitoBean SofidyPort sofidyPort;
     @MockitoBean CryptoEncryption encryption;
@@ -165,6 +169,46 @@ class ScpiSyncSessionPostgresTest {
             .isEqualByComparingTo("900");
         assertThat(positions.findById(position.getId()).orElseThrow().getShareCount())
             .isEqualByComparingTo("3");
+    }
+
+    /** #232 end to end on the real schema: create, re-sync without a duplicate, delete, not recreated. */
+    @Test
+    void corumSyncCreatesTheAccountOnceAndDoesNotRecreateADeletedOne() {
+        FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("SCPI auto").build());
+        when(corumPort.fetchSnapshot("auto-state")).thenReturn(new CorumPort.Snapshot("contract", "PP", "EUR",
+            new BigDecimal("1800"), null, true, List.of(new CorumPort.Holding("US", "CORUM USA",
+                new BigDecimal("10"), new BigDecimal("180"), null, new BigDecimal("1800"), null))));
+
+        corumSessions.saveAndFlush(CorumSession.create(fresh, "auto-state", Instant.now()));
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+
+        List<Account> created = accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId());
+        assertThat(created).singleElement().satisfies(a -> {
+            assertThat(a.getName()).isEqualTo("CORUM USA");
+            assertThat(a.getType()).isEqualTo(AccountType.SCPI);
+            assertThat(a.getCurrentBalance()).isEqualByComparingTo("1800");
+        });
+        assertThat(funds.findByMemberIdAndProviderAndFundCode(fresh.getId(), ScpiProvider.CORUM, "US"))
+            .hasValueSatisfying(f -> assertThat(f.getLastOutcome()).isEqualTo(ScpiFundOutcome.UPDATED));
+
+        // What AccountService.delete does (covered by AccountServiceDeleteTest),
+        // replayed here on the real schema: tombstone, unlink, soft-delete.
+        Account doomed = created.get(0);
+        ScpiPosition linked = positions.findByAccountIdAndMemberId(doomed.getId(), fresh.getId()).orElseThrow();
+        fundService.tombstone(fresh.getId(), ScpiProvider.CORUM, linked.getCorumFundCode());
+        linked.setCorumFundCode(null);
+        positions.saveAndFlush(linked);
+        doomed.setDeletedAt(Instant.now());
+        accounts.saveAndFlush(doomed);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+
+        assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId())).isEmpty();
+        assertThat(funds.findByMemberIdAndProviderAndFundCode(fresh.getId(), ScpiProvider.CORUM, "US"))
+            .hasValueSatisfying(f -> {
+                assertThat(f.isIgnored()).isTrue();
+                assertThat(f.getLastOutcome()).isEqualTo(ScpiFundOutcome.IGNORED);
+            });
     }
 
     private void awaitRelease(CountDownLatch fetching, CountDownLatch release) throws InterruptedException {

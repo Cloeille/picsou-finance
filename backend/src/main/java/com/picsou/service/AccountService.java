@@ -15,6 +15,7 @@ import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.picsou.model.ScpiProvider;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
@@ -87,6 +88,7 @@ public class AccountService {
     private final CryptoLogoService cryptoLogoService;
     private final InstrumentLogoService instrumentLogoService;
     private final ScpiPositionRepository scpiPositionRepository;
+    private final ScpiFundService scpiFundService;
 
     public AccountService(
         AccountRepository accountRepository,
@@ -103,7 +105,8 @@ public class AccountService {
         BankLogoResolver bankLogoResolver,
         CryptoLogoService cryptoLogoService,
         InstrumentLogoService instrumentLogoService,
-        ScpiPositionRepository scpiPositionRepository
+        ScpiPositionRepository scpiPositionRepository,
+        ScpiFundService scpiFundService
     ) {
         this.accountRepository = accountRepository;
         this.snapshotRepository = snapshotRepository;
@@ -120,6 +123,7 @@ public class AccountService {
         this.cryptoLogoService = cryptoLogoService;
         this.instrumentLogoService = instrumentLogoService;
         this.scpiPositionRepository = scpiPositionRepository;
+        this.scpiFundService = scpiFundService;
     }
 
     /**
@@ -312,7 +316,11 @@ public class AccountService {
         // Soft-delete leaves the row, and the fund-code unique indexes do not
         // exclude it. Clearing the links is what lets the same fund be attached
         // to a new account, and what stops a later sync from writing here.
+        // The fund is also tombstoned: since #232 a sync creates the account of a fund
+        // it has not seen, so without this the deleted account would come back.
         scpiPositionRepository.findByAccountIdAndMemberId(id, memberId).ifPresent(position -> {
+            scpiFundService.tombstone(memberId, ScpiProvider.CORUM, position.getCorumFundCode());
+            scpiFundService.tombstone(memberId, ScpiProvider.SOFIDY, position.getSofidyFundCode());
             position.setCorumFundCode(null);
             position.setSofidyFundCode(null);
             scpiPositionRepository.save(position);

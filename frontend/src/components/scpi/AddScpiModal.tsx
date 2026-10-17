@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { DateInput } from '@/components/shared/DateInput'
-import { useCreateAccount, useUpdateScpiPosition } from '@/features/accounts/hooks'
+import { useCreateAccount, useScpiFunds, useUpdateScpiPosition } from '@/features/accounts/hooks'
 import { formatApiError } from '@/lib/errors'
 import { parseAmount } from '@/lib/utils'
 import type { DividendPolicy, ScpiPositionRequest } from '@/types/api'
@@ -33,6 +33,13 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
   const navigate = useNavigate()
   const createAccount = useCreateAccount()
   const updatePosition = useUpdateScpiPosition()
+  // Funds a sync already saw with no account yet: picking one fills the name and the code,
+  // so nobody has to find a provider's internal fund code by hand.
+  const funds = useScpiFunds(open)
+  // An ignored fund is listed too: picking it is how a member takes it back, since
+  // setting its code lifts the tombstone.
+  const pickable = (funds.data ?? []).filter(fund => fund.accountId == null
+    && fund.lastOutcome !== 'MISSING_AT_PROVIDER')
 
   const [name, setName] = useState('')
   const [managementCompany, setManagementCompany] = useState('')
@@ -68,6 +75,15 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
   function close(next: boolean) {
     if (!next) reset()
     onOpenChange(next)
+  }
+
+  function pickFund(value: string) {
+    const fund = pickable.find(f => `${f.provider}:${f.fundCode}` === value)
+    if (!fund) return
+    if (name.trim() === '' && fund.label) setName(fund.label)
+    if (fund.provider === 'CORUM') setCorumFundCode(fund.fundCode)
+    else setSofidyFundCode(fund.fundCode)
+    if (managementCompany.trim() === '') setManagementCompany(fund.provider === 'CORUM' ? 'CORUM' : 'Sofidy')
   }
 
   async function submit() {
@@ -111,6 +127,26 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
         </DialogHeader>
 
         <div className="space-y-4">
+          {pickable.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="scpi-seen-fund">{t('scpi.seenFund')}</Label>
+              <select
+                id="scpi-seen-fund"
+                className={selectControlClassName}
+                defaultValue=""
+                onChange={(e) => pickFund(e.target.value)}
+              >
+                <option value="">{t('scpi.seenFundNone')}</option>
+                {pickable.map(fund => (
+                  <option key={`${fund.provider}:${fund.fundCode}`} value={`${fund.provider}:${fund.fundCode}`}>
+                    {(fund.label ?? fund.fundCode) + ` (${fund.provider === 'CORUM' ? 'CORUM' : 'Sofidy'} ${fund.fundCode})`
+                      + (fund.ignored ? ` — ${t('scpi.seenFundIgnored')}` : '')}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">{t('scpi.seenFundHint')}</p>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="scpi-name">{t('scpi.name')}</Label>
             <Input id="scpi-name" value={name} onChange={(e) => setName(e.target.value)} />
@@ -152,6 +188,8 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">{t('scpi.subscriptionHint')}</p>
+          <details className="space-y-4 rounded-md border p-3">
+          <summary className="cursor-pointer text-sm text-muted-foreground">{t('scpi.advancedLinks')}</summary>
           <div className="space-y-2">
             <Label htmlFor="scpi-corum-fund">{t('scpi.corumFundCode')}</Label>
             <Input
@@ -172,6 +210,7 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
             />
             <p className="text-xs text-muted-foreground">{t('scpi.sofidyFundHint')}</p>
           </div>
+          </details>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="scpi-dividend">{t('scpi.dividendPolicy')}</Label>

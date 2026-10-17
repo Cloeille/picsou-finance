@@ -209,7 +209,7 @@ class CaisseEpargneSyncServiceTest {
             mock(RealEstateMetadataRepository.class), mock(PropertyValuationRepository.class), debtRepository,
             mock(SavingsInterestConfigRepository.class), prices, mock(LoanAmortizationService.class),
             mock(AccountAccessResolver.class), mock(BankLogoResolver.class), mock(CryptoLogoService.class),
-            mock(InstrumentLogoService.class), mock(ScpiPositionRepository.class));
+            mock(InstrumentLogoService.class), mock(ScpiPositionRepository.class), mock(ScpiFundService.class));
         when(perService.prepare(detail, "EUR")).thenReturn(prepared);
         CaisseEpargneSyncService sync = serviceWith(txTemplate, Runnable::run, actualAccountService);
         arrangeCommittableSync(withPer);

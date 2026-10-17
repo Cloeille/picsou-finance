@@ -11,7 +11,9 @@ import com.picsou.model.SofidySyncStatus;
 import com.picsou.port.SofidyErrorCode;
 import com.picsou.port.SofidyPort;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.AccountRepository;
 import com.picsou.repository.ScpiPositionRepository;
+import com.picsou.repository.ScpiProviderFundRepository;
 import com.picsou.repository.SofidySessionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,6 +62,8 @@ class SofidySyncServiceTest {
     @Mock ScpiPositionService positionService;
     @Mock FamilyMemberRepository memberRepository;
     @Mock CryptoEncryption encryption;
+    @Mock AccountRepository accountRepository;
+    @Mock ScpiProviderFundRepository fundRepository;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
 
@@ -86,7 +90,9 @@ class SofidySyncServiceTest {
             memberRepository,
             encryption,
             txTemplate,
-            Runnable::run
+            Runnable::run,
+            new ScpiFundReconciler(
+                positionRepository, positionService, accountRepository, fundRepository, memberRepository)
         );
     }
 
@@ -349,6 +355,21 @@ class SofidySyncServiceTest {
             "EUR", BigDecimal.ZERO, null, true,
             List.of(new SofidyPort.Holding("DY", "Test fund", null, new BigDecimal("313.60"), null))));
         assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(SofidyErrorCode.INVALID_DATA);
+        verifyNoInteractions(positionService, positionRepository);
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"USD", "eur", ""})
+    void queueSync_refusesASnapshotNotInEuros(String currency) {
+        arrangeActiveSession();
+        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyPort.Snapshot(
+            currency, new BigDecimal("627.20"), null, true, List.of(holding("DY", "2", "313.60"))));
+
+        SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
+        assertThat(result.lastSyncError()).isEqualTo(SofidyErrorCode.INVALID_DATA);
         verifyNoInteractions(positionService, positionRepository);
     }
 

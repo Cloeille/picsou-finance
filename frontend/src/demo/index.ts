@@ -203,6 +203,9 @@ for (let i = 8; i <= 10; i++) {
   handlers.set(key('GET', `/accounts/${i}`), () => _demoAccounts[i - 1])
 }
 
+// SCPI funds seen by a sync: the demo has no CORUM/Sofidy connection.
+handlers.set(key('GET', '/scpi/funds'), () => [])
+
 // Account CRUD
 for (const account of mockAccounts.filter(account => account.type === 'SCPI')) {
   handlers.set(key('GET', `/accounts/${account.id}`), () => _demoAccounts.find(a => a.id === account.id))

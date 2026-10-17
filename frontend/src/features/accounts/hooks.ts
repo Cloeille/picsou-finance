@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, realEstateApi } from './api'
-import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, ScpiPositionRequest, TransactionImportRequest, TransactionRequest } from '@/types/api'
+import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, ScpiPositionRequest, ScpiProvider, TransactionImportRequest, TransactionRequest } from '@/types/api'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
 
 export interface HoldingWithAccount extends HoldingResponse {
@@ -509,6 +509,35 @@ export function useUpdateRealEstateMetadata() {
   })
 }
 
+export const scpiFundsKey = ['scpi-funds'] as const
+
+/** The funds CORUM and Sofidy syncs have seen, with the latest per-fund outcome. */
+export function useScpiFunds(enabled = true) {
+  return useQuery({ queryKey: scpiFundsKey, queryFn: accountsApi.scpiFunds, enabled })
+}
+
+/** Unlinks the fund from its account (which stays) and keeps later syncs away from it. */
+export function useIgnoreScpiFund() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ provider, fundCode }: { provider: ScpiProvider; fundCode: string }) =>
+      accountsApi.ignoreScpiFund(provider, fundCode),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: scpiFundsKey })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
+export function useRestoreScpiFund() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ provider, fundCode }: { provider: ScpiProvider; fundCode: string }) =>
+      accountsApi.restoreScpiFund(provider, fundCode),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: scpiFundsKey }),
+  })
+}
+
 export function useUpdateScpiPosition() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -517,6 +546,7 @@ export function useUpdateScpiPosition() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
       queryClient.invalidateQueries({ queryKey: ['accounts', variables.id] })
+      queryClient.invalidateQueries({ queryKey: scpiFundsKey })
       queryClient.invalidateQueries({ queryKey: ['real-estate'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['analysis'] })
