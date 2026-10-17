@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
+import com.picsou.model.CategoryKind;
 import com.picsou.port.RevolutPort;
 import com.picsou.service.sync.SyncProgressService;
 import com.picsou.service.sync.SyncProvider;
@@ -128,7 +129,8 @@ public class RevolutAdapter implements RevolutPort {
                     LocalDate.parse(txNode.path("date").asText()),
                     textOrNull(txNode, "description"),
                     txNode.path("amount").decimalValue(),
-                    textOrNull(txNode, "counterparty")
+                    textOrNull(txNode, "counterparty"),
+                    categoryKindOrNull(textOrNull(txNode, "kind"))
                 ));
             }
 
@@ -179,5 +181,14 @@ public class RevolutAdapter implements RevolutPort {
     private static String textOrNull(JsonNode node, String field) {
         JsonNode v = node.path(field);
         return (v.isMissingNode() || v.isNull()) ? null : v.asText();
+    }
+
+    private static CategoryKind categoryKindOrNull(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return CategoryKind.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 }

@@ -11,15 +11,22 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Imports the transactions of one bank-synced account from the active
@@ -61,6 +68,11 @@ public class BankTransactionImportService {
 
     /** Marks a key as a locally computed fingerprint rather than a provider reference. */
     private static final String FINGERPRINT_PREFIX = "fp:";
+    private static final String HASHED_ID_PREFIX = "id:";
+    private static final int EXTERNAL_TRANSACTION_ID_LIMIT = 128;
+    private static final int TEXT_LIMIT = 255;
+    private static final int AMOUNT_SCALE = 8;
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     private final BankConnectorPort bankConnector;
     private final TransactionRepository transactionRepository;
@@ -136,20 +148,27 @@ public class BankTransactionImportService {
     }
 
     /**
-     * Keeps only the fetched entries not already stored for this account, comparing on
-     * {@link #dedupKey}.
+     * Keeps only fetched entries not already stored for this account. Stable bank references
+     * are reserved across the whole batch before content overlap is considered, then exact
+     * transaction fingerprints are consumed one-for-one across source types and legacy rows.
+     * A fingerprint consists of date, signed amount and the normalized description after its
+     * 255-codepoint persistence bound; date and amount alone are not evidence that different labels
+     * describe the same purchase. Identical stable-ID/content occurrences are preserved one-for-one:
+     * when a page repeats indistinguishable data, the importer cannot tell overlap from separate
+     * legitimate operations, so it keeps the source multiplicity rather than silently dropping rows.
      *
-     * <p>The comparison set covers the requested window <em>or</em> the oldest entry the
-     * provider actually returned, whichever reaches further back: {@code date_from} is a
-     * hint, and an ASPSP that ignores it and replays its whole history would otherwise be
-     * compared against a set that cannot contain those older rows — re-importing every one
-     * of them on every sync.
-     *
-     * <p>Duplicates <em>within</em> the fetched batch are filtered too: a bank that repeats
-     * an entry across two continuation pages would otherwise store it twice, since neither
-     * copy is in the database yet.
+     * <p>The comparison window includes the requested start or the oldest entry returned by
+     * the provider, whichever reaches further back: {@code date_from} is a hint, and an ASPSP
+     * that ignores it must still be compared against every returned historical row.
      */
     private List<Transaction> selectNew(Account account, LocalDate windowStart, List<TransactionData> fetched) {
+        if (fetched == null || fetched.isEmpty()) return List.of();
+        fetched = fetched.stream()
+            .filter(java.util.Objects::nonNull)
+            .filter(data -> DEFAULT_CURRENCY.equalsIgnoreCase(currencyOf(data, account).trim()))
+            .toList();
+        if (fetched.isEmpty()) return List.of();
+
         LocalDate comparisonFrom = fetched.stream()
             .map(TransactionData::date)
             .filter(java.util.Objects::nonNull)
@@ -157,41 +176,138 @@ public class BankTransactionImportService {
             .filter(oldest -> oldest.isBefore(windowStart))
             .orElse(windowStart);
 
-        Set<String> known = new HashSet<>();
-        for (Transaction existing : transactionRepository
-            .findByAccountIdAndIsManualFalseAndDateGreaterThanEqual(account.getId(), comparisonFrom)) {
-            known.add(keyOf(existing));
+        List<Transaction> existing = transactionRepository
+            .findByAccountIdAndIsManualFalseAndDateGreaterThanEqual(account.getId(), comparisonFrom);
+        boolean[] consumedExisting = new boolean[existing.size()];
+        boolean[] consumedFetched = new boolean[fetched.size()];
+        Map<StableTransactionKey, Deque<Integer>> existingByStableIdAndFingerprint = new HashMap<>();
+        Map<TransactionFingerprint, Deque<Integer>> existingByFingerprint = new HashMap<>();
+        Map<TransactionFingerprint, Deque<Integer>> overlapByFingerprint = new HashMap<>();
+        for (int existingIndex = 0; existingIndex < existing.size(); existingIndex++) {
+            Transaction stored = existing.get(existingIndex);
+            String storedId = cleanExternalId(stored.getExternalTransactionId());
+            String legacyId = cleanExternalId(stored.getExternalId());
+            Set<String> storedStableIds = new HashSet<>();
+            if (isBankStableKey(storedId)) storedStableIds.add(boundedExternalTransactionId(storedId));
+            if (!isSidecarKey(storedId) && isBankStableKey(legacyId)) {
+                storedStableIds.add(boundedExternalTransactionId(legacyId));
+            }
+            TransactionFingerprint fingerprint = contentFingerprint(
+                stored.getDate(), stored.getAmount(), stored.getDescription());
+            if (fingerprint == null) continue;
+            for (String stableId : storedStableIds) {
+                existingByStableIdAndFingerprint.computeIfAbsent(
+                    new StableTransactionKey(stableId, fingerprint), ignored -> new ArrayDeque<>()).addLast(existingIndex);
+            }
+            existingByFingerprint.computeIfAbsent(fingerprint, ignored -> new ArrayDeque<>()).addLast(existingIndex);
+            if (storedStableIds.isEmpty()) {
+                overlapByFingerprint.computeIfAbsent(fingerprint, ignored -> new ArrayDeque<>()).addLast(existingIndex);
+            }
+        }
+
+        // Match stable ID/content pairs one-for-one, independent of fetch order. Repeated pairs
+        // cannot be distinguished from repeated-page overlap, so preserve their multiplicity.
+        for (int fetchedIndex = 0; fetchedIndex < fetched.size(); fetchedIndex++) {
+            TransactionData data = fetched.get(fetchedIndex);
+            if (data == null) continue;
+            String externalId = cleanExternalId(data.externalId());
+            if (externalId == null) continue;
+            StableTransactionKey stableKey = new StableTransactionKey(boundedExternalTransactionId(externalId),
+                contentFingerprint(data.date(), data.amount(), data.description()));
+            int existingIndex = consumeNextAvailable(
+                existingByStableIdAndFingerprint.get(stableKey), consumedExisting);
+            if (existingIndex >= 0) {
+                consumedExisting[existingIndex] = true;
+                consumedFetched[fetchedIndex] = true;
+            }
+        }
+
+        // Cross-source/legacy overlap is a strict multiset: each existing row can consume
+        // exactly one incoming row. Stable IDs from this bank are not fingerprint-matched
+        // against a different bank ID; sidecar and legacy rows have no shared stable ID.
+        for (int fetchedIndex = 0; fetchedIndex < fetched.size(); fetchedIndex++) {
+            if (consumedFetched[fetchedIndex]) continue;
+            TransactionData data = fetched.get(fetchedIndex);
+            if (data == null) continue;
+            TransactionFingerprint fingerprint = contentFingerprint(data.date(), data.amount(), data.description());
+            if (fingerprint == null) continue;
+            String externalId = cleanExternalId(data.externalId());
+            Deque<Integer> candidates = externalId == null
+                ? existingByFingerprint.get(fingerprint)
+                : overlapByFingerprint.get(fingerprint);
+            int existingIndex = consumeNextAvailable(candidates, consumedExisting);
+            if (existingIndex >= 0) {
+                consumedExisting[existingIndex] = true;
+                consumedFetched[fetchedIndex] = true;
+            }
         }
 
         List<Transaction> toInsert = new ArrayList<>();
-        for (TransactionData data : fetched) {
+        for (int fetchedIndex = 0; fetchedIndex < fetched.size(); fetchedIndex++) {
+            if (consumedFetched[fetchedIndex]) continue;
+            TransactionData data = fetched.get(fetchedIndex);
+            if (data == null) continue;
             String key = dedupKey(data);
-            if (!known.add(key)) continue;
             toInsert.add(toEntity(account, data, key));
         }
         return toInsert;
     }
+
+    private static int consumeNextAvailable(Deque<Integer> candidateIndices, boolean[] consumed) {
+        if (candidateIndices == null) return -1;
+        while (!candidateIndices.isEmpty()) {
+            int candidate = candidateIndices.removeFirst();
+            if (!consumed[candidate]) return candidate;
+        }
+        return -1;
+    }
+
+    private static boolean isBankStableKey(String key) {
+        return key != null && !key.startsWith(FINGERPRINT_PREFIX) && !isSidecarKey(key);
+    }
+
+    private static boolean isSidecarKey(String key) {
+        return key != null && (key.startsWith("bourso:") || key.startsWith("revolut:"));
+    }
+
+    private static String cleanExternalId(String externalId) {
+        return externalId == null || externalId.isBlank() ? null : externalId.trim();
+    }
+
+    private static String boundedExternalTransactionId(String externalId) {
+        if (externalId.codePointCount(0, externalId.length()) <= EXTERNAL_TRANSACTION_ID_LIMIT) return externalId;
+        return HASHED_ID_PREFIX + sha256Hex(externalId);
+    }
+
+    private static BigDecimal normalizeAmount(BigDecimal amount) {
+        return amount == null ? null : amount.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+    }
+
+    private static String boundedText(String text) {
+        if (text == null || text.codePointCount(0, text.length()) <= TEXT_LIMIT) return text;
+        return text.substring(0, text.offsetByCodePoints(0, TEXT_LIMIT));
+    }
+
+    private static TransactionFingerprint contentFingerprint(LocalDate date, BigDecimal amount, String description) {
+        if (date == null || amount == null) return null;
+        String canonicalAmount = normalizeAmount(amount).stripTrailingZeros().toPlainString();
+        String canonicalDescription = WHITESPACE.matcher(boundedText(description == null ? "" : description).trim())
+            .replaceAll(" ").toLowerCase(Locale.ROOT);
+        return new TransactionFingerprint(date, canonicalAmount, canonicalDescription);
+    }
+
+    private record TransactionFingerprint(LocalDate date, String amount, String description) {}
+
+    private record StableTransactionKey(String externalId, TransactionFingerprint fingerprint) {}
 
     /**
      * The key a fetched entry is recognised by: the provider's own reference when it
      * sends one, otherwise a fingerprint of the fields a user would call identical.
      */
     static String dedupKey(TransactionData data) {
-        if (data.externalId() != null && !data.externalId().isBlank()) return data.externalId().trim();
+        String externalId = cleanExternalId(data.externalId());
+        if (externalId != null) return boundedExternalTransactionId(externalId);
         return fingerprint(data.date(), data.amount(), data.description());
-    }
-
-    /**
-     * The same key for an already-stored row. Rows written before this feature shipped
-     * (Finary imports) carry no external id, so they are matched on their fingerprint —
-     * otherwise a bank connector added to such an account would re-import history the
-     * user is already looking at.
-     */
-    private static String keyOf(Transaction transaction) {
-        if (transaction.getExternalTransactionId() != null && !transaction.getExternalTransactionId().isBlank()) {
-            return transaction.getExternalTransactionId();
-        }
-        return fingerprint(transaction.getDate(), transaction.getAmount(), transaction.getDescription());
     }
 
     /**
@@ -205,7 +321,7 @@ public class BankTransactionImportService {
      */
     private static String fingerprint(LocalDate date, BigDecimal amount, String description) {
         String canonical = date + "|"
-            + (amount == null ? "" : amount.stripTrailingZeros().toPlainString()) + "|"
+            + (amount == null ? "" : normalizeAmount(amount).stripTrailingZeros().toPlainString()) + "|"
             + (description == null ? "" : description.trim());
         return FINGERPRINT_PREFIX + sha256Hex(canonical);
     }
@@ -229,8 +345,8 @@ public class BankTransactionImportService {
         return Transaction.builder()
             .account(account)
             .date(data.date())
-            .description(data.description() != null ? data.description() : "")
-            .amount(data.amount())
+            .description(boundedText(data.description() != null ? data.description() : ""))
+            .amount(normalizeAmount(data.amount()))
             .category(data.category())
             .nativeCurrency(currencyOf(data, account))
             .externalTransactionId(dedupKey)

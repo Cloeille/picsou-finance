@@ -71,6 +71,13 @@ public interface BoursoPort {
         /** Non-null for securities accounts only; a livret has no cash leg. */
         BigDecimal cashBalance,
         List<Position> positions,
-        boolean snapshotComplete
-    ) {}
+        boolean snapshotComplete,
+        String iban,
+        List<SidecarTransaction> transactions
+    ) {
+        public AccountData(String externalId, String name, AccountType type, BigDecimal balanceEur,
+                           BigDecimal cashBalance, List<Position> positions, boolean snapshotComplete) {
+            this(externalId, name, type, balanceEur, cashBalance, positions, snapshotComplete, null, List.of());
+        }
+    }
 }

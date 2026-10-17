@@ -365,3 +365,19 @@ DASHBOARD_HTML = r"""<hx:include id="hinclude__XXXXXXXX" src="/dashboard/offres?
 
 <!-- script -->
     """
+
+# Synthetic only, based on the selectors in woob's Boursorama pages.py
+# (data-id/data-custom-id, list-operation-item amount/label, adjacent date-line,
+# data-operations-next-pagination). This is not a captured customer response.
+MOVEMENTS_HTML = """<ul class="list__movement">
+<li class="list__movement__range-summary" data-operations-next-pagination="fixture-next"></li>
+<li class="date-line">2 octobre 2026</li>
+<li data-id="fixture-op-1"><div class="list-operation-item__amount">− 24,90 €</div>
+<div class="list-operation-item__label-name">PAIEMENT CARTE BOULANGERIE</div></li>
+<li data-custom-id="fixture-op-2"><div class="list-operation-item__amount">1 250,00 €</div>
+<div class="list-operation-item__label-name">VIR SALAIRE</div></li>
+</ul>"""
+
+# Synthetic markup matching the verified woob IbanPage XPath; the value is a
+# test-only IBAN and was not captured from a customer account.
+RIB_HTML = """<div><strong>IBAN</strong><div class="definition"><p>FR76 3000 6000 0112 3456 7890 189</p></div></div>"""
