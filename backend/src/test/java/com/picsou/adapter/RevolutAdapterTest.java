@@ -3,6 +3,7 @@ package com.picsou.adapter;
 import com.picsou.adapter.sidecar.SidecarAuthenticationException;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
+import com.picsou.model.CategoryKind;
 import com.picsou.service.sync.SyncProgressService;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -75,6 +76,21 @@ class RevolutAdapterTest {
             assertThatThrownBy(() -> adapter.sync("+33600000000", "123456", 5L))
                 .isInstanceOf(SyncException.class)
                 .hasMessage("BROWSER_LAUNCH_FAILED");
+        }
+    }
+
+    @Test
+    void sync_mapsTransactionKindFromSidecar() throws Exception {
+        try (TestServer server = TestServer.start(exchange -> respond(exchange, 200, """
+            {"accounts":[{"externalId":"wallet","name":"Wallet","type":"CHECKING","balance":10,
+              "currency":"EUR","transactions":[{"externalId":"mirror-id","date":"2026-09-20",
+              "description":"Transfer","amount":-5,"counterparty":null,"kind":"TRANSFER"}]}]}
+            """))) {
+            var accounts = adapter(server).sync("+336****0000", "123456", 5L, false);
+
+            assertThat(accounts).singleElement().satisfies(account ->
+                assertThat(account.txns()).singleElement().satisfies(transaction ->
+                    assertThat(transaction.kind()).isEqualTo(CategoryKind.TRANSFER)));
         }
     }
 
