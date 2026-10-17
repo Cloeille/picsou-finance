@@ -52,7 +52,7 @@ SimpleFIN account also deletes the connection, same rule as the other connectors
 Daily refresh is the `simplefin` source in `MemberSyncService`, after IBKR, so the 08:00 job and
 the MCP full sync both run `SimplefinSyncService.resyncReporting`. `trigger_bank_sync` runs it with
 Enable Banking, and `get_sync_status` shows its stored status. Manual sync is rate-limited with
-connect, 6 requests per minute per IP. The table is created by `V109__simplefin_connection.sql`,
+connect, 6 requests per minute per IP. The table is created by `V113__simplefin_connection.sql`,
 which also widens `account.external_account_id` and `transaction.external_transaction_id` to 255
 characters.
 
@@ -74,7 +74,7 @@ characters.
 - `backend/src/main/java/com/picsou/service/MemberSyncService.java`, `service/sync/SourceSyncResult.java` — scheduled order, `NEEDS_REAUTH` mapping
 - `backend/src/main/java/com/picsou/service/SyncStatusService.java`, `mcp/tools/SyncTools.java` — MCP status and bank trigger
 - `backend/src/main/java/com/picsou/service/AccountConnectionService.java` — `sfin_` prefix for deletion cleanup
-- `backend/src/main/resources/db/migration/V109__simplefin_connection.sql`
+- `backend/src/main/resources/db/migration/V113__simplefin_connection.sql`
 
 **Frontend**
 - `frontend/src/components/sync/SimplefinPanel.tsx` — token form, sync, disconnect

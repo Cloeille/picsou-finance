@@ -1,4 +1,4 @@
--- V109: SimpleFIN access URL, one row per family member.
+-- V113: SimpleFIN access URL, one row per family member.
 --
 -- The setup token is claimed once and discarded. What we keep is the access URL,
 -- which embeds HTTP Basic credentials, so the column stores AES-256-GCM ciphertext

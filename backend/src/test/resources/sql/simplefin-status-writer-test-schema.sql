@@ -4,7 +4,7 @@
 -- PostgreSQL-flavoured and cannot run on H2 (docs/conventions/testing.md), so this stands up
 -- just the two tables the test touches. Both entities extend AuditableEntity, whose
 -- created_at/updated_at are filled by Spring Data JPA auditing.
--- Mirrors V109__simplefin_connection.sql (access_url TEXT, status VARCHAR(20), one row per member).
+-- Mirrors V113__simplefin_connection.sql (access_url TEXT, status VARCHAR(20), one row per member).
 
 -- IF NOT EXISTS: @Sql runs before every test method against the same in-memory H2.
 CREATE TABLE IF NOT EXISTS family_member (
