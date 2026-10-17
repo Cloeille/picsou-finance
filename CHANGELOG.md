@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Docker deployments with a custom PostgreSQL password no longer crash-loop because Spring uses `picsou`.**
+  The entrypoint now forwards the resolved PostgreSQL password to Spring, while
+  preserving an explicit Spring datasource password override. The database's
+  own password must still be configured to match.
 - **A BoursoBank contract invested in a single fund syncs instead of failing the
   whole import** ([#154](https://github.com/Cloeille/picsou-finance/issues/154)).
   Its trading summary reports the contract balance and one `fund` node, with no
