@@ -62,7 +62,7 @@ public class Account extends AuditableEntity {
     @Column(name = "reward_points")
     private Long rewardPoints;
 
-    @Column(name = "external_account_id", length = 100)
+    @Column(name = "external_account_id", length = 255)
     private String externalAccountId;
 
     @Column(name = "is_manual", nullable = false)

@@ -66,6 +66,12 @@ vi.mock('@/components/sync/IbkrPanel', () => ({
   ),
 }))
 
+vi.mock('@/components/sync/SimplefinPanel', () => ({
+  SimplefinPanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>simplefin-wizard</button>
+  ),
+}))
+
 vi.stubGlobal('ResizeObserver', class {
   observe() {}
   unobserve() {}
@@ -283,6 +289,18 @@ describe('AddAccountModal IBKR wizard', () => {
 
     fireEvent.click(screen.getByText('sync.ibkr.title'))
     fireEvent.click(screen.getByRole('button', { name: 'ibkr-wizard' }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('AddAccountModal SimpleFIN wizard', () => {
+  it('opens the connector and closes after authentication', () => {
+    const onOpenChange = vi.fn()
+    render(<AddAccountModal open onOpenChange={onOpenChange} />)
+
+    fireEvent.click(screen.getByText('sync.simplefin.title'))
+    fireEvent.click(screen.getByRole('button', { name: 'simplefin-wizard' }))
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
