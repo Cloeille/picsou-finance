@@ -44,6 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an assurance-vie or as employee savings, which misdescribed it. A PER holds unit-linked
   lines and a euro fund like an assurance-vie, counts as equity in the wealth pyramid, sits
   under Stocks on the accounts page, and records its opening date.
+- **Release upgrades rehearse database migrations before replacing the running API.**
+  `docker/deploy.sh` retains a PostgreSQL backup, restores it into a temporary database,
+  and runs the candidate image's complete Flyway chain there before touching the live schema.
+  The same pinned image migrates and verifies the live database before cutover. Readiness
+  requires a real unauthenticated `/api/auth/me` response, not a static frontend HTTP 200.
+  Missing lower-numbered migrations, checksum mismatches, untracked manual DDL, and a missing
+  label in any mapped PostgreSQL enum fail closed, with a redacted diagnosis naming the migration,
+  table or enum. The script refuses a Compose project without existing `db` and `app` containers
+  (`--fresh` for a first install), records the previous app image, and checks free disk space.
+  Rollback and incident reconciliation remain explicit operator actions.
 - **You can choose to send anonymous crash reports and usage counts to the Picsou developers.**
   It is off by default and only exists when the instance sets `APP_TELEMETRY_DSN`; without it
   nothing changes. An admin is asked once, with the exact list of what is shared and what never is,
