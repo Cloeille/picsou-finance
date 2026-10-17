@@ -158,7 +158,7 @@ if ! docker image inspect "$candidate_image" >/dev/null 2>&1; then
     exit 1
 fi
 
-# The dump needs host space; the restored clone needs about the database size again.
+# Measure the database and the free space for the dump (host) and the restored clone (PGDATA).
 db_size_kib=$(docker_compose exec -T db sh -ceu \
     'export PGPASSWORD="$POSTGRES_PASSWORD"; psql -At -v ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" -c "SELECT pg_database_size(current_database()) / 1024"')
 db_free_kib=$(docker_compose exec -T db sh -ceu \
@@ -167,9 +167,12 @@ host_free_kib=$(df -Pk -- "$backup_dir" | tail -n 1 | tr -s ' ' | cut -d ' ' -f 
 for value in "$db_size_kib" "$db_free_kib" "$host_free_kib"; do
     [[ "$value" =~ ^[0-9]+$ ]] || { echo 'Could not measure database size or free disk space.' >&2; exit 1; }
 done
-if (( host_free_kib < db_size_kib || db_free_kib < db_size_kib )); then
-    printf 'Not enough free disk space: database %d MiB, free %d MiB for the backup, %d MiB for the clone.\n' \
-        $(( db_size_kib / 1024 )) $(( host_free_kib / 1024 )) $(( db_free_kib / 1024 )) >&2
+# Require twice the database size plus 256 MiB on each side: migrations rewrite tables and
+# write WAL in the clone, and a dump is not guaranteed to be smaller than the database.
+required_kib=$(( db_size_kib * 2 + 262144 ))
+if (( host_free_kib < required_kib || db_free_kib < required_kib )); then
+    printf 'Not enough free disk space: database %d MiB, %d MiB required on each side, free %d MiB for the backup, %d MiB for the clone.\n' \
+        $(( db_size_kib / 1024 )) $(( required_kib / 1024 )) $(( host_free_kib / 1024 )) $(( db_free_kib / 1024 )) >&2
     exit 1
 fi
 

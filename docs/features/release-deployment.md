@@ -55,12 +55,13 @@ such as `/var/backups/picsou`, not a shared directory like `/var/backups` or `$H
 1. Lock deployment, require the existing `db` and `app` containers (unless `--fresh`), and resolve
    the candidate image to a runnable local image ID. Start only the database if needed.
 2. Check free space: the backup directory and the PostgreSQL data directory must each have at
-   least the current database size free. Then take a full custom-format PostgreSQL backup. The
-   archive is retained on success and failure, with mode 0600 in a private directory. Store it on
-   encrypted storage and manage retention: it includes sensitive financial data and encrypted bank
-   sessions. Backups are never pruned by the script. The image ID of the app that is running before
-   the upgrade is written next to it as `picsou-<stamp>-<pid>.previous-image` and printed as
-   `Previous app image:`.
+   least twice the current database size plus 256 MiB free. The margin covers a dump that does
+   not compress, and the tables rewritten and the WAL written while the clone migrates. Then take
+   a full custom-format PostgreSQL backup. The archive is retained on success and failure, with
+   mode 0600 in a private directory. Store it on encrypted storage and manage retention: it
+   includes sensitive financial data and encrypted bank sessions. Backups are never pruned by
+   the script. The image ID of the app that is running before the upgrade is written next to it
+   as `picsou-<stamp>-<pid>.previous-image` and printed as `Previous app image:`.
 3. Restore it into a uniquely named temporary database on the same PostgreSQL server. Run the
    candidate image's standalone `ReleaseMigrationCli migrate`, then `verify`, against that copy.
    The candidate also validates every ORM-mapped table/column, with Spring Boot's naming

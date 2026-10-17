@@ -342,6 +342,31 @@ def test_insufficient_disk_space_fails_before_backup(fake_tools, tmp_path, knob)
     assert not any("pg_dump" in line for line in commands)
 
 
+@pytest.mark.parametrize("db_free_kib, ok", [
+    # 1 GiB database: 2 x 1 GiB + 256 MiB = 2359296 KiB required.
+    ("1048576", False),   # exactly the database size: accepted before the margin
+    ("2359295", False),   # one KiB short of the margin
+    ("2359296", True),    # exactly the margin
+])
+def test_disk_preflight_requires_a_safety_margin(fake_tools, tmp_path, db_free_kib, ok):
+    # Pin the host side too, so the result does not depend on the runner's real free space.
+    bindir, _ = fake_tools
+    df = bindir / "df"
+    df.write_text("#!/usr/bin/env bash\necho 'Filesystem 1024-blocks Used Available Capacity Mounted'\n"
+                  "echo 'mock 99999999 0 2359296 0% /mock'\n")
+    df.chmod(0o755)
+    result, commands, _ = run_deploy(
+        fake_tools, tmp_path, MOCK_DB_SIZE_KIB="1048576", MOCK_DB_FREE_KIB=db_free_kib)
+    if ok:
+        assert result.returncode == 0, result.stderr
+        assert any("pg_dump" in line for line in commands)
+    else:
+        assert result.returncode != 0
+        assert "Not enough free disk space" in result.stderr
+        assert "2304 MiB required" in result.stderr
+        assert not any("pg_dump" in line for line in commands)
+
+
 def test_existing_shared_backup_directory_is_refused_and_left_unchanged(fake_tools, tmp_path):
     bindir, log = fake_tools
     shared = tmp_path / "shared"
