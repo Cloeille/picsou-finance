@@ -252,6 +252,16 @@ class WealthPyramidServiceTest {
     }
 
     @Test
+    void aRetirementPlanKeepsItsEuroFundInEquity() {
+        withHoldings(AccountType.PER, "20000", Map.of("CW8", "12000"));
+
+        WealthPyramidResponse response = service.pyramid(MEMBER);
+
+        assertThat(response.totalAssetsEur()).isEqualByComparingTo("20000");
+        assertThat(tier(response, WealthTier.EQUITY).valueEur()).isEqualByComparingTo("20000");
+    }
+
+    @Test
     void sharesAreAppliedExactlyOnce() {
         Account joint = cash(AccountType.LIVRET_A, "10000");
         shares.put(joint.getId(), new BigDecimal("50"));

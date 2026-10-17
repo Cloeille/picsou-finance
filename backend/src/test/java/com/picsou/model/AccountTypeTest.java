@@ -14,6 +14,13 @@ class AccountTypeTest {
         // No connector syncs a life-insurance policy, so entering unit-linked lines by hand is
         // the only route to instrument-level detail — which the sector breakdown depends on.
         assertThat(AccountType.ASSURANCE_VIE.isInvestment()).isTrue();
+        // An individual PER holds unit-linked lines plus a euro fund, the same shape as a policy.
+        assertThat(AccountType.PER.isInvestment()).isTrue();
+    }
+
+    @Test
+    void aRetirementPlanIsWealthNotDebt() {
+        assertThat(AccountType.PER.isLiability()).isFalse();
     }
 
     @Test

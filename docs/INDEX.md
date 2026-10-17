@@ -59,6 +59,7 @@
 | 2026-07-26 | [Fortuneo isolated browser sidecar and complete atomic history sync](./decisions/2026-07-26-fortuneo-isolated-atomic-history-sync.md) | Active |
 | 2026-07-19 | [Interactive Brokers via the Flex Web Service (read-only, EOD)](./decisions/2026-07-19-ibkr-flex-web-service.md) | Active |
 | 2026-08-11 | [BoursoBank through a browserless sidecar, app-push only](./decisions/2026-08-11-boursobank-httpx-sidecar.md) | Active |
+| 2026-10-07 | [Caisse d'Epargne through a browserless httpx sidecar, on demand](./decisions/2026-10-07-caisse-epargne-httpx-sidecar.md) | Active |
 | 2026-08-01 | [Value assets from the last known price rather than not at all](./decisions/2026-08-01-last-known-price-fallback.md) | Active |
 | 2026-08-05 | [DEGIRO: session-only, no stored TOTP secret](./decisions/2026-08-05-degiro-session-only-no-stored-totp.md) | Active |
 | 2026-08-09 | [Amundi Épargne Salariale through an isolated browser sidecar](./decisions/2026-08-09-amundi-epargne-salariale-sidecar.md) | Active |
@@ -114,12 +115,14 @@
 | Live prices (holdings) | 2026-05-19 | [live-prices-holdings.md](./features/live-prices-holdings.md) |
 | Security Insight (asset type + ETF composition) | 2026-06-02 | [security-insight.md](./features/security-insight.md) |
 | Finary import + auto-sync | 2026-04-21 | [finary-import.md](./features/finary-import.md) |
+| HomeBank iOS and desktop history import (.hbk / encrypted .hbexport / .qif) | 2026-10-05 | [homebank-import.md](./features/homebank-import.md) |
 | Manual transactions + holdings derivation | 2026-09-02 | [manual-transactions.md](./features/manual-transactions.md) |
 | Transactions — global view (all accounts) | 2026-06-28 | [transactions-global-view.md](./features/transactions-global-view.md) |
 | CSV transaction import (investment accounts) | 2026-07-11 | [csv-transaction-import.md](./features/csv-transaction-import.md) |
 | Actual Budget import | 2026-10-04 | [actual-budget-import.md](./features/actual-budget-import.md) |
 | Realized P&L on closed positions | 2026-07-11 | [realized-pnl.md](./features/realized-pnl.md) |
 | BoursoBank sync | 2026-09-28 | [bourso-bank.md](./features/bourso-bank.md) |
+| Caisse d'Epargne sync (sidecar and on-demand backend, no login yet) | 2026-10-07 | [caisse-epargne.md](./features/caisse-epargne.md) |
 | Accounts overview (PnL chart + summary card + filters + card anatomy + sortable positions) | 2026-08-19 | [accounts-overview.md](./features/accounts-overview.md) |
 | Savings livrets (classification + projected interest) | 2026-06-28 | [savings-livrets.md](./features/savings-livrets.md) |
 | Logos on account cards (catalog-resolved, bundled, wallet picker, property kind) | 2026-08-13 | [bank-logos.md](./features/bank-logos.md) |

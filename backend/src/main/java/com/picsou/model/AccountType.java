@@ -22,6 +22,11 @@ public enum AccountType {
     LOAN,
     EMPLOYEE_SAVINGS,
     ASSURANCE_VIE,
+    /**
+     * An individual retirement plan (PER individuel). Not {@link #EMPLOYEE_SAVINGS}, which is the
+     * employer-sponsored family, and not {@link #ASSURANCE_VIE}: the money is locked until retirement.
+     */
+    PER,
     CREDIT_CARD,
     OTHER;
 
@@ -37,13 +42,15 @@ public enum AccountType {
      * by hand is the only way to get instrument-level detail, and without it every euro of
      * life insurance would be invisible to the sector and country breakdowns. Its euro fund
      * goes in {@code cashBalance}, the slot the cash inside a PEA/CTO envelope already uses.
+     * {@code PER} is in for the same reason: an individual plan holds the same unit-linked lines
+     * plus a euro fund.
      *
      * <p>{@code SCPI} is deliberately out: SCPI shares have no Yahoo ticker, so pricing them
      * per line would take the "held but unpriced" branch and value the account at zero. It
      * stays a balance, like {@code REAL_ESTATE}.
      */
     public boolean isInvestment() {
-        return this == PEA || this == COMPTE_TITRES || this == CRYPTO || this == ASSURANCE_VIE;
+        return this == PEA || this == COMPTE_TITRES || this == CRYPTO || this == ASSURANCE_VIE || this == PER;
     }
 
     /**
