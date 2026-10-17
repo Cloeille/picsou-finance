@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { adminApi } from './api'
+import { telemetryKeys } from '@/features/telemetry/hooks'
 import type { AdminSecuritySettings, AdminEnableBankingCredentials, AdminAiRequest } from './api'
 
 export const adminKeys = {
@@ -7,10 +8,11 @@ export const adminKeys = {
   settings: () => [...adminKeys.all, 'settings'] as const,
 }
 
-export function useAdminSettings() {
+export function useAdminSettings(enabled = true) {
   return useQuery({
     queryKey: adminKeys.settings(),
     queryFn: adminApi.getSettings,
+    enabled,
     staleTime: 60_000,
   })
 }
@@ -69,6 +71,19 @@ export function useUpdateAi() {
   return useMutation({
     mutationFn: (body: AdminAiRequest) => adminApi.updateAi(body),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.settings() }),
+  })
+}
+
+/** Consent is instance-wide: refresh both the admin view and the config the SDK reads. */
+export function useUpdateTelemetry() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (enabled: boolean) => adminApi.updateTelemetry(enabled),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: adminKeys.settings() }),
+        queryClient.invalidateQueries({ queryKey: telemetryKeys.config() }),
+      ]),
   })
 }
 
