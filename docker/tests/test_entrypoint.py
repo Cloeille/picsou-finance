@@ -38,11 +38,13 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
             ('SECRETS_DIR="/data/.secrets"', f'SECRETS_DIR="{self.secrets_dir}"'),
             ('mkdir -p /etc/nginx/snippets', f'mkdir -p "{self.nginx_dir}"'),
             ('HSTS_SNIPPET="/etc/nginx/snippets/picsou-hsts.conf"', f'HSTS_SNIPPET="{self.nginx_dir}/picsou-hsts.conf"'),
-            ('exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf', f'exec "{self.supervisord_stub}"'),
         )
         for original, replacement in replacements:
             self.assertEqual(source.count(original), 1, f"expected one sandbox replacement for {original!r}")
             source = source.replace(original, replacement, 1)
+        # main and 1.1.0 start supervisord with different config paths; sandbox whichever one is present.
+        source, count = re.subn(r"^exec /usr/bin/supervisord -c \S+$", f'exec "{self.supervisord_stub}"', source, flags=re.M)
+        self.assertEqual(count, 1, "expected one supervisord exec line to sandbox")
         self.entrypoint_script = source
 
     def run_entrypoint(self, **overrides):
