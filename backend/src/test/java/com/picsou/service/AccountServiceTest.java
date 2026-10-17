@@ -69,6 +69,7 @@ class AccountServiceTest {
     @Mock CryptoLogoService cryptoLogoService;
     @Mock InstrumentLogoService instrumentLogoService;
     @Mock ScpiPositionRepository scpiPositionRepository;
+    @Mock ScpiFundService scpiFundService;
     @InjectMocks AccountService accountService;
 
     private Account ownedAccount() {

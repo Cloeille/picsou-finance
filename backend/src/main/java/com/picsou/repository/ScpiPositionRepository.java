@@ -35,4 +35,7 @@ public interface ScpiPositionRepository extends JpaRepository<ScpiPosition, Long
      * makes that reconciliation possible.
      */
     List<ScpiPosition> findByAccountMemberIdAndSofidyFundCodeIsNotNull(Long memberId);
+
+    /** Every position this member linked to a CORUM fund. */
+    List<ScpiPosition> findByAccountMemberIdAndCorumFundCodeIsNotNull(Long memberId);
 }

@@ -1,6 +1,6 @@
 # Feature: SCPI shares
 
-> Last updated: 2026-10-01
+> Last updated: 2026-10-16
 
 ## Context
 
@@ -71,7 +71,8 @@ withdrawal-price rule has one implementation and a sync cannot value a share dif
 
 Picsou models one account per vehicle while a CORUM contract holds several funds, so a
 fund is matched to its account by `scpi_position.corum_fund_code`, unique per member. A
-fund with no linked account is skipped: creating accounts belongs to the manual flow. A
+fund with no linked account is linked or created on the spot (see
+[Account creation and linking](#account-creation-and-linking)). A
 fund whose withdrawal price is missing still updates the share count but leaves the
 balance alone and reports `PRICE_INCOMPLETE`, exactly as a manual entry would.
 
@@ -92,13 +93,43 @@ persisted — only the sidecar's cookie jar, encrypted.
 
 Funds are matched by `scpi_position.sofidy_fund_code`, Sofidy's own `Code_Produit`
 (`DY` for SOFIDYNAMIC), unique per member, with the same two rules as CORUM: a fund with
-no linked account is skipped, and a fund whose withdrawal price is missing still updates
+no linked account is linked or created, and a fund whose withdrawal price is missing still updates
 the share count while leaving the balance alone and reporting `PRICE_INCOMPLETE`.
 
 Sofidy publishes no subscription price, so a synced position carries the quantity and
 the withdrawal price only; the subscription price stays whatever the manual entry
 recorded. See the
 [Sofidy sidecar ADR](../decisions/2026-09-27-sofidy-scpi-sidecar.md).
+
+### Account creation and linking
+
+Since [#232](https://github.com/Cloeille/picsou-finance/issues/232), a sync does not need a
+pre-made account. `ScpiFundReconciler` takes each fund of a complete snapshot:
+
+1. ignored by the member → nothing written, `IGNORED`;
+2. already linked → updated, `UPDATED` (or `PRICE_INCOMPLETE` without a withdrawal price);
+3. one manual SCPI account, linked to no fund, named like the fund label after
+   normalization (case, accents, punctuation) → linked, `LINKED`; two or more → `AMBIGUOUS`,
+   nothing linked or created;
+4. otherwise → a new SCPI account named after the label, `CREATED`.
+
+A fund the member had and the provider no longer lists is reported `MISSING_AT_PROVIDER`;
+its account is kept. Sofidy still writes such a linked fund at zero shares (its ADR, point
+8); CORUM leaves it untouched. Positions linked by hand before V114 count too, so the first
+sync after the upgrade can report an old fund as missing; it only reports it.
+
+A snapshot whose currency is not `EUR`, or that has none, is refused as `INVALID_DATA`
+before any account is created or updated: the reconciler stores every figure as euros.
+
+`scpi_provider_fund` (V114) keeps one row per member, provider and fund code: the
+`ignored` tombstone and the latest outcome. Deleting the account of a linked fund, clearing
+its code on the form, or "Ignore this fund" on the SCPI detail sets the tombstone, so the
+next sync does not bring the account back. Typing or picking the code again lifts it.
+`GET /api/scpi/funds` returns these rows. The sync panels read them to show "3 funds
+found — 2 accounts created, 1 updated", and a run that applied nothing is shown as a
+warning. `AddScpiModal` offers the unlinked funds as a pick list.
+
+See the [ADR](../decisions/2026-10-16-scpi-sync-creates-accounts.md).
 
 ### Flow
 
@@ -131,7 +162,12 @@ PUT /api/accounts/{id}/scpi
   failure.
 - `V82` already adds `SCPI` and `ASSURANCE_VIE` on 1.1.0; do not add the enum twice.
   The appended migrations are `V104` (`scpi_position`), `V105` (`corum_session`)
-  and `V106` (`sofidy_session`), above the base branch's `V103`.
+  and `V106` (`sofidy_session`), above the base branch's `V103`. `V114`
+  (`scpi_provider_fund`) skips V109–V113, which open PRs already claim.
+- Deleting a SCPI account tombstones its funds. Without that, the next sync would
+  recreate it, since a sync now creates the account of any fund it has not linked.
+- Adoption is unique-match only and never fuzzy. An account renamed away from the
+  portal label gets a second, synced account rather than a guessed link.
 - A generic account edit does not overwrite a SCPI balance. `ScpiPositionService` owns it.
 - A linked loan on a SCPI reduces paper net, not the physical property's net.
 - A CORUM contract holds several funds, so one client-space session writes to several
@@ -150,6 +186,15 @@ PUT /api/accounts/{id}/scpi
 ## Tests
 
 - `ScpiPositionServiceTest` — fractional shares, withdrawal value, missing price, wrong type
+- `ScpiFundReconcilerTest` — first sync creates, second updates without a duplicate,
+  same-name manual account linked, two matches ambiguous, ignored fund not recreated,
+  vanished fund reported and kept, missing price reported
+- `CorumSyncServiceTest` / `SofidySyncServiceTest#queueSync_refusesASnapshotNotInEuros` — a
+  snapshot in another currency, or with none, writes nothing
+- `ScpiFundServiceTest` — ignore unlinks but keeps the account, restore lifts the tombstone
+- `ScpiSyncSessionPostgresTest#corumSyncCreatesTheAccountOnceAndDoesNotRecreateADeletedOne`
+  — the same rules on the real schema
+- `ScpiSyncSummary.test.tsx` — per-fund counts, a run with nothing applied is a warning
 - `ScpiPositionServiceSyncTest` — a synced share is valued at the withdrawal price, not
   CORUM's displayed figure
 - `RealEstateSummaryServiceTest` — a share stays out of the open-data gross
@@ -176,4 +221,6 @@ PUT /api/accounts/{id}/scpi
 - Related ADR: [A SCPI share is not a property](../decisions/2026-09-23-scpi-not-a-property.md)
 - Related ADR: [CORUM client space fills existing SCPI accounts through a browser sidecar](../decisions/2026-09-26-corum-scpi-sidecar.md)
 - Related ADR: [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](../decisions/2026-09-27-sofidy-scpi-sidecar.md)
+- Related ADR: [CORUM and Sofidy syncs create and link their SCPI accounts](../decisions/2026-10-16-scpi-sync-creates-accounts.md)
 - Ticket: https://github.com/Cloeille/picsou-finance/issues/157
+- Ticket: https://github.com/Cloeille/picsou-finance/issues/232

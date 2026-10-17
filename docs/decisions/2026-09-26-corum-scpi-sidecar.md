@@ -1,7 +1,7 @@
 # ADR: CORUM client space fills existing SCPI accounts through a browser sidecar
 
 > Date: 2026-09-26
-> Status: ✅ Active
+> Status: ✅ Active — point 5 superseded by [SCPI syncs create and link their accounts](2026-10-16-scpi-sync-creates-accounts.md)
 
 ## Context
 
@@ -73,7 +73,8 @@ URL. That is the argument for `test_live_contract.py` existing at all.
    sync that valued the share any other way would reintroduce the entry-fee overstatement
    the manual model exists to prevent, so the rule lives in one place and both callers
    share it.
-5. A sync does not create accounts. Picsou models one account per vehicle while a CORUM
+5. *Superseded by [2026-10-16](2026-10-16-scpi-sync-creates-accounts.md): a sync now creates
+   or adopts the account of an unseen fund.* A sync does not create accounts. Picsou models one account per vehicle while a CORUM
    contract holds several funds, so a fund is matched to an account through
    `scpi_position.corum_fund_code`. A holding with no linked account is skipped: account
    creation belongs to the manual flow, and a sync that opened accounts on its own would

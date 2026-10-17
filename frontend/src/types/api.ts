@@ -156,6 +156,32 @@ export interface ScpiPosition {
   valuationStatus: ScpiValuationStatus
 }
 
+/** What the latest CORUM or Sofidy sync did with one fund (GH issue #232). */
+export type ScpiFundOutcome =
+  | 'CREATED'
+  | 'LINKED'
+  | 'UPDATED'
+  | 'PRICE_INCOMPLETE'
+  | 'AMBIGUOUS'
+  | 'IGNORED'
+  | 'MISSING_AT_PROVIDER'
+
+export type ScpiProvider = 'CORUM' | 'SOFIDY'
+
+/** A fund a sync has seen. `accountId` is null when no account is linked to it. */
+export interface ScpiFund {
+  provider: ScpiProvider
+  fundCode: string
+  label: string | null
+  ignored: boolean
+  lastOutcome: ScpiFundOutcome | null
+  lastSeenAt: string | null
+  /** Shared by every fund the same sync run wrote. */
+  lastSyncedAt: string | null
+  accountId: number | null
+  accountName: string | null
+}
+
 export interface ScpiPositionRequest {
   isin?: string | null
   managementCompany?: string | null

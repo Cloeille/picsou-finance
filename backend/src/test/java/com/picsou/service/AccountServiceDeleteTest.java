@@ -3,6 +3,7 @@ package com.picsou.service;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.ScpiPosition;
+import com.picsou.model.ScpiProvider;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
@@ -45,6 +46,7 @@ class AccountServiceDeleteTest {
     @Mock AccountAccessResolver accessResolver;
     @Mock BankLogoResolver bankLogoResolver;
     @Mock ScpiPositionRepository scpiPositionRepository;
+    @Mock ScpiFundService scpiFundService;
     @InjectMocks AccountService service;
 
     @Test
@@ -63,5 +65,8 @@ class AccountServiceDeleteTest {
         assertThat(account.getDeletedAt()).isNotNull();
         verify(scpiPositionRepository).save(position);
         verify(accountRepository).save(account);
+        // #232: the sync must not recreate the account it just lost.
+        verify(scpiFundService).tombstone(1L, ScpiProvider.CORUM, "US");
+        verify(scpiFundService).tombstone(1L, ScpiProvider.SOFIDY, "DY");
     }
 }

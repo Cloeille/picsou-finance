@@ -4,13 +4,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { Account } from '@/types/api'
 import { ScpiDetailSection } from './ScpiDetailSection'
 
-const { mutateAsync } = vi.hoisted(() => ({ mutateAsync: vi.fn() }))
+const { mutateAsync, ignoreMutate } = vi.hoisted(() => ({ mutateAsync: vi.fn(), ignoreMutate: vi.fn() }))
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { resolvedLanguage: 'en' } }),
 }))
 vi.mock('@/features/accounts/hooks', () => ({
   useUpdateScpiPosition: () => ({ mutateAsync, isPending: false, error: null }),
+  useIgnoreScpiFund: () => ({ mutate: ignoreMutate, isPending: false, error: null }),
 }))
 vi.mock('@/components/shared/DateInput', () => ({
   DateInput: ({ id, value }: { id: string; value: string }) => <input id={id} value={value} readOnly />,
@@ -84,11 +85,24 @@ describe('ScpiDetailSection fund links', () => {
     }))
   })
 
+  it('ignores a linked fund after confirmation, without editing the position', () => {
+    ignoreMutate.mockReset()
+    render(<ScpiDetailSection account={account} />)
+    fireEvent.click(screen.getAllByRole('button', { name: 'scpi.ignoreFund' })[0])
+    expect(ignoreMutate).not.toHaveBeenCalled()
+    expect(screen.getByText('scpi.ignoreFundConfirm')).toBeInTheDocument()
+    const buttons = screen.getAllByRole('button', { name: 'scpi.ignoreFund' })
+    fireEvent.click(buttons[buttons.length - 1])
+    expect(ignoreMutate).toHaveBeenCalledWith({ provider: 'CORUM', fundCode: 'FUND-42' }, expect.anything())
+    expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
   it('shows links without editing controls for a shared read-only account', () => {
     render(<ScpiDetailSection account={{ ...account, isOwner: false }} />)
     expect(screen.getByText('FUND-42')).toBeInTheDocument()
     expect(screen.getByText('DY')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'scpi.edit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'scpi.ignoreFund' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'scpi.save' })).not.toBeInTheDocument()
     expect(mutateAsync).not.toHaveBeenCalled()
   })

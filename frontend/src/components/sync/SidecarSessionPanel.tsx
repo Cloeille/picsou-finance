@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import type { ReactNode } from "react"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import {
   AlertTriangle,
@@ -117,6 +118,12 @@ export interface SidecarSessionPanelProps<
   useClearSession: () => UseMutationResult<unknown, unknown, void>
   onConnected?: () => void
   recoveryAction?: { label: string; busyLabel: string; description: string; busy: boolean; onRun: () => void }
+  /**
+   * Replaces the generic "sync succeeded" line once a sync has completed. The SCPI
+   * panels use it to report what each fund became, so a sync that applied nothing
+   * never reads as a plain success.
+   */
+  successSummary?: ReactNode
 }
 
 /**
@@ -141,6 +148,7 @@ export function SidecarSessionPanel<
   useClearSession,
   onConnected,
   recoveryAction,
+  successSummary,
 }: SidecarSessionPanelProps<TStatus, TInit>) {
   const { t } = useTranslation()
   const [authState, setAuthState] = useState<AuthState>("IDLE")
@@ -253,9 +261,11 @@ export function SidecarSessionPanel<
             </p>
           )}
           {syncStatus === "SUCCESS" && status.data?.lastSyncCompletedAt && (
-            <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
-              {t(key("syncSuccess"))}
-            </p>
+            successSummary ?? (
+              <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
+                {t(key("syncSuccess"))}
+              </p>
+            )
           )}
         </CardContent>
       </Card>

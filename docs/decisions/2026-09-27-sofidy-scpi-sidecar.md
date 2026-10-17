@@ -1,7 +1,7 @@
 # ADR: Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar
 
 > Date: 2026-09-27
-> Status: ✅ Active
+> Status: ✅ Active — point 5 superseded by [SCPI syncs create and link their accounts](2026-10-16-scpi-sync-creates-accounts.md)
 > Depends on: [#159 — the CORUM SCPI sidecar](2026-09-26-corum-scpi-sidecar.md)
 
 ## Context
@@ -64,7 +64,8 @@ is the missing value, and `0.00` is a price.
 4. The balance is always `quantity × withdrawalPrice`, written through
    `ScpiPositionService.applySyncedPosition` — the same method CORUM and the manual
    form use, so the withdrawal-price rule has one implementation.
-5. A sync does not create accounts. A fund is matched to an account through
+5. *Superseded by [2026-10-16](2026-10-16-scpi-sync-creates-accounts.md): a sync now creates
+   or adopts the account of an unseen fund.* A sync does not create accounts. A fund is matched to an account through
    `scpi_position.sofidy_fund_code`, Sofidy's own `Code_Produit` (`DY` for
    SOFIDYNAMIC). A holding with no linked account is skipped: account creation
    belongs to the manual flow.

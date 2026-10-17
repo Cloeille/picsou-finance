@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an assurance-vie or as employee savings, which misdescribed it. A PER holds unit-linked
   lines and a euro fund like an assurance-vie, counts as equity in the wealth pyramid, sits
   under Stocks on the accounts page, and records its opening date.
+- **A CORUM or Sofidy sync now creates your SCPI accounts.** You no longer create one
+  account per fund and type the provider's fund code first. A fund without an account gets
+  one, named after the fund, with its shares and withdrawal value. A manual SCPI account
+  with the same name is linked instead of duplicated. The sync panel says what each fund
+  became ("3 funds found — 2 accounts created, 1 updated"), and a sync that found funds but
+  updated nothing is no longer shown as a success. "Ignore this fund" on a SCPI unlinks it
+  and keeps later syncs away; deleting the account does the same, so it is not recreated.
 - **You can choose to send anonymous crash reports and usage counts to the Picsou developers.**
   It is off by default and only exists when the instance sets `APP_TELEMETRY_DSN`; without it
   nothing changes. An admin is asked once, with the exact list of what is shared and what never is,
