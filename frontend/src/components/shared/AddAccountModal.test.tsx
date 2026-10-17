@@ -66,6 +66,24 @@ vi.mock('@/components/sync/IbkrPanel', () => ({
   ),
 }))
 
+vi.mock('@/components/sync/AmexPanel', () => ({
+  AmexPanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>amex-wizard</button>
+  ),
+}))
+
+vi.mock('@/components/sync/CorumPanel', () => ({
+  CorumPanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>corum-wizard</button>
+  ),
+}))
+
+vi.mock('@/components/sync/SofidyPanel', () => ({
+  SofidyPanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>sofidy-wizard</button>
+  ),
+}))
+
 vi.stubGlobal('ResizeObserver', class {
   observe() {}
   unobserve() {}
@@ -283,6 +301,18 @@ describe('AddAccountModal IBKR wizard', () => {
 
     fireEvent.click(screen.getByText('sync.ibkr.title'))
     fireEvent.click(screen.getByRole('button', { name: 'ibkr-wizard' }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe.each(['amex', 'corum', 'sofidy'])('AddAccountModal %s wizard', (key) => {
+  it('lists the source, opens the connector and closes after authentication', () => {
+    const onOpenChange = vi.fn()
+    render(<AddAccountModal open onOpenChange={onOpenChange} />)
+
+    fireEvent.click(screen.getByText(`sync.${key}.title`))
+    fireEvent.click(screen.getByRole('button', { name: `${key}-wizard` }))
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })

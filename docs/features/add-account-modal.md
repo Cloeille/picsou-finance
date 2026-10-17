@@ -35,6 +35,10 @@ AccountsPage → "Add account" button
        ├─ DEGIRO → DegiroPanel (onConnected → handleDone)
        ├─ Interactive Brokers → IbkrPanel (onConnected → handleDone)
        ├─ Amundi → AmundiPanel (onConnected → handleDone)
+       ├─ Fortuneo → FortuneoPanel (onConnected → handleDone)
+       ├─ American Express → AmexPanel (onConnected → handleDone)
+       ├─ CORUM → CorumPanel (onConnected → handleDone)
+       ├─ Sofidy → SofidyPanel (onConnected → handleDone)
        ├─ Trade Republic → TradeRepublicWizard
        │    └─ phone + PIN (InputOTP 4-digit) → verification code (InputOTP 4-digit) → success
        ├─ Finary → FinaryWizard (3-step)
@@ -143,7 +147,7 @@ an `accountTypes.*` label in all four locales — `src/lib/constants.test.ts` fa
 
 - `frontend/src/lib/utils.test.ts` — `formatCurrency` regression case: an invalid code does not throw
   and the raw code appears in the output (issue #9).
-- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases; Bourse Direct, Amundi, and IBKR wizard flow tests (mock panel → `onOpenChange(false)`).
+- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases; Bourse Direct, Amundi, IBKR, Amex, CORUM, and Sofidy wizard flow tests (mock panel → `onOpenChange(false)`).
 - `backend/src/test/java/com/picsou/validation/CurrencyValidatorTest.java` — accepts valid ISO 4217
   codes, rejects unknown ones, leaves null/blank to `@NotBlank`.
 
@@ -151,3 +155,7 @@ an `accountTypes.*` label in all four locales — `src/lib/constants.test.ts` fa
 
 - i18n keys: `addAccount.*`, sync keys reused from `sync.*` namespace in `en.json` / `fr.json`
 - Related: [Finary import](./finary-import.md), [Trade Republic](./trade-republic.md), [Bank sync](./bank-sync.md), [Crypto tracking](./crypto-tracking.md)
+
+### Sync all modal parity
+
+`SyncAllModal` lists the same sidecar connectors as the selector, including Amex, CORUM and Sofidy. A session-based row is shown when its session is live or the member still has accounts whose `provider` matches. CORUM and Sofidy create no accounts (they update SCPI positions), so they define no `provider` and appear on an active session alone; an inactive one routes to its Sync-page tab (`amex`/`corum`/`sofidy`) for re-authentication.
