@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A Caisse d'Epargne sidecar and on-demand sync are in the codebase, but you cannot sign in
+  from Picsou yet.** A new internal `caisse-epargne-auth` container reads a Caisse d'Epargne
+  current account, a Livret A and an active deferred-debit card (shown as a credit card account
+  holding the amount still to be debited) with their transactions, and the backend can store
+  the bank session encrypted and sync it on request. There is no login screen and no setup
+  page yet, so today you cannot connect an account from the app, and nothing syncs
+  automatically. Disconnecting deletes the stored session in Picsou but does not end the
+  session at the bank, which stays open until it expires. Enable Banking is unchanged for
+  Caisse d'Epargne accounts.
+- **An individual retirement plan (PER) has its own account type.** It used to be entered as
+  an assurance-vie or as employee savings, which misdescribed it. A PER holds unit-linked
+  lines and a euro fund like an assurance-vie, counts as equity in the wealth pyramid, sits
+  under Stocks on the accounts page, and records its opening date.
+
 - **An MCP client can refresh every existing connector and read whether one needs a new login.**
   `trigger_full_sync` runs the same per-member sync as the 08:00 job and returns one line per
   source, so a failed bank or a broker that needs reauthentication is named instead of hidden
@@ -49,6 +63,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   menu now opens below the profile button when the window is tall enough, and flips
   above it otherwise; the default style keeps it opening upwards because its profile
   sits at the bottom of the screen.
+
+- **Import HomeBank iOS and desktop history from `.hbk`, `.hbexport` or `.qif`.**
+  Review the source accounts, transactions, payees and notes, then map accounts and
+  budget categories before confirming. Amounts, currencies and calendar dates are
+  kept as exported. The import is atomic, repeated source IDs are skipped, and
+  internal transfers and opening balances do not inflate spending or income.
+  Desktop QIF requires an explicit currency, preserves category splits and
+  transfer legs, and derives new balances from the exported history. Native iOS
+  exports retain password-protected import. Desktop `.xhb` XML is not supported.
+  Importing again into an existing manual account refreshes its balance and
+  history. QIF dates may be year-, day- or month-first, and a transfer to an
+  account missing from the file is imported as a plain row.
 
 - **Crypto holdings show the coin's logo next to their ticker.** A position is easier to
   recognise at a glance than by reading its ticker. The mark comes from CoinGecko, which
@@ -107,6 +133,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **HomeBank iOS imports retain the opening amount when mapped to an existing manual account.**
+  The non-zero opening is added once as a stable transfer ledger row before rebuilding
+  the balance and snapshots. Repeat imports do not duplicate it; synced balances stay untouched.
 - **Revolut pockets/vaults and Bourso current-account/LEP activity feed Budget.**
   Real Revolut pockets use their internal pocket ID for the bounded 90-day
   harvest, without changing persisted vault IDs. Bourso reads booked movements
@@ -114,7 +143,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   during strict overlap matching. Only verified mirrored Revolut legs are
   classified as internal transfers; a generic virement label alone is not.
   ([#213](https://github.com/Cloeille/picsou-finance/issues/213))
-
 - **The budget money-flow chart no longer calls unspent money "savings".** Income left on the
   current account is now shown as "Unspent", and spending above income as "Taken from balance".
   Only money actually transferred to a savings or investment account appears as savings, with one

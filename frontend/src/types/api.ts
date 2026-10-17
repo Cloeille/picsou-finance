@@ -1,7 +1,7 @@
 export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'OTHER'
+  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'PER' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
@@ -811,6 +811,53 @@ export interface BoursoAuthInitResponse {
   processId: string | null
   mfaRequired: boolean
   mfaType: 'APP_PUSH' | null
+}
+
+/** Contract family the sidecar saw but Picsou does not import: family code only, never the id. */
+export interface CaisseEpargneUnsupportedContract {
+  externalId: string
+  familyCode: string
+}
+
+export type CaisseEpargneErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'KEYPAD_CHANGED'
+  | 'APP_VALIDATION_TIMEOUT'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'INVALID_SESSION_STATE'
+  | 'INTERNAL_ERROR'
+
+/** Mirrors `CaisseEpargneSyncService.SessionStatusResponse`. */
+export interface CaisseEpargneSessionStatus {
+  isActive: boolean
+  syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED'
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+  lastSyncError: CaisseEpargneErrorCode | null
+  unsupported: CaisseEpargneUnsupportedContract[]
+  unsupportedCount: number
+}
+
+/** The second factor is always Sécur'Pass: a human approves it on the phone. */
+export interface CaisseEpargneAuthInitResponse {
+  processId: string
+  mfaRequired: true
+  mfaType: 'SECURPASS'
+  expiresInSeconds: number
+}
+
+export interface CaisseEpargneAuthCompleteResponse {
+  connected: boolean
+}
+
+/** `bankSessionRevoked` is always false: only Picsou's stored copy is deleted. */
+export interface CaisseEpargneDeleteResponse {
+  removed: boolean
+  bankSessionRevoked: boolean
+  message: string
 }
 
 export type DegiroSessionStatusValue = 'ACTIVE' | 'REAUTH_REQUIRED' | 'FAILED'

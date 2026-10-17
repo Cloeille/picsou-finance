@@ -100,8 +100,8 @@ so without the key a sort chosen on one portfolio would silently carry over to t
 ### Opening date
 
 `account.opened_at` (V91) records when a wrapper was opened, as the member states it. The account
-form offers it for the types whose taxation turns on the plan's age — `PEA` and `ASSURANCE_VIE`,
-listed in `OPENING_DATE_TYPES` — and the xlsx export prints it under the account's type.
+form offers it for the types whose taxation turns on the plan's age — `PEA`, `ASSURANCE_VIE` and
+`PER`, listed in `OPENING_DATE_TYPES` — and the xlsx export prints it under the account's type.
 
 **It is not `created_at`.** That column dates the Picsou row; a PEA opened in 2014 and typed in
 last month has ten years between the two, and the ten years are the point. Nothing backfills it
@@ -126,7 +126,7 @@ green/red trend icon and percentage, in the same style as the Dashboard net wort
 That test is `hasPnl`, and it covers two different sources of a basis:
 
 - **an investment account** — `HOLDING_ACCOUNT_TYPES` (PEA, COMPTE_TITRES, CRYPTO,
-  EMPLOYEE_SAVINGS, ASSURANCE_VIE), whose basis is the sum of its holdings' cost
+  EMPLOYEE_SAVINGS, ASSURANCE_VIE, PER), whose basis is the sum of its holdings' cost
 - **a property** — `hasMeasurableGain(account)`, i.e. a `REAL_ESTATE` account whose
   `realEstate.costBasis` is positive
 
@@ -183,7 +183,7 @@ Six asset categories defined in `AccountsPage.tsx`:
 
 | Filter key | Account types | Chart color |
 |-----------|--------------|-------------|
-| STOCKS | PEA, COMPTE_TITRES, EMPLOYEE_SAVINGS, ASSURANCE_VIE | `#6366f1` |
+| STOCKS | PEA, COMPTE_TITRES, EMPLOYEE_SAVINGS, ASSURANCE_VIE, PER | `#6366f1` |
 | METALS | OTHER | `#eab308` |
 | SAVINGS | LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL, SAVINGS | `#22c55e` |
 | CHECKING | CHECKING | `#0ea5e9` |

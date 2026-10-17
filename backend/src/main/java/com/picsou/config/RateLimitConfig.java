@@ -84,6 +84,16 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP Caisse d'Epargne login rate limiter: 3 attempts per 15 minutes. Stricter than
+     * BoursoBank's on purpose: a wrong password consumes a bank attempt and the bank can lock the
+     * account. Only {@code /auth/initiate} draws from it.
+     */
+    @Bean("caisseEpargneAuthBuckets")
+    public Map<String, Bucket> caisseEpargneAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP Revolut enrolment rate limiter: 5 attempts per 15 minutes.
      * The sidecar's own login is already rate-limited by Revolut itself (spec §3.5: repeated
      * WEB logins trigger captchas/throttling within hours), but this endpoint just receives a
@@ -331,6 +341,15 @@ public class RateLimitConfig {
             .addLimit(Bandwidth.builder()
                 .capacity(5)
                 .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createCaisseEpargneAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(3)
+                .refillIntervally(3, Duration.ofMinutes(15))
                 .build())
             .build();
     }
