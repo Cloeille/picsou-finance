@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useMoney } from '@/hooks/use-money'
 import { usePortfolio, type PortfolioLine } from '@/features/accounts/hooks'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { PriceFreshnessDot } from '@/components/shared/PriceFreshnessDot'
 import {
   Card,
   CardContent,
@@ -40,19 +41,24 @@ const FILTER_TABS: { value: FilterType; labelKey: string; match: (type: Account[
       .includes(t) },
 ]
 
-function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick: () => void }) {
+function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => void }) {
   const money = useMoney()
   const { t } = useTranslation()
+  const displayName = line.nameKey ? t(line.nameKey) : line.name
 
   return (
-    <Item variant="muted" className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={onClick}>
+    <Item
+      variant="muted"
+      className={cn(onClick && 'cursor-pointer hover:bg-muted/50 transition-colors')}
+      onClick={onClick}
+    >
       <ItemMedia>
         <div className="flex size-12 items-center justify-center rounded-lg border text-sm font-semibold">
           {line.ticker ? line.ticker.slice(0, 4) : line.name.slice(0, 3).toUpperCase()}
         </div>
       </ItemMedia>
       <ItemContent>
-        <ItemTitle>{line.name}</ItemTitle>
+        <ItemTitle>{displayName}</ItemTitle>
         <ItemDescription className="text-sm">
           {line.quantity > 0
             ? `${money.quantity(line.quantity.toLocaleString())} ${t('dashboard.shares')} · ${line.accountName}`
@@ -67,7 +73,13 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick: () => v
           <span className="text-sm text-muted-foreground">
             {t('portfolio.value')}
           </span>
-          <CurrencyDisplay value={line.valueEur} className="font-medium tabular-nums" />
+          <div className="inline-flex items-center gap-1.5">
+            <PriceFreshnessDot
+              priceUpdatedAt={line.priceUpdatedAt}
+              staleAsOf={line.priceStale ? line.priceAsOf : null}
+            />
+            <CurrencyDisplay value={line.valueEur} className="font-medium tabular-nums" />
+          </div>
           {line.pnlPercent != null && (
             <span
               className={cn(
@@ -103,13 +115,13 @@ export function HoldingsCard() {
     if (search) {
       const q = search.toLowerCase()
       result = result.filter(l =>
-        l.name.toLowerCase().includes(q) ||
+        (l.nameKey ? t(l.nameKey) : l.name).toLowerCase().includes(q) ||
         (l.ticker ?? '').toLowerCase().includes(q) ||
         l.accountName.toLowerCase().includes(q),
       )
     }
     return result.sort((a, b) => b.valueEur - a.valueEur)
-  }, [lines, filter, search])
+  }, [lines, filter, search, t])
 
   if (isLoading) {
     return (
@@ -193,7 +205,11 @@ export function HoldingsCard() {
       <CardContent>
         <ItemGroup>
           {filtered.map(line => (
-            <HoldingsItem key={line.id} line={line} onClick={() => setSelectedLine(line)} />
+            <HoldingsItem
+              key={line.id}
+              line={line}
+              onClick={line.isCash ? undefined : () => setSelectedLine(line)}
+            />
           ))}
         </ItemGroup>
         {filtered.length === 0 && lines.length > 0 && (
@@ -201,7 +217,9 @@ export function HoldingsCard() {
         )}
       </CardContent>
 
-      <HoldingDetailModal line={selectedLine} onClose={() => setSelectedLine(null)} />
+      {selectedLine && (
+        <HoldingDetailModal line={selectedLine} onClose={() => setSelectedLine(null)} />
+      )}
     </Card>
   )
 }

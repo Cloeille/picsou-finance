@@ -59,6 +59,11 @@ public class Account extends AuditableEntity {
     @Column(name = "payment_due_date")
     private LocalDate paymentDueDate;
 
+    /** Set by the Caisse d'Epargne sync on cards only; null for every other account. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "card_nature", length = 20)
+    private CardNature cardNature;
+
     @Column(name = "reward_points")
     private Long rewardPoints;
 

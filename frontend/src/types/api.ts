@@ -274,6 +274,9 @@ export interface DebtInfo {
   fileFees: number | null
 }
 
+/** How a bank card is debited; set by the Caisse d'Epargne sync on cards only. */
+export type CardNature = 'IMMEDIATE_DEBIT' | 'DEFERRED_DEBIT' | 'CREDIT'
+
 export interface Account {
   id: number
   name: string
@@ -309,6 +312,8 @@ export interface Account {
   paymentDueAmount?: number
   paymentDueDate?: string
   rewardPoints?: number
+  /** Cards only: immediate debit, deferred debit or credit. Absent when the bank does not say. */
+  cardNature?: CardNature | null
   /** Display-only visibility flag; hidden account still syncs normally. */
   hidden: boolean
   /** Set only when the member owns less than all of it — the co-ownership badge signal. */
@@ -615,7 +620,7 @@ export interface DashboardData {
   totalNetWorth: number
   totalLiabilities: number
   totalMonthlyPayment?: number | null
-  netWorthHistory: { date: string; total: number; invested: number; pnl: number }[]
+  netWorthHistory: { date: string; total: number; invested: number | null; pnl: number | null }[]
   distribution: {
     accountId: number
     name: string
@@ -856,6 +861,8 @@ export interface CaisseEpargneUnsupportedContract {
 export type CaisseEpargneErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'KEYPAD_CHANGED'
+  | 'KEYPAD_EXPIRED'
+  | 'INVALID_POSITIONS'
   | 'APP_VALIDATION_TIMEOUT'
   | 'AUTH_ATTEMPT_EXPIRED'
   | 'SESSION_EXPIRED'
@@ -875,12 +882,26 @@ export interface CaisseEpargneSessionStatus {
   unsupportedCount: number
 }
 
-/** The second factor is always Sécur'Pass: a human approves it on the phone. */
+/**
+ * The bank's virtual keypad for this login: 10 `data:image/png` images in the bank's DOM
+ * order. The user reads and clicks his digits himself; only the clicked positions go back.
+ */
+export interface CaisseEpargneKeypad {
+  images: string[]
+  columns: number
+}
+
 export interface CaisseEpargneAuthInitResponse {
   processId: string
-  mfaRequired: true
-  mfaType: 'SECURPASS'
+  keypad: CaisseEpargneKeypad
+  /** Lifetime of the keypad step (90 s), not of the Sécur'Pass wait. */
   expiresInSeconds: number
+}
+
+/** The second factor is always Sécur'Pass: a human approves it on the phone. */
+export interface CaisseEpargneAuthKeypadResponse {
+  processId: string
+  status: 'SECURPASS_PENDING'
 }
 
 export interface CaisseEpargneAuthCompleteResponse {

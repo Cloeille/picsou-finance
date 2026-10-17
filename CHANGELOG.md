@@ -19,13 +19,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   banks are linked on SimpleFIN Bridge, then one token is brought back. See
   [ADR](docs/decisions/2026-10-04-simplefin-beside-enable-banking.md) and
   [feature note](docs/features/simplefin-sync.md).
-- **A Caisse d'Epargne sidecar and on-demand sync are in the codebase, but you cannot sign in
-  from Picsou yet.** A new internal `caisse-epargne-auth` container reads a Caisse d'Epargne
-  current account, a Livret A and an active deferred-debit card (shown as a credit card account
-  holding the amount still to be debited) with their transactions, and the backend can store
-  the bank session encrypted and sync it on request. There is no login screen and no setup
-  page yet, so today you cannot connect an account from the app, and nothing syncs
-  automatically. Disconnecting deletes the stored session in Picsou but does not end the
+- **You can connect a Caisse d'Epargne account and sync it on request.** From the Sync page or
+  the add-account window, you enter your identifier, click your own digits on the bank's
+  keypad shown in a pop-up, then approve in Sécur'Pass. Picsou never sees your password and
+  never stores it: it keeps only the encrypted bank session. A new internal
+  `caisse-epargne-auth` container imports the current account, the Livret A and the LDDS (each
+  its own account) with their transactions. A PER can import its owned unit-linked positions
+  and its separate euro-fund balance. Available EUR market quotes update the unit-linked value
+  without a bank sync; an unquoted line retains its last bank valuation. The euro fund stays
+  fixed until the next sync. Unknown acquisition costs are not reported as investment gains,
+  and current quantities are not projected into past ownership. The PER detail is read from the
+  insurer with its own short-lived token; if it cannot be read, only the PER keeps its last
+  values and every other account still syncs. Mixed euro-fund classification still requires
+  live verification. A personal loan comes in as a debt, with its amount, rate, monthly
+  payment and repayment schedule filled from the bank. On the current account, the loan payout
+  is marked as an internal transfer and each installment as a "Crédit" expense. A
+  deferred-debit card shows as a credit card account holding the amount still to be debited,
+  and its monthly settlement is marked as an internal transfer so it is not counted twice. Home
+  insurance and other contracts are listed as not supported and are not imported. Nothing
+  syncs automatically. Disconnecting deletes the stored session in Picsou but does not end the
   session at the bank, which stays open until it expires. Enable Banking is unchanged for
   Caisse d'Epargne accounts.
 - **An individual retirement plan (PER) has its own account type.** It used to be entered as
@@ -39,6 +51,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   became ("3 funds found — 2 accounts created, 1 updated"), and a sync that found funds but
   updated nothing is no longer shown as a success. "Ignore this fund" on a SCPI unlinks it
   and keeps later syncs away; deleting the account does the same, so it is not recreated.
+- **Release upgrades rehearse database migrations before replacing the running API.**
+  `docker/deploy.sh` retains a PostgreSQL backup, restores it into a temporary database,
+  and runs the candidate image's complete Flyway chain there before touching the live schema.
+  The same pinned image migrates and verifies the live database before cutover. Readiness
+  requires a real unauthenticated `/api/auth/me` response, not a static frontend HTTP 200.
+  Missing lower-numbered migrations, checksum mismatches, untracked manual DDL, and a missing
+  label in any mapped PostgreSQL enum fail closed, with a redacted diagnosis naming the migration,
+  table or enum. The script refuses a Compose project without existing `db` and `app` containers
+  (`--fresh` for a first install), records the previous app image, and checks free disk space.
+  Rollback and incident reconciliation remain explicit operator actions.
 - **You can choose to send anonymous crash reports and usage counts to the Picsou developers.**
   It is off by default and only exists when the instance sets `APP_TELEMETRY_DSN`; without it
   nothing changes. An admin is asked once, with the exact list of what is shared and what never is,
@@ -159,6 +181,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An investment account's detail page shows its positions once.** The Positions card and the
+  realized gains on closed positions were each rendered twice, one under the other, on any
+  account with holdings (PEA, CTO, PER, crypto…). Values were right; only the display repeated.
 - **HomeBank iOS imports retain the opening amount when mapped to an existing manual account.**
   The non-zero opening is added once as a stable transfer ledger row before rebuilding
   the balance and snapshots. Repeat imports do not duplicate it; synced balances stay untouched.

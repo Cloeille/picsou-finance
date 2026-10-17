@@ -185,4 +185,68 @@ class CategoryServiceTest {
         assertThat(parent.isArchived()).isFalse();
         assertThat(child1.isArchived()).isFalse();
     }
+
+    // ─── default categories created on demand ───────────────────────────────
+
+    @Test
+    void ensureSeeded_seedsTheLoanInstallmentCategoryAsAnExpense() {
+        when(categoryRepository.existsByMemberId(MEMBER)).thenReturn(false);
+        org.mockito.ArgumentCaptor<Category> saved = org.mockito.ArgumentCaptor.forClass(Category.class);
+
+        service.ensureSeeded(MEMBER);
+
+        org.mockito.Mockito.verify(categoryRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+        assertThat(saved.getAllValues())
+            .filteredOn(c -> "credit".equals(c.getSlug()))
+            .singleElement()
+            .satisfies(c -> {
+                assertThat(c.getName()).isEqualTo("Crédit");
+                assertThat(c.getKind()).isEqualTo(CategoryKind.EXPENSE);
+                assertThat(c.isDefault()).isTrue();
+            });
+    }
+
+    @Test
+    void findOrCreateDefault_returnsTheMembersExistingCategory() {
+        Category credit = Category.builder().id(5L).slug("credit").kind(CategoryKind.EXPENSE).build();
+        when(categoryRepository.existsByMemberId(MEMBER)).thenReturn(true);
+        when(categoryRepository.findAllByMemberIdOrderBySortOrderAscIdAsc(MEMBER))
+            .thenReturn(List.of(cat(1L, CategoryKind.EXPENSE), credit));
+
+        assertThat(service.findOrCreateDefault(MEMBER, "credit")).containsSame(credit);
+        org.mockito.Mockito.verify(categoryRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void findOrCreateDefault_createsAMissingDefaultAfterTheOthers() {
+        Category last = Category.builder().id(1L).slug("virement-interne").kind(CategoryKind.TRANSFER)
+            .sortOrder(17).build();
+        when(categoryRepository.existsByMemberId(MEMBER)).thenReturn(true);
+        when(categoryRepository.findAllByMemberIdOrderBySortOrderAscIdAsc(MEMBER)).thenReturn(List.of(last));
+        when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Category created = service.findOrCreateDefault(MEMBER, "credit").orElseThrow();
+
+        assertThat(created.getSlug()).isEqualTo("credit");
+        assertThat(created.getName()).isEqualTo("Crédit");
+        assertThat(created.getKind()).isEqualTo(CategoryKind.EXPENSE);
+        assertThat(created.isDefault()).isTrue();
+        assertThat(created.getSortOrder()).isEqualTo(18);
+    }
+
+    @Test
+    void findOrCreateDefault_neverRevivesACategoryTheUserArchived() {
+        Category archived = Category.builder().id(5L).slug("credit").kind(CategoryKind.EXPENSE).archived(true).build();
+        when(categoryRepository.existsByMemberId(MEMBER)).thenReturn(true);
+        when(categoryRepository.findAllByMemberIdOrderBySortOrderAscIdAsc(MEMBER)).thenReturn(List.of(archived));
+
+        assertThat(service.findOrCreateDefault(MEMBER, "credit")).isEmpty();
+        org.mockito.Mockito.verify(categoryRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void findOrCreateDefault_refusesASlugThatIsNotADefault() {
+        assertThat(service.findOrCreateDefault(MEMBER, "not-a-default")).isEmpty();
+        org.mockito.Mockito.verify(categoryRepository, org.mockito.Mockito.never()).save(any());
+    }
 }

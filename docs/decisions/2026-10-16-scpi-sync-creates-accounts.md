@@ -38,7 +38,7 @@ A fund the member has seen before and the provider no longer lists is reported a
 rule (point 8 of its ADR) still applies on top: a complete Sofidy snapshot is authoritative,
 so a linked fund it no longer lists is written at zero shares. CORUM never zeroes.
 
-A new table `scpi_provider_fund` (V114) holds one row per (member, provider, fund code):
+A new table `scpi_provider_fund` (V115) holds one row per (member, provider, fund code):
 
 - `ignored` is the tombstone. It is set when the member deletes the account of a linked fund,
   clears the fund code on the form, or clicks "Ignore this fund". Typing or picking the code
@@ -101,7 +101,7 @@ every new user a broken first sync.
 
 - New: `ScpiFundReconciler`, `ScpiFundService`, `ScpiFundController`
   (`GET /api/scpi/funds`, `POST /api/scpi/funds/{provider}/{code}/ignore|restore`),
-  `ScpiProviderFund`, migration `V114__scpi_provider_fund.sql`.
+  `ScpiProviderFund`, migration `V115__scpi_provider_fund.sql`.
 - `CorumSyncService` and `SofidySyncService` delegate per-fund writes to the reconciler.
 - `AccountService.delete` and `ScpiPositionService.save` set or lift the tombstone.
 - Frontend: `ScpiSyncSummary` in both sync panels, "Ignore this fund" on the SCPI detail,

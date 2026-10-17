@@ -28,6 +28,7 @@ CREATE TABLE account (
     id         BIGINT AUTO_INCREMENT PRIMARY KEY,
     member_id  BIGINT  NOT NULL DEFAULT 1,
     is_manual  BOOLEAN NOT NULL DEFAULT TRUE,
+    card_nature VARCHAR(20),
     deleted_at TIMESTAMP
 );
 

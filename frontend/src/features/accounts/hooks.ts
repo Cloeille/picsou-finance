@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, realEstateApi } from './api'
 import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, ScpiPositionRequest, ScpiProvider, TransactionImportRequest, TransactionRequest } from '@/types/api'
@@ -13,7 +13,11 @@ export interface HoldingWithAccount extends HoldingResponse {
 export interface PortfolioLine {
   id: string
   name: string
+  /** Translation key for a synthetic portfolio label, when it is not a provider name. */
+  nameKey?: string
   ticker: string | null
+  /** Cash-only rows have a balance but no tradable unit-price detail view. */
+  isCash?: boolean
   /** The holding's mark, as in `HoldingResponse`. Absent on the aggregated cash row. */
   logoUrl?: string | null
   logoUrlDark?: string | null
@@ -23,6 +27,8 @@ export interface PortfolioLine {
    * Null on the aggregated cash row, which spans several accounts and belongs to no one of them.
    */
   accountId: number | null
+  /** Source accounts represented by an aggregate row whose singular accountId is null. */
+  accountIds?: number[]
   accountName: string
   accountType: Account['type']
   accountColor: string
@@ -33,6 +39,8 @@ export interface PortfolioLine {
   pnlEur: number | null
   pnlPercent: number | null
   priceUpdatedAt: string | null
+  priceAsOf?: string | null
+  priceStale?: boolean
 }
 
 
@@ -53,8 +61,88 @@ function recomputeWithLivePrice(
   return { currentValueEur, costBasisEur, pnlEur, pnlPercent }
 }
 
+const HOLDING_VALUE_FIELDS: readonly (keyof HoldingResponse)[] = [
+  'quantity', 'currentPrice', 'quoteCurrency', 'currentValueEur', 'costBasisEur',
+  'pnlEur', 'pnlPercent', 'priceAsOf', 'priceStale',
+]
+
+function holdingsValueChanged(previous: HoldingResponse[], current: HoldingResponse[]): boolean {
+  if (previous.length !== current.length) return true
+
+  const previousByTicker = new Map(previous.map(holding => [holding.ticker, holding]))
+  return current.some(holding => {
+    const previousHolding = previousByTicker.get(holding.ticker)
+    return !previousHolding || HOLDING_VALUE_FIELDS.some(field =>
+      !Object.is(previousHolding[field], holding[field]),
+    )
+  })
+}
+
+function sameAccountIds(previous: number[] | undefined, current: number[] | undefined): boolean {
+  const left = previous ?? []
+  const right = current ?? []
+  return left.length === right.length && left.every(id => right.includes(id))
+}
+
+function portfolioValueChangedAccountIds(previous: PortfolioLine[], current: PortfolioLine[]): number[] {
+  const previousById = new Map(previous.map(line => [line.id, line]))
+  const currentById = new Map(current.map(line => [line.id, line]))
+  const lineIds = new Set([...previousById.keys(), ...currentById.keys()])
+  const affectedAccountIds = new Set<number>()
+
+  for (const lineId of lineIds) {
+    const previousLine = previousById.get(lineId)
+    const currentLine = currentById.get(lineId)
+    if (
+      previousLine
+      && currentLine
+      && Object.is(previousLine.valueEur, currentLine.valueEur)
+      && previousLine.accountId === currentLine.accountId
+      && sameAccountIds(previousLine.accountIds, currentLine.accountIds)
+    ) continue
+
+    for (const line of [previousLine, currentLine]) {
+      if (!line) continue
+      if (line.accountId !== null) affectedAccountIds.add(line.accountId)
+      for (const accountId of line.accountIds ?? []) affectedAccountIds.add(accountId)
+    }
+  }
+
+  return [...affectedAccountIds]
+}
+
+function invalidatePortfolioDependentQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  accountIds: number[],
+) {
+  if (accountIds.length === 0) return Promise.resolve()
+
+  const affectedAccountIds = new Set(accountIds)
+  const queryHasAffectedAccount = (query: { queryKey: readonly unknown[] }) => {
+    const [key, accountFilter, resource] = query.queryKey
+    if (key === 'accounts' && resource === 'history') {
+      return typeof accountFilter === 'number' && affectedAccountIds.has(accountFilter)
+    }
+    return Array.isArray(accountFilter) && accountFilter.some(
+      accountId => typeof accountId === 'number' && affectedAccountIds.has(accountId),
+    )
+  }
+
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+    queryClient.invalidateQueries({ queryKey: ['history'], predicate: queryHasAffectedAccount }),
+    queryClient.invalidateQueries({ queryKey: ['pnl'], predicate: queryHasAffectedAccount }),
+    queryClient.invalidateQueries({ queryKey: ['net-worth-intraday'], predicate: queryHasAffectedAccount }),
+    ...accountIds.map(accountId => queryClient.invalidateQueries({
+      queryKey: ['accounts', accountId, 'history'],
+    })),
+  ])
+}
+
 export function usePortfolio() {
-  return useQuery({
+  const queryClient = useQueryClient()
+  const previousPortfolio = useRef<PortfolioLine[] | undefined>(undefined)
+  const query = useQuery({
     queryKey: ['accounts', 'portfolio'],
     queryFn: async (): Promise<PortfolioLine[]> => {
       const accounts = await accountsApi.list()
@@ -87,10 +175,37 @@ export function usePortfolio() {
             pnlEur: h.pnlEur,
             pnlPercent: h.pnlPercent,
             priceUpdatedAt: h.priceUpdatedAt,
+            priceAsOf: h.priceAsOf ?? null,
+            priceStale: h.priceStale ?? false,
           }))
         }),
       )
       lines.push(...holdingResults.flat())
+
+      // PER accounts keep the euro-fund balance separately from their account total. Do not
+      // use currentBalanceEur here: it already includes unit-linked holdings in the same PER.
+      for (const account of accounts) {
+        if (account.type !== 'PER' || account.cashBalance == null || account.cashBalance <= 0) continue
+        lines.push({
+          id: `per-euro-fund-${account.id}`,
+          name: account.name,
+          nameKey: 'accounts.perEuroFundBalance',
+          ticker: 'EUR',
+          isCash: true,
+          quantity: 0,
+          accountId: account.id,
+          accountName: account.name,
+          accountType: account.type,
+          accountColor: account.color,
+          valueEur: account.cashBalance,
+          costBasisEur: null,
+          averageBuyIn: null,
+          quoteCurrency: 'EUR',
+          pnlEur: null,
+          pnlPercent: null,
+          priceUpdatedAt: null,
+        })
+      }
 
       // Fetch live prices for all tickers
       const allTickers = [...new Set(lines.map(l => l.ticker).filter((t): t is string => t != null && t !== 'EUR'))]
@@ -116,7 +231,10 @@ export function usePortfolio() {
           costBasisEur: recomputed.costBasisEur,
           pnlEur: recomputed.pnlEur,
           pnlPercent: recomputed.pnlPercent,
+          quoteCurrency: 'EUR',
           priceUpdatedAt: now,
+          priceAsOf: null,
+          priceStale: false,
         }
       })
 
@@ -129,8 +247,10 @@ export function usePortfolio() {
           id: 'cash-aggregated',
           name: 'Euros',
           ticker: 'EUR',
+          isCash: true,
           quantity: 0,
           accountId: null,
+          accountIds: cashAccounts.map(a => a.id),
           accountName: cashAccounts.map(a => a.name).join(', '),
           accountType: cashAccounts[0].type,
           accountColor: '#22c55e',
@@ -152,6 +272,20 @@ export function usePortfolio() {
     // sits above this 2 min interval (+ latency) so the dot doesn't flicker.
     refetchInterval: QUERY_STALE_TIMES.accountDetail,
   })
+
+  useEffect(() => {
+    if (!query.data) return
+
+    const previous = previousPortfolio.current
+    previousPortfolio.current = query.data
+    if (!previous) return
+
+    const affectedAccountIds = portfolioValueChangedAccountIds(previous, query.data)
+    if (affectedAccountIds.length === 0) return
+    void invalidatePortfolioDependentQueries(queryClient, affectedAccountIds)
+  }, [query.data, queryClient])
+
+  return query
 }
 
 export function useAccounts() {
@@ -220,7 +354,9 @@ export function useAccountPositions(id: number) {
 }
 
 export function useHoldingsWithLivePrices(id: number) {
-  return useQuery({
+  const queryClient = useQueryClient()
+  const previousHoldings = useRef<{ accountId: number; holdings: HoldingResponse[] } | undefined>(undefined)
+  const query = useQuery({
     queryKey: ['accounts', id, 'holdings'],
     queryFn: async (): Promise<HoldingResponse[]> => {
       const holdings = await accountsApi.holdings(id)
@@ -243,6 +379,8 @@ export function useHoldingsWithLivePrices(id: number) {
             quoteCurrency: 'EUR',
             ...recomputed,
             priceUpdatedAt: now,
+            priceAsOf: null,
+            priceStale: false,
           }
         })
       } catch {
@@ -254,6 +392,28 @@ export function useHoldingsWithLivePrices(id: number) {
     refetchInterval: QUERY_STALE_TIMES.accountDetail,
     enabled: !!id,
   })
+
+  useEffect(() => {
+    const current = query.data
+    if (!current) return
+
+    const previous = previousHoldings.current
+    previousHoldings.current = { accountId: id, holdings: current }
+    if (
+      !previous
+      || previous.accountId !== id
+      || !holdingsValueChanged(previous.holdings, current)
+    ) return
+
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['accounts', id], exact: true }),
+      queryClient.invalidateQueries({ queryKey: ['accounts'], exact: true }),
+      queryClient.invalidateQueries({ queryKey: ['accounts', 'portfolio'], exact: true }),
+      invalidatePortfolioDependentQueries(queryClient, [id]),
+    ])
+  }, [id, query.data, queryClient])
+
+  return query
 }
 
 export function useAccountTransactions(id: number) {

@@ -1,4 +1,4 @@
--- V114: One row per fund a CORUM or Sofidy sync has seen for a member (GH issue #232).
+-- V115: One row per fund a CORUM or Sofidy sync has seen for a member (GH issue #232).
 --
 -- A sync now creates or adopts the SCPI account of a fund it has never seen.
 -- This table is what keeps that safe:

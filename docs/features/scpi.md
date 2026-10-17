@@ -115,13 +115,13 @@ pre-made account. `ScpiFundReconciler` takes each fund of a complete snapshot:
 
 A fund the member had and the provider no longer lists is reported `MISSING_AT_PROVIDER`;
 its account is kept. Sofidy still writes such a linked fund at zero shares (its ADR, point
-8); CORUM leaves it untouched. Positions linked by hand before V114 count too, so the first
+8); CORUM leaves it untouched. Positions linked by hand before V115 count too, so the first
 sync after the upgrade can report an old fund as missing; it only reports it.
 
 A snapshot whose currency is not `EUR`, or that has none, is refused as `INVALID_DATA`
 before any account is created or updated: the reconciler stores every figure as euros.
 
-`scpi_provider_fund` (V114) keeps one row per member, provider and fund code: the
+`scpi_provider_fund` (V115) keeps one row per member, provider and fund code: the
 `ignored` tombstone and the latest outcome. Deleting the account of a linked fund, clearing
 its code on the form, or "Ignore this fund" on the SCPI detail sets the tombstone, so the
 next sync does not bring the account back. Typing or picking the code again lifts it.
@@ -162,8 +162,8 @@ PUT /api/accounts/{id}/scpi
   failure.
 - `V82` already adds `SCPI` and `ASSURANCE_VIE` on 1.1.0; do not add the enum twice.
   The appended migrations are `V104` (`scpi_position`), `V105` (`corum_session`)
-  and `V106` (`sofidy_session`), above the base branch's `V103`. `V114`
-  (`scpi_provider_fund`) skips V109–V113, which open PRs already claim.
+  and `V106` (`sofidy_session`), above the base branch's `V103`. `V115`
+  (`scpi_provider_fund`) follows V114 (`account_holding_provider_price_date`) on the base branch.
 - Deleting a SCPI account tombstones its funds. Without that, the next sync would
   recreate it, since a sync now creates the account of any fund it has not linked.
 - Adoption is unique-match only and never fuzzy. An account renamed away from the

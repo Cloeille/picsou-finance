@@ -11,14 +11,21 @@ import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.CaisseEpargneSession;
 import com.picsou.model.CaisseEpargneSyncStatus;
+import com.picsou.model.CardNature;
+import com.picsou.model.Category;
+import com.picsou.model.CategoryKind;
+import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
 import com.picsou.port.CaisseEpargneErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.budget.CategorizationService;
+import com.picsou.service.budget.CategoryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -58,19 +65,46 @@ public class CaisseEpargneSyncService {
 
     static final String PROVIDER = "Caisse d'Epargne";
     private static final String EXTERNAL_ID_PREFIX = "ce_";
+    /** Slug of the seeded TRANSFER category (money moving between the member's own accounts). */
+    private static final String TRANSFER_SLUG = "virement-interne";
+    /** The bank's {@code transactionTypeCode} on the current-account debit that settles a card. */
+    private static final String SETTLEMENT_TYPE_CODE = "04";
+    /** Slug of the default EXPENSE category for loan installments, created on demand. */
+    private static final String CREDIT_SLUG = "credit";
+    /** Word the bank puts in the label of the credit that pays a personal loan out. */
+    private static final String DISBURSEMENT_LABEL = "FINANCEMENT";
+    /** How far a loan row may sit from the date it is expected on. */
+    private static final int LOAN_DATE_TOLERANCE_DAYS = 5;
+    private static final BigDecimal CENT = new BigDecimal("0.01");
     /** Same width the other identified-transaction connectors use for the external id. */
     private static final int MAX_EXTERNAL_ID_LENGTH = 100;
     private static final int MAX_UNSUPPORTED = 100;
+    /** The bank's pad is 10 images laid out in 5 columns; anything else is a changed page. */
+    private static final int KEYPAD_KEY_COUNT = 10;
+    private static final int KEYPAD_COLUMNS = 5;
+    /** A key image is a small PNG (about 920 bytes live). Bigger is not a key image. */
+    private static final int KEYPAD_MAX_IMAGE_LENGTH = 16 * 1024;
+    private static final String KEYPAD_IMAGE_PREFIX = "data:image/png;base64,";
+    /**
+     * How long the user has to approve on the phone once the keypad has been submitted. The
+     * sidecar waits 150 s, so the ceiling here is what bounds a stale process id afterwards.
+     */
+    private static final int KEYPAD_APPROVAL_WINDOW_SECONDS = 180;
+    private static final java.util.regex.Pattern BASE64 = java.util.regex.Pattern.compile("[A-Za-z0-9+/]+={0,2}");
 
     private final CaisseEpargnePort port;
     private final CaisseEpargneSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final FamilyMemberRepository memberRepository;
+    private final DebtRepository debtRepository;
     private final AccountService accountService;
+    private final CategorizationService categorizationService;
+    private final CategoryService categoryService;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
+    private final CaisseEpargnePerService perService;
     private final Clock clock;
     /**
      * Logins waiting for the human to approve on the phone. Holds the process id, the member and a
@@ -86,13 +120,18 @@ public class CaisseEpargneSyncService {
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
+        DebtRepository debtRepository,
         AccountService accountService,
+        CategorizationService categorizationService,
+        CategoryService categoryService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
-        @Qualifier("caisseEpargneSyncExecutor") Executor syncExecutor
+        @Qualifier("caisseEpargneSyncExecutor") Executor syncExecutor,
+        CaisseEpargnePerService perService
     ) {
-        this(port, sessionRepository, accountRepository, transactionRepository, memberRepository,
-            accountService, encryption, txTemplate, syncExecutor, Clock.systemUTC());
+        this(port, sessionRepository, accountRepository, transactionRepository, memberRepository, debtRepository,
+            accountService, categorizationService, categoryService, encryption, txTemplate, syncExecutor,
+            perService, Clock.systemUTC());
     }
 
     CaisseEpargneSyncService(
@@ -101,41 +140,129 @@ public class CaisseEpargneSyncService {
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
+        DebtRepository debtRepository,
         AccountService accountService,
+        CategorizationService categorizationService,
+        CategoryService categoryService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         Executor syncExecutor,
+        CaisseEpargnePerService perService,
         Clock clock
     ) {
+        this.categoryService = categoryService;
         this.clock = clock;
+        this.perService = perService;
         this.port = port;
         this.sessionRepository = sessionRepository;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.memberRepository = memberRepository;
+        this.debtRepository = debtRepository;
         this.accountService = accountService;
+        this.categorizationService = categorizationService;
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
     }
 
     /**
-     * Starts a login. One call to the sidecar, no retry. The password goes to the port and
-     * nowhere else: it is not stored, kept in a field, logged or put in an error, and a failure
-     * leaves any session already stored (valid or not) exactly as it was.
+     * Starts a login. One call to the sidecar, no retry. No password ever reaches Picsou: the
+     * sidecar answers with the bank's keypad, which the user clicks himself. A failure leaves any
+     * session already stored (valid or not) exactly as it was.
      */
-    public InitiateResponse initiateAuth(String customerId, String password, Long memberId) {
-        CaisseEpargnePort.InitiateResult result = port.initiateAuth(customerId, password);
+    public InitiateResponse initiateAuth(String customerId, Long memberId) {
+        CaisseEpargnePort.InitiateResult result = port.initiateAuth(customerId);
         if (result == null || result.processId() == null || result.processId().isBlank()
-            || result.mfaType() == null || result.mfaType().isBlank() || result.expiresInSeconds() <= 0) {
+            || result.keypad() == null || result.expiresInSeconds() <= 0) {
             throw error(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED,
                 "Caisse d'Epargne did not return a usable sign-in challenge", null);
         }
+        requireSafeKeypad(result.keypad());
         Instant now = clock.instant();
-        pendingLogins.values().removeIf(pending -> !pending.expiresAt().isAfter(now));
+        // Swept on every start: a stale process id must never be reachable again.
+        pendingLogins.values().removeIf(pending -> !pending.deadline().isAfter(now));
         pendingLogins.put(result.processId(),
-            new PendingLogin(memberId, now.plusSeconds(result.expiresInSeconds())));
-        return new InitiateResponse(result.processId(), true, result.mfaType(), result.expiresInSeconds());
+            new PendingLogin(memberId, now.plusSeconds(result.expiresInSeconds()), null));
+        return new InitiateResponse(result.processId(), result.keypad(), result.expiresInSeconds());
+    }
+
+    /**
+     * Refuses a keypad that cannot be shown to a user as-is. Anything unexpected becomes
+     * {@code KEYPAD_CHANGED} and the process is never registered, so nothing can be clicked.
+     */
+    private void requireSafeKeypad(CaisseEpargnePort.Keypad keypad) {
+        boolean safe = keypad != null
+            && keypad.columns() == KEYPAD_COLUMNS
+            && keypad.images() != null
+            && keypad.images().size() == KEYPAD_KEY_COUNT;
+        if (safe) {
+            for (String image : keypad.images()) {
+                if (!isDisplayableKeyImage(image)) {
+                    safe = false;
+                    break;
+                }
+            }
+        }
+        if (!safe) {
+            throw error(CaisseEpargneErrorCode.KEYPAD_CHANGED,
+                "Caisse d'Epargne changed its login page. Nothing was sent.", null);
+        }
+    }
+
+    /**
+     * PNG data URI only, over the size cap refused, and the payload must be plain base64: the
+     * string is handed to the UI, so nothing else may ride along in it.
+     */
+    private static boolean isDisplayableKeyImage(String image) {
+        if (image == null || !image.startsWith(KEYPAD_IMAGE_PREFIX)
+            || image.length() > KEYPAD_MAX_IMAGE_LENGTH) {
+            return false;
+        }
+        String payload = image.substring(KEYPAD_IMAGE_PREFIX.length());
+        return !payload.isEmpty() && BASE64.matcher(payload).matches();
+    }
+
+    /**
+     * Clicks the digits the user chose in the pop-up. Single use and no retry: the process is
+     * taken out before the sidecar is called, so a failure is never replayed. The positions are
+     * the password in disguise and are never logged. It must belong to the caller, still be within
+     * its keypad lifetime, and the keypad step must not have been done yet.
+     */
+    public void submitKeypad(String processId, List<Integer> positions, Long memberId) {
+        PendingLogin pending = takePending(processId, memberId);
+        if (pending.approvalExpiresAt() != null) {
+            // The digits were already sent for this process: nothing more to click.
+            throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
+                "This Caisse d'Epargne sign-in attempt expired. Please start again.", null);
+        }
+        if (!pending.keypadExpiresAt().isAfter(clock.instant())) {
+            // Nothing was clicked anywhere: the user just took too long.
+            throw error(CaisseEpargneErrorCode.KEYPAD_EXPIRED,
+                "The Caisse d'Epargne keypad expired. Start again.", null);
+        }
+        port.submitKeypad(processId, positions);
+        pendingLogins.put(processId, new PendingLogin(memberId, null,
+            clock.instant().plusSeconds(KEYPAD_APPROVAL_WINDOW_SECONDS)));
+    }
+
+    /**
+     * Removes a pending login for its owner, or refuses without burning the owner's attempt.
+     * Shared by the keypad and complete steps so both are single use and member-scoped.
+     */
+    private PendingLogin takePending(String processId, Long memberId) {
+        PendingLogin pending = pendingLogins.remove(processId);
+        if (pending != null && !pending.memberId().equals(memberId)) {
+            // Someone else probing a process id must not burn the owner's attempt.
+            pendingLogins.putIfAbsent(processId, pending);
+            throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
+                "This Caisse d'Epargne sign-in attempt expired. Please start again.", null);
+        }
+        if (pending == null) {
+            throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
+                "This Caisse d'Epargne sign-in attempt expired. Please start again.", null);
+        }
+        return pending;
     }
 
     /**
@@ -145,14 +272,10 @@ public class CaisseEpargneSyncService {
      * and be unexpired, otherwise the sidecar is not even contacted.
      */
     public SessionStatusResponse completeAuth(String processId, Long memberId) {
-        PendingLogin pending = pendingLogins.remove(processId);
-        if (pending == null
-            || !pending.memberId().equals(memberId)
-            || !pending.expiresAt().isAfter(clock.instant())) {
-            if (pending != null && !pending.memberId().equals(memberId)) {
-                // Someone else probing a process id must not burn the owner's attempt.
-                pendingLogins.putIfAbsent(processId, pending);
-            }
+        PendingLogin pending = takePending(processId, memberId);
+        // The keypad must have been submitted: without it there is no approval to wait for.
+        if (pending.approvalExpiresAt() == null
+            || !pending.approvalExpiresAt().isAfter(clock.instant())) {
             throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This Caisse d'Epargne sign-in attempt expired. Please start again.", null);
         }
@@ -256,6 +379,18 @@ public class CaisseEpargneSyncService {
             CaisseEpargnePort.AccountsSnapshot fetched = port.fetchAccounts(job.plainState());
             PreparedSnapshot prepared = prepare(fetched);
             if (commit(job, prepared)) {
+                for (PreparedAccount account : prepared.accounts()) {
+                    if (account.per() == null) continue;
+                    try {
+                        perService.backfill(account.per());
+                    } catch (RuntimeException ex) {
+                        // Market/identity enrichment is optional and runs after the account
+                        // transaction. A proxy commit failure must not mark that import failed
+                        // or prevent enrichment for later PER accounts.
+                        log.warn("Caisse d'Epargne PER post-sync enrichment failed (member={}; type={})",
+                            job.memberId(), ex.getClass().getSimpleName());
+                    }
+                }
                 log.info("Caisse d'Epargne sync completed (member={}; accounts={})",
                     job.memberId(), prepared.accounts().size());
             } else {
@@ -323,12 +458,41 @@ public class CaisseEpargneSyncService {
                 // A card balance is its outstanding: money owed, never a credit.
                 throw invalid("a card with a positive outstanding");
             }
+            if (type == AccountType.LOAN && account.balance().signum() > 0) {
+                // The bank shows a loan's outstanding capital as a negative figure.
+                throw invalid("a loan with a positive outstanding");
+            }
+            if (type == AccountType.PER && account.balance().signum() < 0) {
+                throw invalid("a retirement plan with a negative balance");
+            }
+            // Picsou stores a loan positive and applies the liability sign itself.
+            if (account.per() != null && type != AccountType.PER) {
+                throw invalid("PER details on another account type");
+            }
+            // Validated and resolved here, outside any database transaction: it may call market providers.
+            CaisseEpargnePerService.Prepared per = type == AccountType.PER
+                ? perService.prepare(account.per(), account.currency())
+                : null;
+            BigDecimal balance = per != null
+                ? per.balance()
+                : type == AccountType.LOAN ? account.balance().negate() : account.balance();
+            CardNature cardNature = type == AccountType.CREDIT_CARD ? natureOf(account.cardNature()) : null;
+            String parentExternalId = cardNature == null || clean(account.parentExternalId()) == null
+                ? null
+                : prefixed(account.parentExternalId(), "an invalid card parent identifier");
             accounts.add(new PreparedAccount(
                 externalId,
                 limit(account.name(), 100, fallbackName(type)),
                 type,
-                account.balance(),
-                prepareTransactions(account.transactions())
+                balance,
+                cardNature,
+                parentExternalId,
+                account.nextDueDate(),
+                prepareTransactions(account.transactions()),
+                clean(account.iban()),
+                account.ibanAmbiguous(),
+                type == AccountType.LOAN ? usableLoan(account.loan()) : null
+                , per
             ));
         }
 
@@ -356,7 +520,8 @@ public class CaisseEpargneSyncService {
             }
             String externalId = prefixed(tx.externalId(), "an invalid transaction identifier");
             byId.put(externalId, new PreparedTransaction(
-                externalId, tx.date(), tx.amount(), limit(tx.label(), 255, "Caisse d'Epargne transaction")));
+                externalId, tx.date(), tx.dueDate(), tx.amount(),
+                limit(tx.label(), 255, "Caisse d'Epargne transaction"), clean(tx.typeCode())));
         }
         return List.copyOf(byId.values());
     }
@@ -383,9 +548,17 @@ public class CaisseEpargneSyncService {
             FamilyMember member = memberRepository.findById(job.memberId())
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             Instant syncedAt = Instant.now();
+            Map<String, Map<String, Transaction>> rowsByAccount = new LinkedHashMap<>();
+            Map<String, Account> savedById = new LinkedHashMap<>();
             for (PreparedAccount data : prepared.accounts()) {
-                upsertAccount(data, member, job.memberId(), syncedAt);
+                Map<String, Transaction> rows = upsertAccount(data, member, job.memberId(), syncedAt, savedById);
+                if (rows != null) {
+                    rowsByAccount.put(data.externalId(), rows);
+                }
             }
+            upsertLoanDebts(prepared, savedById, member, job.memberId());
+            tagCardSettlements(prepared, rowsByAccount, job.memberId());
+            tagLoanRows(prepared, rowsByAccount, job.memberId());
 
             session.recordUnsupportedContracts(serializeUnsupported(prepared.unsupported()));
             session.markSuccessful(syncedAt);
@@ -394,12 +567,15 @@ public class CaisseEpargneSyncService {
         }));
     }
 
-    private void upsertAccount(PreparedAccount data, FamilyMember member, Long memberId, Instant syncedAt) {
+    /** The account's upserted rows by prefixed external id, or null when the user deleted it. */
+    private Map<String, Transaction> upsertAccount(
+        PreparedAccount data, FamilyMember member, Long memberId, Instant syncedAt, Map<String, Account> savedById
+    ) {
         Optional<Account> existing = accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), memberId);
         if (existing.isEmpty()
             && accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId)) {
             log.info("Caisse d'Epargne skipped a soft-deleted account (member={})", memberId);
-            return;
+            return null;
         }
 
         Account account = existing.orElseGet(() -> Account.builder()
@@ -416,20 +592,310 @@ public class CaisseEpargneSyncService {
         account.setCurrency("EUR");
         account.setManual(false);
         account.setCurrentBalance(data.balance());
+        if (data.per() != null) {
+            // The euro-fund sleeve is stored, not quoted; UC lines are revalued from market prices.
+            account.setCashBalance(data.per().euroFundBalance());
+        }
         account.setLastSyncedAt(syncedAt);
-        // The IBAN is deliberately not stored and the card is not linked to its current account:
-        // matching by IBAN and the card-to-account link are outside this slice, and a stored
-        // IBAN would let the Enable Banking sync adopt this account by itself.
+        if (data.cardNature() != null) {
+            // Same shape as the Amex card: what is still to be debited, and when. The card is
+            // never given a parentAccountId: the dashboard skips any account with a parent
+            // (pocket model), which would drop the card liability from net worth.
+            account.setCardNature(data.cardNature());
+            account.setPaymentDueAmount(data.balance().abs());
+            account.setPaymentDueDate(data.nextDueDate());
+        }
+        // The IBAN is deliberately not stored: matching by IBAN is outside this slice, and a
+        // stored IBAN would let the Enable Banking sync adopt this account by itself.
         Account saved = accountRepository.save(account);
+        savedById.put(data.externalId(), saved);
 
-        accountService.upsertSnapshot(saved, data.balance(), LocalDate.now());
-        upsertTransactions(saved, data.transactions());
+        if (data.per() != null) {
+            perService.apply(saved, data.per(), syncedAt);
+        }
+        LocalDate snapshotDate = data.per() != null ? data.per().valuationDate() : LocalDate.now();
+        if (data.per() != null) {
+            // The bank NAV is an observation, not an acquisition cost. Pair it with itself so
+            // this historical snapshot does not derive its baseline from today's market quote.
+            accountService.upsertSnapshot(saved, data.balance(), data.balance(), snapshotDate);
+        } else {
+            accountService.upsertSnapshot(saved, data.balance(), snapshotDate);
+        }
+        return upsertTransactions(saved, data.transactions());
+    }
+
+    /**
+     * The loan details the schedule can use, or null. A missing or odd field never fails the
+     * sync: the loan account is still imported, only its Debt is left as it was.
+     */
+    private static CaisseEpargnePort.LoanDetails usableLoan(CaisseEpargnePort.LoanDetails loan) {
+        if (loan == null
+            || loan.borrowedAmount() == null || loan.borrowedAmount().signum() <= 0
+            || loan.interestRate() == null || loan.interestRate().signum() < 0
+            || loan.interestRate().compareTo(BigDecimal.ONE) > 0
+            || loan.monthlyPayment() == null || loan.monthlyPayment().signum() <= 0
+            || (loan.insuranceMonthly() != null && loan.insuranceMonthly().signum() < 0)
+            || loan.firstDueDate() == null || loan.lastDueDate() == null
+            || loan.lastDueDate().isBefore(loan.firstDueDate())) {
+            if (loan != null) {
+                log.warn("Caisse d'Epargne loan details unusable; the loan's debt is left unchanged");
+            }
+            return null;
+        }
+        return loan;
+    }
+
+    /**
+     * Creates or updates the Debt of each loan the bank described. Only the fields the bank
+     * sends are written: file fees, or anything else the user typed, stay. {@code startDate} is
+     * one month before the first due date because the schedule dates installment i at
+     * {@code startDate + i months}. The debited account is the member's account with that IBAN:
+     * one of this import (its IBAN is never stored), else one already stored, else none.
+     */
+    private void upsertLoanDebts(
+        PreparedSnapshot prepared, Map<String, Account> savedById, FamilyMember member, Long memberId
+    ) {
+        for (PreparedAccount data : prepared.accounts()) {
+            Account loanAccount = savedById.get(data.externalId());
+            CaisseEpargnePort.LoanDetails loan = data.loan();
+            if (data.type() != AccountType.LOAN || loan == null || loanAccount == null) {
+                continue;
+            }
+            Debt debt = debtRepository.findByAccountId(loanAccount.getId())
+                .orElseGet(() -> Debt.builder().account(loanAccount).member(member).build());
+            debt.setLinkedAccount(debitedAccount(clean(loan.linkedIban()), prepared, savedById, memberId));
+            debt.setBorrowedAmount(loan.borrowedAmount());
+            debt.setInterestRate(loan.interestRate());
+            debt.setMonthlyPayment(loan.monthlyPayment());
+            debt.setInsuranceMonthly(loan.insuranceMonthly());
+            debt.setLenderName(PROVIDER);
+            debt.setStartDate(loan.firstDueDate().minusMonths(1));
+            debt.setEndDate(loan.lastDueDate());
+            debtRepository.save(debt);
+        }
+    }
+
+    private Account debitedAccount(
+        String iban, PreparedSnapshot prepared, Map<String, Account> savedById, Long memberId
+    ) {
+        if (iban == null) {
+            return null;
+        }
+        List<PreparedAccount> inImport = prepared.accounts().stream()
+            .filter(a -> iban.equals(a.iban()))
+            .toList();
+        if (inImport.isEmpty()) {
+            return accountRepository.findByIbanAndMemberId(iban, memberId).orElse(null);
+        }
+        // The bank itself shows this IBAN on this import: never guess past an ambiguity there,
+        // nor fall back to another account that happens to carry the same IBAN.
+        if (inImport.size() != 1 || inImport.get(0).ibanAmbiguous()) {
+            return null;
+        }
+        return savedById.get(inImport.get(0).externalId());
+    }
+
+    /**
+     * A deferred-debit card is settled on its current account by one debit per due date. When
+     * that debit is found without doubt it is an internal transfer, not spending: the card
+     * operations already count once as expenses on the card account.
+     *
+     * <p>Strict on purpose: only a due date already reached, a debit on that very day for exactly
+     * the sum of the group, a settlement type code (or none), exactly one candidate and no
+     * category yet. Anything else stays untouched, so a re-run changes nothing and a category the
+     * user chose is never overwritten. Counts only are logged.
+     */
+    private void tagCardSettlements(
+        PreparedSnapshot prepared, Map<String, Map<String, Transaction>> rowsByAccount, Long memberId
+    ) {
+        Map<String, PreparedAccount> byId = new LinkedHashMap<>();
+        prepared.accounts().forEach(a -> byId.put(a.externalId(), a));
+        Category transfer = null;
+        boolean transferLoaded = false;
+        int tagged = 0;
+        int skipped = 0;
+        for (PreparedAccount card : prepared.accounts()) {
+            PreparedAccount parent = card.parentExternalId() == null ? null : byId.get(card.parentExternalId());
+            if (card.cardNature() != CardNature.DEFERRED_DEBIT || parent == null
+                || !rowsByAccount.containsKey(card.externalId()) || !rowsByAccount.containsKey(parent.externalId())) {
+                continue;
+            }
+            Map<LocalDate, BigDecimal> groups = new java.util.TreeMap<>();
+            LocalDate today = LocalDate.now(clock);
+            for (PreparedTransaction tx : card.transactions()) {
+                if (tx.dueDate() != null && !tx.dueDate().isAfter(today)) {
+                    groups.merge(tx.dueDate(), tx.amount(), BigDecimal::add);
+                }
+            }
+            if (groups.isEmpty()) {
+                continue;
+            }
+            if (!transferLoaded) {
+                transferLoaded = true;
+                Category found = categorizationService.loadContext(memberId).categoriesBySlug().get(TRANSFER_SLUG);
+                transfer = found != null && found.getKind() == CategoryKind.TRANSFER ? found : null;
+                if (transfer == null) {
+                    log.warn("Caisse d'Epargne settlement tagging skipped: no transfer category (member={})", memberId);
+                    return;
+                }
+            }
+            Map<String, Transaction> storedById = rowsByAccount.get(parent.externalId());
+            List<Transaction> changed = new ArrayList<>();
+            for (Map.Entry<LocalDate, BigDecimal> group : groups.entrySet()) {
+                List<PreparedTransaction> candidates = parent.transactions().stream()
+                    .filter(tx -> tx.date().equals(group.getKey()))
+                    .filter(tx -> tx.amount().compareTo(group.getValue()) == 0)
+                    .filter(tx -> tx.typeCode() == null || SETTLEMENT_TYPE_CODE.equals(tx.typeCode()))
+                    .toList();
+                Transaction row = candidates.size() == 1 ? storedById.get(candidates.get(0).externalId()) : null;
+                if (row == null || row.getCategoryRef() != null) {
+                    skipped++;
+                    continue;
+                }
+                row.setCategoryRef(transfer);
+                changed.add(row);
+                tagged++;
+            }
+            if (!changed.isEmpty()) {
+                transactionRepository.saveAllAndFlush(changed);
+            }
+        }
+        log.info("Caisse d'Epargne card settlements: tagged={}, left alone={} (member={})", tagged, skipped, memberId);
+    }
+
+    /**
+     * On the current account a loan is debited from, the disbursement is money moving in from
+     * the member's own loan (an internal transfer, not income) and each installment is a loan
+     * expense. Same guards as {@link #tagCardSettlements}: the debited account must be in this
+     * import under an unambiguous IBAN, exactly one row must match each expected event, and only
+     * a row without a category is touched. Anything else stays untouched. Counts only are logged.
+     */
+    private void tagLoanRows(
+        PreparedSnapshot prepared, Map<String, Map<String, Transaction>> rowsByAccount, Long memberId
+    ) {
+        LoanCategories categories = new LoanCategories(memberId);
+        int tagged = 0;
+        int skipped = 0;
+        for (PreparedAccount data : prepared.accounts()) {
+            CaisseEpargnePort.LoanDetails loan = data.loan();
+            if (data.type() != AccountType.LOAN || loan == null) {
+                continue;
+            }
+            PreparedAccount debited = debitedInImport(clean(loan.linkedIban()), prepared);
+            Map<String, Transaction> storedById = debited == null ? null : rowsByAccount.get(debited.externalId());
+            if (storedById == null) {
+                continue;
+            }
+            List<Transaction> changed = new ArrayList<>();
+            if (loan.signatureDate() != null) {
+                LocalDate from = loan.signatureDate().minusDays(LOAN_DATE_TOLERANCE_DAYS);
+                List<PreparedTransaction> credits = debited.transactions().stream()
+                    .filter(tx -> tx.amount().signum() > 0)
+                    .filter(tx -> sameToTheCent(tx.amount(), loan.borrowedAmount()))
+                    .filter(tx -> tx.label() != null
+                        && tx.label().toUpperCase(java.util.Locale.ROOT).contains(DISBURSEMENT_LABEL))
+                    .filter(tx -> !tx.date().isBefore(from) && !tx.date().isAfter(loan.firstDueDate()))
+                    .toList();
+                if (tag(credits, storedById, categories::transfer, changed)) tagged++; else skipped++;
+            }
+            // Always from the first due date: plusMonths on the previous one would drift a 31st to the 28th.
+            for (int k = 0; !loan.firstDueDate().plusMonths(k).isAfter(loan.lastDueDate()); k++) {
+                LocalDate due = loan.firstDueDate().plusMonths(k);
+                LocalDate from = due.minusDays(LOAN_DATE_TOLERANCE_DAYS);
+                LocalDate to = due.plusDays(LOAN_DATE_TOLERANCE_DAYS);
+                List<PreparedTransaction> debits = debited.transactions().stream()
+                    .filter(tx -> tx.amount().signum() < 0)
+                    .filter(tx -> sameToTheCent(tx.amount().negate(), loan.monthlyPayment()))
+                    .filter(tx -> !tx.date().isBefore(from) && !tx.date().isAfter(to))
+                    .toList();
+                if (debits.isEmpty()) {
+                    continue;
+                }
+                if (tag(debits, storedById, categories::credit, changed)) tagged++; else skipped++;
+            }
+            if (!changed.isEmpty()) {
+                transactionRepository.saveAllAndFlush(changed);
+            }
+        }
+        log.info("Caisse d'Epargne loan rows: tagged={}, left alone={} (member={})", tagged, skipped, memberId);
+    }
+
+    /** Tags the single candidate when it has no category yet; false when nothing was tagged. */
+    private static boolean tag(
+        List<PreparedTransaction> candidates, Map<String, Transaction> storedById,
+        java.util.function.Supplier<Category> category, List<Transaction> changed
+    ) {
+        Transaction row = candidates.size() == 1 ? storedById.get(candidates.get(0).externalId()) : null;
+        if (row == null || row.getCategoryRef() != null) {
+            return false;
+        }
+        Category target = category.get();
+        if (target == null) {
+            return false;
+        }
+        row.setCategoryRef(target);
+        changed.add(row);
+        return true;
+    }
+
+    private static boolean sameToTheCent(BigDecimal amount, BigDecimal expected) {
+        return amount.subtract(expected).abs().compareTo(CENT) <= 0;
+    }
+
+    /** The loan's debited account in this import, only under an IBAN the bank shows once. */
+    private static PreparedAccount debitedInImport(String iban, PreparedSnapshot prepared) {
+        if (iban == null) {
+            return null;
+        }
+        List<PreparedAccount> inImport = prepared.accounts().stream()
+            .filter(a -> iban.equals(a.iban()))
+            .toList();
+        return inImport.size() == 1 && !inImport.get(0).ibanAmbiguous() ? inImport.get(0) : null;
+    }
+
+    /** Loads each category at most once, and only when a row actually needs it. */
+    private final class LoanCategories {
+        private final Long memberId;
+        private Category transfer;
+        private boolean transferLoaded;
+        private Category credit;
+        private boolean creditLoaded;
+
+        LoanCategories(Long memberId) {
+            this.memberId = memberId;
+        }
+
+        Category transfer() {
+            if (!transferLoaded) {
+                transferLoaded = true;
+                Category found = categorizationService.loadContext(memberId).categoriesBySlug().get(TRANSFER_SLUG);
+                transfer = found != null && found.getKind() == CategoryKind.TRANSFER ? found : null;
+                if (transfer == null) {
+                    log.warn("Caisse d'Epargne loan disbursement left alone: no transfer category (member={})", memberId);
+                }
+            }
+            return transfer;
+        }
+
+        Category credit() {
+            if (!creditLoaded) {
+                creditLoaded = true;
+                credit = categoryService.findOrCreateDefault(memberId, CREDIT_SLUG)
+                    .filter(c -> c.getKind() == CategoryKind.EXPENSE)
+                    .orElse(null);
+                if (credit == null) {
+                    log.info("Caisse d'Epargne loan installments left alone: no credit category (member={})", memberId);
+                }
+            }
+            return credit;
+        }
     }
 
     /** Upsert by (account, external id); rows are never deleted, manual rows are never touched. */
-    private void upsertTransactions(Account account, List<PreparedTransaction> transactions) {
+    private Map<String, Transaction> upsertTransactions(Account account, List<PreparedTransaction> transactions) {
+        Map<String, Transaction> upserted = new LinkedHashMap<>();
         if (transactions.isEmpty()) {
-            return;
+            return upserted;
         }
         Map<String, Transaction> storedById = new LinkedHashMap<>();
         if (account.getId() != null) {
@@ -453,8 +919,10 @@ public class CaisseEpargneSyncService {
             row.setDescription(tx.label());
             row.setAmount(tx.amount());
             upserts.add(row);
+            upserted.put(tx.externalId(), row);
         }
         transactionRepository.saveAllAndFlush(upserts);
+        return upserted;
     }
 
     private void markFailed(SyncJob job, CaisseEpargneErrorCode code) {
@@ -549,6 +1017,18 @@ public class CaisseEpargneSyncService {
         }
     }
 
+    private static CardNature natureOf(String nature) {
+        if (nature == null) {
+            return null;
+        }
+        try {
+            return CardNature.valueOf(nature);
+        } catch (IllegalArgumentException ex) {
+            // Never guess: an unknown nature means the format moved under us.
+            throw invalid("an unknown card nature");
+        }
+    }
+
     private static AccountType typeOf(String kind) {
         if (kind == null) {
             throw invalid("an account without a kind");
@@ -556,6 +1036,9 @@ public class CaisseEpargneSyncService {
         return switch (kind) {
             case "CURRENT_ACCOUNT" -> AccountType.CHECKING;
             case "LIVRET_A" -> AccountType.LIVRET_A;
+            case "LDDS" -> AccountType.LDDS;
+            case "PER" -> AccountType.PER;
+            case "LOAN" -> AccountType.LOAN;
             case "CARD" -> AccountType.CREDIT_CARD;
             // Never guess: an unknown kind means the format moved under us.
             default -> throw invalid("an unknown account kind");
@@ -566,13 +1049,19 @@ public class CaisseEpargneSyncService {
         return switch (type) {
             case CREDIT_CARD -> "Caisse d'Epargne card";
             case LIVRET_A -> "Livret A";
+            case LDDS -> "LDDS";
+            case PER -> "PER";
+            case LOAN -> "Caisse d'Epargne loan";
             default -> "Caisse d'Epargne account";
         };
     }
 
     private static String colorFor(AccountType type) {
         return switch (type) {
-            case LIVRET_A -> "#f59e0b";
+            // Same colour for every regulated savings book, as the Bourso connector does.
+            case LIVRET_A, LDDS -> "#f59e0b";
+            case PER -> "#8b5cf6";
+            case LOAN -> "#64748b";
             case CREDIT_CARD -> "#2563eb";
             default -> "#dc2626";
         };
@@ -628,10 +1117,19 @@ public class CaisseEpargneSyncService {
         return Objects.requireNonNull(value, "Transaction callback returned no result");
     }
 
-    /** A contract the sidecar saw but Picsou does not import: reported by id and family code only. */
-    public record InitiateResponse(String processId, boolean mfaRequired, String mfaType, int expiresInSeconds) {}
+    /** The pending login to show: the bank's keypad, clicked by the user, and its lifetime. */
+    public record InitiateResponse(String processId, CaisseEpargnePort.Keypad keypad, int expiresInSeconds) {}
 
-    private record PendingLogin(Long memberId, Instant expiresAt) {}
+    /**
+     * A login in flight. Only one of the two deadlines is set: the keypad's while the user clicks,
+     * the approval window's once the digits were sent. Both are nulled out with the process id, so
+     * nothing about the pad survives a step.
+     */
+    private record PendingLogin(Long memberId, Instant keypadExpiresAt, Instant approvalExpiresAt) {
+        Instant deadline() {
+            return approvalExpiresAt != null ? approvalExpiresAt : keypadExpiresAt;
+        }
+    }
 
     public record UnsupportedContract(String externalId, String familyCode) {}
 
@@ -665,7 +1163,19 @@ public class CaisseEpargneSyncService {
         String name,
         AccountType type,
         BigDecimal balance,
-        List<PreparedTransaction> transactions
+        CardNature cardNature,
+        String parentExternalId,
+        LocalDate nextDueDate,
+        List<PreparedTransaction> transactions,
+        /** Never stored on the account; only used to find a loan's debited account. */
+        String iban,
+        boolean ibanAmbiguous,
+        /** LOAN only, and only when every field the schedule needs is usable; else null. */
+        CaisseEpargnePort.LoanDetails loan,
+        /** PER only, and only when the insurer valuation was complete; null keeps existing holdings. */
+        CaisseEpargnePerService.Prepared per
     ) {}
-    private record PreparedTransaction(String externalId, LocalDate date, BigDecimal amount, String label) {}
+    private record PreparedTransaction(
+        String externalId, LocalDate date, LocalDate dueDate, BigDecimal amount, String label, String typeCode
+    ) {}
 }
