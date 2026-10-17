@@ -727,6 +727,7 @@
       "bourseDirect": "Sincronizar tus cuentas PEA y de valores",
       "degiro": "Sincronizar tu cuenta de valores DEGIRO",
       "ibkr": "Sincroniza tu cuenta de Interactive Brokers mediante Flex Query",
+      "simplefin": "Importa cuentas bancarias con un token de SimpleFIN",
       "finary": "Importar desde Finary",
       "manual": "Crear una cuenta manualmente",
       "amundi": "PEE, PEG, PERCO, PER en Amundi",
@@ -807,6 +808,28 @@
       "errors": {
         "connectFailed": "No se pudo guardar la conexión. Verifica el token y el ID de consulta.",
         "syncFailed": "Falló la sincronización de Interactive Brokers. Verifica tu token o inténtalo de nuevo.",
+        "disconnectFailed": "No se pudo eliminar la conexión. Inténtalo de nuevo."
+      }
+    },
+    "simplefin": {
+      "title": "SimpleFIN",
+      "setupHint": "Vincula tus bancos en SimpleFIN Bridge, crea un token de configuración y pégalo aquí.",
+      "createToken": "Crear un token",
+      "token": "Token de configuración",
+      "tokenPlaceholder": "Pega el token de SimpleFIN",
+      "connect": "Conectar",
+      "sync": "Sincronizar",
+      "syncing": "Sincronizando…",
+      "disconnect": "Desconectar",
+      "disconnectConfirm": "¿Eliminar la conexión de SimpleFIN guardada? Las cuentas importadas se quedan y dejan de actualizarse.",
+      "connected": "Conectado",
+      "statusError": "Falló la última sincronización",
+      "lastSync": "Última sync",
+      "neverSynced": "Nunca sincronizado",
+      "syncedToast": "SimpleFIN sincronizado: {{count}} cuenta(s)",
+      "errors": {
+        "connectFailed": "No se pudo conectar con SimpleFIN. Revisa el token e inténtalo de nuevo.",
+        "syncFailed": "Falló la sincronización de SimpleFIN. Inténtalo de nuevo o crea un token nuevo si se revocó el acceso.",
         "disconnectFailed": "No se pudo eliminar la conexión. Inténtalo de nuevo."
       }
     },
@@ -1604,6 +1627,32 @@
         "label": "Sobres de presupuesto",
         "desc": "Crear, editar y eliminar sobres de presupuesto"
       }
+    }
+  },
+  "telemetry": {
+    "consent": {
+      "title": "¿Ayudar a mejorar Picsou?",
+      "intro": "Comparte informes de fallos anónimos y contadores de uso con los desarrolladores de Picsou. Es opcional, se aplica a toda la instancia y puedes cambiarlo en cualquier momento en Administración.",
+      "collectedTitle": "Qué se comparte",
+      "collected1": "Informes técnicos de errores (tipo de error y ubicación en el código, nunca mensajes de error)",
+      "collected2": "Qué pantallas se abren (solo la plantilla de página, p. ej. /accounts/:id)",
+      "collected3": "Qué funciones se usan (p. ej. se lanzó una sincronización), sin detalles",
+      "neverTitle": "Qué nunca se comparte",
+      "never1": "Cuentas, saldos, transacciones, importes o IBAN",
+      "never2": "Nombres, correos, nombres de usuario o direcciones IP",
+      "never3": "Cualquier identificador de usuario, dispositivo o sesión",
+      "tunnel": "Los informes pasan por tu propio servidor Picsou, que los depura de nuevo antes de reenviarlos.",
+      "enable": "Activar",
+      "decline": "No, gracias",
+      "error": "No se pudo guardar tu elección. Inténtalo de nuevo."
+    },
+    "section": {
+      "title": "Telemetría anónima",
+      "description": "Informes de fallos y contadores de uso enviados a los desarrolladores de Picsou, solo si lo aceptas. Desactivada por defecto.",
+      "toggle": "Compartir telemetría anónima",
+      "unavailable": "No disponible — esta instancia no tiene configurado ningún servidor de telemetría (DSN).",
+      "privacy": "Solo se envían informes técnicos de errores, plantillas de página (p. ej. /accounts/:id) y nombres de funciones. Nunca se recogen datos financieros, personales ni identificadores, y los informes se depuran en tu navegador y de nuevo en tu servidor.",
+      "error": "No se pudo actualizar el ajuste de telemetría."
     }
   },
   "admin": {

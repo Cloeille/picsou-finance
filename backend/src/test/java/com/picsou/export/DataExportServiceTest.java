@@ -21,7 +21,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -250,6 +249,45 @@ class DataExportServiceTest {
         assertThat(archive).doesNotContain(SECRET_BANK_AUTH_LINK);
         assertThat(archive).doesNotContain("password_hash");
         assertThat(archive).doesNotContain("activation_token");
+    }
+
+    /**
+     * SimpleFIN keeps its credential in {@code simplefin_connection.access_url} (encrypted, with
+     * HTTP Basic userinfo). No exporter reads that table, so an account imported through SimpleFIN
+     * exports its ordinary metadata (provider, external id) and nothing of the credential.
+     */
+    @Test
+    void simplefinImportedAccount_exportsNoAccessUrlOrConnectionRow() throws Exception {
+        String accessUrl = "https://user1234:hunter2-SECRET@beta-bridge.simplefin.org/simplefin";
+        String encryptedAccessUrl = "v1:Zm9vYmFyLWNpcGhlcnRleHQtb2YtdGhlLWFjY2Vzcy11cmw=";
+        Account a = Account.builder()
+            .id(101L).member(member).name("Chase \u2014 Checking").type(AccountType.CHECKING)
+            .currency("USD").currentBalance(new BigDecimal("10.00"))
+            .provider("SimpleFIN").externalAccountId("sfin_CON-1_chk").isManual(false)
+            .build();
+        // The row a naive "export everything the member owns" exporter would have picked up.
+        SimplefinConnection connection = SimplefinConnection.builder()
+            .id(5L).member(member).accessUrl(encryptedAccessUrl).status("CONNECTED").build();
+        assertThat(connection.getAccessUrl()).isEqualTo(encryptedAccessUrl);
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(a));
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        service.export(user, ExportContext.defaults(), out);
+
+        Map<String, byte[]> entries = readZip(out.toByteArray());
+        assertThat(new String(entries.get("accounts.csv"))).contains("SimpleFIN").contains("sfin_CON-1_chk");
+        assertThat(new String(entries.get("README.txt"))).contains("SimpleFIN access URLs");
+        assertThat(entries.keySet()).noneMatch(name -> name.toLowerCase().contains("simplefin"));
+
+        String archive = new String(out.toByteArray(), java.nio.charset.StandardCharsets.ISO_8859_1);
+        assertThat(archive)
+            .doesNotContain(accessUrl)
+            .doesNotContain(encryptedAccessUrl)
+            .doesNotContain("hunter2")
+            .doesNotContain("user1234")
+            .doesNotContain("beta-bridge")
+            .doesNotContain("access_url")
+            .doesNotContain("simplefin_connection");
     }
 
     @Test

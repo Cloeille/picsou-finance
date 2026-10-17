@@ -239,6 +239,21 @@ class AccountServiceTest {
         verifyNoInteractions(snapshotRepository);
     }
 
+    @Test
+    void update_renamingASyncedCardInCredit_keepsItsPositiveBalance() {
+        Account card = Account.builder().id(1L).name("Card").type(AccountType.CREDIT_CARD)
+            .currency("EUR").isManual(false).currentBalance(new BigDecimal("150")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(card));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // The form pre-fills a card with Math.abs(balance), so a credit of 150 comes back as 150.
+        accountService.update(1L, new AccountRequest("Renamed", AccountType.CREDIT_CARD, null, "EUR",
+            new BigDecimal("150"), false, "#2563eb", null, null, null, null), 7L);
+
+        assertThat(card.getCurrentBalance()).isEqualByComparingTo("150");
+        verifyNoInteractions(snapshotRepository);
+    }
+
     private static AccountRequest cardRequest(String amountOwed) {
         return new AccountRequest("Card", AccountType.CREDIT_CARD, null, "EUR",
             new BigDecimal(amountOwed), true, "#2563eb", null, null, null, null);

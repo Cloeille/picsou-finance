@@ -116,6 +116,7 @@ public class DataExportService {
               - your password hash and activation token
               - your TOTP secret and MFA recovery codes
               - bank-connection refresh/access tokens and encrypted credentials
+                (including SimpleFIN access URLs)
               - long-lived session tokens
 
             All other data we hold for your account is included in this archive

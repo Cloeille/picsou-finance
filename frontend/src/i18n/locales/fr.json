@@ -1007,6 +1007,7 @@
       "bourseDirect": "Synchroniser vos PEA et CTO",
       "degiro": "Synchroniser votre compte-titres DEGIRO",
       "ibkr": "Synchronisez votre compte Interactive Brokers via Flex Query",
+      "simplefin": "Importez vos comptes bancaires avec un jeton SimpleFIN",
       "finary": "Importer depuis Finary",
       "manual": "Créer un compte manuellement",
       "amundi": "PEE, PEG, PERCO, PER chez Amundi",
@@ -1115,6 +1116,28 @@
       "errors": {
         "connectFailed": "Impossible d'enregistrer la connexion. Vérifiez le jeton et l'ID de requête.",
         "syncFailed": "Échec de la synchronisation Interactive Brokers. Vérifiez votre jeton ou réessayez.",
+        "disconnectFailed": "Impossible de supprimer la connexion. Réessayez."
+      }
+    },
+    "simplefin": {
+      "title": "SimpleFIN",
+      "setupHint": "Reliez vos banques sur SimpleFIN Bridge, créez un jeton de configuration, puis collez-le ici.",
+      "createToken": "Créer un jeton",
+      "token": "Jeton de configuration",
+      "tokenPlaceholder": "Collez le jeton SimpleFIN",
+      "connect": "Connecter",
+      "sync": "Synchroniser",
+      "syncing": "Synchronisation…",
+      "disconnect": "Déconnecter",
+      "disconnectConfirm": "Supprimer la connexion SimpleFIN enregistrée ? Les comptes importés restent, et ne se mettent plus à jour.",
+      "connected": "Connecté",
+      "statusError": "Échec de la dernière synchro",
+      "lastSync": "Dernière sync",
+      "neverSynced": "Jamais synchronisé",
+      "syncedToast": "SimpleFIN synchronisé : {{count}} compte(s)",
+      "errors": {
+        "connectFailed": "Connexion à SimpleFIN impossible. Vérifiez le jeton et réessayez.",
+        "syncFailed": "Échec de la synchronisation SimpleFIN. Réessayez, ou créez un nouveau jeton si l'accès a été révoqué.",
         "disconnectFailed": "Impossible de supprimer la connexion. Réessayez."
       }
     },
@@ -1908,6 +1931,32 @@
     "revokeTitle": "Révoquer l'accès de cette application ?",
     "revokeDescription": "Cette application perd immédiatement l'accès à tes données. Tu pourras la reconnecter plus tard depuis l'application.",
     "error": "Impossible de révoquer l'accès. Réessaye."
+  },
+  "telemetry": {
+    "consent": {
+      "title": "Aider à améliorer Picsou ?",
+      "intro": "Partagez des rapports de plantage anonymes et des compteurs d'usage avec les développeurs de Picsou. C'est facultatif, valable pour toute l'instance, et modifiable à tout moment dans Administration.",
+      "collectedTitle": "Ce qui est partagé",
+      "collected1": "Rapports d'erreurs techniques (type d'erreur et emplacement dans le code, jamais les messages d'erreur)",
+      "collected2": "Les écrans ouverts (gabarit de page uniquement, ex. /accounts/:id)",
+      "collected3": "Les fonctionnalités utilisées (ex. une synchronisation lancée), sans détail",
+      "neverTitle": "Ce qui n'est jamais partagé",
+      "never1": "Comptes, soldes, transactions, montants ou IBAN",
+      "never2": "Noms, e-mails, identifiants de connexion ou adresses IP",
+      "never3": "Tout identifiant d'utilisateur, d'appareil ou de session",
+      "tunnel": "Les rapports passent par votre propre serveur Picsou, qui les nettoie à nouveau avant de les transmettre.",
+      "enable": "Activer",
+      "decline": "Non merci",
+      "error": "Impossible d'enregistrer votre choix. Veuillez réessayer."
+    },
+    "section": {
+      "title": "Télémétrie anonyme",
+      "description": "Rapports de plantage et compteurs d'usage envoyés aux développeurs de Picsou, uniquement si vous l'acceptez. Désactivée par défaut.",
+      "toggle": "Partager une télémétrie anonyme",
+      "unavailable": "Indisponible — aucun serveur de télémétrie (DSN) n'est configuré sur cette instance.",
+      "privacy": "Seuls des rapports d'erreurs techniques, des gabarits de pages (ex. /accounts/:id) et des noms de fonctionnalités sont envoyés. Aucune donnée financière, personnelle ou identifiant n'est collectée, et les rapports sont nettoyés dans votre navigateur puis à nouveau sur votre serveur.",
+      "error": "Impossible de modifier le réglage de télémétrie."
+    }
   },
   "admin": {
     "title": "Administration",

@@ -23,6 +23,7 @@ import { DegiroPanel } from '@/components/sync/DegiroPanel'
 import { AmundiPanel } from '@/components/sync/AmundiPanel'
 import { FortuneoPanel } from '@/components/sync/FortuneoPanel'
 import { IbkrPanel } from '@/components/sync/IbkrPanel'
+import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
 import {
   ACCOUNT_COLORS,
   ACCOUNT_TYPES,
@@ -98,7 +99,7 @@ type WizardStep =
   | 'bourseDirect' | 'degiro' | 'amundi' | 'fortuneo' | 'finary' | 'property' | 'manual'
   | 'bourseDirect' | 'degiro' | 'amundi' | 'finary' | 'property' | 'manual'
   | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'bourso'
-  | 'bourseDirect' | 'degiro' | 'ibkr' | 'amundi' | 'finary' | 'property' | 'manual'
+  | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'amundi' | 'finary' | 'property' | 'manual'
 
 /**
  * Masked variant of InputOTPSlot — replaces the typed character with a bullet
@@ -140,6 +141,7 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'bourseDirect', icon: BriefcaseBusiness, labelKey: 'sync.bourseDirect.title', descKey: 'addAccount.desc.bourseDirect' },
   { key: 'degiro', icon: TrendingUp, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
   { key: 'ibkr', icon: BriefcaseBusiness, labelKey: 'sync.ibkr.title', descKey: 'addAccount.desc.ibkr' },
+  { key: 'simplefin', icon: Landmark, labelKey: 'sync.simplefin.title', descKey: 'addAccount.desc.simplefin' },
   { key: 'amundi', icon: PiggyBank, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
   { key: 'fortuneo', icon: PiggyBank, labelKey: 'sync.fortuneo.title', descKey: 'addAccount.desc.fortuneo' },
   { key: 'finary', icon: FileSpreadsheet, labelKey: 'sync.finary.title', descKey: 'addAccount.desc.finary' },
@@ -302,6 +304,12 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
                 <>
                   <BackButton onClick={() => setStep('selector')} />
                   <IbkrPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'simplefin' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <SimplefinPanel onConnected={handleDone} />
                 </>
               )}
               {step === 'amundi' && (

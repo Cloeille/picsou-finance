@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { goalsApi } from './api'
 import type { GoalRequest } from '@/types/api'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
+import { trackFeature } from '@/lib/telemetry'
 
 export function useGoals() {
   return useQuery({
@@ -42,6 +43,7 @@ export function useCreateGoal() {
   return useMutation({
     mutationFn: (data: GoalRequest) => goalsApi.create(data),
     onSuccess: () => {
+      trackFeature('goal_created')
       queryClient.invalidateQueries({ queryKey: ['goals'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     },

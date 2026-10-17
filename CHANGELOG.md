@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SimpleFIN bank sync.** A member can paste a one-time setup token from SimpleFIN
+  Bridge. Picsou claims it, stores the access URL encrypted, and imports account
+  balances and posted transactions alongside Enable Banking, by hand, from Sync All
+  and on the daily job. Only `beta-bridge.simplefin.org` is contacted. Accounts
+  arrive as checking accounts, like Enable Banking's; set a savings account or a
+  credit card in the account form and later syncs keep that type. Pending
+  transactions and non-ISO currencies are skipped. There is no institution search:
+  banks are linked on SimpleFIN Bridge, then one token is brought back. See
+  [ADR](docs/decisions/2026-10-04-simplefin-beside-enable-banking.md) and
+  [feature note](docs/features/simplefin-sync.md).
 - **A Caisse d'Epargne sidecar and on-demand sync are in the codebase, but you cannot sign in
   from Picsou yet.** A new internal `caisse-epargne-auth` container reads a Caisse d'Epargne
   current account, a Livret A and an active deferred-debit card (shown as a credit card account
@@ -29,6 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   became ("3 funds found — 2 accounts created, 1 updated"), and a sync that found funds but
   updated nothing is no longer shown as a success. "Ignore this fund" on a SCPI unlinks it
   and keeps later syncs away; deleting the account does the same, so it is not recreated.
+- **You can choose to send anonymous crash reports and usage counts to the Picsou developers.**
+  It is off by default and only exists when the instance sets `APP_TELEMETRY_DSN`; without it
+  nothing changes. An admin is asked once, with the exact list of what is shared and what never is,
+  and can switch it off at any time in Administration — sending stops immediately. Reports carry
+  no amounts, account names, IBANs, emails or identifiers, are scrubbed in the browser and again on
+  your server, and reach the collector through your own server so your IP address is never seen.
+  See `docs/features/telemetry.md`.
+  Error messages are discarded rather than regex-scrubbed. The browser SDK closes on logout,
+  and the server tunnel forwards asynchronously with bounded concurrency and per-user limits.
 
 - **An MCP client can refresh every existing connector and read whether one needs a new login.**
   `trigger_full_sync` runs the same per-member sync as the 08:00 job and returns one line per

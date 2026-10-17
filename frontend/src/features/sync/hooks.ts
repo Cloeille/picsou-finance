@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
+import { trackFeature } from '@/lib/telemetry'
 import type { QueryKey } from '@tanstack/react-query'
 import {
   bankSyncApi,
@@ -19,6 +20,7 @@ import {
   corumApi,
   sofidyApi,
   ibkrApi,
+  simplefinApi,
 } from './api'
 import type {
   ExchangeType,
@@ -52,6 +54,7 @@ export const syncKeys = {
   corum: () => [...syncKeys.all, 'corum'] as const,
   sofidy: () => [...syncKeys.all, 'sofidy'] as const,
   ibkr: () => [...syncKeys.all, 'ibkr'] as const,
+  simplefin: () => [...syncKeys.all, 'simplefin'] as const,
   exchanges: () => [...syncKeys.all, 'exchanges'] as const,
   wallets: () => [...syncKeys.all, 'wallets'] as const,
   finary: () => [...syncKeys.all, 'finary'] as const,
@@ -135,6 +138,7 @@ export function useInitiateBankSync() {
       institutionName: string
     }) => bankSyncApi.initiate(institutionId, institutionName),
     onSuccess: () => {
+      trackFeature('sync_triggered')
       queryClient.invalidateQueries({ queryKey: syncKeys.banks() })
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
@@ -950,6 +954,49 @@ export function useClearFortuneoSession() {
       queryClient.invalidateQueries({ queryKey: syncKeys.fortuneo() })
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// SimpleFIN
+// ---------------------------------------------------------------------------
+
+export function useSimplefinStatus() {
+  return useQuery({
+    queryKey: syncKeys.simplefin(),
+    queryFn: simplefinApi.getStatus,
+    staleTime: QUERY_STALE_TIMES.sync,
+  })
+}
+
+export function useConnectSimplefin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (token: string) => simplefinApi.connect(token),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: syncKeys.simplefin() }),
+  })
+}
+
+export function useSyncSimplefin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: simplefinApi.sync,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.simplefin() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+export function useDisconnectSimplefin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: simplefinApi.disconnect,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.simplefin() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
     },
   })
 }
