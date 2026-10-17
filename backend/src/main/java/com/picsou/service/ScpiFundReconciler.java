@@ -132,9 +132,7 @@ public class ScpiFundReconciler {
         Optional<ScpiPosition> linked = findLinked(memberId, provider, fund.fundCode());
         if (linked.isPresent()) {
             apply(linked.get(), fund);
-            if (linked.get().getAccount() != null) {
-                claimedAccounts.add(linked.get().getAccount().getId());
-            }
+            claimedAccounts.add(linked.get().getAccount().getId());
             return linked.get().getValuationStatus() == ScpiValuationStatus.PRICE_INCOMPLETE
                 ? ScpiFundOutcome.PRICE_INCOMPLETE
                 : ScpiFundOutcome.UPDATED;
@@ -152,9 +150,7 @@ public class ScpiFundReconciler {
                 .orElseGet(() -> newPosition(account, provider, fund));
             setFundCode(position, provider, fund.fundCode());
             apply(position, fund);
-            if (account.getId() != null) {
-                claimedAccounts.add(account.getId());
-            }
+            claimedAccounts.add(account.getId());
             return ScpiFundOutcome.LINKED;
         }
 
@@ -176,9 +172,7 @@ public class ScpiFundReconciler {
         ScpiPosition position = newPosition(account, provider, fund);
         setFundCode(position, provider, fund.fundCode());
         apply(position, fund);
-        if (account.getId() != null) {
-            claimedAccounts.add(account.getId());
-        }
+        claimedAccounts.add(account.getId());
         return ScpiFundOutcome.CREATED;
     }
 

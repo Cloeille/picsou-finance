@@ -115,7 +115,11 @@ pre-made account. `ScpiFundReconciler` takes each fund of a complete snapshot:
 
 A fund the member had and the provider no longer lists is reported `MISSING_AT_PROVIDER`;
 its account is kept. Sofidy still writes such a linked fund at zero shares (its ADR, point
-8); CORUM leaves it untouched.
+8); CORUM leaves it untouched. Positions linked by hand before V114 count too, so the first
+sync after the upgrade can report an old fund as missing; it only reports it.
+
+A snapshot whose currency is not `EUR`, or that has none, is refused as `INVALID_DATA`
+before any account is created or updated: the reconciler stores every figure as euros.
 
 `scpi_provider_fund` (V114) keeps one row per member, provider and fund code: the
 `ignored` tombstone and the latest outcome. Deleting the account of a linked fund, clearing
@@ -185,6 +189,8 @@ PUT /api/accounts/{id}/scpi
 - `ScpiFundReconcilerTest` — first sync creates, second updates without a duplicate,
   same-name manual account linked, two matches ambiguous, ignored fund not recreated,
   vanished fund reported and kept, missing price reported
+- `CorumSyncServiceTest` / `SofidySyncServiceTest#queueSync_refusesASnapshotNotInEuros` — a
+  snapshot in another currency, or with none, writes nothing
 - `ScpiFundServiceTest` — ignore unlinks but keeps the account, restore lifts the tombstone
 - `ScpiSyncSessionPostgresTest#corumSyncCreatesTheAccountOnceAndDoesNotRecreateADeletedOne`
   — the same rules on the real schema

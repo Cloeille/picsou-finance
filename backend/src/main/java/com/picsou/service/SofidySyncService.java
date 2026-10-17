@@ -352,6 +352,12 @@ public class SofidySyncService {
             }
         }
         checkDeclaredTotal(snapshot);
+        // Every SCPI account is EUR and the reconciler writes the figures as they
+        // come. A snapshot in another currency, or with none, would be stored as
+        // euros silently, so it is refused before anything is written.
+        if (!"EUR".equals(snapshot.currency())) {
+            throw error(SofidyErrorCode.INVALID_DATA, "Sofidy returned a portfolio not in euros", null);
+        }
 
         List<ScpiFundReconciler.SyncedFund> funds = snapshot.holdings().stream()
             .map(holding -> new ScpiFundReconciler.SyncedFund(

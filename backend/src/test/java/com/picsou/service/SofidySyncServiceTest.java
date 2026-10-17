@@ -358,6 +358,21 @@ class SofidySyncServiceTest {
         verifyNoInteractions(positionService, positionRepository);
     }
 
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"USD", "eur", ""})
+    void queueSync_refusesASnapshotNotInEuros(String currency) {
+        arrangeActiveSession();
+        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyPort.Snapshot(
+            currency, new BigDecimal("627.20"), null, true, List.of(holding("DY", "2", "313.60"))));
+
+        SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
+        assertThat(result.lastSyncError()).isEqualTo(SofidyErrorCode.INVALID_DATA);
+        verifyNoInteractions(positionService, positionRepository);
+    }
+
     private void arrangeActiveSession() {
         FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
         SofidySession session = SofidySession.builder()

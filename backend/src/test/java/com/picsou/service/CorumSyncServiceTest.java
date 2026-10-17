@@ -139,20 +139,43 @@ class CorumSyncServiceTest {
 
     @org.junit.jupiter.api.Test
     void queueSync_acceptsDisplayedTotalEvenWhenWithdrawalValueIsLower() {
-        activeSession();
+        CorumSession session = activeSession();
         when(port.fetchSnapshot("plain-state")).thenReturn(new CorumPort.Snapshot(
             "contract", "PP", "EUR", new BigDecimal("340.00"), null, true,
             List.of(holding("US", "340.00", "150"))
         ));
+        // A linked position always has its account (account_id is NOT NULL).
+        com.picsou.model.ScpiPosition linked = com.picsou.model.ScpiPosition.builder()
+            .account(com.picsou.model.Account.builder().id(11L).build())
+            .corumFundCode("US")
+            .build();
         when(positionRepository.findByMemberIdAndCorumFundCode(7L, "US"))
-            .thenReturn(Optional.of(mock(com.picsou.model.ScpiPosition.class)));
+            .thenReturn(Optional.of(linked));
 
         service.queueSync(7L);
 
+        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
         verify(positionService).applySyncedPosition(
             any(), eq(new BigDecimal("2")), eq(new BigDecimal("170")),
             eq(new BigDecimal("150")), eq(null)
         );
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullSource
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"USD", "eur", ""})
+    void queueSync_refusesASnapshotNotInEuros(String currency) {
+        CorumSession session = activeSession();
+        when(port.fetchSnapshot("plain-state")).thenReturn(new CorumPort.Snapshot(
+            "contract", "PP", currency, new BigDecimal("340.00"), null, true,
+            List.of(holding("US", "340.00", "150"))
+        ));
+
+        service.queueSync(7L);
+
+        verifyNoInteractions(positionRepository, positionService);
+        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.INVALID_DATA);
     }
 
     private CorumSession activeSession() {
