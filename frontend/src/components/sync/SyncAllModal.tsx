@@ -63,6 +63,12 @@ import {
   useDegiroSessionStatus,
   useSyncDegiro,
   useIbkrStatus,
+  useAmexStatus,
+  useSyncAmex,
+  useCorumStatus,
+  useSyncCorum,
+  useSofidyStatus,
+  useSyncSofidy,
   useSyncIbkr,
   useSimplefinStatus,
   useSyncSimplefin,
@@ -79,6 +85,7 @@ type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
+    | 'amex' | 'corum' | 'sofidy'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -102,6 +109,9 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   degiro: LineChart,
   ibkr: LineChart,
   simplefin: Landmark,
+  amex: CreditCard,
+  corum: Building2,
+  sofidy: Building2,
 }
 
 /** Which Sync-page tab each provider re-authenticates on. */
@@ -113,6 +123,9 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   degiro: 'degiro',
   ibkr: 'ibkr',
   simplefin: 'simplefin',
+  amex: 'amex',
+  corum: 'corum',
+  sofidy: 'sofidy',
   finary: 'finary',
 }
 
@@ -174,6 +187,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: degiroStatus } = useDegiroSessionStatus()
   const { data: ibkrStatus } = useIbkrStatus()
   const { data: simplefinStatus } = useSimplefinStatus()
+  const { data: amexStatus } = useAmexStatus()
+  const { data: corumStatus } = useCorumStatus()
+  const { data: sofidyStatus } = useSofidyStatus()
   const { data: accounts } = useAccounts()
 
   // Show TR in modal if: there are active TR accounts, the session is active, or the session
@@ -194,7 +210,8 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
    * *or* the user still has accounts from it — a dead session must stay visible and
    * re-authenticatable rather than disappear from the list, the same rule Trade Republic
    * already followed. `provider` is the exact string the connector stamps on the accounts it
-   * creates (see each service's PROVIDER constant).
+   * creates (see each service's PROVIDER constant). CORUM and Sofidy create no accounts (they
+   * update SCPI positions), so they have no `provider` and show on their session alone.
    */
   const sessionProviders = useMemo(() => [
     {
@@ -236,7 +253,22 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       active: simplefinStatus?.connected ?? false, lastSyncedAt: simplefinStatus?.lastSyncedAt ?? null,
       failed: simplefinStatus?.status === 'ERROR',
     },
-  ], [amundiStatus, fortuneoStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
+    {
+      type: 'amex' as const, name: 'American Express', provider: 'American Express',
+      active: amexStatus?.isActive ?? false, lastSyncedAt: amexStatus?.lastSyncCompletedAt ?? null,
+      failed: amexStatus?.syncStatus === 'FAILED',
+    },
+    {
+      type: 'corum' as const, name: 'CORUM',
+      active: corumStatus?.isActive ?? false, lastSyncedAt: corumStatus?.lastSyncCompletedAt ?? null,
+      failed: corumStatus?.syncStatus === 'FAILED',
+    },
+    {
+      type: 'sofidy' as const, name: 'Sofidy',
+      active: sofidyStatus?.isActive ?? false, lastSyncedAt: sofidyStatus?.lastSyncCompletedAt ?? null,
+      failed: sofidyStatus?.syncStatus === 'FAILED',
+    },
+  ], [amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -254,6 +286,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncSimplefinMutation    = useSyncSimplefin()
   const startRevolutMutation     = useStartRevolutSync()
   const confirmRevolutMutation   = useConfirmRevolutSync()
+  const syncAmexMutation         = useSyncAmex()
+  const syncCorumMutation        = useSyncCorum()
+  const syncSofidyMutation       = useSyncSofidy()
 
   // Track syncing state per connection
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set())
@@ -332,7 +367,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       })
     }
     for (const provider of sessionProviders) {
-      const hasAccount = accounts?.some(a => a.provider === provider.provider) ?? false
+      const hasAccount = accounts?.some(a => provider.provider !== undefined && a.provider === provider.provider) ?? false
       if (!provider.active && !hasAccount) continue
       list.push({
         id: provider.type,
@@ -444,6 +479,15 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'simplefin':
         syncSimplefinMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'amex':
+        syncAmexMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
+      case 'corum':
+        syncCorumMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
+      case 'sofidy':
+        syncSofidyMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'revolut':
         // Remembered credentials: a blank body makes the backend fall back to them. The spinner
         // stays on until the discover → confirm effect below finishes or fails.
@@ -483,6 +527,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncIbkrMutation,
     syncSimplefinMutation,
     startRevolutMutation,
+    syncAmexMutation,
+    syncCorumMutation,
+    syncSofidyMutation,
     queryClient,
     t,
   ])

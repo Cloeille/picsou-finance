@@ -73,6 +73,12 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null } })
       case '/simplefin/status':
         return Promise.resolve({ data: simplefinStatus })
+      case '/amex/status':
+        return Promise.resolve({ data: AMUNDI_INACTIVE })
+      case '/corum/status':
+        return Promise.resolve({ data: corumStatus })
+      case '/sofidy/status':
+        return Promise.resolve({ data: sofidyStatus })
       case '/accounts':
         return Promise.resolve({ data: accountsFixture })
       case '/revolut/status':
@@ -110,6 +116,8 @@ const REVOLUT_DONE = {
 const SIMPLEFIN_DISCONNECTED = {
   connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null,
 }
+let corumStatus: Record<string, unknown>
+let sofidyStatus: Record<string, unknown>
 
 const AMUNDI_INACTIVE = {
   isActive: false, syncStatus: 'IDLE', lastSyncError: null,
@@ -128,6 +136,8 @@ const AMUNDI_ACCOUNT = {
 function resetFixtures() {
   amundiStatus = AMUNDI_INACTIVE
   simplefinStatus = SIMPLEFIN_DISCONNECTED
+  corumStatus = AMUNDI_INACTIVE
+  sofidyStatus = AMUNDI_INACTIVE
   accountsFixture = [TR_ACCOUNT]
   revolutStatus = REVOLUT_NOT_REMEMBERED
   revolutProgress = REVOLUT_DONE
@@ -374,6 +384,32 @@ describe('SyncAllModal session providers', () => {
 
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amundi/sync'))
     expect(navigate).not.toHaveBeenCalled()
+  })
+
+  /** SCPI connectors create no accounts, so their session alone decides presence. */
+  it('lists and syncs a Sofidy session, hiding it once inactive', async () => {
+    sofidyStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: sofidyStatus })
+    renderModal()
+
+    const row = (await screen.findByText('Sofidy')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/sofidy/sync'))
+  })
+
+  it('hides CORUM and Sofidy when their sessions are inactive', async () => {
+    renderModal()
+
+    expect(await screen.findByText('Trade Republic')).toBeInTheDocument()
+    expect(screen.queryByText('CORUM')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sofidy')).not.toBeInTheDocument()
+  })
+
+  it('lists CORUM when its session is live', async () => {
+    corumStatus = { ...AMUNDI_INACTIVE, isActive: true }
+    renderModal()
+
+    expect(await screen.findByText('CORUM')).toBeInTheDocument()
   })
 })
 
