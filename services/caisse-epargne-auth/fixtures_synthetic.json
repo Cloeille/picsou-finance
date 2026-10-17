@@ -761,5 +761,800 @@
    "amount_sign": "négatif = sortie",
    "card_dueDate": "tous les 28-31 jours = date de débit mensuelle"
   }
+ },
+ "synthesis_products": {
+  "items": [
+   {
+    "_links": {
+     "transactions": {
+      "href": null
+     },
+     "pfmTransactions": null,
+     "pfmUpcomingTransactions": null,
+     "accountSynthesisView": {
+      "href": "/fake/accountSynthesisView/0000000011"
+     },
+     "financialSavingSynthesisView": {
+      "href": "/fake/financialSavingSynthesisView/0000000011"
+     },
+     "loanSynthesisView": {
+      "href": null
+     }
+    },
+    "identification": {
+     "contractId": {
+      "entityCode": "00000",
+      "id": "0000000011"
+     },
+     "contractPfmId": 1001,
+     "augmentedSynthesisViewId": {
+      "entityCode": "00000",
+      "id": "0000000011",
+      "identifierType": "0"
+     },
+     "caseId": null,
+     "contractInstructionOrigin": null,
+     "marketType": null,
+     "envelopeId": null
+    },
+    "identity": {
+     "customerReference": "0000000001",
+     "status": {
+      "code": "2",
+      "label": "Actif"
+     },
+     "statusDate": null,
+     "balance": {
+      "value": 1234.56,
+      "currencyCode": "EUR"
+     },
+     "upcomingTransactionsTotalAmount": null,
+     "contractLabel": "FAKE CPT DEPOT PART.",
+     "bankingClientId": {
+      "entityCode": "00000",
+      "id": "0000000001"
+     },
+     "bankingClientLabel": "FAKE CLIENT",
+     "holderIndicator": true,
+     "productLabel": "CPT DEPOT PART.",
+     "bankingInstitutionLabel": "FAKE BANQUE",
+     "aggregationDate": null,
+     "pfmExcludedIndicator": false,
+     "internalIndicator": true,
+     "relationContext": {
+      "code": "1",
+      "label": "Personnel"
+     },
+     "entityCode": "00000",
+     "outstandingCardsTotalAmount": null,
+     "augmentedCards": [
+      {
+       "primaryAccountNumberMask": "************0001",
+       "cardStatusType": {
+        "code": "100",
+        "label": "Active"
+       },
+       "outstandingCard": {
+        "currentMonth": null,
+        "nextMonth": null
+       },
+       "cardCreditIndicator": false,
+       "cardPaymentNetworkType": {
+        "code": "0",
+        "label": "Autre"
+       },
+       "defferedDebitIndicator": true,
+       "cardHolder": "FAKE HOLDER",
+       "cardProductLabel": "Carte Bancaire",
+       "_links": {
+        "self": {
+         "href": "/fake/cards/2001"
+        },
+        "pfmTransactions": {
+         "href": "/fake/cards/2001/tx"
+        },
+        "pfmUpcomingTransactions": {
+         "href": "/fake/cards/2001/upcoming"
+        }
+       },
+       "cardId": {
+        "entityCode": "00000",
+        "id": "FAKECARD2001"
+       },
+       "cardPfmId": 2001,
+       "cardRangeRenderingType": null,
+       "expirationDate": null,
+       "cardUserType": null,
+       "visualId": {
+        "id": "FAKEVISUAL"
+       }
+      },
+      {
+       "primaryAccountNumberMask": "************0002",
+       "cardStatusType": {
+        "code": "XXX",
+        "label": "Indéterminé"
+       },
+       "outstandingCard": {
+        "currentMonth": null,
+        "nextMonth": null
+       },
+       "cardCreditIndicator": false,
+       "cardPaymentNetworkType": {
+        "code": "0",
+        "label": "Autre"
+       },
+       "defferedDebitIndicator": true,
+       "cardHolder": "FAKE HOLDER",
+       "cardProductLabel": "Carte Bancaire",
+       "_links": {
+        "self": {
+         "href": "/fake/cards/2002"
+        },
+        "pfmTransactions": {
+         "href": "/fake/cards/2002/tx"
+        },
+        "pfmUpcomingTransactions": {
+         "href": "/fake/cards/2002/upcoming"
+        }
+       },
+       "cardId": {
+        "entityCode": "00000",
+        "id": "FAKECARD2002"
+       },
+       "cardPfmId": 2002,
+       "cardRangeRenderingType": null,
+       "expirationDate": null,
+       "cardUserType": null,
+       "visualId": {
+        "id": "FAKEVISUAL"
+       }
+      }
+     ],
+     "bic": "FAKEFRPPXXX",
+     "productFamilyPFM": {
+      "code": "1",
+      "label": "Comptes courants"
+     },
+     "subProductFamilyPFM": null,
+     "authorizedOverdraft": {
+      "value": 0.0,
+      "currencyCode": "EUR"
+     },
+     "subscriptionDate": null,
+     "userPfmRef": null,
+     "producerContractId": "0000000011",
+     "pfmBankCode": null,
+     "routingIndicator": false,
+     "pfmSynchronizationIndicator": true,
+     "pfmCharacteristicsIndicator": null,
+     "siren": null,
+     "siret": null,
+     "effectiveDate": null,
+     "contractComplementaryLabel": null,
+     "contractLabelOrigine": null,
+     "tradingName": null,
+     "contractExpiryDate": null,
+     "balanceWithoutCheckReserve": null,
+     "ribIndicator": true,
+     "authorizedCeilingAmount": null,
+     "fillingRatio": null,
+     "remainingDepositCapacity": null,
+     "roleContractType": {
+      "code": "Z",
+      "label": "Non concerné"
+     },
+     "childIndicator": false,
+     "pendingDecisionTransactionsCount": null,
+     "pendingDecisionTransactionsAmount": null
+    }
+   },
+   {
+    "_links": {
+     "transactions": {
+      "href": null
+     },
+     "pfmTransactions": null,
+     "pfmUpcomingTransactions": null,
+     "accountSynthesisView": {
+      "href": "/fake/accountSynthesisView/0000000012"
+     },
+     "financialSavingSynthesisView": {
+      "href": "/fake/financialSavingSynthesisView/0000000012"
+     },
+     "loanSynthesisView": {
+      "href": null
+     }
+    },
+    "identification": {
+     "contractId": {
+      "entityCode": "00000",
+      "id": "0000000012"
+     },
+     "contractPfmId": 1002,
+     "augmentedSynthesisViewId": {
+      "entityCode": "00000",
+      "id": "0000000012",
+      "identifierType": "0"
+     },
+     "caseId": null,
+     "contractInstructionOrigin": null,
+     "marketType": null,
+     "envelopeId": null
+    },
+    "identity": {
+     "customerReference": "0000000001",
+     "status": {
+      "code": "2",
+      "label": "Actif"
+     },
+     "statusDate": null,
+     "balance": {
+      "value": 5000.0,
+      "currencyCode": "EUR"
+     },
+     "upcomingTransactionsTotalAmount": null,
+     "contractLabel": "FAKE LIVRET A",
+     "bankingClientId": {
+      "entityCode": "00000",
+      "id": "0000000001"
+     },
+     "bankingClientLabel": "FAKE CLIENT",
+     "holderIndicator": true,
+     "productLabel": "LIVRET A",
+     "bankingInstitutionLabel": "FAKE BANQUE",
+     "aggregationDate": null,
+     "pfmExcludedIndicator": false,
+     "internalIndicator": true,
+     "relationContext": {
+      "code": "1",
+      "label": "Personnel"
+     },
+     "entityCode": "00000",
+     "outstandingCardsTotalAmount": null,
+     "augmentedCards": null,
+     "bic": "FAKEFRPPXXX",
+     "productFamilyPFM": {
+      "code": "3",
+      "label": "Epargne disponible"
+     },
+     "subProductFamilyPFM": {
+      "code": "01",
+      "label": "Epargne disponible réglementée"
+     },
+     "authorizedOverdraft": {
+      "value": 0.0,
+      "currencyCode": "EUR"
+     },
+     "subscriptionDate": null,
+     "userPfmRef": null,
+     "producerContractId": "0000000012",
+     "pfmBankCode": null,
+     "routingIndicator": false,
+     "pfmSynchronizationIndicator": true,
+     "pfmCharacteristicsIndicator": null,
+     "siren": null,
+     "siret": null,
+     "effectiveDate": null,
+     "contractComplementaryLabel": null,
+     "contractLabelOrigine": null,
+     "tradingName": null,
+     "contractExpiryDate": null,
+     "balanceWithoutCheckReserve": null,
+     "ribIndicator": true,
+     "authorizedCeilingAmount": {
+      "value": 22950.0,
+      "currencyCode": "EUR"
+     },
+     "fillingRatio": 21.8,
+     "remainingDepositCapacity": {
+      "value": 17950.0,
+      "currencyCode": "EUR"
+     },
+     "roleContractType": {
+      "code": "Z",
+      "label": "Non concerné"
+     },
+     "childIndicator": false,
+     "pendingDecisionTransactionsCount": null,
+     "pendingDecisionTransactionsAmount": null
+    }
+   },
+   {
+    "_links": {
+     "transactions": {
+      "href": null
+     },
+     "pfmTransactions": null,
+     "pfmUpcomingTransactions": null,
+     "accountSynthesisView": {
+      "href": "/fake/accountSynthesisView/0000000012"
+     },
+     "financialSavingSynthesisView": {
+      "href": "/fake/financialSavingSynthesisView/0000000012"
+     },
+     "loanSynthesisView": {
+      "href": null
+     }
+    },
+    "identification": {
+     "contractId": {
+      "entityCode": "00000",
+      "id": "0000000013"
+     },
+     "contractPfmId": 1003,
+     "augmentedSynthesisViewId": {
+      "entityCode": "00000",
+      "id": "0000000013",
+      "identifierType": "0"
+     },
+     "caseId": null,
+     "contractInstructionOrigin": null,
+     "marketType": null,
+     "envelopeId": null
+    },
+    "identity": {
+     "customerReference": "0000000001",
+     "status": {
+      "code": "2",
+      "label": "Actif"
+     },
+     "statusDate": null,
+     "balance": {
+      "value": 1200.0,
+      "currencyCode": "EUR"
+     },
+     "upcomingTransactionsTotalAmount": null,
+     "contractLabel": "FAKE LDDS",
+     "bankingClientId": {
+      "entityCode": "00000",
+      "id": "0000000001"
+     },
+     "bankingClientLabel": "FAKE CLIENT",
+     "holderIndicator": true,
+     "productLabel": "LDDS",
+     "bankingInstitutionLabel": "FAKE BANQUE",
+     "aggregationDate": null,
+     "pfmExcludedIndicator": false,
+     "internalIndicator": true,
+     "relationContext": {
+      "code": "1",
+      "label": "Personnel"
+     },
+     "entityCode": "00000",
+     "outstandingCardsTotalAmount": null,
+     "augmentedCards": null,
+     "bic": "FAKEFRPPXXX",
+     "productFamilyPFM": {
+      "code": "3",
+      "label": "Epargne disponible"
+     },
+     "subProductFamilyPFM": {
+      "code": "28",
+      "label": "Epargne disponible réglementée"
+     },
+     "authorizedOverdraft": {
+      "value": 0.0,
+      "currencyCode": "EUR"
+     },
+     "subscriptionDate": null,
+     "userPfmRef": null,
+     "producerContractId": "0000000013",
+     "pfmBankCode": null,
+     "routingIndicator": false,
+     "pfmSynchronizationIndicator": true,
+     "pfmCharacteristicsIndicator": null,
+     "siren": null,
+     "siret": null,
+     "effectiveDate": null,
+     "contractComplementaryLabel": null,
+     "contractLabelOrigine": null,
+     "tradingName": null,
+     "contractExpiryDate": null,
+     "balanceWithoutCheckReserve": null,
+     "ribIndicator": true,
+     "authorizedCeilingAmount": {
+      "value": 22950.0,
+      "currencyCode": "EUR"
+     },
+     "fillingRatio": 21.8,
+     "remainingDepositCapacity": {
+      "value": 17950.0,
+      "currencyCode": "EUR"
+     },
+     "roleContractType": {
+      "code": "Z",
+      "label": "Non concerné"
+     },
+     "childIndicator": false,
+     "pendingDecisionTransactionsCount": null,
+     "pendingDecisionTransactionsAmount": null
+    }
+   },
+   {
+    "_links": {
+     "transactions": {
+      "href": null
+     },
+     "pfmTransactions": null,
+     "pfmUpcomingTransactions": null,
+     "accountSynthesisView": {
+      "href": "/fake/accountSynthesisView/0000000012"
+     },
+     "financialSavingSynthesisView": {
+      "href": "/fake/financialSavingSynthesisView/0000000012"
+     },
+     "loanSynthesisView": {
+      "href": null
+     }
+    },
+    "identification": {
+     "contractId": {
+      "entityCode": "00000",
+      "id": "00000     FAKE00000014"
+     },
+     "contractPfmId": null,
+     "augmentedSynthesisViewId": {
+      "entityCode": "00000",
+      "id": "00000     FAKE00000014",
+      "identifierType": "0"
+     },
+     "caseId": null,
+     "contractInstructionOrigin": null,
+     "marketType": null,
+     "envelopeId": null
+    },
+    "identity": {
+     "customerReference": "0000000001",
+     "status": {
+      "code": "2",
+      "label": "Actif"
+     },
+     "statusDate": null,
+     "balance": {
+      "value": 3456.78,
+      "currencyCode": "EUR"
+     },
+     "upcomingTransactionsTotalAmount": null,
+     "contractLabel": "FAKE PER",
+     "bankingClientId": {
+      "entityCode": "00000",
+      "id": "0000000001"
+     },
+     "bankingClientLabel": "FAKE CLIENT",
+     "holderIndicator": true,
+     "productLabel": "PER",
+     "bankingInstitutionLabel": "FAKE BANQUE",
+     "aggregationDate": null,
+     "pfmExcludedIndicator": false,
+     "internalIndicator": true,
+     "relationContext": {
+      "code": "1",
+      "label": "Personnel"
+     },
+     "entityCode": "00000",
+     "outstandingCardsTotalAmount": null,
+     "augmentedCards": null,
+     "bic": "FAKEFRPPXXX",
+     "productFamilyPFM": {
+      "code": "4",
+      "label": "Famille 4"
+     },
+     "subProductFamilyPFM": {
+      "code": "05",
+      "label": "Sous-famille 05"
+     },
+     "authorizedOverdraft": null,
+     "subscriptionDate": null,
+     "userPfmRef": null,
+     "producerContractId": "00000     FAKE00000014",
+     "pfmBankCode": null,
+     "routingIndicator": true,
+     "pfmSynchronizationIndicator": null,
+     "pfmCharacteristicsIndicator": null,
+     "siren": null,
+     "siret": null,
+     "effectiveDate": null,
+     "contractComplementaryLabel": null,
+     "contractLabelOrigine": null,
+     "tradingName": null,
+     "contractExpiryDate": null,
+     "balanceWithoutCheckReserve": null,
+     "ribIndicator": true,
+     "authorizedCeilingAmount": null,
+     "fillingRatio": null,
+     "remainingDepositCapacity": null,
+     "roleContractType": {
+      "code": "Z",
+      "label": "Non concerné"
+     },
+     "childIndicator": false,
+     "pendingDecisionTransactionsCount": null,
+     "pendingDecisionTransactionsAmount": null
+    }
+   },
+   {
+    "_links": {
+     "transactions": {
+      "href": null
+     },
+     "pfmTransactions": null,
+     "pfmUpcomingTransactions": null,
+     "accountSynthesisView": {
+      "href": "/fake/accountSynthesisView/0000000012"
+     },
+     "financialSavingSynthesisView": {
+      "href": "/fake/financialSavingSynthesisView/0000000012"
+     },
+     "loanSynthesisView": {
+      "href": null
+     }
+    },
+    "identification": {
+     "contractId": {
+      "entityCode": "00000",
+      "id": " 00000000000015 "
+     },
+     "contractPfmId": null,
+     "augmentedSynthesisViewId": {
+      "entityCode": "00000",
+      "id": " 00000000000015 ",
+      "identifierType": "0"
+     },
+     "caseId": null,
+     "contractInstructionOrigin": null,
+     "marketType": null,
+     "envelopeId": null
+    },
+    "identity": {
+     "customerReference": "0000000001",
+     "status": {
+      "code": "2",
+      "label": "Actif"
+     },
+     "statusDate": null,
+     "balance": {
+      "value": -9876.54,
+      "currencyCode": "EUR"
+     },
+     "upcomingTransactionsTotalAmount": null,
+     "contractLabel": "FAKE PRET",
+     "bankingClientId": {
+      "entityCode": "00000",
+      "id": "0000000001"
+     },
+     "bankingClientLabel": "FAKE CLIENT",
+     "holderIndicator": true,
+     "productLabel": "PRET",
+     "bankingInstitutionLabel": "FAKE BANQUE",
+     "aggregationDate": null,
+     "pfmExcludedIndicator": false,
+     "internalIndicator": true,
+     "relationContext": {
+      "code": "1",
+      "label": "Personnel"
+     },
+     "entityCode": "00000",
+     "outstandingCardsTotalAmount": null,
+     "augmentedCards": null,
+     "bic": "FAKEFRPPXXX",
+     "productFamilyPFM": {
+      "code": "6",
+      "label": "Famille 6"
+     },
+     "subProductFamilyPFM": {
+      "code": "12",
+      "label": "Sous-famille 12"
+     },
+     "authorizedOverdraft": null,
+     "subscriptionDate": null,
+     "userPfmRef": null,
+     "producerContractId": null,
+     "pfmBankCode": null,
+     "routingIndicator": true,
+     "pfmSynchronizationIndicator": null,
+     "pfmCharacteristicsIndicator": null,
+     "siren": null,
+     "siret": null,
+     "effectiveDate": null,
+     "contractComplementaryLabel": null,
+     "contractLabelOrigine": null,
+     "tradingName": null,
+     "contractExpiryDate": null,
+     "balanceWithoutCheckReserve": null,
+     "ribIndicator": true,
+     "authorizedCeilingAmount": null,
+     "fillingRatio": null,
+     "remainingDepositCapacity": null,
+     "roleContractType": {
+      "code": "Z",
+      "label": "Non concerné"
+     },
+     "childIndicator": false,
+     "pendingDecisionTransactionsCount": null,
+     "pendingDecisionTransactionsAmount": null
+    }
+   },
+   {
+    "_links": {
+     "transactions": {
+      "href": null
+     },
+     "pfmTransactions": null,
+     "pfmUpcomingTransactions": null,
+     "accountSynthesisView": {
+      "href": "/fake/accountSynthesisView/0000000012"
+     },
+     "financialSavingSynthesisView": {
+      "href": "/fake/financialSavingSynthesisView/0000000012"
+     },
+     "loanSynthesisView": {
+      "href": null
+     }
+    },
+    "identification": {
+     "contractId": {
+      "entityCode": "00000",
+      "id": "0000000016"
+     },
+     "contractPfmId": null,
+     "augmentedSynthesisViewId": {
+      "entityCode": "00000",
+      "id": "0000000016",
+      "identifierType": "0"
+     },
+     "caseId": null,
+     "contractInstructionOrigin": null,
+     "marketType": null,
+     "envelopeId": null
+    },
+    "identity": {
+     "customerReference": "0000000001",
+     "status": {
+      "code": "2",
+      "label": "Actif"
+     },
+     "statusDate": null,
+     "balance": null,
+     "upcomingTransactionsTotalAmount": null,
+     "contractLabel": "FAKE ASSURANCE",
+     "bankingClientId": {
+      "entityCode": "00000",
+      "id": "0000000001"
+     },
+     "bankingClientLabel": "FAKE CLIENT",
+     "holderIndicator": true,
+     "productLabel": "ASSURANCE",
+     "bankingInstitutionLabel": "FAKE BANQUE",
+     "aggregationDate": null,
+     "pfmExcludedIndicator": true,
+     "internalIndicator": true,
+     "relationContext": {
+      "code": "1",
+      "label": "Personnel"
+     },
+     "entityCode": "00000",
+     "outstandingCardsTotalAmount": null,
+     "augmentedCards": null,
+     "bic": "FAKEFRPPXXX",
+     "productFamilyPFM": {
+      "code": "5",
+      "label": "Famille 5"
+     },
+     "subProductFamilyPFM": {
+      "code": "99",
+      "label": "Sous-famille 99"
+     },
+     "authorizedOverdraft": null,
+     "subscriptionDate": null,
+     "userPfmRef": null,
+     "producerContractId": "0000000016",
+     "pfmBankCode": null,
+     "routingIndicator": true,
+     "pfmSynchronizationIndicator": null,
+     "pfmCharacteristicsIndicator": null,
+     "siren": null,
+     "siret": null,
+     "effectiveDate": null,
+     "contractComplementaryLabel": null,
+     "contractLabelOrigine": null,
+     "tradingName": null,
+     "contractExpiryDate": null,
+     "balanceWithoutCheckReserve": null,
+     "ribIndicator": true,
+     "authorizedCeilingAmount": null,
+     "fillingRatio": null,
+     "remainingDepositCapacity": null,
+     "roleContractType": {
+      "code": "Z",
+      "label": "Non concerné"
+     },
+     "childIndicator": false,
+     "pendingDecisionTransactionsCount": null,
+     "pendingDecisionTransactionsAmount": null
+    }
+   }
+  ]
+ },
+ "loan_detail": {
+  "personalLoanPrdSynthesisView": {
+   "identification": {
+    "personalLoanPrdId": "00000000000015"
+   },
+   "linkedAccount": {
+    "bic": "FAKEFRPPXXX",
+    "iban": "FR7600000000000000000000001",
+    "label": "FAKE LINKED ACCOUNT LABEL"
+   },
+   "offer": {
+    "progressivePaymentIndicator": false,
+    "numberOfMonthlyDeferredPayments": 0,
+    "duration": 48,
+    "proposedAmount": {
+     "value": 12000,
+     "currencyCode": "EUR"
+    },
+    "signatureDate": "15/09/2026",
+    "firstDueDate": "05/11/2026",
+    "numberOfDeferredMonths": 0,
+    "bankId": "00000",
+    "personalLoanProductCode": {
+     "code": "XXX",
+     "shortLabel": "FAKE PRODUCT",
+     "label": "FAKE PRODUCT LABEL"
+    },
+    "personalLoanUniverseCode": "FAKE UNIVERSE"
+   },
+   "participants": [
+    {
+     "personId": {
+      "entityCode": "00000000",
+      "id": "000000000"
+     },
+     "firstName": "FAKEFIRST",
+     "lastName": "FAKELAST",
+     "role": {
+      "code": "XXX",
+      "label": "FAKE ROLE"
+     },
+     "subscribedInsurances": [
+      {
+       "subscribedInsuranceType": {
+        "code": "X",
+        "label": "FAKE"
+       }
+      }
+     ]
+    }
+   ],
+   "folder": {
+    "statusCode": {
+     "code": "XXX",
+     "label": "FAKE"
+    },
+    "requestedAmount": {
+     "value": 12000,
+     "currencyCode": "EUR"
+    },
+    "nextDueDate": "05/11/2026",
+    "lastDueDate": "05/10/2030",
+    "nextMonthlyPaymentAmount": {
+     "value": 280.0,
+     "currencyCode": "EUR"
+    },
+    "remainingAllowedCreditAmount": null,
+    "remainingMonthlyPayment": 48,
+    "remainingFundingRequests": null,
+    "fundingRequestDeadline": null,
+    "tNC": 3,
+    "tAEG": 3.5,
+    "outstandingCapitalAmount": {
+     "value": 9876.54,
+     "currencyCode": "EUR"
+    },
+    "rollingYearRemainingDeferrals": 0,
+    "totalRemainingDeferrals": 0
+   }
+  }
  }
 }

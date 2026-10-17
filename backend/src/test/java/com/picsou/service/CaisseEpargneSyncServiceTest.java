@@ -3,17 +3,32 @@ package com.picsou.service;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
+import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
+import com.picsou.model.BalanceSnapshot;
+import com.picsou.model.CardNature;
 import com.picsou.model.CaisseEpargneSession;
 import com.picsou.model.CaisseEpargneSyncStatus;
+import com.picsou.model.Category;
+import com.picsou.model.CategoryKind;
+import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
 import com.picsou.port.CaisseEpargneErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.AccountHoldingRepository;
+import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.PropertyValuationRepository;
+import com.picsou.repository.RealEstateMetadataRepository;
+import com.picsou.repository.SavingsInterestConfigRepository;
+import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.budget.CategorizationService;
+import com.picsou.service.budget.CategoryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,10 +42,13 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
@@ -53,16 +71,23 @@ import static org.mockito.Mockito.when;
 @SuppressWarnings("unchecked")
 class CaisseEpargneSyncServiceTest {
 
+    private static final LocalDate TODAY = LocalDate.of(2026, 10, 7);
+
     @Mock CaisseEpargnePort port;
     @Mock CaisseEpargneSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock TransactionRepository transactionRepository;
     @Mock FamilyMemberRepository memberRepository;
+    @Mock DebtRepository debtRepository;
     @Mock AccountService accountService;
+    @Mock CategorizationService categorizationService;
+    @Mock CategoryService categoryService;
+    @Mock CaisseEpargnePerService perService;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
     @Captor ArgumentCaptor<Account> accountCaptor;
+    @Captor ArgumentCaptor<Debt> debtCaptor;
     @Captor ArgumentCaptor<Iterable<Transaction>> transactionsCaptor;
 
     CaisseEpargneSyncService service;
@@ -97,6 +122,210 @@ class CaisseEpargneSyncServiceTest {
     }
 
     @Test
+    void queueSync_mapsLddsPerAndLoanToTheirPicsouAccountTypes() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.ldds(), f.per(), f.loan());
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(accountRepository, times(3)).save(accountCaptor.capture());
+        List<Account> saved = accountCaptor.getAllValues();
+        assertThat(saved).extracting(Account::getType).containsExactly(
+            AccountType.LDDS, AccountType.PER, AccountType.LOAN);
+        assertThat(saved).extracting(Account::getExternalAccountId)
+            .containsExactly("ce_1003", "ce_contract:P0001", "ce_contract:L0001");
+    }
+
+    @Test
+    void queueSync_persistsTheCompletePerPocketAndSchedulesBackfillOnlyAfterTheCommit() {
+        Fixture f = new Fixture();
+        LocalDate valuationDate = TODAY.minusDays(3);
+        CaisseEpargnePort.PerDetails detail = new CaisseEpargnePort.PerDetails(
+            new BigDecimal("4200.00"), new BigDecimal("1000.00"), valuationDate,
+            List.of(new CaisseEpargnePort.PerPosition("XX0000000001", "Synthetic fund",
+                new BigDecimal("10"), new BigDecimal("320"), new BigDecimal("3200.00"), valuationDate, 1)));
+        CaisseEpargnePort.AccountData source = f.per();
+        CaisseEpargnePort.AccountData withPer = new CaisseEpargnePort.AccountData(
+            source.externalId(), source.kind(), source.name(), source.balance(), source.currency(),
+            source.iban(), source.ibanAmbiguous(), source.authorizedOverdraft(), source.ceiling(),
+            source.remainingDepositCapacity(), source.fillingRatio(), source.cardNature(),
+            source.parentExternalId(), source.nextDueDate(), source.transactions(), true, null, detail);
+        CaisseEpargnePerService.Prepared prepared = new CaisseEpargnePerService.Prepared(
+            new BigDecimal("4200.00"), new BigDecimal("1000.00"), valuationDate, List.of(),
+            java.util.Map.of(), java.util.Set.of("SYN.PA"));
+        when(perService.prepare(detail, "EUR")).thenReturn(prepared);
+        arrangeCommittableSync(withPer);
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getCashBalance()).isEqualByComparingTo("1000.00");
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(perService, accountService);
+        order.verify(perService).prepare(detail, "EUR");
+        order.verify(perService).apply(eq(accountCaptor.getValue()), eq(prepared), any());
+        order.verify(accountService).upsertSnapshot(
+            eq(accountCaptor.getValue()), eq(new BigDecimal("4200.00")),
+            eq(new BigDecimal("4200.00")), eq(valuationDate));
+        order.verify(perService).backfill(prepared);
+    }
+
+    @Test
+    void queueSync_pairsTheBankNavSnapshotWithItsOwnNeutralBaseline() {
+        Fixture f = new Fixture();
+        LocalDate navDate = TODAY.minusDays(3);
+        CaisseEpargnePort.PerPosition bankPosition = new CaisseEpargnePort.PerPosition(
+            "XX0000000001", "Synthetic fund", new BigDecimal("10"), new BigDecimal("100"),
+            new BigDecimal("1000"), navDate, 1);
+        CaisseEpargnePort.PerDetails detail = new CaisseEpargnePort.PerDetails(
+            new BigDecimal("1000"), BigDecimal.ZERO, navDate, List.of(bankPosition));
+        CaisseEpargnePort.AccountData source = f.per();
+        CaisseEpargnePort.AccountData withPer = new CaisseEpargnePort.AccountData(
+            source.externalId(), source.kind(), source.name(), new BigDecimal("1000"), source.currency(),
+            source.iban(), source.ibanAmbiguous(), source.authorizedOverdraft(), source.ceiling(),
+            source.remainingDepositCapacity(), source.fillingRatio(), source.cardNature(),
+            source.parentExternalId(), source.nextDueDate(), source.transactions(), true, null, detail);
+        CaisseEpargnePerService.Prepared prepared = new CaisseEpargnePerService.Prepared(
+            new BigDecimal("1000"), BigDecimal.ZERO, navDate,
+            List.of(new CaisseEpargnePerService.PreparedPosition(
+                "TEST.PA", "Synthetic fund", new BigDecimal("10"), new BigDecimal("100"),
+                new BigDecimal("1000"), navDate, "XX0000000001")), Map.of(), java.util.Set.of());
+        BalanceSnapshotRepository snapshots = mock(BalanceSnapshotRepository.class);
+        AccountHoldingRepository holdings = mock(AccountHoldingRepository.class);
+        PriceService prices = mock(PriceService.class);
+        AccountHolding currentHolding = AccountHolding.builder()
+            .ticker("TEST.PA")
+            .quantity(new BigDecimal("10"))
+            .providerValueEur(new BigDecimal("1000"))
+            .providerPriceDate(navDate)
+            .build();
+        lenient().when(holdings.findByAccount_Id(anyLong())).thenReturn(List.of(currentHolding));
+        lenient().when(prices.getQuotes(any())).thenReturn(Map.of("TEST.PA",
+            new PriceService.Quote(new BigDecimal("120"), TODAY, true)));
+        when(snapshots.findByAccountIdAndDate(anyLong(), eq(navDate))).thenReturn(Optional.empty());
+        when(snapshots.save(any(BalanceSnapshot.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        AccountService actualAccountService = new AccountService(
+            accountRepository, snapshots, holdings, transactionRepository,
+            mock(RealEstateMetadataRepository.class), mock(PropertyValuationRepository.class), debtRepository,
+            mock(SavingsInterestConfigRepository.class), prices, mock(LoanAmortizationService.class),
+            mock(AccountAccessResolver.class), mock(BankLogoResolver.class), mock(CryptoLogoService.class),
+            mock(InstrumentLogoService.class), mock(ScpiPositionRepository.class));
+        when(perService.prepare(detail, "EUR")).thenReturn(prepared);
+        CaisseEpargneSyncService sync = serviceWith(txTemplate, Runnable::run, actualAccountService);
+        arrangeCommittableSync(withPer);
+
+        sync.queueSync(7L);
+
+        ArgumentCaptor<BalanceSnapshot> snapshot = ArgumentCaptor.forClass(BalanceSnapshot.class);
+        verify(snapshots).save(snapshot.capture());
+        assertThat(snapshot.getValue().getDate()).isEqualTo(navDate);
+        assertThat(snapshot.getValue().getBalance()).isEqualByComparingTo("1000");
+        assertThat(snapshot.getValue().getInvestedAmount()).isEqualByComparingTo("1000");
+        verify(prices, never()).getQuotes(any());
+    }
+
+    @Test
+    void queueSync_keepsCommittedImportSuccessfulAndRunsLaterPerBackfillsAfterOneFails() {
+        PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
+        when(txManager.getTransaction(any())).thenReturn(transactionStatus);
+        CaisseEpargneSyncService transactional = serviceWith(new TransactionTemplate(txManager), Runnable::run);
+        Fixture f = new Fixture();
+        LocalDate valuationDate = TODAY.minusDays(2);
+        CaisseEpargnePerService.Prepared first = new CaisseEpargnePerService.Prepared(
+            new BigDecimal("4200.00"), new BigDecimal("4200.00"), valuationDate,
+            List.of(), java.util.Map.of(), java.util.Set.of());
+        CaisseEpargnePerService.Prepared second = new CaisseEpargnePerService.Prepared(
+            new BigDecimal("5100.00"), new BigDecimal("5100.00"), valuationDate,
+            List.of(), java.util.Map.of(), java.util.Set.of());
+        when(perService.prepare(any(), eq("EUR"))).thenReturn(first, second);
+        CaisseEpargnePort.AccountData firstPer = f.perWithDetails("contract:P0001", "4200.00", valuationDate);
+        CaisseEpargnePort.AccountData secondPer = f.perWithDetails("contract:P0002", "5100.00", valuationDate);
+        CaisseEpargneSession session = arrangeCommittableSync(firstPer, secondPer);
+        org.mockito.Mockito.doThrow(new IllegalStateException("post-commit proxy failure"))
+            .when(perService).backfill(first);
+
+        CaisseEpargneSyncService.SessionStatusResponse result = transactional.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(txManager, times(3)).commit(any());
+        verify(txManager, never()).rollback(any());
+        verify(perService).backfill(first);
+        verify(perService).backfill(second);
+    }
+
+    @Test
+    void queueSync_withoutPerDetailKeepsTheBalanceOnlySnapshotAndNeverClearsHoldings() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.per());
+
+        service.queueSync(7L);
+
+        verify(perService, never()).apply(any(), any(), any());
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getCashBalance()).isNull();
+    }
+
+    @Test
+    void queueSync_givesTheLddsTheSameColourAsTheLivretA() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.livret(), f.ldds());
+
+        service.queueSync(7L);
+
+        verify(accountRepository, times(2)).save(accountCaptor.capture());
+        assertThat(accountCaptor.getAllValues().get(1).getColor())
+            .isEqualTo(accountCaptor.getAllValues().get(0).getColor());
+    }
+
+    @Test
+    void queueSync_fallsBackToAReadableNameForEachNewKind() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.withName(f.ldds(), null), f.withName(f.per(), " "), f.withName(f.loan(), null));
+
+        service.queueSync(7L);
+
+        verify(accountRepository, times(3)).save(accountCaptor.capture());
+        assertThat(accountCaptor.getAllValues()).extracting(Account::getName)
+            .containsExactly("LDDS", "PER", "Caisse d'Epargne loan");
+    }
+
+    @Test
+    void queueSync_storesTheLoanOutstandingAsAPositiveBalance() {
+        // Picsou stores a LOAN positive and applies the liability sign when it sums net worth;
+        // the bank sends the outstanding capital negative.
+        arrangeCommittableSync(new Fixture().loan());
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        Account loan = accountCaptor.getValue();
+        assertThat(loan.getCurrentBalance()).isEqualByComparingTo("9000.00");
+        assertThat(loan.getType().isLiability()).isTrue();
+        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("9000.00")), eq(LocalDate.now()));
+    }
+
+    @Test
+    void queueSync_refusesTheWholeSnapshotWhenALoanHasAPositiveBalance() {
+        Fixture f = new Fixture();
+        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withBalance(f.loan(), "9000.00"));
+
+        service.queueSync(7L);
+
+        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+    }
+
+    @Test
+    void queueSync_refusesTheWholeSnapshotWhenAPerHasANegativeBalance() {
+        Fixture f = new Fixture();
+        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withBalance(f.per(), "-1.00"));
+
+        service.queueSync(7L);
+
+        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+    }
+
+    @Test
     void queueSync_storesTheCardAsALiabilityWithItsOutstandingAsBalance() {
         arrangeCommittableSync(new Fixture().current(), new Fixture().card());
 
@@ -120,9 +349,10 @@ class CaisseEpargneSyncServiceTest {
     }
 
     @Test
-    void queueSync_doesNotStoreTheIbanNorTheCardLinkNorTheNature() {
+    void queueSync_doesNotStoreTheIbanNorTheCardLink() {
         // EB matching by IBAN is not in this slice: storing the IBAN would let the EB sync
-        // adopt this account through findByIbanAndMemberId. Card nature has no column.
+        // adopt this account through findByIbanAndMemberId. A parent link would make the dashboard
+        // skip the card (pocket model), so the card liability would vanish from net worth.
         arrangeCommittableSync(new Fixture().current(), new Fixture().card());
 
         service.queueSync(7L);
@@ -132,6 +362,65 @@ class CaisseEpargneSyncServiceTest {
             assertThat(account.getIban()).isNull();
             assertThat(account.getParentAccountId()).isNull();
         });
+    }
+
+    @Test
+    void queueSync_storesTheCardNatureAndTheAmountAndDateStillToBeDebited() {
+        arrangeCommittableSync(new Fixture().current(), new Fixture().card());
+
+        service.queueSync(7L);
+
+        verify(accountRepository, times(2)).save(accountCaptor.capture());
+        Account current = accountCaptor.getAllValues().get(0);
+        Account card = accountCaptor.getAllValues().get(1);
+        assertThat(card.getCardNature()).isEqualTo(CardNature.DEFERRED_DEBIT);
+        assertThat(card.getPaymentDueAmount()).isEqualByComparingTo("87.10");
+        assertThat(card.getPaymentDueDate()).isEqualTo(LocalDate.of(2026, 10, 31));
+        assertThat(card.getParentAccountId()).isNull();
+        assertThat(current.getCardNature()).isNull();
+        assertThat(current.getPaymentDueAmount()).isNull();
+        assertThat(current.getPaymentDueDate()).isNull();
+    }
+
+    @Test
+    void queueSync_clearsTheDueDateWhenNothingIsLeftToDebit() {
+        Fixture f = new Fixture();
+        CaisseEpargnePort.AccountData settled = new CaisseEpargnePort.AccountData("2001", "CARD", null,
+            BigDecimal.ZERO, "EUR", null, false, null, null, null, null, "DEFERRED_DEBIT", "1001", null,
+            List.of(), true, null);
+        Account stored = Account.builder().id(40L).externalAccountId("ce_2001")
+            .paymentDueAmount(new BigDecimal("87.10")).paymentDueDate(LocalDate.of(2026, 9, 30)).build();
+        arrangeCommittableSync(f.current(), settled);
+        when(accountRepository.findByExternalAccountIdAndMemberId("ce_2001", 7L)).thenReturn(Optional.of(stored));
+
+        service.queueSync(7L);
+
+        assertThat(stored.getPaymentDueDate()).isNull();
+        assertThat(stored.getPaymentDueAmount()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void queueSync_acceptsEachKnownCardNature() {
+        for (String nature : List.of("IMMEDIATE_DEBIT", "DEFERRED_DEBIT", "CREDIT")) {
+            org.mockito.Mockito.clearInvocations(accountRepository);
+            Fixture f = new Fixture();
+            arrangeCommittableSync(f.current(), f.withNature(f.card(), nature));
+
+            service.queueSync(7L);
+
+            verify(accountRepository, times(2)).save(accountCaptor.capture());
+            assertThat(accountCaptor.getValue().getCardNature()).isEqualTo(CardNature.valueOf(nature));
+        }
+    }
+
+    @Test
+    void queueSync_refusesTheWholeSnapshotWhenACardHasAnUnknownNature() {
+        Fixture f = new Fixture();
+        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withNature(f.card(), "PREPAID"));
+
+        service.queueSync(7L);
+
+        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
     }
 
     @Test
@@ -531,6 +820,664 @@ class CaisseEpargneSyncServiceTest {
             .isEmpty();
     }
 
+    // -- settlement = internal transfer ---------------------------------------
+
+    private static final String TRANSFER_SLUG = "virement-interne";
+
+    /** Card group due 09-30 sums to -50.00 (two operations); a third one is not due yet. */
+    private CaisseEpargnePort.AccountData settlementCard(Fixture f, String nature, String parent) {
+        return f.cardWith(nature, parent,
+            f.settlementTx("c1", "2026-09-02", "2026-09-30", "-30.00", null),
+            f.settlementTx("c2", "2026-09-10", "2026-09-30", "-20.00", null),
+            f.settlementTx("c3", "2026-10-02", "2026-10-31", "-87.10", null));
+    }
+
+    private Category transferCategory() {
+        Category transfer = Category.builder().id(900L).slug(TRANSFER_SLUG).name("Virement interne")
+            .kind(CategoryKind.TRANSFER).build();
+        lenient().when(categorizationService.loadContext(7L)).thenReturn(
+            new CategorizationService.CategorizationContext(List.of(), java.util.Map.of(TRANSFER_SLUG, transfer)));
+        return transfer;
+    }
+
+    /** Every row written, by external id (the last write wins, as in the database). */
+    private java.util.Map<String, Transaction> writtenRows() {
+        verify(transactionRepository, org.mockito.Mockito.atLeastOnce()).saveAllAndFlush(transactionsCaptor.capture());
+        java.util.Map<String, Transaction> rows = new java.util.LinkedHashMap<>();
+        transactionsCaptor.getAllValues().forEach(batch -> toList(batch).forEach(r -> rows.put(r.getExternalId(), r)));
+        return rows;
+    }
+
+    private void assertOnlyTagged(Category transfer, String... taggedIds) {
+        java.util.Set<String> expected = java.util.Set.of(taggedIds);
+        writtenRows().forEach((id, row) -> {
+            if (expected.contains(id)) {
+                assertThat(row.getCategoryRef()).as(id).isSameAs(transfer);
+            } else {
+                assertThat(row.getCategoryRef()).as(id).isNull();
+            }
+        });
+    }
+
+    @Test
+    void queueSync_tagsTheCurrentAccountDebitThatSettlesTheCardGroupAsAnInternalTransfer() {
+        Fixture f = new Fixture();
+        Category transfer = transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.00", "04"),
+                f.settlementTx("p2", "2026-09-30", "2026-09-30", "-7.00", "1")),
+            settlementCard(f, "DEFERRED_DEBIT", "1001"));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(transfer, "ce_p1");
+    }
+
+    @Test
+    void queueSync_comparesTheSettlementAmountExactlyIgnoringScale() {
+        Fixture f = new Fixture();
+        Category transfer = transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50", "04")),
+            settlementCard(f, "DEFERRED_DEBIT", "1001"));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(transfer, "ce_p1");
+    }
+
+    @Test
+    void queueSync_acceptsASettlementRowWithoutTypeCode() {
+        Fixture f = new Fixture();
+        Category transfer = transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.00", null)),
+            settlementCard(f, "DEFERRED_DEBIT", "1001"));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(transfer, "ce_p1");
+    }
+
+    @Test
+    void queueSync_leavesARowAloneWhenItsTypeCodeIsNotTheCardSettlementOne() {
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.00", "1")),
+            settlementCard(f, "DEFERRED_DEBIT", "1001"));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(null);
+    }
+
+    @Test
+    void queueSync_leavesTheRowAloneWhenTheAmountIsOffByOneCent() {
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.01", "04")),
+            settlementCard(f, "DEFERRED_DEBIT", "1001"));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(null);
+    }
+
+    @Test
+    void queueSync_leavesTheRowAloneWhenTheDateIsNotTheDueDate() {
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-10-01", "2026-10-01", "-50.00", "04")),
+            settlementCard(f, "DEFERRED_DEBIT", "1001"));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(null);
+    }
+
+    @Test
+    void queueSync_leavesEveryRowAloneWhenSeveralRowsMatch() {
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.00", "04"),
+                f.settlementTx("p2", "2026-09-30", "2026-09-30", "-50.00", null)),
+            settlementCard(f, "DEFERRED_DEBIT", "1001"));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(null);
+    }
+
+    @Test
+    void queueSync_neverOverwritesACategoryAlreadySet() {
+        Fixture f = new Fixture();
+        transferCategory();
+        Category chosen = Category.builder().id(901L).slug("courses").name("Courses")
+            .kind(CategoryKind.EXPENSE).build();
+        Transaction stored = Transaction.builder().id(55L).externalId("ce_p1")
+            .date(LocalDate.of(2026, 9, 30)).description("old").amount(new BigDecimal("-50.00"))
+            .categoryRef(chosen).categoryManual(true).build();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.00", "04")),
+            settlementCard(f, "DEFERRED_DEBIT", "1001"));
+        when(transactionRepository.findByAccountIdAndIsManualFalse(11L)).thenReturn(List.of(stored));
+
+        service.queueSync(7L);
+
+        assertThat(stored.getCategoryRef()).isSameAs(chosen);
+        assertThat(stored.isCategoryManual()).isTrue();
+    }
+
+    @Test
+    void queueSync_doesNotTagAnythingForAnImmediateDebitCard() {
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.00", "04")),
+            settlementCard(f, "IMMEDIATE_DEBIT", "1001"));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(null);
+    }
+
+    @Test
+    void queueSync_doesNotTagAnythingForACreditCard() {
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.00", "04")),
+            settlementCard(f, "CREDIT", "1001"));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(null);
+    }
+
+    @Test
+    void queueSync_doesNotTagAnythingWhenTheParentIsNotInTheSnapshot() {
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.00", "04")),
+            settlementCard(f, "DEFERRED_DEBIT", "7777"));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(null);
+    }
+
+    @Test
+    void queueSync_doesNotTagAnythingWhenTheCardHasNoParent() {
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.00", "04")),
+            settlementCard(f, "DEFERRED_DEBIT", null));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(null);
+    }
+
+    @Test
+    void queueSync_ignoresCardGroupsThatAreNotDueYetButSettlesTheOneDueToday() {
+        Fixture f = new Fixture();
+        Category transfer = transferCategory();
+        CaisseEpargnePort.AccountData card = f.cardWith("DEFERRED_DEBIT", "1001",
+            f.settlementTx("c1", "2026-09-20", "2026-10-07", "-12.00", null),   // due today
+            f.settlementTx("c2", "2026-10-02", "2026-10-31", "-87.10", null));  // future
+        arrangeCommittableSync(
+            f.currentWith(
+                f.settlementTx("p1", "2026-10-07", "2026-10-07", "-12.00", "04"),
+                f.settlementTx("p2", "2026-10-31", "2026-10-31", "-87.10", "04")),
+            card);
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(transfer, "ce_p1");
+    }
+
+    @Test
+    void queueSync_leavesAGroupWhoseOperationsAreOutsideTheFetchedWindowUncategorized() {
+        // The parent debit covers a third operation the card page no longer returns: no fuzzy match.
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-80.00", "04")),
+            settlementCard(f, "DEFERRED_DEBIT", "1001"));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(null);
+    }
+
+    @Test
+    void queueSync_skipsTaggingWhenTheMemberHasNoTransferCategory() {
+        Fixture f = new Fixture();
+        lenient().when(categorizationService.loadContext(7L)).thenReturn(
+            new CategorizationService.CategorizationContext(List.of(), java.util.Map.of()));
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.00", "04")),
+            settlementCard(f, "DEFERRED_DEBIT", "1001"));
+
+        service.queueSync(7L);
+
+        assertOnlyTagged(null);
+    }
+
+    @Test
+    void queueSync_keepsTheCardOperationsAsExpensesOnTheCardAccount() {
+        Fixture f = new Fixture();
+        Category transfer = transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.00", "04")),
+            settlementCard(f, "DEFERRED_DEBIT", "1001"));
+
+        service.queueSync(7L);
+
+        java.util.Map<String, Transaction> rows = writtenRows();
+        assertThat(rows.keySet()).contains("ce_c1", "ce_c2", "ce_c3");
+        assertThat(rows.get("ce_c1").getCategoryRef()).isNull();
+        assertThat(rows.get("ce_c2").getCategoryRef()).isNull();
+        assertThat(rows.get("ce_p1").getCategoryRef()).isSameAs(transfer);
+    }
+
+    @Test
+    void queueSync_isIdempotentWhenTheSyncRunsAgain() {
+        Fixture f = new Fixture();
+        Category transfer = transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(f.settlementTx("p1", "2026-09-30", "2026-09-30", "-50.00", "04")),
+            settlementCard(f, "DEFERRED_DEBIT", "1001"));
+        service.queueSync(7L);
+        Transaction tagged = writtenRows().get("ce_p1");
+        assertThat(tagged.getCategoryRef()).isSameAs(transfer);
+        // second pass: the database now returns the row with its category
+        when(transactionRepository.findByAccountIdAndIsManualFalse(11L)).thenReturn(List.of(tagged));
+
+        service.queueSync(7L);
+
+        assertThat(tagged.getCategoryRef()).isSameAs(transfer);
+        assertThat(writtenRows().get("ce_p1")).isSameAs(tagged);
+        assertThat(writtenRows().values().stream().filter(r -> r.getCategoryRef() != null)).hasSize(1);
+    }
+
+    // -- loan debt ----------------------------------------------------------
+
+    @Test
+    void queueSync_createsTheDebtOfALoanFromTheBankDetails() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.current(), f.withLoan(f.loan(), f.loanDetails(f.current().iban())));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        verify(accountRepository, times(2)).save(accountCaptor.capture());
+        Account current = accountCaptor.getAllValues().get(0);
+        Account loan = accountCaptor.getAllValues().get(1);
+        verify(debtRepository).save(debtCaptor.capture());
+        Debt debt = debtCaptor.getValue();
+        assertThat(debt.getAccount()).isSameAs(loan);
+        assertThat(debt.getMember().getId()).isEqualTo(7L);
+        assertThat(debt.getLinkedAccount()).isSameAs(current);
+        assertThat(debt.getBorrowedAmount()).isEqualByComparingTo("10000.00");
+        assertThat(debt.getInterestRate()).isEqualByComparingTo("0.045");
+        assertThat(debt.getMonthlyPayment()).isEqualByComparingTo("230.00");
+        assertThat(debt.getInsuranceMonthly()).isEqualByComparingTo("2.00");
+        assertThat(debt.getLenderName()).isEqualTo("Caisse d'Epargne");
+        // The schedule dates installment i at startDate + i months.
+        assertThat(debt.getStartDate()).isEqualTo(LocalDate.of(2026, 1, 5));
+        assertThat(debt.getEndDate()).isEqualTo(LocalDate.of(2028, 1, 5));
+    }
+
+    @Test
+    void queueSync_givesTheLoanDebtOneInstallmentPerMonthFromTheFirstDueDate() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.withLoan(f.loan(), f.loanDetails(null)));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        verify(debtRepository).save(debtCaptor.capture());
+        LoanAmortizationService.LoanScheduleResponse schedule =
+            new LoanAmortizationService().compute(debtCaptor.getValue(), TODAY);
+        assertThat(schedule.schedule()).hasSize(24);
+        assertThat(schedule.schedule().get(0).date()).isEqualTo(LocalDate.of(2026, 2, 5));
+        assertThat(schedule.schedule().get(23).date()).isEqualTo(LocalDate.of(2028, 1, 5));
+        assertThat(schedule.schedule().get(23).remainingBalance()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void queueSync_updatesTheExistingDebtOfTheLoanAndKeepsWhatTheBankDoesNotSend() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.withLoan(f.loan(), f.loanDetails(null)));
+        Debt existing = Debt.builder().id(99L).borrowedAmount(new BigDecimal("1.00"))
+            .lenderName("typed by the user").fileFees(new BigDecimal("50.00")).build();
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.of(existing));
+
+        service.queueSync(7L);
+
+        verify(debtRepository).save(debtCaptor.capture());
+        Debt debt = debtCaptor.getValue();
+        assertThat(debt).isSameAs(existing);
+        assertThat(debt.getBorrowedAmount()).isEqualByComparingTo("10000.00");
+        assertThat(debt.getStartDate()).isEqualTo(LocalDate.of(2026, 1, 5));
+        assertThat(debt.getFileFees()).isEqualByComparingTo("50.00");
+    }
+
+    @Test
+    void queueSync_leavesTheDebtUntouchedWhenTheLoanDetailsAreMissing() {
+        arrangeCommittableSync(new Fixture().loan());
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(any(Account.class));
+        verify(debtRepository, never()).save(any());
+    }
+
+    @Test
+    void queueSync_linksTheDebtToAnotherAccountOfTheMemberWithThatIban() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.withLoan(f.loan(), f.loanDetails("FR7600000000000000000000099")));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+        Account elsewhere = Account.builder().id(500L).build();
+        when(accountRepository.findByIbanAndMemberId("FR7600000000000000000000099", 7L))
+            .thenReturn(Optional.of(elsewhere));
+
+        service.queueSync(7L);
+
+        verify(debtRepository).save(debtCaptor.capture());
+        assertThat(debtCaptor.getValue().getLinkedAccount()).isSameAs(elsewhere);
+    }
+
+    @Test
+    void queueSync_leavesTheDebtUnlinkedWhenNoAccountHasThatIban() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.current(), f.withLoan(f.loan(), f.loanDetails("FR7600000000000000000000099")));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+        when(accountRepository.findByIbanAndMemberId("FR7600000000000000000000099", 7L))
+            .thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        verify(debtRepository).save(debtCaptor.capture());
+        assertThat(debtCaptor.getValue().getLinkedAccount()).isNull();
+    }
+
+    @Test
+    void queueSync_doesNotLinkTheDebtThroughAnAmbiguousIban() {
+        Fixture f = new Fixture();
+        CaisseEpargnePort.AccountData current = f.current();
+        arrangeCommittableSync(f.ambiguousIban(current), f.withLoan(f.loan(), f.loanDetails(current.iban())));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+        lenient().when(accountRepository.findByIbanAndMemberId(current.iban(), 7L))
+            .thenReturn(Optional.of(Account.builder().id(500L).build()));
+
+        service.queueSync(7L);
+
+        verify(debtRepository).save(debtCaptor.capture());
+        assertThat(debtCaptor.getValue().getLinkedAccount()).isNull();
+    }
+
+    @Test
+    void queueSync_ignoresIncompleteLoanDetailsButImportsTheLoan() {
+        Fixture f = new Fixture();
+        CaisseEpargnePort.LoanDetails full = f.loanDetails(null);
+        CaisseEpargnePort.LoanDetails noFirstDue = new CaisseEpargnePort.LoanDetails(full.borrowedAmount(),
+            full.interestRate(), full.monthlyPayment(), full.insuranceMonthly(), full.signatureDate(),
+            null, full.lastDueDate(), full.durationMonths(), null);
+        CaisseEpargneSession session = arrangeCommittableSync(f.withLoan(f.loan(), noFirstDue));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(accountRepository).save(any(Account.class));
+        verify(debtRepository, never()).save(any());
+    }
+
+    @Test
+    void queueSync_neverCreatesADebtForAnAccountThatIsNotALoan() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.withLoan(f.current(), f.loanDetails(null)));
+
+        service.queueSync(7L);
+
+        verify(debtRepository, never()).save(any());
+    }
+
+    // -- loan budget tagging --------------------------------------------------
+
+    /** The synthetic loan of {@link Fixture#loanDetails}, debited from the current account 1001. */
+    private CaisseEpargnePort.AccountData linkedLoan(Fixture f) {
+        return f.withLoan(f.loan(), f.loanDetails(f.current().iban()));
+    }
+
+    private Category creditCategory() {
+        Category credit = Category.builder().id(901L).slug("credit").name("Crédit")
+            .kind(CategoryKind.EXPENSE).build();
+        lenient().when(categoryService.findOrCreateDefault(7L, "credit")).thenReturn(Optional.of(credit));
+        return credit;
+    }
+
+    /** Rows listed get exactly that category; every other written row stays uncategorized. */
+    private void assertCategories(java.util.Map<String, Category> expected) {
+        writtenRows().forEach((id, row) -> {
+            if (expected.containsKey(id)) {
+                assertThat(row.getCategoryRef()).as(id).isSameAs(expected.get(id));
+            } else {
+                assertThat(row.getCategoryRef()).as(id).isNull();
+            }
+        });
+    }
+
+    @Test
+    void queueSync_tagsTheLoanDisbursementOnTheLinkedAccountAsAnInternalTransfer() {
+        Fixture f = new Fixture();
+        Category transfer = transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("d1", "2026-01-12", "10000.00", "VIR SEPA BANQUE financement"),
+                f.tx("d2", "2026-01-12", "10000.00", "VIR SEPA SALAIRE"),
+                f.tx("d3", "2026-01-13", "9999.00", "VIR SEPA BANQUE FINANCEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of("ce_d1", transfer));
+    }
+
+    @Test
+    void queueSync_acceptsTheDisbursementAtTheEdgesOfItsWindowAndToTheCent() {
+        Fixture f = new Fixture();
+        Category transfer = transferCategory();
+        arrangeCommittableSync(f.currentWith(f.tx("d1", "2026-01-05", "10000.01", "FINANCEMENT")), linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of("ce_d1", transfer));
+    }
+
+    @Test
+    void queueSync_leavesADisbursementOutsideItsWindowAlone() {
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("d1", "2026-01-04", "10000.00", "FINANCEMENT"),
+                f.tx("d2", "2026-02-06", "10000.00", "FINANCEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of());
+    }
+
+    @Test
+    void queueSync_leavesTheDisbursementAloneWhenTwoCreditsMatch() {
+        Fixture f = new Fixture();
+        transferCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("d1", "2026-01-12", "10000.00", "FINANCEMENT"),
+                f.tx("d2", "2026-01-20", "10000.00", "FINANCEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of());
+    }
+
+    @Test
+    void queueSync_tagsEachInstallmentWithinFiveDaysOfItsDueDateAsCredit() {
+        Fixture f = new Fixture();
+        Category credit = creditCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("i1", "2026-02-05", "-230.00", "PRELEVEMENT ECHEANCE"),
+                f.tx("i2", "2026-03-10", "-229.99", "PRELEVEMENT ECHEANCE"),
+                f.tx("i3", "2026-03-31", "-230.00", "PRELEVEMENT ECHEANCE"),
+                f.tx("i4", "2026-04-11", "-230.00", "PRELEVEMENT ECHEANCE"),
+                f.tx("i5", "2026-05-05", "-231.00", "PRELEVEMENT ECHEANCE"),
+                f.tx("i6", "2026-06-05", "230.00", "REMBOURSEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        // i3 is 5 days before the April due date, i4 6 days after it: only i3 is the April one.
+        assertCategories(java.util.Map.of("ce_i1", credit, "ce_i2", credit, "ce_i3", credit));
+    }
+
+    @Test
+    void queueSync_neverTagsAnInstallmentBeforeTheFirstOrAfterTheLastDueDate() {
+        Fixture f = new Fixture();
+        creditCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("i0", "2026-01-05", "-230.00", "PRELEVEMENT"),
+                f.tx("i9", "2028-02-05", "-230.00", "PRELEVEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of());
+    }
+
+    @Test
+    void queueSync_leavesAnInstallmentAloneWhenTwoDebitsMatchTheSameDueDate() {
+        Fixture f = new Fixture();
+        Category credit = creditCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("i1", "2026-02-04", "-230.00", "PRELEVEMENT"),
+                f.tx("i2", "2026-02-06", "-230.00", "PRELEVEMENT"),
+                f.tx("i3", "2026-03-05", "-230.00", "PRELEVEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of("ce_i3", credit));
+    }
+
+    @Test
+    void queueSync_neverOverwritesACategoryTheUserChoseOnALoanRow() {
+        Fixture f = new Fixture();
+        transferCategory();
+        creditCategory();
+        Category mine = Category.builder().id(42L).slug(null).name("Mine").kind(CategoryKind.EXPENSE).build();
+        Transaction installment = Transaction.builder().externalId("ce_i1").categoryRef(mine).build();
+        Transaction disbursement = Transaction.builder().externalId("ce_d1").categoryRef(mine).build();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("d1", "2026-01-12", "10000.00", "FINANCEMENT"),
+                f.tx("i1", "2026-02-05", "-230.00", "PRELEVEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+        when(transactionRepository.findByAccountIdAndIsManualFalse(11L)).thenReturn(List.of(installment, disbursement));
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of("ce_i1", mine, "ce_d1", mine));
+    }
+
+    @Test
+    void queueSync_tagsTheLoanRowsOnceWhenTheSyncRunsAgain() {
+        Fixture f = new Fixture();
+        Category transfer = transferCategory();
+        Category credit = creditCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("d1", "2026-01-12", "10000.00", "FINANCEMENT"),
+                f.tx("i1", "2026-02-05", "-230.00", "PRELEVEMENT")),
+            linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+        service.queueSync(7L);
+        java.util.Map<String, Transaction> first = writtenRows();
+        when(transactionRepository.findByAccountIdAndIsManualFalse(11L))
+            .thenReturn(List.of(first.get("ce_d1"), first.get("ce_i1")));
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of("ce_d1", transfer, "ce_i1", credit));
+        assertThat(writtenRows().get("ce_i1")).isSameAs(first.get("ce_i1"));
+    }
+
+    @Test
+    void queueSync_leavesInstallmentsAloneWhenTheMemberArchivedTheCreditCategory() {
+        Fixture f = new Fixture();
+        when(categoryService.findOrCreateDefault(7L, "credit")).thenReturn(Optional.empty());
+        CaisseEpargneSession session = arrangeCommittableSync(
+            f.currentWith(f.tx("i1", "2026-02-05", "-230.00", "PRELEVEMENT")), linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertCategories(java.util.Map.of());
+    }
+
+    @Test
+    void queueSync_tagsNothingWhenTheLoanIsNotLinkedToAnImportedAccount() {
+        Fixture f = new Fixture();
+        transferCategory();
+        creditCategory();
+        arrangeCommittableSync(
+            f.currentWith(
+                f.tx("d1", "2026-01-12", "10000.00", "FINANCEMENT"),
+                f.tx("i1", "2026-02-05", "-230.00", "PRELEVEMENT")),
+            f.withLoan(f.loan(), f.loanDetails(null)));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        assertCategories(java.util.Map.of());
+        verify(categoryService, never()).findOrCreateDefault(any(), any());
+    }
+
+    @Test
+    void queueSync_createsNoCreditCategoryWhenNoInstallmentMatches() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.current(), linkedLoan(f));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        verify(categoryService, never()).findOrCreateDefault(any(), any());
+    }
+
     // -- helpers ------------------------------------------------------------
 
     private void assertFailedWithNothingWritten(CaisseEpargneSession session, CaisseEpargneErrorCode code) {
@@ -575,9 +1522,17 @@ class CaisseEpargneSyncServiceTest {
     }
 
     private CaisseEpargneSyncService serviceWith(TransactionTemplate template, Executor executor) {
+        return serviceWith(template, executor, accountService);
+    }
+
+    private CaisseEpargneSyncService serviceWith(
+        TransactionTemplate template, Executor executor, AccountService snapshotService
+    ) {
         return new CaisseEpargneSyncService(
             port, sessionRepository, accountRepository, transactionRepository,
-            memberRepository, accountService, encryption, template, executor);
+            memberRepository, debtRepository, snapshotService, categorizationService, categoryService, encryption,
+            template, executor,
+            perService, Clock.fixed(TODAY.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC));
     }
 
     private void arrangeQueuedSession(CaisseEpargneSession session) {
@@ -612,60 +1567,139 @@ class CaisseEpargneSyncServiceTest {
     private static final class Fixture {
         CaisseEpargnePort.Transaction tx(String id, String date, String amount, String label) {
             return new CaisseEpargnePort.Transaction(id, LocalDate.parse(date), LocalDate.parse(date),
-                new BigDecimal(amount), "EUR", label);
+                new BigDecimal(amount), "EUR", label, null);
+        }
+
+        CaisseEpargnePort.Transaction settlementTx(String id, String date, String due, String amount, String typeCode) {
+            return new CaisseEpargnePort.Transaction(id, LocalDate.parse(date), LocalDate.parse(due),
+                new BigDecimal(amount), "EUR", "OP " + id, typeCode);
+        }
+
+        /** Current account 1001 whose debit of the 09-30 card group is 50.00, plus a card with that group. */
+        CaisseEpargnePort.AccountData currentWith(CaisseEpargnePort.Transaction... rows) {
+            return with(current(), List.of(rows));
+        }
+
+        CaisseEpargnePort.AccountData cardWith(String nature, String parent, CaisseEpargnePort.Transaction... rows) {
+            CaisseEpargnePort.AccountData base = withNature(card(), nature);
+            return new CaisseEpargnePort.AccountData(base.externalId(), base.kind(), base.name(), base.balance(),
+                base.currency(), base.iban(), base.ibanAmbiguous(), base.authorizedOverdraft(), base.ceiling(),
+                base.remainingDepositCapacity(), base.fillingRatio(), nature, parent, base.nextDueDate(),
+                List.of(rows), base.snapshotComplete(), base.loan());
         }
 
         CaisseEpargnePort.AccountData current() {
             return new CaisseEpargnePort.AccountData("1001", "CURRENT_ACCOUNT", "COMPTE COURANT",
                 new BigDecimal("1234.56"), "EUR", "FR0000000000000000000000000", false,
-                new BigDecimal("500.00"), null, null, null, null, null,
-                List.of(tx("t1", "2026-10-01", "-12.30", "SUPERMARCHE")), true);
+                new BigDecimal("500.00"), null, null, null, null, null, null,
+                List.of(tx("t1", "2026-10-01", "-12.30", "SUPERMARCHE")), true, null);
         }
 
         CaisseEpargnePort.AccountData livret() {
             return new CaisseEpargnePort.AccountData("1002", "LIVRET_A", "LIVRET A",
                 new BigDecimal("5000.00"), "EUR", null, false,
                 null, new BigDecimal("22950.00"), new BigDecimal("17950.00"), new BigDecimal("0.2179"),
-                null, null, List.of(), true);
+                null, null, null, List.of(), true, null);
+        }
+
+        CaisseEpargnePort.AccountData ldds() {
+            return new CaisseEpargnePort.AccountData("1003", "LDDS", "LIVRET DEV DURABLE",
+                new BigDecimal("3000.00"), "EUR", null, false,
+                null, new BigDecimal("12000.00"), new BigDecimal("9000.00"), new BigDecimal("0.25"),
+                null, null, null, List.of(), true, null);
+        }
+
+        CaisseEpargnePort.AccountData per() {
+            return new CaisseEpargnePort.AccountData("contract:P0001", "PER", "PLAN EPARGNE RETRAITE",
+                new BigDecimal("4200.00"), "EUR", null, false,
+                null, null, null, null, null, null, null, List.of(), true, null);
+        }
+
+        CaisseEpargnePort.AccountData perWithDetails(String externalId, String balance, LocalDate valuationDate) {
+            CaisseEpargnePort.PerDetails details = new CaisseEpargnePort.PerDetails(
+                new BigDecimal(balance), new BigDecimal(balance), valuationDate, List.of());
+            return new CaisseEpargnePort.AccountData(externalId, "PER", "PLAN EPARGNE RETRAITE",
+                new BigDecimal(balance), "EUR", null, false, null, null, null, null, null, null, null,
+                List.of(), true, null, details);
+        }
+
+        CaisseEpargnePort.AccountData loan() {
+            return new CaisseEpargnePort.AccountData("contract:L0001", "LOAN", "PRET PERSONNEL",
+                new BigDecimal("-9000.00"), "EUR", null, false,
+                null, null, null, null, null, null, null, List.of(), true, null);
+        }
+
+        /** Synthetic 24-month personal loan, first installment 2026-02-05. */
+        CaisseEpargnePort.LoanDetails loanDetails(String linkedIban) {
+            return new CaisseEpargnePort.LoanDetails(new BigDecimal("10000.00"), new BigDecimal("0.045"),
+                new BigDecimal("230.00"), new BigDecimal("2.00"), LocalDate.of(2026, 1, 10),
+                LocalDate.of(2026, 2, 5), LocalDate.of(2028, 1, 5), 24, linkedIban);
+        }
+
+        CaisseEpargnePort.AccountData withLoan(CaisseEpargnePort.AccountData a, CaisseEpargnePort.LoanDetails loan) {
+            return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), a.balance(), a.currency(),
+                a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(),
+                a.snapshotComplete(), loan);
+        }
+
+        CaisseEpargnePort.AccountData ambiguousIban(CaisseEpargnePort.AccountData a) {
+            return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), a.balance(), a.currency(),
+                a.iban(), true, a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(),
+                a.snapshotComplete(), a.loan());
         }
 
         CaisseEpargnePort.AccountData card() {
             return new CaisseEpargnePort.AccountData("2001", "CARD", null,
                 new BigDecimal("-87.10"), "EUR", null, false,
-                null, null, null, null, "DEFERRED_DEBIT", "1001",
+                null, null, null, null, "DEFERRED_DEBIT", "1001", LocalDate.of(2026, 10, 31),
                 List.of(new CaisseEpargnePort.Transaction("c1", LocalDate.of(2026, 10, 2),
-                    LocalDate.of(2026, 10, 31), new BigDecimal("-87.10"), "EUR", "RESTAURANT")), true);
+                    LocalDate.of(2026, 10, 31), new BigDecimal("-87.10"), "EUR", "RESTAURANT", "04")), true, null);
         }
 
         CaisseEpargnePort.AccountData with(CaisseEpargnePort.AccountData a, List<CaisseEpargnePort.Transaction> txs) {
             return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), a.balance(), a.currency(),
                 a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
-                a.fillingRatio(), a.cardNature(), a.parentExternalId(), txs, a.snapshotComplete());
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), txs, a.snapshotComplete(), a.loan());
         }
 
         CaisseEpargnePort.AccountData withKind(CaisseEpargnePort.AccountData a, String kind) {
             return new CaisseEpargnePort.AccountData(a.externalId(), kind, a.name(), a.balance(), a.currency(),
                 a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
-                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.transactions(), a.snapshotComplete());
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(), a.snapshotComplete(), a.loan());
+        }
+
+        CaisseEpargnePort.AccountData withName(CaisseEpargnePort.AccountData a, String name) {
+            return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), name, a.balance(), a.currency(),
+                a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(), a.snapshotComplete(), a.loan());
         }
 
         CaisseEpargnePort.AccountData withBalance(CaisseEpargnePort.AccountData a, String balance) {
             return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), new BigDecimal(balance),
                 a.currency(), a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(),
-                a.remainingDepositCapacity(), a.fillingRatio(), a.cardNature(), a.parentExternalId(),
-                a.transactions(), a.snapshotComplete());
+                a.remainingDepositCapacity(), a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(),
+                a.transactions(), a.snapshotComplete(), a.loan());
         }
 
         CaisseEpargnePort.AccountData withCurrency(CaisseEpargnePort.AccountData a, String currency) {
             return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), a.balance(), currency,
                 a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
-                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.transactions(), a.snapshotComplete());
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(), a.snapshotComplete(), a.loan());
+        }
+
+        CaisseEpargnePort.AccountData withNature(CaisseEpargnePort.AccountData a, String nature) {
+            return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), a.balance(), a.currency(),
+                a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
+                a.fillingRatio(), nature, a.parentExternalId(), a.nextDueDate(), a.transactions(),
+                a.snapshotComplete(), a.loan());
         }
 
         CaisseEpargnePort.AccountData incomplete(CaisseEpargnePort.AccountData a) {
             return new CaisseEpargnePort.AccountData(a.externalId(), a.kind(), a.name(), a.balance(), a.currency(),
                 a.iban(), a.ibanAmbiguous(), a.authorizedOverdraft(), a.ceiling(), a.remainingDepositCapacity(),
-                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.transactions(), false);
+                a.fillingRatio(), a.cardNature(), a.parentExternalId(), a.nextDueDate(), a.transactions(), false, a.loan());
         }
     }
 }

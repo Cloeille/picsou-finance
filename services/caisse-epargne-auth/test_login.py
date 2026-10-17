@@ -1,30 +1,35 @@
 """Browser login flow, played against a fake Playwright (see fake_browser.py).
 
 No browser, no network, no real credential, no real bank data. The identifier,
-password and digests below are synthetic.
+key positions and images below are synthetic.
+
+Flow under test: `/initiate` (identifier only, returns the 10 key images, never
+clicks the pad), `/keypad` (user-chosen positions, digests re-checked before
+every click), `/complete` (unchanged).
 """
 
 import asyncio
 import json
 import logging
+import re
 import unittest
 from unittest.mock import patch
 
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-import keypad_table
 import login
 import replay
 from fake_browser import (
     AUTHORIZE_URL,
+    OVERSIZE_PNG,
     UNKNOWN_PNG,
     World,
+    data_uri,
     playwright_error,
-    synthetic_table,
 )
 
 CUSTOMER_ID = "7305918264"
-PASSWORD = "48201735"
+POSITIONS = [3, 0, 5, 2, 7, 9, 1]
 EXPECTED_AUTHORIZE_PARAMS = {
     "client_id": "test-client-id",
     "redirect_uri": "https://www.example-app.caisse-epargne.fr/callback",
@@ -44,8 +49,6 @@ class _Capture(logging.Handler):
 
 
 class LoginTestBase(unittest.IsolatedAsyncioTestCase):
-    use_table = True
-
     async def asyncSetUp(self):
         # Real defaults, read before the timing patches below shorten them.
         self.real_complete_wait = login.COMPLETE_WAIT_SECONDS
@@ -64,8 +67,6 @@ class LoginTestBase(unittest.IsolatedAsyncioTestCase):
             patch.object(login, "POLL_INTERVAL_SECONDS", 0.001),
             patch.object(login, "RESOURCE_CLOSE_TIMEOUT_SECONDS", 0.5),
         ]
-        if self.use_table:
-            patches.append(patch.object(keypad_table, "DIGEST_TO_DIGIT", synthetic_table()))
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -79,8 +80,17 @@ class LoginTestBase(unittest.IsolatedAsyncioTestCase):
         root.setLevel(self._old_level)
 
     # --- helpers ---
-    async def initiate(self, customer_id=CUSTOMER_ID, password=PASSWORD):
-        return await login.initiate(customer_id, password)
+    async def initiate(self, customer_id=CUSTOMER_ID):
+        return await login.initiate(customer_id)
+
+    async def keypad(self, process_id, positions=None):
+        return await login.keypad(process_id, POSITIONS if positions is None else positions)
+
+    async def securpass(self) -> str:
+        """initiate + keypad: a process waiting for the human Sécur'Pass approval."""
+        process_id = (await self.initiate())["processId"]
+        await self.keypad(process_id)
+        return process_id
 
     async def assertFails(self, status: int, code: str, coro):
         with self.assertRaises(login.LoginError) as ctx:
@@ -99,21 +109,55 @@ class LoginTestBase(unittest.IsolatedAsyncioTestCase):
 
 
 class HappyPathTest(LoginTestBase):
-    async def test_initiate_returns_a_pending_securpass_process(self):
+    async def test_initiate_returns_the_keypad_images_in_dom_order(self):
         result = await self.initiate()
 
-        self.assertEqual(set(result), {"processId", "mfaRequired", "mfaType", "expiresInSeconds"})
+        self.assertEqual(set(result), {"processId", "keypad", "expiresInSeconds"})
         self.assertIsInstance(result["processId"], str)
         self.assertGreaterEqual(len(result["processId"]), 32)
-        self.assertIs(result["mfaRequired"], True)
-        self.assertEqual(result["mfaType"], "SECURPASS")
-        self.assertEqual(result["expiresInSeconds"], 300)
+        self.assertEqual(
+            result["keypad"], {"images": self.world.all_data_uris(), "columns": 5}
+        )
+        self.assertEqual(len(result["keypad"]["images"]), 10)
+        for image in result["keypad"]["images"]:
+            self.assertTrue(image.startswith("data:image/png;base64,"))
+        self.assertEqual(result["expiresInSeconds"], 90)
         self.assertEqual(login.browsers_in_use(), 1)
         self.assertEqual(len(login._pending), 1)
+
+    async def test_initiate_keeps_the_ten_raw_digests_in_the_pending_session(self):
+        pid = (await self.initiate())["processId"]
+
+        self.assertEqual(
+            list(login._pending[pid].digests), self.world.all_digests_hex()
+        )
+        self.assertEqual(len(set(login._pending[pid].digests)), 10)
+
+    async def test_images_follow_the_page_order_not_the_digit_order(self):
+        self.world.layout = "9876543210"
+        result = await self.initiate()
+
+        self.assertEqual(result["keypad"]["images"], self.world.all_data_uris())
+
+    async def test_initiate_has_no_password_and_no_mfa_fields(self):
+        result = await self.initiate()
+
+        for absent in ("mfaRequired", "mfaType", "password"):
+            self.assertNotIn(absent, result)
+
+    async def test_initiate_never_clicks_the_pad_nor_the_second_valider(self):
+        await self.initiate()
+
+        self.assertEqual(self.world.key_clicks, [])
+        self.assertEqual(self.world.page_clicks, [login.NEXT_BUTTON])
+        self.assertNotIn(login.SUBMIT_BUTTON, self.world.page_clicks)
 
     async def test_contract_constants(self):
         self.assertEqual(login.MAX_CONCURRENT_BROWSERS, 2)
         self.assertEqual(login.PENDING_TTL_SECONDS, 300)
+        self.assertEqual(login.KEYPAD_TTL_SECONDS, 90)
+        self.assertEqual(login.KEYPAD_DEADLINE_SECONDS, 60)
+        self.assertEqual(login.INITIATE_DEADLINE_SECONDS, 80)
         self.assertEqual(self.real_complete_wait, 150)
 
     async def test_opens_the_sso_page_through_the_allow_list_route(self):
@@ -124,24 +168,50 @@ class HappyPathTest(LoginTestBase):
         )
         self.assertLess(self.world.events.index("route"), self.world.events.index("goto"))
 
-    async def test_fills_the_identifier_and_clicks_the_keys_in_password_order(self):
+    async def test_initiate_types_only_the_identifier(self):
         await self.initiate()
 
         self.assertEqual(self.world.fills, [("#neo-input-1", CUSTOMER_ID)])
-        self.assertEqual(self.world.typed, list(PASSWORD))
-        layout = self.world.layout
-        self.assertEqual(self.world.key_clicks, [layout.index(digit) for digit in PASSWORD])
 
-    async def test_sequence_is_identifier_then_next_then_keys_then_valider_once(self):
-        await self.initiate()
+    async def test_keypad_clicks_the_positions_then_valider_once(self):
+        pid = (await self.initiate())["processId"]
 
+        result = await self.keypad(pid)
+
+        self.assertEqual(result, {"processId": pid, "status": "SECURPASS_PENDING"})
+        self.assertEqual(self.world.key_clicks, POSITIONS)
         clicks = [e for e in self.world.events if e.startswith(("click:", "key:"))]
         self.assertEqual(
             clicks,
             [f"click:{login.NEXT_BUTTON}"]
-            + [f"key:{self.world.layout.index(d)}" for d in PASSWORD]
+            + [f"key:{p}" for p in POSITIONS]
             + [f"click:{login.SUBMIT_BUTTON}"],
         )
+        self.assertEqual(login.browsers_in_use(), 1)
+        self.assertIn(pid, login._pending)
+
+    async def test_keypad_clicks_by_position_whatever_the_layout(self):
+        self.world.layout = "9876543210"
+        pid = (await self.initiate())["processId"]
+        await self.keypad(pid, [0, 1, 2, 3, 4, 5])
+
+        self.assertEqual(self.world.key_clicks, [0, 1, 2, 3, 4, 5])
+        self.assertEqual(self.world.typed, ["9", "8", "7", "6", "5", "4"])
+
+    async def test_the_same_position_may_be_clicked_several_times(self):
+        pid = (await self.initiate())["processId"]
+        await self.keypad(pid, [4, 4, 4, 4, 4, 4])
+
+        self.assertEqual(self.world.key_clicks, [4] * 6)
+
+    async def test_positions_length_boundaries_are_accepted(self):
+        for length in (6, 12):
+            with self.subTest(length=length):
+                self.world = World()
+                pid = (await self.initiate())["processId"]
+                await self.keypad(pid, [i % 10 for i in range(length)])
+                self.assertEqual(len(self.world.key_clicks), length)
+                await login.close_all()
 
     async def test_launch_is_headless_and_nothing_records_the_page(self):
         await self.initiate()
@@ -154,7 +224,7 @@ class HappyPathTest(LoginTestBase):
         # fake_browser raises if screenshot() / video are touched; reaching here proves not.
 
     async def test_complete_returns_a_session_state_replay_accepts(self):
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         raw = await login.complete(pid)
 
@@ -174,14 +244,14 @@ class HappyPathTest(LoginTestBase):
         self.assertClean()
 
     async def test_challenge_and_nonce_are_dropped_from_the_authorize_params(self):
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
         params = json.loads(await login.complete(pid))["authorizeParams"]
 
         for dropped in ("code_challenge", "code_challenge_method", "nonce"):
             self.assertNotIn(dropped, params)
 
     async def test_only_caisse_epargne_cookies_are_kept(self):
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
         raw = await login.complete(pid)
 
         self.assertNotIn("other-site", raw)  # .example.com
@@ -189,14 +259,14 @@ class HappyPathTest(LoginTestBase):
 
     async def test_authorize_request_made_before_the_client_space_is_ignored(self):
         self.world.early_authorize = True
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
         params = json.loads(await login.complete(pid))["authorizeParams"]
 
         self.assertEqual(params["client_id"], "test-client-id")
 
     async def test_authorize_not_seen_yet_reloads_once_and_waits(self):
         self.world.authorize_on = "reload"
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         raw = await login.complete(pid)
 
@@ -205,7 +275,7 @@ class HappyPathTest(LoginTestBase):
 
     async def test_authorize_never_seen_is_a_format_change(self):
         self.world.authorize_on = "never"
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         await self.assertFails(502, "UPSTREAM_FORMAT_CHANGED", login.complete(pid))
         self.assertEqual(self.world.pages[0].reloads, 1)
@@ -213,61 +283,297 @@ class HappyPathTest(LoginTestBase):
 
     async def test_unusable_state_is_a_format_change_not_returned(self):
         self.world.cookies = [{"name": "x", "value": "y", "domain": ".example.com", "path": "/"}]
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         await self.assertFails(502, "UPSTREAM_FORMAT_CHANGED", login.complete(pid))
         self.assertClean()
 
     async def test_securpass_screen_without_the_url_marker_is_also_pending(self):
         self.world.after_valider = "securpass_text"
-        result = await self.initiate()
+        pid = (await self.initiate())["processId"]
+        result = await self.keypad(pid)
 
-        self.assertEqual(result["mfaType"], "SECURPASS")
+        self.assertEqual(result["status"], "SECURPASS_PENDING")
+
+    async def test_the_pad_is_read_again_before_each_click(self):
+        reads: list[int] = []
+        original = self.world.key_css
+        pid = (await self.initiate())["processId"]
+
+        def counting_key_css(index):
+            reads.append(index)
+            return original(index)
+
+        self.world.key_css = counting_key_css
+        await self.keypad(pid)
+
+        self.assertGreaterEqual(len(reads), 10 * len(POSITIONS))
+
+
+class KeypadStepTest(LoginTestBase):
+    async def test_unknown_process_is_expired(self):
+        await self.assertFails(410, "AUTH_ATTEMPT_EXPIRED", self.keypad("does-not-exist"))
+
+    async def test_a_process_accepts_the_keypad_only_once(self):
+        pid = (await self.initiate())["processId"]
+        await self.keypad(pid)
+        clicks = list(self.world.key_clicks)
+
+        await self.assertFails(409, "KEYPAD_CHANGED", self.keypad(pid))
+
+        self.assertEqual(self.world.key_clicks, clicks)  # not a single extra click
+        self.assertEqual(self.world.page_clicks.count(login.SUBMIT_BUTTON), 1)
+        # The first call's login goes on: the second call did not release it.
+        self.assertIn(pid, login._pending)
+        await login.complete(pid)
+        self.assertClean()
+
+    async def test_two_concurrent_keypad_calls_click_once(self):
+        pid = (await self.initiate())["processId"]
+
+        results = await asyncio.gather(
+            self.keypad(pid), self.keypad(pid), return_exceptions=True
+        )
+
+        ok = [r for r in results if isinstance(r, dict)]
+        refused = [r for r in results if isinstance(r, login.LoginError)]
+        self.assertEqual((len(ok), len(refused)), (1, 1))
+        self.assertEqual((refused[0].status, refused[0].code), (409, "KEYPAD_CHANGED"))
+        self.assertEqual(self.world.key_clicks, POSITIONS)
+        self.assertEqual(self.world.page_clicks.count(login.SUBMIT_BUTTON), 1)
+
+    async def test_complete_cannot_dispose_a_session_during_keypad_execution(self):
+        pid = (await self.initiate())["processId"]
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def blocked_click_positions(page, positions, pinned):
+            entered.set()
+            await release.wait()
+
+        with patch.object(login, "_click_positions", blocked_click_positions):
+            keypad_task = asyncio.create_task(self.keypad(pid))
+            await entered.wait()
+
+            await self.assertFails(410, "AUTH_ATTEMPT_EXPIRED", login.complete(pid))
+            self.assertEqual(login.browsers_in_use(), 1)
+            self.assertEqual(len(self.world.still_open()), 3)
+
+            release.set()
+            await keypad_task
+
+        self.assertIn(pid, login._pending)
+        await login.complete(pid)
+        self.assertClean()
+
+    async def test_close_all_waits_for_keypad_and_does_not_restore_its_session(self):
+        pid = (await self.initiate())["processId"]
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def blocked_click_positions(page, positions, pinned):
+            entered.set()
+            await release.wait()
+
+        with patch.object(login, "_click_positions", blocked_click_positions):
+            keypad_task = asyncio.create_task(self.keypad(pid))
+            await entered.wait()
+            close_task = asyncio.create_task(login.close_all())
+            await asyncio.sleep(0)
+
+            self.assertFalse(close_task.done())
+            self.assertEqual(login.browsers_in_use(), 1)
+            self.assertEqual(len(self.world.still_open()), 3)
+
+            release.set()
+            await keypad_task
+            await close_task
+
+        self.assertNotIn(pid, login._pending)
+        self.assertNotIn(pid, login._keypad_inflight)
+        self.assertNotIn(pid, login._keypad_tasks)
+        self.assertEqual(login.browsers_in_use(), 0)
+        self.assertEqual(self.world.still_open(), [])
+        self.assertCountEqual(self.world.closed, self.world.opened)
+
+    async def test_sweeper_cannot_dispose_a_session_during_keypad_execution(self):
+        pid = (await self.initiate())["processId"]
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        session = login._pending[pid]
+
+        async def blocked_click_positions(page, positions, pinned):
+            entered.set()
+            await release.wait()
+
+        with patch.object(login, "_click_positions", blocked_click_positions):
+            keypad_task = asyncio.create_task(self.keypad(pid))
+            await entered.wait()
+            session.created_at = 0
+            # The active session must not be visible to expiry cleanup.
+            await login.cleanup_expired()
+            self.assertEqual(login.browsers_in_use(), 1)
+            self.assertEqual(len(self.world.still_open()), 3)
+
+            release.set()
+            await keypad_task
+
+        self.assertIn(pid, login._pending)
+        await login.complete(pid)
+        self.assertClean()
+
+    async def test_invalid_second_keypad_cannot_dispose_an_active_session(self):
+        pid = (await self.initiate())["processId"]
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def blocked_click_positions(page, positions, pinned):
+            entered.set()
+            await release.wait()
+
+        with patch.object(login, "_click_positions", blocked_click_positions):
+            keypad_task = asyncio.create_task(self.keypad(pid))
+            await entered.wait()
+
+            await self.assertFails(422, "INVALID_POSITIONS", self.keypad(pid, [99]))
+            self.assertEqual(login.browsers_in_use(), 1)
+            self.assertEqual(len(self.world.still_open()), 3)
+
+            release.set()
+            await keypad_task
+
+        await login.complete(pid)
+        self.assertClean()
+
+    async def test_a_second_call_after_a_failed_first_call_finds_nothing(self):
+        pid = (await self.initiate())["processId"]
+        self.world.after_valider = "error"
+        await self.assertFails(401, "INVALID_CREDENTIALS", self.keypad(pid))
+
+        await self.assertFails(410, "AUTH_ATTEMPT_EXPIRED", self.keypad(pid))
+        self.assertEqual(self.world.key_clicks, POSITIONS)
+
+    async def test_invalid_positions_are_refused_before_any_click_and_release_the_session(self):
+        bad = [
+            [],
+            [1] * 5,
+            [1] * 13,
+            [10] * 6,
+            [-1] * 6,
+            [1, 2, 3, 4, 5, 10],
+            ["1"] * 6,
+            [1.0] * 6,
+            [True] * 6,
+            [None] * 6,
+            [[1]] * 6,
+            "123456",
+            None,
+            {"a": 1},
+            5,
+        ]
+        for positions in bad:
+            with self.subTest(positions=repr(positions)):
+                self.world = World()
+                pid = (await self.initiate())["processId"]
+                await self.assertFails(
+                    422, "INVALID_POSITIONS", login.keypad(pid, positions)
+                )
+                self.assertEqual(self.world.key_clicks, [])
+                self.assertNotIn(login.SUBMIT_BUTTON, self.world.page_clicks)
+                self.assertClean()
+
+    async def test_invalid_positions_on_an_unknown_process_are_still_422(self):
+        await self.assertFails(422, "INVALID_POSITIONS", login.keypad("nope", [1]))
+
+    async def test_an_expired_keypad_step_is_refused_and_its_browser_closed(self):
+        pid = (await self.initiate())["processId"]
+        login._pending[pid].created_at -= login.KEYPAD_TTL_SECONDS + 1
+
+        await self.assertFails(408, "KEYPAD_EXPIRED", self.keypad(pid))
+
+        self.assertEqual(self.world.key_clicks, [])
+        self.assertClean()
+
+    async def test_a_keypad_step_inside_the_ttl_is_accepted(self):
+        pid = (await self.initiate())["processId"]
+        login._pending[pid].created_at -= login.KEYPAD_TTL_SECONDS - 5
+
+        await self.keypad(pid)
+
+        self.assertEqual(self.world.key_clicks, POSITIONS)
+
+    async def test_the_securpass_wait_gets_a_fresh_pending_ttl(self):
+        pid = (await self.initiate())["processId"]
+        login._pending[pid].created_at -= login.KEYPAD_TTL_SECONDS - 5
+        await self.keypad(pid)
+
+        # complete() measures PENDING_TTL_SECONDS from the Valider, not from /initiate.
+        login._pending[pid].created_at -= login.PENDING_TTL_SECONDS - 10
+        await login.complete(pid)
+        self.assertClean()
+
+    async def test_complete_before_the_keypad_step_is_refused_and_releases_the_session(self):
+        pid = (await self.initiate())["processId"]
+
+        await self.assertFails(410, "AUTH_ATTEMPT_EXPIRED", login.complete(pid))
+
+        self.assertEqual(self.world.key_clicks, [])
+        self.assertClean()
+
+    async def test_complete_never_clicks_anything(self):
+        pid = await self.securpass()
+        clicks_before = list(self.world.events)
+
+        await login.complete(pid)
+
+        new_events = self.world.events[len(clicks_before):]
+        self.assertEqual([e for e in new_events if e.startswith(("click:", "key:"))], [])
 
 
 class KeypadFailClosedTest(LoginTestBase):
-    async def assertKeypadChanged(self):
+    """Initiate: the pad must be 10 distinct small PNG data URIs, else nothing is returned."""
+
+    async def assertKeypadChangedAtInitiate(self):
         await self.assertFails(409, "KEYPAD_CHANGED", self.initiate())
         self.assertEqual(self.world.key_clicks, [])
         self.assertNotIn(f"click:{login.SUBMIT_BUTTON}", self.world.events)
         self.assertClean()
 
-    async def test_unknown_digest_clicks_nothing(self):
-        self.world.unknown_key = 6
-        await self.assertKeypadChanged()
-
     async def test_refusal_logs_counts_only_never_a_digest(self):
         # Seen live 2026-10-07: a KEYPAD_CHANGED with nothing in the logs to say why.
-        self.world.unknown_key = 6
+        self.world.css_by_key = {6: "none"}
         with self.assertLogs(login.log, level="WARNING") as captured:
             await self.assertFails(409, "KEYPAD_CHANGED", self.initiate())
         text = "\n".join(captured.output)
-        self.assertIn("keys=10", text)
-        self.assertIn("with_image=10", text)
-        self.assertIn("known=9", text)
-        import re
-
+        self.assertIn("keys=7", text)
+        self.assertIn("with_image=6", text)
+        self.assertIn("distinct=6", text)
         self.assertIsNone(re.search(r"[0-9a-f]{16,}", text), "a digest leaked into the logs")
-
-    async def test_empty_shipped_table_refuses_every_login(self):
-        with patch.object(keypad_table, "DIGEST_TO_DIGIT", {}):
-            await self.assertKeypadChanged()
 
     async def test_fewer_than_ten_keys(self):
         self.world.key_count = 9
-        await self.assertKeypadChanged()
+        await self.assertKeypadChangedAtInitiate()
 
     async def test_more_than_ten_keys(self):
         self.world.key_count = 11
-        await self.assertKeypadChanged()
+        await self.assertKeypadChangedAtInitiate()
 
     async def test_two_keys_showing_the_same_image(self):
         self.world.same_image = (2, 5)
-        await self.assertKeypadChanged()
+        await self.assertKeypadChangedAtInitiate()
 
     async def test_key_without_a_data_uri_background(self):
         self.world.css_override = "none"
-        await self.assertKeypadChanged()
+        await self.assertKeypadChangedAtInitiate()
+
+    async def test_a_non_png_data_uri_is_refused(self):
+        b64png = data_uri(UNKNOWN_PNG, "image/svg+xml")
+        self.world.css_by_key = {3: f'url("{b64png}")'}
+        await self.assertKeypadChangedAtInitiate()
+
+    async def test_an_image_above_16_kb_is_refused(self):
+        self.world.oversize_key = 4
+        await self.assertKeypadChangedAtInitiate()
 
     async def test_no_keys_at_all_is_a_format_change(self):
         self.world.key_count = 0
@@ -275,44 +581,116 @@ class KeypadFailClosedTest(LoginTestBase):
         self.assertEqual(self.world.key_clicks, [])
         self.assertClean()
 
-    async def test_a_different_layout_is_read_from_the_page_not_assumed(self):
-        self.world.layout = "9876543210"
-        await self.initiate()
+    async def test_an_unknown_looking_image_is_fine_at_initiate(self):
+        # No table any more: the user reads the pad, the sidecar only pins it.
+        self.world.unknown_key = 6
+        result = await self.initiate()
 
-        self.assertEqual(self.world.typed, list(PASSWORD))
-        self.assertEqual(self.world.key_clicks, [9 - int(d) for d in PASSWORD])
+        self.assertEqual(len(result["keypad"]["images"]), 10)
+
+
+class KeypadStabilityTest(LoginTestBase):
+    """Keypad step: the 10 digests are compared to the stored ones before EVERY click."""
+
+    async def assertChangedAfter(self, clicks: int):
+        self.assertEqual(len(self.world.key_clicks), clicks)
+        self.assertNotIn(login.SUBMIT_BUTTON, self.world.page_clicks)
+        self.assertClean()
+
+    async def test_a_reshuffle_before_the_first_click_clicks_nothing(self):
+        pid = (await self.initiate())["processId"]
+        self.world.layout = "0123456789"  # differs from 3817250649
+
+        await self.assertFails(409, "KEYPAD_CHANGED", self.keypad(pid))
+
+        await self.assertChangedAfter(0)
+
+    async def test_a_reshuffle_after_the_second_click_stops_with_two_clicks(self):
+        self.world.reshuffle_after = 2
+        self.world.reshuffled_layout = "0123456789"
+        pid = (await self.initiate())["processId"]
+
+        await self.assertFails(409, "KEYPAD_CHANGED", self.keypad(pid))
+
+        await self.assertChangedAfter(2)
+
+    async def test_a_reshuffle_to_an_unknown_image_also_stops(self):
+        pid = (await self.initiate())["processId"]
+        original_key_png = self.world.key_png
+        self.world.key_png = lambda i: (
+            original_key_png(i) if len(self.world.key_clicks) < 3 else UNKNOWN_PNG
+        )
+
+        await self.assertFails(409, "KEYPAD_CHANGED", self.keypad(pid))
+
+        await self.assertChangedAfter(3)
+
+    async def test_a_single_key_image_change_is_enough(self):
+        pid = (await self.initiate())["processId"]
+        self.world.unknown_key = 9
+
+        await self.assertFails(409, "KEYPAD_CHANGED", self.keypad(pid))
+
+        await self.assertChangedAfter(0)
+
+    async def test_a_key_that_loses_its_image_stops(self):
+        pid = (await self.initiate())["processId"]
+        self.world.css_by_key = {6: "none"}
+
+        await self.assertFails(409, "KEYPAD_CHANGED", self.keypad(pid))
+
+        await self.assertChangedAfter(0)
+
+    async def test_an_image_that_grows_above_16_kb_stops(self):
+        pid = (await self.initiate())["processId"]
+        self.world.oversize_key = 2
+
+        await self.assertFails(409, "KEYPAD_CHANGED", self.keypad(pid))
+
+        await self.assertChangedAfter(0)
+
+    async def test_an_extra_key_stops(self):
+        pid = (await self.initiate())["processId"]
+        self.world.key_count = 11
+
+        await self.assertFails(409, "KEYPAD_CHANGED", self.keypad(pid))
+
+        await self.assertChangedAfter(0)
+
+    async def test_the_refusal_logs_counts_only(self):
+        pid = (await self.initiate())["processId"]
+        self.world.layout = "0123456789"
+        with self.assertLogs(login.log, level="WARNING") as captured:
+            await self.assertFails(409, "KEYPAD_CHANGED", self.keypad(pid))
+        text = "\n".join(captured.output)
+        self.assertIn("keys=10", text)
+        self.assertIn("with_image=10", text)
+        self.assertIn("matching=2", text)  # only keys 5 and 9 keep their image
+        self.assertIn("distinct=10", text)
+        self.assertIsNone(re.search(r"[0-9a-f]{16,}", text), "a digest leaked into the logs")
 
 
 class CredentialShapeTest(LoginTestBase):
-    async def test_bad_shapes_are_refused_before_any_browser_work(self):
-        cases = [
-            (CUSTOMER_ID, "12ab"),
-            (CUSTOMER_ID, ""),
-            (CUSTOMER_ID, "123"),
-            (CUSTOMER_ID, "1" * 21),
-            (CUSTOMER_ID, " 482017"),
-            (CUSTOMER_ID, "4820 17"),
-            (CUSTOMER_ID, "４８２０１７"),  # full-width digits
-            ("abc", PASSWORD),
-            ("", PASSWORD),
-            ("1" * 21, PASSWORD),
-            ("73059\n18264", PASSWORD),
-        ]
-        for customer_id, password in cases:
-            with self.subTest(customer=customer_id, password=password):
-                await self.assertFails(401, "INVALID_CREDENTIALS", self.initiate(customer_id, password))
+    async def test_bad_identifiers_are_refused_before_any_browser_work(self):
+        for customer_id in ("abc", "", "1" * 21, "73059\n18264", " 7305918264", "７３０５"):
+            with self.subTest(customer=customer_id):
+                await self.assertFails(401, "INVALID_CREDENTIALS", self.initiate(customer_id))
 
         self.assertEqual(self.world.launches, 0)
         self.assertEqual(self.world.opened, [])
         self.assertClean()
 
     async def test_the_boundary_lengths_are_accepted(self):
-        for customer_id, password in (("1", "1234"), ("1" * 20, "9" * 20)):
-            with self.subTest(customer=len(customer_id), password=len(password)):
+        for customer_id in ("1", "1" * 20):
+            with self.subTest(customer=len(customer_id)):
                 self.world = World()
-                result = await self.initiate(customer_id, password)
+                result = await self.initiate(customer_id)
                 await login.close_all()
-                self.assertEqual(result["mfaType"], "SECURPASS")
+                self.assertEqual(len(result["keypad"]["images"]), 10)
+
+    async def test_initiate_takes_no_password(self):
+        with self.assertRaises(TypeError):
+            await login.initiate(CUSTOMER_ID, "482017")  # type: ignore[call-arg]
 
 
 class LiveSelectorTest(unittest.TestCase):
@@ -340,16 +718,18 @@ class BankRefusalTest(LoginTestBase):
 
     async def test_password_error_banner_is_invalid_credentials_without_a_second_attempt(self):
         self.world.after_valider = "error"
-        await self.assertFails(401, "INVALID_CREDENTIALS", self.initiate())
+        pid = (await self.initiate())["processId"]
+        await self.assertFails(401, "INVALID_CREDENTIALS", self.keypad(pid))
 
         self.assertEqual(self.world.page_clicks.count(login.SUBMIT_BUTTON), 1)
         self.assertEqual(self.world.launches, 1)
-        self.assertEqual(self.world.typed, list(PASSWORD))  # typed once, never again
+        self.assertEqual(self.world.key_clicks, POSITIONS)  # clicked once, never again
         self.assertClean()
 
     async def test_nothing_recognisable_after_valider_is_a_format_change(self):
         self.world.after_valider = "nothing"
-        await self.assertFails(502, "UPSTREAM_FORMAT_CHANGED", self.initiate())
+        pid = (await self.initiate())["processId"]
+        await self.assertFails(502, "UPSTREAM_FORMAT_CHANGED", self.keypad(pid))
 
         self.assertEqual(self.world.page_clicks.count(login.SUBMIT_BUTTON), 1)
         self.assertClean()
@@ -387,26 +767,43 @@ class ResourceSafetyTest(LoginTestBase):
         self.assertClean()
 
     async def test_key_click_failure_stops_without_valider_or_retry(self):
+        pid = (await self.initiate())["processId"]
         self.world.fail_on["key_click"] = playwright_error("detached")
-        await self.assertFails(502, "UPSTREAM_UNAVAILABLE", self.initiate())
+        await self.assertFails(502, "UPSTREAM_UNAVAILABLE", self.keypad(pid))
 
         self.assertEqual(len(self.world.key_clicks), 1)
         self.assertNotIn(login.SUBMIT_BUTTON, self.world.page_clicks)
         self.assertClean()
 
     async def test_unexpected_error_is_internal_and_leaks_nothing(self):
-        self.world.fail_on["evaluate"] = RuntimeError(f"boom {PASSWORD} {CUSTOMER_ID}")
+        self.world.fail_on["evaluate"] = RuntimeError(f"boom {CUSTOMER_ID}")
         error = await self.assertFails(500, "INTERNAL_ERROR", self.initiate())
 
         self.assertEqual(str(error), "INTERNAL_ERROR")
-        self.assertNotIn(PASSWORD, self.log_text())
         self.assertNotIn(CUSTOMER_ID, self.log_text())
+        self.assertClean()
+
+    async def test_unexpected_error_during_the_keypad_step_is_internal_and_releases(self):
+        pid = (await self.initiate())["processId"]
+        self.world.fail_on["evaluate"] = RuntimeError(f"boom {POSITIONS} {CUSTOMER_ID}")
+        error = await self.assertFails(500, "INTERNAL_ERROR", self.keypad(pid))
+
+        self.assertEqual(str(error), "INTERNAL_ERROR")
+        self.assertNotIn(CUSTOMER_ID, self.log_text())
+        self.assertNotIn(str(POSITIONS), self.log_text())
         self.assertClean()
 
     async def test_cancellation_releases_everything(self):
         self.world.fail_on["evaluate"] = asyncio.CancelledError()
         with self.assertRaises(asyncio.CancelledError):
             await self.initiate()
+        self.assertClean()
+
+    async def test_cancellation_during_the_keypad_step_releases_everything(self):
+        pid = (await self.initiate())["processId"]
+        self.world.fail_on["evaluate"] = asyncio.CancelledError()
+        with self.assertRaises(asyncio.CancelledError):
+            await self.keypad(pid)
         self.assertClean()
 
     async def test_capacity_refuses_the_third_pending_login_without_launching(self):
@@ -420,7 +817,7 @@ class ResourceSafetyTest(LoginTestBase):
         self.assertEqual(login.browsers_in_use(), 2)
 
     async def test_a_finished_process_frees_its_slot(self):
-        first = (await self.initiate())["processId"]
+        first = await self.securpass()
         await self.initiate()
         await self.assertFails(429, "TOO_MANY_PENDING", self.initiate())
 
@@ -441,10 +838,8 @@ class ResourceSafetyTest(LoginTestBase):
 
     async def test_slot_is_released_on_every_failure_path(self):
         scenarios = {
-            "keypad unknown": lambda w: setattr(w, "unknown_key", 0),
+            "keypad no image": lambda w: setattr(w, "css_override", "none"),
             "identifier refused": lambda w: setattr(w, "identifier_ok", False),
-            "password refused": lambda w: setattr(w, "after_valider", "error"),
-            "nothing after valider": lambda w: setattr(w, "after_valider", "nothing"),
             "launch error": lambda w: setattr(w, "launch_error", playwright_error("x")),
         }
         for name, configure in scenarios.items():
@@ -453,6 +848,21 @@ class ResourceSafetyTest(LoginTestBase):
                 configure(self.world)
                 with self.assertRaises(login.LoginError):
                     await self.initiate()
+                self.assertClean()
+
+    async def test_slot_is_released_on_every_keypad_step_failure(self):
+        scenarios = {
+            "reshuffle": lambda w: setattr(w, "layout", "0123456789"),
+            "password refused": lambda w: setattr(w, "after_valider", "error"),
+            "nothing after valider": lambda w: setattr(w, "after_valider", "nothing"),
+        }
+        for name, configure in scenarios.items():
+            with self.subTest(name):
+                self.world = World()
+                pid = (await self.initiate())["processId"]
+                configure(self.world)
+                with self.assertRaises(login.LoginError):
+                    await self.keypad(pid)
                 self.assertClean()
 
     async def test_close_all_closes_every_pending_browser(self):
@@ -464,7 +874,7 @@ class ResourceSafetyTest(LoginTestBase):
         self.assertClean()
 
     async def test_a_resource_that_fails_to_close_still_frees_the_slot(self):
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         async def broken_close():
             raise playwright_error("close failed")
@@ -510,14 +920,14 @@ class CompleteTest(LoginTestBase):
         await self.assertFails(410, "AUTH_ATTEMPT_EXPIRED", login.complete("does-not-exist"))
 
     async def test_a_process_is_single_use(self):
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
         await login.complete(pid)
 
         await self.assertFails(410, "AUTH_ATTEMPT_EXPIRED", login.complete(pid))
         self.assertClean()
 
     async def test_two_concurrent_completes_run_the_wait_once(self):
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         results = await asyncio.gather(
             login.complete(pid), login.complete(pid), return_exceptions=True
@@ -530,7 +940,7 @@ class CompleteTest(LoginTestBase):
         self.assertClean()
 
     async def test_an_expired_process_is_refused_and_its_browser_closed(self):
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
         login._pending[pid].created_at -= login.PENDING_TTL_SECONDS + 1
 
         await self.assertFails(410, "AUTH_ATTEMPT_EXPIRED", login.complete(pid))
@@ -539,7 +949,7 @@ class CompleteTest(LoginTestBase):
 
     async def test_nobody_approving_is_a_timeout_and_the_browser_is_closed(self):
         self.world.after_push = "never"
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         await self.assertFails(408, "APP_VALIDATION_TIMEOUT", login.complete(pid))
 
@@ -550,20 +960,20 @@ class CompleteTest(LoginTestBase):
         # During /complete only the client-space URL or the timeout decide: a banner
         # read as INVALID_CREDENTIALS would make the user retype and risk a lock.
         self.world.after_push = "refuse"
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         await self.assertFails(408, "APP_VALIDATION_TIMEOUT", login.complete(pid))
         self.assertClean()
 
     async def test_the_error_page_is_not_a_connected_session(self):
         self.world.after_push = "erreur"
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         await self.assertFails(502, "UPSTREAM_FORMAT_CHANGED", login.complete(pid))
         self.assertClean()
 
     async def test_complete_never_clicks_anything(self):
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
         clicks_before = list(self.world.events)
 
         await login.complete(pid)
@@ -572,7 +982,7 @@ class CompleteTest(LoginTestBase):
         self.assertEqual([e for e in new_events if e.startswith(("click:", "key:"))], [])
 
     async def test_a_playwright_error_while_waiting_is_unavailable(self):
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         async def broken_cookies(*_a):
             raise playwright_error("target closed")
@@ -584,8 +994,8 @@ class CompleteTest(LoginTestBase):
 
 class SweeperTest(LoginTestBase):
     async def test_cleanup_closes_expired_processes_and_keeps_fresh_ones(self):
-        old = (await self.initiate())["processId"]
-        fresh = (await self.initiate())["processId"]
+        old = await self.securpass()
+        fresh = await self.securpass()
         login._pending[old].created_at -= login.PENDING_TTL_SECONDS + 1
 
         await login.cleanup_expired()
@@ -595,8 +1005,20 @@ class SweeperTest(LoginTestBase):
         self.assertEqual(login.browsers_in_use(), 1)
         self.assertEqual(len(self.world.still_open()), 3)  # fresh playwright+browser+context
 
+    async def test_a_session_waiting_for_the_keypad_is_swept_after_the_keypad_ttl(self):
+        waiting = (await self.initiate())["processId"]
+        approving = await self.securpass()
+        for pid in (waiting, approving):
+            login._pending[pid].created_at -= login.KEYPAD_TTL_SECONDS + 1
+
+        await login.cleanup_expired()
+
+        self.assertNotIn(waiting, login._pending)  # nobody can use it any more
+        self.assertIn(approving, login._pending)  # the Sécur'Pass wait lasts longer
+        self.assertEqual(login.browsers_in_use(), 1)
+
     async def test_initiate_sweeps_before_counting_capacity(self):
-        a = (await self.initiate())["processId"]
+        a = await self.securpass()
         await self.initiate()
         login._pending[a].created_at -= login.PENDING_TTL_SECONDS + 1
 
@@ -605,7 +1027,7 @@ class SweeperTest(LoginTestBase):
         self.assertEqual(login.browsers_in_use(), 2)
 
     async def test_the_sweeper_task_runs_cleanup_periodically(self):
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
         login._pending[pid].created_at -= login.PENDING_TTL_SECONDS + 1
 
         with patch.object(login, "PENDING_SWEEP_SECONDS", 0.01):
@@ -625,7 +1047,6 @@ class SweeperTest(LoginTestBase):
 
 class NoSecretLeakTest(LoginTestBase):
     SECRETS = (
-        PASSWORD,
         CUSTOMER_ID,
         "CE-COOKIE-SECRET-1",
         "CE-COOKIE-SECRET-2",
@@ -639,17 +1060,23 @@ class NoSecretLeakTest(LoginTestBase):
             self.assertNotIn(secret, text)
         for digest in self.world.all_digests_hex():
             self.assertNotIn(digest, text)
+        for uri in self.world.all_data_uris():
+            self.assertNotIn(uri, text)
+            self.assertNotIn(uri.split(",", 1)[1], text)
+        self.assertNotIn(str(POSITIONS), text)
+        self.assertNotIn(",".join(map(str, POSITIONS)), text)
 
     async def test_logs_and_errors_hold_no_secret_on_any_path(self):
         scenarios = {
             "success": lambda w: None,
-            "keypad": lambda w: setattr(w, "unknown_key", 3),
+            "keypad": lambda w: setattr(w, "css_by_key", {3: "none"}),
             "identifier": lambda w: setattr(w, "identifier_ok", False),
             "password": lambda w: setattr(w, "after_valider", "error"),
-            "launch": lambda w: setattr(w, "launch_error", playwright_error(f"x {PASSWORD}")),
+            "reshuffle": lambda w: setattr(w, "reshuffle_after", 2),
+            "launch": lambda w: setattr(w, "launch_error", playwright_error(f"x {CUSTOMER_ID}")),
             "timeout": lambda w: setattr(w, "after_push", "never"),
             "unexpected": lambda w: w.fail_on.update(
-                key_click=RuntimeError(f"{PASSWORD} {CUSTOMER_ID} CE-COOKIE-SECRET-1")
+                key_click=RuntimeError(f"{POSITIONS} {CUSTOMER_ID} CE-COOKIE-SECRET-1")
             ),
         }
         for name, configure in scenarios.items():
@@ -658,8 +1085,10 @@ class NoSecretLeakTest(LoginTestBase):
                 configure(self.world)
                 bodies = []
                 try:
-                    pid = (await self.initiate())["processId"]
-                    bodies.append(await login.complete(pid))
+                    initiated = await self.initiate()
+                    bodies.append(json.dumps(initiated["processId"]))
+                    await login.keypad(initiated["processId"], POSITIONS)
+                    bodies.append(await login.complete(initiated["processId"]))
                 except login.LoginError as exc:
                     bodies.append(str(exc))
                     bodies.append(repr(exc))
@@ -671,7 +1100,7 @@ class NoSecretLeakTest(LoginTestBase):
                     self.assertNoSecrets(body)
 
     async def test_login_error_carries_only_its_code(self):
-        self.world.unknown_key = 1
+        self.world.css_by_key = {1: "none"}
         error = await self.assertFails(409, "KEYPAD_CHANGED", self.initiate())
 
         self.assertEqual(str(error), "KEYPAD_CHANGED")
@@ -679,11 +1108,10 @@ class NoSecretLeakTest(LoginTestBase):
         self.assertIsNone(error.__cause__)
 
 
-
 class CleanupCancellationTest(LoginTestBase):
     async def test_cancelling_the_sweep_mid_dispose_leaks_no_slot(self):
-        first = (await self.initiate())["processId"]
-        second = (await self.initiate())["processId"]
+        first = await self.securpass()
+        second = await self.securpass()
         for pid in (first, second):
             login._pending[pid].created_at -= login.PENDING_TTL_SECONDS + 1
 
@@ -706,8 +1134,8 @@ class CleanupCancellationTest(LoginTestBase):
             self.assertIn(name, self.world.closed)
 
     async def test_expired_sessions_are_disposed_one_at_a_time(self):
-        first = (await self.initiate())["processId"]
-        second = (await self.initiate())["processId"]
+        first = await self.securpass()
+        second = await self.securpass()
         for pid in (first, second):
             login._pending[pid].created_at -= login.PENDING_TTL_SECONDS + 1
         seen: list[int] = []
@@ -738,24 +1166,37 @@ class DeadlineTest(LoginTestBase):
         self.assertClean()  # browser closed, slot released, nothing pending
         self.assertEqual(self.world.key_clicks, [])
 
-    async def test_a_hang_after_the_password_is_typed_is_cut_off_without_a_second_attempt(self):
+    async def test_a_hang_in_valider_is_cut_off_without_a_second_attempt(self):
+        pid = (await self.initiate())["processId"]
+
         async def hanging_valider(page):
             await asyncio.Event().wait()
 
         with (
-            patch.object(login, "INITIATE_DEADLINE_SECONDS", 0.2),
+            patch.object(login, "KEYPAD_DEADLINE_SECONDS", 0.2),
             patch.object(login, "_click_valider", hanging_valider),
         ):
-            await self.assertFails(502, "UPSTREAM_UNAVAILABLE", self.initiate())
+            await self.assertFails(502, "UPSTREAM_UNAVAILABLE", self.keypad(pid))
 
-        self.assertEqual(self.world.typed, list(PASSWORD))  # typed once
+        self.assertEqual(self.world.key_clicks, POSITIONS)  # clicked once
         self.assertEqual(self.world.launches, 1)
+        self.assertClean()
+
+    async def test_a_hanging_key_click_is_cut_off_by_the_keypad_deadline(self):
+        pid = (await self.initiate())["processId"]
+        self.world.hang_on = {"key_click"}
+
+        with patch.object(login, "KEYPAD_DEADLINE_SECONDS", 0.2):
+            await self.assertFails(502, "UPSTREAM_UNAVAILABLE", self.keypad(pid))
+
+        self.assertEqual(len(self.world.key_clicks), 1)
+        self.assertNotIn(login.SUBMIT_BUTTON, self.world.page_clicks)
         self.assertClean()
 
     async def test_a_hanging_reload_in_complete_is_cut_off_and_cleaned_up(self):
         self.world.authorize_on = "reload"
         self.world.hang_on = {"reload"}
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         with (
             patch.object(login, "COMPLETE_WAIT_SECONDS", 0.2),
@@ -768,7 +1209,7 @@ class DeadlineTest(LoginTestBase):
 
     async def test_a_hang_during_the_human_wait_is_an_app_validation_timeout(self):
         self.world.after_push = "never"
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         async def stuck_visible(page, selector):
             await asyncio.Event().wait()
@@ -786,7 +1227,7 @@ class DeadlineTest(LoginTestBase):
         # The human can approve at the very end of the 150 s: reload and authorize
         # wait must then fit in the 10 s left, not in 30 s + 15 s.
         self.world.authorize_on = "reload"
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         with (
             patch.object(login, "STEP_TIMEOUT_SECONDS", 30),
@@ -812,7 +1253,7 @@ class ErrorBannerScopeTest(LoginTestBase):
 
     async def test_an_informational_alert_during_the_securpass_wait_is_not_a_refusal(self):
         self.world.info_alert = True
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
 
         raw = await login.complete(pid)  # the user approves; the alert changes nothing
 
@@ -823,10 +1264,11 @@ class ErrorBannerScopeTest(LoginTestBase):
         self.world.info_alert = True
         result = await self.initiate()
 
-        self.assertEqual(result["mfaType"], "SECURPASS")
+        # No `mfaType` any more: the pad comes back for the user to click himself.
+        self.assertEqual(len(result["keypad"]["images"]), 10)
 
     async def test_complete_never_looks_for_an_error_banner(self):
-        pid = (await self.initiate())["processId"]
+        pid = await self.securpass()
         self.world.visible_queries.clear()
 
         await login.complete(pid)
@@ -874,44 +1316,3 @@ class ContextHardeningTest(LoginTestBase):
             with self.subTest(url=url):
                 ws = await context.open_web_socket(url)
                 self.assertTrue(ws.closed and not ws.connected)
-
-
-class KeypadStabilityTest(LoginTestBase):
-    async def test_a_reshuffle_after_the_second_click_stops_with_two_clicks(self):
-        self.world.reshuffle_after = 2
-        self.world.reshuffled_layout = "0123456789"  # differs from 3817250649
-
-        await self.assertFails(409, "KEYPAD_CHANGED", self.initiate())
-
-        self.assertEqual(len(self.world.key_clicks), 2)
-        self.assertNotIn(login.SUBMIT_BUTTON, self.world.page_clicks)
-        self.assertClean()
-
-    async def test_a_reshuffle_to_an_unknown_image_also_stops(self):
-        self.world.reshuffle_after = 3
-        original_key_png = self.world.key_png
-        self.world.key_png = lambda i: (
-            original_key_png(i) if len(self.world.key_clicks) < 3 else UNKNOWN_PNG
-        )
-
-        await self.assertFails(409, "KEYPAD_CHANGED", self.initiate())
-
-        self.assertEqual(len(self.world.key_clicks), 3)
-        self.assertClean()
-
-    async def test_the_pad_is_read_again_before_each_click(self):
-        reads: list[int] = []
-        original = self.world.key_css
-
-        def counting_key_css(index):
-            reads.append(index)
-            return original(index)
-
-        self.world.key_css = counting_key_css
-        await self.initiate()
-
-        self.assertGreaterEqual(len(reads), 10 * len(PASSWORD))
-
-
-if __name__ == "__main__":
-    unittest.main()

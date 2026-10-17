@@ -19,10 +19,12 @@ import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/Ban
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { BourseDirectPanel } from '@/components/sync/BourseDirectPanel'
 import { BoursoPanel } from '@/components/sync/BoursoPanel'
+import { CaisseEpargnePanel } from '@/components/sync/CaisseEpargnePanel'
 import { DegiroPanel } from '@/components/sync/DegiroPanel'
 import { AmundiPanel } from '@/components/sync/AmundiPanel'
 import { FortuneoPanel } from '@/components/sync/FortuneoPanel'
 import { IbkrPanel } from '@/components/sync/IbkrPanel'
+import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
 import {
   ACCOUNT_COLORS,
   ACCOUNT_TYPES,
@@ -94,11 +96,11 @@ interface AddAccountModalProps {
 }
 
 type WizardStep =
-  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso'
+  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso' | 'caisseEpargne'
   | 'bourseDirect' | 'degiro' | 'amundi' | 'fortuneo' | 'finary' | 'property' | 'manual'
   | 'bourseDirect' | 'degiro' | 'amundi' | 'finary' | 'property' | 'manual'
   | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'bourso'
-  | 'bourseDirect' | 'degiro' | 'ibkr' | 'amundi' | 'finary' | 'property' | 'manual'
+  | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'amundi' | 'finary' | 'property' | 'manual'
 
 /**
  * Masked variant of InputOTPSlot — replaces the typed character with a bullet
@@ -137,9 +139,11 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'tr', icon: Smartphone, labelKey: 'sync.tr.title', descKey: 'addAccount.desc.tr' },
   { key: 'revolut', icon: CreditCard, labelKey: 'sync.revolut.title', descKey: 'addAccount.desc.revolut' },
   { key: 'bourso', icon: Landmark, labelKey: 'sync.bourso.title', descKey: 'addAccount.desc.bourso' },
+  { key: 'caisseEpargne', icon: Landmark, labelKey: 'sync.caisseEpargne.title', descKey: 'addAccount.desc.caisseEpargne' },
   { key: 'bourseDirect', icon: BriefcaseBusiness, labelKey: 'sync.bourseDirect.title', descKey: 'addAccount.desc.bourseDirect' },
   { key: 'degiro', icon: TrendingUp, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
   { key: 'ibkr', icon: BriefcaseBusiness, labelKey: 'sync.ibkr.title', descKey: 'addAccount.desc.ibkr' },
+  { key: 'simplefin', icon: Landmark, labelKey: 'sync.simplefin.title', descKey: 'addAccount.desc.simplefin' },
   { key: 'amundi', icon: PiggyBank, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
   { key: 'fortuneo', icon: PiggyBank, labelKey: 'sync.fortuneo.title', descKey: 'addAccount.desc.fortuneo' },
   { key: 'finary', icon: FileSpreadsheet, labelKey: 'sync.finary.title', descKey: 'addAccount.desc.finary' },
@@ -286,6 +290,12 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
                   <BoursoPanel onConnected={handleDone} />
                 </>
               )}
+              {step === 'caisseEpargne' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <CaisseEpargnePanel onConnected={handleDone} />
+                </>
+              )}
               {step === 'bourseDirect' && (
                 <>
                   <BackButton onClick={() => setStep('selector')} />
@@ -302,6 +312,12 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
                 <>
                   <BackButton onClick={() => setStep('selector')} />
                   <IbkrPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'simplefin' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <SimplefinPanel onConnected={handleDone} />
                 </>
               )}
               {step === 'amundi' && (

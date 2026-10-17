@@ -63,6 +63,16 @@ class SourceSyncResultTest {
         assertThat(arbitraryCode.message()).isEqualTo("Sync failed").doesNotContain(secret);
     }
 
+    @Test
+    void fromSyncException_simplefinSessionExpired_needsReauth() {
+        assertStatus("simplefin", coded("SESSION_EXPIRED"), SourceSyncResult.Status.NEEDS_REAUTH);
+    }
+
+    @Test
+    void fromSyncException_simplefinWithoutCode_isFailed() {
+        assertStatus("simplefin", new SyncException("Bridge unavailable"), SourceSyncResult.Status.FAILED);
+    }
+
     private static SyncException coded(String code) {
         return new SyncException("provider failure", null, code);
     }

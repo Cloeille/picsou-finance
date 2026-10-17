@@ -238,6 +238,21 @@ class AccountServiceTest {
         verifyNoInteractions(snapshotRepository);
     }
 
+    @Test
+    void update_renamingASyncedCardInCredit_keepsItsPositiveBalance() {
+        Account card = Account.builder().id(1L).name("Card").type(AccountType.CREDIT_CARD)
+            .currency("EUR").isManual(false).currentBalance(new BigDecimal("150")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(card));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // The form pre-fills a card with Math.abs(balance), so a credit of 150 comes back as 150.
+        accountService.update(1L, new AccountRequest("Renamed", AccountType.CREDIT_CARD, null, "EUR",
+            new BigDecimal("150"), false, "#2563eb", null, null, null, null), 7L);
+
+        assertThat(card.getCurrentBalance()).isEqualByComparingTo("150");
+        verifyNoInteractions(snapshotRepository);
+    }
+
     private static AccountRequest cardRequest(String amountOwed) {
         return new AccountRequest("Card", AccountType.CREDIT_CARD, null, "EUR",
             new BigDecimal(amountOwed), true, "#2563eb", null, null, null, null);
@@ -898,6 +913,145 @@ class AccountServiceTest {
 
         // Fully priceable: live prices win over the stored broker total.
         assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("1250");
+    }
+
+    @Test
+    void caisseEpargnePer_usesLiveQuotesAndKeepsUnresolvedBankValuationsStale() {
+        Account account = Account.builder().id(6L).name("Synthetic pension")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
+        LocalDate navDate = LocalDate.of(2026, 10, 6);
+        AccountHolding ucA = AccountHolding.builder()
+            .ticker("UC_A").quantity(new BigDecimal("10"))
+            .currentPrice(new BigDecimal("50")).quoteCurrency("USD")
+            .providerValueEur(new BigDecimal("500")).build();
+        AccountHolding ucB = AccountHolding.builder()
+            .ticker("UC_B").quantity(new BigDecimal("2"))
+            .currentPrice(new BigDecimal("999")).quoteCurrency("USD")
+            .providerValueEur(new BigDecimal("200")).providerPriceDate(navDate).build();
+        List<AccountHolding> holdings = List.of(ucA, ucB);
+        when(holdingRepository.findByAccount_Id(6L)).thenReturn(holdings);
+        LocalDate quoteFallbackDate = LocalDate.of(2026, 10, 10);
+        when(priceService.getQuotes(any())).thenReturn(
+            Map.of("UC_A", new PriceService.Quote(new BigDecimal("50"), LocalDate.now(), true)),
+            Map.of("UC_A", new PriceService.Quote(new BigDecimal("55"), LocalDate.now(), true)),
+            Map.of("UC_A", new PriceService.Quote(new BigDecimal("60"), quoteFallbackDate, false)));
+
+        AccountService.Valuation atOldPrice = accountService.valuation(account);
+        AccountService.Valuation atNewPrice = accountService.valuation(account);
+
+        assertThat(atOldPrice.liveEur()).isEqualByComparingTo("1700");
+        assertThat(atNewPrice.liveEur()).isEqualByComparingTo("1750");
+        assertThat(atOldPrice.investedEur()).isEqualByComparingTo("1700");
+        // PER positions have no known purchase basis; use the current valuation as a neutral
+        // baseline instead of manufacturing profit against the older bank NAV total.
+        assertThat(atNewPrice.investedEur()).isEqualByComparingTo("1750");
+        assertThat(atNewPrice.anyPriced()).isTrue();
+        assertThat(atNewPrice.anyStale()).isTrue();
+        assertThat(ucA.getQuantity()).isEqualByComparingTo("10");
+        assertThat(ucB.getQuantity()).isEqualByComparingTo("2");
+
+        when(accountRepository.findByIdAndMemberId(6L, 1L)).thenReturn(Optional.of(account));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(6L)).thenReturn(holdings);
+        List<HoldingResponse> responses = accountService.getHoldings(6L, 1L);
+
+        assertThat(responses.get(0).currentPrice()).isEqualByComparingTo("60");
+        assertThat(responses.get(0).quoteCurrency()).isEqualTo("EUR");
+        assertThat(responses.get(0).currentValueEur()).isEqualByComparingTo("600");
+        assertThat(responses.get(0).priceAsOf()).isEqualTo(quoteFallbackDate);
+        assertThat(responses.get(0).priceStale()).isTrue();
+        assertThat(responses.get(0).costBasisEur()).isNull();
+        assertThat(responses.get(0).pnlEur()).isNull();
+        HoldingResponse unresolved = responses.get(1);
+        assertThat(unresolved.currentValueEur()).isEqualByComparingTo("200");
+        assertThat(unresolved.currentPrice()).isEqualByComparingTo("100");
+        assertThat(unresolved.quoteCurrency()).isEqualTo("EUR");
+        assertThat(unresolved.priceAsOf()).isEqualTo(navDate);
+        assertThat(unresolved.priceStale()).isTrue();
+        assertThat(unresolved.costBasisEur()).isNull();
+        assertThat(unresolved.pnlEur()).isNull();
+    }
+
+    @Test
+    void caisseEpargnePer_ignoresNonpositiveQuotesAndBankValues() {
+        Account account = Account.builder().id(7L).name("Synthetic pension")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
+        AccountHolding valued = AccountHolding.builder()
+            .ticker("UC_A").quantity(new BigDecimal("10"))
+            .providerValueEur(new BigDecimal("500")).build();
+        AccountHolding invalid = AccountHolding.builder()
+            .ticker("UC_B").quantity(new BigDecimal("2"))
+            .providerValueEur(BigDecimal.ZERO).build();
+        List<AccountHolding> holdings = List.of(valued, invalid);
+        when(holdingRepository.findByAccount_Id(7L)).thenReturn(holdings);
+        when(priceService.getQuotes(any())).thenReturn(Map.of(
+            "UC_A", new PriceService.Quote(BigDecimal.ZERO, LocalDate.now(), true),
+            "UC_B", new PriceService.Quote(new BigDecimal("-1"), LocalDate.now(), true)));
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1500");
+        assertThat(valuation.anyPriced()).isTrue();
+        assertThat(valuation.anyStale()).isTrue();
+
+        when(accountRepository.findByIdAndMemberId(7L, 1L)).thenReturn(Optional.of(account));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(7L)).thenReturn(holdings);
+        List<HoldingResponse> responses = accountService.getHoldings(7L, 1L);
+        assertThat(responses.get(0).currentValueEur()).isEqualByComparingTo("500");
+        assertThat(responses.get(0).priceStale()).isTrue();
+        assertThat(responses.get(1).currentValueEur()).isNull();
+        assertThat(responses.get(1).priceStale()).isTrue();
+        assertThat(responses.get(1).costBasisEur()).isNull();
+        assertThat(responses.get(1).pnlEur()).isNull();
+    }
+
+    @Test
+    void caisseEpargnePer_liveQuoteStaysFreshWhenBankFallbackIsInvalid() {
+        Account account = Account.builder().id(10L).name("Synthetic pension")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("500")).cashBalance(BigDecimal.ZERO).build();
+        AccountHolding holding = AccountHolding.builder()
+            .ticker("UC_A").quantity(new BigDecimal("10")).providerValueEur(BigDecimal.ZERO).build();
+        when(holdingRepository.findByAccount_Id(10L)).thenReturn(List.of(holding));
+        when(priceService.getQuotes(any())).thenReturn(Map.of(
+            "UC_A", new PriceService.Quote(new BigDecimal("50"), LocalDate.now(), true)));
+        AccountService.Valuation valuation = accountService.valuation(account);
+        assertThat(valuation.liveEur()).isEqualByComparingTo("500");
+        assertThat(valuation.anyPriced()).isTrue();
+        assertThat(valuation.anyStale()).isFalse();
+    }
+
+    @Test
+    void caisseEpargnePer_allMissingQuotesKeepsTheCompleteBankTotalAsStaleAndPriced() {
+        Account account = Account.builder().id(8L).name("Synthetic pension")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
+        List<AccountHolding> holdings = List.of(
+            AccountHolding.builder().ticker("UC_A").quantity(new BigDecimal("10"))
+                .providerValueEur(new BigDecimal("500")).build(),
+            AccountHolding.builder().ticker("UC_B").quantity(new BigDecimal("2"))
+                .providerValueEur(new BigDecimal("200")).build());
+        when(holdingRepository.findByAccount_Id(8L)).thenReturn(holdings);
+        when(priceService.getQuotes(any())).thenReturn(Map.of());
+        AccountService.Valuation valuation = accountService.valuation(account);
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1700");
+        assertThat(valuation.anyPriced()).isTrue();
+        assertThat(valuation.allPriced()).isFalse();
+        assertThat(valuation.anyStale()).isTrue();
+    }
+
+    @Test
+    void caisseEpargnePer_euroPocketWithoutHoldingsUsesItsStoredBalance() {
+        Account account = Account.builder().id(9L).name("Synthetic pension")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("1000")).cashBalance(new BigDecimal("1000")).build();
+        when(holdingRepository.findByAccount_Id(9L)).thenReturn(List.of());
+        when(priceService.toEur(new BigDecimal("1000"), "EUR", null)).thenReturn(new BigDecimal("1000"));
+        AccountService.Valuation valuation = accountService.valuation(account);
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1000");
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1000");
+        assertThat(valuation.anyPriced()).isTrue();
+        assertThat(valuation.anyStale()).isFalse();
     }
 
     @Test

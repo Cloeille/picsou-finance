@@ -22,6 +22,7 @@ import { EditHoldingModal } from '@/components/shared/EditHoldingModal'
 import { MonthEndBalanceModal } from '@/components/shared/MonthEndBalanceModal'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { AccountTypeBadge } from '@/components/shared/AccountTypeBadge'
+import { CardNatureField } from '@/components/shared/CardNatureField'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { LoanDetailSection } from '@/components/loan/LoanDetailSection'
 import { SavingsConfigSection } from '@/features/savings/SavingsConfigSection'
@@ -129,9 +130,13 @@ export function AccountDetailPage() {
 
   // PnL from unified history endpoint (pre-computed by backend)
   const pnlLatest = pnlData && pnlData.length > 0 ? pnlData[pnlData.length - 1] : null
-  const pnl = pnlLatest && pnlLatest.invested > 0 ? pnlLatest.pnl : null
-  const pnlPct = pnlLatest && pnlLatest.invested > 0
-    ? ((pnlLatest.pnl / pnlLatest.invested) * 100).toFixed(1) : null
+  const canShowPnl = pnlLatest !== null
+    && pnlLatest.invested !== null
+    && pnlLatest.invested > 0
+    && pnlLatest.pnl !== null
+  const pnl = canShowPnl ? pnlLatest.pnl : null
+  const pnlPct = pnl !== null && pnlLatest !== null && pnlLatest.invested !== null && pnlLatest.invested > 0
+    ? ((pnl / pnlLatest.invested) * 100).toFixed(1) : null
   const pnlPositive = pnl !== null && pnl >= 0
 
   // History + holdings + transactions + snapshots. Rendered flat for most accounts,
@@ -159,25 +164,7 @@ export function AccountDetailPage() {
         </Card>
       ) : null}
 
-      {/* Holdings */}
-      {showHoldings && (
-        holdings ? (
-          <HoldingsTable
-            holdings={holdings}
-            onEdit={setEditingHolding}
-            onDelete={(h) => deleteHoldingMutation.mutate(h.ticker)}
-          />
-        ) : (
-          <Card>
-            <CardContent className="pt-6">
-              <Skeleton className="h-32 w-full" />
-            </CardContent>
-          </Card>
-        )
-      )}
-
-      {/* Realized P&L on closed positions (investment accounts only) */}
-      {showHoldings && <RealizedPnlSection accountId={accountId} enabled={showHoldings} />}
+      {/* Holdings and realized P&L are rendered once, above, outside this fragment. */}
 
       {/* Transactions */}
       {!isLoan && transactions && (
@@ -303,6 +290,7 @@ export function AccountDetailPage() {
                 <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.dueDate')}</p>
                 <p className="text-base font-medium">{formatLocalDate(account.paymentDueDate)}</p>
               </div>}
+              <CardNatureField nature={account.cardNature} />
               {account.rewardPoints != null && <div>
                 <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.miles')}</p>
                 <p className="text-xl font-semibold tabular-nums">{new Intl.NumberFormat(locale).format(account.rewardPoints)}</p>
@@ -313,7 +301,7 @@ export function AccountDetailPage() {
             <CurrencyDisplay value={displayBalance} className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`} />
             {showHoldings && account.cashBalance != null && (
               <p className="mt-1 text-xs text-muted-foreground">
-                {t('accounts.cashBalance')}: <CurrencyDisplay value={account.cashBalance} />
+                {t(account.type === 'PER' ? 'accounts.perEuroFundBalance' : 'accounts.cashBalance')}: <CurrencyDisplay value={account.cashBalance} />
               </p>
             )}
             {account.currency !== 'EUR' && (
@@ -357,14 +345,15 @@ export function AccountDetailPage() {
 
           Both are keyed on the account id so their column sort resets when the reader moves to
           another account. This route keeps the same component across a change of :id, so without
-          the key a sort chosen on one portfolio would silently carry over to the next. */}
+          the key a sort chosen on one portfolio would silently carry over to the next. The prefix
+          keeps it distinct from the realized P&L section's key: both are siblings here. */}
       {showHoldings && (
         holdings ? (
           positions && positions.length > 0 ? (
-            <PositionsByProduct key={accountId} positions={positions} />
+            <PositionsByProduct key={`holdings-${accountId}`} positions={positions} />
           ) : (
             <HoldingsTable
-              key={accountId}
+              key={`holdings-${accountId}`}
               holdings={holdings}
               onEdit={setEditingHolding}
               onDelete={(h) => deleteHoldingMutation.mutate(h.ticker)}
@@ -380,7 +369,7 @@ export function AccountDetailPage() {
       )}
 
       {/* Realized P&L on closed positions (investment accounts only) */}
-      {showHoldings && <RealizedPnlSection key={accountId} accountId={accountId} enabled={showHoldings} />}
+      {showHoldings && <RealizedPnlSection key={`realized-${accountId}`} accountId={accountId} enabled={showHoldings} />}
 
       {/* Savings accounts: split into Overview / Config tabs so the page stays clean. */}
       {isSavings && account ? (

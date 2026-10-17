@@ -8,6 +8,7 @@ import { AiCategorizationSection } from './sections/AiCategorizationSection'
 import { IntegrationsSection } from './sections/IntegrationsSection'
 import { MembersSection } from './sections/MembersSection'
 import { AiActivitySection } from './sections/AiActivitySection'
+import { TelemetrySection } from './sections/TelemetrySection'
 import { EnableBankingDebugSection } from './sections/EnableBankingDebugSection'
 
 export function AdminPage() {
@@ -28,6 +29,7 @@ export function AdminPage() {
           <AiActivitySection />
           <EnableBankingDebugSection />
           <IntegrationsSection integrations={data.integrations} />
+          <TelemetrySection settings={data.telemetry} />
         </>
       )}
     </div>

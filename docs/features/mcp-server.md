@@ -1,6 +1,6 @@
 # Feature: Embedded MCP server + scoped access-keys
 
-> Last updated: 2026-10-05
+> Last updated: 2026-10-07
 
 ## Context
 
@@ -112,8 +112,8 @@ maintenance, **manual account creation**, **refresh-existing-sync** triggers, an
 
 With `accounts:write`, `delete_account` can soft-delete both manual and synced accounts. Deleting
 the last account on a connection also removes that connection: it can clear stored provider
-sessions/credentials, remove a wallet or exchange connection, delete an IBKR connection, or delete
-an Enable Banking requisition. A connection still used by another live account is kept.
+sessions/credentials, remove a wallet or exchange connection, delete an IBKR or SimpleFIN connection,
+or delete an Enable Banking requisition. A connection still used by another live account is kept.
 The tool returns the `DeletionImpact` of what the deletion actually removed, in the same
 transaction: the removed connection's label, or `false` / `null` when the connection is kept or
 there was nothing left to remove (wallet row or exchange session already gone, unknown exchange
@@ -208,6 +208,10 @@ sessions/credentials as the documented side effect of deleting a connection's la
   broker-tool refresh are preserved through `MemberSyncService`, immediately after Fortuneo and
   before IBKR. Full sync includes it once; `get_sync_status` exposes its queue/failure state and
   last completion time. These calls only reuse the stored session, never initiate authentication.
+- **SimpleFIN is a bank source.** `MemberSyncService` runs it right after IBKR. Full sync includes
+  it once, and `trigger_bank_sync` runs it with Enable Banking. A revoked access (HTTP 403) is
+  `NEEDS_REAUTH` in the trigger summary. `get_sync_status` reads the stored connection: `ERROR`
+  is `FAILED` with `reauth=false`, because the stored status does not keep the reason.
 - **The sync summary distinguishes failures from missing connections and expired credentials.**
   An unconnected Finary source is `SKIPPED_NOT_CONNECTED`, and an IBKR connection in `ERROR`
   is `FAILED` in `get_sync_status`. A crypto-exchange batch keeps running after a session fails,

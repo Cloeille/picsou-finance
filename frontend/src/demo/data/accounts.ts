@@ -264,6 +264,7 @@ export const mockAccounts: Account[] = [
     paymentDueAmount: 912.4,
     paymentDueDate: '2025-04-05',
     rewardPoints: 48250,
+    cardNature: 'DEFERRED_DEBIT',
   },
   {
     // Invented paper-property line. Not a real fund, and not priced from a market bulletin.

@@ -352,7 +352,7 @@ public class AccountService {
         // provider request per holding instead of one per page.
         Map<String, HoldingLogoUrls> logos = logosFor(account, holdings);
         return holdings.stream()
-            .map(holding -> toHoldingResponse(holding, quotes, logos))
+            .map(holding -> toHoldingResponse(account, holding, quotes, logos))
             .toList();
     }
 
@@ -509,7 +509,7 @@ public class AccountService {
      * @param anyPriced   false only when the account holds assets and <em>none</em> could be
      *                    valued. {@code liveEur} is then not a small balance, it is a blank one —
      *                    callers that persist a valuation must refuse rather than record it
-     * @param anyStale    true when at least one price is a recorded one rather than a live quote
+     * @param anyStale    true when at least one price or line value is a recorded fallback
      */
     public record Valuation(BigDecimal liveEur, BigDecimal investedEur,
                             boolean allPriced, boolean anyPriced, boolean anyStale) {}
@@ -569,6 +569,7 @@ public class AccountService {
         boolean anyHoldingPriced = false;
         boolean anyStale = false;
         boolean anyCostBasisUnknown = false;
+        boolean caisseEpargnePer = isCaisseEpargnePer(account);
 
         for (AccountHolding h : holdings) {
             BigDecimal qty = h.getQuantity();
@@ -583,11 +584,17 @@ public class AccountService {
                 allHoldingsProviderValued = false;
             }
 
-            if (quote != null) {
+            boolean usableQuote = quote != null && (!caisseEpargnePer
+                || quote.price() != null && quote.price().signum() > 0);
+            boolean usableProviderValue = h.getProviderValueEur() != null && (!caisseEpargnePer
+                || h.getProviderValueEur().signum() > 0);
+            if (caisseEpargnePer && !usableQuote && (quote != null
+                || h.getProviderValueEur() != null && !usableProviderValue)) anyStale = true;
+            if (usableQuote) {
                 anyHoldingPriced = true;
                 if (!quote.live()) anyStale = true;
                 liveValue = liveValue.add(qty.multiply(quote.price()));
-            } else if (hasTicker && h.getProviderValueEur() != null) {
+            } else if (hasTicker && usableProviderValue) {
                 // A ticker we could not price at any age, but the connector reported this line's
                 // own EUR value (Trade Republic, Bourse Direct). Use it rather than dropping the
                 // line. The lookup did fail, so allHoldingsPriced goes false — that is what makes
@@ -598,6 +605,7 @@ public class AccountService {
                 allHoldingsPriced = false;
                 liveValue = liveValue.add(h.getProviderValueEur());
                 anyHoldingPriced = true;
+                if (caisseEpargnePer) anyStale = true;
             } else if (hasTicker) {
                 allHoldingsPriced = false;
                 // Skipping is deliberate -- a held-but-unpriced asset must not be valued at a
@@ -618,7 +626,7 @@ public class AccountService {
                 // what reported an untouched account as an 85% loss: the whole cost of the
                 // positions that failed to price stayed in the denominator.
                 continue;
-            } else if (h.getProviderValueEur() != null) {
+            } else if (usableProviderValue) {
                 // No ticker to price, but the connector reported the line's EUR value itself
                 // (Bourse Direct is the only one that does). That is a valuation, so count it and
                 // its cost basis below, and treat the account as priced: there was no lookup to
@@ -626,6 +634,7 @@ public class AccountService {
                 // into a permanent one — such an account simply stopped receiving snapshots.
                 liveValue = liveValue.add(h.getProviderValueEur());
                 anyHoldingPriced = true;
+                if (caisseEpargnePer) anyStale = true;
             } else {
                 // No ticker *and* no reported value: nothing can put a number on this line. Drop
                 // it from both sides, exactly as for a ticker the providers could not price —
@@ -647,12 +656,6 @@ public class AccountService {
             }
         }
 
-        if (anyCostBasisUnknown) {
-            // A partial cost basis creates a fictitious gain. Until every
-            // position is known, use the account value as a neutral baseline.
-            invested = account.getCurrentBalance();
-            investedOverAllHoldings = account.getCurrentBalance();
-        }
         // Some providers report an authoritative total in EUR. If Yahoo/OpenFIGI cannot
         // price even one instrument, prefer that last successful provider valuation over a
         // misleading partial total (cash + only the symbols Yahoo happened to resolve).
@@ -683,6 +686,13 @@ public class AccountService {
             invested = investedOverAllHoldings;
             // The provider valued them; only our price lookup failed.
             anyHoldingPriced = true;
+        }
+        if (anyCostBasisUnknown) {
+            // PER purchase basis is not reported. Pair the current PER valuation with itself;
+            // its last bank NAV may predate newer market prices and is not a cost basis.
+            BigDecimal neutralBaseline = caisseEpargnePer ? liveValue : account.getCurrentBalance();
+            invested = neutralBaseline;
+            investedOverAllHoldings = neutralBaseline;
         }
         return new Valuation(liveValue, invested, allHoldingsPriced, anyHoldingPriced, anyStale);
     }
@@ -762,6 +772,11 @@ public class AccountService {
     /** Null-safe: {@code Set.of(...)} throws on a null lookup, and most accounts have no provider. */
     private boolean isProviderValued(Account account) {
         return account.getProvider() != null && PROVIDER_VALUED.contains(account.getProvider());
+    }
+
+    private boolean isCaisseEpargnePer(Account account) {
+        return account.getType() == AccountType.PER
+            && CaisseEpargneSyncService.PROVIDER.equals(account.getProvider());
     }
 
     /**
@@ -856,7 +871,7 @@ public class AccountService {
         h.setProviderValueEur(null);
         h.setProviderPnlEur(null);
         holdingRepository.save(h);
-        return toHoldingResponse(h, quotesFor(account, List.of(h)), logosFor(account, List.of(h)));
+        return toHoldingResponse(account, h, quotesFor(account, List.of(h)), logosFor(account, List.of(h)));
     }
 
     @Transactional
@@ -1006,10 +1021,13 @@ public class AccountService {
         return loanAmortizationService.compute(debt, LocalDate.now());
     }
 
-    private HoldingResponse toHoldingResponse(AccountHolding holding,
+    private HoldingResponse toHoldingResponse(Account account,
+                                              AccountHolding holding,
                                               Map<String, PriceService.Quote> quotes,
                                               Map<String, HoldingLogoUrls> logos) {
         BigDecimal currentPrice = holding.getCurrentPrice();
+        BigDecimal quantity = holding.getQuantity();
+        String quoteCurrency = holding.getQuoteCurrency();
         BigDecimal currentPriceEur = null;
         Instant priceUpdatedAt = null;
         LocalDate priceAsOf = null;
@@ -1026,25 +1044,51 @@ public class AccountService {
         // resolves and its logo does not, which reads as a missing image rather than a bug.
         boolean hasTicker = holding.getTicker() != null && !holding.getTicker().isBlank();
         String tickerKey = hasTicker ? holding.getTicker().toUpperCase(Locale.ROOT) : null;
+        boolean caisseEpargnePer = isCaisseEpargnePer(account);
+        BigDecimal providerValue = holding.getProviderValueEur();
+        boolean hasProviderValue = providerValue != null;
+        if (caisseEpargnePer && providerValue != null && providerValue.signum() <= 0) {
+            providerValue = null;
+        }
         if (hasTicker) {
             PriceService.Quote quote = quotes.get(tickerKey);
-            if (quote != null) {
+            boolean usableQuote = quote != null && (!caisseEpargnePer
+                || quote.price() != null && quote.price().signum() > 0);
+            if (usableQuote) {
                 currentPriceEur = quote.price();
+                if (caisseEpargnePer) {
+                    currentPrice = quote.price();
+                    quoteCurrency = "EUR";
+                }
                 priceAsOf = quote.asOf();
                 priceStale = !quote.live();
+            } else if (caisseEpargnePer && (quote != null || hasProviderValue)) {
+                priceStale = true;
             }
             priceUpdatedAt = holding.getLastSyncedAt();
+        } else if (caisseEpargnePer && hasProviderValue) {
+            priceStale = true;
         }
 
-        BigDecimal quantity = holding.getQuantity();
+        if (caisseEpargnePer && currentPriceEur == null && providerValue != null) {
+            // The bank's line valuation is the fallback, not its sync timestamp. Keep the
+            // displayed unit price and EUR total mathematically aligned with that NAV.
+            currentPrice = quantity != null && quantity.signum() != 0
+                ? providerValue.divide(quantity, 8, RoundingMode.HALF_UP)
+                : null;
+            quoteCurrency = "EUR";
+            priceAsOf = holding.getProviderPriceDate();
+            priceStale = true;
+        }
+
         BigDecimal averageBuyIn = holding.getAverageBuyIn();
-        BigDecimal costBasis = providerCostBasisEur(holding);
+        BigDecimal costBasis = providerValue == null ? null : providerCostBasisEur(holding);
         if (costBasis == null && averageBuyIn != null) {
             costBasis = averageBuyIn.multiply(quantity);
         }
         BigDecimal currentValueEur = currentPriceEur != null
             ? currentPriceEur.multiply(quantity)
-            : holding.getProviderValueEur();
+            : providerValue;
         BigDecimal pnlEur = currentValueEur != null && costBasis != null
             ? currentValueEur.subtract(costBasis)
             : holding.getProviderPnlEur();
@@ -1066,7 +1110,7 @@ public class AccountService {
             quantity,
             averageBuyIn,
             currentPrice,
-            holding.getQuoteCurrency(),
+            quoteCurrency,
             currentValueEur,
             costBasis,
             pnlEur,

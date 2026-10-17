@@ -20,9 +20,12 @@ Login (`/initiate`, `/complete`): 400 INVALID_REQUEST, 401 INVALID_CREDENTIALS,
   408 APP_VALIDATION_TIMEOUT, 409 KEYPAD_CHANGED, 410 AUTH_ATTEMPT_EXPIRED,
   429 TOO_MANY_PENDING, 502 UPSTREAM_UNAVAILABLE / UPSTREAM_FORMAT_CHANGED.
 `POST /accounts` uses the bourso-style codes instead of UPSTREAM_ERROR:
-  502 UPSTREAM_UNAVAILABLE    bank-side or transport failure
-  502 UPSTREAM_FORMAT_CHANGED a payload that does not match the observed format
-                              (all-or-nothing: never a partial account list)
+  502 UPSTREAM_UNAVAILABLE    bank-side or transport failure (synthesis or current account)
+  502 UPSTREAM_FORMAT_CHANGED a payload (synthesis or current account) that does not match
+                              the observed format
+  Any other account that cannot be read is absent from `accounts` and listed in
+  `unavailable` (`{externalId, kind, code}`). The deadline below still drops the whole
+  import (502 UPSTREAM_UNAVAILABLE).
 """
 
 import asyncio
@@ -36,10 +39,11 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 import fetcher
 import login
+import per_client
 import replay
 
 logging.basicConfig(level=logging.INFO)
@@ -143,8 +147,16 @@ class InitiateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", repr=False)
 
     customerId: str = Field(min_length=1, max_length=200)
-    # Shape (digits, 4-20) is checked in login.initiate -> 401 before any browser work.
-    password: str = Field(max_length=200, repr=False)
+
+
+class KeypadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", repr=False)
+
+    processId: str = Field(min_length=1, max_length=200)
+    # The positions the user clicked in the pop-up. The password itself never
+    # leaves his browser: it is only ever the page's own script that knows it.
+    # StrictInt: a stringified index is a bug on the caller side, not a position.
+    positions: list[StrictInt] = Field(min_length=1, max_length=200)
 
 
 class CompleteRequest(BaseModel):
@@ -153,7 +165,7 @@ class CompleteRequest(BaseModel):
     processId: str = Field(min_length=1, max_length=200)
 
 
-LOGIN_PATHS = {"/initiate", "/complete"}
+LOGIN_PATHS = {"/initiate", "/keypad", "/complete"}
 
 
 @app.exception_handler(RequestValidationError)
@@ -173,14 +185,27 @@ async def health() -> dict:
 
 @app.post("/initiate")
 async def initiate(req: InitiateRequest) -> dict:
-    # One attempt: no retry here or anywhere. The password goes straight to the
-    # keypad and is never logged or returned.
+    # One attempt: no retry here or anywhere. Only the identifier goes in; the pad
+    # images come back for the user to click himself.
     try:
-        return await login.initiate(req.customerId, req.password)
+        return await login.initiate(req.customerId)
     except login.LoginError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.code) from None
     except Exception:
         log.error("initiate failed unexpectedly")  # no exception text: it may quote input
+        raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from None
+
+
+@app.post("/keypad")
+async def keypad(req: KeypadRequest) -> dict:
+    # The clicked positions are never logged; a wrong set costs nothing at the bank
+    # (the pad typing is refused before any click).
+    try:
+        return await login.keypad(req.processId, req.positions)
+    except login.LoginError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.code) from None
+    except Exception:
+        log.error("keypad failed unexpectedly")
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from None
 
 
@@ -214,16 +239,49 @@ async def token_check(req: TokenCheckRequest) -> dict:
 
 
 
-async def _fetch_accounts(session_state: str) -> dict:
+async def _fetch_once(session_state: str) -> dict:
     token = await _token_cache.get(session_state, transport=_TRANSPORT)
+
+    async def loan_token() -> str:
+        # Second OAuth chain, minted only when the synthesis holds a loan.
+        result = await _token_cache.get(session_state, transport=_TRANSPORT, chain=replay.LOAN_CHAIN)
+        return result.access_token
+
+    async def per_detail(contract_id: str, entity_code: str) -> dict:
+        # Third OAuth chain (insurer app), minted only when the synthesis holds a PER.
+        # The main token already proved the session alive, so a refusal here is
+        # PER-specific: one fresh PER token is tried, then only this PER is left out.
+        for attempt in (1, 2):
+            try:
+                per_token = await _token_cache.get(session_state, transport=_TRANSPORT, chain=replay.PER_CHAIN)
+                return await per_client.fetch_per_detail(
+                    per_token.access_token,
+                    contract_id,
+                    entity_code=entity_code,
+                    routing_token=token.access_token,
+                    transport=_TRANSPORT,
+                )
+            except replay.SessionExpired:
+                _token_cache.evict(session_state, chain=replay.PER_CHAIN)
+                if attempt == 2:
+                    raise replay.UpstreamError("PER token refused twice") from None
+        raise AssertionError("unreachable")
+
+    return await fetcher.fetch_import(
+        token.access_token, transport=_TRANSPORT, loan_token=loan_token, per_detail=per_detail
+    )
+
+
+async def _fetch_accounts(session_state: str) -> dict:
     try:
-        return await fetcher.fetch_import(token.access_token, transport=_TRANSPORT)
+        return await _fetch_once(session_state)
     except replay.SessionExpired:
-        # A cached token can be revoked before its expiry: drop it and replay once more.
+        # A cached token can be revoked before its expiry: drop both and replay once more.
         # A second rejection (or a failed replay) means the session itself is dead.
         _token_cache.evict(session_state)
-        token = await _token_cache.get(session_state, transport=_TRANSPORT)
-        return await fetcher.fetch_import(token.access_token, transport=_TRANSPORT)
+        _token_cache.evict(session_state, chain=replay.LOAN_CHAIN)
+        _token_cache.evict(session_state, chain=replay.PER_CHAIN)
+        return await _fetch_once(session_state)
 
 
 @app.post("/accounts")
