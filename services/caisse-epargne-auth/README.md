@@ -271,9 +271,12 @@ Logout.
 
 ```
 python3 -m venv "$TMPDIR/ce-venv"          # outside the repo
-"$TMPDIR/ce-venv/bin/pip" install -r requirements.txt pytest
-cd services/caisse-epargne-auth && "$TMPDIR/ce-venv/bin/python" -m pytest -q -p no:cacheprovider .
+"$TMPDIR/ce-venv/bin/pip" install -r requirements.txt
+cd services/caisse-epargne-auth && APP_SIDECAR_API_KEY=test-key \
+  env -u PYTHONPATH "$TMPDIR/ce-venv/bin/python" -m unittest discover -v
 ```
+
+Every test is a stdlib `unittest` case: no test-only dependency.
 
 The data calls use `httpx.MockTransport`; the login uses a fake Playwright
 (`fake_browser.py`): no browser, no network, no real credentials, no bank data.
