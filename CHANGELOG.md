@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SimpleFIN bank sync.** A member can paste a one-time setup token from SimpleFIN
+  Bridge. Picsou claims it, stores the access URL encrypted, and imports account
+  balances and posted transactions alongside Enable Banking, by hand, from Sync All
+  and on the daily job. Only `beta-bridge.simplefin.org` is contacted. Accounts
+  arrive as checking accounts, like Enable Banking's; set a savings account or a
+  credit card in the account form and later syncs keep that type. Pending
+  transactions and non-ISO currencies are skipped. There is no institution search:
+  banks are linked on SimpleFIN Bridge, then one token is brought back. See
+  [ADR](docs/decisions/2026-10-04-simplefin-beside-enable-banking.md) and
+  [feature note](docs/features/simplefin-sync.md).
 - **You can connect a Caisse d'Epargne account and sync it on request.** From the Sync page or
   the add-account window, you enter your identifier, click your own digits on the bank's
   keypad shown in a pop-up, then approve in Sécur'Pass. Picsou never sees your password and
@@ -34,6 +44,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an assurance-vie or as employee savings, which misdescribed it. A PER holds unit-linked
   lines and a euro fund like an assurance-vie, counts as equity in the wealth pyramid, sits
   under Stocks on the accounts page, and records its opening date.
+- **You can choose to send anonymous crash reports and usage counts to the Picsou developers.**
+  It is off by default and only exists when the instance sets `APP_TELEMETRY_DSN`; without it
+  nothing changes. An admin is asked once, with the exact list of what is shared and what never is,
+  and can switch it off at any time in Administration — sending stops immediately. Reports carry
+  no amounts, account names, IBANs, emails or identifiers, are scrubbed in the browser and again on
+  your server, and reach the collector through your own server so your IP address is never seen.
+  See `docs/features/telemetry.md`.
+  Error messages are discarded rather than regex-scrubbed. The browser SDK closes on logout,
+  and the server tunnel forwards asynchronously with bounded concurrency and per-user limits.
 
 - **An MCP client can refresh every existing connector and read whether one needs a new login.**
   `trigger_full_sync` runs the same per-member sync as the 08:00 job and returns one line per
@@ -75,6 +94,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   menu now opens below the profile button when the window is tall enough, and flips
   above it otherwise; the default style keeps it opening upwards because its profile
   sits at the bottom of the screen.
+
+- **Import HomeBank iOS and desktop history from `.hbk`, `.hbexport` or `.qif`.**
+  Review the source accounts, transactions, payees and notes, then map accounts and
+  budget categories before confirming. Amounts, currencies and calendar dates are
+  kept as exported. The import is atomic, repeated source IDs are skipped, and
+  internal transfers and opening balances do not inflate spending or income.
+  Desktop QIF requires an explicit currency, preserves category splits and
+  transfer legs, and derives new balances from the exported history. Native iOS
+  exports retain password-protected import. Desktop `.xhb` XML is not supported.
+  Importing again into an existing manual account refreshes its balance and
+  history. QIF dates may be year-, day- or month-first, and a transfer to an
+  account missing from the file is imported as a plain row.
 
 - **Crypto holdings show the coin's logo next to their ticker.** A position is easier to
   recognise at a glance than by reading its ticker. The mark comes from CoinGecko, which
@@ -133,6 +164,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **HomeBank iOS imports retain the opening amount when mapped to an existing manual account.**
+  The non-zero opening is added once as a stable transfer ledger row before rebuilding
+  the balance and snapshots. Repeat imports do not duplicate it; synced balances stay untouched.
+- **The budget money-flow chart no longer calls unspent money "savings".** Income left on the
+  current account is now shown as "Unspent", and spending above income as "Taken from balance".
+  Only money actually transferred to a savings or investment account appears as savings, with one
+  band per account labelled "Savings · Livret A" or "Investment · PEA", taken out of the unspent
+  part. Savings are counted net per account, so money moved out and back is not savings;
+  withdrawals from a savings account and transfers to or from accounts not linked in Picsou are
+  shown as such. Trade Republic purchases and sales with matching cash and investment legs are
+  counted once, without a fictitious incoming or outgoing transfer.
+
 - **AMEX and DEGIRO deployments can use CI-built images instead of local builds.**
   Both authentication sidecars are included in GHCR publishing and image-based
   CI tests, and the deployment Compose file offers the same image/build choice
@@ -148,6 +191,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The card used to count the paid statement again on top of your new purchases. It now shows
   only what is still owed on the statement plus the purchases made since. A refund or an
   overpayment larger than the statement now shows as a credit on the card.
+
+- **Dashboard "Sync all" stays in place, including remembered Revolut sessions.** Revolut
+  discovery is auto-confirmed with remembered credentials preserved and deleted accounts
+  excluded. A discovery that completes or fails before the start response arrives no longer
+  leaves the row spinning forever; errors refresh session status and reauthentication routing.
+  Navigating away from the dashboard before discovery finishes still drops client-side confirm
+  ([#207](https://github.com/Cloeille/picsou-finance/issues/207)).
 
 - **MCP sync no longer hides an expired browser session or loses the status report after a database error.**
   BoursoBank, Bourse Direct, Amundi and Fortuneo distinguish an inactive session requiring a new login

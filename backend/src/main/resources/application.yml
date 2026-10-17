@@ -157,6 +157,12 @@ app:
   admin-recovery:
     enabled: ${ADMIN_RECOVERY_ENABLED:false}
   public-base-url: ${PUBLIC_BASE_URL:http://localhost:5173}
+  # Opt-in anonymous telemetry (GlitchTip / Sentry protocol). An empty DSN keeps the feature fully
+  # inactive: no SDK, no consent prompt, the browser tunnel drops everything. Even with a DSN,
+  # nothing is sent until the instance admin consents. See docs/features/telemetry.md.
+  telemetry:
+    dsn: ${APP_TELEMETRY_DSN:}
+    environment: ${APP_TELEMETRY_ENVIRONMENT:production}
   jwt:
     secret: ${JWT_SECRET}
     access-token-expiry-minutes: 15

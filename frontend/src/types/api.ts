@@ -766,6 +766,14 @@ export interface IbkrConnectionStatus {
   maskedToken: string | null
 }
 
+export interface SimplefinConnectionStatus {
+  connected: boolean
+  connectionId: number | null
+  status: string | null
+  lastSyncedAt: string | null
+  maskedToken: string | null
+}
+
 interface BoursoSessionStatusBase {
   isActive: boolean
   lastSyncStartedAt: string | null
@@ -1460,12 +1468,27 @@ export interface CashflowResponse {
   series: CashflowBucket[]
 }
 
-/** Sankey node role — drives colour/position; HUB and SAVINGS/drawdown are synthetic. */
-export type FlowNodeType = 'INCOME' | 'HUB' | 'EXPENSE' | 'SAVINGS'
+/**
+ * Sankey node role — drives colour/position. HUB, UNSPENT, SHORTFALL, TRANSFER_IN and
+ * TRANSFER_OUT are synthetic. SAVINGS (right) / WITHDRAWAL (left) are one node per
+ * savings/investment account whose transfers netted in / out over the period; TRANSFER_OUT/IN
+ * are money sent to / received from accounts Picsou does not see.
+ */
+export type FlowNodeType =
+  | 'INCOME'
+  | 'HUB'
+  | 'EXPENSE'
+  | 'SAVINGS'
+  | 'WITHDRAWAL'
+  | 'TRANSFER_IN'
+  | 'TRANSFER_OUT'
+  | 'UNSPENT'
+  | 'SHORTFALL'
 
 /**
  * One node in the income→budget→expense Sankey. `key` is `cat:<id>` for a real category,
- * or a `__…__` sentinel for a synthetic node (hub, "other income", savings, drawdown,
+ * `acct:<id>` for a savings/investment account, sink or withdrawal source (carries the account's name/colour), or a
+ * `__…__` sentinel for a synthetic node (hub, "other income", unspent, shortfall,
  * uncategorized, rolled-up tail). Synthetic nodes carry `label`/`color` null and are
  * labelled/coloured on the frontend.
  */
@@ -1474,6 +1497,8 @@ export interface FlowNode {
   label: string | null
   color: string | null
   type: FlowNodeType
+  /** Only on account (`SAVINGS`/`WITHDRAWAL`) nodes: SAVINGS or INVESTMENT; the UI prefixes the name with it. */
+  assetClass?: AssetClass | null
 }
 
 /** A weighted edge: indices into the response's `nodes` array. */
@@ -1490,6 +1515,10 @@ export interface CashflowFlowResponse {
   income: number
   expense: number   // positive magnitude
   net: number
+  saved: number     // net moved into savings/investment accounts (sum of positive per-account nets)
+  withdrawn: number // net taken out of savings/investment accounts (sum of negative per-account nets, positive magnitude)
+  transferredOut: number // net sent to accounts not linked in Picsou (>= 0, mutually exclusive with transferredIn)
+  transferredIn: number  // net received from accounts not linked in Picsou (>= 0)
   nodes: FlowNode[]
   links: FlowLink[]
 }
@@ -1984,3 +2013,22 @@ export interface MemberProfile {
 
 /** A full replacement: a null field clears what was stored. */
 export type MemberProfileRequest = Omit<MemberProfile, 'age' | 'monthlyNetIncome'>
+
+/** `GET /telemetry/config`. `dsn` is null unless telemetry is effectively enabled. */
+export interface TelemetryConfig {
+  available: boolean
+  consent: TelemetryConsent
+  enabled: boolean
+  dsn: string | null
+  environment: string
+  release: string
+}
+
+/** Instance-wide telemetry consent. `UNSET` = never asked, treated as disabled. */
+export type TelemetryConsent = 'ENABLED' | 'DISABLED' | 'UNSET'
+
+export interface TelemetrySettings {
+  /** A DSN is configured on the server; without one telemetry is inert everywhere. */
+  available: boolean
+  consent: TelemetryConsent
+}

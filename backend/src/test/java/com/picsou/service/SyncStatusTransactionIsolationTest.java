@@ -4,6 +4,7 @@ import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
 import com.picsou.repository.IbkrConnectionRepository;
 import com.picsou.repository.RequisitionRepository;
+import com.picsou.repository.SimplefinConnectionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import org.aopalliance.intercept.MethodInterceptor;
@@ -124,6 +125,7 @@ class SyncStatusTransactionIsolationTest {
                 mock(FortuneoSyncService.class),
                 mock(AmexSyncService.class),
                 mock(IbkrConnectionRepository.class),
+                mock(SimplefinConnectionRepository.class),
                 mock(CryptoExchangeSyncService.class),
                 mock(WalletAddressRepository.class),
                 mock(FinarySessionRepository.class),

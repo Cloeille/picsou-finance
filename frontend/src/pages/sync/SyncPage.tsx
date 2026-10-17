@@ -8,7 +8,9 @@ import { CryptoWalletTab } from './CryptoWalletTab'
 import { TradeRepublicTab } from './TradeRepublicTab'
 import { RevolutTab } from './RevolutTab'
 import { IbkrTab } from './IbkrTab'
+import { SimplefinTab } from './SimplefinTab'
 import { FinaryTab } from './FinaryTab'
+import { HomeBankTab } from './HomeBankTab'
 import { BourseDirectTab } from './BourseDirectTab'
 import { AccountsVisibilityTab } from './AccountsVisibilityTab'
 import { DegiroTab } from './DegiroTab'
@@ -41,6 +43,7 @@ export function SyncPage() {
           <TabsTrigger value="bourse-direct" className="flex-none">{t('sync.bourseDirect.title')}</TabsTrigger>
           <TabsTrigger value="degiro" className="flex-none">{t('sync.degiro.title')}</TabsTrigger>
           <TabsTrigger value="ibkr" className="flex-none">{t('sync.ibkr.title')}</TabsTrigger>
+          <TabsTrigger value="simplefin" className="flex-none">{t('sync.simplefin.title')}</TabsTrigger>
           <TabsTrigger value="amundi" className="flex-none">{t('sync.amundi.title')}</TabsTrigger>
           <TabsTrigger value="fortuneo" className="flex-none">{t('sync.fortuneo.title')}</TabsTrigger>
           <TabsTrigger value="amex" className="flex-none">{t('sync.amex.title')}</TabsTrigger>
@@ -48,6 +51,7 @@ export function SyncPage() {
           <TabsTrigger value="sofidy" className="flex-none">{t('sync.sofidy.title')}</TabsTrigger>
           <TabsTrigger value="actual" className="flex-none">{t('sync.actual.title')}</TabsTrigger>
           <TabsTrigger value="finary" className="flex-none">{t('sync.finary.title')}</TabsTrigger>
+          <TabsTrigger value="homebank" className="flex-none">{t('sync.homebank.title')}</TabsTrigger>
           <TabsTrigger value="visibility" className="flex-none">{t('sync.visibility.title')}</TabsTrigger>
         </TabsList>
         <TabsContent value="banks" className="mt-6">
@@ -80,6 +84,9 @@ export function SyncPage() {
         <TabsContent value="ibkr" className="mt-6">
           <IbkrTab />
         </TabsContent>
+        <TabsContent value="simplefin" className="mt-6">
+          <SimplefinTab />
+        </TabsContent>
         <TabsContent value="amundi" className="mt-6">
           <AmundiTab />
         </TabsContent>
@@ -100,6 +107,9 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="finary" className="mt-6">
           <FinaryTab />
+        </TabsContent>
+        <TabsContent value="homebank" className="mt-6">
+          <HomeBankTab />
         </TabsContent>
         <TabsContent value="visibility" className="mt-6">
           <AccountsVisibilityTab />

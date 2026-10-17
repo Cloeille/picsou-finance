@@ -9,6 +9,8 @@ import com.picsou.dto.SpendingByCategoryResponse;
 import com.picsou.dto.SpendingDetailResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.Account;
+import com.picsou.model.AccountType;
+import com.picsou.model.AssetClass;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
 import com.picsou.model.Transaction;
@@ -76,6 +78,66 @@ class CashflowFlowServiceTest {
         when(transactionRepository.findByMemberIdAndDateBetween(eq(MEMBER), any(), any())).thenReturn(txns);
     }
 
+    /** A transfer leg landing on an account of the given type (positive = incoming). */
+    private static Transaction transfer(String amount, long accountId, AccountType type) {
+        Category virement = cat(99, "Virement", CategoryKind.TRANSFER);
+        return Transaction.builder().amount(bd(amount)).categoryRef(virement)
+            .account(Account.builder().id(accountId).name("Acct" + accountId).color("#22c55e").type(type).build())
+            .date(LocalDate.of(2025, 3, 11)).build();
+    }
+
+    /** The matching leg on the linked current account (id 1) of a transfer to/from a savings account. */
+    private static Transaction checking(String amount) {
+        return transfer(amount, 1L, AccountType.CHECKING);
+    }
+
+    private static Transaction tradeRepublicLeg(
+        String amount, long accountId, AccountType type, String externalId,
+        Category category, LocalDate date, String provider
+    ) {
+        return Transaction.builder().amount(bd(amount)).categoryRef(category).externalId(externalId).date(date)
+            .account(Account.builder().id(accountId).name("Acct" + accountId).color("#22c55e")
+                .type(type).provider(provider).build())
+            .build();
+    }
+
+    private static Transaction tradeRepublicCash(String amount, Category category, String stem) {
+        return tradeRepublicLeg(amount, 1L, AccountType.CHECKING, stem + "_cash", category,
+            LocalDate.of(2025, 3, 11), "Trade Republic");
+    }
+
+    private static Transaction tradeRepublicInvestment(String amount, String stem) {
+        return tradeRepublicLeg(amount, 7L, AccountType.PEA, stem + "_inv",
+            cat(99, "Virement", CategoryKind.TRANSFER), LocalDate.of(2025, 3, 11), "Trade Republic");
+    }
+
+    private void givenTransfers(List<Transaction> transfers) {
+        when(transactionRepository.findByMemberIdAndKindAndDateBetween(
+            eq(MEMBER), eq(CategoryKind.TRANSFER), any(), any())).thenReturn(transfers);
+    }
+
+    private static void assertConserved(CashflowFlowResponse flow, String expectedTotal) {
+        int hubIndex = hubIndex(flow);
+        assertThat(intoHub(flow, hubIndex)).isEqualByComparingTo(outOfHub(flow, hubIndex));
+        assertThat(intoHub(flow, hubIndex)).isEqualByComparingTo(expectedTotal);
+    }
+
+    private static AssetClass assetClassOf(CashflowFlowResponse flow, String key) {
+        return flow.nodes().stream().filter(n -> key.equals(n.key())).findFirst().orElseThrow().assetClass();
+    }
+
+    private static BigDecimal valueOf(CashflowFlowResponse flow, String key) {
+        int idx = -1;
+        for (int i = 0; i < flow.nodes().size(); i++) {
+            if (key.equals(node(flow, i).key())) {
+                idx = i;
+            }
+        }
+        final int target = idx;
+        return flow.links().stream().filter(l -> l.target() == target || l.source() == target)
+            .map(FlowLink::value).findFirst().orElseThrow();
+    }
+
     private static FlowNode node(CashflowFlowResponse flow, int index) {
         return flow.nodes().get(index);
     }
@@ -83,7 +145,7 @@ class CashflowFlowServiceTest {
     // ─── Sankey flow ───────────────────────────────────────────────────────────
 
     @Test
-    void flow_buildsBalancedIncomeHubExpenseGraph_withSavingsSink() {
+    void flow_positiveNet_withoutSavingsTransfer_isUnspent_notSavings() {
         Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
         Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
         givenTransactions(List.of(tx("3000", salaire), tx("-1000", courses)));
@@ -93,19 +155,17 @@ class CashflowFlowServiceTest {
         assertThat(flow.income()).isEqualByComparingTo("3000");
         assertThat(flow.expense()).isEqualByComparingTo("1000");
         assertThat(flow.net()).isEqualByComparingTo("2000");
+        assertThat(flow.saved()).isEqualByComparingTo("0");
 
-        // One hub, an income source, an expense sink and a savings sink.
-        int hubIndex = hubIndex(flow);
-        assertThat(flow.nodes()).anyMatch(n -> n.type() == NodeType.SAVINGS);
-        assertThat(flow.nodes()).noneMatch(n -> "__drawdown__".equals(n.key()));
-
-        // Conservation: total into the hub equals total out of it.
-        assertThat(intoHub(flow, hubIndex)).isEqualByComparingTo(outOfHub(flow, hubIndex));
-        assertThat(intoHub(flow, hubIndex)).isEqualByComparingTo("3000");
+        assertThat(flow.nodes()).noneMatch(n -> n.type() == NodeType.SAVINGS);
+        assertThat(flow.nodes()).noneMatch(n -> n.type() == NodeType.SHORTFALL);
+        assertThat(flow.nodes()).anyMatch(n -> "__unspent__".equals(n.key()) && n.type() == NodeType.UNSPENT);
+        assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("2000");
+        assertConserved(flow, "3000");
     }
 
     @Test
-    void flow_addsDrawdownSource_whenOverspending() {
+    void flow_negativeNet_addsShortfallSource_withoutDrawdown() {
         Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
         Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
         givenTransactions(List.of(tx("1000", salaire), tx("-1500", courses)));
@@ -113,12 +173,337 @@ class CashflowFlowServiceTest {
         CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
 
         assertThat(flow.net()).isEqualByComparingTo("-500");
-        assertThat(flow.nodes()).anyMatch(n -> "__drawdown__".equals(n.key()) && n.type() == NodeType.INCOME);
-        assertThat(flow.nodes()).noneMatch(n -> n.type() == NodeType.SAVINGS);
+        assertThat(flow.nodes()).anyMatch(n -> "__shortfall__".equals(n.key()) && n.type() == NodeType.SHORTFALL);
+        assertThat(flow.nodes()).noneMatch(n -> "__drawdown__".equals(n.key()));
+        assertThat(flow.nodes()).noneMatch(n -> n.type() == NodeType.SAVINGS || n.type() == NodeType.UNSPENT);
+        assertThat(valueOf(flow, "__shortfall__")).isEqualByComparingTo("500");
+        assertConserved(flow, "1500");
+    }
 
-        int hubIndex = hubIndex(flow);
-        assertThat(intoHub(flow, hubIndex)).isEqualByComparingTo(outOfHub(flow, hubIndex));
-        assertThat(intoHub(flow, hubIndex)).isEqualByComparingTo("1500");
+    @Test
+    void flow_transferIntoSavingsAccount_becomesSavingsSink_andReducesUnspent() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        givenTransactions(List.of(tx("3000", salaire), tx("-1000", courses)));
+        givenTransfers(List.of(checking("-500"), transfer("500", 7L, AccountType.LIVRET_A)));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        // net keeps its CashflowService meaning (income − expense); saved is reported separately.
+        assertThat(flow.net()).isEqualByComparingTo("2000");
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+        FlowNode savings = flow.nodes().stream().filter(n -> n.type() == NodeType.SAVINGS)
+            .findFirst().orElseThrow();
+        assertThat(savings.key()).isEqualTo("acct:7");
+        assertThat(savings.label()).isEqualTo("Acct7");
+        assertThat(savings.color()).isEqualTo("#22c55e");
+        assertThat(valueOf(flow, "acct:7")).isEqualByComparingTo("500");
+        assertThat(flow.nodes()).noneMatch(n -> n.type() == NodeType.TRANSFER_IN || n.type() == NodeType.TRANSFER_OUT);
+        assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("1500");
+        assertConserved(flow, "3000");
+    }
+
+    @Test
+    void flow_tradeRepublicBuy_cashExpenseRemains_butMirroredInvestmentLegIsSuppressed() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        List<Transaction> transactions = List.of(
+            tx("3000", salaire), tx("-1000", courses), tradeRepublicCash("-500", courses, "buy-1"));
+        givenTransactions(transactions);
+        givenTransfers(List.of(tradeRepublicInvestment("500", "buy-1")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.income()).isEqualByComparingTo("3000");
+        assertThat(flow.expense()).isEqualByComparingTo("1500");
+        assertThat(flow.net()).isEqualByComparingTo("1500");
+        assertThat(flow.saved()).isEqualByComparingTo("0");
+        assertThat(flow.transferredIn()).isEqualByComparingTo("0");
+        assertThat(flow.transferredOut()).isEqualByComparingTo("0");
+        assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("1500");
+        assertConserved(flow, "3000");
+    }
+
+    @Test
+    void flow_tradeRepublicSell_cashIncomeRemains_butMirroredInvestmentLegIsSuppressed() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        givenTransactions(List.of(tx("3000", salaire), tx("-1000", courses),
+            tradeRepublicCash("500", salaire, "sell-1")));
+        givenTransfers(List.of(tradeRepublicInvestment("-500", "sell-1")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.income()).isEqualByComparingTo("3500");
+        assertThat(flow.expense()).isEqualByComparingTo("1000");
+        assertThat(flow.saved()).isEqualByComparingTo("0");
+        assertThat(flow.withdrawn()).isEqualByComparingTo("0");
+        assertThat(flow.transferredOut()).isEqualByComparingTo("0");
+        assertThat(flow.transferredIn()).isEqualByComparingTo("0");
+        assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("2500");
+        assertConserved(flow, "3500");
+    }
+
+    @Test
+    void flow_tradeRepublicInvestmentLegWithoutCashCounterpart_remainsTransfer() {
+        givenTransactions(List.of(tx("3000", cat(1, "Salaire", CategoryKind.INCOME))));
+        givenTransfers(List.of(tradeRepublicInvestment("500", "orphan")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+        assertThat(flow.transferredOut()).isEqualByComparingTo("0");
+        assertThat(flow.transferredIn()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void flow_tradeRepublicPairWithMismatchedAmount_remainsTransfer() {
+        givenTransactions(List.of(tradeRepublicCash("-499", cat(2, "Courses", CategoryKind.EXPENSE), "amount")));
+        givenTransfers(List.of(tradeRepublicInvestment("500", "amount")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void flow_tradeRepublicPairWithMismatchedDate_remainsTransfer() {
+        Transaction cash = tradeRepublicCash("-500", cat(2, "Courses", CategoryKind.EXPENSE), "date");
+        cash.setDate(LocalDate.of(2025, 3, 10));
+        givenTransactions(List.of(cash));
+        givenTransfers(List.of(tradeRepublicInvestment("500", "date")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void flow_tradeRepublicPairWithDifferentProviders_remainsTransfer() {
+        Transaction cash = tradeRepublicCash("-500", cat(2, "Courses", CategoryKind.EXPENSE), "provider");
+        cash.getAccount().setProvider("Other");
+        givenTransactions(List.of(cash));
+        givenTransfers(List.of(tradeRepublicInvestment("500", "provider")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void flow_tradeRepublicInvestmentLegWithDifferentProvider_remainsTransfer() {
+        Transaction cash = tradeRepublicCash("-500", cat(2, "Courses", CategoryKind.EXPENSE), "investment-provider");
+        Transaction investment = tradeRepublicInvestment("500", "investment-provider");
+        investment.getAccount().setProvider("Other");
+        givenTransactions(List.of(cash));
+        givenTransfers(List.of(investment));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void flow_tradeRepublicPairWithExtendedSuffixes_remainsTransfer() {
+        Transaction cash = tradeRepublicCash("-500", cat(2, "Courses", CategoryKind.EXPENSE), "suffix");
+        cash.setExternalId("suffix_cash_extra");
+        Transaction investment = tradeRepublicInvestment("500", "suffix");
+        investment.setExternalId("suffix_inv_extra");
+        givenTransactions(List.of(cash));
+        givenTransfers(List.of(investment));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void flow_tradeRepublicCashLegCategorizedAsTransfer_remainsGenuineTransfer() {
+        Transaction cash = tradeRepublicCash("-500", cat(99, "Virement", CategoryKind.TRANSFER), "transfer");
+        givenTransactions(List.of(cash));
+        givenTransfers(List.of(cash, tradeRepublicInvestment("500", "transfer")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("500");
+        assertThat(flow.transferredOut()).isEqualByComparingTo("0");
+        assertThat(flow.transferredIn()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void flow_transferBetweenTwoCheckingAccounts_cancelsOut() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        givenTransactions(List.of(tx("3000", salaire), tx("-1000", courses)));
+        givenTransfers(List.of(
+            transfer("-200", 8L, AccountType.CHECKING), transfer("200", 9L, AccountType.CHECKING)));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("0");
+        assertThat(flow.withdrawn()).isEqualByComparingTo("0");
+        assertThat(flow.transferredOut()).isEqualByComparingTo("0");
+        assertThat(flow.transferredIn()).isEqualByComparingTo("0");
+        assertThat(flow.nodes()).noneMatch(n -> n.type() == NodeType.SAVINGS || n.type() == NodeType.WITHDRAWAL
+            || n.type() == NodeType.TRANSFER_IN || n.type() == NodeType.TRANSFER_OUT);
+        assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("2000");
+        assertConserved(flow, "3000");
+    }
+
+    @Test
+    void flow_transferToUnlinkedAccount_isTransferOut_notSavings() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        givenTransactions(List.of(tx("3000", salaire), tx("-1000", courses)));
+        givenTransfers(List.of(checking("-500")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("0");
+        assertThat(flow.transferredOut()).isEqualByComparingTo("500");
+        assertThat(flow.transferredIn()).isEqualByComparingTo("0");
+        assertThat(flow.nodes()).noneMatch(n -> n.type() == NodeType.SAVINGS);
+        assertThat(flow.nodes()).anyMatch(n -> "__transfer_out__".equals(n.key()) && n.type() == NodeType.TRANSFER_OUT);
+        assertThat(valueOf(flow, "__transfer_out__")).isEqualByComparingTo("500");
+        assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("1500");
+        assertConserved(flow, "3000");
+    }
+
+    @Test
+    void flow_transferFromUnlinkedAccount_isTransferInSource() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        givenTransactions(List.of(tx("3000", salaire), tx("-1000", courses)));
+        givenTransfers(List.of(checking("300")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.transferredIn()).isEqualByComparingTo("300");
+        assertThat(flow.transferredOut()).isEqualByComparingTo("0");
+        assertThat(flow.nodes()).anyMatch(n -> "__transfer_in__".equals(n.key()) && n.type() == NodeType.TRANSFER_IN);
+        assertThat(valueOf(flow, "__transfer_in__")).isEqualByComparingTo("300");
+        assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("2300");
+        assertConserved(flow, "3300");
+    }
+
+    @Test
+    void flow_savingsLargerThanSurplus_isCoveredByShortfall() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        givenTransactions(List.of(tx("3000", salaire), tx("-2500", courses)));
+        // Surplus is only 500, but 800 reached the Livret A → 300 comes out of the balance.
+        givenTransfers(List.of(checking("-800"),
+            transfer("500", 7L, AccountType.LIVRET_A), transfer("300", 7L, AccountType.LIVRET_A)));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("800");
+        assertThat(valueOf(flow, "acct:7")).isEqualByComparingTo("800");
+        assertThat(valueOf(flow, "__shortfall__")).isEqualByComparingTo("300");
+        assertThat(flow.nodes()).noneMatch(n -> n.type() == NodeType.UNSPENT);
+        assertConserved(flow, "3300");
+    }
+
+    @Test
+    void flow_oneSavingsSinkPerAccount_largestFirst_includingInvestmentAccounts() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        givenTransactions(List.of(tx("3000", salaire), tx("-1000", courses)));
+        givenTransfers(List.of(
+            checking("-650"),
+            transfer("150", 7L, AccountType.LEP),
+            transfer("400", 2L, AccountType.PEA),
+            transfer("100", 7L, AccountType.LEP)));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("650");
+        assertThat(flow.nodes().stream().filter(n -> n.type() == NodeType.SAVINGS).map(FlowNode::key))
+            .containsExactly("acct:2", "acct:7");
+        assertThat(valueOf(flow, "acct:2")).isEqualByComparingTo("400");
+        assertThat(valueOf(flow, "acct:7")).isEqualByComparingTo("250");
+        assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("1350");
+        assertThat(assetClassOf(flow, "acct:2")).isEqualTo(AssetClass.INVESTMENT);
+        assertThat(assetClassOf(flow, "acct:7")).isEqualTo(AssetClass.SAVINGS);
+        assertThat(assetClassOf(flow, "cat:2")).isNull();
+        assertConserved(flow, "3000");
+    }
+
+    @Test
+    void flow_savingsOnly_isNotEmpty_andIsFundedByShortfall() {
+        givenTransactions(List.of());
+        givenTransfers(List.of(checking("-200"), transfer("200", 7L, AccountType.LIVRET_A)));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.nodes()).isNotEmpty();
+        assertThat(flow.saved()).isEqualByComparingTo("200");
+        assertThat(valueOf(flow, "__shortfall__")).isEqualByComparingTo("200");
+        assertThat(valueOf(flow, "acct:7")).isEqualByComparingTo("200");
+        assertConserved(flow, "200");
+    }
+
+    @Test
+    void flow_outAndBackOnSavingsAccount_netsToNothing() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        givenTransactions(List.of(tx("3000", salaire), tx("-1000", courses)));
+        // €1,000 leaves the Livret A for the current account and comes back within the cycle.
+        givenTransfers(List.of(
+            transfer("-1000", 7L, AccountType.LIVRET_A), checking("1000"),
+            checking("-1000"), transfer("1000", 7L, AccountType.LIVRET_A)));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("0");
+        assertThat(flow.withdrawn()).isEqualByComparingTo("0");
+        assertThat(flow.nodes()).noneMatch(n -> n.type() == NodeType.SAVINGS || n.type() == NodeType.WITHDRAWAL
+            || n.type() == NodeType.SHORTFALL);
+        assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo(flow.net());
+        assertConserved(flow, "3000");
+    }
+
+    @Test
+    void flow_livretAToPea_isWithdrawalPlusSavings_withoutTouchingTheBalance() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        givenTransactions(List.of(tx("3000", salaire), tx("-1000", courses)));
+        givenTransfers(List.of(
+            transfer("-1000", 7L, AccountType.LIVRET_A), transfer("1000", 2L, AccountType.PEA)));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.saved()).isEqualByComparingTo("1000");
+        assertThat(flow.withdrawn()).isEqualByComparingTo("1000");
+        FlowNode withdrawal = flow.nodes().stream().filter(n -> n.type() == NodeType.WITHDRAWAL)
+            .findFirst().orElseThrow();
+        assertThat(withdrawal.key()).isEqualTo("acct:7");
+        assertThat(withdrawal.label()).isEqualTo("Acct7");
+        assertThat(withdrawal.color()).isEqualTo("#22c55e");
+        assertThat(withdrawal.assetClass()).isEqualTo(AssetClass.SAVINGS);
+        assertThat(valueOf(flow, "acct:7")).isEqualByComparingTo("1000");
+        assertThat(valueOf(flow, "acct:2")).isEqualByComparingTo("1000");
+        assertThat(assetClassOf(flow, "acct:2")).isEqualTo(AssetClass.INVESTMENT);
+        assertThat(valueOf(flow, "__unspent__")).isEqualByComparingTo("2000");
+        assertThat(flow.nodes()).noneMatch(n -> n.type() == NodeType.SHORTFALL
+            || n.type() == NodeType.TRANSFER_IN || n.type() == NodeType.TRANSFER_OUT);
+        assertConserved(flow, "4000");
+    }
+
+    @Test
+    void flow_withdrawalFundingSpending_replacesShortfall() {
+        Category salaire = cat(1, "Salaire", CategoryKind.INCOME);
+        Category courses = cat(2, "Courses", CategoryKind.EXPENSE);
+        givenTransactions(List.of(tx("1000", salaire), tx("-1400", courses)));
+        givenTransfers(List.of(transfer("-400", 7L, AccountType.LIVRET_A), checking("400")));
+
+        CashflowFlowResponse flow = service.flow(MEMBER, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(flow.withdrawn()).isEqualByComparingTo("400");
+        assertThat(flow.saved()).isEqualByComparingTo("0");
+        assertThat(flow.nodes()).noneMatch(n -> n.type() == NodeType.SHORTFALL || n.type() == NodeType.UNSPENT);
+        assertThat(valueOf(flow, "acct:7")).isEqualByComparingTo("400");
+        assertConserved(flow, "1400");
     }
 
     @Test
@@ -148,6 +533,10 @@ class CashflowFlowServiceTest {
         assertThat(flow.links()).isEmpty();
         assertThat(flow.income()).isEqualByComparingTo("0");
         assertThat(flow.expense()).isEqualByComparingTo("0");
+        assertThat(flow.saved()).isEqualByComparingTo("0");
+        assertThat(flow.withdrawn()).isEqualByComparingTo("0");
+        assertThat(flow.transferredOut()).isEqualByComparingTo("0");
+        assertThat(flow.transferredIn()).isEqualByComparingTo("0");
     }
 
     @Test
@@ -171,7 +560,7 @@ class CashflowFlowServiceTest {
             .filter(l -> l.target() == flow.nodes().indexOf(rollup))
             .map(FlowLink::value).findFirst().orElseThrow();
         assertThat(rollupValue).isEqualByComparingTo("600");
-        // Still balanced overall (income 0 → a drawdown source funds all spending).
+        // Still balanced overall (income 0 → a shortfall source funds all spending).
         assertThat(intoHub(flow, hubIndex)).isEqualByComparingTo(outOfHub(flow, hubIndex));
     }
 

@@ -236,6 +236,36 @@ class DashboardServiceTest {
     }
 
     @Test
+    void getDashboard_creditCardPaidBeyondItsDebt_raisesNetWorth() {
+        Account cashAcc = cashAccount();               // id 1, CHECKING 2000
+        Account cardAcc = Account.builder()
+            .id(11L)
+            .name("Chase — Sapphire Reserve")
+            .type(AccountType.CREDIT_CARD)
+            .currency("EUR")
+            .currentBalance(new BigDecimal("150"))
+            .color("#2563eb")
+            .build();
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(cashAcc, cardAcc));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        when(holdingRepository.findByAccount_Id(11L)).thenReturn(List.of());
+        when(priceService.toEur(new BigDecimal("2000"), "EUR", null)).thenReturn(new BigDecimal("2000"));
+        when(priceService.toEur(new BigDecimal("150"), "EUR", null)).thenReturn(new BigDecimal("150"));
+        when(historyService.buildHistory(List.of(1L, 11L), 12, 42L)).thenReturn(List.of());
+        when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of());
+
+        DashboardResponse response = dashboardService.getDashboard(42L, "1Y");
+
+        // The credit is a negative liability, so net worth gains it.
+        assertThat(response.totalLiabilities()).isEqualByComparingTo("-150");
+        assertThat(response.totalNetWorth()).isEqualByComparingTo("2150");
+        assertThat(response.liabilities()).singleElement().satisfies(entry -> {
+            assertThat(entry.balanceEur()).isEqualByComparingTo("-150");
+            assertThat(entry.percentage()).isEqualTo(0.0);
+        });
+    }
+
+    @Test
     void getDashboard_rangeSwitch_mapsMonths() {
         Account cashAcc = cashAccount();
         when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(cashAcc));

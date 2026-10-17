@@ -706,6 +706,7 @@
       "bourseDirect": "Sincronizar tus cuentas PEA y de valores",
       "degiro": "Sincronizar tu cuenta de valores DEGIRO",
       "ibkr": "Sincroniza tu cuenta de Interactive Brokers mediante Flex Query",
+      "simplefin": "Importa cuentas bancarias con un token de SimpleFIN",
       "finary": "Importar desde Finary",
       "manual": "Crear una cuenta manualmente",
       "amundi": "PEE, PEG, PERCO, PER en Amundi",
@@ -787,6 +788,28 @@
       "errors": {
         "connectFailed": "No se pudo guardar la conexión. Verifica el token y el ID de consulta.",
         "syncFailed": "Falló la sincronización de Interactive Brokers. Verifica tu token o inténtalo de nuevo.",
+        "disconnectFailed": "No se pudo eliminar la conexión. Inténtalo de nuevo."
+      }
+    },
+    "simplefin": {
+      "title": "SimpleFIN",
+      "setupHint": "Vincula tus bancos en SimpleFIN Bridge, crea un token de configuración y pégalo aquí.",
+      "createToken": "Crear un token",
+      "token": "Token de configuración",
+      "tokenPlaceholder": "Pega el token de SimpleFIN",
+      "connect": "Conectar",
+      "sync": "Sincronizar",
+      "syncing": "Sincronizando…",
+      "disconnect": "Desconectar",
+      "disconnectConfirm": "¿Eliminar la conexión de SimpleFIN guardada? Las cuentas importadas se quedan y dejan de actualizarse.",
+      "connected": "Conectado",
+      "statusError": "Falló la última sincronización",
+      "lastSync": "Última sync",
+      "neverSynced": "Nunca sincronizado",
+      "syncedToast": "SimpleFIN sincronizado: {{count}} cuenta(s)",
+      "errors": {
+        "connectFailed": "No se pudo conectar con SimpleFIN. Revisa el token e inténtalo de nuevo.",
+        "syncFailed": "Falló la sincronización de SimpleFIN. Inténtalo de nuevo o crea un token nuevo si se revocó el acceso.",
         "disconnectFailed": "No se pudo eliminar la conexión. Inténtalo de nuevo."
       }
     },
@@ -934,6 +957,56 @@
       "serviceUnavailable": "El servicio de Finary no está disponible temporalmente. Inténtalo de nuevo en unos minutos.",
       "syncFailed": "La sincronización con Finary ha fallado",
       "authFailed": "Credenciales de Finary no válidas. Comprueba tu email y contraseña."
+    },
+    "homebank": {
+      "title": "Importación de HomeBank",
+      "upload": "Importar archivo de HomeBank",
+      "uploadHint": "Admitidos: copias de HomeBank iOS .hbk/.hbexport y exportaciones de escritorio .qif",
+      "chooseFile": "Elegir archivo",
+      "file": "Archivo de HomeBank",
+      "password": "Contraseña del archivo (si se requiere)",
+      "currency": "Moneda del QIF (ISO 4217)",
+      "currencyPlaceholder": "EUR",
+      "qifLimitations": "Los archivos QIF no incluyen la moneda ni el saldo inicial. Elija la moneda de la cuenta e incluya todo el historial. Las transacciones divididas aparecen en filas de categoría separadas y se cuentan por separado.",
+      "preview": "Previsualizar importación",
+      "previewSummary": "{{accounts}} cuentas, {{categories}} categorías y {{transactions}} transacciones",
+      "forecastsSkipped": "Se omitirán {{count}} transacción(es) prevista(s); no se importarán.",
+      "restart": "Reiniciar vista previa",
+      "accounts": "Cuentas",
+      "categories": "Categorías",
+      "transactions": "transacciones",
+      "initialBalance": "Saldo inicial",
+      "skip": "Omitir",
+      "mapExisting": "Asignar a una cuenta existente",
+      "createNew": "Crear cuenta",
+      "targetAccount": "Cuenta de destino para {{name}}",
+      "chooseAccount": "Elegir cuenta",
+      "accountName": "Nombre de la cuenta",
+      "accountType": "Tipo de cuenta",
+      "income": "Ingreso",
+      "expense": "Gasto",
+      "categoryName": "Nombre de categoría para {{name}}",
+      "categoryParentKindMismatch": "Esta categoría tiene un tipo distinto al de su categoría superior ({{parent}}). No se puede crear; asígnela a una categoría existente del mismo tipo o elija Sin categoría.",
+      "categoryAction": "Acción para {{name}}",
+      "createCategory": "Crear categoría",
+      "mapExistingCategory": "Asignar a categoría existente",
+      "targetCategory": "Categoría de destino para {{name}}",
+      "chooseCategory": "Elegir categoría",
+      "uncategorized": "Sin categoría",
+      "sampleTransactions": "Transacciones de ejemplo",
+      "noPayee": "Sin beneficiario",
+      "transfer": "Transferencia",
+      "import": "Importar datos",
+      "confirmTitle": "Confirmar importación de HomeBank",
+      "confirmDescription": "Las transacciones se añadirán a las cuentas seleccionadas. No se reemplazarán los saldos ni el historial existentes.",
+      "accountsCreated": "Cuentas creadas",
+      "accountsMapped": "Cuentas asignadas",
+      "accountsSkipped": "Cuentas omitidas",
+      "categoriesCreated": "Categorías creadas",
+      "transactionsImported": "Transacciones importadas",
+      "transactionsSkipped": "Transacciones omitidas",
+      "done": "Hecho",
+      "errors": { "invalidPreview": "La respuesta de vista previa no es válida.", "previewFailed": "No se pudo previsualizar el archivo HomeBank.", "importFailed": "Falló la importación de HomeBank." }
     },
     "all": {
       "title": "Sincronizar cuentas",
@@ -1546,6 +1619,32 @@
         "label": "Sobres de presupuesto",
         "desc": "Crear, editar y eliminar sobres de presupuesto"
       }
+    }
+  },
+  "telemetry": {
+    "consent": {
+      "title": "¿Ayudar a mejorar Picsou?",
+      "intro": "Comparte informes de fallos anónimos y contadores de uso con los desarrolladores de Picsou. Es opcional, se aplica a toda la instancia y puedes cambiarlo en cualquier momento en Administración.",
+      "collectedTitle": "Qué se comparte",
+      "collected1": "Informes técnicos de errores (tipo de error y ubicación en el código, nunca mensajes de error)",
+      "collected2": "Qué pantallas se abren (solo la plantilla de página, p. ej. /accounts/:id)",
+      "collected3": "Qué funciones se usan (p. ej. se lanzó una sincronización), sin detalles",
+      "neverTitle": "Qué nunca se comparte",
+      "never1": "Cuentas, saldos, transacciones, importes o IBAN",
+      "never2": "Nombres, correos, nombres de usuario o direcciones IP",
+      "never3": "Cualquier identificador de usuario, dispositivo o sesión",
+      "tunnel": "Los informes pasan por tu propio servidor Picsou, que los depura de nuevo antes de reenviarlos.",
+      "enable": "Activar",
+      "decline": "No, gracias",
+      "error": "No se pudo guardar tu elección. Inténtalo de nuevo."
+    },
+    "section": {
+      "title": "Telemetría anónima",
+      "description": "Informes de fallos y contadores de uso enviados a los desarrolladores de Picsou, solo si lo aceptas. Desactivada por defecto.",
+      "toggle": "Compartir telemetría anónima",
+      "unavailable": "No disponible — esta instancia no tiene configurado ningún servidor de telemetría (DSN).",
+      "privacy": "Solo se envían informes técnicos de errores, plantillas de página (p. ej. /accounts/:id) y nombres de funciones. Nunca se recogen datos financieros, personales ni identificadores, y los informes se depuran en tu navegador y de nuevo en tu servidor.",
+      "error": "No se pudo actualizar el ajuste de telemetría."
     }
   },
   "admin": {
@@ -2432,8 +2531,13 @@
         "incomeOther": "Other income",
         "uncategorized": "Uncategorized",
         "moreExpenses": "Other spending",
-        "savings": "Savings",
-        "drawdown": "Savings drawdown"
+        "unspent": "No gastado",
+        "shortfall": "Tomado del saldo",
+        "savingsAccount": "Ahorro · {{name}}",
+        "investmentAccount": "Inversión · {{name}}",
+        "transferOut": "Transferencias salientes",
+        "transferIn": "Transferencias entrantes",
+        "withdrawalAccount": "Retiro · {{name}}"
       }
     },
     "detail": {

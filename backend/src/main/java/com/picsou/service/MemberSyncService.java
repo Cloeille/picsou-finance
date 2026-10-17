@@ -30,6 +30,7 @@ public class MemberSyncService {
         "fortuneo",
         "amex",
         "ibkr",
+        SimplefinSyncService.SOURCE,
         "crypto-exchanges",
         "wallets",
         "finary",
@@ -45,6 +46,7 @@ public class MemberSyncService {
     private final FortuneoSyncService fortuneoSyncService;
     private final AmexSyncService amexSyncService;
     private final IbkrSyncService ibkrSyncService;
+    private final SimplefinSyncService simplefinSyncService;
     private final CryptoExchangeSyncService cryptoExchangeSyncService;
     private final WalletSyncService walletSyncService;
     private final FinaryApiSyncService finaryApiSyncService;
@@ -60,6 +62,7 @@ public class MemberSyncService {
             FortuneoSyncService fortuneoSyncService,
             AmexSyncService amexSyncService,
             IbkrSyncService ibkrSyncService,
+            SimplefinSyncService simplefinSyncService,
             CryptoExchangeSyncService cryptoExchangeSyncService,
             WalletSyncService walletSyncService,
             FinaryApiSyncService finaryApiSyncService,
@@ -73,6 +76,7 @@ public class MemberSyncService {
         this.fortuneoSyncService = fortuneoSyncService;
         this.amexSyncService = amexSyncService;
         this.ibkrSyncService = ibkrSyncService;
+        this.simplefinSyncService = simplefinSyncService;
         this.cryptoExchangeSyncService = cryptoExchangeSyncService;
         this.walletSyncService = walletSyncService;
         this.finaryApiSyncService = finaryApiSyncService;
@@ -146,6 +150,8 @@ public class MemberSyncService {
                         }
                         throw ex;
                     }
+                case SimplefinSyncService.SOURCE:
+                    return simplefinSyncService.resyncReporting(memberId);
                 case "crypto-exchanges":
                     return cryptoExchangeSyncService.resyncAllReporting(memberId);
                 case "wallets":
