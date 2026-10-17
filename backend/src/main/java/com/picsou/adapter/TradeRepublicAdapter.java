@@ -59,8 +59,9 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
     private static final int    WS_VERSION = 31;
     private static final Duration DEFAULT_REFRESH_TIMEOUT = Duration.ofSeconds(15);
     // Total time the WebSocket read may take before the sync goes on with what it has.
-    // Kept under the 45s hard timeout around the whole exchange, which fails the sync.
-    private static final Duration WS_WAIT_CAP = Duration.ofSeconds(30);
+    // Kept under WS_HARD_TIMEOUT around the whole exchange, which fails the sync.
+    static final Duration WS_WAIT_CAP = Duration.ofSeconds(30);
+    static final Duration WS_HARD_TIMEOUT = Duration.ofSeconds(45);
 
     private record SecAccount(
         String wrapper,
@@ -442,7 +443,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                     )
                     .then()
             )
-            .timeout(Duration.ofSeconds(45))
+            .timeout(WS_HARD_TIMEOUT)
             .block();
 
         if (authExpired.get()) {
@@ -597,9 +598,18 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
      * whole exchange failed the sync, and no account was stored at all. Completing here
      * instead lets the positions that did answer be persisted; the silent one falls back to
      * {@code averageBuyIn} like any other missing ticker price.
+     *
+     * <p>An error on the stream (the socket dropping, a frame that fails to process) ends the
+     * read the same way, keeping the frames received so far: failing here would throw away
+     * every account that had already answered.
      */
     static <T> Flux<T> untilAnsweredOrCapped(Flux<T> frames, Predicate<T> allAnswered, Duration cap) {
-        return frames.takeUntil(allAnswered).take(cap);
+        return frames.takeUntil(allAnswered).take(cap)
+            .onErrorResume(error -> {
+                log.warn("TR WebSocket read ended early ({}), continuing with the frames received so far",
+                    error.getClass().getSimpleName());
+                return Flux.empty();
+            });
     }
 
     /**

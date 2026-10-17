@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   right) the gap never opened, the 45-second hard timeout failed the sync and no
   account was stored, right after a successful login. The read now stops after 30
   seconds in total and persists what answered; the silent position falls back to
-  its average buy-in price, as a missing ticker price already did.
+  its average buy-in price, as a missing ticker price already did. A WebSocket
+  error mid-read still keeps what arrived instead of failing the sync.
 - **A BoursoBank contract invested in a single fund syncs instead of failing the
   whole import** ([#154](https://github.com/Cloeille/picsou-finance/issues/154)).
   Its trading summary reports the contract balance and one `fund` node, with no
