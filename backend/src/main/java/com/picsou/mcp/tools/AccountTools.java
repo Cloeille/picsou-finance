@@ -26,7 +26,7 @@ import java.util.List;
  * member-scoped services (AccountService or AccountConnectionService); an access-key can therefore only ever touch its own
  * owner's accounts. Account creation is restricted to <em>manual</em> accounts —
  * {@link #createManualAccount} always sets {@code isManual=true}. Deletion also supports synced accounts and can remove saved
- * sessions/credentials, an IBKR connection, or an Enable Banking requisition when it is the last
+ * sessions/credentials, an IBKR or SimpleFIN connection, or an Enable Banking requisition when it is the last
  * account. These tools neither create nor expose credentials and do not run authentication flows.
  */
 @Component
@@ -89,7 +89,7 @@ public class AccountTools {
     @RequiresScope(Scopes.ACCOUNTS_WRITE)
     public AccountResponse createManualAccount(
         @ToolParam(description = "Account name") String name,
-        @ToolParam(description = "Account type: CHECKING, SAVINGS, LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL, PEA, COMPTE_TITRES, CRYPTO, REAL_ESTATE, SCPI, LOAN, EMPLOYEE_SAVINGS or OTHER") AccountType type,
+        @ToolParam(description = "Account type: CHECKING, SAVINGS, LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL, PEA, COMPTE_TITRES, CRYPTO, REAL_ESTATE, SCPI, LOAN, CREDIT_CARD, EMPLOYEE_SAVINGS, ASSURANCE_VIE, PER or OTHER") AccountType type,
         @ToolParam(description = "ISO currency code, e.g. EUR, USD") String currency,
         @ToolParam(description = "Opening balance; defaults to 0 when omitted", required = false) BigDecimal currentBalance,
         @ToolParam(description = "Optional hex colour like #1a2b3c", required = false) String color,
@@ -104,7 +104,7 @@ public class AccountTools {
     public AccountResponse updateAccount(
         @ToolParam(description = "The account id") Long accountId,
         @ToolParam(description = "Account name") String name,
-        @ToolParam(description = "Account type: CHECKING, SAVINGS, LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL, PEA, COMPTE_TITRES, CRYPTO, REAL_ESTATE, SCPI, LOAN, EMPLOYEE_SAVINGS or OTHER") AccountType type,
+        @ToolParam(description = "Account type: CHECKING, SAVINGS, LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL, PEA, COMPTE_TITRES, CRYPTO, REAL_ESTATE, SCPI, LOAN, CREDIT_CARD, EMPLOYEE_SAVINGS, ASSURANCE_VIE, PER or OTHER") AccountType type,
         @ToolParam(description = "ISO currency code, e.g. EUR, USD") String currency,
         @ToolParam(description = "Balance; omit to leave the service default", required = false) BigDecimal currentBalance,
         @ToolParam(description = "Optional hex colour like #1a2b3c", required = false) String color,
@@ -115,8 +115,8 @@ public class AccountTools {
 
     @Tool(name = "delete_account", description = "Delete (soft-delete) an account of the authenticated member. "
         + "This also supports synced accounts. If it was the last account on its connection, saved "
-        + "sessions/credentials and that connection are removed; this can delete an IBKR connection "
-        + "or Enable Banking requisition. Returns the actual DeletionImpact: removesConnection is true only "
+        + "sessions/credentials and that connection are removed; this can delete an IBKR or SimpleFIN "
+        + "connection or Enable Banking requisition. Returns the actual DeletionImpact: removesConnection is true only "
         + "when something was removed (otherwise false with a null label).")
     @RequiresScope(Scopes.ACCOUNTS_WRITE)
     public DeletionImpact deleteAccount(

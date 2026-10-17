@@ -1,7 +1,7 @@
 export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'OTHER'
+  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'PER' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
@@ -248,6 +248,9 @@ export interface DebtInfo {
   fileFees: number | null
 }
 
+/** How a bank card is debited; set by the Caisse d'Epargne sync on cards only. */
+export type CardNature = 'IMMEDIATE_DEBIT' | 'DEFERRED_DEBIT' | 'CREDIT'
+
 export interface Account {
   id: number
   name: string
@@ -283,6 +286,8 @@ export interface Account {
   paymentDueAmount?: number
   paymentDueDate?: string
   rewardPoints?: number
+  /** Cards only: immediate debit, deferred debit or credit. Absent when the bank does not say. */
+  cardNature?: CardNature | null
   /** Display-only visibility flag; hidden account still syncs normally. */
   hidden: boolean
   /** Set only when the member owns less than all of it — the co-ownership badge signal. */
@@ -589,7 +594,7 @@ export interface DashboardData {
   totalNetWorth: number
   totalLiabilities: number
   totalMonthlyPayment?: number | null
-  netWorthHistory: { date: string; total: number; invested: number; pnl: number }[]
+  netWorthHistory: { date: string; total: number; invested: number | null; pnl: number | null }[]
   distribution: {
     accountId: number
     name: string
@@ -761,6 +766,14 @@ export interface IbkrConnectionStatus {
   maskedToken: string | null
 }
 
+export interface SimplefinConnectionStatus {
+  connected: boolean
+  connectionId: number | null
+  status: string | null
+  lastSyncedAt: string | null
+  maskedToken: string | null
+}
+
 interface BoursoSessionStatusBase {
   isActive: boolean
   lastSyncStartedAt: string | null
@@ -811,6 +824,69 @@ export interface BoursoAuthInitResponse {
   processId: string | null
   mfaRequired: boolean
   mfaType: 'APP_PUSH' | null
+}
+
+/** Contract family the sidecar saw but Picsou does not import: family code only, never the id. */
+export interface CaisseEpargneUnsupportedContract {
+  externalId: string
+  familyCode: string
+}
+
+export type CaisseEpargneErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'KEYPAD_CHANGED'
+  | 'KEYPAD_EXPIRED'
+  | 'INVALID_POSITIONS'
+  | 'APP_VALIDATION_TIMEOUT'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'INVALID_SESSION_STATE'
+  | 'INTERNAL_ERROR'
+
+/** Mirrors `CaisseEpargneSyncService.SessionStatusResponse`. */
+export interface CaisseEpargneSessionStatus {
+  isActive: boolean
+  syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED'
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+  lastSyncError: CaisseEpargneErrorCode | null
+  unsupported: CaisseEpargneUnsupportedContract[]
+  unsupportedCount: number
+}
+
+/**
+ * The bank's virtual keypad for this login: 10 `data:image/png` images in the bank's DOM
+ * order. The user reads and clicks his digits himself; only the clicked positions go back.
+ */
+export interface CaisseEpargneKeypad {
+  images: string[]
+  columns: number
+}
+
+export interface CaisseEpargneAuthInitResponse {
+  processId: string
+  keypad: CaisseEpargneKeypad
+  /** Lifetime of the keypad step (90 s), not of the Sécur'Pass wait. */
+  expiresInSeconds: number
+}
+
+/** The second factor is always Sécur'Pass: a human approves it on the phone. */
+export interface CaisseEpargneAuthKeypadResponse {
+  processId: string
+  status: 'SECURPASS_PENDING'
+}
+
+export interface CaisseEpargneAuthCompleteResponse {
+  connected: boolean
+}
+
+/** `bankSessionRevoked` is always false: only Picsou's stored copy is deleted. */
+export interface CaisseEpargneDeleteResponse {
+  removed: boolean
+  bankSessionRevoked: boolean
+  message: string
 }
 
 export type DegiroSessionStatusValue = 'ACTIVE' | 'REAUTH_REQUIRED' | 'FAILED'
@@ -1937,3 +2013,22 @@ export interface MemberProfile {
 
 /** A full replacement: a null field clears what was stored. */
 export type MemberProfileRequest = Omit<MemberProfile, 'age' | 'monthlyNetIncome'>
+
+/** `GET /telemetry/config`. `dsn` is null unless telemetry is effectively enabled. */
+export interface TelemetryConfig {
+  available: boolean
+  consent: TelemetryConsent
+  enabled: boolean
+  dsn: string | null
+  environment: string
+  release: string
+}
+
+/** Instance-wide telemetry consent. `UNSET` = never asked, treated as disabled. */
+export type TelemetryConsent = 'ENABLED' | 'DISABLED' | 'UNSET'
+
+export interface TelemetrySettings {
+  /** A DSN is configured on the server; without one telemetry is inert everywhere. */
+  available: boolean
+  consent: TelemetryConsent
+}

@@ -28,7 +28,7 @@ import type { AccountType } from '@/types/api'
  * Actual holds cash ledgers; these types derive their value from positions instead. A loan is
  * stored as the positive amount owed, so Actual's negative ledger would count as wealth.
  */
-const NON_LEDGER_TYPES: AccountType[] = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI', 'LOAN']
+const NON_LEDGER_TYPES: AccountType[] = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI', 'LOAN']
 const LEDGER_ACCOUNT_TYPES = ACCOUNT_TYPES.filter(({ value }) => !NON_LEDGER_TYPES.includes(value))
 const RESULT_KEYS = ['accountsCreated', 'accountsMapped', 'accountsSkipped', 'categoriesCreated', 'transactionsImported', 'transactionsSkipped', 'transactionsDeleted', 'transactionsMoved'] as const
 const SELECT_CLASS = 'h-10 w-full rounded-md border border-input bg-background px-4 text-sm text-foreground outline-none [color-scheme:light] dark:[color-scheme:dark]'

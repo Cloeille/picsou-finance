@@ -218,8 +218,15 @@
     "total": "Total",
     "currentBalance": "Current balance",
     "currentDebt": "Credit-card debt",
+    "cardNature": {
+      "label": "Card type",
+      "IMMEDIATE_DEBIT": "Immediate debit",
+      "DEFERRED_DEBIT": "Deferred debit",
+      "CREDIT": "Credit"
+    },
     "tabOverview": "Overview",
     "cashBalance": "Cash in the PEA/securities account",
+    "perEuroFundBalance": "PER euro fund (last sync)",
     "snapshots": "Monthly snapshots",
     "changeCategory": "Change category",
     "importCsvTR": "+ Add CSV (TR)",
@@ -409,6 +416,7 @@
     "other": "Other",
     "employeeSavings": "Employee savings",
     "assuranceVie": "Life insurance",
+    "per": "PER (retirement savings)",
     "scpi": "SCPI",
     "creditCard": "Credit card"
   },
@@ -978,12 +986,14 @@
       "bourseDirect": "Sync your PEA and securities accounts",
       "degiro": "Sync your DEGIRO securities account",
       "ibkr": "Sync your Interactive Brokers account via Flex Query",
+      "simplefin": "Import bank accounts with a SimpleFIN setup token",
       "finary": "Import from Finary",
       "manual": "Create an account manually",
       "amundi": "PEE, PEG, PERCO, PER held at Amundi",
       "amex": "American Express credit card: balance and transactions",
       "property": "House, apartment, land…",
-      "fortuneo": "Sync your Fortuneo accounts"
+      "fortuneo": "Sync your Fortuneo accounts",
+      "caisseEpargne": "Current account, Livret A, LDDS, PER, loans and cards at Caisse d'Epargne"
     }
   },
   "sync": {
@@ -1086,6 +1096,28 @@
       "errors": {
         "connectFailed": "Could not save the connection. Check the token and query id.",
         "syncFailed": "Interactive Brokers sync failed. Check your token or try again.",
+        "disconnectFailed": "Could not remove the connection. Please try again."
+      }
+    },
+    "simplefin": {
+      "title": "SimpleFIN",
+      "setupHint": "Link your banks on SimpleFIN Bridge, create a setup token, and paste it here.",
+      "createToken": "Create a setup token",
+      "token": "Setup token",
+      "tokenPlaceholder": "Paste the token from SimpleFIN",
+      "connect": "Connect",
+      "sync": "Sync",
+      "syncing": "Syncing…",
+      "disconnect": "Disconnect",
+      "disconnectConfirm": "Remove the stored SimpleFIN connection? Imported accounts stay, and they stop updating.",
+      "connected": "Connected",
+      "statusError": "Last sync failed",
+      "lastSync": "Last sync",
+      "neverSynced": "Never synced",
+      "syncedToast": "SimpleFIN synced: {{count}} account(s)",
+      "errors": {
+        "connectFailed": "Could not connect to SimpleFIN. Check the setup token and try again.",
+        "syncFailed": "SimpleFIN sync failed. Try again, or create a new setup token if access was revoked.",
         "disconnectFailed": "Could not remove the connection. Please try again."
       }
     },
@@ -1234,6 +1266,56 @@
       "syncFailed": "Finary sync failed",
       "authFailed": "Invalid Finary credentials. Please check your email and password."
     },
+    "homebank": {
+      "title": "HomeBank import",
+      "upload": "Import a HomeBank file",
+      "uploadHint": "Accepted: HomeBank iOS .hbk/.hbexport backups and desktop .qif exports",
+      "chooseFile": "Choose a file",
+      "file": "HomeBank file",
+      "password": "File password (if required)",
+      "currency": "QIF currency (ISO 4217)",
+      "currencyPlaceholder": "EUR",
+      "qifLimitations": "QIF files do not contain currency or opening balances. Choose the account currency and include the full account history. Split transactions appear as separate category rows and are counted accordingly.",
+      "preview": "Preview import",
+      "previewSummary": "{{accounts}} accounts, {{categories}} categories and {{transactions}} transactions",
+      "forecastsSkipped": "{{count}} forecast transaction(s) skipped; they will not be imported.",
+      "restart": "Restart preview",
+      "accounts": "Accounts",
+      "categories": "Categories",
+      "transactions": "transactions",
+      "initialBalance": "Opening balance",
+      "skip": "Skip",
+      "mapExisting": "Map to existing account",
+      "createNew": "Create account",
+      "targetAccount": "Target account for {{name}}",
+      "chooseAccount": "Choose an account",
+      "accountName": "Account name",
+      "accountType": "Account type",
+      "income": "Income",
+      "expense": "Expense",
+      "categoryName": "Category name for {{name}}",
+      "categoryParentKindMismatch": "This category has a different type from its parent ({{parent}}). It cannot be created; map it to an existing category of the same type or choose Uncategorized.",
+      "categoryAction": "Action for {{name}}",
+      "createCategory": "Create category",
+      "mapExistingCategory": "Map to existing category",
+      "targetCategory": "Target category for {{name}}",
+      "chooseCategory": "Choose a category",
+      "uncategorized": "Uncategorized",
+      "sampleTransactions": "Sample transactions",
+      "noPayee": "No payee",
+      "transfer": "Transfer",
+      "import": "Import data",
+      "confirmTitle": "Confirm HomeBank import",
+      "confirmDescription": "Transactions will be added to the selected accounts. Existing balances and history will not be replaced.",
+      "accountsCreated": "Accounts created",
+      "accountsMapped": "Accounts mapped",
+      "accountsSkipped": "Accounts skipped",
+      "categoriesCreated": "Categories created",
+      "transactionsImported": "Transactions imported",
+      "transactionsSkipped": "Transactions skipped",
+      "done": "Done",
+      "errors": { "invalidPreview": "The preview response is invalid.", "previewFailed": "Could not preview the HomeBank file.", "importFailed": "HomeBank import failed." }
+    },
     "all": {
       "title": "Sync accounts",
       "syncAll": "Sync all",
@@ -1277,6 +1359,57 @@
         "formatChanged": "The BoursoBank website format changed. Your existing data was kept.",
         "invalidData": "BoursoBank returned inconsistent data. Your existing data was kept.",
         "serverError": "Could not reach BoursoBank. Please try again."
+      }
+    },
+    "caisseEpargne": {
+      "title": "Caisse d'Epargne",
+      "customerId": "Identifier",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Caisse d'Epargne accounts synced.",
+      "clearSession": "Disconnect",
+      "disconnectConfirm": "This deletes the session stored in Picsou. The Caisse d'Epargne session itself is not ended and may stay active until it expires.",
+      "disconnectConfirmAction": "Delete the stored session",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your Caisse d'Epargne current accounts, Livret A, LDDS, PER (balance only), personal loans and cards on demand. Only the session is kept, encrypted. Contracts Picsou cannot import are listed but never created.",
+      "notice": {
+        "neverStored": "Picsou never sees or stores your password. You click it on the bank's keypad yourself; only the positions of the keys are sent, once.",
+        "noRetry": "Picsou never retries a sign-in. If it fails, nothing is sent again until you submit the form yourself.",
+        "lockRisk": "Wrong attempts count against your bank access and can lock your Caisse d'Epargne account. Check your identifier and the digits you click on the keypad before validating."
+      },
+      "securPassPrompt": "Approve the sign-in in your Sécur'Pass app.",
+      "securPassHint": "Picsou does not touch your phone. This page continues on its own once you approve.",
+      "countdownLabel": "Time left to approve:",
+      "unsupportedTitle": "Contracts not imported",
+      "unsupportedHint": "Picsou does not support these contract families yet (family code shown).",
+      "errors": {
+        "rateLimited": "Too many sign-in attempts. Please wait before trying again.",
+        "rateLimitedRetryAfter": "Too many sign-in attempts. Try again in {{minutes}} min.",
+        "invalidCredentials": "The bank refused the identifier or password. Check them before trying again: repeated failures can lock your account.",
+        "keypadChanged": "The keypad changed, please start again. Nothing was sent.",
+        "appValidationTimeout": "The sign-in was not approved in Sécur'Pass in time. Start over if you want to try again.",
+        "authAttemptExpired": "The sign-in attempt expired. Start over if you want to try again.",
+        "sessionExpired": "The Caisse d'Epargne session expired. Please reconnect.",
+        "formatChanged": "The Caisse d'Epargne website format changed. Your existing data was kept.",
+        "invalidSessionState": "The stored session could not be read. Please reconnect.",
+        "serverError": "Could not reach Caisse d'Epargne. Please try again later.",
+        "keypadExpired": "The keypad expired before you validated. Start over if you want to try again.",
+        "invalidPositions": "The keypad entry was not accepted. Start over and enter 6 to 12 keys."
+      },
+      "keypad": {
+        "title": "Click your password",
+        "description": "Click the keys of your password on the bank's keypad, in order. The digits are only shown on the keys themselves.",
+        "key": "Key {{n}}",
+        "entered": "{{count}} keys entered",
+        "clear": "Clear",
+        "cancel": "Cancel",
+        "validate": "Validate",
+        "sending": "Sending…",
+        "countdownLabel": "Time left:"
       }
     },
     "degiro": {
@@ -1790,6 +1923,32 @@
     "revokeTitle": "Revoke access for this app?",
     "revokeDescription": "This app immediately loses access to your data. You can reconnect it later from the app.",
     "error": "Could not revoke access. Please try again."
+  },
+  "telemetry": {
+    "consent": {
+      "title": "Help improve Picsou?",
+      "intro": "Share anonymous crash reports and usage counts with the Picsou developers. This is optional, applies to this whole instance, and you can change it at any time in Administration.",
+      "collectedTitle": "What is shared",
+      "collected1": "Technical error reports (error type and code location, never error messages)",
+      "collected2": "Which screens are opened (page template only, e.g. /accounts/:id)",
+      "collected3": "Which features are used (e.g. a sync was triggered), with no details",
+      "neverTitle": "What is never shared",
+      "never1": "Accounts, balances, transactions, amounts or IBANs",
+      "never2": "Names, emails, usernames or IP addresses",
+      "never3": "Any identifier of a user, device or session",
+      "tunnel": "Reports go through your own Picsou server, which scrubs them again before forwarding.",
+      "enable": "Enable",
+      "decline": "No thanks",
+      "error": "Could not save your choice. Please try again."
+    },
+    "section": {
+      "title": "Anonymous telemetry",
+      "description": "Opt-in crash reports and usage counts sent to the Picsou developers. Off by default.",
+      "toggle": "Share anonymous telemetry",
+      "unavailable": "Unavailable — no telemetry server (DSN) is configured on this instance.",
+      "privacy": "Only technical error reports, page templates (e.g. /accounts/:id) and feature names are sent. Financial data, personal data and identifiers are never collected, and reports are scrubbed in your browser and again on your server.",
+      "error": "Could not update the telemetry setting."
+    }
   },
   "admin": {
     "title": "Administration",

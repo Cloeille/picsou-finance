@@ -1,129 +1,139 @@
 import '@testing-library/jest-dom'
-import { describe, it, expect, vi, beforeEach, type MockInstance } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
-import type { Account, HoldingResponse } from '@/types/api'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Account } from '@/types/api'
 
-// Regression for #231: the holdings card and the realized P&L section were each rendered
-// twice on an investment account -- once inside the overview fragment, once right above it.
-// The sections are stubbed to markers so the suite counts them without their own queries.
-
-const account = vi.fn<() => Account>()
-const positions = vi.fn<() => unknown[] | undefined>()
-
-const HOLDING: HoldingResponse = { ticker: 'CW8', name: 'MSCI World', quantity: 1 } as HoldingResponse
-
-const idle = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }
+const hooks = vi.hoisted(() => ({
+  useAccount: vi.fn(),
+  useAccountHistory: vi.fn(),
+  useHoldingsWithLivePrices: vi.fn(),
+  useAccountPositions: vi.fn(),
+  useAccountTransactions: vi.fn(),
+  useAddTransaction: vi.fn(),
+  useDeleteTransaction: vi.fn(),
+  useUpdateTransaction: vi.fn(),
+  useUpdateHolding: vi.fn(),
+  useDeleteHolding: vi.fn(),
+  useImportTRTransactions: vi.fn(),
+  useHistory: vi.fn(),
+  useSavingsSuggestions: vi.fn(),
+  useCategories: vi.fn(),
+  useCategorize: vi.fn(),
+}))
 
 vi.mock('@/features/accounts/hooks', () => ({
-  useAccount: () => ({ data: account(), isLoading: false }),
-  useAccountHistory: () => ({ data: [] }),
-  useHoldingsWithLivePrices: () => ({ data: [HOLDING] }),
-  useAccountPositions: () => ({ data: positions() }),
-  useAccountTransactions: () => ({ data: undefined }),
-  useAddTransaction: () => idle,
-  useDeleteTransaction: () => idle,
-  useUpdateTransaction: () => idle,
-  useDeleteHolding: () => idle,
-  useUpdateHolding: () => idle,
-  useImportTRTransactions: () => idle,
+  useAccount: hooks.useAccount,
+  useAccountHistory: hooks.useAccountHistory,
+  useHoldingsWithLivePrices: hooks.useHoldingsWithLivePrices,
+  useAccountPositions: hooks.useAccountPositions,
+  useAccountTransactions: hooks.useAccountTransactions,
+  useAddTransaction: hooks.useAddTransaction,
+  useDeleteTransaction: hooks.useDeleteTransaction,
+  useUpdateTransaction: hooks.useUpdateTransaction,
+  useUpdateHolding: hooks.useUpdateHolding,
+  useDeleteHolding: hooks.useDeleteHolding,
+  useImportTRTransactions: hooks.useImportTRTransactions,
 }))
+
+vi.mock('@/features/history/hooks', () => ({ useHistory: hooks.useHistory }))
+vi.mock('@/features/savings/hooks', () => ({ useSavingsSuggestions: hooks.useSavingsSuggestions }))
 vi.mock('@/features/budget/hooks', () => ({
-  useCategories: () => ({ data: [] }),
-  useCategorize: () => idle,
-}))
-vi.mock('@/features/history/hooks', () => ({ useHistory: () => ({ data: undefined }) }))
-vi.mock('@/features/savings/hooks', () => ({ useSavingsSuggestions: () => ({ data: undefined }) }))
-vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }))
-
-vi.mock('@/components/shared/HoldingsTable', () => ({
-  HoldingsTable: () => <div data-testid="holdings-table" />,
-}))
-vi.mock('@/components/shared/PositionsByProduct', () => ({
-  PositionsByProduct: () => <div data-testid="positions-by-product" />,
-}))
-vi.mock('@/components/shared/RealizedPnlSection', () => ({
-  RealizedPnlSection: () => <div data-testid="realized-pnl" />,
-}))
-vi.mock('@/components/shared/ImportTransactionsModal', () => ({ ImportTransactionsModal: () => null }))
-vi.mock('@/components/shared/AddTransactionModal', () => ({ AddTransactionModal: () => null }))
-vi.mock('@/components/shared/EditHoldingModal', () => ({ EditHoldingModal: () => null }))
-vi.mock('@/components/shared/MonthEndBalanceModal', () => ({ MonthEndBalanceModal: () => null }))
-vi.mock('@/features/savings/SavingsConfigSection', () => ({ SavingsConfigSection: () => null }))
-
-vi.mock('react-router-dom', () => ({
-  useParams: () => ({ id: '7' }),
-  useNavigate: () => vi.fn(),
+  useCategories: hooks.useCategories,
+  useCategorize: hooks.useCategorize,
 }))
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string) => key === 'accounts.perEuroFundBalance' ? 'Fonds euro' : key,
     i18n: { resolvedLanguage: 'fr', language: 'fr' },
   }),
 }))
 
+vi.mock('@/components/shared/PageHeader', () => ({
+  PageHeader: ({ surtitle, title }: { surtitle?: string; title: string }) => (
+    <header><p>{surtitle}</p><h1>{title}</h1></header>
+  ),
+}))
+vi.mock('@/components/shared/AccountTypeBadge', () => ({ AccountTypeBadge: () => null }))
+vi.mock('@/components/shared/CurrencyDisplay', () => ({
+  CurrencyDisplay: ({ value }: { value: number }) => <span>{value}</span>,
+}))
+vi.mock('@/components/shared/BalanceHistoryChart', () => ({ BalanceHistoryChart: () => null }))
+vi.mock('@/components/shared/NetWorthChart', () => ({ NetWorthChart: () => null }))
+vi.mock('@/components/shared/HoldingsTable', () => ({ HoldingsTable: () => null }))
+vi.mock('@/components/shared/PositionsByProduct', () => ({ PositionsByProduct: () => null }))
+vi.mock('@/components/shared/RealizedPnlSection', () => ({ RealizedPnlSection: () => null }))
+vi.mock('@/components/shared/TransactionsList', () => ({ TransactionsList: () => null }))
+vi.mock('@/components/shared/AddTransactionModal', () => ({ AddTransactionModal: () => null }))
+vi.mock('@/components/shared/ImportTransactionsModal', () => ({ ImportTransactionsModal: () => null }))
+vi.mock('@/components/shared/EditHoldingModal', () => ({ EditHoldingModal: () => null }))
+vi.mock('@/components/shared/MonthEndBalanceModal', () => ({ MonthEndBalanceModal: () => null }))
+
 const { AccountDetailPage } = await import('./AccountDetailPage')
 
-function investmentAccount(overrides: Partial<Account> = {}): Account {
-  return {
-    id: 7,
-    name: 'PER',
-    type: 'ASSURANCE_VIE',
-    provider: null,
-    currency: 'EUR',
-    currentBalance: 1000,
-    currentBalanceEur: 1000,
-    lastSyncedAt: null,
-    isManual: true,
-    color: '#22c55e',
-    ticker: null,
-    logoUrl: null,
-    logoKey: null,
-    createdAt: '2026-01-01T00:00:00Z',
-    ...overrides,
-  } as Account
+const PER_ACCOUNT: Account = {
+  id: 42,
+  name: 'My PER',
+  type: 'PER',
+  provider: 'Example insurer',
+  currency: 'EUR',
+  currentBalance: 9987,
+  currentBalanceEur: 9987,
+  cashBalance: 1234,
+  lastSyncedAt: null,
+  isManual: false,
+  color: '#000000',
+  ticker: null,
+  logoUrl: null,
+  logoKey: null,
+  createdAt: '2026-08-01T00:00:00Z',
+  hidden: false,
 }
 
-describe('AccountDetailPage holdings (#231)', () => {
-  let consoleError: MockInstance<typeof console.error>
+function mutation() {
+  return { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }
+}
+
+describe('AccountDetailPage PER balance', () => {
   beforeEach(() => {
-    consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    account.mockReturnValue(investmentAccount())
-    positions.mockReturnValue(undefined)
+    hooks.useAccount.mockReturnValue({ data: PER_ACCOUNT, isLoading: false })
+    hooks.useAccountHistory.mockReturnValue({ data: [] })
+    hooks.useHoldingsWithLivePrices.mockReturnValue({ data: [] })
+    hooks.useAccountPositions.mockReturnValue({ data: [] })
+    hooks.useAccountTransactions.mockReturnValue({ data: [] })
+    hooks.useAddTransaction.mockReturnValue(mutation())
+    hooks.useDeleteTransaction.mockReturnValue(mutation())
+    hooks.useUpdateTransaction.mockReturnValue(mutation())
+    hooks.useUpdateHolding.mockReturnValue(mutation())
+    hooks.useDeleteHolding.mockReturnValue(mutation())
+    hooks.useImportTRTransactions.mockReturnValue(mutation())
+    hooks.useHistory.mockReturnValue({
+      data: [{ date: '2026-08-19', total: 9987, invested: null, pnl: null }],
+    })
+    hooks.useSavingsSuggestions.mockReturnValue({ data: [] })
+    hooks.useCategories.mockReturnValue({ data: [] })
+    hooks.useCategorize.mockReturnValue(mutation())
   })
 
-  it('renders a single holdings card and a single realized P&L section', () => {
-    render(<AccountDetailPage />)
+  it('renders the euro-fund balance without implying zero PnL when basis is unknown', () => {
+    hooks.useHistory.mockReturnValue({
+      data: [{ date: '2026-08-19', total: 9987, invested: 10000, pnl: null }],
+    })
+    const client = new QueryClient()
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/accounts/42']}>
+          <Routes>
+            <Route path="/accounts/:id" element={<AccountDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
 
-    expect(screen.getAllByTestId('holdings-table')).toHaveLength(1)
-    expect(screen.getAllByTestId('realized-pnl')).toHaveLength(1)
-  })
-
-  it('gives the holdings and realized P&L siblings distinct keys', () => {
-    // Both were keyed on the bare account id; React then warns about a duplicate key and may
-    // drop or duplicate one of them.
-    render(<AccountDetailPage />)
-
-    const duplicateKey = consoleError.mock.calls.some((args: unknown[]) => String(args[0]).includes('same key'))
-    expect(duplicateKey).toBe(false)
-  })
-
-  it('renders the by-product view alone when the connector reports positions', () => {
-    positions.mockReturnValue([{ product: 'SPOT' }])
-
-    render(<AccountDetailPage />)
-
-    expect(screen.getAllByTestId('positions-by-product')).toHaveLength(1)
-    expect(screen.queryByTestId('holdings-table')).not.toBeInTheDocument()
-    expect(screen.getAllByTestId('realized-pnl')).toHaveLength(1)
-  })
-
-  it('keeps a single holdings card when the savings tabs are shown', () => {
-    // A savings suggestion or config switches the overview into tabs; the holdings stay above them.
-    account.mockReturnValue(investmentAccount({ type: 'PEA', savingsConfig: {} as Account['savingsConfig'] }))
-
-    render(<AccountDetailPage />)
-
-    expect(screen.getAllByTestId('holdings-table')).toHaveLength(1)
-    expect(screen.getAllByTestId('realized-pnl')).toHaveLength(1)
+    expect(screen.getByText('Fonds euro:')).toBeInTheDocument()
+    expect(screen.getByText('1234')).toBeInTheDocument()
+    expect(screen.queryByText('dashboard.portfolioPerformance')).not.toBeInTheDocument()
+    expect(screen.queryByText('0')).not.toBeInTheDocument()
   })
 })

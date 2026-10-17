@@ -22,6 +22,7 @@ import { EditHoldingModal } from '@/components/shared/EditHoldingModal'
 import { MonthEndBalanceModal } from '@/components/shared/MonthEndBalanceModal'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { AccountTypeBadge } from '@/components/shared/AccountTypeBadge'
+import { CardNatureField } from '@/components/shared/CardNatureField'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { LoanDetailSection } from '@/components/loan/LoanDetailSection'
 import { SavingsConfigSection } from '@/features/savings/SavingsConfigSection'
@@ -129,9 +130,13 @@ export function AccountDetailPage() {
 
   // PnL from unified history endpoint (pre-computed by backend)
   const pnlLatest = pnlData && pnlData.length > 0 ? pnlData[pnlData.length - 1] : null
-  const pnl = pnlLatest && pnlLatest.invested > 0 ? pnlLatest.pnl : null
-  const pnlPct = pnlLatest && pnlLatest.invested > 0
-    ? ((pnlLatest.pnl / pnlLatest.invested) * 100).toFixed(1) : null
+  const canShowPnl = pnlLatest !== null
+    && pnlLatest.invested !== null
+    && pnlLatest.invested > 0
+    && pnlLatest.pnl !== null
+  const pnl = canShowPnl ? pnlLatest.pnl : null
+  const pnlPct = pnl !== null && pnlLatest !== null && pnlLatest.invested !== null && pnlLatest.invested > 0
+    ? ((pnl / pnlLatest.invested) * 100).toFixed(1) : null
   const pnlPositive = pnl !== null && pnl >= 0
 
   // History + holdings + transactions + snapshots. Rendered flat for most accounts,
@@ -285,6 +290,7 @@ export function AccountDetailPage() {
                 <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.dueDate')}</p>
                 <p className="text-base font-medium">{formatLocalDate(account.paymentDueDate)}</p>
               </div>}
+              <CardNatureField nature={account.cardNature} />
               {account.rewardPoints != null && <div>
                 <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.miles')}</p>
                 <p className="text-xl font-semibold tabular-nums">{new Intl.NumberFormat(locale).format(account.rewardPoints)}</p>
@@ -295,7 +301,7 @@ export function AccountDetailPage() {
             <CurrencyDisplay value={displayBalance} className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`} />
             {showHoldings && account.cashBalance != null && (
               <p className="mt-1 text-xs text-muted-foreground">
-                {t('accounts.cashBalance')}: <CurrencyDisplay value={account.cashBalance} />
+                {t(account.type === 'PER' ? 'accounts.perEuroFundBalance' : 'accounts.cashBalance')}: <CurrencyDisplay value={account.cashBalance} />
               </p>
             )}
             {account.currency !== 'EUR' && (

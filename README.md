@@ -27,7 +27,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 ## Features
 
 - **Account aggregation** — Bank accounts (LEP, PEA, Livret, current), brokerage, crypto wallets, on-chain addresses, debts/loans
-- **Bank sync** — Enable Banking (PSD2/OAuth, 2000+ EU banks).
+- **Bank sync** — Enable Banking (PSD2/OAuth, 2000+ EU banks) and SimpleFIN (setup token, mostly US banks via SimpleFIN Bridge).
 - **BoursoBank** — Current accounts, livrets and the PEA/CTO with its cash and positions, via a local read-only sidecar. Reaches the securities account PSD2 cannot.
 - **Brokerage sync** — Trade Republic via WebSocket or CSV import, and Bourse Direct PEA/CTO positions via a local read-only sidecar
 - **Employee savings** — Amundi Épargne Salariale plans (PEE/PEG, PERCO, PER) and their FCPE lines, via a local read-only sidecar
@@ -100,6 +100,7 @@ Picsou publishes pre-built, multi-arch (amd64/arm64) images to the GitHub Contai
 | `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` | Bourse Direct login/2FA sidecar |
 | `ghcr.io/cloeille/picsou-finance/amundi-auth` | Amundi Épargne Salariale login/2FA sidecar |
 | `ghcr.io/cloeille/picsou-finance/bourso-auth` | BoursoBank login/2FA sidecar |
+| `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth` | Caisse d'Epargne read-only sidecar (no in-app login yet) |
 | `ghcr.io/cloeille/picsou-finance/fortuneo-auth` | Fortuneo login/2FA and portfolio sidecar |
 
 The app and every `*-auth` sidecar authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`. Compose refuses to start without it, and each sidecar refuses any request that does not carry it. Set it once before the first launch:
@@ -347,6 +348,7 @@ cp docker/.env.example docker/.env
 | `SECURE_COOKIES` | Plain HTTP | `false` if no TLS in front; keep `true` behind HTTPS |
 | `ENABLEBANKING_*` | Skip wizard | From your [Enable Banking dashboard](https://enablebanking.com/). The redirect URI must be `https://` |
 | `BOURSO_AUTH_URL` | Custom sidecar | Defaults to `http://bourso-auth:8001` |
+| `CAISSE_EPARGNE_AUTH_URL` | Custom sidecar | Defaults to `http://caisse-epargne-auth:8001` |
 | `BOURSE_DIRECT_AUTH_URL` | Custom sidecar | Defaults to `http://bourse-direct-auth:8001` |
 | `FORTUNEO_AUTH_URL` | Custom sidecar | Defaults to `http://fortuneo-auth:8001` |
 | `PICSOU_DOMAIN` | TLS profile | Hostname Caddy serves — see [step 3](#3-https-decide-before-the-first-launch) |

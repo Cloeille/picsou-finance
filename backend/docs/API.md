@@ -31,7 +31,7 @@
 
 ### AccountType
 
-`LEP` · `LIVRET_A` · `LDDS` · `LIVRET_JEUNE` · `PEL` · `CEL` · `PEA` · `COMPTE_TITRES` · `CRYPTO` · `CHECKING` · `SAVINGS` · `REAL_ESTATE` · `SCPI` · `LOAN` · `EMPLOYEE_SAVINGS` · `ASSURANCE_VIE` · `OTHER`
+`LEP` · `LIVRET_A` · `LDDS` · `LIVRET_JEUNE` · `PEL` · `CEL` · `PEA` · `COMPTE_TITRES` · `CRYPTO` · `CHECKING` · `SAVINGS` · `REAL_ESTATE` · `SCPI` · `LOAN` · `EMPLOYEE_SAVINGS` · `ASSURANCE_VIE` · `PER` · `CREDIT_CARD` · `OTHER`
 
 ### WealthTier
 
@@ -1580,6 +1580,8 @@ Prices are in EUR. Results are cached for 15 minutes.
 
 Two import modes: **file-based** (XLSX upload) and **API-based** (direct sync). Both use a two-phase flow: preview then execute with account mappings.
 
+For native HomeBank iOS and desktop QIF exports, see [HomeBank history import](#homebank-history-import--apihomebankimport) below. Its account/category mappings are separate from the Finary XLSX contract.
+
 #### `POST /api/finary/preview` (file-based)
 
 - **Auth:** Required
@@ -1963,6 +1965,73 @@ Authentication rate limiting returns `429`.
 
 ---
 
+### 16b. SimpleFIN — `/api/simplefin`
+
+One connection per member. The member pastes a one-time setup token from SimpleFIN Bridge;
+Picsou claims it and stores the returned access URL encrypted. Only
+`https://beta-bridge.simplefin.org` (port 443) is contacted. Connect and sync share one per-IP
+limit of 6 requests per minute; over it, both return `429`. See
+[`docs/features/simplefin-sync.md`](../../docs/features/simplefin-sync.md).
+
+#### `POST /api/simplefin/connect`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/sync`
+
+**Request body:**
+```json
+{ "token": "base64 setup token (required, at most 4096 characters)" }
+```
+
+**Response `204`.** The access URL is stored; no sync runs yet.
+
+**Errors:** 422 (blank or oversized token, a token that is invalid, already used, or points
+outside SimpleFIN Bridge), 404 (unknown member), 429
+
+---
+
+#### `GET /api/simplefin/status`
+
+- **Auth:** Required
+
+**Response `200` — `SimplefinConnectionStatusResponse`:**
+```json
+{
+  "connected": true,
+  "connectionId": 1,
+  "status": "CONNECTED",
+  "lastSyncedAt": "2026-10-07T06:00:00Z",
+  "maskedToken": "••••ab12"
+}
+```
+
+`status` is `CONNECTED` or `ERROR` (last sync outcome). When not connected, every field but
+`connected: false` is `null`. The access URL is never returned.
+
+---
+
+#### `POST /api/simplefin/sync`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/connect`
+- **Body:** none
+
+**Response `200` — `AccountResponse[]`.** Balances and posted transactions of every linked
+account.
+
+**Errors:** 422 (no connection, Bridge unreachable or refusing). A revoked access carries
+`code: "SESSION_EXPIRED"`; the member connects again with a new setup token. 429
+
+---
+
+#### `DELETE /api/simplefin/connection`
+
+- **Auth:** Required
+
+**Response `204`.** Imported accounts and history are retained.
+
+---
+
 ### 17. Member profile — `/api/me/profile`
 
 The authenticated member's personal and fiscal context: age, marginal tax rate, household,
@@ -2032,3 +2101,151 @@ Null fields are omitted from the JSON, as everywhere else in this API.
 **Response `200` — `MemberProfileResponse`** (same shape as above).
 
 **Errors:** 422
+
+---
+
+### HomeBank history import — `/api/homebank/import`
+
+Two-phase, member-scoped file import from **HomeBank iOS and GNU HomeBank desktop**. Supported files are
+native `.hbk` (raw-DEFLATE JSON, schema version 3) and password-protected
+`.hbexport` (authenticated encrypted container version 1), plus desktop `.qif`.
+Desktop `.xhb`, allocations, scheduled transactions and attachments are not part
+of this endpoint. Native iOS split rows reject the whole file; QIF splits become
+individual category-bearing ledger rows after exact parent-total validation.
+
+#### `POST /api/homebank/import/preview`
+
+- **Auth:** Required; reads only the authenticated member's targets.
+- **Content-Type:** `multipart/form-data`.
+- **Fields:** `file` (required, at most 10 MiB), `password` (required only for
+  `.hbexport`), `currency` (required only for `.qif`, an explicit ISO 4217 code
+  applied to all source accounts). QIF omits currency; no default is inferred.
+  The password is used for decoding only and is not retained.
+- **Response:** `200`, `HomeBankImportDtos.Preview`.
+
+Preview fields:
+
+- `fileToken`: opaque confirmation token, member-bound, single-use, 30-minute TTL.
+- `accounts`: source accounts with `sourceId`, `name`, `institution`, `sourceType`,
+  `suggestedType`, `currency`, `initialBalance`, `balance`, `transactionCount`,
+  `closed`.
+- `categories`: source categories with `sourceId`, `name`, optional
+  `parentSourceId`, `income`, `transactionCount`.
+- `existingAccounts`: this member's `AccountResponse[]`.
+- `existingCategories`: this member's `CategoryResponse[]`.
+- `sampleTransactions`: sample source rows with `sourceId`, `accountSourceId`,
+  `date` (ISO calendar date), `amount`, `currency`, `payee`, `notes`, optional
+  `categorySourceId`, `transfer`.
+- `totalTransactions`, `forecastTransactions`: normalized ledger-row counts; QIF
+  split parts count individually without their parent. Forecast rows will
+  be skipped, not committed.
+
+The entire file is validated before a token is returned. Preview writes no
+accounts, transactions or categories. Signed amounts and currencies are not
+converted; source calendar dates are not shifted through timezones.
+
+#### `POST /api/homebank/import`
+
+- **Auth:** Required; the token must belong to this member.
+- **Content-Type:** `application/json`.
+- **Response:** `201`, `HomeBankImportDtos.Result`.
+
+Request fields:
+
+- `fileToken`: token from preview.
+- `accountMappings`: exactly one entry per source account:
+  - `sourceId` and `action`: `CREATE_NEW`, `MAP_EXISTING` or `SKIP`.
+  - `targetAccountId`: required for `MAP_EXISTING`.
+  - `newAccount`: required for `CREATE_NEW`, using `NewAccountDetails`
+    (`name`, `type`, optional `provider`/`color`, original `currency`).
+- `categoryMappings`: exactly one entry per source category:
+  - `sourceId` and `action`: `CREATE_NEW`, `MAP_EXISTING` or `UNCATEGORIZED`.
+  - `targetCategoryId`: required for `MAP_EXISTING`; the target must be an active
+    budget category owned by this member with the appropriate income/expense kind.
+  - `name`: the category name for `CREATE_NEW`.
+
+Targets must belong to the current member; existing-account currency must match
+the export. Investment account types are unsupported because the source contains
+cash history, not instrument trades. Multiple source accounts cannot map to one
+target. An existing source transaction cannot be remapped to another account:
+the import rejects that mapping rather than creating a duplicate. Archived
+source-derived category slugs must be restored or mapped differently by the
+user; import never reactivates them implicitly. All mappings are validated
+before persistence.
+Creating a child category requires its source parent to have the same
+income/expense kind. HomeBank permits mixed-kind hierarchies, but Picsou rejects
+their creation; explicitly map the child to an existing category of its own
+kind instead. Import never silently flattens the source hierarchy or changes
+the child's kind.
+
+Result fields are integer counts: `accountsCreated`, `accountsMapped`,
+`accountsSkipped`, `categoriesCreated`, `transactionsImported`,
+`transactionsSkipped`. Original-row counts exclude the synthetic opening-balance
+row of newly created accounts. Skipped transactions include forecasts, rows of
+skipped accounts and already imported source IDs.
+
+Import is additive and atomic. Repeating an export into the same targets reuses
+HomeBank-created accounts/categories and skips stable source transaction UUIDs,
+including across clear/encrypted iOS exports. QIF uses deterministic namespaced
+content IDs with occurrence discriminators because it lacks native IDs. Identical
+repeated rows remain distinct; edited identifying content imports additively as
+a new row, and account renames change source identity. QIF account definitions
+have no opening balance: new accounts start at zero plus exported ledger rows.
+Use full histories and inspect preview balances. Existing mapped accounts keep their
+provider identity, owned balance and snapshots. HomeBank-created accounts receive
+ledger-backed opening amounts and reconstructed history. Source internal-transfer
+legs and opening amounts use managed `TRANSFER` categories and do not count as
+cashflow income/expense. No extra mirror leg is generated.
+
+**Errors:** `400` RFC 7807 for invalid files/passwords, unsupported formats, invalid
+or incomplete mappings and expired/invalid previews; `404` for unavailable scoped
+resources; `429` for shared sync/import IP rate limits. Failure writes nothing;
+after database rollback a still-live preview can be retried.
+
+See [HomeBank import](../../docs/features/homebank-import.md) for decoding,
+deduplication and testing details.
+
+---
+
+### Opt-in anonymous telemetry — `/api/telemetry`
+
+Inert unless the instance sets `APP_TELEMETRY_DSN` **and** an admin consented. See
+[`docs/features/telemetry.md`](../../docs/features/telemetry.md).
+
+#### `GET /api/telemetry/config`
+
+- **Auth:** any authenticated user
+
+**Response `200`:**
+```json
+{ "enabled": false, "dsn": null, "environment": "production", "release": "dev", "available": false, "consent": "UNSET" }
+```
+`dsn` is `null` unless `enabled` (DSN configured and consent `ENABLED`).
+`available` indicates whether a valid DSN is configured; `consent` is `ENABLED`, `DISABLED` or
+`UNSET`. These fields let the consent prompt avoid loading the full admin settings response.
+
+#### `POST /api/telemetry/tunnel`
+
+- **Auth:** any authenticated user
+- **Content-Type:** `text/plain;charset=UTF-8` or `application/x-sentry-envelope` (Sentry envelope, max 200 KB)
+
+Always `204` when telemetry is not enabled (nothing is forwarded). When enabled, only `event` items
+are kept, re-scrubbed, and forwarded to the **configured** DSN host (the DSN in the incoming
+envelope header is ignored). Forward failures are swallowed (`204`).
+Forwarding is asynchronous, with a five-second timeout and at most 16 sends in flight. Pending
+sends are cancelled when consent is disabled or the application shuts down. Each authenticated
+principal is limited to 30 requests per minute before the body is read.
+
+**Errors:** 413 (body over 200 KB), 429 (principal rate limit or in-flight capacity reached;
+`Retry-After: 60`)
+
+#### `PUT /api/admin/settings/telemetry`
+
+- **Auth:** ADMIN
+
+**Request body:** `{ "enabled": true }` (`enabled` required). **Response `204`**; takes effect
+immediately (backend SDK initialised / closed in-process).
+
+**Errors:** 409 (enabling while no DSN is configured), 422
+
+`GET /api/admin/settings` additionally returns `telemetry: { "available": boolean, "consent": "ENABLED" | "DISABLED" | "UNSET" }`.

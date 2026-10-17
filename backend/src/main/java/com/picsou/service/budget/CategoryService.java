@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Managed spending/income/transfer categories, scoped per family member.
@@ -67,6 +68,7 @@ public class CategoryService {
         new DefaultCategory("abonnements", "Abonnements", CategoryKind.EXPENSE, "#6366f1", "repeat"),
         new DefaultCategory("voyages", "Voyages", CategoryKind.EXPENSE, "#06b6d4", "plane"),
         new DefaultCategory("impots", "Impôts & taxes", CategoryKind.EXPENSE, "#a16207", "landmark"),
+        new DefaultCategory("credit", "Crédit", CategoryKind.EXPENSE, "#be123c", "hand-coins"),
         new DefaultCategory("divers", "Divers", CategoryKind.EXPENSE, "#94a3b8", "ellipsis"),
         // ── Income ────────────────────────────────────────────────────────────
         new DefaultCategory("salaire", "Salaire", CategoryKind.INCOME, "#16a34a", "wallet"),
@@ -118,6 +120,38 @@ public class CategoryService {
                 .sortOrder(sortOrder++)
                 .build());
         }
+    }
+
+    /**
+     * The member's category for a default {@code slug}, created on demand when a default was
+     * added after the member was seeded. An archived one is never revived: the user removed it,
+     * so the caller gets nothing and leaves its rows uncategorized. Joins the caller's
+     * transaction, which must be writable.
+     */
+    @Transactional
+    public Optional<Category> findOrCreateDefault(Long memberId, String slug) {
+        Optional<DefaultCategory> wanted = DEFAULTS.stream().filter(d -> d.slug().equals(slug)).findFirst();
+        if (wanted.isEmpty()) {
+            return Optional.empty();
+        }
+        ensureSeeded(memberId);
+        List<Category> existing = categoryRepository.findAllByMemberIdOrderBySortOrderAscIdAsc(memberId);
+        Optional<Category> found = existing.stream().filter(c -> slug.equals(c.getSlug())).findFirst();
+        if (found.isPresent()) {
+            return found.filter(c -> !c.isArchived());
+        }
+        DefaultCategory d = wanted.get();
+        int sortOrder = existing.stream().mapToInt(Category::getSortOrder).max().orElse(-1) + 1;
+        return Optional.of(categoryRepository.save(Category.builder()
+            .member(familyMemberRepository.getReferenceById(memberId))
+            .slug(d.slug())
+            .name(d.name())
+            .kind(d.kind())
+            .color(d.color())
+            .icon(d.icon())
+            .isDefault(true)
+            .sortOrder(sortOrder)
+            .build()));
     }
 
     @Transactional

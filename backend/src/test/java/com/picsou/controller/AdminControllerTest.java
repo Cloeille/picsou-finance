@@ -13,6 +13,7 @@ import com.picsou.service.AiCallLogService;
 import com.picsou.service.EnableBankingKeyPairService;
 import com.picsou.service.IntegrationsService;
 import com.picsou.service.SetupService;
+import com.picsou.telemetry.TelemetryService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -37,6 +38,7 @@ class AdminControllerTest {
     @Mock EnableBankingKeyPairService keyPairService;
     @Mock AiConfigProvider aiConfigProvider;
     @Mock AiCallLogService aiCallLogService;
+    @Mock TelemetryService telemetryService;
 
     @InjectMocks AdminController controller;
 
@@ -53,11 +55,16 @@ class AdminControllerTest {
             when(integrationsService.isEffectivelyEnabled(key)).thenReturn("enablebanking".equals(key));
         }
 
+        when(telemetryService.isAvailable()).thenReturn(true);
+        when(telemetryService.consent()).thenReturn(TelemetryService.Consent.ENABLED);
+
         var response = controller.getSettings();
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         var body = response.getBody();
         assertThat(body).isNotNull();
+        assertThat(body.telemetry().available()).isTrue();
+        assertThat(body.telemetry().consent()).isEqualTo("ENABLED");
         assertThat(body.security().allowedOrigins()).containsExactly("https://a.com", "https://b.com");
         assertThat(body.security().secureCookies()).isTrue();
         assertThat(body.enableBanking().applicationId()).isEqualTo("app-id");
@@ -74,6 +81,35 @@ class AdminControllerTest {
 
         assertThat(body).isNotNull();
         assertThat(body.enableBanking().privateKeyPresent()).isFalse();
+    }
+
+    @Test
+    void getSettings_telemetryUnsetAndUnavailable_byDefault() {
+        when(telemetryService.consent()).thenReturn(TelemetryService.Consent.UNSET);
+
+        var body = controller.getSettings().getBody();
+
+        assertThat(body).isNotNull();
+        assertThat(body.telemetry().available()).isFalse();
+        assertThat(body.telemetry().consent()).isEqualTo("UNSET");
+    }
+
+    @Test
+    void updateTelemetry_delegatesToService_andReturns204() {
+        var response = controller.updateTelemetry(new com.picsou.dto.AdminTelemetryRequest(true));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        verify(telemetryService).setEnabled(true);
+    }
+
+    @Test
+    void updateTelemetry_withoutDsn_returns409() {
+        doThrow(new IllegalStateException("Telemetry is not configured on this instance"))
+            .when(telemetryService).setEnabled(true);
+
+        var response = controller.updateTelemetry(new com.picsou.dto.AdminTelemetryRequest(true));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
 
     @Test

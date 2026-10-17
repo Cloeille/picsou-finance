@@ -207,7 +207,14 @@
     "total": "Gesamt",
     "currentBalance": "Aktueller Saldo",
     "currentDebt": "Kreditkartenschuld",
+    "cardNature": {
+      "label": "Kartentyp",
+      "IMMEDIATE_DEBIT": "Sofortige Abbuchung",
+      "DEFERRED_DEBIT": "Verzögerte Abbuchung",
+      "CREDIT": "Kredit"
+    },
     "cashBalance": "Bargeld im PEA/Wertpapierkonto",
+    "perEuroFundBalance": "PER-Eurofonds (letzte Synchronisierung)",
     "snapshots": "Monatliche Stände",
     "addSnapshot": "Speichern",
     "monthlyHistory": "Saldo zum Monatsende",
@@ -398,6 +405,7 @@
     "other": "Sonstiges",
     "employeeSavings": "Mitarbeitersparplan",
     "assuranceVie": "Lebensversicherung",
+    "per": "PER (Altersvorsorge)",
     "scpi": "SCPI",
     "creditCard": "Kreditkarte"
   },
@@ -435,7 +443,6 @@
       "hint": "Nicht in der Quadratmeter-Schätzung. Der Ausgabepreis steht nicht in dieser Summe.",
       "incomplete": "Ein Anteil nutzt noch den letzten bekannten Saldo: der Rücknahmepreis fehlt."
     }
-
   },
   "realEstate": {
     "purchasePrice": "Kaufpreis",
@@ -699,13 +706,15 @@
       "bourseDirect": "PEA- und Wertpapierkonten synchronisieren",
       "degiro": "DEGIRO-Wertpapierkonto synchronisieren",
       "ibkr": "Synchronisieren Sie Ihr Interactive-Brokers-Konto per Flex Query",
+      "simplefin": "Bankkonten mit einem SimpleFIN-Setup-Token importieren",
       "finary": "Aus Finary importieren",
       "manual": "Konto manuell erstellen",
       "amundi": "PEE, PEG, PERCO, PER bei Amundi",
       "amex": "American Express Kreditkarte: Kontostand und Transaktionen",
       "property": "Haus, Wohnung, Grundstück…",
       "revolut": "Phone + passcode, on-demand sync",
-      "fortuneo": "Fortuneo-Konten synchronisieren"
+      "fortuneo": "Fortuneo-Konten synchronisieren",
+      "caisseEpargne": "Girokonto, Livret A, LDDS, PER, Kredite und Karten bei der Caisse d'Epargne"
     },
     "revolutConnected": "Revolut connected!"
   },
@@ -779,6 +788,28 @@
       "errors": {
         "connectFailed": "Verbindung konnte nicht gespeichert werden. Prüfen Sie Token und Abfrage-ID.",
         "syncFailed": "Interactive-Brokers-Synchronisierung fehlgeschlagen. Prüfen Sie Ihr Token oder versuchen Sie es erneut.",
+        "disconnectFailed": "Verbindung konnte nicht entfernt werden. Bitte versuchen Sie es erneut."
+      }
+    },
+    "simplefin": {
+      "title": "SimpleFIN",
+      "setupHint": "Verknüpfen Sie Ihre Banken auf SimpleFIN Bridge, erstellen Sie ein Setup-Token und fügen Sie es hier ein.",
+      "createToken": "Setup-Token erstellen",
+      "token": "Setup-Token",
+      "tokenPlaceholder": "Token von SimpleFIN einfügen",
+      "connect": "Verbinden",
+      "sync": "Synchronisieren",
+      "syncing": "Wird synchronisiert…",
+      "disconnect": "Trennen",
+      "disconnectConfirm": "Gespeicherte SimpleFIN-Verbindung entfernen? Importierte Konten bleiben und werden nicht mehr aktualisiert.",
+      "connected": "Verbunden",
+      "statusError": "Letzte Synchronisierung fehlgeschlagen",
+      "lastSync": "Letzte Sync",
+      "neverSynced": "Nie synchronisiert",
+      "syncedToast": "SimpleFIN synchronisiert: {{count}} Konto/Konten",
+      "errors": {
+        "connectFailed": "Verbindung zu SimpleFIN fehlgeschlagen. Prüfen Sie das Token und versuchen Sie es erneut.",
+        "syncFailed": "SimpleFIN-Synchronisierung fehlgeschlagen. Versuchen Sie es erneut oder erstellen Sie ein neues Token, wenn der Zugriff widerrufen wurde.",
         "disconnectFailed": "Verbindung konnte nicht entfernt werden. Bitte versuchen Sie es erneut."
       }
     },
@@ -927,6 +958,56 @@
       "syncFailed": "Finary-Synchronisation fehlgeschlagen",
       "authFailed": "Ungültige Finary-Zugangsdaten. Prüfe E-Mail und Passwort."
     },
+    "homebank": {
+      "title": "HomeBank-Import",
+      "upload": "HomeBank-Datei importieren",
+      "uploadHint": "Unterstützt: HomeBank-iOS-Sicherungen .hbk/.hbexport und Desktop-Exporte .qif",
+      "chooseFile": "Datei auswählen",
+      "file": "HomeBank-Datei",
+      "password": "Dateipasswort (falls erforderlich)",
+      "currency": "QIF-Währung (ISO 4217)",
+      "currencyPlaceholder": "EUR",
+      "qifLimitations": "QIF-Dateien enthalten weder Währung noch Anfangssaldo. Wählen Sie die Kontowährung und importieren Sie den vollständigen Kontoverlauf. Geteilte Buchungen erscheinen als separate Kategoriezeilen und werden entsprechend gezählt.",
+      "preview": "Importvorschau",
+      "previewSummary": "{{accounts}} Konten, {{categories}} Kategorien und {{transactions}} Transaktionen",
+      "forecastsSkipped": "{{count}} Prognosetransaktion(en) übersprungen; sie werden nicht importiert.",
+      "restart": "Vorschau neu starten",
+      "accounts": "Konten",
+      "categories": "Kategorien",
+      "transactions": "Transaktionen",
+      "initialBalance": "Anfangssaldo",
+      "skip": "Überspringen",
+      "mapExisting": "Bestehendem Konto zuordnen",
+      "createNew": "Konto erstellen",
+      "targetAccount": "Zielkonto für {{name}}",
+      "chooseAccount": "Konto auswählen",
+      "accountName": "Kontoname",
+      "accountType": "Kontotyp",
+      "income": "Einnahme",
+      "expense": "Ausgabe",
+      "categoryName": "Kategoriename für {{name}}",
+      "categoryParentKindMismatch": "Diese Kategorie hat einen anderen Typ als ihre übergeordnete Kategorie ({{parent}}). Sie kann nicht erstellt werden. Ordnen Sie sie einer bestehenden Kategorie desselben Typs zu oder wählen Sie Ohne Kategorie.",
+      "categoryAction": "Aktion für {{name}}",
+      "createCategory": "Kategorie erstellen",
+      "mapExistingCategory": "Bestehender Kategorie zuordnen",
+      "targetCategory": "Zielkategorie für {{name}}",
+      "chooseCategory": "Kategorie auswählen",
+      "uncategorized": "Ohne Kategorie",
+      "sampleTransactions": "Beispieltransaktionen",
+      "noPayee": "Kein Zahlungsempfänger",
+      "transfer": "Überweisung",
+      "import": "Daten importieren",
+      "confirmTitle": "HomeBank-Import bestätigen",
+      "confirmDescription": "Transaktionen werden den ausgewählten Konten hinzugefügt. Bestehende Salden und Verläufe bleiben erhalten.",
+      "accountsCreated": "Konten erstellt",
+      "accountsMapped": "Konten zugeordnet",
+      "accountsSkipped": "Konten übersprungen",
+      "categoriesCreated": "Kategorien erstellt",
+      "transactionsImported": "Transaktionen importiert",
+      "transactionsSkipped": "Transaktionen übersprungen",
+      "done": "Fertig",
+      "errors": { "invalidPreview": "Die Vorschauantwort ist ungültig.", "previewFailed": "HomeBank-Datei konnte nicht angezeigt werden.", "importFailed": "HomeBank-Import fehlgeschlagen." }
+    },
     "all": {
       "title": "Konten synchronisieren",
       "syncAll": "Alle synchronisieren",
@@ -970,6 +1051,57 @@
         "formatChanged": "Das Format der BoursoBank-Website hat sich geändert. Ihre vorhandenen Daten wurden beibehalten.",
         "invalidData": "BoursoBank hat inkonsistente Daten zurückgegeben. Ihre vorhandenen Daten wurden beibehalten.",
         "serverError": "BoursoBank ist nicht erreichbar. Bitte erneut versuchen."
+      }
+    },
+    "caisseEpargne": {
+      "title": "Caisse d'Epargne",
+      "customerId": "Kennung",
+      "connect": "Verbinden",
+      "connecting": "Verbindung…",
+      "sync": "Synchronisieren",
+      "queued": "Synchronisierung in Warteschlange…",
+      "syncing": "Synchronisierung…",
+      "syncSuccess": "Caisse-d'Epargne-Konten synchronisiert.",
+      "clearSession": "Trennen",
+      "disconnectConfirm": "Dies löscht die in Picsou gespeicherte Sitzung. Die Sitzung bei der Caisse d'Epargne selbst wird nicht beendet und kann bis zu ihrem Ablauf aktiv bleiben.",
+      "disconnectConfirmAction": "Gespeicherte Sitzung löschen",
+      "noSession": "Keine aktive Sitzung",
+      "sessionActive": "Sitzung aktiv",
+      "scope": "Synchronisiert Ihre Girokonten, Livret A, LDDS, PER (nur Saldo), Privatkredite und Karten bei der Caisse d'Epargne auf Abruf. Nur die Sitzung wird verschlüsselt gespeichert. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
+      "notice": {
+        "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken es selbst auf der Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
+        "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",
+        "lockRisk": "Falsche Versuche zählen bei Ihrer Bank und können Ihren Caisse-d'Epargne-Zugang sperren. Prüfen Sie Ihre Kennung und die auf der Tastatur geklickten Ziffern vor dem Bestätigen."
+      },
+      "securPassPrompt": "Bestätigen Sie die Anmeldung in Ihrer Sécur'Pass-App.",
+      "securPassHint": "Picsou greift nicht auf Ihr Telefon zu. Diese Seite geht von selbst weiter, sobald Sie bestätigen.",
+      "countdownLabel": "Verbleibende Zeit zum Bestätigen:",
+      "unsupportedTitle": "Nicht importierte Verträge",
+      "unsupportedHint": "Picsou unterstützt diese Vertragsfamilien noch nicht (Familiencode angezeigt).",
+      "errors": {
+        "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
+        "rateLimitedRetryAfter": "Zu viele Anmeldeversuche. Versuchen Sie es in {{minutes}} Min. erneut.",
+        "invalidCredentials": "Die Bank hat Kennung oder Passwort abgelehnt. Prüfen Sie sie, bevor Sie es erneut versuchen: wiederholte Fehlversuche können Ihr Konto sperren.",
+        "keypadChanged": "Die Tastatur hat sich geändert, bitte neu beginnen. Es wurde nichts gesendet.",
+        "appValidationTimeout": "Die Anmeldung wurde nicht rechtzeitig in Sécur'Pass bestätigt. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "sessionExpired": "Die Caisse-d'Epargne-Sitzung ist abgelaufen. Bitte neu verbinden.",
+        "formatChanged": "Das Format der Caisse-d'Epargne-Website hat sich geändert. Ihre vorhandenen Daten wurden beibehalten.",
+        "invalidSessionState": "Die gespeicherte Sitzung ist nicht lesbar. Bitte neu verbinden.",
+        "serverError": "Die Caisse d'Epargne ist nicht erreichbar. Bitte versuchen Sie es später erneut.",
+        "keypadExpired": "Die Tastatur ist vor Ihrer Bestätigung abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "invalidPositions": "Die Tastatureingabe wurde nicht akzeptiert. Beginnen Sie neu und geben Sie 6 bis 12 Tasten ein."
+      },
+      "keypad": {
+        "title": "Passwort anklicken",
+        "description": "Klicken Sie die Tasten Ihres Passworts der Reihe nach auf der Tastatur der Bank an. Die Ziffern werden nur auf den Tasten selbst angezeigt.",
+        "key": "Taste {{n}}",
+        "entered": "{{count}} Tasten eingegeben",
+        "clear": "Löschen",
+        "cancel": "Abbrechen",
+        "validate": "Bestätigen",
+        "sending": "Wird gesendet…",
+        "countdownLabel": "Verbleibende Zeit:"
       }
     },
     "degiro": {
@@ -1487,6 +1619,32 @@
         "label": "Budget-Umschläge",
         "desc": "Budget-Umschläge erstellen, bearbeiten und löschen"
       }
+    }
+  },
+  "telemetry": {
+    "consent": {
+      "title": "Picsou verbessern helfen?",
+      "intro": "Teile anonyme Absturzberichte und Nutzungszähler mit den Picsou-Entwicklern. Das ist freiwillig, gilt für die gesamte Instanz und lässt sich jederzeit in der Administration ändern.",
+      "collectedTitle": "Was geteilt wird",
+      "collected1": "Technische Fehlerberichte (Fehlertyp und Codestelle, niemals Fehlermeldungen)",
+      "collected2": "Welche Seiten geöffnet werden (nur Seitenvorlage, z. B. /accounts/:id)",
+      "collected3": "Welche Funktionen genutzt werden (z. B. eine Synchronisierung wurde gestartet), ohne Details",
+      "neverTitle": "Was nie geteilt wird",
+      "never1": "Konten, Kontostände, Transaktionen, Beträge oder IBANs",
+      "never2": "Namen, E-Mail-Adressen, Benutzernamen oder IP-Adressen",
+      "never3": "Jegliche Kennung von Benutzer, Gerät oder Sitzung",
+      "tunnel": "Berichte laufen über deinen eigenen Picsou-Server, der sie vor der Weiterleitung erneut bereinigt.",
+      "enable": "Aktivieren",
+      "decline": "Nein danke",
+      "error": "Deine Auswahl konnte nicht gespeichert werden. Bitte versuche es erneut."
+    },
+    "section": {
+      "title": "Anonyme Telemetrie",
+      "description": "Freiwillige Absturzberichte und Nutzungszähler an die Picsou-Entwickler. Standardmäßig aus.",
+      "toggle": "Anonyme Telemetrie teilen",
+      "unavailable": "Nicht verfügbar — auf dieser Instanz ist kein Telemetrie-Server (DSN) konfiguriert.",
+      "privacy": "Es werden nur technische Fehlerberichte, Seitenvorlagen (z. B. /accounts/:id) und Funktionsnamen gesendet. Finanzdaten, personenbezogene Daten und Kennungen werden nie erhoben; Berichte werden im Browser und erneut auf deinem Server bereinigt.",
+      "error": "Die Telemetrie-Einstellung konnte nicht geändert werden."
     }
   },
   "admin": {

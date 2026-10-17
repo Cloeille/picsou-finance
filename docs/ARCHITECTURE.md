@@ -266,12 +266,14 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 | PostgreSQL 16 | Persistence | `SPRING_DATASOURCE_URL` |
 | Flyway | Schema migrations | `db/migration/` (latest V81) |
 | Enable Banking | PSD2 bank sync (optional) | `ENABLEBANKING_*` |
+| SimpleFIN | Bank balances and posted transactions from a setup token (optional, no app credentials) | User-supplied token |
 | Powens / Budget Insight | Scraping bank sync (**experimental, disabled in 1.0.0**) | `POWENS_*` |
 | Trade Republic | Broker sync via Python microservice | `TR_AUTH_URL` |
 | Bourse Direct | PEA/CTO sync via internal Python sidecar | `BOURSE_DIRECT_AUTH_URL` |
 | Amundi Épargne Salariale | PEE/PEG/PERCO/PER sync via internal Python sidecar | `AMUNDI_AUTH_URL` |
 | Fortuneo | Current accounts, PEA/PEA-PME/CTO and transaction history via internal Python sidecar | `FORTUNEO_AUTH_URL` |
 | BoursoBank | Current accounts, livrets and PEA/CTO sync via internal Python sidecar | `BOURSO_AUTH_URL` |
+| Caisse d'Epargne | Current account, Livret A and deferred-debit card read via internal Python sidecar, on demand, no in-app login yet | `CAISSE_EPARGNE_AUTH_URL` |
 | DEGIRO | Compte-titres sync via internal Python sidecar (sidecar off by default — uncomment in `docker-compose.yml`) | `DEGIRO_AUTH_URL` |
 | Binance | Crypto exchange balances | Via CryptoExchangePort |
 | Meria | Crypto exchange balances (wallets + staking + lending) | Via CryptoExchangePort |

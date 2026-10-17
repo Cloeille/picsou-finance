@@ -60,9 +60,21 @@ vi.mock('@/components/sync/AmundiPanel', () => ({
   ),
 }))
 
+vi.mock('@/components/sync/CaisseEpargnePanel', () => ({
+  CaisseEpargnePanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>caisse-epargne-wizard</button>
+  ),
+}))
+
 vi.mock('@/components/sync/IbkrPanel', () => ({
   IbkrPanel: ({ onConnected }: { onConnected?: () => void }) => (
     <button onClick={onConnected}>ibkr-wizard</button>
+  ),
+}))
+
+vi.mock('@/components/sync/SimplefinPanel', () => ({
+  SimplefinPanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>simplefin-wizard</button>
   ),
 }))
 
@@ -283,6 +295,37 @@ describe('AddAccountModal IBKR wizard', () => {
 
     fireEvent.click(screen.getByText('sync.ibkr.title'))
     fireEvent.click(screen.getByRole('button', { name: 'ibkr-wizard' }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('AddAccountModal Caisse d\'Epargne wizard', () => {
+  it('lists the source with its own description', () => {
+    render(<AddAccountModal open onOpenChange={vi.fn()} />)
+
+    expect(screen.getByText('sync.caisseEpargne.title')).toBeInTheDocument()
+    expect(screen.getByText('addAccount.desc.caisseEpargne')).toBeInTheDocument()
+  })
+
+  it('opens the connector and closes after authentication', () => {
+    const onOpenChange = vi.fn()
+    render(<AddAccountModal open onOpenChange={onOpenChange} />)
+
+    fireEvent.click(screen.getByText('sync.caisseEpargne.title'))
+    fireEvent.click(screen.getByRole('button', { name: 'caisse-epargne-wizard' }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('AddAccountModal SimpleFIN wizard', () => {
+  it('opens the connector and closes after authentication', () => {
+    const onOpenChange = vi.fn()
+    render(<AddAccountModal open onOpenChange={onOpenChange} />)
+
+    fireEvent.click(screen.getByText('sync.simplefin.title'))
+    fireEvent.click(screen.getByRole('button', { name: 'simplefin-wizard' }))
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })

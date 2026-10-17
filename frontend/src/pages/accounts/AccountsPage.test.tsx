@@ -34,7 +34,9 @@ vi.mock('@/components/shared/AccountForm', () => ({ AccountForm: () => null }))
 vi.mock('@/components/shared/AddAccountModal', () => ({ AddAccountModal: () => null }))
 vi.mock('@/components/property/AddPropertyModal', () => ({ AddPropertyModal: () => null }))
 vi.mock('@/components/shared/AccountsStackedChart', () => ({
-  AccountsStackedChart: () => <div data-testid="pnl-chart" />,
+  AccountsStackedChart: ({ data }: { data: { date: string; [key: string]: string | number }[] }) => (
+    <div data-testid="pnl-chart" data-chart={JSON.stringify(data)} />
+  ),
 }))
 
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }))
@@ -67,6 +69,25 @@ function property(id: number, balanceEur: number, costBasis?: number): Account {
     ...(costBasis == null
       ? {}
       : { realEstate: { costBasis, purchasePrice: costBasis } as RealEstateMetadata }),
+  } as Account
+}
+
+function investmentAccount(id: number, type: 'PEA' | 'PER', balanceEur: number): Account {
+  return {
+    id,
+    name: `Compte ${id}`,
+    type,
+    provider: 'Example',
+    currency: 'EUR',
+    currentBalance: balanceEur,
+    currentBalanceEur: balanceEur,
+    lastSyncedAt: null,
+    isManual: true,
+    color: '#6366f1',
+    ticker: null,
+    logoUrl: null,
+    logoKey: null,
+    createdAt: '2026-01-01T00:00:00Z',
   } as Account
 }
 
@@ -137,5 +158,50 @@ describe('AccountsPage — Immobilier gain / loss', () => {
     // Gain stays +50 000 over a 450 000 basis (250 000 + the second property's own value),
     // not +50 000 over 250 000 and certainly not +250 000.
     expect(screen.getByText('(+11.1%)')).toBeInTheDocument()
+  })
+
+  it('does not publish a partial group PnL when an investment account has unknown basis', () => {
+    const accounts = [investmentAccount(1, 'PEA', 12000), investmentAccount(2, 'PER', 9987)]
+    useAccounts.mockReturnValue({ data: accounts, isLoading: false })
+    useHistory.mockReturnValue({
+      data: [{
+        date: '2026-08-01',
+        total: 21987,
+        invested: null,
+        pnl: null,
+        accounts: {
+          '1': { total: 12000, invested: 10000, pnl: 2000 },
+          '2': { total: 9987, invested: null, pnl: null },
+        },
+      }],
+      isLoading: false,
+    })
+
+    render(<AccountsPage />)
+
+    expect(screen.queryByText('dashboard.portfolioPerformance')).not.toBeInTheDocument()
+    const chartData = JSON.parse(screen.getByTestId('pnl-chart').getAttribute('data-chart') ?? '[]') as Array<Record<string, string | number>>
+    expect(chartData[0]).not.toHaveProperty('STOCKS')
+  })
+
+  it('leaves a missing historical account observation out of its PnL chart', () => {
+    const accounts = [investmentAccount(1, 'PEA', 10000)]
+    useAccounts.mockReturnValue({ data: accounts, isLoading: false })
+    useHistory.mockReturnValue({
+      data: [{
+        date: '2026-08-01',
+        total: 0,
+        invested: null,
+        pnl: null,
+        accounts: {},
+      }],
+      isLoading: false,
+    })
+
+    render(<AccountsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'accounts.filters.STOCKS' }))
+
+    const chartData = JSON.parse(screen.getByTestId('pnl-chart').getAttribute('data-chart') ?? '[]') as Array<Record<string, string | number>>
+    expect(chartData[0]).not.toHaveProperty('1')
   })
 })
