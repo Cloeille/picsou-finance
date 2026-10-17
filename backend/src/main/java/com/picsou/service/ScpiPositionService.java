@@ -6,6 +6,7 @@ import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.DividendPolicy;
 import com.picsou.model.ScpiPosition;
+import com.picsou.model.ScpiProvider;
 import com.picsou.model.ScpiValuationStatus;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.ScpiPositionRepository;
@@ -27,10 +28,16 @@ public class ScpiPositionService {
 
     private final AccountRepository accountRepository;
     private final ScpiPositionRepository positionRepository;
+    private final ScpiFundService fundService;
 
-    public ScpiPositionService(AccountRepository accountRepository, ScpiPositionRepository positionRepository) {
+    public ScpiPositionService(
+        AccountRepository accountRepository,
+        ScpiPositionRepository positionRepository,
+        ScpiFundService fundService
+    ) {
         this.accountRepository = accountRepository;
         this.positionRepository = positionRepository;
+        this.fundService = fundService;
     }
 
     @Transactional
@@ -54,11 +61,18 @@ public class ScpiPositionService {
         // Partial callers may omit provider links when correcting a position.
         // Writing unconditionally would quietly remove it from later syncs.
         // An explicit empty string is how a user detaches a fund on purpose.
+        // Clearing a code is "ignore this fund": since #232 a sync would otherwise
+        // adopt or recreate an account for it on its next run. Setting a code is an
+        // explicit link and lifts an earlier ignore.
         if (request.corumFundCode() != null) {
-            position.setCorumFundCode(blankToNull(request.corumFundCode()));
+            String next = blankToNull(request.corumFundCode());
+            relink(memberId, ScpiProvider.CORUM, position.getCorumFundCode(), next);
+            position.setCorumFundCode(next);
         }
         if (request.sofidyFundCode() != null) {
-            position.setSofidyFundCode(blankToNull(request.sofidyFundCode()));
+            String next = blankToNull(request.sofidyFundCode());
+            relink(memberId, ScpiProvider.SOFIDY, position.getSofidyFundCode(), next);
+            position.setSofidyFundCode(next);
         }
         position.setShareCount(request.shareCount());
         position.setSubscriptionPriceEur(request.subscriptionPriceEur());
@@ -85,7 +99,7 @@ public class ScpiPositionService {
     }
 
     /**
-     * Applies a synchronised CORUM holding onto an existing position.
+     * Applies a synchronised CORUM or Sofidy holding onto a position.
      *
      * <p>This is the same write path {@link #save} performs, reached from a sync
      * instead of a form. It exists so the withdrawal-price rule lives in one
@@ -159,6 +173,15 @@ public class ScpiPositionService {
             return null;
         }
         return shareCount.multiply(withdrawalPrice).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+    }
+
+    private void relink(Long memberId, ScpiProvider provider, String previous, String next) {
+        if (previous != null && !previous.equals(next)) {
+            fundService.tombstone(memberId, provider, previous);
+        }
+        if (next != null) {
+            fundService.clearTombstone(memberId, provider, next);
+        }
     }
 
     private static String blankToNull(String value) {

@@ -1965,6 +1965,73 @@ Authentication rate limiting returns `429`.
 
 ---
 
+### 16b. SimpleFIN — `/api/simplefin`
+
+One connection per member. The member pastes a one-time setup token from SimpleFIN Bridge;
+Picsou claims it and stores the returned access URL encrypted. Only
+`https://beta-bridge.simplefin.org` (port 443) is contacted. Connect and sync share one per-IP
+limit of 6 requests per minute; over it, both return `429`. See
+[`docs/features/simplefin-sync.md`](../../docs/features/simplefin-sync.md).
+
+#### `POST /api/simplefin/connect`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/sync`
+
+**Request body:**
+```json
+{ "token": "base64 setup token (required, at most 4096 characters)" }
+```
+
+**Response `204`.** The access URL is stored; no sync runs yet.
+
+**Errors:** 422 (blank or oversized token, a token that is invalid, already used, or points
+outside SimpleFIN Bridge), 404 (unknown member), 429
+
+---
+
+#### `GET /api/simplefin/status`
+
+- **Auth:** Required
+
+**Response `200` — `SimplefinConnectionStatusResponse`:**
+```json
+{
+  "connected": true,
+  "connectionId": 1,
+  "status": "CONNECTED",
+  "lastSyncedAt": "2026-10-07T06:00:00Z",
+  "maskedToken": "••••ab12"
+}
+```
+
+`status` is `CONNECTED` or `ERROR` (last sync outcome). When not connected, every field but
+`connected: false` is `null`. The access URL is never returned.
+
+---
+
+#### `POST /api/simplefin/sync`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/connect`
+- **Body:** none
+
+**Response `200` — `AccountResponse[]`.** Balances and posted transactions of every linked
+account.
+
+**Errors:** 422 (no connection, Bridge unreachable or refusing). A revoked access carries
+`code: "SESSION_EXPIRED"`; the member connects again with a new setup token. 429
+
+---
+
+#### `DELETE /api/simplefin/connection`
+
+- **Auth:** Required
+
+**Response `204`.** Imported accounts and history are retained.
+
+---
+
 ### 17. Member profile — `/api/me/profile`
 
 The authenticated member's personal and fiscal context: age, marginal tax rate, household,
@@ -2137,3 +2204,48 @@ after database rollback a still-live preview can be retried.
 
 See [HomeBank import](../../docs/features/homebank-import.md) for decoding,
 deduplication and testing details.
+
+---
+
+### Opt-in anonymous telemetry — `/api/telemetry`
+
+Inert unless the instance sets `APP_TELEMETRY_DSN` **and** an admin consented. See
+[`docs/features/telemetry.md`](../../docs/features/telemetry.md).
+
+#### `GET /api/telemetry/config`
+
+- **Auth:** any authenticated user
+
+**Response `200`:**
+```json
+{ "enabled": false, "dsn": null, "environment": "production", "release": "dev", "available": false, "consent": "UNSET" }
+```
+`dsn` is `null` unless `enabled` (DSN configured and consent `ENABLED`).
+`available` indicates whether a valid DSN is configured; `consent` is `ENABLED`, `DISABLED` or
+`UNSET`. These fields let the consent prompt avoid loading the full admin settings response.
+
+#### `POST /api/telemetry/tunnel`
+
+- **Auth:** any authenticated user
+- **Content-Type:** `text/plain;charset=UTF-8` or `application/x-sentry-envelope` (Sentry envelope, max 200 KB)
+
+Always `204` when telemetry is not enabled (nothing is forwarded). When enabled, only `event` items
+are kept, re-scrubbed, and forwarded to the **configured** DSN host (the DSN in the incoming
+envelope header is ignored). Forward failures are swallowed (`204`).
+Forwarding is asynchronous, with a five-second timeout and at most 16 sends in flight. Pending
+sends are cancelled when consent is disabled or the application shuts down. Each authenticated
+principal is limited to 30 requests per minute before the body is read.
+
+**Errors:** 413 (body over 200 KB), 429 (principal rate limit or in-flight capacity reached;
+`Retry-After: 60`)
+
+#### `PUT /api/admin/settings/telemetry`
+
+- **Auth:** ADMIN
+
+**Request body:** `{ "enabled": true }` (`enabled` required). **Response `204`**; takes effect
+immediately (backend SDK initialised / closed in-process).
+
+**Errors:** 409 (enabling while no DSN is configured), 422
+
+`GET /api/admin/settings` additionally returns `telemetry: { "available": boolean, "consent": "ENABLED" | "DISABLED" | "UNSET" }`.

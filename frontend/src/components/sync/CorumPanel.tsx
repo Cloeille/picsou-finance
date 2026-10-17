@@ -1,5 +1,6 @@
 import { Building2 } from "lucide-react"
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
+import { ScpiSyncSummary } from "@/components/scpi/ScpiSyncSummary"
 import {
   useAuthenticateCorum,
   useClearCorumSession,
@@ -18,6 +19,8 @@ interface CorumPanelProps {
  * reaches those screens when the auth response says a second factor is required.
  */
 export function CorumPanel({ onConnected }: CorumPanelProps = {}) {
+  // Same query as the panel's own status: the shared cache makes this free.
+  const status = useCorumStatus()
   return (
     <SidecarSessionPanel
       translationPrefix="sync.corum"
@@ -29,6 +32,7 @@ export function CorumPanel({ onConnected }: CorumPanelProps = {}) {
       useSync={useSyncCorum}
       useClearSession={useClearCorumSession}
       onConnected={onConnected}
+      successSummary={<ScpiSyncSummary provider="CORUM" completedAt={status.data?.lastSyncCompletedAt} />}
     />
   )
 }

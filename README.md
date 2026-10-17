@@ -27,7 +27,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 ## Features
 
 - **Account aggregation** — Bank accounts (LEP, PEA, Livret, current), brokerage, crypto wallets, on-chain addresses, debts/loans
-- **Bank sync** — Enable Banking (PSD2/OAuth, 2000+ EU banks).
+- **Bank sync** — Enable Banking (PSD2/OAuth, 2000+ EU banks) and SimpleFIN (setup token, mostly US banks via SimpleFIN Bridge).
 - **BoursoBank** — Current accounts, livrets and the PEA/CTO with its cash and positions, via a local read-only sidecar. Reaches the securities account PSD2 cannot.
 - **Brokerage sync** — Trade Republic via WebSocket or CSV import, and Bourse Direct PEA/CTO positions via a local read-only sidecar
 - **Employee savings** — Amundi Épargne Salariale plans (PEE/PEG, PERCO, PER) and their FCPE lines, via a local read-only sidecar
@@ -129,6 +129,12 @@ On first launch the entrypoint auto-generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_K
 > hand afterwards; run it over HTTPS and they are all derived correctly with nothing to type.
 
 Otherwise, open http://localhost:8080 — the **setup wizard** walks you through admin credentials, CORS, and (optionally) Enable Banking.
+
+For subsequent production releases, do not replace the app with a bare `compose up`.
+Use the [migration-safe deployment workflow](docs/features/docker-deployment.md#safe-release-deployment)
+to rehearse migrations on a restored backup, migrate the live database, and verify the API
+before declaring the release ready. Keep Flyway enabled; a historical
+`SPRING_FLYWAY_ENABLED=false` workaround is not a migration strategy.
 
 ### 3. HTTPS (decide before the first launch)
 

@@ -130,12 +130,12 @@ export function DashboardPage() {
     }
   }, [data, wealthMode])
 
-  // PnL: use range fields when available, fall back to live PnL (ALL range)
-  const pnl = pnlData?.rangePnl != null ? pnlData.rangePnl : (pnlData?.pnl ?? 0)
-  const pnlPct = pnlData?.rangePnlPercent != null
-    ? pnlData.rangePnlPercent.toFixed(1)
-    : (pnlData?.pnlPercent != null ? pnlData.pnlPercent.toFixed(1) : null)
-  const pnlPositive = pnl >= 0
+  // ALL uses live PnL; selected ranges use only their range PnL. Unknown is not zero.
+  const pnl = range === 'ALL' ? (pnlData?.pnl ?? null) : (pnlData?.rangePnl ?? null)
+  const pnlPct = range === 'ALL'
+    ? (pnlData?.pnlPercent != null ? pnlData.pnlPercent.toFixed(1) : null)
+    : (pnlData?.rangePnlPercent != null ? pnlData.rangePnlPercent.toFixed(1) : null)
+  const pnlPositive = pnl != null && pnl >= 0
 
   if (isLoading || !data) {
     return <LoadingSkeleton />
@@ -231,19 +231,25 @@ export function DashboardPage() {
           )}
 
           <div className="mt-3 flex items-center gap-2">
-            {pnlPositive
-              ? <TrendingUp className="text-emerald-500" size={18} />
-              : <TrendingDown className="text-red-500" size={18} />}
-            <span
-              className={`text-sm font-medium ${pnlPositive ? 'text-emerald-500' : 'text-red-500'}`}
-            >
-              <CurrencyDisplay value={pnl} />
-              {pnlPct !== null && (
-                <span className="ml-1 font-normal text-muted-foreground">
-                  ({pnlPositive ? '+' : ''}{pnlPct}%)
+            {pnl != null ? (
+              <>
+                {pnlPositive
+                  ? <TrendingUp className="text-emerald-500" size={18} />
+                  : <TrendingDown className="text-red-500" size={18} />}
+                <span
+                  className={`text-sm font-medium ${pnlPositive ? 'text-emerald-500' : 'text-red-500'}`}
+                >
+                  <CurrencyDisplay value={pnl} />
+                  {pnlPct !== null && (
+                    <span className="ml-1 font-normal text-muted-foreground">
+                      ({pnlPositive ? '+' : ''}{pnlPct}%)
+                    </span>
+                  )}
                 </span>
-              )}
-            </span>
+              </>
+            ) : (
+              <span className="text-sm font-medium text-muted-foreground">{t('goals.noData')}</span>
+            )}
             <span className="text-sm text-muted-foreground">{t('dashboard.portfolioPerformance')}</span>
           </div>
         </CardContent>

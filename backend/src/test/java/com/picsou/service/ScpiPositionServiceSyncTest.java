@@ -32,6 +32,7 @@ class ScpiPositionServiceSyncTest {
 
     @Mock AccountRepository accountRepository;
     @Mock ScpiPositionRepository positionRepository;
+    @Mock ScpiFundService scpiFundService;
     @InjectMocks ScpiPositionService service;
 
     private static ScpiPosition position(AccountType type) {

@@ -17,7 +17,7 @@ interface TrajectoryOverlay {
 }
 
 interface NetWorthChartProps {
-  data: { date: string; total: number; invested?: number; pnl?: number }[]
+  data: { date: string; total: number; invested?: number | null; pnl?: number | null }[]
   intraday?: IntradayPoint[]
   range: TimeRange
   onRangeChange: (range: TimeRange) => void
@@ -42,9 +42,9 @@ interface NetWorthChartProps {
 function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
   active?: boolean
   payload?: Array<{
-    value: number
+    value: number | null
     dataKey: string
-    payload: { date?: string; timestamp?: string; total: number | null; invested?: number; pnl?: number; target?: number; projection?: number }
+    payload: { date?: string; timestamp?: string; total: number | null; invested?: number | null; pnl?: number | null; target?: number; projection?: number }
   }>
   labels: { total: string; invested: string; target: string; projection: string; gainLoss: string; locale: string; currency: string }
   is24H: boolean
@@ -63,19 +63,19 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
   const anchorItem = totalItem ?? payload[0]
   if (!anchorItem) return null
 
-  const total = totalItem ? (totalItem.value as number) : null
+  const total = totalItem?.value ?? null
   const investedItem = payload.find(p => p.dataKey === 'invested' && p.value != null)
-  const hasInvested = investedItem != null
-  const invested = hasInvested ? (investedItem.value as number) : 0
+  const invested = investedItem?.value ?? null
+  const hasInvested = invested != null
   // Gain/loss comes from the backend's debt-neutral pnl field — never recomputed
   // locally, so debt can't be read as an investment loss (issue #18). Intraday
   // points carry no pnl → the row is omitted.
   const rowPnl = anchorItem.payload?.pnl
   const gainLoss = typeof rowPnl === 'number' ? rowPnl : null
   const targetItem = payload.find(p => p.dataKey === 'target' && p.value != null)
-  const target = targetItem ? (targetItem.value as number) : null
+  const target = targetItem?.value ?? null
   const projectionItem = payload.find(p => p.dataKey === 'projection' && p.value != null)
-  const projection = projectionItem ? (projectionItem.value as number) : null
+  const projection = projectionItem?.value ?? null
 
   const dateStr = is24H ? anchorItem.payload?.timestamp : anchorItem.payload?.date
   const formattedDate = is24H && dateStr
@@ -229,12 +229,19 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
   }, [projection])
 
   const filteredData = useMemo(() => {
-    const base = is24H
+    const base: {
+      date: string
+      timestamp?: string
+      dateMs: number
+      total: number | null
+      invested?: number | null
+      pnl?: number | null
+    }[] = is24H
       ? intraday.map(p => ({
           date: p.timestamp,
           timestamp: p.timestamp,
           dateMs: new Date(p.timestamp).getTime(),
-          total: p.total as number | null,
+          total: p.total,
           invested: p.invested,
           // Dashboard intraday points carry no pnl (row omitted); synthetic
           // intraday series (holding modal) may provide one.
@@ -243,7 +250,7 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
       : filterByRange(data, range).map(p => ({
           ...p,
           dateMs: new Date(p.date).getTime(),
-          total: p.total as number | null,
+          total: p.total,
         }))
 
     // When a target is set, crop history on the left to the trajectory start
@@ -281,7 +288,7 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
           invested: undefined,
           target: target.endValue,
           projection: projectionAt ? (projectionAt(target.endDate) ?? undefined) : undefined,
-        } as typeof decorated[number])
+        })
       }
     }
     return decorated
@@ -434,6 +441,7 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
             strokeDasharray="6 4"
             dot={false}
             activeDot={false}
+            connectNulls={false}
           />
         )}
         {hasTargetSeries && (

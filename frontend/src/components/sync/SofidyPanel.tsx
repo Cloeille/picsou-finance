@@ -1,5 +1,6 @@
 import { Landmark } from "lucide-react"
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
+import { ScpiSyncSummary } from "@/components/scpi/ScpiSyncSummary"
 import {
   useClearSofidySession,
   useCompleteSofidyAuth,
@@ -22,6 +23,8 @@ interface SofidyPanelProps {
  * a code to type.
  */
 export function SofidyPanel({ onConnected }: SofidyPanelProps = {}) {
+  // Same query as the panel's own status: the shared cache makes this free.
+  const status = useSofidyStatus()
   return (
     <SidecarSessionPanel
       translationPrefix="sync.sofidy"
@@ -33,6 +36,7 @@ export function SofidyPanel({ onConnected }: SofidyPanelProps = {}) {
       useSync={useSyncSofidy}
       useClearSession={useClearSofidySession}
       onConnected={onConnected}
+      successSummary={<ScpiSyncSummary provider="SOFIDY" completedAt={status.data?.lastSyncCompletedAt} />}
     />
   )
 }

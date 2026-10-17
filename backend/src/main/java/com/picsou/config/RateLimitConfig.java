@@ -66,6 +66,12 @@ public class RateLimitConfig {
         return boundedBucketStore();
     }
 
+    /** Per-authenticated-principal browser telemetry tunnel limiter. */
+    @Bean("telemetryBuckets")
+    public Map<String, Bucket> telemetryBuckets() {
+        return boundedBucketStore();
+    }
+
     /**
      * Per-IP TR auth rate limiter: 3 attempts per 10 minutes.
      * Strict because each attempt sends an SMS.
@@ -86,10 +92,20 @@ public class RateLimitConfig {
     /**
      * Per-IP Caisse d'Epargne login rate limiter: 3 attempts per 15 minutes. Stricter than
      * BoursoBank's on purpose: a wrong password consumes a bank attempt and the bank can lock the
-     * account. Only {@code /auth/initiate} draws from it.
+     * account. Only {@code /auth/initiate} draws from it ({@code /auth/keypad} has its own bucket).
      */
     @Bean("caisseEpargneAuthBuckets")
     public Map<String, Bucket> caisseEpargneAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP Caisse d'Epargne keypad limiter. The sidecar already accepts one {@code /keypad} per
+     * login, so this only bounds abuse of the browser slot; kept apart from the login bucket so a
+     * keypad call never eats one of the 3 login attempts.
+     */
+    @Bean("caisseEpargneKeypadBuckets")
+    public Map<String, Bucket> caisseEpargneKeypadBuckets() {
         return boundedBucketStore();
     }
 
@@ -182,6 +198,16 @@ public class RateLimitConfig {
      */
     @Bean("ibkrSyncBuckets")
     public Map<String, Bucket> ibkrSyncBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP SimpleFIN limiter: 6 requests per minute, shared by connect and sync.
+     * Connect claims a single-use token and sync hits the bridge, which expects
+     * roughly a daily poll rather than a tight loop.
+     */
+    @Bean("simplefinRequestBuckets")
+    public Map<String, Bucket> simplefinRequestBuckets() {
         return boundedBucketStore();
     }
 
@@ -318,6 +344,15 @@ public class RateLimitConfig {
             .build();
     }
 
+    public static Bucket createTelemetryBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(30)
+                .refillIntervally(30, Duration.ofMinutes(1))
+                .build())
+            .build();
+    }
+
     public static Bucket createSyncBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
@@ -350,6 +385,15 @@ public class RateLimitConfig {
             .addLimit(Bandwidth.builder()
                 .capacity(3)
                 .refillIntervally(3, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createCaisseEpargneKeypadBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
                 .build())
             .build();
     }
@@ -439,6 +483,15 @@ public class RateLimitConfig {
     }
 
     public static Bucket createIbkrSyncBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(6)
+                .refillIntervally(6, Duration.ofMinutes(1))
+                .build())
+            .build();
+    }
+
+    public static Bucket createSimplefinRequestBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(6)

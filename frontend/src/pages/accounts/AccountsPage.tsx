@@ -200,25 +200,37 @@ export function AccountsPage() {
   // PnL from the latest history point for filtered non-pocket accounts
   const { pnl, pnlPct, totalInvested } = useMemo(() => {
     if (!historyData || !Array.isArray(historyData) || historyData.length === 0 || filteredNonPockets.length === 0) {
-      return { pnl: 0, pnlPct: null, totalInvested: 0 }
+      return { pnl: null, pnlPct: null, totalInvested: null }
     }
     const latest = historyData[historyData.length - 1]
-    if (!latest || !latest.accounts) return { pnl: 0, pnlPct: null, totalInvested: 0 }
+    if (!latest || !latest.accounts) return { pnl: null, pnlPct: null, totalInvested: null }
 
     let inv = 0
     let pnlSum = 0
+    let hasObservation = false
+    let hasUnknownBasis = false
     for (const a of filteredNonPockets) {
       const ap = latest.accounts[String(a.id)]
       if (ap) {
-        inv += accountInvestedAt(a, ap)
-        pnlSum += accountPnlAt(a, ap)
+        hasObservation = true
+        const accountInvested = accountInvestedAt(a, ap)
+        const accountPnl = accountPnlAt(a, ap)
+        if (accountInvested == null || accountPnl == null) {
+          hasUnknownBasis = true
+          continue
+        }
+        inv += accountInvested
+        pnlSum += accountPnl
       }
+    }
+    if (!hasObservation || hasUnknownBasis) {
+      return { pnl: null, pnlPct: null, totalInvested: null }
     }
     const pct = inv > 0 ? ((pnlSum / inv) * 100).toFixed(1) : null
     return { pnl: pnlSum, pnlPct: pct, totalInvested: inv }
   }, [historyData, filteredNonPockets])
 
-  const pnlPositive = pnl >= 0
+  const pnlPositive = pnl !== null && pnl >= 0
 
   // Chart accounts: grouped by type when ALL, individual accounts otherwise
   const chartAccounts = useMemo(() => {
@@ -258,7 +270,10 @@ export function AccountsPage() {
           const row: { date: string; [key: string]: string | number } = { date: point.date! }
           for (const a of shown) {
             const ap = point.accounts![String(a.id)]
-            row[String(a.id)] = ap ? accountPnlAt(a, ap) : 0
+            if (ap) {
+              const accountPnl = accountPnlAt(a, ap)
+              if (accountPnl != null) row[String(a.id)] = accountPnl
+            }
           }
           return row
         })
@@ -280,11 +295,22 @@ export function AccountsPage() {
         const row: { date: string; [key: string]: string | number } = { date: point.date! }
         for (const [group, members] of Object.entries(groupMembers)) {
           let pnlSum = 0
+          let hasObservation = false
+          let hasUnknownBasis = false
           for (const a of members) {
             const ap = point.accounts![String(a.id)]
-            if (ap) pnlSum += accountPnlAt(a, ap)
+            if (ap) {
+              hasObservation = true
+              const invested = accountInvestedAt(a, ap)
+              const accountPnl = accountPnlAt(a, ap)
+              if (invested == null || accountPnl == null) {
+                hasUnknownBasis = true
+                continue
+              }
+              pnlSum += accountPnl
+            }
           }
-          row[group] = pnlSum
+          if (hasObservation && !hasUnknownBasis) row[group] = pnlSum
         }
         return row
       })
@@ -469,7 +495,7 @@ export function AccountsPage() {
             <CardContent>
               <CardTitle>{t('accounts.total')}</CardTitle>
               <CurrencyDisplay value={totalBalance} className="text-4xl font-bold" />
-              {hasPnl && totalInvested > 0 && (
+              {hasPnl && pnl !== null && totalInvested !== null && totalInvested > 0 && (
                 <div className="mt-3 flex items-center gap-2">
                   {pnlPositive
                     ? <TrendingUp className="text-emerald-500" size={18} />

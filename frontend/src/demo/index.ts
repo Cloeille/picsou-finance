@@ -203,6 +203,9 @@ for (let i = 8; i <= 10; i++) {
   handlers.set(key('GET', `/accounts/${i}`), () => _demoAccounts[i - 1])
 }
 
+// SCPI funds seen by a sync: the demo has no CORUM/Sofidy connection.
+handlers.set(key('GET', '/scpi/funds'), () => [])
+
 // Account CRUD
 for (const account of mockAccounts.filter(account => account.type === 'SCPI')) {
   handlers.set(key('GET', `/accounts/${account.id}`), () => _demoAccounts.find(a => a.id === account.id))
@@ -891,6 +894,37 @@ handlers.set(key('POST', '/ibkr/connect'), () => null)
 handlers.set(key('POST', '/ibkr/sync'), () => [])
 handlers.set(key('DELETE', '/ibkr/connection'), () => null)
 
+// SimpleFIN keeps its status in memory so the demo can walk the whole flow:
+// connect flips the panel to connected, sync stamps lastSyncedAt, disconnect resets.
+// A page reload starts disconnected again.
+const demoSimplefin = {
+  connected: false,
+  connectionId: null as number | null,
+  status: null as string | null,
+  lastSyncedAt: null as string | null,
+  maskedToken: null as string | null,
+}
+handlers.set(key('GET', '/simplefin/status'), () => ({ ...demoSimplefin }))
+handlers.set(key('POST', '/simplefin/connect'), () => {
+  demoSimplefin.connected = true
+  demoSimplefin.connectionId = 1
+  demoSimplefin.status = 'CONNECTED'
+  demoSimplefin.maskedToken = '••••demo'
+  return null
+})
+handlers.set(key('POST', '/simplefin/sync'), () => {
+  demoSimplefin.lastSyncedAt = new Date().toISOString()
+  return []
+})
+handlers.set(key('DELETE', '/simplefin/connection'), () => {
+  demoSimplefin.connected = false
+  demoSimplefin.connectionId = null
+  demoSimplefin.status = null
+  demoSimplefin.lastSyncedAt = null
+  demoSimplefin.maskedToken = null
+  return null
+})
+
 // Amundi Épargne Salariale — same demo convention: reads report a disconnected
 // session, mutations fake-succeed with the real response shapes. Bourse Direct
 // has no handlers at all, which leaves its panel reading `isActive: undefined`
@@ -940,8 +974,15 @@ const demoCaisseEpargneStatus = {
   unsupportedCount: 0,
 }
 handlers.set(key('GET', '/caisse-epargne/status'), () => demoCaisseEpargneStatus)
+const DEMO_PAD_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 handlers.set(key('POST', '/caisse-epargne/auth/initiate'), () => ({
-  processId: 'demo', mfaRequired: true, mfaType: 'SECURPASS', expiresInSeconds: 300,
+  processId: 'demo',
+  keypad: { images: Array.from({ length: 10 }, () => DEMO_PAD_PNG), columns: 5 },
+  expiresInSeconds: 90,
+}))
+handlers.set(key('POST', '/caisse-epargne/auth/keypad'), () => ({
+  processId: 'demo', status: 'SECURPASS_PENDING',
 }))
 handlers.set(key('POST', '/caisse-epargne/auth/complete'), () => ({ connected: true }))
 handlers.set(key('POST', '/caisse-epargne/sync'), () => demoCaisseEpargneStatus)
@@ -1022,7 +1063,14 @@ handlers.set(key('GET', '/admin/settings'), () => ({
   enableBanking: { applicationId: '', redirectUri: '', privateKeyPresent: false },
   integrations: {},
   ai: { provider: 'none', model: '', baseUrl: '', apiKeyPresent: false, maxConcurrency: 4 },
+  telemetry: { available: false, consent: 'UNSET' },
 }))
+handlers.set(key('PUT', '/admin/settings/telemetry'), () => ({}))
+// Demo never reports anything, whatever the toggle says.
+handlers.set(key('GET', '/telemetry/config'), () => ({
+  available: false, consent: 'UNSET', enabled: false, dsn: null, environment: 'demo', release: 'demo',
+}))
+handlers.set(key('POST', '/telemetry/tunnel'), () => null)
 handlers.set(key('PUT', '/admin/settings/security'), () => ({}))
 handlers.set(key('PUT', '/admin/settings/enablebanking'), () => ({}))
 handlers.set(key('PUT', '/admin/settings/ai'), () => ({}))

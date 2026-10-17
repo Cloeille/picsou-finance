@@ -17,6 +17,7 @@ import type {
   BoursoAuthInitResponse,
   CaisseEpargneSessionStatus,
   CaisseEpargneAuthInitResponse,
+  CaisseEpargneAuthKeypadResponse,
   CaisseEpargneAuthCompleteResponse,
   CaisseEpargneDeleteResponse,
   RevolutSessionStatus,
@@ -36,6 +37,7 @@ import type {
   SofidySessionStatus,
   SofidyAuthInitResponse,
   IbkrConnectionStatus,
+  SimplefinConnectionStatus,
 } from '@/types/api'
 
 // --- Bank Sync (Enable Banking) ---
@@ -192,10 +194,18 @@ export const boursoApi = {
 
 export const caisseEpargneApi = {
   // One attempt only: a wrong password spends a bank attempt and can lock the
-  // account, so nothing may replay this call after a failure.
-  initiateAuth: (customerId: string, password: string) =>
+  // account, so nothing may replay this call after a failure. The identifier
+  // alone goes out: the password is clicked on the bank's keypad by the user.
+  initiateAuth: (customerId: string) =>
     api
-      .post<CaisseEpargneAuthInitResponse>('/caisse-epargne/auth/initiate', { customerId, password })
+      .post<CaisseEpargneAuthInitResponse>('/caisse-epargne/auth/initiate', { customerId })
+      .then(r => r.data),
+
+  // Key positions (0..9 in the pad's DOM order), never digits. Single use: the
+  // backend rejects a second call on the same process, and so must nothing here.
+  sendKeypad: (processId: string, positions: number[]) =>
+    api
+      .post<CaisseEpargneAuthKeypadResponse>('/caisse-epargne/auth/keypad', { processId, positions })
       .then(r => r.data),
 
   // No code: the user approves the Sécur'Pass push on their phone and the
@@ -492,6 +502,17 @@ export const ibkrApi = {
   sync: () => api.post<Account[]>('/ibkr/sync').then(r => r.data),
 
   disconnect: () => api.delete('/ibkr/connection').then(r => r.data),
+}
+
+export const simplefinApi = {
+  getStatus: () => api.get<SimplefinConnectionStatus>('/simplefin/status').then(r => r.data),
+
+  connect: (token: string) =>
+    api.post('/simplefin/connect', { token }).then(r => r.data),
+
+  sync: () => api.post<Account[]>('/simplefin/sync').then(r => r.data),
+
+  disconnect: () => api.delete('/simplefin/connection').then(r => r.data),
 }
 
 // --- Finary ---

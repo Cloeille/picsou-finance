@@ -6,11 +6,13 @@ import com.picsou.model.FinarySession;
 import com.picsou.model.IbkrConnection;
 import com.picsou.model.Requisition;
 import com.picsou.model.RequisitionStatus;
+import com.picsou.model.SimplefinConnection;
 import com.picsou.model.WalletAddress;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
 import com.picsou.repository.IbkrConnectionRepository;
 import com.picsou.repository.RequisitionRepository;
+import com.picsou.repository.SimplefinConnectionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import org.springframework.stereotype.Service;
@@ -39,6 +41,7 @@ public class SyncStatusService {
     private final FortuneoSyncService fortuneoSyncService;
     private final AmexSyncService amexSyncService;
     private final IbkrConnectionRepository ibkrConnectionRepository;
+    private final SimplefinConnectionRepository simplefinConnectionRepository;
     private final CryptoExchangeSyncService cryptoExchangeSyncService;
     private final WalletAddressRepository walletAddressRepository;
     private final FinarySessionRepository finarySessionRepository;
@@ -54,6 +57,7 @@ public class SyncStatusService {
                              FortuneoSyncService fortuneoSyncService,
                              AmexSyncService amexSyncService,
                              IbkrConnectionRepository ibkrConnectionRepository,
+                             SimplefinConnectionRepository simplefinConnectionRepository,
                              CryptoExchangeSyncService cryptoExchangeSyncService,
                              WalletAddressRepository walletAddressRepository,
                              FinarySessionRepository finarySessionRepository,
@@ -68,6 +72,7 @@ public class SyncStatusService {
         this.fortuneoSyncService = fortuneoSyncService;
         this.amexSyncService = amexSyncService;
         this.ibkrConnectionRepository = ibkrConnectionRepository;
+        this.simplefinConnectionRepository = simplefinConnectionRepository;
         this.cryptoExchangeSyncService = cryptoExchangeSyncService;
         this.walletAddressRepository = walletAddressRepository;
         this.finarySessionRepository = finarySessionRepository;
@@ -101,6 +106,7 @@ public class SyncStatusService {
             return List.of(broker("amex", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
         });
         add(lines, "ibkr", () -> ibkr(memberId));
+        add(lines, SimplefinSyncService.SOURCE, () -> simplefin(memberId));
         add(lines, "crypto-exchanges", () -> exchanges(memberId));
         add(lines, "wallets", () -> wallets(memberId));
         add(lines, "finary", () -> finary(memberId));
@@ -172,6 +178,18 @@ public class SyncStatusService {
         boolean reauth = reauthText(row.getStatus());
         String status = reauth ? "NEEDS_REAUTH" : "ERROR".equals(row.getStatus()) ? "FAILED" : "CONNECTED";
         return line("ibkr", status, row.getLastSyncedAt(), reauth, null);
+    }
+
+    private List<String> simplefin(Long memberId) {
+        return simplefinConnectionRepository.findByMemberId(memberId)
+            .map(this::simplefinLine)
+            .map(List::of)
+            .orElseGet(List::of);
+    }
+
+    private String simplefinLine(SimplefinConnection row) {
+        String status = "ERROR".equals(row.getStatus()) ? "FAILED" : "CONNECTED";
+        return line(SimplefinSyncService.SOURCE, status, row.getLastSyncedAt(), false, null);
     }
 
     private List<String> exchanges(Long memberId) {

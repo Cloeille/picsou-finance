@@ -74,6 +74,12 @@ public class BankTransactionImportService {
     private static final int AMOUNT_SCALE = 8;
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
+    /** Matches {@code transaction.category}. */
+    private static final int CATEGORY_MAX = 100;
+
+    /** {@code numeric(20,8)} holds twelve digits before the decimal point. */
+    private static final BigDecimal LEDGER_LIMIT = new BigDecimal("1000000000000");
+
     private final BankConnectorPort bankConnector;
     private final TransactionRepository transactionRepository;
     private final int initialHistoryDays;
@@ -116,7 +122,12 @@ public class BankTransactionImportService {
 
         if (fetched.isEmpty()) return 0;
 
-        List<Transaction> toInsert = selectNew(account, windowStart, fetched);
+        // The sidecar/Budget ledger is EUR-only; SimpleFIN rows (importProvided) keep their native currency.
+        List<TransactionData> eurOnly = fetched.stream()
+            .filter(data -> data != null
+                && DEFAULT_CURRENCY.equalsIgnoreCase(currencyOf(data, account).trim()))
+            .toList();
+        List<Transaction> toInsert = selectNew(account, windowStart, eurOnly);
         if (toInsert.isEmpty()) {
             log.debug("No new transactions for account {} ({} fetched, all known)", account.getId(), fetched.size());
             return 0;
@@ -126,6 +137,38 @@ public class BankTransactionImportService {
         log.info("Imported {} new transactions for account {} ({} fetched since {})",
             toInsert.size(), account.getId(), fetched.size(), windowStart);
         return toInsert.size();
+    }
+
+    /**
+     * Stores transactions already downloaded with the balances (SimpleFIN returns both
+     * in one response). Same dedup as {@link #importFor}. A write failure propagates:
+     * the rows are already in hand, so this is not an upstream refusal to ignore.
+     *
+     * @return how many new transactions were stored
+     */
+    public int importProvided(Account account, List<TransactionData> fetched) {
+        if (account.getId() == null || fetched == null || fetched.isEmpty()) return 0;
+
+        LocalDate windowStart = windowStart(account.getId(), LocalDate.now());
+        List<Transaction> toInsert = selectNew(account, windowStart, fetched);
+        if (toInsert.isEmpty()) {
+            log.debug("No new transactions for account {} ({} provided, all known)", account.getId(), fetched.size());
+            return 0;
+        }
+
+        transactionRepository.saveAll(toInsert);
+        log.info("Imported {} new transactions for account {} ({} provided)",
+            toInsert.size(), account.getId(), fetched.size());
+        return toInsert.size();
+    }
+
+    /**
+     * How far back one shared download should reach. SimpleFIN returns every account
+     * in a single response, so a shorter per-account window would hide a bank that
+     * was linked after the first sync. Dedup drops the rows already stored.
+     */
+    public LocalDate sharedHistoryStart() {
+        return LocalDate.now().minusDays(initialHistoryDays);
     }
 
     /**
@@ -163,10 +206,7 @@ public class BankTransactionImportService {
      */
     private List<Transaction> selectNew(Account account, LocalDate windowStart, List<TransactionData> fetched) {
         if (fetched == null || fetched.isEmpty()) return List.of();
-        fetched = fetched.stream()
-            .filter(java.util.Objects::nonNull)
-            .filter(data -> DEFAULT_CURRENCY.equalsIgnoreCase(currencyOf(data, account).trim()))
-            .toList();
+        fetched = fetched.stream().filter(java.util.Objects::nonNull).toList();
         if (fetched.isEmpty()) return List.of();
 
         LocalDate comparisonFrom = fetched.stream()
@@ -247,6 +287,10 @@ public class BankTransactionImportService {
             if (consumedFetched[fetchedIndex]) continue;
             TransactionData data = fetched.get(fetchedIndex);
             if (data == null) continue;
+            if (!fitsLedgerAmount(data.amount())) {
+                log.warn("Skipping a transaction on account {} — amount does not fit the ledger", account.getId());
+                continue;
+            }
             String key = dedupKey(data);
             toInsert.add(toEntity(account, data, key));
         }
@@ -310,14 +354,20 @@ public class BankTransactionImportService {
         return fingerprint(data.date(), data.amount(), data.description());
     }
 
+    /** True when {@code value} can be stored in a {@code numeric(20,8)} money column. */
+    static boolean fitsLedgerAmount(BigDecimal value) {
+        return value != null && value.abs().compareTo(LEDGER_LIMIT) < 0;
+    }
+
     /**
      * Hash of date + amount + description. Hashed rather than concatenated so the key
-     * fits {@code transaction.external_transaction_id} (VARCHAR(128)) whatever the
+     * fits {@code transaction.external_transaction_id} (VARCHAR(255)) whatever the
      * description's length, and stays a fixed, index-friendly width.
      *
-     * <p>{@code stripTrailingZeros} normalizes the scale: the provider sends
-     * {@code "12.34"} while the column round-trips it as {@code 12.34000000}, and the
-     * two must hash alike or every sync would re-import the same rows.
+     * <p>The amount is rounded to the column's 8 decimals, then {@code stripTrailingZeros}
+     * normalizes the scale: the provider sends {@code "12.34"} while the column round-trips
+     * it as {@code 12.34000000}, and the two must hash alike or every sync would re-import
+     * the same rows.
      */
     private static String fingerprint(LocalDate date, BigDecimal amount, String description) {
         String canonical = date + "|"
@@ -347,11 +397,18 @@ public class BankTransactionImportService {
             .date(data.date())
             .description(boundedText(data.description() != null ? data.description() : ""))
             .amount(normalizeAmount(data.amount()))
-            .category(data.category())
+            .category(clip(data.category(), CATEGORY_MAX))
             .nativeCurrency(currencyOf(data, account))
             .externalTransactionId(dedupKey)
             .isManual(false)
             .build();
+    }
+
+    /** Stops on a character boundary so a cut value is still valid text. */
+    static String clip(String value, int max) {
+        if (value == null || value.length() <= max) return value;
+        int end = Character.isHighSurrogate(value.charAt(max - 1)) ? max - 1 : max;
+        return value.substring(0, Math.max(end, 0));
     }
 
     private static String currencyOf(TransactionData data, Account account) {

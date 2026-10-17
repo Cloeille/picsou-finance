@@ -156,6 +156,32 @@ export interface ScpiPosition {
   valuationStatus: ScpiValuationStatus
 }
 
+/** What the latest CORUM or Sofidy sync did with one fund (GH issue #232). */
+export type ScpiFundOutcome =
+  | 'CREATED'
+  | 'LINKED'
+  | 'UPDATED'
+  | 'PRICE_INCOMPLETE'
+  | 'AMBIGUOUS'
+  | 'IGNORED'
+  | 'MISSING_AT_PROVIDER'
+
+export type ScpiProvider = 'CORUM' | 'SOFIDY'
+
+/** A fund a sync has seen. `accountId` is null when no account is linked to it. */
+export interface ScpiFund {
+  provider: ScpiProvider
+  fundCode: string
+  label: string | null
+  ignored: boolean
+  lastOutcome: ScpiFundOutcome | null
+  lastSeenAt: string | null
+  /** Shared by every fund the same sync run wrote. */
+  lastSyncedAt: string | null
+  accountId: number | null
+  accountName: string | null
+}
+
 export interface ScpiPositionRequest {
   isin?: string | null
   managementCompany?: string | null
@@ -248,6 +274,9 @@ export interface DebtInfo {
   fileFees: number | null
 }
 
+/** How a bank card is debited; set by the Caisse d'Epargne sync on cards only. */
+export type CardNature = 'IMMEDIATE_DEBIT' | 'DEFERRED_DEBIT' | 'CREDIT'
+
 export interface Account {
   id: number
   name: string
@@ -283,6 +312,8 @@ export interface Account {
   paymentDueAmount?: number
   paymentDueDate?: string
   rewardPoints?: number
+  /** Cards only: immediate debit, deferred debit or credit. Absent when the bank does not say. */
+  cardNature?: CardNature | null
   /** Display-only visibility flag; hidden account still syncs normally. */
   hidden: boolean
   /** Set only when the member owns less than all of it — the co-ownership badge signal. */
@@ -589,7 +620,7 @@ export interface DashboardData {
   totalNetWorth: number
   totalLiabilities: number
   totalMonthlyPayment?: number | null
-  netWorthHistory: { date: string; total: number; invested: number; pnl: number }[]
+  netWorthHistory: { date: string; total: number; invested: number | null; pnl: number | null }[]
   distribution: {
     accountId: number
     name: string
@@ -761,6 +792,14 @@ export interface IbkrConnectionStatus {
   maskedToken: string | null
 }
 
+export interface SimplefinConnectionStatus {
+  connected: boolean
+  connectionId: number | null
+  status: string | null
+  lastSyncedAt: string | null
+  maskedToken: string | null
+}
+
 interface BoursoSessionStatusBase {
   isActive: boolean
   lastSyncStartedAt: string | null
@@ -822,6 +861,8 @@ export interface CaisseEpargneUnsupportedContract {
 export type CaisseEpargneErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'KEYPAD_CHANGED'
+  | 'KEYPAD_EXPIRED'
+  | 'INVALID_POSITIONS'
   | 'APP_VALIDATION_TIMEOUT'
   | 'AUTH_ATTEMPT_EXPIRED'
   | 'SESSION_EXPIRED'
@@ -841,12 +882,26 @@ export interface CaisseEpargneSessionStatus {
   unsupportedCount: number
 }
 
-/** The second factor is always Sécur'Pass: a human approves it on the phone. */
+/**
+ * The bank's virtual keypad for this login: 10 `data:image/png` images in the bank's DOM
+ * order. The user reads and clicks his digits himself; only the clicked positions go back.
+ */
+export interface CaisseEpargneKeypad {
+  images: string[]
+  columns: number
+}
+
 export interface CaisseEpargneAuthInitResponse {
   processId: string
-  mfaRequired: true
-  mfaType: 'SECURPASS'
+  keypad: CaisseEpargneKeypad
+  /** Lifetime of the keypad step (90 s), not of the Sécur'Pass wait. */
   expiresInSeconds: number
+}
+
+/** The second factor is always Sécur'Pass: a human approves it on the phone. */
+export interface CaisseEpargneAuthKeypadResponse {
+  processId: string
+  status: 'SECURPASS_PENDING'
 }
 
 export interface CaisseEpargneAuthCompleteResponse {
@@ -1984,3 +2039,22 @@ export interface MemberProfile {
 
 /** A full replacement: a null field clears what was stored. */
 export type MemberProfileRequest = Omit<MemberProfile, 'age' | 'monthlyNetIncome'>
+
+/** `GET /telemetry/config`. `dsn` is null unless telemetry is effectively enabled. */
+export interface TelemetryConfig {
+  available: boolean
+  consent: TelemetryConsent
+  enabled: boolean
+  dsn: string | null
+  environment: string
+  release: string
+}
+
+/** Instance-wide telemetry consent. `UNSET` = never asked, treated as disabled. */
+export type TelemetryConsent = 'ENABLED' | 'DISABLED' | 'UNSET'
+
+export interface TelemetrySettings {
+  /** A DSN is configured on the server; without one telemetry is inert everywhere. */
+  available: boolean
+  consent: TelemetryConsent
+}
