@@ -181,6 +181,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
+  Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
+  Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
+  of disappearing.
 - **An investment account's detail page shows its positions once.** The Positions card and the
   realized gains on closed positions were each rendered twice, one under the other, on any
   account with holdings (PEA, CTO, PER, crypto…). Values were right; only the display repeated.

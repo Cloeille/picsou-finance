@@ -75,6 +75,7 @@ import {
 } from '@/features/sync/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
+import type { Account } from '@/types/api'
 import { formatApiError, formatTrAuthError, isTrSessionDeadError } from '@/lib/errors'
 import { syncKeys } from '@/features/sync/hooks'
 import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
@@ -210,8 +211,8 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
    * *or* the user still has accounts from it — a dead session must stay visible and
    * re-authenticatable rather than disappear from the list, the same rule Trade Republic
    * already followed. `provider` is the exact string the connector stamps on the accounts it
-   * creates (see each service's PROVIDER constant). CORUM and Sofidy create no accounts (they
-   * update SCPI positions), so they have no `provider` and show on their session alone.
+   * creates (see each service's PROVIDER constant). CORUM and Sofidy also match an account
+   * through its SCPI fund code: a manual SCPI they adopted keeps the provider the user typed.
    */
   const sessionProviders = useMemo(() => [
     {
@@ -259,12 +260,14 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       failed: amexStatus?.syncStatus === 'FAILED',
     },
     {
-      type: 'corum' as const, name: 'CORUM',
+      type: 'corum' as const, name: 'CORUM', provider: 'CORUM',
+      ownsAccount: (a: Account) => a.scpi?.corumFundCode != null,
       active: corumStatus?.isActive ?? false, lastSyncedAt: corumStatus?.lastSyncCompletedAt ?? null,
       failed: corumStatus?.syncStatus === 'FAILED',
     },
     {
-      type: 'sofidy' as const, name: 'Sofidy',
+      type: 'sofidy' as const, name: 'Sofidy', provider: 'Sofidy',
+      ownsAccount: (a: Account) => a.scpi?.sofidyFundCode != null,
       active: sofidyStatus?.isActive ?? false, lastSyncedAt: sofidyStatus?.lastSyncCompletedAt ?? null,
       failed: sofidyStatus?.syncStatus === 'FAILED',
     },
@@ -367,7 +370,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       })
     }
     for (const provider of sessionProviders) {
-      const hasAccount = accounts?.some(a => provider.provider !== undefined && a.provider === provider.provider) ?? false
+      const hasAccount = accounts?.some(a =>
+        (provider.provider !== undefined && a.provider === provider.provider)
+        || ('ownsAccount' in provider && provider.ownsAccount?.(a) === true)) ?? false
       if (!provider.active && !hasAccount) continue
       list.push({
         id: provider.type,

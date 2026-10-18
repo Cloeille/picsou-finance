@@ -132,6 +132,16 @@ const AMUNDI_ACCOUNT = {
   provider: 'Amundi Épargne Salariale',
 }
 
+/** A SCPI account linked to no provider fund; tests set `provider` and the fund codes. */
+const SCPI_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 3,
+  name: 'Corum Origin',
+  type: 'SCPI',
+  provider: null as string | null,
+  scpi: { corumFundCode: null, sofidyFundCode: null },
+}
+
 /** Resets the per-test fixtures to "only Trade Republic exists". */
 function resetFixtures() {
   amundiStatus = AMUNDI_INACTIVE
@@ -386,8 +396,7 @@ describe('SyncAllModal session providers', () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
-  /** SCPI connectors create no accounts, so their session alone decides presence. */
-  it('lists and syncs a Sofidy session, hiding it once inactive', async () => {
+  it('lists and syncs a live Sofidy session', async () => {
     sofidyStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
     apiPost.mockResolvedValue({ data: sofidyStatus })
     renderModal()
@@ -397,7 +406,8 @@ describe('SyncAllModal session providers', () => {
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/sofidy/sync'))
   })
 
-  it('hides CORUM and Sofidy when their sessions are inactive', async () => {
+  it('hides CORUM and Sofidy when their sessions are inactive and no SCPI account is theirs', async () => {
+    accountsFixture = [TR_ACCOUNT, { ...SCPI_ACCOUNT, provider: null }]
     renderModal()
 
     expect(await screen.findByText('Trade Republic')).toBeInTheDocument()
@@ -410,6 +420,38 @@ describe('SyncAllModal session providers', () => {
     renderModal()
 
     expect(await screen.findByText('CORUM')).toBeInTheDocument()
+  })
+
+  /**
+   * An expired SCPI session must stay listed and route to its tab, like every other session
+   * connector: the reconciler stamps `provider` on the accounts it creates.
+   */
+  it.each([
+    ['CORUM', 'corum'],
+    ['Sofidy', 'sofidy'],
+  ])('keeps an expired %s row with a reconnect action when it created an account', async (provider, tab) => {
+    accountsFixture = [TR_ACCOUNT, { ...SCPI_ACCOUNT, provider }]
+    renderModal()
+
+    const row = (await screen.findByText(provider)).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith(`/sync?tab=${tab}`))
+    expect(apiPost).not.toHaveBeenCalledWith(`/${tab}/sync`)
+  })
+
+  /** A manual SCPI the sync adopted keeps the provider the user typed; its fund code links it. */
+  it.each([
+    ['CORUM', 'corumFundCode'],
+    ['Sofidy', 'sofidyFundCode'],
+  ])('keeps an expired %s row for an adopted SCPI account', async (provider, fundCodeKey) => {
+    accountsFixture = [TR_ACCOUNT, {
+      ...SCPI_ACCOUNT, provider: 'Mon conseiller',
+      scpi: { ...SCPI_ACCOUNT.scpi, [fundCodeKey]: 'F1' },
+    }]
+    renderModal()
+
+    expect(await screen.findByText(provider)).toBeInTheDocument()
   })
 })
 

@@ -165,4 +165,4 @@ assurance-vie and carries an opening date.
 
 ### Sync all modal parity
 
-`SyncAllModal` lists the same sidecar connectors as the selector, including Amex, CORUM and Sofidy. A session-based row is shown when its session is live or the member still has accounts whose `provider` matches. CORUM and Sofidy create no accounts (they update SCPI positions), so they define no `provider` and appear on an active session alone; an inactive one routes to its Sync-page tab (`amex`/`corum`/`sofidy`) for re-authentication.
+`SyncAllModal` lists the same sidecar connectors as the selector, including Amex, CORUM and Sofidy. A session-based row is shown when its session is live or the member still has accounts whose `provider` matches. CORUM and Sofidy match the `provider` the SCPI reconciler stamps on the accounts it creates (`CORUM`, `Sofidy`), and also any SCPI account carrying their fund code (`scpi.corumFundCode` / `scpi.sofidyFundCode`), because an adopted manual SCPI keeps the provider the user typed. An expired session therefore stays listed; an inactive one routes to its Sync-page tab (`amex`/`corum`/`sofidy`) for re-authentication.
