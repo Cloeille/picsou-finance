@@ -37,6 +37,10 @@ AccountsPage → "Add account" button
        ├─ Interactive Brokers → IbkrPanel (onConnected → handleDone)
        ├─ SimpleFIN → SimplefinPanel (onConnected → handleDone)
        ├─ Amundi → AmundiPanel (onConnected → handleDone)
+       ├─ Fortuneo → FortuneoPanel (onConnected → handleDone)
+       ├─ American Express → AmexPanel (onConnected → handleDone)
+       ├─ CORUM → CorumPanel (onConnected → handleDone)
+       ├─ Sofidy → SofidyPanel (onConnected → handleDone)
        ├─ Trade Republic → TradeRepublicWizard
        │    └─ phone + PIN (InputOTP 4-digit) → verification code (InputOTP 4-digit) → success
        ├─ Finary → FinaryWizard (3-step)
@@ -150,7 +154,7 @@ assurance-vie and carries an opening date.
 
 - `frontend/src/lib/utils.test.ts` — `formatCurrency` regression case: an invalid code does not throw
   and the raw code appears in the output (issue #9).
-- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases; Bourse Direct, Amundi, IBKR and SimpleFIN wizard flow tests (mock panel → `onOpenChange(false)`).
+- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases; Bourse Direct, Amundi, IBKR, SimpleFIN, Amex, CORUM, and Sofidy wizard flow tests (mock panel → `onOpenChange(false)`).
 - `backend/src/test/java/com/picsou/validation/CurrencyValidatorTest.java` — accepts valid ISO 4217
   codes, rejects unknown ones, leaves null/blank to `@NotBlank`.
 
@@ -158,3 +162,7 @@ assurance-vie and carries an opening date.
 
 - i18n keys: `addAccount.*`, sync keys reused from `sync.*` namespace in `en.json` / `fr.json`
 - Related: [Finary import](./finary-import.md), [Trade Republic](./trade-republic.md), [Bank sync](./bank-sync.md), [Crypto tracking](./crypto-tracking.md)
+
+### Sync all modal parity
+
+`SyncAllModal` lists the same sidecar connectors as the selector, including Amex, CORUM and Sofidy. A session-based row is shown when its session is live or the member still has accounts whose `provider` matches. CORUM and Sofidy match the `provider` the SCPI reconciler stamps on the accounts it creates (`CORUM`, `Sofidy`), and also any SCPI account carrying their fund code (`scpi.corumFundCode` / `scpi.sofidyFundCode`), because an adopted manual SCPI keeps the provider the user typed. An expired session therefore stays listed; an inactive one routes to its Sync-page tab (`amex`/`corum`/`sofidy`) for re-authentication.

@@ -181,6 +181,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
+  Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
+  Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
+  of disappearing.
 - **BoursoBank account names show apostrophes and ampersands as typed.** A name such as
   `LIVRET D'EPARGNE` was stored as `LIVRET D&#039;EPARGNE` and shown that way in the
   dashboard, legend and accounts list. The next BoursoBank sync rewrites existing names.
