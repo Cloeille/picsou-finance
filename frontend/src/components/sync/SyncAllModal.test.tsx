@@ -74,7 +74,7 @@ function mockStatusEndpoints() {
       case '/simplefin/status':
         return Promise.resolve({ data: simplefinStatus })
       case '/amex/status':
-        return Promise.resolve({ data: AMUNDI_INACTIVE })
+        return Promise.resolve({ data: amexStatus })
       case '/corum/status':
         return Promise.resolve({ data: corumStatus })
       case '/sofidy/status':
@@ -116,6 +116,7 @@ const REVOLUT_DONE = {
 const SIMPLEFIN_DISCONNECTED = {
   connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null,
 }
+let amexStatus: Record<string, unknown>
 let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
 
@@ -132,6 +133,15 @@ const AMUNDI_ACCOUNT = {
   provider: 'Amundi Épargne Salariale',
 }
 
+/** A credit card created by the Amex sidecar (`AmexSyncService.PROVIDER`). */
+const AMEX_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 4,
+  name: 'Gold Card',
+  type: 'CREDIT_CARD',
+  provider: 'American Express',
+}
+
 /** A SCPI account linked to no provider fund; tests set `provider` and the fund codes. */
 const SCPI_ACCOUNT = {
   ...TR_ACCOUNT,
@@ -146,6 +156,7 @@ const SCPI_ACCOUNT = {
 function resetFixtures() {
   amundiStatus = AMUNDI_INACTIVE
   simplefinStatus = SIMPLEFIN_DISCONNECTED
+  amexStatus = AMUNDI_INACTIVE
   corumStatus = AMUNDI_INACTIVE
   sofidyStatus = AMUNDI_INACTIVE
   accountsFixture = [TR_ACCOUNT]
@@ -394,6 +405,43 @@ describe('SyncAllModal session providers', () => {
 
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amundi/sync'))
     expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('lists and syncs a live American Express session', async () => {
+    amexStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: amexStatus })
+    renderModal()
+
+    const row = (await screen.findByText('American Express')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amex/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('keeps an expired American Express row with its card and routes to its tab', async () => {
+    accountsFixture = [TR_ACCOUNT, AMEX_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('American Express')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=amex'))
+    expect(apiPost).not.toHaveBeenCalledWith('/amex/sync')
+  })
+
+  it('reports a failed American Express run on a live session', async () => {
+    amexStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'FAILED', lastSyncError: 'INTERNAL_ERROR' }
+    renderModal()
+
+    const row = (await screen.findByText('American Express')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('FAILED')).toBeInTheDocument()
+  })
+
+  it('hides American Express with no session and no card', async () => {
+    renderModal()
+
+    expect(await screen.findByText('Trade Republic')).toBeInTheDocument()
+    expect(screen.queryByText('American Express')).not.toBeInTheDocument()
   })
 
   it('lists and syncs a live Sofidy session', async () => {
