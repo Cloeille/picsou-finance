@@ -25,6 +25,7 @@ from accounts_parser import (
     parse_amount,
     parse_dashboard,
     parse_trading_summary,
+    text_value,
 )
 from fixtures import DASHBOARD_HTML
 
@@ -206,6 +207,19 @@ class DashboardTest(unittest.TestCase):
             accounts[0]["href"],
             "/compte/cav/e2f509c466f5294f15abd873dbbf8a62/",
         )
+
+    def test_account_names_are_stored_with_their_entities_decoded(self):
+        # BoursoBank escapes apostrophes and ampersands in the card markup; the
+        # raw entity used to end up in account.name and on every screen.
+        escaped = DASHBOARD_HTML.replace(
+            "LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE\n",
+            "LIVRET D&#039;EPARGNE &amp; CO\n",
+        )
+        accounts, _ = parse_dashboard(escaped)
+        self.assertEqual(accounts[1]["name"], "LIVRET D'EPARGNE & CO")
+
+    def test_an_entity_escaping_a_tag_is_decoded_only_once(self):
+        self.assertEqual(text_value("A &amp;lt;b&amp;gt; <i>x</i>", 200), "A &lt;b&gt; x")
 
     def test_the_loan_is_excluded_without_failing_the_completeness_check(self):
         accounts, _ = parse_dashboard(DASHBOARD_HTML)

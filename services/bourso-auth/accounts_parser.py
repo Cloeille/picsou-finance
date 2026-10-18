@@ -131,7 +131,7 @@ def parse_amount(raw: str) -> Decimal | None:
 def text_value(value: Any, limit: int) -> str | None:
     if not isinstance(value, str):
         return None
-    cleaned = " ".join(_TAG_RE.sub(" ", value).split())
+    cleaned = " ".join(html_unescape(_TAG_RE.sub(" ", value)).split())
     if not cleaned:
         return None
     return cleaned[:limit]
@@ -499,7 +499,7 @@ def choose_personal_identity(html: str) -> str:
     labels: dict[str, list[str]] = {}
     for match in _IDENTITY_LINK_RE.finditer(html):
         token = html_unescape(match.group("token"))
-        labels.setdefault(token, []).append(html_unescape(text_value(match.group("body"), 200) or ""))
+        labels.setdefault(token, []).append(text_value(match.group("body"), 200) or "")
 
     linked = {html_unescape(match.group("token")) for match in _ANY_IDENTITY_LINK_RE.finditer(html)}
     if not labels or linked != set(labels):

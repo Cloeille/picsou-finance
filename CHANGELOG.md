@@ -185,6 +185,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
   of disappearing.
+- **BoursoBank account names show apostrophes and ampersands as typed.** A name such as
+  `LIVRET D'EPARGNE` was stored as `LIVRET D&#039;EPARGNE` and shown that way in the
+  dashboard, legend and accounts list. The next BoursoBank sync rewrites existing names.
+- **Long account names stay inside their tile in the Allocation treemap.** They end with an
+  ellipsis instead of spilling over neighbouring tiles; hovering the tile shows the full name.
 - **An investment account's detail page shows its positions once.** The Positions card and the
   realized gains on closed positions were each rendered twice, one under the other, on any
   account with holdings (PEA, CTO, PER, crypto…). Values were right; only the display repeated.

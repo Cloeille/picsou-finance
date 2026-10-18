@@ -177,6 +177,13 @@ recognized so their cards can be skipped explicitly, the same way loans are:
 an unparsed card inside a known section still fails the sync, while a card in
 an unknown section keeps failing it too.
 
+Every text field goes through `text_value()`, which strips tags, then decodes
+HTML entities once, then collapses whitespace. BoursoBank escapes apostrophes
+(`&#039;`) and ampersands in card labels; without the decode, `LIVRET D'EPARGNE`
+was stored and displayed as `LIVRET D&#039;EPARGNE`. Existing rows need no
+migration: `upsertAccount` rewrites `account.name` on every sync, so the next
+sync cleans them.
+
 #### Several identities on one access
 
 An access that holds a personal and a business identity (a sole trader, for
