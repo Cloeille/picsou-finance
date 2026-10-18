@@ -76,7 +76,7 @@ function AllocationTreemap({ data }: { data: DistributionItem[] }) {
         return (
           <div
             key={item.accountId}
-            className={`absolute flex flex-col items-center justify-center overflow-hidden rounded-md cursor-default ${isHovered ? 'z-10' : ''}`}
+            className={`absolute flex flex-col items-center justify-center rounded-md cursor-default ${isHovered ? 'z-10' : ''}`}
             title={isSmall ? undefined : item.name}
             style={{
               left: `calc(${x}% + 2px)`,
@@ -91,7 +91,7 @@ function AllocationTreemap({ data }: { data: DistributionItem[] }) {
             <div className="absolute -inset-1 z-20" onMouseEnter={() => setHoveredId(item.accountId)} />
             <div className={`pointer-events-none absolute inset-0 rounded-md transition-[box-shadow] duration-150 ${isHovered ? 'ring-2 ring-white/40' : ''}`} />
             {!isSmall && (
-              <div className="relative z-10 flex w-full min-w-0 flex-col items-center px-1 pointer-events-none">
+              <div className="relative z-10 flex w-full min-w-0 flex-col items-center overflow-hidden px-1 pointer-events-none">
                 <span className="max-w-full truncate text-white font-semibold text-sm text-center leading-tight">
                   {item.name}
                 </span>

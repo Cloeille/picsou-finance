@@ -32,10 +32,17 @@ describe('AllocationTreemap', () => {
 
     const label = screen.getByText(LONG_NAME)
     expect(label).toHaveClass('truncate', 'max-w-full')
-    expect(label.parentElement).toHaveClass('w-full', 'min-w-0')
+    expect(label.parentElement).toHaveClass('w-full', 'min-w-0', 'overflow-hidden')
 
     const tile = label.closest('[title]')
     expect(tile).toHaveAttribute('title', LONG_NAME)
-    expect(tile).toHaveClass('overflow-hidden')
+  })
+
+  it('does not clip the hover ring or the gap hitbox that sit outside the tile box', () => {
+    render(<DistributionPie data={data} />)
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'dashboard.allocation' }), { button: 0 })
+
+    const tile = screen.getByText(LONG_NAME).closest('[title]')
+    expect(tile).not.toHaveClass('overflow-hidden')
   })
 })
