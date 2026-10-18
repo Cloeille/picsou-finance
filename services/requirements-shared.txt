@@ -1,0 +1,7 @@
+# One pin set for every Chromium/browserless sidecar (Camoufox sidecars excluded).
+# Experiment for issue #235: see docs/decisions/2026-10-18-shared-browser-service.md.
+fastapi==0.141.1
+uvicorn==0.52.1
+pydantic==2.13.4
+playwright==1.52.0
+httpx==0.28.1

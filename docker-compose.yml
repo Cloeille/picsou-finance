@@ -131,8 +131,8 @@ services:
 
   corum-auth:
     build:
-      context: ./services/corum-auth
-      dockerfile: Dockerfile
+      context: ./services
+      dockerfile: corum-auth/Dockerfile
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}

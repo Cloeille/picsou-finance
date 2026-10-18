@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Shared browser service (draft, opt-in).** A new `browser-service` container owns the
+  only Chromium and starts one fresh Chromium process per login or sync, wiped when it
+  ends. The CORUM connector can use it by setting `CORUM_BROWSER_SERVICE_URL` with the
+  `shared-browser` Compose profile; without it, nothing changes. Groundwork for the
+  desktop app (#235). See [ADR](docs/decisions/2026-10-18-shared-browser-service.md) and
+  [feature note](docs/features/browser-service.md).
 - **SimpleFIN bank sync.** A member can paste a one-time setup token from SimpleFIN
   Bridge. Picsou claims it, stores the access URL encrypted, and imports account
   balances and posted transactions alongside Enable Banking, by hand, from Sync All
