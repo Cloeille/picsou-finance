@@ -118,6 +118,8 @@ PROFILES_ROOT = os.environ.get("REVOLUT_PROFILES_DIR", "/data/revolut-profiles")
 
 ENROLMENT_APPROVE_WAIT_S = 300
 POLL_MS = 3000
+LOGIN_SCREEN_WAIT_S = 30
+LOGIN_SCREEN_POLL_MS = 300
 MAX_TRANSACTION_PAGES = 20
 TRANSACTION_WINDOW_DAYS = 90
 CAMOUFOX_LAUNCH_TIMEOUT_S = float(os.environ.get("CAMOUFOX_LAUNCH_TIMEOUT_S", "60"))
@@ -301,6 +303,12 @@ def session_expired() -> JSONResponse:
 def browser_launch_failed() -> JSONResponse:
     """Flat 503 the backend parses when the browser runtime/profile cannot launch."""
     return JSONResponse(status_code=503, content={"error": "BROWSER_LAUNCH_FAILED"})
+
+
+def login_screen_timeout() -> JSONResponse:
+    """Flat 504 when neither the phone nor the passcode screen showed up after the SSO redirect.
+    No dedicated Java mapping: the backend logs the body and shows its generic sync failure."""
+    return JSONResponse(status_code=504, content={"error": "LOGIN_SCREEN_TIMEOUT"})
 
 
 # ─── In-page authenticated fetch (below the app's JS, per docs §3.4) ────────────
@@ -681,6 +689,9 @@ async def _logged_in(page) -> bool:
         return False
 
 
+_PHONE_INPUT = "input[name='phoneNumber'], input[inputmode='tel'], input[type='tel']"
+
+
 async def _click_continue(page) -> None:
     for name in ("Continuer", "Continue"):
         btn = page.get_by_role("button", name=name)
@@ -696,6 +707,23 @@ async def _click_continue(page) -> None:
     await page.keyboard.press("Enter")
 
 
+async def _wait_for_login_screen(page, *, phone: bool = True) -> Optional[str]:
+    """Wait (bounded) for the first login screen Revolut's SSO renders: "passcode" or "phone".
+
+    app.revolut.com redirects to sso.revolut.com/signin, and the SPA only then decides which
+    screen to show -- a known device lands on /passcode after a delay, so neither the URL nor
+    the inputs are reliable right after `goto`. Returns None if nothing appeared in time.
+    `phone=False` waits for the passcode screen only (the step after submitting the phone).
+    """
+    for _ in range(LOGIN_SCREEN_WAIT_S * 1000 // LOGIN_SCREEN_POLL_MS):
+        if "passcode" in page.url or await page.get_by_role("textbox").count() >= 6:
+            return "passcode"
+        if phone and await page.locator(_PHONE_INPUT).count():
+            return "phone"
+        await page.wait_for_timeout(LOGIN_SCREEN_POLL_MS)
+    return None
+
+
 async def _fill_phone(page, phone: str) -> None:
     num = phone.strip().replace(" ", "")
     for pfx in ("+33", "0033"):
@@ -703,7 +731,7 @@ async def _fill_phone(page, phone: str) -> None:
             num = num[len(pfx):]
     if num.startswith("0"):
         num = num[1:]
-    tel = page.locator("input[name='phoneNumber'], input[inputmode='tel'], input[type='tel']").first
+    tel = page.locator(_PHONE_INPUT).first
     await tel.click()
     await tel.fill("")
     await tel.type(num, delay=70)
@@ -843,10 +871,15 @@ async def sync(req: SyncRequest):
             async with _open_camoufox(req.memberId, headless=False, recover_profile=True) as ctx:
                 page = await ctx.new_page()
                 await page.goto(APP_URL, wait_until="domcontentloaded", timeout=45000)
-                await page.wait_for_timeout(3000)
-                if "passcode" not in page.url:
+                screen = await _wait_for_login_screen(page)
+                if screen is None:
+                    log.warning("member %s: no login screen after %ss (url=%s)",
+                                req.memberId, LOGIN_SCREEN_WAIT_S, safe(page.url.split("?")[0]))
+                    return login_screen_timeout()
+                if screen == "phone":
                     await _fill_phone(page, req.phoneNumber)
-                if "passcode" in page.url or await page.get_by_role("textbox").count() >= 6:
+                    screen = await _wait_for_login_screen(page, phone=False)
+                if screen == "passcode":
                     await _fill_passcode(page, req.passcode)
 
                 log.info("member %s: login form submitted in %.1fs, waiting up to %ss for mobile approval",

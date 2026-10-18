@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-07-08 (bounded Camoufox launch + unattended sync guard)
+> Last updated: 2026-07-08 (bounded Camoufox launch + unattended sync guard; login waits for the SSO screen)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -23,7 +23,7 @@ The `services/revolut-auth/` sidecar (Python + FastAPI + **Camoufox** = stealth 
   phone) then harvests. `allowLogin=false` is for unattended scheduler calls: reuse a live profile if
   possible, but return `401 SESSION_EXPIRED` instead of starting a fresh login/mobile approval.
   Returns `{accounts: [...]}` or `408 APPROVAL_TIMEOUT` / `401 SESSION_EXPIRED` /
-  `409 SYNC_IN_PROGRESS` / `503 BROWSER_LAUNCH_FAILED`. The call can block up to ~5 min waiting for
+  `409 SYNC_IN_PROGRESS` / `503 BROWSER_LAUNCH_FAILED` / `504 LOGIN_SCREEN_TIMEOUT`. The call can block up to ~5 min waiting for
   mobile approval, plus bounded browser launch and harvest time.
 - `GET /progress/{memberId}` — the sidecar's live phase for the in-flight `/sync` (CHECKING_SESSION →
   LOGGING_IN → AWAITING_APPROVAL w/ countdown → HARVESTING w/ accounts-found). Purely additive; it does
@@ -179,6 +179,14 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 - **Money-box balance is nested**: `{"amount": <cents>, "currency": "EUR"}` (not a flat number).
 - **Pocket filtering**: money-box pockets are excluded by their `pocket.id` (else vaults appear twice —
   once CHECKING, once SAVINGS); `MERCHANT`/`REVX_FIAT` and non-fiat (crypto) pockets are dropped.
+- **Login waits for the first SSO screen; it never sniffs the URL.** `app.revolut.com` redirects to
+  `sso.revolut.com/signin`, and a known device (persistent profile) only lands on `/passcode` after a
+  delay, while a fresh one renders the phone input. `_wait_for_login_screen` polls (bounded by
+  `LOGIN_SCREEN_WAIT_S`, 30 s) for whichever appears first, and after the phone step waits again for
+  the passcode screen. Deciding after a fixed sleep used to pick the phone branch on a stale `/signin`
+  URL and time out on a phone input that never came (HTTP 500). If neither screen appears the sidecar
+  returns `504 LOGIN_SCREEN_TIMEOUT`; Java has no dedicated mapping, so it logs the body and shows the
+  generic "Failed to sync Revolut accounts" message.
 - **6-digit passcode auto-submits** — do not click "Continuer" after typing it (that hung `auto_login`).
 - **One Firefox per profile — serialize per member.** A persistent Camoufox profile can be opened by
   only ONE Firefox process at a time. Two `/sync` calls for the same member (double-click, or the
