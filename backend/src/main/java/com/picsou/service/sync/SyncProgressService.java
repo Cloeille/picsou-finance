@@ -37,6 +37,8 @@ public class SyncProgressService {
         volatile boolean running = true;
         volatile boolean done;
         volatile String error;
+        /** Stable machine-readable code for {@link #error}, when the failure has one the UI translates. */
+        volatile String errorCode;
         volatile String phase;
         volatile Integer remainingSeconds;
         volatile Integer accountsFound;
@@ -53,7 +55,7 @@ public class SyncProgressService {
                 ? elapsedSecondsOverride
                 : (int) Duration.between(startedAt, Instant.now()).getSeconds();
             List<DiscoveredRevolutAccount> discovered = discoveredPreview != null ? discoveredPreview : List.of();
-            return new SyncProgress(running, phase, elapsed, remainingSeconds, accountsFound, done, error, discovered);
+            return new SyncProgress(running, phase, elapsed, remainingSeconds, accountsFound, done, error, errorCode, discovered);
         }
     }
 
@@ -82,7 +84,7 @@ public class SyncProgressService {
     public SyncProgress status(Long memberId, SyncProvider provider) {
         State s = jobs.get(new Key(memberId, provider));
         return s == null
-            ? new SyncProgress(false, null, null, null, null, false, null, List.of())
+            ? new SyncProgress(false, null, null, null, null, false, null, null, List.of())
             : s.toDto();
     }
 
@@ -137,10 +139,12 @@ public class SyncProgressService {
         s.running = false;
     }
 
-    public void error(Long memberId, SyncProvider provider, String message) {
+    /** {@code code} is the stable code the UI translates, or null when the failure has none. */
+    public void error(Long memberId, SyncProvider provider, String message, String code) {
         State s = jobs.get(new Key(memberId, provider));
         if (s == null) return;
         s.error = message;
+        s.errorCode = code;
         s.done = true;
         s.running = false;
     }

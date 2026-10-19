@@ -55,7 +55,7 @@ import {
 } from '@/features/sync/hooks'
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
 import { RevolutSelectionCard } from '@/components/sync/RevolutSelectionCard'
-import { revolutPhaseLabel } from '@/features/sync/revolut-phase'
+import { revolutErrorLabel, revolutPhaseLabel } from '@/features/sync/revolut-phase'
 import {
   Landmark,
   HousePlus,
@@ -918,7 +918,7 @@ function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: () => v
       if (progress.data?.error) {
         // Reacting to the running → done transition detected above, not deriving render state.
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        setErrorMsg(progress.data.error)
+        setErrorMsg(revolutErrorLabel(t, progress.data))
       } else {
         setResultReady(true)
       }

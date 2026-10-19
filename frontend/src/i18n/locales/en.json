@@ -1094,6 +1094,10 @@
         "awaitingApproval": "Approve the connection in your Revolut app… ({{remaining}}s left)",
         "harvesting": "Fetching your accounts… ({{count}} found)"
       },
+      "errors": {
+        "humanVerificationRequired": "Revolut is asking you to prove you are human (captcha), and Picsou cannot do that for you. No approval was sent to your phone. Try again later.",
+        "upstreamFormatChanged": "Revolut's sign-in page did not look as expected, so the connection was stopped. Try again later."
+      },
       "selection": {
         "title": "Choose which accounts to import",
         "selectAll": "Select all",

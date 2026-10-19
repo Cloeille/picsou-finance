@@ -14,7 +14,7 @@ import {
   useSyncProgress,
   useConfirmRevolutSync,
 } from '@/features/sync/hooks'
-import { revolutPhaseLabel } from '@/features/sync/revolut-phase'
+import { revolutErrorLabel, revolutPhaseLabel } from '@/features/sync/revolut-phase'
 import { formatApiError } from '@/lib/errors'
 import { formatDateTime } from '@/lib/utils'
 
@@ -55,7 +55,7 @@ export function RevolutTab() {
       if (data?.error) {
         // Reacting to the running → done transition detected above, not deriving render state.
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        setErrorMsg(data.error)
+        setErrorMsg(revolutErrorLabel(t, data))
       } else if (data && data.discovered.length > 0) {
         confirmSync.mutate(
           { selectedExternalIds: data.discovered.map((d) => d.externalId), remember, voluntary: false },

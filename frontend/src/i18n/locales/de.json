@@ -1272,6 +1272,10 @@
         "awaitingApproval": "Approve the connection in your Revolut app… ({{remaining}}s left)",
         "harvesting": "Fetching your accounts… ({{count}} found)"
       },
+      "errors": {
+        "humanVerificationRequired": "Revolut verlangt einen Menschlichkeitsnachweis (Captcha), den Picsou nicht für dich erledigen kann. Es wurde keine Freigabe an dein Telefon gesendet. Versuche es später erneut.",
+        "upstreamFormatChanged": "Die Anmeldeseite von Revolut sah nicht wie erwartet aus, deshalb wurde die Verbindung abgebrochen. Versuche es später erneut."
+      },
       "selection": {
         "title": "Choose which accounts to import",
         "selectAll": "Select all",
