@@ -726,8 +726,8 @@ def main() -> None:
 
     work = Path(os.environ.get("SHARED_ENV_WORKDIR") or tempfile.mkdtemp(prefix="shared-env-"))
     work.mkdir(parents=True, exist_ok=True)
-    # Traverse only: the test user reaches the venvs by path, never lists the dir.
-    os.chmod(work, 0o711)
+    # Owner only. It is handed to the test user below; root keeps access anyway.
+    os.chmod(work, 0o700)
     if log_dir is None:
         log_dir = work / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -740,6 +740,8 @@ def main() -> None:
     ci_envs = parse_ci_envs()
     home = work / "home"
     uid, gid = ensure_user(home)
+    if os.geteuid() == 0:
+        os.chown(work, uid, gid)
     os.makedirs(home / ".cache", exist_ok=True)
     if os.geteuid() == 0:
         os.chown(home / ".cache", uid, gid)
