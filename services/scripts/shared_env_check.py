@@ -217,7 +217,9 @@ def parse_ci_envs() -> dict[str, dict[str, str]]:
         matches = [
             block
             for block in blocks
-            if needle in block and "--env APP_SIDECAR_API_KEY=" in block
+            # Keyed on the image tag the job builds: the browser-service job
+            # also mounts services/corum-auth, but tests its own image.
+            if f"picsou-{sidecar}:test" in block and "--env APP_SIDECAR_API_KEY=" in block
         ]
         if not matches:
             continue
@@ -315,8 +317,9 @@ def test_env(sidecar: Path, ci_env: dict[str, str], browsers: Path, home: Path) 
     }
     for key, value in ci_env.items():
         if key == "PYTHONPATH" and value == "/app":
-            # CI workdir is /tests; /app is the image copy of this sidecar.
-            env["PYTHONPATH"] = str(sidecar)
+            # CI workdir is /tests; /app is the image copy of this sidecar,
+            # plus the shared picsou_browser package the image also copies in.
+            env["PYTHONPATH"] = os.pathsep.join([str(sidecar), str(SERVICES / "shared")])
         else:
             env[key] = value
     if "APP_SIDECAR_API_KEY" not in env:
@@ -723,7 +726,8 @@ def main() -> None:
 
     work = Path(os.environ.get("SHARED_ENV_WORKDIR") or tempfile.mkdtemp(prefix="shared-env-"))
     work.mkdir(parents=True, exist_ok=True)
-    os.chmod(work, 0o755)
+    # Traverse only: the test user reaches the venvs by path, never lists the dir.
+    os.chmod(work, 0o711)
     if log_dir is None:
         log_dir = work / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -739,7 +743,9 @@ def main() -> None:
     os.makedirs(home / ".cache", exist_ok=True)
     if os.geteuid() == 0:
         os.chown(home / ".cache", uid, gid)
-        os.chmod(log_dir, 0o777)
+        # The demoted test runs write here; root still can.
+        os.chown(log_dir, uid, gid)
+        os.chmod(log_dir, 0o700)
 
     runner = work / "run_discover.py"
     runner.write_text(RUNNER, encoding="utf-8")
@@ -795,7 +801,9 @@ def main() -> None:
     expose(shared_venv)
     expose(browsers)
     expose(work / "run_discover.py")
-    os.chmod(log_dir, 0o777)
+    if os.geteuid() == 0:
+        os.chown(log_dir, uid, gid)
+        os.chmod(log_dir, 0o700)
 
     rows = []
     differences: list[str] = []
