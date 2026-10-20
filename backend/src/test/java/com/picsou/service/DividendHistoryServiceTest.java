@@ -46,6 +46,9 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class DividendHistoryServiceTest {
 
+    /** The service clock. Test data is dated from it, never from the wall clock. */
+    private static final Instant NOW = Instant.parse("2026-10-20T12:00:00Z");
+
     @Mock DividendSourceRepository repository;
     @Mock DividendHistoryPort historyPort;
     @Mock NasdaqDividendPort nasdaq;
@@ -77,7 +80,7 @@ class DividendHistoryServiceTest {
 
     @Test
     void refreshStale_refreshesOnlyWhatIsDueAndStopsAtTheCap() {
-        Instant now = Instant.now();
+        Instant now = NOW;
         DividendSource fresh = source("FRESH", DividendSourceStatus.OK, now.minus(Duration.ofDays(2)));
         DividendSource stale = source("STALE", DividendSourceStatus.OK, now.minus(Duration.ofDays(8)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(fresh, stale));
@@ -94,8 +97,36 @@ class DividendHistoryServiceTest {
     }
 
     @Test
-    void aFailureIsRetriedInThreeDaysWhereASuccessWaitsSeven() {
-        Instant now = Instant.now();
+    void aSuccessFromTheLastSundayPassIsDueAgainOnTheNextOne() {
+        // refreshedAt is stamped after the fetch, so the next Sunday finds it a little under
+        // seven days old. A 7-day threshold skipped it and refreshed every other week.
+        DividendSource lastSunday = source("A", DividendSourceStatus.OK,
+            NOW.minus(Duration.ofDays(7)).plusSeconds(2));
+        DividendSource midweek = source("B", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(5)));
+        when(repository.findByTickerIn(any())).thenReturn(List.of(lastSunday, midweek));
+        when(historyPort.fetchDividendHistory(any())).thenReturn(new DividendHistory("EUR", List.of()));
+
+        service().refreshStale(List.of("A", "B"), 10);
+
+        verify(historyPort).fetchDividendHistory("A");
+        verify(historyPort, never()).fetchDividendHistory("B");
+    }
+
+    @Test
+    void refreshTimestampsComeFromTheInjectedClock() {
+        when(historyPort.fetchDividendHistory("TTE.PA")).thenReturn(new DividendHistory("EUR", List.of()));
+
+        service().refreshStale(List.of("TTE.PA"), 10);
+
+        org.mockito.ArgumentCaptor<DividendSource> saved = org.mockito.ArgumentCaptor.forClass(DividendSource.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getRefreshedAt()).isEqualTo(NOW);
+        assertThat(saved.getValue().getLastAttemptAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void aFailureIsRetriedInThreeDaysWhereASuccessWaitsSix() {
+        Instant now = NOW;
         DividendSource failedYesterday = source("A", DividendSourceStatus.FAILED, now.minus(Duration.ofDays(10)));
         failedYesterday.setLastAttemptAt(now.minus(Duration.ofDays(1)));
         DividendSource failedLastWeek = source("B", DividendSourceStatus.FAILED, now.minus(Duration.ofDays(10)));
@@ -122,7 +153,7 @@ class DividendHistoryServiceTest {
         DividendEvent kept = DividendEvent.builder()
             .exDate(LocalDate.of(2026, 6, 1)).amount(new BigDecimal("0.90")).amountEur(new BigDecimal("0.90"))
             .build();
-        DividendSource existing = source("TTE.PA", DividendSourceStatus.OK, Instant.now().minus(Duration.ofDays(8)));
+        DividendSource existing = source("TTE.PA", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(8)));
         Instant refreshedAt = existing.getRefreshedAt();
         existing.setId(4L);
         existing.setEvents(new ArrayList<>(List.of(kept)));
@@ -144,7 +175,7 @@ class DividendHistoryServiceTest {
         DividendEvent kept = DividendEvent.builder()
             .exDate(LocalDate.of(2026, 6, 1)).amount(new BigDecimal("1")).amountEur(new BigDecimal("0.92"))
             .build();
-        DividendSource existing = source("AAPL", DividendSourceStatus.OK, Instant.now().minus(Duration.ofDays(8)));
+        DividendSource existing = source("AAPL", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(8)));
         Instant refreshedAt = existing.getRefreshedAt();
         existing.setId(8L);
         existing.setCurrency("USD");
@@ -165,7 +196,7 @@ class DividendHistoryServiceTest {
 
     @Test
     void aSuccessStoresAmountEurAndReplacesThePreviousEvents() {
-        DividendSource existing = source("TTE.PA", DividendSourceStatus.OK, Instant.now().minus(Duration.ofDays(8)));
+        DividendSource existing = source("TTE.PA", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(8)));
         existing.setId(4L);
         existing.setEvents(new ArrayList<>(List.of(DividendEvent.builder()
             .exDate(LocalDate.of(2025, 1, 1)).amount(new BigDecimal("1")).amountEur(new BigDecimal("1")).build())));
@@ -226,7 +257,7 @@ class DividendHistoryServiceTest {
             .amount(new BigDecimal("0.10"))
             .amountEur(new BigDecimal("0.09"))
             .build();
-        DividendSource existing = source("AAPL", DividendSourceStatus.OK, Instant.now().minus(Duration.ofDays(8)));
+        DividendSource existing = source("AAPL", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(8)));
         existing.setId(4L);
         existing.setEvents(new ArrayList<>(List.of(repeated, declared, olderThanWindow)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
@@ -269,7 +300,7 @@ class DividendHistoryServiceTest {
             .paymentDate(LocalDate.of(2026, 12, 1))
             .declared(true)
             .build();
-        DividendSource existing = source("KO", DividendSourceStatus.OK, Instant.now().minus(Duration.ofDays(8)));
+        DividendSource existing = source("KO", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(8)));
         existing.setId(5L);
         existing.setEvents(new ArrayList<>(List.of(repeated, declared)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
@@ -306,7 +337,7 @@ class DividendHistoryServiceTest {
             .paymentDate(LocalDate.of(2026, 12, 10))
             .declared(true)
             .build();
-        DividendSource existing = source("AAPL", DividendSourceStatus.OK, Instant.now().minus(Duration.ofDays(8)));
+        DividendSource existing = source("AAPL", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(8)));
         existing.setId(6L);
         existing.setEvents(new ArrayList<>(List.of(repeated, withdrawn)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
@@ -353,6 +384,28 @@ class DividendHistoryServiceTest {
     }
 
     @Test
+    void aNasdaqRowWithNoCurrencyIsSkippedWhenYahooGaveNoneEither() {
+        // Yahoo answered empty (no currency), so a Nasdaq row without one cannot be priced:
+        // it is skipped, not stored 1:1 as euros. A row that states EUR is still stored.
+        when(historyPort.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(null, List.of()));
+        when(nasdaq.fetchDividends("AAPL")).thenReturn(List.of(
+            new com.picsou.port.NasdaqDividend(LocalDate.of(2026, 11, 19), LocalDate.of(2026, 12, 10),
+                null, null, new BigDecimal("0.98"), null),
+            new com.picsou.port.NasdaqDividend(LocalDate.of(2027, 2, 19), null,
+                null, null, new BigDecimal("0.50"), "EUR")));
+
+        service().refreshStale(List.of("AAPL"), 10);
+
+        org.mockito.ArgumentCaptor<DividendSource> saved = org.mockito.ArgumentCaptor.forClass(DividendSource.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getEvents()).singleElement().satisfies(event -> {
+            assertThat(event.getExDate()).isEqualTo(LocalDate.of(2027, 2, 19));
+            assertThat(event.getAmountEur()).isEqualByComparingTo("0.50");
+        });
+        verify(prices, never()).getFxRateToEur(any());
+    }
+
+    @Test
     void aTickerInTheFailureLogIsSanitized() {
         String ticker = "AAPL\nINJECTED";
         when(historyPort.fetchDividendHistory(ticker)).thenThrow(new RuntimeException("yahoo\n502"));
@@ -379,7 +432,7 @@ class DividendHistoryServiceTest {
     private DividendHistoryService service() {
         return new DividendHistoryService(
             repository, historyPort, nasdaq, prices, cooldown, new TransactionTemplate(txManager),
-            Clock.fixed(Instant.parse("2026-10-20T12:00:00Z"), ZoneOffset.UTC)
+            Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }
 

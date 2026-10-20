@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
  *
  * <p>Two differences, both because Yahoo rate-limits and is still the history of record. The whole pass
  * is skipped while {@link YahooCooldown} is active — prices arm that pause and do not read it,
- * but a weekly dividend scrape can afford to wait. And a success is refreshed after seven days,
+ * but a weekly dividend scrape can afford to wait. And a success is refreshed after six days,
  * not thirty: an ex-date moves, a sector does not.
  */
 @Service
@@ -48,8 +48,13 @@ public class DividendHistoryService {
 
     private static final Logger log = LoggerFactory.getLogger(DividendHistoryService.class);
 
-    /** An ex-date does not move weekly. Anything older than this is refreshed by the Sunday pass. */
-    public static final Duration REFRESH_AFTER = Duration.ofDays(7);
+    /**
+     * Anything older than this is refreshed by the Sunday pass. Deliberately under the 7-day cron
+     * period: {@code refreshedAt} is stamped after the fetch, so a threshold of exactly seven days
+     * would find every source a few minutes too fresh the following Sunday and skip it, halving
+     * the refresh rate to once a fortnight.
+     */
+    public static final Duration REFRESH_AFTER = Duration.ofDays(6);
 
     /** A failure is usually a 429 or a blip, so it comes back round far sooner than a success. */
     public static final Duration RETRY_AFTER_FAILURE = Duration.ofDays(3);
@@ -116,7 +121,7 @@ public class DividendHistoryService {
 
         Map<String, DividendSource> known = repository.findByTickerIn(wanted).stream()
             .collect(Collectors.toMap(s -> s.getTicker().toUpperCase(Locale.ROOT), s -> s, (a, b) -> a));
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         Instant successCutoff = now.minus(REFRESH_AFTER);
         Instant failureCutoff = now.minus(RETRY_AFTER_FAILURE);
 
@@ -174,7 +179,7 @@ public class DividendHistoryService {
     private DividendSource refresh(String ticker) {
         DividendSource source = repository.findByTicker(ticker)
             .orElseGet(() -> DividendSource.builder().ticker(ticker).build());
-        source.setLastAttemptAt(Instant.now());
+        source.setLastAttemptAt(clock.instant());
 
         DividendHistory history;
         try {
@@ -196,7 +201,7 @@ public class DividendHistoryService {
             source.setStatus(source.getEvents() == null || source.getEvents().isEmpty()
                 ? DividendSourceStatus.NO_DATA : DividendSourceStatus.OK);
             source.setLastError(null);
-            source.setRefreshedAt(Instant.now());
+            source.setRefreshedAt(clock.instant());
             return repository.save(source);
         }
 
@@ -226,7 +231,7 @@ public class DividendHistoryService {
             source.setStatus(source.getEvents() == null || source.getEvents().isEmpty()
                 ? DividendSourceStatus.NO_DATA : DividendSourceStatus.OK);
             source.setLastError(null);
-            source.setRefreshedAt(Instant.now());
+            source.setRefreshedAt(clock.instant());
             return repository.save(source);
         }
 
@@ -243,7 +248,7 @@ public class DividendHistoryService {
         source.setCurrency(currency);
         source.setStatus(DividendSourceStatus.OK);
         source.setLastError(null);
-        source.setRefreshedAt(Instant.now());
+        source.setRefreshedAt(clock.instant());
         return repository.save(source);
     }
 
@@ -425,7 +430,12 @@ public class DividendHistoryService {
     }
 
     private BigDecimal rateFor(String needed, BigDecimal knownRate, String knownCurrency) {
-        if (needed == null || needed.isBlank() || "EUR".equalsIgnoreCase(needed)) {
+        // An unknown currency is not euros: null makes the caller skip the row rather than
+        // store its raw amount as EUR.
+        if (needed == null || needed.isBlank()) {
+            return null;
+        }
+        if ("EUR".equalsIgnoreCase(needed)) {
             return BigDecimal.ONE;
         }
         if (knownRate != null && needed.equalsIgnoreCase(knownCurrency)) {
