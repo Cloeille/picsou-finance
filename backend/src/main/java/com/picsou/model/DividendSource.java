@@ -43,7 +43,7 @@ public class DividendSource extends AuditableEntity {
     private DividendSourceStatus status = DividendSourceStatus.NEVER_FETCHED;
 
     /**
-     * When we last got an answer, empty or not. Drives the 7-day refresh, and does not move
+     * When we last got an answer, empty or not. Drives the 6-day refresh, and does not move
      * on a failure — that is {@link #lastAttemptAt}'s job.
      */
     @Column(name = "refreshed_at")
@@ -60,20 +60,4 @@ public class DividendSource extends AuditableEntity {
     @OneToMany(mappedBy = "source", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
     private List<DividendEvent> events = new ArrayList<>();
-
-    /**
-     * Replaces the whole history. A successful empty answer clears it; a failure must not call
-     * this, or one 429 would erase a year of ex-dates.
-     */
-    public void replaceEvents(List<DividendEvent> replacements) {
-        if (events == null) {
-            events = new ArrayList<>();
-        }
-        events.clear();
-        if (replacements == null) {
-            return;
-        }
-        replacements.forEach(event -> event.setSource(this));
-        events.addAll(replacements);
-    }
 }

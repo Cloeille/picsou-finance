@@ -49,15 +49,14 @@ public class NasdaqDividendProvider implements NasdaqDividendPort {
     public NasdaqDividendProvider() {
         this(WebClient.builder()
             .baseUrl(BASE_URL)
-            .defaultHeader(HttpHeaders.ACCEPT, "application/json, text/plain, */*")
-            .defaultHeader(HttpHeaders.ORIGIN, "https://www.nasdaq.com")
-            .defaultHeader(HttpHeaders.REFERER, "https://www.nasdaq.com/")
-            .defaultHeader(HttpHeaders.USER_AGENT, USER_AGENT)
             .exchangeStrategies(STRATEGIES)
             .build());
     }
 
-    /** Package-private so a test can hand a client that never leaves the process. */
+    /**
+     * Package-private so a test can hand a client that never leaves the process. The request
+     * headers are set per call in {@link #fetchDividends}, once, so they hold for any client.
+     */
     NasdaqDividendProvider(WebClient webClient) {
         this.webClient = webClient;
     }

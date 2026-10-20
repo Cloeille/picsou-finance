@@ -243,7 +243,9 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             : result.events().dividends();
         List<DividendHistory.Point> points = new ArrayList<>();
         for (DividendEvent event : raw.values()) {
-            if (event == null) {
+            // An event missing its amount or date is skipped, not stored as a zero.
+            if (event == null || event.amount() == null || event.amount() <= 0
+                || event.date() == null || event.date() <= 0) {
                 continue;
             }
             // Yahoo's date is epoch seconds. UTC keeps the calendar day independent of the
@@ -530,9 +532,13 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Events(Map<String, DividendEvent> dividends) {}
 
-    /** One published dividend. {@code date} is the ex-date, epoch seconds — not the map key. */
+    /**
+     * One published dividend. {@code date} is the ex-date, epoch seconds — not the map key.
+     * Boxed on purpose: a primitive would turn a missing field into {@code 0}, a zero-amount
+     * event on 1970-01-01.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record DividendEvent(double amount, long date) {}
+    record DividendEvent(Double amount, Long date) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Indicators(List<Quote> quote) {}

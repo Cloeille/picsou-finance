@@ -472,6 +472,25 @@ class YahooFinancePriceProviderTest {
     }
 
     @Test
+    void fetchDividendHistory_skipsAnEventMissingItsAmountOrDate() {
+        // A missing field must not default to 0: that stored a zero-amount event on 1970-01-01.
+        var provider = providerWith(url -> """
+            {"chart":{"result":[{"meta":{"currency":"EUR","regularMarketPrice":1},
+              "events":{"dividends":{
+                "1":{"date":1790751600},
+                "2":{"amount":0.9},
+                "3":{"amount":0,"date":1790751600},
+                "4":{"amount":0.5,"date":0},
+                "5":{"amount":0.5,"date":1790751600}}}}]}}
+            """, null);
+
+        var history = provider.fetchDividendHistory("TTE.PA");
+
+        assertThat(history.events()).singleElement().satisfies(point ->
+            assertThat(point.amount()).isEqualByComparingTo("0.5"));
+    }
+
+    @Test
     void fetchDividendHistory_returnsEmpty_whenYahooPublishesNoDividends() {
         var provider = providerWith(url -> """
             {"chart":{"result":[{"meta":{"currency":"EUR","regularMarketPrice":1},"events":{"dividends":{}}}]}}
