@@ -1274,7 +1274,7 @@
       },
       "errors": {
         "humanVerificationRequired": "Revolut verlangt einen Menschlichkeitsnachweis (Captcha), den Picsou nicht für dich erledigen kann. Es wurde keine Freigabe an dein Telefon gesendet. Versuche es später erneut.",
-        "upstreamFormatChanged": "Die Anmeldeseite von Revolut sah nicht wie erwartet aus, deshalb wurde die Verbindung abgebrochen. Versuche es später erneut."
+        "upstreamFormatChanged": "Die Anmeldung hat nicht geklappt. Prüfe deine Telefonnummer und versuche es erneut."
       },
       "selection": {
         "title": "Choose which accounts to import",

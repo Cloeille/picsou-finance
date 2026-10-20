@@ -1096,7 +1096,7 @@
       },
       "errors": {
         "humanVerificationRequired": "Revolut te demande de prouver que tu es humain (captcha), ce que Picsou ne peut pas faire à ta place. Aucune approbation n'a été envoyée sur ton téléphone. Réessaie plus tard.",
-        "upstreamFormatChanged": "La page de connexion de Revolut n'a pas l'aspect attendu, la connexion a été interrompue. Réessaie plus tard."
+        "upstreamFormatChanged": "La connexion n'a pas abouti. Vérifie ton numéro de téléphone et réessaie."
       },
       "selection": {
         "title": "Choisis les comptes à importer",

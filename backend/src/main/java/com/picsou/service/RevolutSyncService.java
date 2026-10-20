@@ -330,7 +330,7 @@ public class RevolutSyncService {
                 "Revolut is asking for a human verification (captcha) that Picsou cannot complete, " +
                     "so no approval was sent to your phone. Please try again later.";
             case "UPSTREAM_FORMAT_CHANGED" ->
-                "Revolut's sign-in page did not look as expected. Please try again later.";
+                "The Revolut sign-in didn't go through. Check your phone number and try again.";
             case "SYNC_IN_PROGRESS" ->
                 "A Revolut sync is already running for this account. Please wait for it to finish " +
                     "before starting another.";

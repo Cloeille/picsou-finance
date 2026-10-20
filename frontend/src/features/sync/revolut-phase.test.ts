@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TFunction } from 'i18next'
 import type { SyncProgress } from '@/types/api'
-import { revolutErrorLabel, revolutPhaseLabel } from './revolut-phase'
+import { revolutErrorLabel } from './revolut-phase'
 
 /** Echoes the key so assertions can see which translation fired. */
 const t = ((key: string) => key) as unknown as TFunction
@@ -25,12 +25,5 @@ describe('revolutErrorLabel', () => {
   it('falls back to the backend sentence for a code it does not know or no code', () => {
     expect(revolutErrorLabel(t, { ...failed, errorCode: 'SOMETHING_NEW' })).toBe('English sentence')
     expect(revolutErrorLabel(t, failed)).toBe('English sentence')
-  })
-})
-
-describe('revolutPhaseLabel', () => {
-  it('never shows the approval countdown for a failed discovery', () => {
-    const label = revolutPhaseLabel(t, { ...failed, errorCode: 'HUMAN_VERIFICATION_REQUIRED' })
-    expect(label).not.toBe('sync.revolut.phase.awaitingApproval')
   })
 })

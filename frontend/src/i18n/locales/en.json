@@ -1096,7 +1096,7 @@
       },
       "errors": {
         "humanVerificationRequired": "Revolut is asking you to prove you are human (captcha), and Picsou cannot do that for you. No approval was sent to your phone. Try again later.",
-        "upstreamFormatChanged": "Revolut's sign-in page did not look as expected, so the connection was stopped. Try again later."
+        "upstreamFormatChanged": "The sign-in didn't go through. Check your phone number and try again."
       },
       "selection": {
         "title": "Choose which accounts to import",
