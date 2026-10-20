@@ -87,6 +87,37 @@ class DividendForecastServiceTest {
     }
 
     @Test
+    void aFailedRefreshKeepsForecastingFromTheStoredEvents() {
+        // A FAILED refresh keeps the last good events on purpose; one 429 must not blank the
+        // forecast for a week.
+        Account account = account(12L, "CTO Bourso", AccountType.COMPTE_TITRES);
+        Prepared prepared = prepared(account, "MC.PA", "1", "EUR", "1", "1",
+            "2026-03-17", "2026-06-16", "2026-09-15");
+        prepared.source().setStatus(DividendSourceStatus.FAILED);
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(account));
+        when(access.sharesFor(any(), eq(MEMBER))).thenReturn(Map.of(12L, new BigDecimal("100")));
+        when(holdings.findPositiveByAccountIdIn(any())).thenReturn(List.of(prepared.holding()));
+        when(sources.findAllWithEventsByTickerIn(any())).thenReturn(List.of(prepared.source()));
+
+        assertThat(service.upcoming(MEMBER, TODAY, 60))
+            .extracting(UpcomingDividendResponse::expectedDate)
+            .containsExactly(LocalDate.of(2026, 12, 15));
+    }
+
+    @Test
+    void aFailedSourceThatNeverStoredAnEventForecastsNothing() {
+        Account account = account(12L, "CTO Bourso", AccountType.COMPTE_TITRES);
+        Prepared prepared = prepared(account, "MC.PA", "1", "EUR", "1", "1");
+        prepared.source().setStatus(DividendSourceStatus.FAILED);
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(account));
+        when(access.sharesFor(any(), eq(MEMBER))).thenReturn(Map.of(12L, new BigDecimal("100")));
+        when(holdings.findPositiveByAccountIdIn(any())).thenReturn(List.of(prepared.holding()));
+        when(sources.findAllWithEventsByTickerIn(any())).thenReturn(List.of(prepared.source()));
+
+        assertThat(service.upcoming(MEMBER, TODAY, 60)).isEmpty();
+    }
+
+    @Test
     void anIrregularSeriesAndAStalePayerForecastNothing() {
         assertThat(forecast(AccountType.COMPTE_TITRES, "TTE.PA", "10", "100", 60, "EUR", "1", "1",
             "2026-04-15", "2026-05-15", "2026-08-13")).isEmpty();

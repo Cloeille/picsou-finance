@@ -11,7 +11,6 @@ import com.picsou.model.DividendEvent;
 import com.picsou.model.DividendOrigin;
 import com.picsou.model.DividendPolicy;
 import com.picsou.model.DividendSource;
-import com.picsou.model.DividendSourceStatus;
 import com.picsou.model.ScpiPosition;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.DividendSourceRepository;
@@ -143,7 +142,9 @@ public class DividendForecastService {
                 .map(h -> h.getTicker().toUpperCase(Locale.ROOT))
                 .collect(Collectors.toSet()))
             .stream()
-            .filter(s -> s.getStatus() == DividendSourceStatus.OK)
+            // Any status: a FAILED refresh keeps the stored events on purpose (see
+            // DividendHistoryService), so the last good history keeps forecasting. A source
+            // with no events yields no dates and no line.
             .collect(Collectors.toMap(s -> s.getTicker().toUpperCase(Locale.ROOT), s -> s, (a, b) -> a));
 
         List<DividendCashDate> cashDates = dividendCashDates(lagAccounts);
