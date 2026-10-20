@@ -23,6 +23,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -40,6 +41,7 @@ class SchedulerServiceTest {
     @Mock AccountService accountService;
     @Mock PriceService priceService;
     @Mock InstrumentLogoService instrumentLogoService;
+    @Mock DividendHistoryService dividendHistoryService;
     @Mock FamilyMemberRepository familyMemberRepository;
     @Mock MemberSyncService memberSyncService;
     @InjectMocks SchedulerService scheduler;
@@ -135,6 +137,36 @@ class SchedulerServiceTest {
         verify(accountService).valuation(valuedPer);
         verify(accountService).valuation(unpricedPer);
         verify(accountService, never()).valuation(otherProviderPer);
+    }
+
+    @Test
+    void refreshDividendHistory_skipsCryptoAndCapsTheBatch() {
+        when(holdingRepository.findDistinctTickers()).thenReturn(Set.of("TTE.PA", "BTC", "btc"));
+        when(holdingRepository.findDistinctTickersByAccountType(AccountType.CRYPTO)).thenReturn(Set.of("btc"));
+
+        scheduler.refreshDividendHistory();
+
+        verify(dividendHistoryService).refreshStale(Set.of("TTE.PA"), 40);
+    }
+
+    @Test
+    void refreshDividendHistory_swallowsAFailureSoTheNextCycleStillRuns() {
+        when(holdingRepository.findDistinctTickers()).thenReturn(Set.of("TTE.PA"));
+        when(holdingRepository.findDistinctTickersByAccountType(AccountType.CRYPTO)).thenReturn(Set.of());
+        when(dividendHistoryService.refreshStale(any(), anyInt())).thenThrow(new IllegalStateException("yahoo down"));
+
+        scheduler.refreshDividendHistory();
+
+        verify(dividendHistoryService).refreshStale(Set.of("TTE.PA"), 40);
+    }
+
+    @Test
+    void refreshDividendHistory_doesNothingWhenNothingIsHeld() {
+        when(holdingRepository.findDistinctTickers()).thenReturn(Set.of());
+
+        scheduler.refreshDividendHistory();
+
+        verify(dividendHistoryService, never()).refreshStale(any(), anyInt());
     }
 
     private static BalanceSnapshot snapshot(Account account, LocalDate date, String balance) {

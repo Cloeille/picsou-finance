@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { ArrowRight, CalendarClock, Inbox, PiggyBank, TrendingUp, Wallet } from 'lucide-react'
+import { ArrowRight, CalendarClock, Coins, Inbox, PiggyBank, TrendingUp, Wallet } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -13,6 +14,8 @@ import {
   useRecurringCalendar,
   useUncategorized,
 } from '@/features/budget/hooks'
+import { useUpcomingDividends } from '@/features/dividends/hooks'
+import { formatDate } from '@/lib/utils'
 import { ColorDot } from './budget-utils'
 import { PeriodNavigator } from './PeriodNavigator'
 import { useBudgetPeriod } from './BudgetPeriodContext'
@@ -43,6 +46,73 @@ function RecapCard({ icon: Icon, label, children, onClick, index = 0 }: {
         </CardContent>
       </Card>
     </button>
+  )
+}
+
+/**
+ * Dividends and SCPI distributions expected over the next 60 days.
+ *
+ * Deliberately outside the page's loading/error gate (same idea as the to-categorize
+ * nudge): a failed or empty forecast must not replace the recap. Hidden on a past
+ * cycle, because the figures are always "from today", not from the period being viewed.
+ *
+ * The total sums only rows the backend marked `countsInBudget`. Locked wrappers and
+ * reinvested SCPI stay in the list, with their own badge, and their sum is a muted
+ * aside — the card does not re-decide that from `accountType` or `reinvested`.
+ */
+function CapitalIncomeAhead() {
+  const { t } = useTranslation()
+  const dividendsQ = useUpcomingDividends(60)
+  const rows = dividendsQ.data ?? []
+  const budgetTotal = rows.reduce((sum, row) => sum + (row.countsInBudget ? row.amountEur : 0), 0)
+  const lockedTotal = rows.reduce((sum, row) => sum + (row.countsInBudget ? 0 : row.amountEur), 0)
+  const quiet = dividendsQ.isError || (!dividendsQ.isLoading && rows.length === 0)
+
+  return (
+    <Card role="region" aria-labelledby="capital-income-heading">
+      <CardContent className="pt-6">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Coins className="size-4" />
+          <span id="capital-income-heading">{t('budget.overview.capitalIncome')}</span>
+        </div>
+        {dividendsQ.isLoading ? (
+          <Skeleton className="mt-2 h-8 w-32" />
+        ) : quiet ? (
+          <p className="mt-2 text-sm text-muted-foreground">{t('budget.overview.capitalIncomeEmpty')}</p>
+        ) : (
+          <>
+            <p className="mt-2 text-2xl font-bold">
+              <CurrencyDisplay value={budgetTotal} showSign />
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{t('budget.overview.capitalIncomeGross')}</p>
+            {lockedTotal > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                <CurrencyDisplay value={lockedTotal} showSign />
+                {' '}
+                {t('budget.overview.capitalizedOutside')}
+              </p>
+            )}
+            <ul className="mt-3 space-y-2">
+              {rows.slice(0, 3).map((row) => (
+                <li key={row.id} className="flex items-center gap-2 text-sm">
+                  <span className="shrink-0 tabular-nums text-muted-foreground">{formatDate(row.expectedDate)}</span>
+                  <span className="truncate">{row.name}</span>
+                  {row.reinvested && (
+                    <Badge variant="secondary">{t('budget.overview.reinvested')}</Badge>
+                  )}
+                  {!row.reinvested && !row.countsInBudget && (
+                    <Badge variant="outline">{t('budget.overview.staysInEnvelope')}</Badge>
+                  )}
+                  <span className="ml-auto shrink-0 tabular-nums">
+                    <CurrencyDisplay value={row.amountEur} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -166,6 +236,9 @@ export function OverviewTab() {
           </p>
         </RecapCard>
       </div>
+
+      {/* Capital-income forecast — current window only, and never part of the core gate. */}
+      {!viewingPast && <CapitalIncomeAhead />}
 
       {/* To-categorize nudge */}
       {(uncategorized?.length ?? 0) > 0 && (

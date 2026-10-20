@@ -26,6 +26,7 @@ const account: Account = {
     isin: 'FR0012345678', managementCompany: 'Example', shareCount: 10,
     subscriptionPriceEur: 1000, withdrawalPriceEur: 880, withdrawalValueEur: 8800,
     dividendPolicy: 'REINVEST', jouissanceDate: '2026-02-01', valuationStatus: 'OK',
+    annualDistributionPerShareEur: 12, distributionFrequency: 'QUARTERLY',
     corumFundCode: 'FUND-42', sofidyFundCode: 'DY',
   },
 }
@@ -50,6 +51,7 @@ describe('ScpiDetailSection fund links', () => {
         isin: 'FR0012345678', managementCompany: 'Example', shareCount: 12,
         subscriptionPriceEur: 1000, withdrawalPriceEur: 880,
         dividendPolicy: 'REINVEST', jouissanceDate: '2026-02-01',
+        annualDistributionPerShareEur: 12, distributionFrequency: 'QUARTERLY',
         corumFundCode: 'FUND-42', sofidyFundCode: 'DY',
       },
     }))
@@ -68,6 +70,7 @@ describe('ScpiDetailSection fund links', () => {
         isin: 'FR0012345678', managementCompany: 'Example', shareCount: 10,
         subscriptionPriceEur: 1000, withdrawalPriceEur: 880,
         dividendPolicy: 'REINVEST', jouissanceDate: '2026-02-01',
+        annualDistributionPerShareEur: 12, distributionFrequency: 'QUARTERLY',
         corumFundCode: 'FUND-99', sofidyFundCode: 'DY',
       },
     }))
@@ -126,5 +129,21 @@ describe('ScpiDetailSection fund links', () => {
     rerender(<ScpiDetailSection account={{ ...account, isOwner: false }} />)
     expect(screen.queryByRole('button', { name: 'scpi.save' })).not.toBeInTheDocument()
     expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
+  it('sends a cleared distribution as null and the chosen frequency', async () => {
+    render(<ScpiDetailSection account={account} />)
+    fireEvent.click(screen.getByRole('button', { name: 'scpi.edit' }))
+    fireEvent.change(screen.getByLabelText('scpi.annualDistribution'), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText('scpi.distributionFrequency'), { target: { value: 'MONTHLY' } })
+    fireEvent.click(screen.getByRole('button', { name: 'scpi.save' }))
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({
+      id: 42,
+      data: expect.objectContaining({
+        annualDistributionPerShareEur: null,
+        distributionFrequency: 'MONTHLY',
+        dividendPolicy: 'REINVEST',
+      }),
+    }))
   })
 })

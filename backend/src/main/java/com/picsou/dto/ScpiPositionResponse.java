@@ -1,5 +1,6 @@
 package com.picsou.dto;
 
+import com.picsou.model.DistributionFrequency;
 import com.picsou.model.DividendPolicy;
 import com.picsou.model.ScpiPosition;
 import com.picsou.model.ScpiValuationStatus;
@@ -19,6 +20,8 @@ public record ScpiPositionResponse(
     BigDecimal withdrawalValueEur,
     DividendPolicy dividendPolicy,
     LocalDate jouissanceDate,
+    BigDecimal annualDistributionPerShareEur,
+    DistributionFrequency distributionFrequency,
     ScpiValuationStatus valuationStatus
 ) {
     public static ScpiPositionResponse from(ScpiPosition position, BigDecimal withdrawalValueEur) {
@@ -33,6 +36,8 @@ public record ScpiPositionResponse(
             withdrawalValueEur,
             position.getDividendPolicy(),
             position.getJouissanceDate(),
+            position.getAnnualDistributionPerShareEur(),
+            position.getDistributionFrequency(),
             position.getValuationStatus()
         );
     }

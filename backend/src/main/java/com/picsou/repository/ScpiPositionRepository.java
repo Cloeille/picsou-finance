@@ -3,6 +3,10 @@ package com.picsou.repository;
 import com.picsou.model.ScpiPosition;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -38,4 +42,17 @@ public interface ScpiPositionRepository extends JpaRepository<ScpiPosition, Long
 
     /** Every position this member linked to a CORUM fund. */
     List<ScpiPosition> findByAccountMemberIdAndCorumFundCodeIsNotNull(Long memberId);
+
+    /**
+     * Positions of accounts the caller has already decided are readable, account fetched.
+     *
+     * <p>Not filtered by the viewer's member id: a co-owner reads the owner's row, and
+     * filtering by the viewer would hide a share they are allowed to see.
+     */
+    @Query("""
+        SELECT p FROM ScpiPosition p
+        JOIN FETCH p.account a
+        WHERE a.id IN :accountIds AND a.deletedAt IS NULL
+        """)
+    List<ScpiPosition> findWithAccountByAccountIdIn(@Param("accountIds") Collection<Long> accountIds);
 }

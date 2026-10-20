@@ -141,6 +141,60 @@ export interface LinkedLoan {
 export type DividendPolicy = 'CASH' | 'REINVEST'
 export type ScpiValuationStatus = 'OK' | 'PRICE_INCOMPLETE'
 
+/** How often a declared annual SCPI distribution is paid. Null means no forecast. */
+export type DistributionFrequency = 'MONTHLY' | 'QUARTERLY'
+
+export type DividendSource = 'HOLDING' | 'SCPI'
+export type DividendCadence = 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL'
+export type DividendBasis = 'HISTORY_CADENCE' | 'SCPI_DECLARED' | 'ANNOUNCED'
+
+/**
+ * One projected payment inside the requested horizon.
+ *
+ * `countsInBudget` is the backend's decision: locked wrappers (PEA, assurance vie, PER,
+ * employee savings) and reinvested SCPI stay listed but must not enter the budget total.
+ * The UI reads the flag; it does not re-derive it from `accountType` or `reinvested`.
+ */
+export interface UpcomingDividend {
+  /** Deterministic: SOURCE:accountId:ticker-or-isin-or-'-':expectedDate */
+  id: string
+  source: DividendSource
+  accountId: number
+  accountName: string
+  /** Null for an SCPI that has no ticker. */
+  ticker: string | null
+  /** Holding name, or the account name for an SCPI. */
+  name: string
+  /** HOLDING: projected ex-date. SCPI: projected payment date. */
+  expectedDate: string
+  /**
+   * HOLDING: the projected ex-date, equal to `expectedDate`.
+   * SCPI: null — a declared distribution has a payment date, not an ex-date.
+   */
+  exDate: string | null
+  /**
+   * HOLDING: ex-date plus a lag learned from the member's own DIVIDEND transactions,
+   * or null when nothing was learned. SCPI: the projected payment date (`expectedDate`).
+   * Never a made-up default lag.
+   */
+  paymentDate: string | null
+  /** True when the payment date was derived (learned lag or the SCPI declared rule). */
+  paymentDateEstimated: boolean
+  cadence: DividendCadence
+  basis: DividendBasis
+  quantity: number
+  amountPerShare: number
+  /** `amountPerShare` converted to euros. The row total stays `amountEur`. */
+  amountPerShareEur: number
+  currency: string
+  /** quantity * amountPerShare * fx * member ownership share, already in euros. */
+  amountEur: number
+  /** True only for an SCPI whose dividend policy is REINVEST. */
+  reinvested: boolean
+  accountType: AccountType
+  countsInBudget: boolean
+}
+
 export interface ScpiPosition {
   isin: string | null
   managementCompany: string | null
@@ -154,6 +208,9 @@ export interface ScpiPosition {
   dividendPolicy: DividendPolicy
   jouissanceDate: string | null
   valuationStatus: ScpiValuationStatus
+  /** Gross distribution per share, in euros. Null when the member has not declared one. */
+  annualDistributionPerShareEur: number | null
+  distributionFrequency: DistributionFrequency | null
 }
 
 /** What the latest CORUM or Sofidy sync did with one fund (GH issue #232). */
@@ -194,6 +251,9 @@ export interface ScpiPositionRequest {
   withdrawalPriceEur?: number | null
   dividendPolicy?: DividendPolicy
   jouissanceDate?: string | null
+  /** Omitted leaves the stored value; null clears it. Must be >= 0 when set. */
+  annualDistributionPerShareEur?: number | null
+  distributionFrequency?: DistributionFrequency | null
 }
 
 /** One SCPI vehicle in the property summary. Kept out of the open-data gross. */

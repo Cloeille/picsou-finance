@@ -4,6 +4,7 @@ import com.picsou.dto.ScpiPositionRequest;
 import com.picsou.dto.ScpiPositionResponse;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
+import com.picsou.model.DistributionFrequency;
 import com.picsou.model.DividendPolicy;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.ScpiPosition;
@@ -151,6 +152,35 @@ class ScpiPositionServiceTest {
         verify(scpiFundService).clearTombstone(1L, ScpiProvider.CORUM, "FUND-42");
     }
 
+    @Test
+    void save_persistsTheDeclaredDistribution_andClearsItWhenTheFormSendsNull() {
+        Account account = scpiAccount("0");
+        ScpiPosition existing = ScpiPosition.builder()
+            .account(account)
+            .shareCount(new BigDecimal("10"))
+            .annualDistributionPerShareEur(new BigDecimal("12.50"))
+            .distributionFrequency(DistributionFrequency.QUARTERLY)
+            .build();
+        when(accountRepository.findByIdAndMemberId(10L, 1L)).thenReturn(Optional.of(account));
+        when(positionRepository.findByAccountIdAndMemberId(10L, 1L)).thenReturn(Optional.of(existing));
+        when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.save(10L, 1L, new ScpiPositionRequest(
+            "FR0012345678", "CORUM", null, null,
+            new BigDecimal("10"), null, new BigDecimal("200"),
+            DividendPolicy.CASH, null,
+            new BigDecimal("8"), DistributionFrequency.MONTHLY));
+
+        assertThat(existing.getAnnualDistributionPerShareEur()).isEqualByComparingTo("8");
+        assertThat(existing.getDistributionFrequency()).isEqualTo(DistributionFrequency.MONTHLY);
+
+        service.save(10L, 1L, request("10", null, "200"));
+
+        assertThat(existing.getAnnualDistributionPerShareEur()).isNull();
+        assertThat(existing.getDistributionFrequency()).isNull();
+    }
+
     private static Account scpiAccount(String balance) {
         return Account.builder()
             .id(10L).name("CORUM Origin").type(AccountType.SCPI).currency("EUR")
@@ -174,6 +204,8 @@ class ScpiPositionServiceTest {
             subscription == null ? null : new BigDecimal(subscription),
             withdrawal == null ? null : new BigDecimal(withdrawal),
             DividendPolicy.REINVEST,
+            null,
+            null,
             null
         );
     }

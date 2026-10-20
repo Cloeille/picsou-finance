@@ -1,6 +1,8 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.picsou.port.DividendHistory;
+import com.picsou.port.DividendHistoryPort;
 import com.picsou.port.PriceProviderPort;
 import com.picsou.port.SymbolCatalogPort;
 import org.slf4j.Logger;
@@ -20,6 +22,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongFunction;
@@ -37,7 +40,7 @@ import java.util.stream.Collectors;
  * Note: This is an unofficial API. For production use consider Alpha Vantage or similar.
  */
 @Component
-public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatalogPort, EquityProfileProvider {
+public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatalogPort, EquityProfileProvider, DividendHistoryPort {
 
     private static final Logger log = LoggerFactory.getLogger(YahooFinancePriceProvider.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
@@ -55,6 +58,8 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
 
     /** Series (intraday/historical) carry hundreds of points, so they get a longer budget. */
     private static final Duration SERIES_TIMEOUT = Duration.ofSeconds(15);
+    /** Dividend events kept per ticker. Newest ex-dates only; the chart can return more. */
+    static final int MAX_DIVIDEND_EVENTS = 200;
     private static final Duration FX_CACHE_TTL = Duration.ofMinutes(15);
     /**
      * A failed FX lookup is remembered too, for a minute: without it, every holdings-less
@@ -200,6 +205,65 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
             return null;
         }
         return response.chart().result().get(0);
+    }
+
+    /**
+     * Dividends Yahoo has published over the last two years.
+     *
+     * <p>The chart's {@code events.dividends} map is keyed by an epoch that is <em>not</em> the
+     * ex-date; the value's {@code date} field is. An empty map is "this symbol pays nothing".
+     * A transport failure, including 429, throws — and a 429 arms {@link YahooCooldown} so the
+     * weekly pass stops rather than turning one refusal into forty.
+     */
+    @Override
+    public DividendHistory fetchDividendHistory(String ticker) {
+        try {
+            ChartResult result = fetchChart(
+                SERIES_TIMEOUT,
+                "/v8/finance/chart/{ticker}?range=2y&interval=1mo&events=div",
+                ticker
+            );
+            return toDividendHistory(result);
+        } catch (RuntimeException ex) {
+            WebClientResponseException limited = rateLimited(ex);
+            if (limited != null) {
+                cooldown.arm(limited.getHeaders());
+            }
+            throw ex;
+        }
+    }
+
+    private static DividendHistory toDividendHistory(ChartResult result) {
+        if (result == null) {
+            return new DividendHistory(null, List.of());
+        }
+        String currency = result.meta() == null ? null : result.meta().currency();
+        Map<String, DividendEvent> raw = result.events() == null || result.events().dividends() == null
+            ? Map.of()
+            : result.events().dividends();
+        List<DividendHistory.Point> points = new ArrayList<>();
+        for (DividendEvent event : raw.values()) {
+            if (event == null) {
+                continue;
+            }
+            // Yahoo's date is epoch seconds. UTC keeps the calendar day independent of the
+            // server zone: a container in Paris must not shift a midnight-UTC ex-date back a day.
+            LocalDate exDate = Instant.ofEpochSecond(event.date()).atZone(ZoneOffset.UTC).toLocalDate();
+            points.add(new DividendHistory.Point(exDate, BigDecimal.valueOf(event.amount())));
+        }
+        points.sort(java.util.Comparator.comparing(DividendHistory.Point::exDate));
+        if (points.size() > MAX_DIVIDEND_EVENTS) {
+            points = new ArrayList<>(points.subList(points.size() - MAX_DIVIDEND_EVENTS, points.size()));
+        }
+        return new DividendHistory(currency, points);
+    }
+
+    private static WebClientResponseException rateLimited(Throwable ex) {
+        Throwable unwrapped = reactor.core.Exceptions.unwrap(ex);
+        if (unwrapped instanceof WebClientResponseException http && http.getStatusCode().value() == 429) {
+            return http;
+        }
+        return null;
     }
 
     /**
@@ -460,7 +524,15 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     record Chart(List<ChartResult> result) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record ChartResult(Meta meta, List<Long> timestamp, Indicators indicators) {}
+    record ChartResult(Meta meta, List<Long> timestamp, Indicators indicators, Events events) {}
+
+    /** {@code events.dividends} on the chart payload. Absent when the caller did not ask for them. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Events(Map<String, DividendEvent> dividends) {}
+
+    /** One published dividend. {@code date} is the ex-date, epoch seconds — not the map key. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DividendEvent(double amount, long date) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Indicators(List<Quote> quote) {}

@@ -84,4 +84,17 @@ public interface AccountHoldingRepository extends JpaRepository<AccountHolding, 
         WHERE h.ticker IS NOT NULL AND a.deletedAt IS NULL AND a.type = :type
         """)
     Set<String> findDistinctTickersByAccountType(@Param("type") AccountType type);
+
+    /**
+     * Positive lines of the given accounts, account fetched, so a forecast can name the
+     * envelope without a second query. Callers pass ids they have already decided are readable.
+     */
+    @Query("""
+        SELECT h FROM AccountHolding h
+        JOIN FETCH h.account a
+        WHERE a.id IN :accountIds
+          AND a.deletedAt IS NULL
+          AND h.quantity > 0
+        """)
+    List<AccountHolding> findPositiveByAccountIdIn(@Param("accountIds") Collection<Long> accountIds);
 }

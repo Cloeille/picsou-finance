@@ -11,12 +11,18 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useIgnoreScpiFund, useUpdateScpiPosition } from '@/features/accounts/hooks'
 import { formatApiError } from '@/lib/errors'
 import { parseAmount } from '@/lib/utils'
-import type { Account, DividendPolicy, ScpiPositionRequest, ScpiProvider } from '@/types/api'
+import type { Account, DistributionFrequency, DividendPolicy, ScpiPositionRequest, ScpiProvider } from '@/types/api'
 
 const selectControlClassName =
   'flex h-10 w-full rounded-md border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]'
 
 const num = (v: string): number | undefined => (v.trim() === '' ? undefined : parseAmount(v))
+
+function distributionFrequencyKey(frequency: DistributionFrequency | null | undefined): string {
+  if (frequency === 'MONTHLY') return 'scpi.frequencyMonthly'
+  if (frequency === 'QUARTERLY') return 'scpi.frequencyQuarterly'
+  return 'scpi.frequencyNone'
+}
 
 /**
  * The share, the two prices, and nothing that belongs to a house.
@@ -34,6 +40,8 @@ export function ScpiDetailSection({ account }: { account: Account }) {
   const [subscriptionPrice, setSubscriptionPrice] = useState(position?.subscriptionPriceEur?.toString() ?? '')
   const [withdrawalPrice, setWithdrawalPrice] = useState(position?.withdrawalPriceEur?.toString() ?? '')
   const [dividendPolicy, setDividendPolicy] = useState<DividendPolicy>(position?.dividendPolicy ?? 'CASH')
+  const [annualDistribution, setAnnualDistribution] = useState(position?.annualDistributionPerShareEur?.toString() ?? '')
+  const [distributionFrequency, setDistributionFrequency] = useState<DistributionFrequency | ''>(position?.distributionFrequency ?? '')
   const [jouissanceDate, setJouissanceDate] = useState(position?.jouissanceDate ?? '')
   const [isin, setIsin] = useState(position?.isin ?? '')
   const [managementCompany, setManagementCompany] = useState(position?.managementCompany ?? '')
@@ -45,6 +53,8 @@ export function ScpiDetailSection({ account }: { account: Account }) {
     setSubscriptionPrice(position?.subscriptionPriceEur?.toString() ?? '')
     setWithdrawalPrice(position?.withdrawalPriceEur?.toString() ?? '')
     setDividendPolicy(position?.dividendPolicy ?? 'CASH')
+    setAnnualDistribution(position?.annualDistributionPerShareEur?.toString() ?? '')
+    setDistributionFrequency(position?.distributionFrequency ?? '')
     setJouissanceDate(position?.jouissanceDate ?? '')
     setIsin(position?.isin ?? '')
     setManagementCompany(position?.managementCompany ?? '')
@@ -54,7 +64,9 @@ export function ScpiDetailSection({ account }: { account: Account }) {
   }
 
   const shares = num(shareCount)
-  const canSave = shares != null && shares >= 0
+  const distribution = num(annualDistribution)
+  const distributionOk = distribution == null || distribution >= 0
+  const canSave = shares != null && shares >= 0 && distributionOk
 
   async function save() {
     if (!canEdit || !canSave || shares == null) return
@@ -68,6 +80,8 @@ export function ScpiDetailSection({ account }: { account: Account }) {
       withdrawalPriceEur: num(withdrawalPrice) ?? null,
       dividendPolicy,
       jouissanceDate: jouissanceDate || null,
+      annualDistributionPerShareEur: distribution != null && distribution >= 0 ? distribution : null,
+      distributionFrequency: distributionFrequency || null,
     }
     await updatePosition.mutateAsync({ id: account.id, data })
     setEditing(false)
@@ -122,6 +136,18 @@ export function ScpiDetailSection({ account }: { account: Account }) {
             <div>
               <dt className="text-muted-foreground">{t('scpi.dividendPolicy')}</dt>
               <dd>{t(position.dividendPolicy === 'REINVEST' ? 'scpi.reinvest' : 'scpi.cash')}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('scpi.annualDistribution')}</dt>
+              <dd>
+                {position.annualDistributionPerShareEur != null
+                  ? <CurrencyDisplay value={position.annualDistributionPerShareEur} />
+                  : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('scpi.distributionFrequency')}</dt>
+              <dd>{t(distributionFrequencyKey(position.distributionFrequency))}</dd>
             </div>
             {position.jouissanceDate && (
               <div>
@@ -213,6 +239,30 @@ export function ScpiDetailSection({ account }: { account: Account }) {
                 <DateInput id="scpi-edit-jouissance" value={jouissanceDate} onChange={setJouissanceDate} />
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="scpi-edit-annual-distribution">{t('scpi.annualDistribution')}</Label>
+                <NumericInput
+                  id="scpi-edit-annual-distribution"
+                  value={annualDistribution}
+                  onChange={(e) => setAnnualDistribution(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="scpi-edit-distribution-frequency">{t('scpi.distributionFrequency')}</Label>
+                <select
+                  id="scpi-edit-distribution-frequency"
+                  className={selectControlClassName}
+                  value={distributionFrequency}
+                  onChange={(e) => setDistributionFrequency(e.target.value as DistributionFrequency | '')}
+                >
+                  <option value="">{t('scpi.frequencyNone')}</option>
+                  <option value="MONTHLY">{t('scpi.frequencyMonthly')}</option>
+                  <option value="QUARTERLY">{t('scpi.frequencyQuarterly')}</option>
+                </select>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">{t('scpi.annualDistributionHint')}</p>
             {updatePosition.error && (
               <p className="text-sm text-destructive">{formatApiError(updatePosition.error, t, 'common.error')}</p>
             )}

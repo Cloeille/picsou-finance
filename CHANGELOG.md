@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
+  the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
+  and SCPI distributions, from the annual distribution per share and the frequency you enter
+  on the SCPI position. Amounts are gross estimates, weighted by your ownership share; a
+  dividend paid inside a PEA, an assurance vie, a PER or an employee savings plan, or a
+  reinvested SCPI distribution, is listed but left out of the total, since it stays in the
+  envelope. Dividend histories are refreshed once a week
+  from Yahoo Finance, completed by Nasdaq for Nasdaq-listed stocks (real payment dates and dividends
+  already declared), and never while prices are rate-limited, so opening Budget sends no
+  request. A new default income category, *Revenus du capital*, is added for every member.
+  The page of a compte-titres or a PEA lists its dividends for the next 12 months, with the
+  ex-date and the payment date of each; the payment date is learned from your past dividend
+  transactions on that line and shown as unknown when there are none.
+  `GET /api/dividends/upcoming` exposes the forecast. See
+  [ADR](docs/decisions/2026-10-20-dividend-forecast-weekly-yahoo-history.md) and
+  [feature note](docs/features/dividend-forecast.md) (#244).
 - **SimpleFIN bank sync.** A member can paste a one-time setup token from SimpleFIN
   Bridge. Picsou claims it, stores the access URL encrypted, and imports account
   balances and posted transactions alongside Enable Banking, by hand, from Sync All

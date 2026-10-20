@@ -18,9 +18,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 @Service
 public class SchedulerService {
@@ -41,10 +44,14 @@ public class SchedulerService {
      */
     private static final int SECURITY_PROFILE_BATCH = 40;
 
+    /** Same cap as the profile pass: one chart call per ticker, and Yahoo answers bursts with 429s. */
+    private static final int DIVIDEND_HISTORY_BATCH = 40;
+
     private final PriceService priceService;
     private final SecurityProfileService securityProfileService;
     private final PropertyValuationService propertyValuationService;
     private final InstrumentLogoService instrumentLogoService;
+    private final DividendHistoryService dividendHistoryService;
 
     public SchedulerService(
         AccountRepository accountRepository,
@@ -56,7 +63,8 @@ public class SchedulerService {
         PriceService priceService,
         SecurityProfileService securityProfileService,
         PropertyValuationService propertyValuationService,
-        InstrumentLogoService instrumentLogoService) {
+        InstrumentLogoService instrumentLogoService,
+        DividendHistoryService dividendHistoryService) {
         this.accountRepository = accountRepository;
         this.holdingRepository = holdingRepository;
         this.snapshotRepository = snapshotRepository;
@@ -67,6 +75,7 @@ public class SchedulerService {
         this.securityProfileService = securityProfileService;
         this.propertyValuationService = propertyValuationService;
         this.instrumentLogoService = instrumentLogoService;
+        this.dividendHistoryService = dividendHistoryService;
     }
 
     /**
@@ -266,6 +275,43 @@ public class SchedulerService {
             log.info("Security profiles: refreshed {} of {} known tickers", refreshed, tickers.size());
         } catch (Exception ex) {
             log.error("Security profile refresh failed -- skipping this cycle", ex);
+        }
+    }
+
+    /**
+     * Every Sunday at 04:15, after the security-profile pass: keep dividend history warm so the
+     * forecast never calls Yahoo while a page is rendering.
+     *
+     * <p>Crypto is excluded. A coin has no ex-date, and sending its ticker to Yahoo is how a
+     * symbol collision (SUI, ATOM) comes back as a listed company's dividend. The batch is
+     * capped for the same reason as {@link #refreshSecurityProfiles}: one bad burst of chart
+     * calls is how a free tier starts answering 429.
+     */
+    @Scheduled(cron = "0 15 4 * * SUN")
+    public void refreshDividendHistory() {
+        Set<String> held = holdingRepository.findDistinctTickers();
+        if (held.isEmpty()) {
+            return;
+        }
+        Set<String> crypto = holdingRepository.findDistinctTickersByAccountType(AccountType.CRYPTO).stream()
+            .filter(Objects::nonNull)
+            .map(t -> t.toUpperCase(Locale.ROOT))
+            .collect(Collectors.toSet());
+        Set<String> tickers = new TreeSet<>();
+        for (String ticker : held) {
+            if (ticker != null && !crypto.contains(ticker.toUpperCase(Locale.ROOT))) {
+                tickers.add(ticker);
+            }
+        }
+        if (tickers.isEmpty()) {
+            return;
+        }
+
+        try {
+            int refreshed = dividendHistoryService.refreshStale(tickers, DIVIDEND_HISTORY_BATCH);
+            log.info("Dividend history: refreshed {} of {} known tickers", refreshed, tickers.size());
+        } catch (Exception ex) {
+            log.error("Dividend history refresh failed -- skipping this cycle", ex);
         }
     }
 }

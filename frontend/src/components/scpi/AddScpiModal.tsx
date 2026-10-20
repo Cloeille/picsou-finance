@@ -12,7 +12,7 @@ import { DateInput } from '@/components/shared/DateInput'
 import { useCreateAccount, useScpiFunds, useUpdateScpiPosition } from '@/features/accounts/hooks'
 import { formatApiError } from '@/lib/errors'
 import { parseAmount } from '@/lib/utils'
-import type { DividendPolicy, ScpiPositionRequest } from '@/types/api'
+import type { DistributionFrequency, DividendPolicy, ScpiPositionRequest } from '@/types/api'
 
 interface AddScpiModalProps {
   open: boolean
@@ -47,6 +47,8 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
   const [subscriptionPrice, setSubscriptionPrice] = useState('')
   const [withdrawalPrice, setWithdrawalPrice] = useState('')
   const [dividendPolicy, setDividendPolicy] = useState<DividendPolicy>('CASH')
+  const [annualDistribution, setAnnualDistribution] = useState('')
+  const [distributionFrequency, setDistributionFrequency] = useState<DistributionFrequency | ''>('')
   const [jouissanceDate, setJouissanceDate] = useState('')
   const [isin, setIsin] = useState('')
   const [corumFundCode, setCorumFundCode] = useState('')
@@ -54,7 +56,9 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
   const [createdAccountId, setCreatedAccountId] = useState<number | null>(null)
 
   const shares = num(shareCount)
-  const canSubmit = name.trim() !== '' && shares != null && shares >= 0
+  const distribution = num(annualDistribution)
+  const distributionOk = distribution == null || distribution >= 0
+  const canSubmit = name.trim() !== '' && shares != null && shares >= 0 && distributionOk
   const pending = createAccount.isPending || updatePosition.isPending
   const error = createAccount.error ?? updatePosition.error
 
@@ -65,6 +69,8 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
     setSubscriptionPrice('')
     setWithdrawalPrice('')
     setDividendPolicy('CASH')
+    setAnnualDistribution('')
+    setDistributionFrequency('')
     setJouissanceDate('')
     setIsin('')
     setCorumFundCode('')
@@ -112,6 +118,8 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
       withdrawalPriceEur: num(withdrawalPrice) ?? null,
       dividendPolicy,
       jouissanceDate: jouissanceDate || null,
+      annualDistributionPerShareEur: distribution != null && distribution >= 0 ? distribution : null,
+      distributionFrequency: distributionFrequency || null,
     }
     await updatePosition.mutateAsync({ id: accountId, data: position })
     close(false)
@@ -188,6 +196,30 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">{t('scpi.subscriptionHint')}</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="scpi-annual-distribution">{t('scpi.annualDistribution')}</Label>
+              <NumericInput
+                id="scpi-annual-distribution"
+                value={annualDistribution}
+                onChange={(e) => setAnnualDistribution(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="scpi-distribution-frequency">{t('scpi.distributionFrequency')}</Label>
+              <select
+                id="scpi-distribution-frequency"
+                className={selectControlClassName}
+                value={distributionFrequency}
+                onChange={(e) => setDistributionFrequency(e.target.value as DistributionFrequency | '')}
+              >
+                <option value="">{t('scpi.frequencyNone')}</option>
+                <option value="MONTHLY">{t('scpi.frequencyMonthly')}</option>
+                <option value="QUARTERLY">{t('scpi.frequencyQuarterly')}</option>
+              </select>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">{t('scpi.annualDistributionHint')}</p>
           <details className="space-y-4 rounded-md border p-3">
           <summary className="cursor-pointer text-sm text-muted-foreground">{t('scpi.advancedLinks')}</summary>
           <div className="space-y-2">

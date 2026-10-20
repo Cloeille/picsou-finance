@@ -1,5 +1,6 @@
 package com.picsou.dto;
 
+import com.picsou.model.DistributionFrequency;
 import com.picsou.model.DividendPolicy;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
@@ -26,5 +27,9 @@ public record ScpiPositionRequest(
     @DecimalMin("0") BigDecimal subscriptionPriceEur,
     @DecimalMin("0") BigDecimal withdrawalPriceEur,
     DividendPolicy dividendPolicy,
-    LocalDate jouissanceDate
+    LocalDate jouissanceDate,
+    /** Annual cash per share, in euros. Null or omitted clears a previously stored figure. */
+    @DecimalMin("0") BigDecimal annualDistributionPerShareEur,
+    /** Monthly, quarterly, or null when the member has not declared a cadence. */
+    DistributionFrequency distributionFrequency
 ) {}
