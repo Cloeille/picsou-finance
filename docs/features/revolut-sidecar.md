@@ -195,12 +195,15 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   with an **hCaptcha image challenge**: the page stays on `/signin` with the phone field, an
   `iframe[src*='hcaptcha.com']` is shown, and no push is ever sent. `_wait_for_login_screen` therefore
   also returns `"captcha"` when a *visible* hCaptcha frame is on the page (hidden hCaptcha frames
-  exist on pages with no challenge; the passcode and phone checks run first), which ends the wait at
-  once. The sidecar then answers a flat `403 HUMAN_VERIFICATION_REQUIRED`, and the progress phase stays
+  exist on pages with no challenge), which ends the wait at once. The passcode inputs are checked
+  first, then the captcha, then the phone input: a profile challenged last time can show the phone
+  field with the challenge on top, which must be reported as a captcha, not typed into. The sidecar then answers a flat `403 HUMAN_VERIFICATION_REQUIRED`, and the progress phase stays
   `LOGGING_IN`, never `AWAITING_APPROVAL`. Any other end state — no passcode screen after the phone
   step, no passcode input to type into (`_fill_passcode` returns `False`), or a Playwright timeout in a
-  login step such as the `Locator.click` that used to surface as a 500 — answers a flat
-  `424 UPSTREAM_FORMAT_CHANGED`. `424` because `502` is already the harvest's
+  login step (the `page.goto`, the screen waits, `Locator.click`; each used to surface as a 500) —
+  answers a flat `424 UPSTREAM_FORMAT_CHANGED`. The same code also covers a rejected phone number
+  (Revolut keeps `/signin` with an inline error) and a slow network, so the user-facing wording says
+  "the sign-in didn't go through, check your phone number" rather than blaming the page. `424` because `502` is already the harvest's
   `UPSTREAM_UNAVAILABLE`/`INVALID_DATA`, which the backend treats as a generic failure.
   Both fail before the 300 s approval loop, so there is no countdown to show.
   The challenge is **reported, not solved**: letting the member complete it (remote view of the sidecar
@@ -247,9 +250,11 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 ## Tests
 
 - `services/revolut-auth/tests/test_login_screen.py` — fake-page tests of `sync()`: known device /
-  phone screen nominal paths, `504 LOGIN_SCREEN_TIMEOUT`, captcha after the phone step and on the first
-  screen (`403`, approval loop never entered), unknown post-phone state / missing passcode input /
-  Playwright timeout (`424`).
+  phone screen nominal paths, passcode URL before its inputs render, `?redirect=…passcode` query
+  string, single-field passcode fallbacks, `504 LOGIN_SCREEN_TIMEOUT`, captcha after the phone step
+  and on the first screen (also over a visible phone field; `403`, approval loop never entered),
+  unknown post-phone state / missing passcode input / Playwright timeout in `goto` or a login step
+  (`424`). Needs `pytest` + `pytest-asyncio` (see the run command above).
 - `RevolutAdapterTest` (`403`/`424` mapping), `RevolutSyncServiceTest` (code + friendly message on
   `discover`/`sync`), `SyncProgressServiceTest` (`errorCode`), and `features/sync/revolut-phase.test.ts`
   plus `SyncAllModal.test.tsx` (translated captcha message, no countdown).
