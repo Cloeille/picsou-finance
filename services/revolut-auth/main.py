@@ -690,6 +690,8 @@ async def _logged_in(page) -> bool:
 
 
 _PHONE_INPUT = "input[name='phoneNumber'], input[inputmode='tel'], input[type='tel']"
+# Single-field fallbacks when the passcode is not rendered as 6 separate boxes.
+_PASSCODE_FIELD_INPUTS = ("input[type='password']", "input[inputmode='numeric']")
 
 
 async def _click_continue(page) -> None:
@@ -707,16 +709,27 @@ async def _click_continue(page) -> None:
     await page.keyboard.press("Enter")
 
 
+async def _passcode_inputs_present(page) -> bool:
+    if await page.get_by_role("textbox").count() >= 6:
+        return True
+    for sel in _PASSCODE_FIELD_INPUTS:
+        if await page.locator(sel).count():
+            return True
+    return False
+
+
 async def _wait_for_login_screen(page, *, phone: bool = True) -> Optional[str]:
     """Wait (bounded) for the first login screen Revolut's SSO renders: "passcode" or "phone".
 
     app.revolut.com redirects to sso.revolut.com/signin, and the SPA only then decides which
-    screen to show -- a known device lands on /passcode after a delay, so neither the URL nor
-    the inputs are reliable right after `goto`. Returns None if nothing appeared in time.
+    screen to show -- a known device lands on /passcode after a delay. A screen counts only once
+    its inputs are rendered: the SPA switches the route (`/passcode`) before the passcode boxes
+    exist, so the URL is never trusted and polling simply continues until the inputs show up.
+    Returns None if nothing appeared in time.
     `phone=False` waits for the passcode screen only (the step after submitting the phone).
     """
     for _ in range(LOGIN_SCREEN_WAIT_S * 1000 // LOGIN_SCREEN_POLL_MS):
-        if "passcode" in page.url or await page.get_by_role("textbox").count() >= 6:
+        if await _passcode_inputs_present(page):
             return "passcode"
         if phone and await page.locator(_PHONE_INPUT).count():
             return "phone"
@@ -736,7 +749,6 @@ async def _fill_phone(page, phone: str) -> None:
     await tel.fill("")
     await tel.type(num, delay=70)
     await _click_continue(page)
-    await page.wait_for_timeout(5000)
 
 
 async def _fill_passcode(page, passcode: str) -> None:
@@ -745,7 +757,7 @@ async def _fill_passcode(page, passcode: str) -> None:
         await boxes.first.click()
         await page.keyboard.type(passcode, delay=120)  # 6-digit passcode auto-submits; no click
         return
-    for sel in ("input[type='password']", "input[inputmode='numeric']"):
+    for sel in _PASSCODE_FIELD_INPUTS:
         loc = page.locator(sel)
         if await loc.count():
             await loc.first.fill(passcode)
@@ -874,7 +886,7 @@ async def sync(req: SyncRequest):
                 screen = await _wait_for_login_screen(page)
                 if screen is None:
                     log.warning("member %s: no login screen after %ss (url=%s)",
-                                req.memberId, LOGIN_SCREEN_WAIT_S, safe(page.url.split("?")[0]))
+                                safe(req.memberId), LOGIN_SCREEN_WAIT_S, safe(page.url.split("?")[0]))
                     return login_screen_timeout()
                 if screen == "phone":
                     await _fill_phone(page, req.phoneNumber)

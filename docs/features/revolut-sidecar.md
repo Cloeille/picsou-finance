@@ -183,7 +183,10 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   `sso.revolut.com/signin`, and a known device (persistent profile) only lands on `/passcode` after a
   delay, while a fresh one renders the phone input. `_wait_for_login_screen` polls (bounded by
   `LOGIN_SCREEN_WAIT_S`, 30 s) for whichever appears first, and after the phone step waits again for
-  the passcode screen. Deciding after a fixed sleep used to pick the phone branch on a stale `/signin`
+  the passcode screen (no fixed sleep after the phone step: the poll is the wait). A screen counts only
+  once its **inputs** exist (6 textboxes, or `input[type=password]` / `input[inputmode=numeric]` for the
+  passcode); the URL is ignored because the SPA switches to `/passcode` before the boxes render, and
+  typing then hits nothing. Deciding after a fixed sleep used to pick the phone branch on a stale `/signin`
   URL and time out on a phone input that never came (HTTP 500). If neither screen appears the sidecar
   returns `504 LOGIN_SCREEN_TIMEOUT`; Java has no dedicated mapping, so it logs the body and shows the
   generic "Failed to sync Revolut accounts" message.

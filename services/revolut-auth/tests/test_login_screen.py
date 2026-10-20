@@ -9,6 +9,8 @@ import json
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import main  # noqa: E402
@@ -25,9 +27,9 @@ class FakeLocator:
 class FakePage:
     """`script` maps a wait_for_timeout call number to a state update."""
 
-    def __init__(self, script):
-        self.url = "https://sso.revolut.com/signin?x=1"
-        self.counts = {"phone": 0, "textbox": 0}
+    def __init__(self, script, url="https://sso.revolut.com/signin?x=1"):
+        self.url = url
+        self.counts = {"phone": 0, "textbox": 0, **{sel: 0 for sel in main._PASSCODE_FIELD_INPUTS}}
         self.script = script
         self.waits = 0
 
@@ -41,17 +43,23 @@ class FakePage:
             update(self)
 
     def locator(self, selector):
-        assert selector == main._PHONE_INPUT
-        return FakeLocator(self, "phone")
+        if selector == main._PHONE_INPUT:
+            return FakeLocator(self, "phone")
+        assert selector in main._PASSCODE_FIELD_INPUTS
+        return FakeLocator(self, selector)
 
     def get_by_role(self, role):
         assert role == "textbox"
         return FakeLocator(self, "textbox")
 
 
+def _show_passcode_boxes(page):
+    page.counts["textbox"] = 6
+
+
 def _show_passcode(page):
     page.url = "https://sso.revolut.com/passcode?x=1"
-    page.counts["textbox"] = 6
+    _show_passcode_boxes(page)
 
 
 def _show_phone(page):
@@ -67,7 +75,9 @@ async def _fake_camoufox(page):
     yield Ctx()
 
 
-async def _run_sync(monkeypatch, page, calls):
+async def _run_sync(monkeypatch, page, calls, typed_with_inputs=None):
+    typed_with_inputs = [] if typed_with_inputs is None else typed_with_inputs
+
     async def no_reuse(_member_id):
         return None
 
@@ -75,8 +85,9 @@ async def _run_sync(monkeypatch, page, calls):
         calls.append("phone")
         _show_passcode(p)  # submitting the phone leads to the passcode screen
 
-    async def fill_passcode(_p, _passcode):
+    async def fill_passcode(p, _passcode):
         calls.append("passcode")
+        typed_with_inputs.append(p.counts["textbox"] >= 6)
 
     async def logged_in(_p):
         return True
@@ -133,3 +144,38 @@ async def test_no_login_screen_returns_structured_error(monkeypatch):
     assert json.loads(result.body) == {"error": "LOGIN_SCREEN_TIMEOUT"}
     assert calls == []
     assert page.waits == main.LOGIN_SCREEN_WAIT_S * 1000 // main.LOGIN_SCREEN_POLL_MS
+
+
+async def test_passcode_url_waits_for_the_inputs_before_typing(monkeypatch):
+    # The SPA switches to /passcode before the 6 boxes render: typing then would hit nothing.
+    page = FakePage({3: _show_passcode_boxes}, url="https://sso.revolut.com/passcode")
+    calls, typed_with_inputs = [], []
+
+    result = await _run_sync(monkeypatch, page, calls, typed_with_inputs)
+
+    assert result == {"accounts": []}
+    assert calls == ["passcode"]
+    assert typed_with_inputs == [True]
+    assert page.waits >= 3
+
+
+async def test_passcode_in_query_string_is_not_the_passcode_screen(monkeypatch):
+    page = FakePage({2: _show_phone}, url="https://sso.revolut.com/signin?redirect=/passcode")
+    calls = []
+
+    result = await _run_sync(monkeypatch, page, calls)
+
+    assert result == {"accounts": []}
+    assert calls == ["phone", "passcode"]
+
+
+@pytest.mark.parametrize("selector", main._PASSCODE_FIELD_INPUTS)
+async def test_single_passcode_field_counts_as_the_passcode_screen(monkeypatch, selector):
+    page = FakePage({2: lambda p: p.counts.update({selector: 1})})
+    calls = []
+
+    result = await _run_sync(monkeypatch, page, calls)
+
+    assert result == {"accounts": []}
+    assert calls == ["passcode"]
+
