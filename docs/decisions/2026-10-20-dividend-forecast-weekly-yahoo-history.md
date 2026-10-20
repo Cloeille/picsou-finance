@@ -30,8 +30,9 @@ declares. Never call a provider on the read path.**
 - `SchedulerService.refreshDividendHistory` runs on Sunday at 04:15, one
   `/v8/finance/chart/{ticker}?range=2y&interval=1mo&events=div` call per distinct ticker,
   capped at 40 per pass and paced. It **reads** `YahooCooldown`: while prices are rate-limited, the
-  pass is skipped. A success is refreshed after 7 days, a failure retried after 3. A failed fetch
-  keeps the previous events.
+  pass is skipped. A success is refreshed after 6 days (under the weekly cron period, since
+  `refreshedAt` is stamped after the fetch), a failure retried after 3. A failed fetch keeps the
+  previous events, and the forecast keeps using them.
 - US listings (tickers without an exchange suffix) are completed in the same pass by Nasdaq's
   `api/quote/{symbol}/dividends` (no key, unofficial): payment date, record date and the
   already-declared next dividend, stored as an announced event. A Nasdaq failure never discards

@@ -1,6 +1,6 @@
 # Feature: Dividend forecast
 
-> Last updated: 2026-10-20
+> Last updated: 2026-10-21
 
 ## Context
 
@@ -14,21 +14,28 @@ Past dividends are not forecast: they are classified from the real payment on th
 ### Sources (weekly, never on the read path)
 
 - **Yahoo Finance** chart endpoint, `range=2y&interval=1mo&events=div`: ex-date and amount per
-  share for every ticker. No payment date.
+  share for every ticker. No payment date. An event with a missing or zero amount or date is
+  skipped, never stored as a 1970 dividend.
 - **Nasdaq** `api/quote/{symbol}/dividends` (no key, unofficial), only for tickers without an
   exchange suffix: payment date and already-declared dividends. In practice it fills
   Nasdaq-listed stocks only; NYSE listings, ETFs and European tickers come back empty, which is
   the normal case and not an error.
 - **SCPI**: the member declares an annual distribution per share and a frequency (monthly or
-  quarterly) on the position.
+  quarterly) on the position. The amount is bounded to its column, `NUMERIC(20, 8)`: a larger
+  value is rejected with a 400.
 
 `SchedulerService.refreshDividendHistory` runs on Sunday at 04:15 over the distinct held tickers
 (crypto excluded), capped at 40 per pass and paced. It is skipped while `YahooCooldown` is
-active. A success is refreshed after 7 days, a failure retried after 3 days. A failed fetch keeps
-the stored events, and a Nasdaq failure never discards the Yahoo history.
+active. A success is refreshed after 6 days, a failure retried after 3 days. The threshold sits
+under the weekly cron period on purpose: `refreshedAt` is stamped after the fetch, so a 7-day
+threshold would skip every source on the next Sunday and refresh it only every other week. A
+failed fetch keeps the stored events, and a Nasdaq failure never discards the Yahoo history.
 
 ### Forecast (on the fly, read-only)
 
+- **Source status**: the forecast reads every source that has stored events, whatever its status.
+  A `FAILED` refresh keeps the last good events, so one 429 or FX miss does not blank the
+  forecast; a source with no stored event yields no line.
 - **Cadence**: inferred from the ex-dates of the last 24 months only when every gap falls in one
   band (monthly, quarterly, semi-annual, annual). The last amount is carried forward. Irregular
   or lapsed payers get no forecast.
