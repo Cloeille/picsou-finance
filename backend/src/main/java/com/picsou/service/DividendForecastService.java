@@ -47,6 +47,8 @@ public class DividendForecastService {
     private static final int MONEY_SCALE = 8;
     /** A cash credit more than this many days after the ex-date is a different payment. */
     private static final int PAYMENT_LAG_WINDOW_DAYS = 60;
+    /** Cash dates older than this are not a lag the next payment will repeat. */
+    static final int CASH_LAG_LOOKBACK_MONTHS = 24;
 
     private static final Comparator<UpcomingDividendResponse> BY_DATE_THEN_NAME =
         Comparator.comparing(UpcomingDividendResponse::expectedDate)
@@ -147,7 +149,7 @@ public class DividendForecastService {
             // with no events yields no dates and no line.
             .collect(Collectors.toMap(s -> s.getTicker().toUpperCase(Locale.ROOT), s -> s, (a, b) -> a));
 
-        List<DividendCashDate> cashDates = dividendCashDates(lagAccounts);
+        List<DividendCashDate> cashDates = dividendCashDates(lagAccounts, today);
         List<UpcomingDividendResponse> lines = new ArrayList<>();
         for (AccountHolding holding : held) {
             DividendSource source = byTicker.get(holding.getTicker().toUpperCase(Locale.ROOT));
@@ -159,7 +161,6 @@ public class DividendForecastService {
                 continue;
             }
             List<LocalDate> dates = datesInWindow(source.getEvents(), today);
-            List<DividendEvent> announced = announcedInHorizon(source.getEvents(), today, end);
             DividendCadence cadence = cadenceOf(dates);
             boolean canProject = cadence != null && !dates.isEmpty()
                 && !isStale(dates.get(dates.size() - 1), cadence, today);
@@ -167,7 +168,8 @@ public class DividendForecastService {
             if (last == null || last.getAmount() == null || last.getAmountEur() == null) {
                 canProject = false;
             }
-            if (!canProject && announced.isEmpty()) {
+            List<DividendEvent> payable = payableInHorizon(source.getEvents(), today, end);
+            if (!canProject && payable.isEmpty()) {
                 continue;
             }
             BigDecimal share = shares.get(account.getId());
@@ -175,12 +177,14 @@ public class DividendForecastService {
                 ? holding.getTicker() : holding.getName();
             Integer lag = paymentLagDays(account.getId(), holding.getTicker(), source.getEvents(), cashDates);
             String currency = source.getCurrency() == null ? "EUR" : source.getCurrency();
-            for (DividendEvent declared : announced) {
-                if (declared.getAmount() == null || declared.getAmountEur() == null) {
+            for (DividendEvent declared : payable) {
+                if (declared.getAmount() == null || declared.getAmountEur() == null
+                    || declared.getAmountEur().signum() < 0) {
                     continue;
                 }
                 // ANNOUNCED uses the source payment date. When that date is null, the learned
-                // lag fills it and the line is marked estimated. No lag means null, never a default.
+                // lag fills the displayed date and the line is marked estimated. The window
+                // itself does not invent a lag: a null payment date is decided on the ex-date.
                 LocalDate paymentDate = declared.getPaymentDate();
                 boolean paymentDateEstimated = false;
                 if (paymentDate == null && lag != null) {
@@ -213,16 +217,25 @@ public class DividendForecastService {
             if (!canProject) {
                 continue;
             }
+            if (last.getAmountEur().signum() < 0) {
+                continue;
+            }
             BigDecimal amountEur = AccountAccessResolver.weigh(
                 holding.getQuantity().multiply(last.getAmountEur()), share);
             LocalDate lastDate = dates.get(dates.size() - 1);
-            List<LocalDate> announcedDates = announced.stream().map(DividendEvent::getExDate).toList();
+            // Every future announced ex-date, including one just past the horizon. Clipping
+            // first would let a cadence guess inside the window survive that announcement.
+            List<LocalDate> announcedDates = futureAnnouncedExDates(source.getEvents(), today);
             for (int k = 1; k <= 24; k++) {
                 LocalDate projected = lastDate.plusMonths((long) cadence.months() * k);
-                if (projected.isAfter(end)) {
+                if (projected.isAfter(end) && (lag == null || projected.plusDays(lag).isAfter(end))) {
                     break;
                 }
                 if (projected.isBefore(today) || nearAnnounced(projected, announcedDates)) {
+                    continue;
+                }
+                LocalDate paymentDate = lag == null ? null : projected.plusDays(lag);
+                if (!inHorizon(projected, paymentDate, today, end)) {
                     continue;
                 }
                 lines.add(new UpcomingDividendResponse(
@@ -396,8 +409,12 @@ public class DividendForecastService {
     /** A declared ex-date replaces the cadence guess for that period, inclusive of 20 days. */
     private static final int ANNOUNCED_REPLACES_WITHIN_DAYS = 20;
 
-    /** A declared ex-date, or any ex-date still after today, inside the horizon. */
-    private static List<DividendEvent> announcedInHorizon(
+    /**
+     * A declared ex-date, or any ex-date still after today, inside the horizon.
+     * The horizon is the known payment date when one is stored, otherwise the ex-date.
+     * A lag is never invented here: a null payment date keeps the ex-date rule.
+     */
+    private static List<DividendEvent> payableInHorizon(
         Collection<DividendEvent> events, LocalDate today, LocalDate end
     ) {
         if (events == null || events.isEmpty()) {
@@ -405,8 +422,30 @@ public class DividendForecastService {
         }
         return events.stream()
             .filter(event -> event.getExDate() != null)
-            .filter(event -> event.isDeclared() || event.getExDate().isAfter(today))
-            .filter(event -> !event.getExDate().isBefore(today) && !event.getExDate().isAfter(end))
+            .filter(event -> event.isDeclared() || event.getExDate().isAfter(today)
+                || event.getPaymentDate() != null)
+            .filter(event -> inHorizon(event.getExDate(), event.getPaymentDate(), today, end))
+            .toList();
+    }
+
+    /**
+     * Known payment date in {@code [today, end]}, inclusive. When the payment date is null,
+     * the ex-date decides. Never invents a lag.
+     */
+    static boolean inHorizon(LocalDate exDate, LocalDate paymentDate, LocalDate today, LocalDate end) {
+        LocalDate decisive = paymentDate != null ? paymentDate : exDate;
+        return decisive != null && !decisive.isBefore(today) && !decisive.isAfter(end);
+    }
+
+    /** Every announced ex-date still ahead, including one past the forecast horizon. */
+    private static List<LocalDate> futureAnnouncedExDates(Collection<DividendEvent> events, LocalDate today) {
+        if (events == null || events.isEmpty()) {
+            return List.of();
+        }
+        return events.stream()
+            .filter(event -> event.getExDate() != null && event.isDeclared() && !event.getExDate().isBefore(today))
+            .map(DividendEvent::getExDate)
+            .distinct()
             .toList();
     }
 
@@ -420,7 +459,7 @@ public class DividendForecastService {
     }
 
     static boolean countsInBudget(AccountType type, boolean reinvested) {
-        return !reinvested && (type == null || !type.isLockedWrapper());
+        return type != null && !reinvested && !type.isLockedWrapper();
     }
 
     static String id(DividendOrigin origin, Long accountId, String tickerOrIsin, LocalDate date) {
@@ -447,16 +486,18 @@ public class DividendForecastService {
      * One lookup for the whole forecast, covering every readable account so a line can fall
      * back to another account of the same ticker. Not one query per line.
      */
-    private List<DividendCashDate> dividendCashDates(List<Account> lagAccounts) {
+    private List<DividendCashDate> dividendCashDates(List<Account> lagAccounts, LocalDate today) {
         List<Long> ids = lagAccounts.stream().map(Account::getId).filter(Objects::nonNull).toList();
-        List<DividendCashDate> cashDates = transactions.findDividendCashDates(ids);
+        LocalDate since = today.minusMonths(CASH_LAG_LOOKBACK_MONTHS);
+        List<DividendCashDate> cashDates = transactions.findDividendCashDates(ids, since);
         return cashDates == null ? List.of() : cashDates;
     }
 
     /**
      * Days from ex-date to cash credit. Stored {@code payment_date} values for the ticker
-     * come first (median of payment date minus ex-date, no 60-day window: those dates were
-     * published). Otherwise the same account and ticker, then the same ticker on any account
+     * come first. A negative lag or one longer than {@value #PAYMENT_LAG_WINDOW_DAYS} is
+     * ignored: a payment before the ex-date, or months later, is not this dividend.
+     * Otherwise the same account and ticker, then the same ticker on any account
      * already loaded. Each transaction pairs with the latest stored ex-date on or before its
      * date and at most {@value #PAYMENT_LAG_WINDOW_DAYS} days earlier. The lag is the median
      * of those day counts. An even count uses the lower of the two central values
@@ -495,7 +536,11 @@ public class DividendForecastService {
             if (event.getExDate() == null || event.getPaymentDate() == null) {
                 continue;
             }
-            lags.add(ChronoUnit.DAYS.between(event.getExDate(), event.getPaymentDate()));
+            long days = ChronoUnit.DAYS.between(event.getExDate(), event.getPaymentDate());
+            if (days < 0 || days > PAYMENT_LAG_WINDOW_DAYS) {
+                continue;
+            }
+            lags.add(days);
         }
         return lags;
     }

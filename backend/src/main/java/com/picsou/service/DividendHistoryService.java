@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -125,8 +126,13 @@ public class DividendHistoryService {
         Instant successCutoff = now.minus(REFRESH_AFTER);
         Instant failureCutoff = now.minus(RETRY_AFTER_FAILURE);
 
+        // Null refreshedAt first (never fetched), then the oldest stamp, then the cap.
+        // Alphabetical order plus a cap of 40 leaves the tail unfetched forever.
         List<String> due = wanted.stream()
             .filter(t -> isDue(known.get(t), successCutoff, failureCutoff))
+            .sorted(Comparator
+                .comparing((String t) -> refreshedAt(known.get(t)), Comparator.nullsFirst(Comparator.naturalOrder()))
+                .thenComparing(Comparator.naturalOrder()))
             .limit(limit)
             .toList();
 
@@ -143,7 +149,10 @@ public class DividendHistoryService {
                 pause();
             }
             try {
-                DividendSource result = txTemplate.execute(status -> refresh(ticker));
+                // HTTP first, then a short transaction for the write. The scheduler thread must
+                // not hold a connection across Yahoo and Nasdaq.
+                Fetched fetched = fetch(ticker);
+                DividendSource result = txTemplate.execute(status -> persist(ticker, fetched));
                 if (result != null && result.getStatus() != DividendSourceStatus.FAILED) {
                     refreshed++;
                 }
@@ -159,9 +168,10 @@ public class DividendHistoryService {
      * Two cutoffs, not one. A failure has to come back round sooner than a success, or "retry
      * later" is just the seven-day lockout under another name.
      *
-     * <p>The failure check comes first on purpose. A ticker that has never succeeded has a null
+     * The failure check comes first on purpose. A ticker that has never succeeded has a null
      * {@code refreshedAt}, and reading that as "due immediately" would retry a 429 on the next
-     * pass instead of waiting the three days.
+     * pass instead of waiting the three days. A success is due at the cutoff, not strictly
+     * before it: a stamp of exactly six days is the Sunday boundary, not a miss.
      */
     private static boolean isDue(DividendSource source, Instant successCutoff, Instant failureCutoff) {
         if (source == null) {
@@ -173,27 +183,67 @@ public class DividendHistoryService {
         if (source.getRefreshedAt() == null) {
             return true;
         }
-        return source.getRefreshedAt().isBefore(successCutoff);
+        return !source.getRefreshedAt().isAfter(successCutoff);
     }
 
-    private DividendSource refresh(String ticker) {
-        DividendSource source = repository.findByTicker(ticker)
-            .orElseGet(() -> DividendSource.builder().ticker(ticker).build());
-        source.setLastAttemptAt(clock.instant());
+    private static Instant refreshedAt(DividendSource source) {
+        return source == null ? null : source.getRefreshedAt();
+    }
 
+    /**
+     * Yahoo, FX and Nasdaq. No repository call: this runs before the write transaction so a
+     * slow chart response does not hold a database connection.
+     */
+    private Fetched fetch(String ticker) {
         DividendHistory history;
         try {
             history = historyPort.fetchDividendHistory(ticker);
         } catch (Exception ex) {
-            return repository.save(markFailed(source, ex));
+            return Fetched.failed(ex);
+        }
+        if (history == null || history.events() == null || history.events().isEmpty()) {
+            return Fetched.ok(history, null, fetchNasdaq(ticker));
+        }
+        String currency = history.currency();
+        if (currency == null || currency.isBlank()) {
+            return Fetched.failed(new IllegalStateException("dividend currency missing"));
+        }
+        BigDecimal rate = prices.getFxRateToEur(currency);
+        if (rate == null) {
+            return Fetched.failed(new IllegalStateException("FX rate unavailable for " + currency));
+        }
+        return Fetched.ok(history, rate, fetchNasdaq(ticker));
+    }
+
+    private NasdaqFetch fetchNasdaq(String ticker) {
+        if (nasdaq == null || !nasdaqEligible(ticker)) {
+            return NasdaqFetch.notConsulted();
+        }
+        try {
+            return NasdaqFetch.of(nasdaq.fetchDividends(ticker));
+        } catch (Exception ex) {
+            log.warn("Nasdaq dividend complement failed for {}: {}",
+                LogSanitizer.safe(ticker), LogSanitizer.safe(ex.getMessage()));
+            return NasdaqFetch.unsuccessful();
+        }
+    }
+
+    /** The write half of a refresh. Opens no HTTP call. */
+    private DividendSource persist(String ticker, Fetched fetched) {
+        DividendSource source = repository.findByTicker(ticker)
+            .orElseGet(() -> DividendSource.builder().ticker(ticker).build());
+        source.setLastAttemptAt(clock.instant());
+        if (fetched.failure() != null) {
+            return repository.save(markFailed(source, fetched.failure()));
         }
 
-        if (history == null || history.events().isEmpty()) {
+        DividendHistory history = fetched.history();
+        if (history == null || history.events() == null || history.events().isEmpty()) {
             // A successful empty answer is "this symbol pays nothing", not a failure. Past events
-            // Yahoo no longer lists are dropped. A future declaration stays only when Nasdaq
-            // failed or returned empty — that absence is not a withdrawal.
+            // Yahoo no longer lists are dropped. A future declaration stays when Nasdaq did not
+            // return that ex-date — absence is not a withdrawal.
             Complemented complemented = complement(
-                ticker, List.of(), null, history == null ? null : history.currency());
+                ticker, List.of(), null, history == null ? null : history.currency(), fetched.nasdaq());
             writeEvents(source, complemented.events(), complemented.keepAbsentFutureDeclared());
             if (history != null && history.currency() != null && !history.currency().isBlank()) {
                 source.setCurrency(history.currency());
@@ -206,17 +256,7 @@ public class DividendHistoryService {
         }
 
         String currency = history.currency();
-        if (currency == null || currency.isBlank()) {
-            return repository.save(markFailed(source, new IllegalStateException("dividend currency missing")));
-        }
-        // GBp/GBX is divided by 100 inside the provider. A null rate is a failure, not a
-        // licence to store the raw amount as euros.
-        BigDecimal rate = prices.getFxRateToEur(currency);
-        if (rate == null) {
-            return repository.save(markFailed(source,
-                new IllegalStateException("FX rate unavailable for " + currency)));
-        }
-
+        BigDecimal rate = fetched.rate();
         Map<LocalDate, DividendHistory.Point> byDate = new LinkedHashMap<>();
         for (DividendHistory.Point point : history.events()) {
             if (point == null || point.exDate() == null || point.amount() == null) {
@@ -225,7 +265,7 @@ public class DividendHistoryService {
             byDate.put(point.exDate(), point);
         }
         if (byDate.isEmpty()) {
-            Complemented complemented = complement(ticker, List.of(), rate, currency);
+            Complemented complemented = complement(ticker, List.of(), rate, currency, fetched.nasdaq());
             writeEvents(source, complemented.events(), complemented.keepAbsentFutureDeclared());
             source.setCurrency(currency);
             source.setStatus(source.getEvents() == null || source.getEvents().isEmpty()
@@ -243,13 +283,39 @@ public class DividendHistoryService {
                 .amountEur(point.amount().multiply(rate).setScale(MONEY_SCALE, RoundingMode.HALF_UP))
                 .build());
         }
-        Complemented complemented = complement(ticker, events, rate, currency);
+        Complemented complemented = complement(ticker, events, rate, currency, fetched.nasdaq());
         writeEvents(source, complemented.events(), complemented.keepAbsentFutureDeclared());
         source.setCurrency(currency);
         source.setStatus(DividendSourceStatus.OK);
         source.setLastError(null);
         source.setRefreshedAt(clock.instant());
         return repository.save(source);
+    }
+
+    /** Yahoo and Nasdaq answers, already fetched. {@code failure} means do not touch the events. */
+    private record Fetched(DividendHistory history, Exception failure, BigDecimal rate, NasdaqFetch nasdaq) {
+        static Fetched failed(Exception failure) {
+            return new Fetched(null, failure, null, NasdaqFetch.notConsulted());
+        }
+
+        static Fetched ok(DividendHistory history, BigDecimal rate, NasdaqFetch nasdaq) {
+            return new Fetched(history, null, rate, nasdaq);
+        }
+    }
+
+    /** Whether Nasdaq was asked, and what it returned. A failure is not an empty table. */
+    private record NasdaqFetch(List<NasdaqDividend> rows, boolean failed, boolean consulted) {
+        static NasdaqFetch notConsulted() {
+            return new NasdaqFetch(null, false, false);
+        }
+
+        static NasdaqFetch unsuccessful() {
+            return new NasdaqFetch(null, true, true);
+        }
+
+        static NasdaqFetch of(List<NasdaqDividend> rows) {
+            return new NasdaqFetch(rows, false, true);
+        }
     }
 
     /**
@@ -353,23 +419,22 @@ public class DividendHistoryService {
      * future ex-date Yahoo does not have yet. NYSE names and ETFs often come back with empty
      * rows: that is the normal case, logged at debug, and the Yahoo result stays.
      * A thrown failure is a warning and also leaves the Yahoo rows untouched.
+     *
+     * <p>The rows are already fetched. A stored future declaration stays unless this payload
+     * actually supplied that ex-date. A skipped row (no amount, no FX) is not a supply.
      */
     private Complemented complement(
-        String ticker, List<DividendEvent> yahoo, BigDecimal rate, String currency
+        String ticker, List<DividendEvent> yahoo, BigDecimal rate, String currency, NasdaqFetch nasdaqFetch
     ) {
         LocalDate today = LocalDate.now(clock);
         List<DividendEvent> marked = markFutureDeclared(yahoo, today);
-        if (nasdaq == null || !nasdaqEligible(ticker)) {
+        if (nasdaqFetch == null || !nasdaqFetch.consulted()) {
             return new Complemented(marked, false);
         }
-        List<NasdaqDividend> rows;
-        try {
-            rows = nasdaq.fetchDividends(ticker);
-        } catch (Exception ex) {
-            log.warn("Nasdaq dividend complement failed for {}: {}",
-                LogSanitizer.safe(ticker), LogSanitizer.safe(ex.getMessage()));
+        if (nasdaqFetch.failed()) {
             return new Complemented(marked, true);
         }
+        List<NasdaqDividend> rows = nasdaqFetch.rows();
         if (rows == null || rows.isEmpty()) {
             log.debug("Nasdaq returned no dividend rows for {}; keeping the Yahoo result",
                 LogSanitizer.safe(ticker));
@@ -387,6 +452,7 @@ public class DividendHistoryService {
                 }
                 if (row.exDate().isAfter(today)) {
                     existing.setDeclared(true);
+                    applyNasdaqAmount(existing, row, rate, currency, ticker);
                 }
                 continue;
             }
@@ -408,7 +474,31 @@ public class DividendHistoryService {
                 .declared(true)
                 .build());
         }
-        return new Complemented(markFutureDeclared(merged, today), false);
+        // Keep a stored future declaration Nasdaq did not put in this merge. A non-empty
+        // payload that omits a date, or skips it for a missing amount or FX rate, is not
+        // a withdrawal.
+        return new Complemented(markFutureDeclared(merged, today), true);
+    }
+
+    /**
+     * A future overlap takes Nasdaq's amount when it is present and the FX rate exists.
+     * A missing rate leaves the Yahoo amount: skipping the row must not blank it.
+     */
+    private void applyNasdaqAmount(
+        DividendEvent existing, NasdaqDividend row, BigDecimal rate, String currency, String ticker
+    ) {
+        if (row.amount() == null) {
+            return;
+        }
+        String needed = row.currency() != null ? row.currency() : currency;
+        BigDecimal rowRate = rateFor(needed, rate, currency);
+        if (rowRate == null) {
+            log.warn("Nasdaq amount for {} on {} left unchanged: no FX rate for {}",
+                LogSanitizer.safe(ticker), row.exDate(), LogSanitizer.safe(needed));
+            return;
+        }
+        existing.setAmount(row.amount());
+        existing.setAmountEur(row.amount().multiply(rowRate).setScale(MONEY_SCALE, RoundingMode.HALF_UP));
     }
 
     /** An ex-date after today is a declaration even when Yahoo published no payment date. */

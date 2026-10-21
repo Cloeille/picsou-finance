@@ -359,15 +359,15 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     }
 
     /**
-     * DIVIDEND rows of accounts the caller already proved readable, in one query.
-     * Empty ids return nothing: an empty {@code IN} is not a query the database accepts.
-     * Ticker case and the 60-day pairing are the caller's job.
+     * DIVIDEND rows of accounts the caller already proved readable, booked on or after
+     * {@code since}. Empty ids return nothing: an empty {@code IN} is not a query the
+     * database accepts. Ticker case and the 60-day pairing are the caller's job.
      */
-    default List<DividendCashDate> findDividendCashDates(Collection<Long> accountIds) {
-        if (accountIds == null || accountIds.isEmpty()) {
+    default List<DividendCashDate> findDividendCashDates(Collection<Long> accountIds, LocalDate since) {
+        if (accountIds == null || accountIds.isEmpty() || since == null) {
             return List.of();
         }
-        return findDividendCashDatesByType(accountIds, TransactionType.DIVIDEND);
+        return findDividendCashDatesByType(accountIds, TransactionType.DIVIDEND, since);
     }
 
     @Query("""
@@ -376,8 +376,10 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
         WHERE t.account.id IN :accountIds
           AND t.txType = :txType
           AND t.ticker IS NOT NULL
+          AND t.date >= :since
         """)
     List<DividendCashDate> findDividendCashDatesByType(
         @Param("accountIds") Collection<Long> accountIds,
-        @Param("txType") TransactionType txType);
+        @Param("txType") TransactionType txType,
+        @Param("since") LocalDate since);
 }

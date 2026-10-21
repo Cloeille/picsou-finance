@@ -79,11 +79,14 @@ public class ScpiPositionService {
         position.setWithdrawalPriceEur(request.withdrawalPriceEur());
         position.setDividendPolicy(request.dividendPolicy() != null ? request.dividendPolicy() : DividendPolicy.CASH);
         position.setJouissanceDate(request.jouissanceDate());
-        // Unlike the fund codes above, null here is a value: the form's "none" clears a
-        // previously declared distribution. A sync does not come through this method, so it
-        // cannot wipe a figure the member typed.
-        position.setAnnualDistributionPerShareEur(request.annualDistributionPerShareEur());
-        position.setDistributionFrequency(request.distributionFrequency());
+        // Same convention as the fund codes above: a field the caller did not send is left
+        // alone. An explicit null (the form's "none") clears, the way a blank fund code detaches.
+        if (request.annualDistributionSpecified() || request.annualDistributionPerShareEur() != null) {
+            position.setAnnualDistributionPerShareEur(request.annualDistributionPerShareEur());
+        }
+        if (request.distributionFrequencySpecified() || request.distributionFrequency() != null) {
+            position.setDistributionFrequency(request.distributionFrequency());
+        }
 
         BigDecimal withdrawalValue = withdrawalValue(request.shareCount(), request.withdrawalPriceEur());
         if (withdrawalValue == null) {

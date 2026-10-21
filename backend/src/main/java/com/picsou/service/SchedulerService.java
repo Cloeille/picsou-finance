@@ -8,22 +8,26 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.SecurityProfileRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.stream.Collectors;
+import java.util.concurrent.Executor;
 
 @Service
 public class SchedulerService {
@@ -52,6 +56,12 @@ public class SchedulerService {
     private final PropertyValuationService propertyValuationService;
     private final InstrumentLogoService instrumentLogoService;
     private final DividendHistoryService dividendHistoryService;
+    private final SecurityProfileRepository securityProfileRepository;
+    /**
+     * The Sunday pass must not occupy Spring's single scheduler thread. Unit tests leave this
+     * as a direct runner; production replaces it with {@code dividendRefreshExecutor}.
+     */
+    private Executor dividendRefreshExecutor = Runnable::run;
 
     public SchedulerService(
         AccountRepository accountRepository,
@@ -64,7 +74,8 @@ public class SchedulerService {
         SecurityProfileService securityProfileService,
         PropertyValuationService propertyValuationService,
         InstrumentLogoService instrumentLogoService,
-        DividendHistoryService dividendHistoryService) {
+        DividendHistoryService dividendHistoryService,
+        SecurityProfileRepository securityProfileRepository) {
         this.accountRepository = accountRepository;
         this.holdingRepository = holdingRepository;
         this.snapshotRepository = snapshotRepository;
@@ -76,6 +87,12 @@ public class SchedulerService {
         this.propertyValuationService = propertyValuationService;
         this.instrumentLogoService = instrumentLogoService;
         this.dividendHistoryService = dividendHistoryService;
+        this.securityProfileRepository = securityProfileRepository;
+    }
+
+    @Autowired
+    void setDividendRefreshExecutor(@Qualifier("dividendRefreshExecutor") Executor dividendRefreshExecutor) {
+        this.dividendRefreshExecutor = dividendRefreshExecutor;
     }
 
     /**
@@ -282,24 +299,37 @@ public class SchedulerService {
      * Every Sunday at 04:15, after the security-profile pass: keep dividend history warm so the
      * forecast never calls Yahoo while a page is rendering.
      *
-     * <p>Crypto is excluded. A coin has no ex-date, and sending its ticker to Yahoo is how a
-     * symbol collision (SUI, ATOM) comes back as a listed company's dividend. The batch is
-     * capped for the same reason as {@link #refreshSecurityProfiles}: one bad burst of chart
-     * calls is how a free tier starts answering 429.
+     * <p>A ticker is refreshed when {@code security_profile} has a non-null ISIN for it (a
+     * crypto coin never has one) or when at least one live holding sits in a non-crypto
+     * account. It is skipped only when no ISIN is known and every holding of it is crypto.
+     * One member's crypto ATOM must not hide another member's ATOM stock, and an ISIN on a
+     * crypto-only ticker is a listed security that happens to share the symbol.
+     *
+     * <p>The pass itself runs on {@code dividendRefreshExecutor}, not on Spring's single
+     * scheduler thread. The batch is capped for the same reason as {@link #refreshSecurityProfiles}.
      */
     @Scheduled(cron = "0 15 4 * * SUN")
     public void refreshDividendHistory() {
+        dividendRefreshExecutor.execute(this::refreshDividendHistoryPass);
+    }
+
+    void refreshDividendHistoryPass() {
         Set<String> held = holdingRepository.findDistinctTickers();
-        if (held.isEmpty()) {
+        if (held == null || held.isEmpty()) {
             return;
         }
-        Set<String> crypto = holdingRepository.findDistinctTickersByAccountType(AccountType.CRYPTO).stream()
-            .filter(Objects::nonNull)
-            .map(t -> t.toUpperCase(Locale.ROOT))
-            .collect(Collectors.toSet());
+        Set<String> outsideCrypto = upper(holdingRepository.findDistinctTickersHeldOutside(AccountType.CRYPTO));
+        Set<String> wanted = upper(held);
+        Set<String> withIsin = wanted.isEmpty()
+            ? Set.of()
+            : upper(securityProfileRepository.findTickersWithNonNullIsin(wanted));
         Set<String> tickers = new TreeSet<>();
         for (String ticker : held) {
-            if (ticker != null && !crypto.contains(ticker.toUpperCase(Locale.ROOT))) {
+            if (ticker == null || ticker.isBlank()) {
+                continue;
+            }
+            String key = ticker.toUpperCase(Locale.ROOT);
+            if (outsideCrypto.contains(key) || withIsin.contains(key)) {
                 tickers.add(ticker);
             }
         }
@@ -313,5 +343,18 @@ public class SchedulerService {
         } catch (Exception ex) {
             log.error("Dividend history refresh failed -- skipping this cycle", ex);
         }
+    }
+
+    private static Set<String> upper(Collection<String> values) {
+        if (values == null || values.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> upper = new HashSet<>();
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                upper.add(value.toUpperCase(Locale.ROOT));
+            }
+        }
+        return upper;
     }
 }

@@ -177,6 +177,35 @@ class ScpiPositionServiceTest {
 
         service.save(10L, 1L, request("10", null, "200"));
 
+        assertThat(existing.getAnnualDistributionPerShareEur()).isEqualByComparingTo("8");
+        assertThat(existing.getDistributionFrequency()).isEqualTo(DistributionFrequency.MONTHLY);
+    }
+
+    @Test
+    void save_omittedDistributionFieldsAreLeftAlone_andAnExplicitNullClearsThem() {
+        Account account = scpiAccount("0");
+        ScpiPosition existing = ScpiPosition.builder()
+            .account(account)
+            .shareCount(new BigDecimal("10"))
+            .annualDistributionPerShareEur(new BigDecimal("12.50"))
+            .distributionFrequency(DistributionFrequency.QUARTERLY)
+            .build();
+        when(accountRepository.findByIdAndMemberId(10L, 1L)).thenReturn(Optional.of(account));
+        when(positionRepository.findByAccountIdAndMemberId(10L, 1L)).thenReturn(Optional.of(existing));
+        when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.save(10L, 1L, request("10", null, "200"));
+
+        assertThat(existing.getAnnualDistributionPerShareEur()).isEqualByComparingTo("12.50");
+        assertThat(existing.getDistributionFrequency()).isEqualTo(DistributionFrequency.QUARTERLY);
+
+        service.save(10L, 1L, new ScpiPositionRequest(
+            "FR0012345678", "CORUM", null, null,
+            new BigDecimal("10"), null, new BigDecimal("200"),
+            DividendPolicy.CASH, null,
+            null, null, true, true));
+
         assertThat(existing.getAnnualDistributionPerShareEur()).isNull();
         assertThat(existing.getDistributionFrequency()).isNull();
     }

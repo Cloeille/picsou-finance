@@ -242,7 +242,13 @@
       "empty": "No dividend expected",
       "refreshWeekly": "Dividend histories refresh every week.",
       "error": "Could not load upcoming dividends.",
-      "yearTotal": "over 12 months"
+      "yearTotal": "over 12 months",
+      "cadence": {
+        "MONTHLY": "Monthly",
+        "QUARTERLY": "Quarterly",
+        "SEMI_ANNUAL": "Semi-annual",
+        "ANNUAL": "Annual"
+      }
     },
     "snapshots": "Monthly snapshots",
     "changeCategory": "Change category",
@@ -459,7 +465,7 @@
     "reinvest": "Reinvested",
     "jouissanceDate": "Enjoyment date",
     "annualDistribution": "Annual distribution per share (€)",
-    "annualDistributionHint": "Optional. Used to estimate upcoming payments. Reinvested amounts stay out of the budget.",
+    "annualDistributionHint": "Optional, but the amount and the frequency go together: both, or neither. Used to estimate upcoming payments. Reinvested amounts stay out of the budget.",
     "distributionFrequency": "Distribution frequency",
     "frequencyMonthly": "Monthly",
     "frequencyQuarterly": "Quarterly",

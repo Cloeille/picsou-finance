@@ -55,6 +55,18 @@ describe('AddScpiModal', () => {
     expect(screen.queryByLabelText(/surface/i)).toBeNull()
   })
 
+  it('keeps save disabled when only the distribution amount is set', () => {
+    render(<AddScpiModal open onOpenChange={() => {}} />)
+    fireEvent.change(screen.getByLabelText('scpi.name'), { target: { value: 'Example SCPI' } })
+    fireEvent.change(screen.getByLabelText('scpi.shareCount'), { target: { value: '10' } })
+    expect(screen.getByRole('button', { name: 'scpi.save' })).toBeEnabled()
+
+    fireEvent.change(screen.getByLabelText('scpi.annualDistribution'), { target: { value: '12.5' } })
+    expect(screen.getByRole('button', { name: 'scpi.save' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'scpi.save' }))
+    expect(updatePosition).not.toHaveBeenCalled()
+  })
+
   it('sends an optional distribution and frequency with the position', async () => {
     createAccount.mockReset().mockResolvedValue({ id: 9 })
     updatePosition.mockReset().mockResolvedValue({})

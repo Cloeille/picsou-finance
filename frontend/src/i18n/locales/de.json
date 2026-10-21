@@ -230,7 +230,13 @@
       "empty": "Keine Dividende erwartet",
       "refreshWeekly": "Die Dividendenhistorien werden wöchentlich aktualisiert.",
       "error": "Bevorstehende Dividenden konnten nicht geladen werden.",
-      "yearTotal": "auf 12 Monate"
+      "yearTotal": "auf 12 Monate",
+      "cadence": {
+        "MONTHLY": "Monatlich",
+        "QUARTERLY": "Vierteljährlich",
+        "SEMI_ANNUAL": "Halbjährlich",
+        "ANNUAL": "Jährlich"
+      }
     },
     "snapshots": "Monatliche Stände",
     "addSnapshot": "Speichern",
@@ -448,7 +454,7 @@
     "reinvest": "Reinvestiert",
     "jouissanceDate": "Datum der Nutzungsberechtigung",
     "annualDistribution": "Jährliche Ausschüttung je Anteil (€)",
-    "annualDistributionHint": "Optional. Schätzt die kommenden Zahlungen. Reinvestierte Beträge bleiben außerhalb des Budgets.",
+    "annualDistributionHint": "Optional, aber Betrag und Rhythmus gehören zusammen: beides oder keins. Schätzt die kommenden Zahlungen. Reinvestierte Beträge bleiben außerhalb des Budgets.",
     "distributionFrequency": "Ausschüttungsrhythmus",
     "frequencyMonthly": "Monatlich",
     "frequencyQuarterly": "Vierteljährlich",

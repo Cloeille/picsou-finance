@@ -74,6 +74,8 @@ describe('AccountDividendsSection', () => {
     expect(fr.accounts.dividends.announced).toBe('Annoncé')
     expect(fr.accounts.dividends.estimatedBasis).toBe('Estimé')
     expect(fr.accounts.dividends.empty).toBe('Aucun dividende prévu')
+    expect(fr.accounts.dividends.cadence.QUARTERLY).toBe('Trimestriel')
+    expect(fr.accounts.dividends.cadence.SEMI_ANNUAL).toBe('Semestriel')
     expect(fr.accounts.dividends.refreshWeekly).toContain('semaine')
     expect(fr.budget.overview.staysInEnvelope).toBe("Reste dans l'enveloppe")
   })
@@ -198,6 +200,20 @@ describe('AccountDividendsSection', () => {
     expect(screen.getByText('accounts.dividends.refreshWeekly')).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'accounts.dividends.carousel' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'accounts.dividends.next' })).not.toBeInTheDocument()
+  })
+
+  it('shows a learned cadence and omits the badge when an announced line has none', () => {
+    loaded([
+      row({ name: 'TotalEnergies', cadence: 'QUARTERLY' }),
+      row({ id: 'msft', name: 'Microsoft', ticker: 'MSFT', basis: 'ANNOUNCED', cadence: null }),
+    ])
+    render(<AccountDividendsSection accountId={3} />)
+
+    const cards = screen.getAllByRole('article')
+    expect(within(cards[0]).getByText('accounts.dividends.cadence.QUARTERLY')).toBeInTheDocument()
+    expect(within(cards[1]).queryByText('accounts.dividends.cadence.QUARTERLY')).not.toBeInTheDocument()
+    expect(within(cards[1]).queryByText('accounts.dividends.cadence.ANNUAL')).not.toBeInTheDocument()
+    expect(within(cards[1]).getByText('Microsoft')).toBeInTheDocument()
   })
 
   it('keeps a failed forecast as a quiet line and does not replace the page', () => {

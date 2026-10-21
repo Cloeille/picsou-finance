@@ -522,8 +522,27 @@ class YahooFinancePriceProviderTest {
     }
 
     @Test
+    void fetchDividendHistory_skipsAZeroAmountAndAMissingDate() {
+    ExchangeFunction exchange = request -> Mono.just(ClientResponse.create(HttpStatus.OK)
+        .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+        .body("""
+            {"chart":{"result":[{"meta":{"currency":"EUR"},"events":{"dividends":{
+              "0":{"amount":0,"date":0},
+              "1":{"amount":-1,"date":1790751600},
+              "2":{"date":1790751600}
+            }}}]}}
+            """)
+        .build());
+    var provider = new YahooFinancePriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+
+    var history = provider.fetchDividendHistory("TTE.PA");
+
+    assertThat(history.events()).isEmpty();
+    }
+
+    @Test
     void fetchDividendHistory_keepsOnlyTheMostRecentTwoHundredEvents() {
-        long oldest = 1_600_000_000L;
+    long oldest = 1_600_000_000L;
         StringBuilder dividends = new StringBuilder();
         for (int i = 0; i < 201; i++) {
             if (i > 0) {

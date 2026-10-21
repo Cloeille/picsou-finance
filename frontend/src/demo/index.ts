@@ -225,7 +225,8 @@ for (const account of mockAccounts.filter(account => account.type === 'SCPI')) {
       withdrawalValueEur: withdrawalValue,
       dividendPolicy: data.dividendPolicy ?? 'CASH',
       jouissanceDate: data.jouissanceDate ?? null,
-      // Omitted (older clients) keeps what was declared; an explicit null clears it.
+      // Fund-code rule: a missing field leaves the stored value.
+      // Null clears, because a number has no blank string the way a fund code does.
       annualDistributionPerShareEur: data.annualDistributionPerShareEur === undefined
         ? current.scpi?.annualDistributionPerShareEur ?? null
         : data.annualDistributionPerShareEur,

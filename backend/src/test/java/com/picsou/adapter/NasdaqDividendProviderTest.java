@@ -42,7 +42,8 @@ class NasdaqDividendProviderTest {
                     """)
                 .build());
         };
-        var provider = new NasdaqDividendProvider(WebClient.builder().exchangeFunction(exchange).build());
+        var provider = new NasdaqDividendProvider(
+            WebClient.builder().exchangeFunction(exchange).build());
 
         List<NasdaqDividend> rows = provider.fetchDividends("MSFT");
 
@@ -53,6 +54,8 @@ class NasdaqDividendProviderTest {
         assertThat(headers.get(0).getFirst(HttpHeaders.ORIGIN)).isEqualTo("https://www.nasdaq.com");
         assertThat(headers.get(0).getFirst(HttpHeaders.REFERER)).isEqualTo("https://www.nasdaq.com/");
         assertThat(headers.get(0).getFirst(HttpHeaders.USER_AGENT)).contains("Chrome/");
+        assertThat(headers.get(0).get(HttpHeaders.USER_AGENT)).hasSize(1);
+        assertThat(headers.get(0).get(HttpHeaders.ORIGIN)).hasSize(1);
         assertThat(rows).hasSize(2);
         assertThat(rows.get(0).exDate()).isEqualTo(java.time.LocalDate.of(2026, 11, 19));
         assertThat(rows.get(0).paymentDate()).isEqualTo(java.time.LocalDate.of(2026, 12, 10));

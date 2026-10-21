@@ -146,10 +146,11 @@ describe('OverviewTab capital income', () => {
     expect(screen.getByText('budget.overview.netThisCycle')).toBeInTheDocument()
   })
 
-  it('treats a forecast error as the same quiet empty state', () => {
+  it('shows the dividend error string instead of the empty sentence', () => {
     state.dividends = { data: undefined as unknown as UpcomingDividend[], isLoading: false, isError: true }
     render(<OverviewTab />)
-    expect(screen.getByText('budget.overview.capitalIncomeEmpty')).toBeInTheDocument()
+    expect(screen.getByText('accounts.dividends.error')).toBeInTheDocument()
+    expect(screen.queryByText('budget.overview.capitalIncomeEmpty')).not.toBeInTheDocument()
     expect(screen.queryByText('budget.overview.error')).not.toBeInTheDocument()
     expect(screen.getByText('budget.overview.netThisCycle')).toBeInTheDocument()
   })

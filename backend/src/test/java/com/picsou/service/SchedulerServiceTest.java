@@ -8,6 +8,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.SecurityProfileRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -42,6 +43,7 @@ class SchedulerServiceTest {
     @Mock PriceService priceService;
     @Mock InstrumentLogoService instrumentLogoService;
     @Mock DividendHistoryService dividendHistoryService;
+    @Mock SecurityProfileRepository securityProfileRepository;
     @Mock FamilyMemberRepository familyMemberRepository;
     @Mock MemberSyncService memberSyncService;
     @InjectMocks SchedulerService scheduler;
@@ -142,7 +144,8 @@ class SchedulerServiceTest {
     @Test
     void refreshDividendHistory_skipsCryptoAndCapsTheBatch() {
         when(holdingRepository.findDistinctTickers()).thenReturn(Set.of("TTE.PA", "BTC", "btc"));
-        when(holdingRepository.findDistinctTickersByAccountType(AccountType.CRYPTO)).thenReturn(Set.of("btc"));
+        when(holdingRepository.findDistinctTickersHeldOutside(AccountType.CRYPTO)).thenReturn(Set.of("TTE.PA"));
+        when(securityProfileRepository.findTickersWithNonNullIsin(any())).thenReturn(Set.of());
 
         scheduler.refreshDividendHistory();
 
@@ -152,7 +155,8 @@ class SchedulerServiceTest {
     @Test
     void refreshDividendHistory_swallowsAFailureSoTheNextCycleStillRuns() {
         when(holdingRepository.findDistinctTickers()).thenReturn(Set.of("TTE.PA"));
-        when(holdingRepository.findDistinctTickersByAccountType(AccountType.CRYPTO)).thenReturn(Set.of());
+        when(holdingRepository.findDistinctTickersHeldOutside(AccountType.CRYPTO)).thenReturn(Set.of("TTE.PA"));
+        when(securityProfileRepository.findTickersWithNonNullIsin(any())).thenReturn(Set.of());
         when(dividendHistoryService.refreshStale(any(), anyInt())).thenThrow(new IllegalStateException("yahoo down"));
 
         scheduler.refreshDividendHistory();
@@ -167,6 +171,49 @@ class SchedulerServiceTest {
         scheduler.refreshDividendHistory();
 
         verify(dividendHistoryService, never()).refreshStale(any(), anyInt());
+    }
+
+    @Test
+    void refreshDividendHistory_refreshesATickerHeldAsStockEvenWhenAnotherMemberHoldsItAsCrypto() {
+        when(holdingRepository.findDistinctTickers()).thenReturn(Set.of("ATOM"));
+        when(holdingRepository.findDistinctTickersHeldOutside(AccountType.CRYPTO)).thenReturn(Set.of("ATOM"));
+        when(securityProfileRepository.findTickersWithNonNullIsin(any())).thenReturn(Set.of());
+
+        scheduler.refreshDividendHistory();
+
+        verify(dividendHistoryService).refreshStale(Set.of("ATOM"), 40);
+    }
+
+    @Test
+    void refreshDividendHistory_refreshesCryptoOnlyWhenAnIsinIsKnown() {
+        when(holdingRepository.findDistinctTickers()).thenReturn(Set.of("ATOM"));
+        when(holdingRepository.findDistinctTickersHeldOutside(AccountType.CRYPTO)).thenReturn(Set.of());
+        when(securityProfileRepository.findTickersWithNonNullIsin(any())).thenReturn(Set.of("ATOM"));
+
+        scheduler.refreshDividendHistory();
+
+        verify(dividendHistoryService).refreshStale(Set.of("ATOM"), 40);
+    }
+
+    @Test
+    void refreshDividendHistory_skipsCryptoOnlyWhenNoIsinIsKnown() {
+        when(holdingRepository.findDistinctTickers()).thenReturn(Set.of("ATOM"));
+        when(holdingRepository.findDistinctTickersHeldOutside(AccountType.CRYPTO)).thenReturn(Set.of());
+        when(securityProfileRepository.findTickersWithNonNullIsin(any())).thenReturn(Set.of());
+
+        scheduler.refreshDividendHistory();
+
+        verify(dividendHistoryService, never()).refreshStale(any(), anyInt());
+    }
+
+    @Test
+    void refreshDividendHistory_submitsThePassInsteadOfRunningItOnTheCaller() {
+        scheduler.setDividendRefreshExecutor(task -> { });
+
+        scheduler.refreshDividendHistory();
+
+        verify(dividendHistoryService, never()).refreshStale(any(), anyInt());
+        verify(holdingRepository, never()).findDistinctTickers();
     }
 
     private static BalanceSnapshot snapshot(Account account, LocalDate date, String balance) {

@@ -65,8 +65,11 @@ export function ScpiDetailSection({ account }: { account: Account }) {
 
   const shares = num(shareCount)
   const distribution = num(annualDistribution)
-  const distributionOk = distribution == null || distribution >= 0
-  const canSave = shares != null && shares >= 0 && distributionOk
+  // Both set, or both empty. One without the other is a silent no-forecast.
+  const amountSet = distribution != null
+  const frequencySet = distributionFrequency !== ''
+  const distributionPairOk = amountSet === frequencySet && (distribution == null || distribution >= 0)
+  const canSave = shares != null && shares >= 0 && distributionPairOk
 
   async function save() {
     if (!canEdit || !canSave || shares == null) return

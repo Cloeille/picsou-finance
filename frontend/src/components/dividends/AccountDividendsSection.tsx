@@ -9,7 +9,14 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDate, localeFromLanguage } from '@/lib/utils'
-import type { HoldingResponse, UpcomingDividend } from '@/types/api'
+import type { DividendCadence, HoldingResponse, UpcomingDividend } from '@/types/api'
+
+const CADENCE_LABEL_KEY: Record<DividendCadence, string> = {
+  MONTHLY: 'accounts.dividends.cadence.MONTHLY',
+  QUARTERLY: 'accounts.dividends.cadence.QUARTERLY',
+  SEMI_ANNUAL: 'accounts.dividends.cadence.SEMI_ANNUAL',
+  ANNUAL: 'accounts.dividends.cadence.ANNUAL',
+}
 
 /**
  * One snap interval: the card is `w-64` (16rem) and the row uses `gap-3` (0.75rem).
@@ -172,6 +179,9 @@ function DividendCard({
         )}
         {!row.countsInBudget && (
           <Badge variant="outline">{t('budget.overview.staysInEnvelope')}</Badge>
+        )}
+        {row.cadence != null && (
+          <Badge variant="outline">{t(CADENCE_LABEL_KEY[row.cadence])}</Badge>
         )}
       </div>
       <p className="mt-3 text-2xl font-bold tabular-nums">

@@ -66,7 +66,7 @@ function CapitalIncomeAhead() {
   const rows = dividendsQ.data ?? []
   const budgetTotal = rows.reduce((sum, row) => sum + (row.countsInBudget ? row.amountEur : 0), 0)
   const lockedTotal = rows.reduce((sum, row) => sum + (row.countsInBudget ? 0 : row.amountEur), 0)
-  const quiet = dividendsQ.isError || (!dividendsQ.isLoading && rows.length === 0)
+  const quiet = !dividendsQ.isLoading && !dividendsQ.isError && rows.length === 0
 
   return (
     <Card role="region" aria-labelledby="capital-income-heading">
@@ -77,6 +77,8 @@ function CapitalIncomeAhead() {
         </div>
         {dividendsQ.isLoading ? (
           <Skeleton className="mt-2 h-8 w-32" />
+        ) : dividendsQ.isError ? (
+          <p className="mt-2 text-sm text-muted-foreground">{t('accounts.dividends.error')}</p>
         ) : quiet ? (
           <p className="mt-2 text-sm text-muted-foreground">{t('budget.overview.capitalIncomeEmpty')}</p>
         ) : (

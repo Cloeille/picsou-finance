@@ -57,8 +57,11 @@ export function AddScpiModal({ open, onOpenChange }: AddScpiModalProps) {
 
   const shares = num(shareCount)
   const distribution = num(annualDistribution)
-  const distributionOk = distribution == null || distribution >= 0
-  const canSubmit = name.trim() !== '' && shares != null && shares >= 0 && distributionOk
+  // Both set, or both empty. One without the other is a silent no-forecast.
+  const amountSet = distribution != null
+  const frequencySet = distributionFrequency !== ''
+  const distributionPairOk = amountSet === frequencySet && (distribution == null || distribution >= 0)
+  const canSubmit = name.trim() !== '' && shares != null && shares >= 0 && distributionPairOk
   const pending = createAccount.isPending || updatePosition.isPending
   const error = createAccount.error ?? updatePosition.error
 

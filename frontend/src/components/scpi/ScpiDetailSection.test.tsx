@@ -131,17 +131,26 @@ describe('ScpiDetailSection fund links', () => {
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 
-  it('sends a cleared distribution as null and the chosen frequency', async () => {
+  it('disables save unless the amount and the frequency are both set or both empty', async () => {
     render(<ScpiDetailSection account={account} />)
     fireEvent.click(screen.getByRole('button', { name: 'scpi.edit' }))
+    const save = screen.getByRole('button', { name: 'scpi.save' })
+    expect(save).toBeEnabled()
+    expect(screen.getByText('scpi.annualDistributionHint')).toBeInTheDocument()
+
     fireEvent.change(screen.getByLabelText('scpi.annualDistribution'), { target: { value: '' } })
-    fireEvent.change(screen.getByLabelText('scpi.distributionFrequency'), { target: { value: 'MONTHLY' } })
-    fireEvent.click(screen.getByRole('button', { name: 'scpi.save' }))
+    expect(save).toBeDisabled()
+    fireEvent.click(save)
+    expect(mutateAsync).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('scpi.distributionFrequency'), { target: { value: '' } })
+    expect(save).toBeEnabled()
+    fireEvent.click(save)
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({
       id: 42,
       data: expect.objectContaining({
         annualDistributionPerShareEur: null,
-        distributionFrequency: 'MONTHLY',
+        distributionFrequency: null,
         dividendPolicy: 'REINVEST',
       }),
     }))

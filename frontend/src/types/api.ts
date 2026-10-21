@@ -180,7 +180,11 @@ export interface UpcomingDividend {
   paymentDate: string | null
   /** True when the payment date was derived (learned lag or the SCPI declared rule). */
   paymentDateEstimated: boolean
-  cadence: DividendCadence
+  /**
+   * Null on an announced line when no cadence was learned. The UI omits the
+   * badge rather than inventing one.
+   */
+  cadence: DividendCadence | null
   basis: DividendBasis
   quantity: number
   amountPerShare: number
@@ -251,8 +255,13 @@ export interface ScpiPositionRequest {
   withdrawalPriceEur?: number | null
   dividendPolicy?: DividendPolicy
   jouissanceDate?: string | null
-  /** Omitted leaves the stored value; null clears it. Must be >= 0 when set. */
+  /**
+   * Omitted leaves the stored value, the same rule as a fund code.
+   * Null clears it: a number has no blank string, and the form sends null for none.
+   * Must be >= 0 when set.
+   */
   annualDistributionPerShareEur?: number | null
+  /** Omitted leaves the stored frequency. Null clears it, same rule as the amount. */
   distributionFrequency?: DistributionFrequency | null
 }
 

@@ -16,6 +16,11 @@ describe('demo upcoming dividends', () => {
     expect(within60).toEqual(mockUpcomingDividends(60))
     expect(within60.map((row) => row.expectedDate)).toEqual([...within60.map((row) => row.expectedDate)].sort())
     expect(within60.some((row) => row.name === "L'Oréal")).toBe(false)
+    expect(within60.some((row) => row.ticker === 'BN.PA')).toBe(true)
+    expect(within60.find((row) => row.ticker === 'BN.PA')?.cadence).toBeNull()
+    expect(within60.some((row) => row.ticker === 'SU.PA')).toBe(false)
+    expect(within60.some((row) => row.ticker === 'KER.PA')).toBe(false)
+    expect(within60.some((row) => row.ticker === 'RI.PA')).toBe(false)
     const pea = within60.find((row) => row.accountType === 'PEA')
     expect(pea?.countsInBudget).toBe(false)
     expect(pea?.reinvested).toBe(false)
@@ -66,6 +71,18 @@ describe('demo upcoming dividends', () => {
     expect(await read(99)).toEqual([])
   })
 
+  it('follows a known payment date and does not invent a lag', () => {
+    const year = mockUpcomingDividends(366)
+    const danone = year.find((row) => row.ticker === 'BN.PA')
+    expect(danone?.exDate).toBeTruthy()
+    expect(danone?.paymentDate).toBeTruthy()
+    expect(danone!.exDate! < danone!.paymentDate!).toBe(true)
+    expect(year.some((row) => row.ticker === 'SU.PA')).toBe(true)
+    expect(mockUpcomingDividends(60).some((row) => row.ticker === 'SU.PA')).toBe(false)
+    expect(year.some((row) => row.ticker === 'KER.PA')).toBe(false)
+    expect(year.some((row) => row.ticker === 'RI.PA')).toBe(false)
+  })
+
   it('gives the demo SCPI a declared distribution and keeps it on save', async () => {
     const account = mockAccounts.find((item) => item.type === 'SCPI')!
     expect(account.scpi?.annualDistributionPerShareEur).toBe(12)
@@ -87,6 +104,18 @@ describe('demo upcoming dividends', () => {
       expect(saved.annualDistributionPerShareEur).toBe(15)
       expect(saved.distributionFrequency).toBe('MONTHLY')
       expect((await read()).scpi?.annualDistributionPerShareEur).toBe(15)
+
+      const omitted = await save({ shareCount: account.scpi!.shareCount })
+      expect(omitted.annualDistributionPerShareEur).toBe(15)
+      expect(omitted.distributionFrequency).toBe('MONTHLY')
+      expect((await read()).scpi?.distributionFrequency).toBe('MONTHLY')
+
+      const amountOnly = await save({
+        shareCount: account.scpi!.shareCount,
+        annualDistributionPerShareEur: 18,
+      })
+      expect(amountOnly.annualDistributionPerShareEur).toBe(18)
+      expect(amountOnly.distributionFrequency).toBe('MONTHLY')
 
       const cleared = await save({
         ...account.scpi!, shareCount: account.scpi!.shareCount,

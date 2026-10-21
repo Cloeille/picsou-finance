@@ -83,17 +83,53 @@ class DividendHistoryServiceTest {
         Instant now = NOW;
         DividendSource fresh = source("FRESH", DividendSourceStatus.OK, now.minus(Duration.ofDays(2)));
         DividendSource stale = source("STALE", DividendSourceStatus.OK, now.minus(Duration.ofDays(8)));
-        when(repository.findByTickerIn(any())).thenReturn(List.of(fresh, stale));
-        when(historyPort.fetchDividendHistory("STALE"))
+        DividendSource oldest = source("OLDEST", DividendSourceStatus.OK, now.minus(Duration.ofDays(40)));
+        when(repository.findByTickerIn(any())).thenReturn(List.of(fresh, stale, oldest));
+        when(historyPort.fetchDividendHistory("OTHER"))
             .thenReturn(new DividendHistory("EUR", List.of(point("2026-06-01", "0.50"))));
         when(prices.getFxRateToEur("EUR")).thenReturn(BigDecimal.ONE);
 
-        int refreshed = service().refreshStale(List.of("FRESH", "STALE", "OTHER"), 1);
+        int refreshed = service().refreshStale(List.of("FRESH", "STALE", "OTHER", "OLDEST"), 1);
 
         assertThat(refreshed).isEqualTo(1);
+        verify(historyPort).fetchDividendHistory("OTHER");
         verify(historyPort, never()).fetchDividendHistory("FRESH");
-        verify(historyPort).fetchDividendHistory("STALE");
-        verify(historyPort, never()).fetchDividendHistory("OTHER");
+        verify(historyPort, never()).fetchDividendHistory("STALE");
+        verify(historyPort, never()).fetchDividendHistory("OLDEST");
+    }
+
+    @Test
+    void refreshStale_picksTheStalestDueTickersWhenMoreAreDueThanTheCap() {
+        DividendSource week = source("WEEK", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(8)));
+        DividendSource month = source("MONTH", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(30)));
+        when(repository.findByTickerIn(any())).thenReturn(List.of(week, month));
+        when(historyPort.fetchDividendHistory(any()))
+            .thenReturn(new DividendHistory("EUR", List.of(point("2026-06-01", "0.50"))));
+        when(prices.getFxRateToEur("EUR")).thenReturn(BigDecimal.ONE);
+
+        service().refreshStale(List.of("WEEK", "MONTH", "NEVER"), 2);
+
+        verify(historyPort).fetchDividendHistory("NEVER");
+        verify(historyPort).fetchDividendHistory("MONTH");
+        verify(historyPort, never()).fetchDividendHistory("WEEK");
+    }
+
+    @Test
+    void aSuccessRefreshedJustUnderSevenDaysIsDue_andTheSixDayBoundaryIsInclusive() {
+        DividendSource almostSeven = source("ALMOST", DividendSourceStatus.OK,
+            NOW.minus(Duration.ofDays(7)).plusSeconds(2));
+        DividendSource sixDays = source("SIX", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(6)));
+        DividendSource newerThanSix = source("NEW", DividendSourceStatus.OK,
+            NOW.minus(Duration.ofDays(6)).plusSeconds(1));
+        when(repository.findByTickerIn(any())).thenReturn(List.of(almostSeven, sixDays, newerThanSix));
+        when(historyPort.fetchDividendHistory(any()))
+            .thenReturn(new DividendHistory("EUR", List.of()));
+
+        service().refreshStale(List.of("ALMOST", "SIX", "NEW"), 10);
+
+        verify(historyPort).fetchDividendHistory("ALMOST");
+        verify(historyPort).fetchDividendHistory("SIX");
+        verify(historyPort, never()).fetchDividendHistory("NEW");
     }
 
     @Test
@@ -352,7 +388,8 @@ class DividendHistoryServiceTest {
         service().refreshStale(List.of("AAPL"), 10);
 
         assertThat(existing.getEvents()).extracting(DividendEvent::getExDate)
-            .containsExactlyInAnyOrder(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 1));
+            .containsExactlyInAnyOrder(
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 11, 19), LocalDate.of(2026, 12, 1));
         assertThat(eventOn(existing, LocalDate.of(2026, 8, 1)).getPaymentDate())
             .isEqualTo(LocalDate.of(2026, 8, 15));
         assertThat(eventOn(existing, LocalDate.of(2026, 12, 1))).satisfies(event -> {
@@ -429,6 +466,95 @@ class DividendHistoryServiceTest {
         }
     }
 
+    @Test
+    void aSkippedNasdaqRowKeepsTheStoredFutureDeclaration() {
+        DividendEvent declared = DividendEvent.builder()
+            .exDate(LocalDate.of(2026, 11, 19))
+            .amount(new BigDecimal("0.98"))
+            .amountEur(new BigDecimal("0.88"))
+            .paymentDate(LocalDate.of(2026, 12, 10))
+            .declared(true)
+            .build();
+        DividendSource existing = source("AAPL", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(8)));
+        existing.setId(6L);
+        existing.setEvents(new ArrayList<>(List.of(declared)));
+        when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
+        when(repository.findByTicker("AAPL")).thenReturn(Optional.of(existing));
+        when(historyPort.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
+            "USD", List.of(point("2026-08-01", "1.10"))));
+        when(prices.getFxRateToEur("USD")).thenReturn(new BigDecimal("0.90"));
+        when(prices.getFxRateToEur("GBP")).thenReturn(null);
+        when(nasdaq.fetchDividends("AAPL")).thenReturn(List.of(new com.picsou.port.NasdaqDividend(
+            LocalDate.of(2026, 11, 19), LocalDate.of(2026, 12, 10), null, null,
+            new BigDecimal("1.05"), "GBP")));
+
+        service().refreshStale(List.of("AAPL"), 10);
+
+        assertThat(eventOn(existing, LocalDate.of(2026, 11, 19))).satisfies(event -> {
+            assertThat(event.getAmount()).isEqualByComparingTo("0.98");
+            assertThat(event.getAmountEur()).isEqualByComparingTo("0.88");
+            assertThat(event.isDeclared()).isTrue();
+        });
+    }
+
+    @Test
+    void aFutureOverlapTakesTheNasdaqAmountWhenFxIsAvailable() {
+        DividendEvent yahoo = DividendEvent.builder()
+            .exDate(LocalDate.of(2026, 11, 19))
+            .amount(new BigDecimal("0.40"))
+            .amountEur(new BigDecimal("0.36"))
+            .declared(true)
+            .build();
+        DividendSource existing = source("AAPL", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(8)));
+        existing.setId(7L);
+        existing.setEvents(new ArrayList<>(List.of(yahoo)));
+        when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
+        when(repository.findByTicker("AAPL")).thenReturn(Optional.of(existing));
+        when(historyPort.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
+            "USD", List.of(point("2026-11-19", "0.40"))));
+        when(prices.getFxRateToEur("USD")).thenReturn(new BigDecimal("0.90"));
+        when(nasdaq.fetchDividends("AAPL")).thenReturn(List.of(new com.picsou.port.NasdaqDividend(
+            LocalDate.of(2026, 11, 19), LocalDate.of(2026, 12, 10), null, null,
+            new BigDecimal("0.98"), "USD")));
+
+        service().refreshStale(List.of("AAPL"), 10);
+
+        assertThat(eventOn(existing, LocalDate.of(2026, 11, 19))).satisfies(event -> {
+            assertThat(event.isDeclared()).isTrue();
+            assertThat(event.getAmount()).isEqualByComparingTo("0.98");
+            assertThat(event.getAmountEur()).isEqualByComparingTo("0.88200000");
+        });
+    }
+
+    @Test
+    void aBlankNasdaqCurrencyDoesNotStoreTheRowOneToOneAsEur() {
+        when(historyPort.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
+            null, List.of()));
+        when(nasdaq.fetchDividends("AAPL")).thenReturn(List.of(new com.picsou.port.NasdaqDividend(
+            LocalDate.of(2026, 11, 19), LocalDate.of(2026, 12, 10), null, null,
+            new BigDecimal("0.98"), "  ")));
+
+        service().refreshStale(List.of("AAPL"), 10);
+
+        org.mockito.ArgumentCaptor<DividendSource> saved = org.mockito.ArgumentCaptor.forClass(DividendSource.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getEvents()).isEmpty();
+    }
+
+    @Test
+    void theProviderIsCalledOutsideTheWriteTransaction() {
+        when(historyPort.fetchDividendHistory("AAPL")).thenAnswer(invocation -> {
+            assertThat(txManager.open).isFalse();
+            return new DividendHistory("EUR", List.of(point("2026-06-01", "1")));
+        });
+        when(prices.getFxRateToEur("EUR")).thenReturn(BigDecimal.ONE);
+
+        service().refreshStale(List.of("AAPL"), 10);
+
+        assertThat(txManager.started).isEqualTo(1);
+        assertThat(txManager.open).isFalse();
+    }
+
     private DividendHistoryService service() {
         return new DividendHistoryService(
             repository, historyPort, nasdaq, prices, cooldown, new TransactionTemplate(txManager),
@@ -458,14 +584,20 @@ class DividendHistoryServiceTest {
 
     private static final class CountingTxManager implements PlatformTransactionManager {
         int started;
+        boolean open;
 
         @Override public TransactionStatus getTransaction(TransactionDefinition definition) {
             started++;
+            open = true;
             return new SimpleTransactionStatus();
         }
 
-        @Override public void commit(TransactionStatus status) {}
+        @Override public void commit(TransactionStatus status) {
+            open = false;
+        }
 
-        @Override public void rollback(TransactionStatus status) {}
+        @Override public void rollback(TransactionStatus status) {
+            open = false;
+        }
     }
 }

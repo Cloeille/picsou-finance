@@ -127,6 +127,7 @@ class DividendForecastServiceTest {
 
     @Test
     void horizonIsInclusiveOnBothEnds() {
+        // No stored payment date: the ex-date decides, inclusive on both ends.
         assertThat(forecast(AccountType.COMPTE_TITRES, "TTE.PA", "10", "100", 31, "EUR", "1", "1",
             "2026-07-20", "2026-08-20", "2026-09-20"))
             .extracting(UpcomingDividendResponse::expectedDate)
@@ -135,6 +136,112 @@ class DividendForecastServiceTest {
             "2026-07-20", "2026-08-20", "2026-09-20"))
             .extracting(UpcomingDividendResponse::expectedDate)
             .containsExactly(LocalDate.of(2026, 10, 20));
+
+        // A known payment date decides instead, still inclusive on both ends.
+        Account account = account(12L, "CTO", AccountType.COMPTE_TITRES);
+        Prepared onEnd = prepared(account, "ON", "1", "EUR", "1", "1", "2026-09-01");
+        onEnd.source().getEvents().get(0).setPaymentDate(TODAY.plusDays(60));
+        onEnd.source().getEvents().get(0).setDeclared(true);
+        Prepared pastEnd = prepared(account, "PAST", "1", "EUR", "1", "1", "2026-09-01");
+        pastEnd.source().getEvents().get(0).setPaymentDate(TODAY.plusDays(61));
+        pastEnd.source().getEvents().get(0).setDeclared(true);
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(account));
+        when(access.sharesFor(any(), eq(MEMBER))).thenReturn(Map.of(12L, new BigDecimal("100")));
+        when(holdings.findPositiveByAccountIdIn(any())).thenReturn(List.of(onEnd.holding(), pastEnd.holding()));
+        when(sources.findAllWithEventsByTickerIn(any())).thenReturn(List.of(onEnd.source(), pastEnd.source()));
+
+        assertThat(service.upcoming(MEMBER, TODAY, 60))
+            .extracting(UpcomingDividendResponse::ticker)
+            .containsExactly("ON");
+    }
+
+    @Test
+    void aFailedSourceWithEventsStillForecasts() {
+        Account account = account(12L, "CTO", AccountType.COMPTE_TITRES);
+        Prepared prepared = prepared(account, "MC.PA", "1", "EUR", "1", "1",
+            "2026-03-17", "2026-06-16", "2026-09-15");
+        prepared.source().setStatus(DividendSourceStatus.FAILED);
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(account));
+        when(access.sharesFor(any(), eq(MEMBER))).thenReturn(Map.of(12L, new BigDecimal("100")));
+        when(holdings.findPositiveByAccountIdIn(any())).thenReturn(List.of(prepared.holding()));
+        when(sources.findAllWithEventsByTickerIn(any())).thenReturn(List.of(prepared.source()));
+
+        assertThat(service.upcoming(MEMBER, TODAY, 60))
+            .extracting(UpcomingDividendResponse::expectedDate)
+            .containsExactly(LocalDate.of(2026, 12, 15));
+    }
+
+    @Test
+    void anAlreadyExDividendWithAPaymentStillAheadAppears() {
+        Account account = account(12L, "CTO", AccountType.COMPTE_TITRES);
+        Prepared prepared = prepared(account, "MSFT", "1", "USD", "1", "1", "2026-10-01");
+        prepared.source().getEvents().get(0).setPaymentDate(LocalDate.of(2026, 10, 25));
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(account));
+        when(access.sharesFor(any(), eq(MEMBER))).thenReturn(Map.of(12L, new BigDecimal("100")));
+        when(holdings.findPositiveByAccountIdIn(any())).thenReturn(List.of(prepared.holding()));
+        when(sources.findAllWithEventsByTickerIn(any())).thenReturn(List.of(prepared.source()));
+
+        assertThat(service.upcoming(MEMBER, TODAY, 60)).singleElement().satisfies(line -> {
+            assertThat(line.exDate()).isEqualTo(LocalDate.of(2026, 10, 1));
+            assertThat(line.paymentDate()).isEqualTo(LocalDate.of(2026, 10, 25));
+        });
+    }
+
+    @Test
+    void anAnnouncedExDatePastTheHorizonSuppressesTheCadenceGuessInsideIt() {
+        Account account = account(12L, "CTO", AccountType.COMPTE_TITRES);
+        Prepared prepared = prepared(account, "MC.PA", "1", "EUR", "1", "1",
+            "2026-03-17", "2026-06-16", "2026-09-15");
+        prepared.source().getEvents().add(DividendEvent.builder()
+            .exDate(LocalDate.of(2026, 12, 28))
+            .amount(new BigDecimal("1"))
+            .amountEur(new BigDecimal("1"))
+            .declared(true)
+            .build());
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(account));
+        when(access.sharesFor(any(), eq(MEMBER))).thenReturn(Map.of(12L, new BigDecimal("100")));
+        when(holdings.findPositiveByAccountIdIn(any())).thenReturn(List.of(prepared.holding()));
+        when(sources.findAllWithEventsByTickerIn(any())).thenReturn(List.of(prepared.source()));
+
+        assertThat(service.upcoming(MEMBER, TODAY, 60)).isEmpty();
+    }
+
+    @Test
+    void aNegativeOrUnboundedPaymentLagIsIgnored() {
+        Account account = account(12L, "CTO", AccountType.COMPTE_TITRES);
+        Prepared prepared = prepared(account, "MSFT", "1", "USD", "1", "1",
+            "2026-07-20", "2026-08-20", "2026-09-20");
+        prepared.source().getEvents().get(0).setPaymentDate(LocalDate.of(2026, 7, 10));
+        prepared.source().getEvents().get(1).setPaymentDate(LocalDate.of(2026, 12, 20));
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(account));
+        when(access.sharesFor(any(), eq(MEMBER))).thenReturn(Map.of(12L, new BigDecimal("100")));
+        when(holdings.findPositiveByAccountIdIn(any())).thenReturn(List.of(prepared.holding()));
+        when(sources.findAllWithEventsByTickerIn(any())).thenReturn(List.of(prepared.source()));
+
+        assertThat(service.upcoming(MEMBER, TODAY, 60)).isNotEmpty()
+            .allSatisfy(line -> assertThat(line.paymentDate()).isNull());
+    }
+
+    @Test
+    void aNullAccountTypeDoesNotCountInBudget_andANegativeAnnouncedAmountIsSkipped() {
+        assertThat(DividendForecastService.countsInBudget(null, false)).isFalse();
+
+        Account account = account(12L, "CTO", AccountType.COMPTE_TITRES);
+        Prepared prepared = prepared(account, "MSFT", "1", "USD", "1", "1", "2026-09-20");
+        prepared.source().getEvents().add(DividendEvent.builder()
+            .exDate(LocalDate.of(2026, 11, 19))
+            .amount(new BigDecimal("-0.10"))
+            .amountEur(new BigDecimal("-0.09"))
+            .declared(true)
+            .build());
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(account));
+        when(access.sharesFor(any(), eq(MEMBER))).thenReturn(Map.of(12L, new BigDecimal("100")));
+        when(holdings.findPositiveByAccountIdIn(any())).thenReturn(List.of(prepared.holding()));
+        when(sources.findAllWithEventsByTickerIn(any())).thenReturn(List.of(prepared.source()));
+
+        assertThat(service.upcoming(MEMBER, TODAY, 90))
+            .extracting(UpcomingDividendResponse::exDate)
+            .doesNotContain(LocalDate.of(2026, 11, 19));
     }
 
     @Test
@@ -309,7 +416,7 @@ class DividendForecastServiceTest {
         // 10 days after 2026-08-20 (also 41 days after 2026-07-20: the latest ex-date wins).
         // 20, 30 and 60 days after 2026-09-20. Even count, lower central value is 20, not 25 or 30.
         // The other account's 40-day pair must not enter the median.
-        when(transactions.findDividendCashDates(any())).thenReturn(List.of(
+        when(transactions.findDividendCashDates(any(), any())).thenReturn(List.of(
             cash(12L, "tte.pa", "2026-08-30"),
             cash(12L, "TTE.PA", "2026-10-10"),
             cash(12L, "TTE.PA", "2026-10-20"),
@@ -327,7 +434,7 @@ class DividendForecastServiceTest {
             assertThat(line.paymentDateEstimated()).isTrue();
             assertThat(line.amountPerShareEur()).isEqualByComparingTo("0.85");
         });
-        verify(transactions, times(1)).findDividendCashDates(any());
+        verify(transactions, times(1)).findDividendCashDates(any(), any());
     }
 
     @Test
@@ -343,7 +450,7 @@ class DividendForecastServiceTest {
             assertThat(line.exDate()).isEqualTo(line.expectedDate());
             assertThat(line.amountPerShareEur()).isEqualByComparingTo("0.85");
         });
-        verify(transactions, times(1)).findDividendCashDates(any());
+        verify(transactions, times(1)).findDividendCashDates(any(), any());
         verify(access, never()).requireReadable(any(), any());
     }
 
@@ -356,7 +463,7 @@ class DividendForecastServiceTest {
         when(access.sharesFor(any(), eq(MEMBER))).thenReturn(Map.of(12L, new BigDecimal("100")));
         when(holdings.findPositiveByAccountIdIn(any())).thenReturn(List.of(prepared.holding()));
         when(sources.findAllWithEventsByTickerIn(any())).thenReturn(List.of(prepared.source()));
-        when(transactions.findDividendCashDates(any())).thenReturn(List.of(
+        when(transactions.findDividendCashDates(any(), any())).thenReturn(List.of(
             cash(12L, "TTE.PA", "2026-11-20")));
 
         List<UpcomingDividendResponse> lines = service.upcoming(MEMBER, TODAY, 60);
@@ -377,7 +484,7 @@ class DividendForecastServiceTest {
         when(access.sharesFor(any(), eq(MEMBER))).thenReturn(Map.of(12L, new BigDecimal("100")));
         when(holdings.findPositiveByAccountIdIn(any())).thenReturn(List.of(prepared.holding()));
         when(sources.findAllWithEventsByTickerIn(any())).thenReturn(List.of(prepared.source()));
-        when(transactions.findDividendCashDates(any())).thenReturn(List.of(
+        when(transactions.findDividendCashDates(any(), any())).thenReturn(List.of(
             cash(12L, "TTE.PA", "2026-11-19")));
 
         assertThat(service.upcoming(MEMBER, TODAY, 60)).isNotEmpty().allSatisfy(line ->
@@ -395,7 +502,7 @@ class DividendForecastServiceTest {
             12L, new BigDecimal("100"), 4L, new BigDecimal("100")));
         when(holdings.findPositiveByAccountIdIn(any())).thenReturn(List.of(prepared.holding()));
         when(sources.findAllWithEventsByTickerIn(any())).thenReturn(List.of(prepared.source()));
-        when(transactions.findDividendCashDates(any())).thenReturn(List.of(
+        when(transactions.findDividendCashDates(any(), any())).thenReturn(List.of(
             cash(12L, "TTE.PA", "2026-11-20"),
             cash(4L, "tte.pa", "2026-07-24"),
             cash(4L, "TTE.PA", "2026-08-28")));
@@ -408,7 +515,7 @@ class DividendForecastServiceTest {
             assertThat(line.paymentDateEstimated()).isTrue();
         });
         verify(transactions, times(1)).findDividendCashDates(argThat(ids ->
-            ids.contains(12L) && ids.contains(4L)));
+            ids.contains(12L) && ids.contains(4L)), eq(TODAY.minusMonths(24)));
     }
 
     @Test
@@ -429,7 +536,8 @@ class DividendForecastServiceTest {
         assertThat(lines).extracting(UpcomingDividendResponse::ticker).containsOnly("AAA");
         verify(access).requireReadable(4L, MEMBER);
         verify(holdings).findPositiveByAccountIdIn(argThat(ids -> ids.contains(4L) && !ids.contains(12L)));
-        verify(transactions).findDividendCashDates(argThat(ids -> ids.contains(12L) && ids.contains(4L)));
+        verify(transactions).findDividendCashDates(
+            argThat(ids -> ids.contains(12L) && ids.contains(4L)), eq(TODAY.minusMonths(24)));
     }
 
     @Test
@@ -440,7 +548,7 @@ class DividendForecastServiceTest {
             .isInstanceOf(ResourceNotFoundException.class);
 
         verify(access, never()).readableAccounts(any());
-        verify(transactions, never()).findDividendCashDates(any());
+        verify(transactions, never()).findDividendCashDates(any(), any());
     }
 
     @Test
@@ -556,7 +664,7 @@ class DividendForecastServiceTest {
         when(access.sharesFor(any(), eq(MEMBER))).thenReturn(Map.of(12L, new BigDecimal("100")));
         when(holdings.findPositiveByAccountIdIn(any())).thenReturn(List.of(prepared.holding()));
         when(sources.findAllWithEventsByTickerIn(any())).thenReturn(List.of(prepared.source()));
-        when(transactions.findDividendCashDates(any())).thenReturn(List.of(cash(12L, "MSFT", "2026-07-25")));
+        when(transactions.findDividendCashDates(any(), any())).thenReturn(List.of(cash(12L, "MSFT", "2026-07-25")));
 
         assertThat(service.upcoming(MEMBER, TODAY, 60)).isNotEmpty().allSatisfy(line ->
             assertThat(line.paymentDate()).isEqualTo(line.exDate().plusDays(14)));

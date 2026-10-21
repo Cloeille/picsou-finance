@@ -15,10 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on the SCPI position. Amounts are gross estimates, weighted by your ownership share; a
   dividend paid inside a PEA, an assurance vie, a PER or an employee savings plan, or a
   reinvested SCPI distribution, is listed but left out of the total, since it stays in the
-  envelope. Dividend histories are refreshed once a week
-  from Yahoo Finance, completed by Nasdaq for Nasdaq-listed stocks (real payment dates and dividends
+  envelope. Dividend histories are refreshed once a week, on a six-day cutoff so the Sunday
+  pass actually hits, from Yahoo Finance, completed by Nasdaq for Nasdaq-listed stocks (real payment dates and dividends
   already declared), and never while prices are rate-limited, so opening Budget sends no
-  request. A new default income category, *Revenus du capital*, is added for every member.
+  request. A failed refresh keeps the last forecast. The 60-day window is the payment date
+  when one is known, otherwise the ex-date. A new default income category, *Revenus du capital*, is added for every member.
   The page of a compte-titres or a PEA lists its dividends for the next 12 months, with the
   ex-date and the payment date of each; the payment date is learned from your past dividend
   transactions on that line and shown as unknown when there are none.

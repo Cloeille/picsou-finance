@@ -27,23 +27,34 @@ declares. Never call a provider on the read path.**
 - `dividend_source` / `dividend_event` (Flyway V116) hold the history per ticker, globally: a
   dividend is not private data, so one fetch serves every member holding the ticker. Each event
   stores its EUR amount at refresh time, so the forecast never needs a live FX rate.
-- `SchedulerService.refreshDividendHistory` runs on Sunday at 04:15, one
+- `SchedulerService.refreshDividendHistory` runs on Sunday at 04:15, on its own executor so the
+  pass does not occupy Spring's single scheduler thread, one
   `/v8/finance/chart/{ticker}?range=2y&interval=1mo&events=div` call per distinct ticker,
-  capped at 40 per pass and paced. It **reads** `YahooCooldown`: while prices are rate-limited, the
+  stalest first, capped at 40 per pass and paced. Each ticker is fetched outside the write
+  transaction. A ticker is included when a non-null ISIN is known for it, or when at least one
+  live holding sits in a non-crypto account; it is skipped only when no ISIN is known and every
+  live holding of it is crypto. It **reads** `YahooCooldown`: while prices are rate-limited, the
   pass is skipped. A success is refreshed after 6 days (under the weekly cron period, since
   `refreshedAt` is stamped after the fetch), a failure retried after 3. A failed fetch keeps the
   previous events, and the forecast keeps using them.
 - US listings (tickers without an exchange suffix) are completed in the same pass by Nasdaq's
   `api/quote/{symbol}/dividends` (no key, unofficial): payment date, record date and the
   already-declared next dividend, stored as an announced event. A Nasdaq failure never discards
-  the Yahoo history. Nasdaq only fills Nasdaq-listed stocks: NYSE listings (KO, JNJ, O),
-  ETFs and European tickers come back empty, so it cannot replace Yahoo.
+  the Yahoo history. A stored future declaration stays unless Nasdaq returned that ex-date; when
+  both have it and a rate exists, the Nasdaq amount replaces the Yahoo one. Nasdaq only fills
+  Nasdaq-listed stocks: NYSE listings (KO, JNJ, O), ETFs and European tickers come back empty,
+  so it cannot replace Yahoo.
 - The cadence (monthly, quarterly, semi-annual, annual) is inferred only when every gap between
   consecutive ex-dates in the last 24 months falls in one band; the last amount is carried
-  forward. An irregular or lapsed payer gets no forecast.
+  forward. An irregular or lapsed payer gets no forecast. A holding line is in the horizon when
+  its known payment date is; when that date is null the ex-date decides, and no lag is invented
+  for the choice. An announced ex-date just past the horizon still suppresses the cadence
+  projection inside it.
 - An SCPI position gains an optional declared annual distribution per share and a frequency
-  (monthly or quarterly). Payments are placed on the 25th of the month after each period, none
-  before the jouissance date. A `REINVEST` position is forecast and flagged, not hidden.
+  (monthly or quarterly). Omitting either field leaves the stored value alone; an explicit null
+  clears it. The amount is bounded to `NUMERIC(20, 8)`: a larger value is a 400, not a 500.
+  Payments are placed on the 25th of the month after each period, none before the jouissance
+  date. A `REINVEST` position is forecast and flagged, not hidden.
 - The forecast is computed on the fly by a read-only service and exposed as
   `GET /api/dividends/upcoming`. Each line carries a deterministic id
   (`SOURCE:accountId:instrument:date`), which is what a notifier needs to tell "already sent"

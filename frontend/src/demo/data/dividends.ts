@@ -20,6 +20,18 @@ function addDays(isoDate: string, n: number): string {
 }
 
 /**
+ * Date that places a line in [today, end].
+ *
+ * A known payment date wins, even when the ex-date is already past or the cash
+ * date sits past the horizon. When paymentDate is null the ex-date rule applies.
+ * Nothing here adds a lag.
+ */
+function horizonDate(row: UpcomingDividend): string | null {
+  if (row.paymentDate != null) return row.paymentDate
+  return row.exDate ?? row.expectedDate
+}
+
+/**
  * Projected payments relative to today, so the budget card always has something to show.
  *
  * The PEA line and the reinvested SCPI line carry `countsInBudget: false` because that is
@@ -27,10 +39,12 @@ function addDays(isoDate: string, n: number): string {
  * The SCPI amount mirrors the demo account (id 13, 10 shares, 12 €/year, quarterly → 30 €).
  * A payment 90 days out exists so a shorter horizon actually drops a row.
  *
- * `exDate` / `paymentDate` follow the contract: a holding's ex-date is its expected date,
- * its payment date is that date plus a learned lag (or null when nothing was learned),
- * and an SCPI has a payment date only. Passing `accountId` keeps the rows of that account,
- * which is what the compte-titres and PEA pages ask for.
+ * A holding is inside the horizon when its known paymentDate is in [today, end].
+ * When that date is null, the ex-date rule applies. A lag is never invented, so an
+ * ex-date already past with no known payment stays out, while one already past with
+ * a known payment still ahead stays in. An SCPI has a payment date only.
+ * Passing `accountId` keeps the rows of that account, which is what the compte-titres
+ * and PEA pages ask for. Sort stays on the ex-date (`expectedDate`), matching the API.
  */
 export function mockUpcomingDividends(horizonDays: number, accountId?: number): UpcomingDividend[] {
   const today = daysFromNow(0)
@@ -42,6 +56,13 @@ export function mockUpcomingDividends(horizonDays: number, accountId?: number): 
   const scpiPay = daysFromNow(20)
   const sanEx = daysFromNow(40)
   const orEx = daysFromNow(90)
+  const bnEx = daysFromNow(-4)
+  const bnPay = daysFromNow(6)
+  const suEx = daysFromNow(55)
+  const suPay = daysFromNow(70)
+  const kerEx = daysFromNow(-12)
+  const riEx = daysFromNow(10)
+  const riPay = daysFromNow(-3)
   const rows: UpcomingDividend[] = [
     {
       id: `HOLDING:3:TTE.PA:${tteEx}`,
@@ -198,9 +219,104 @@ export function mockUpcomingDividends(horizonDays: number, accountId?: number): 
       accountType: 'COMPTE_TITRES',
       countsInBudget: true,
     },
+    {
+      // Already ex, known payment still ahead: the window follows the payment date.
+      id: `HOLDING:3:BN.PA:${bnEx}`,
+      source: 'HOLDING',
+      accountId: 3,
+      accountName: 'Compte Titres Degiro',
+      ticker: 'BN.PA',
+      name: 'Danone',
+      expectedDate: bnEx,
+      exDate: bnEx,
+      paymentDate: bnPay,
+      paymentDateEstimated: false,
+      cadence: null,
+      basis: 'ANNOUNCED',
+      quantity: 6,
+      amountPerShare: 1.1,
+      amountPerShareEur: 1.1,
+      currency: 'EUR',
+      amountEur: 6.6,
+      reinvested: false,
+      accountType: 'COMPTE_TITRES',
+      countsInBudget: true,
+    },
+    {
+      // Ex-date inside 60 days, known payment past it: the payment date wins.
+      id: `HOLDING:3:SU.PA:${suEx}`,
+      source: 'HOLDING',
+      accountId: 3,
+      accountName: 'Compte Titres Degiro',
+      ticker: 'SU.PA',
+      name: 'Schneider',
+      expectedDate: suEx,
+      exDate: suEx,
+      paymentDate: suPay,
+      paymentDateEstimated: true,
+      cadence: 'ANNUAL',
+      basis: 'HISTORY_CADENCE',
+      quantity: 3,
+      amountPerShare: 3.5,
+      amountPerShareEur: 3.5,
+      currency: 'EUR',
+      amountEur: 10.5,
+      reinvested: false,
+      accountType: 'COMPTE_TITRES',
+      countsInBudget: true,
+    },
+    {
+      // Ex-date already past, no known payment: do not invent a lag.
+      id: `HOLDING:3:KER.PA:${kerEx}`,
+      source: 'HOLDING',
+      accountId: 3,
+      accountName: 'Compte Titres Degiro',
+      ticker: 'KER.PA',
+      name: 'Kering',
+      expectedDate: kerEx,
+      exDate: kerEx,
+      paymentDate: null,
+      paymentDateEstimated: false,
+      cadence: 'ANNUAL',
+      basis: 'HISTORY_CADENCE',
+      quantity: 1,
+      amountPerShare: 4,
+      amountPerShareEur: 4,
+      currency: 'EUR',
+      amountEur: 4,
+      reinvested: false,
+      accountType: 'COMPTE_TITRES',
+      countsInBudget: true,
+    },
+    {
+      // Known payment already past: the ex-date still ahead does not pull it back in.
+      id: `HOLDING:3:RI.PA:${riEx}`,
+      source: 'HOLDING',
+      accountId: 3,
+      accountName: 'Compte Titres Degiro',
+      ticker: 'RI.PA',
+      name: 'Pernod Ricard',
+      expectedDate: riEx,
+      exDate: riEx,
+      paymentDate: riPay,
+      paymentDateEstimated: false,
+      cadence: 'ANNUAL',
+      basis: 'ANNOUNCED',
+      quantity: 2,
+      amountPerShare: 2.3,
+      amountPerShareEur: 2.3,
+      currency: 'EUR',
+      amountEur: 4.6,
+      reinvested: false,
+      accountType: 'COMPTE_TITRES',
+      countsInBudget: true,
+    },
   ]
   return rows
-    .filter((row) => row.expectedDate >= today && row.expectedDate <= limit)
+    .filter((row) => {
+      const date = horizonDate(row)
+      return date != null && date >= today && date <= limit
+    })
     .filter((row) => accountId == null || row.accountId === accountId)
     .sort((a, b) => a.expectedDate.localeCompare(b.expectedDate)
       || a.accountName.localeCompare(b.accountName)

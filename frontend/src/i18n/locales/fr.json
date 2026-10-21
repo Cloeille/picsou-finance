@@ -242,7 +242,13 @@
       "empty": "Aucun dividende prévu",
       "refreshWeekly": "Les historiques de dividendes sont actualisés chaque semaine.",
       "error": "Impossible de charger les dividendes à venir.",
-      "yearTotal": "sur 12 mois"
+      "yearTotal": "sur 12 mois",
+      "cadence": {
+        "MONTHLY": "Mensuel",
+        "QUARTERLY": "Trimestriel",
+        "SEMI_ANNUAL": "Semestriel",
+        "ANNUAL": "Annuel"
+      }
     },
     "snapshots": "Relevés mensuels",
     "changeCategory": "Changer la catégorie",
@@ -459,7 +465,7 @@
     "reinvest": "Réinvestis",
     "jouissanceDate": "Date de jouissance",
     "annualDistribution": "Distribution annuelle par part (€)",
-    "annualDistributionHint": "Facultatif. Sert à estimer les versements à venir. Les montants réinvestis restent hors budget.",
+    "annualDistributionHint": "Facultatif, mais le montant et la fréquence vont ensemble : les deux, ou aucun. Sert à estimer les versements à venir. Les montants réinvestis restent hors budget.",
     "distributionFrequency": "Fréquence de distribution",
     "frequencyMonthly": "Mensuelle",
     "frequencyQuarterly": "Trimestrielle",
