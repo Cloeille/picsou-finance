@@ -80,6 +80,34 @@ class RevolutAdapterTest {
     }
 
     @Test
+    void sync_mapsHumanVerificationToACodedSyncException() throws Exception {
+        try (TestServer server = TestServer.start(exchange ->
+            respond(exchange, 403, "{\"error\":\"HUMAN_VERIFICATION_REQUIRED\"}"))) {
+            RevolutAdapter adapter = adapter(server);
+
+            assertThatThrownBy(() -> adapter.sync("+336****0000", "123456", 5L))
+                .isInstanceOfSatisfying(SyncException.class, error -> {
+                    assertThat(error).hasMessage("HUMAN_VERIFICATION_REQUIRED");
+                    assertThat(error.getCode()).isEqualTo("HUMAN_VERIFICATION_REQUIRED");
+                });
+        }
+    }
+
+    @Test
+    void sync_mapsAnUnrecognisedLoginPageToACodedSyncException() throws Exception {
+        try (TestServer server = TestServer.start(exchange ->
+            respond(exchange, 424, "{\"error\":\"UPSTREAM_FORMAT_CHANGED\"}"))) {
+            RevolutAdapter adapter = adapter(server);
+
+            assertThatThrownBy(() -> adapter.sync("+336****0000", "123456", 5L))
+                .isInstanceOfSatisfying(SyncException.class, error -> {
+                    assertThat(error).hasMessage("UPSTREAM_FORMAT_CHANGED");
+                    assertThat(error.getCode()).isEqualTo("UPSTREAM_FORMAT_CHANGED");
+                });
+        }
+    }
+
+    @Test
     void sync_mapsTransactionKindFromSidecar() throws Exception {
         try (TestServer server = TestServer.start(exchange -> respond(exchange, 200, """
             {"accounts":[{"externalId":"wallet","name":"Wallet","type":"CHECKING","balance":10,

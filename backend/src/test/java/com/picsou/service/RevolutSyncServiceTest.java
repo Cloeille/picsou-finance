@@ -609,7 +609,37 @@ class RevolutSyncServiceTest {
         assertThat(preview.get(0).alreadyImported()).isFalse();
 
         verify(progressService).done(MEMBER_ID, SyncProvider.REVOLUT);
-        verify(progressService, never()).error(anyLong(), any(), anyString());
+        verify(progressService, never()).error(anyLong(), any(), any(), any());
+    }
+
+    /**
+     * A captcha is not a transient glitch: the discovery must end in {@code error} carrying the stable
+     * code (so the UI can translate it) and a friendly sentence, never the raw sentinel.
+     */
+    @Test
+    void discover_reportsHumanVerificationWithItsCodeAndAFriendlyMessage() {
+        when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID)).thenThrow(new SyncException(
+            "HUMAN_VERIFICATION_REQUIRED", null, "HUMAN_VERIFICATION_REQUIRED"));
+
+        service.discover(MEMBER_ID, PHONE, PASSCODE);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(progressService).error(
+            eq(MEMBER_ID), eq(SyncProvider.REVOLUT), message.capture(), eq("HUMAN_VERIFICATION_REQUIRED"));
+        assertThat(message.getValue()).contains("human verification").doesNotContain("HUMAN_VERIFICATION_REQUIRED");
+        verify(progressService, never()).done(anyLong(), any());
+    }
+
+    @Test
+    void sync_keepsTheCodeAndFriendlyMessageForAnUnrecognisedLoginPage() {
+        when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID)).thenThrow(new SyncException(
+            "UPSTREAM_FORMAT_CHANGED", null, "UPSTREAM_FORMAT_CHANGED"));
+
+        assertThatThrownBy(() -> service.sync(MEMBER_ID, PHONE, PASSCODE, false))
+            .isInstanceOfSatisfying(SyncException.class, error -> {
+                assertThat(error.getCode()).isEqualTo("UPSTREAM_FORMAT_CHANGED");
+                assertThat(error.getMessage()).doesNotContain("UPSTREAM_FORMAT_CHANGED");
+            });
     }
 
     /**

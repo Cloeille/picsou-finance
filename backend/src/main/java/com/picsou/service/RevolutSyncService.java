@@ -182,11 +182,11 @@ public class RevolutSyncService {
             progressService.accountsFound(memberId, SyncProvider.REVOLUT, harvested.size());
             progressService.done(memberId, SyncProvider.REVOLUT);
         } catch (SyncException e) {
-            progressService.error(memberId, SyncProvider.REVOLUT, friendly(e.getMessage()));
+            progressService.error(memberId, SyncProvider.REVOLUT, friendly(e.getMessage()), e.getCode());
         } catch (Exception e) {
             log.warn("Revolut discovery failed for member {}: {}", memberId, e.getMessage());
             progressService.error(memberId, SyncProvider.REVOLUT,
-                "Failed to sync Revolut accounts. Please try again later.");
+                "Failed to sync Revolut accounts. Please try again later.", null);
         }
     }
 
@@ -326,6 +326,11 @@ public class RevolutSyncService {
             case "APPROVAL_TIMEOUT" ->
                 "The mobile approval was not confirmed in time. Please try again and approve the " +
                     "push notification on your phone.";
+            case "HUMAN_VERIFICATION_REQUIRED" ->
+                "Revolut is asking for a human verification (captcha) that Picsou cannot complete, " +
+                    "so no approval was sent to your phone. Please try again later.";
+            case "UPSTREAM_FORMAT_CHANGED" ->
+                "The Revolut sign-in didn't go through. Check your phone number and try again.";
             case "SYNC_IN_PROGRESS" ->
                 "A Revolut sync is already running for this account. Please wait for it to finish " +
                     "before starting another.";

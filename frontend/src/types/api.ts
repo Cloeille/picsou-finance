@@ -1541,6 +1541,8 @@ export interface SyncProgress {
   accountsFound: number | null
   done: boolean
   error: string | null
+  /** Stable code for `error` when the UI translates it (e.g. `HUMAN_VERIFICATION_REQUIRED`). */
+  errorCode: string | null
   discovered: DiscoveredRevolutAccount[]
 }
 

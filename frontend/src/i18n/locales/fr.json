@@ -1129,6 +1129,10 @@
         "awaitingApproval": "Approuve la connexion sur ton app Revolut… ({{remaining}} s restantes)",
         "harvesting": "Récupération de tes comptes… ({{count}} trouvés)"
       },
+      "errors": {
+        "humanVerificationRequired": "Revolut te demande de prouver que tu es humain (captcha), ce que Picsou ne peut pas faire à ta place. Aucune approbation n'a été envoyée sur ton téléphone. Réessaie plus tard.",
+        "upstreamFormatChanged": "La connexion n'a pas abouti. Vérifie ton numéro de téléphone et réessaie."
+      },
       "selection": {
         "title": "Choisis les comptes à importer",
         "selectAll": "Tout sélectionner",
