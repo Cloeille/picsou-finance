@@ -181,6 +181,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
+  Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
+  Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
+  of disappearing.
 - **Revolut tells you when it asks for a captcha instead of counting down for a push that never
   comes.** Revolut can answer the phone number with an image challenge; the sidecar used to type
   nothing further, then show "Approve the connection in your Revolut app… (300s left)" until it

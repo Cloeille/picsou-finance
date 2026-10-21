@@ -23,6 +23,9 @@ import { CaisseEpargnePanel } from '@/components/sync/CaisseEpargnePanel'
 import { DegiroPanel } from '@/components/sync/DegiroPanel'
 import { AmundiPanel } from '@/components/sync/AmundiPanel'
 import { FortuneoPanel } from '@/components/sync/FortuneoPanel'
+import { AmexPanel } from '@/components/sync/AmexPanel'
+import { CorumPanel } from '@/components/sync/CorumPanel'
+import { SofidyPanel } from '@/components/sync/SofidyPanel'
 import { IbkrPanel } from '@/components/sync/IbkrPanel'
 import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
 import {
@@ -63,6 +66,7 @@ import {
   Wallet,
   Smartphone,
   CreditCard,
+  Building2,
   FileSpreadsheet,
   PenLine,
   ArrowRight,
@@ -97,10 +101,8 @@ interface AddAccountModalProps {
 
 type WizardStep =
   | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso' | 'caisseEpargne'
-  | 'bourseDirect' | 'degiro' | 'amundi' | 'fortuneo' | 'finary' | 'property' | 'manual'
-  | 'bourseDirect' | 'degiro' | 'amundi' | 'finary' | 'property' | 'manual'
-  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'bourso'
-  | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'amundi' | 'finary' | 'property' | 'manual'
+  | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'amundi' | 'fortuneo' | 'amex' | 'corum' | 'sofidy'
+  | 'finary' | 'property' | 'manual'
 
 /**
  * Masked variant of InputOTPSlot — replaces the typed character with a bullet
@@ -146,6 +148,9 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'simplefin', icon: Landmark, labelKey: 'sync.simplefin.title', descKey: 'addAccount.desc.simplefin' },
   { key: 'amundi', icon: PiggyBank, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
   { key: 'fortuneo', icon: PiggyBank, labelKey: 'sync.fortuneo.title', descKey: 'addAccount.desc.fortuneo' },
+  { key: 'amex', icon: CreditCard, labelKey: 'sync.amex.title', descKey: 'addAccount.desc.amex' },
+  { key: 'corum', icon: Building2, labelKey: 'sync.corum.title', descKey: 'addAccount.desc.corum' },
+  { key: 'sofidy', icon: Building2, labelKey: 'sync.sofidy.title', descKey: 'addAccount.desc.sofidy' },
   { key: 'finary', icon: FileSpreadsheet, labelKey: 'sync.finary.title', descKey: 'addAccount.desc.finary' },
   { key: 'property', icon: HousePlus, labelKey: 'property.add.source', descKey: 'addAccount.desc.property' },
   { key: 'manual', icon: PenLine, labelKey: 'addAccount.manual', descKey: 'addAccount.desc.manual' },
@@ -330,6 +335,24 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
                 <>
                   <BackButton onClick={() => setStep('selector')} />
                   <FortuneoPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'amex' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <AmexPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'corum' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <CorumPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'sofidy' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <SofidyPanel onConnected={handleDone} />
                 </>
               )}
               {step === 'finary' && <FinaryWizard onDone={handleDone} onBack={() => setStep('selector')} />}
