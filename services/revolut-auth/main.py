@@ -54,32 +54,7 @@ from pydantic import BaseModel
 import captcha
 import member_state
 import viewer
-
-# C0/C1 controls (CR, LF, ESC, NEL...) and the Unicode line/paragraph separators.
-_LOG_UNSAFE = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
-
-
-class SafeFormatter(logging.Formatter):
-    """Escapes line breaks and control characters in the whole formatted record,
-    traceback included, so a logged value cannot forge a log line."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        return _LOG_UNSAFE.sub(
-            lambda m: m.group().encode("unicode_escape").decode("ascii"),
-            super().format(record),
-        )
-
-
-def safe(value: object, limit: int = 500) -> str:
-    """An outside-controlled value made safe for a log line: truncated, line
-    breaks and control characters replaced with '?'. SafeFormatter already
-    covers the handler; this keeps the call site safe on its own."""
-    text = str(value)
-    if len(text) > limit:
-        text = text[:limit] + "..."
-    text = text.replace("\r\n", "?").replace("\n", "?")
-    return _LOG_UNSAFE.sub("?", text)
-
+from logsafe import SafeFormatter, safe
 
 _log_handler = logging.StreamHandler()
 _log_handler.setFormatter(SafeFormatter(logging.BASIC_FORMAT))
@@ -166,8 +141,16 @@ def _has_profile(member_id: str) -> bool:
 
 
 def _member_file(member_id: str, name: str) -> str:
-    """Per-member state kept next to the profile directory, not in it (see member_state.py)."""
-    return os.path.join(PROFILES_ROOT, f"{_profile_key(member_id)}.{name}")
+    """Per-member state kept next to the profile directory, not in it (see member_state.py).
+
+    The one place a member id becomes the path of a file member_state reads, writes or removes.
+    `_profile_key` already leaves no separator in the name; the normalized path is still checked
+    to sit under PROFILES_ROOT so that stays true if `name` or the key ever change."""
+    root = os.path.normpath(PROFILES_ROOT)
+    path = os.path.normpath(os.path.join(root, f"{_profile_key(member_id)}.{name}"))
+    if not path.startswith(root + os.sep):
+        raise ValueError(f"member state file {safe(path)} is outside the profiles directory")
+    return path
 
 
 def _today() -> date:

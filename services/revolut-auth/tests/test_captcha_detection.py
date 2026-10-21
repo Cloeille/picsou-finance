@@ -9,6 +9,8 @@ Skipped when the Camoufox browser binary is not installed (a bare checkout); the
 and the CI job that builds it have it.
 """
 
+from urllib.parse import urlparse
+
 import pytest
 from camoufox.async_api import AsyncCamoufox
 
@@ -22,6 +24,13 @@ except Exception:  # noqa: BLE001 - FileNotFoundError / UnsupportedVersion: no u
     _BROWSER = False
 
 pytestmark = pytest.mark.skipif(not _BROWSER, reason="Camoufox browser binary not installed")
+
+
+def _on_hcaptcha(url):
+    """The fixture's own notion of an hCaptcha address: by host, never by substring of the URL."""
+    host = urlparse(url).hostname or ""
+    return host == "hcaptcha.com" or host.endswith(".hcaptcha.com")
+
 
 CHALLENGE_URL = "https://newassets.hcaptcha.com/captcha/v1/abc/static/hcaptcha.html#frame=challenge&id=1"
 CHECKBOX_URL = "https://newassets.hcaptcha.com/captcha/v1/abc/static/hcaptcha.html#frame=checkbox&id=1"
@@ -47,7 +56,7 @@ async def page():
 
         async def serve(route):
             url = route.request.url
-            if "hcaptcha.com" in url:
+            if _on_hcaptcha(url):
                 await route.fulfill(body=FRAME_DOCUMENT, content_type="text/html")
             else:
                 await route.fulfill(body=PAGES[url], content_type="text/html")
@@ -95,7 +104,7 @@ async def test_no_captcha_on_a_clean_page(page):
 
 async def test_revolut_resting_state_with_its_two_parked_frames_is_not_a_captcha(page):
     await _open(page, PARKED)
-    assert len([f for f in page.frames if "hcaptcha.com" in f.url]) == 2, "the fixture must really load both frames"
+    assert len([f for f in page.frames if _on_hcaptcha(f.url)]) == 2, "the fixture must really load both frames"
 
     assert not await captcha.visible(page)
 

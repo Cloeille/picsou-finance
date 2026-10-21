@@ -192,6 +192,23 @@ def test_state_files_are_keyed_like_the_profile_so_unsafe_ids_cannot_escape(prof
     assert main._member_file("../../etc", "login-failed").startswith(str(profiles_root) + os.sep)
 
 
+def test_a_state_file_name_that_climbs_out_of_the_profiles_directory_is_refused(profiles_root):
+    with pytest.raises(ValueError, match="outside the profiles directory"):
+        main._member_file("7", "/../../etc/passwd")
+
+
+def test_a_path_with_a_line_break_cannot_forge_a_log_line(tmp_path, monkeypatch):
+    forged = tmp_path / "7\nWARNING:revolut-auth:forged.fingerprint.json"
+    forged.write_text("not json", encoding="utf-8")
+    records = []
+    monkeypatch.setattr(member_state.log, "handle", records.append)
+
+    member_state.launch_kwargs(str(forged))
+
+    (record,) = records
+    assert "\n" not in record.getMessage()
+
+
 # ─── the launch uses the pinned identity every time ──────────────────────────
 
 def test_every_launch_gets_the_same_identity_headless_or_not(monkeypatch, profiles_root):

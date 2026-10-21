@@ -46,7 +46,7 @@ USER revoauth
 COPY pin_camoufox.py .
 RUN python pin_camoufox.py
 
-COPY --chown=revoauth:revoauth main.py captcha.py member_state.py viewer.py entrypoint.sh ./
+COPY --chown=revoauth:revoauth main.py captcha.py logsafe.py member_state.py viewer.py entrypoint.sh ./
 
 ENV REVOLUT_PROFILES_DIR=/data/revolut-profiles
 # 8002: the API (internal). 6080: the captcha hand-off view, listening only while a human has

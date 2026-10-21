@@ -103,6 +103,8 @@ root-formatter installation test inspect the application's own logger.
 - `services/revolut-auth/main.py` — sidecar: `/sync`, `/progress/{memberId}`, Camoufox launch, login
   auto-fill, harvest + synthetic wallet-parent emission (`_with_wallet_parents`), per-member
   serialization + stale profile-lock clearing.
+- `services/revolut-auth/logsafe.py` — `safe()` and `SafeFormatter`: keep a logged outside value on one line
+  (used by `main.py` and `member_state.py`).
 - `services/revolut-auth/captcha.py` — hCaptcha detection (`visible`, `describe`): walks `page.frames`
   and checks that a frame of an hCaptcha host really is on screen.
 - `services/revolut-auth/member_state.py` — the pinned browser identity (`<member>.fingerprint.json`) and

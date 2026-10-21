@@ -112,7 +112,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
                 self.assertEqual(service["ports"], ["6080:6080"])
         dockerfile = (ROOT / "services/revolut-auth/Dockerfile").read_text(encoding="utf-8")
         self.assertIn("EXPOSE 8002 6080", dockerfile)
-        for module in ("main.py", "captcha.py", "member_state.py", "viewer.py"):
+        for module in ("main.py", "captcha.py", "logsafe.py", "member_state.py", "viewer.py"):
             self.assertIn(module, dockerfile)  # a module missing from the image only fails at runtime
 
 if __name__ == "__main__":
