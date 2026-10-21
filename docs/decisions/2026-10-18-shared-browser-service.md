@@ -1,7 +1,7 @@
 # ADR: One Chromium binary, one process per session, owned by browser-service
 
 > Date: 2026-10-18
-> Status: 🟡 Proposed (draft for 1.2.0, issue #235)
+> Status: 🟡 Proposed (draft for 1.2.0, issue #235). Desktop app only.
 
 ## Context
 
@@ -35,8 +35,20 @@ a sidecar asks it for a session:
    exit or service shutdown, the process group is killed and the profile wiped.
 
 Sidecars call `picsou_browser.launch_chromium()`. Without `BROWSER_SERVICE_URL`
-it launches Chromium locally, exactly as today, so the Docker install does not
-change unless the `shared-browser` Compose profile is turned on.
+it launches Chromium locally, exactly as today.
+
+**Scope: the desktop app only.** The service rebuilds, outside Docker, what
+Docker already gives a Compose install:
+
+- one Chromium on disk: Docker shares image layers, so sidecars built `FROM`
+  one published base image download and store Chromium once;
+- one owner for every browser process: the Docker daemon (plus `init`) stops
+  and reaps each container.
+
+A Compose install therefore keeps one container per bank, with its own Unix
+user and networks, and does not run browser-service at all: the image is not
+published and no Compose file declares it. The Docker saving comes from the
+shared sidecar base image (`services/base/`, 1.1.0), not from this service.
 
 corum-auth is the pilot. Other Chromium sidecars move in follow-up PRs.
 
@@ -47,6 +59,9 @@ corum-auth is the pilot. Other Chromium sidecars move in follow-up PRs.
 - **Pros**: smallest change; same isolation as today.
 - **Cons**: saves disk only, not RAM; every sidecar still needs Playwright's
   driver and the launch logic; the desktop app has to track N process trees.
+- **Chosen for Docker.** Sidecars already launch Chromium on demand, so there
+  is no idle RAM to save, and disk is what a Compose install pays for. A shared
+  base image gives that saving through Docker's layer sharing.
 
 ### B. One long-lived Chromium, one browser context per sidecar
 
@@ -89,9 +104,9 @@ lifecycle owner. B's saving is RAM at peak, which the cap already bounds.
   `Extensions.loadUnpacked`. Download-behaviour commands are rewritten to `deny`.
   This is a denylist; a per-session Unix user and the Chromium sandbox are the
   stronger fix, left for the desktop packaging work.
-- **Egress moves.** Page traffic leaves from browser-service, which sits on its
-  own networks (`browser-net`, internal, shared with corum-auth only, and
-  `browser-egress`), never on `default` with the database. Network policy per
+- **Egress moves.** Page traffic leaves from browser-service, not from the
+  sidecar. In the desktop app it must not share a network with the database or
+  the API. Network policy per
   sidecar (e.g. Fortuneo's dedicated network) no longer applies to the page
   traffic once that sidecar uses the service. Fortuneo stays on local launch until a per-session egress allowlist
   exists. Corum keeps its in-page CDP `Fetch` guard, which runs over the remote
@@ -99,16 +114,16 @@ lifecycle owner. B's saving is RAM at peak, which the cap already bounds.
 - **Full Chromium, not the headless shell.** The service launches
   `chromium.executable_path` with Playwright 1.52's own switches read from the
   installed driver, plus `--headless`. Playwright's `launch(headless=True)` uses
-  the separate headless shell. The fingerprint Cloudflare sees may differ; a live
-  CORUM login through the service is still to be done.
-- **The corum image keeps its own Chromium** for the local fallback in this
-  draft. Removing it is the step that realises the disk saving, once every
-  install path uses the service.
+  the separate headless shell. The fingerprint a site sees may differ. A live
+  CORUM login and positions sync through the service passed on 2026-10-19
+  (Cloudflare accepted it); every other site must be checked when it moves.
+- **Sidecar images keep their own Chromium** for the local fallback, which is
+  the path Docker uses. The desktop packaging decides how sidecars run there.
 
 ## Consequences
 
-- New `services/browser-service/` (image, CI job, GHCR publish entry) and
-  `services/shared/picsou_browser/` client package.
+- New `services/browser-service/` (image and CI job, no GHCR publication, no
+  Compose service) and `services/shared/picsou_browser/` client package.
 - corum-auth builds from the `services/` context and installs
   `services/requirements-shared.txt`.
 - `services/requirements-shared.txt` is a candidate single environment for the

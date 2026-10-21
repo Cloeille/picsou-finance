@@ -64,11 +64,6 @@ jobs:
             context: services
             dockerfile: services/corum-auth/Dockerfile
             versioned: false
-          - name: browser-service
-            image: ${{ github.repository }}/browser-service
-            context: services
-            dockerfile: services/browser-service/Dockerfile
-            versioned: false
           - name: sofidy-auth
             image: ${{ github.repository }}/sofidy-auth
             context: services/sofidy-auth

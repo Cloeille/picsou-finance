@@ -1,7 +1,7 @@
 # Shared browser service
 
-> Last updated: 2026-10-18
-> Status: draft (1.2.0, issue #235). Pilot: corum-auth.
+> Last updated: 2026-10-21
+> Status: draft (1.2.0, issue #235), desktop app only. Pilot: corum-auth.
 
 ## What it does
 
@@ -58,9 +58,11 @@ Allowed extra args: `--disable-blink-features=AutomationControlled` only.
 | `BROWSER_SESSION_TTL_SECONDS` | 300 | hard cap on a session |
 | `BROWSER_CLAIM_TIMEOUT_SECONDS` | 30 | kill if no WebSocket connects |
 
-Docker (`docker/docker-compose.yml` only): `docker compose --profile shared-browser up`,
-then set `CORUM_BROWSER_SERVICE_URL=http://browser-service:8001`. The service is on
-`browser-net` (internal, with corum-auth) and `browser-egress`, never on `default`.
+Docker: not used. No Compose file declares the service and its image is not
+published. Docker already shares Chromium through image layers and owns each
+sidecar's processes, so a Compose install keeps one isolated container per bank.
+To try it locally, run the image yourself on a network without the database and
+set `BROWSER_SERVICE_URL` on corum-auth.
 
 ## Known limits
 
@@ -68,7 +70,7 @@ then set `CORUM_BROWSER_SERVICE_URL=http://browser-service:8001`. The service is
   filter is a denylist (see ADR trade-offs).
 - Page egress leaves from browser-service, not from the sidecar's network.
 - Full Chromium binary instead of Playwright's headless shell. A live CORUM
-  login through the service has not been done yet.
+  login passed through it on 2026-10-19; each other site must be checked.
 - Camoufox sidecars (amex, revolut) are out of scope.
 
 ## Files

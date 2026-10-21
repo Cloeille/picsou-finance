@@ -187,28 +187,6 @@ services:
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
-      # Empty keeps the local Chromium fallback. Set to http://browser-service:8001
-      # when the shared-browser profile is up.
-      BROWSER_SERVICE_URL: ${CORUM_BROWSER_SERVICE_URL:-}
-    networks:
-      - default
-      - browser-net
-
-  # Pages load from here, not from the sidecar. It never joins `default`, so
-  # a page cannot reach the database or the API; it only gets out to the web.
-  browser-service:
-    image: ghcr.io/cloeille/picsou-finance/browser-service:latest
-    profiles: ["shared-browser"]
-    build:
-      context: ../services
-      dockerfile: browser-service/Dockerfile
-    restart: unless-stopped
-    init: true
-    environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
-    networks:
-      - browser-net
-      - browser-egress
 
   sofidy-auth:
     image: ghcr.io/cloeille/picsou-finance/sofidy-auth:latest
@@ -274,11 +252,6 @@ volumes:
   caddy_config:
 
 networks:
-  browser-net:
-    driver: bridge
-    internal: true
-  browser-egress:
-    driver: bridge
   fortuneo-auth-net:
     driver: bridge
     internal: true

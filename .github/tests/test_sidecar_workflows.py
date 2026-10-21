@@ -12,6 +12,8 @@ DOCKER_WORKFLOW = ROOT / ".github/workflows/docker.yml"
 CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 ROOT_COMPOSE = ROOT / "docker-compose.yml"
 DOCKER_COMPOSE = ROOT / "docker/docker-compose.yml"
+# Built and tested in CI, never published: the Docker install does not run it (desktop only, #235).
+UNPUBLISHED_DOCKERFILES = {"services/browser-service/Dockerfile"}
 
 
 def _load(path):
@@ -50,7 +52,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         expected = {
             path.relative_to(ROOT).as_posix()
             for path in (ROOT / "services").glob("*/Dockerfile")
-        }
+        } - UNPUBLISHED_DOCKERFILES
         entries = [
             entry["dockerfile"]
             for entry in matrix
@@ -65,6 +67,15 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
                 self.assertEqual(entry["context"], f"services/{service}")
                 self.assertEqual(entry["image"], f"${{{{ github.repository }}}}/{service}")
                 self.assertEqual(entry["versioned"], False)
+
+    def test_desktop_only_browser_service_stays_out_of_docker_installs(self):
+        matrix = _load(DOCKER_WORKFLOW)["jobs"]["build"]["strategy"]["matrix"]["include"]
+        self.assertNotIn("browser-service", {entry["name"] for entry in matrix})
+        for path in (ROOT_COMPOSE, DOCKER_COMPOSE):
+            with self.subTest(compose_file=path.relative_to(ROOT)):
+                compose = _load(path)
+                self.assertNotIn("browser-service", compose["services"])
+                self.assertNotIn("BROWSER_SERVICE_URL", compose["services"]["corum-auth"].get("environment", {}))
 
     def test_publish_workflow_keeps_both_platforms_and_branch_tagging(self):
         job_text = DOCKER_WORKFLOW.read_text(encoding="utf-8")
