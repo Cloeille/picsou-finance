@@ -73,6 +73,12 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null } })
       case '/simplefin/status':
         return Promise.resolve({ data: simplefinStatus })
+      case '/amex/status':
+        return Promise.resolve({ data: amexStatus })
+      case '/corum/status':
+        return Promise.resolve({ data: corumStatus })
+      case '/sofidy/status':
+        return Promise.resolve({ data: sofidyStatus })
       case '/accounts':
         return Promise.resolve({ data: accountsFixture })
       case '/revolut/status':
@@ -96,7 +102,7 @@ const REVOLUT_NOT_REMEMBERED = { connected: false, remembered: false, lastSynced
 const REVOLUT_REMEMBERED = { connected: false, remembered: true, lastSyncedAt: '2026-08-10T08:00:00Z' }
 const REVOLUT_RUNNING = {
   running: true, phase: 'LOGIN', elapsedSeconds: 1, remainingSeconds: null,
-  accountsFound: null, done: false, error: null, discovered: [],
+  accountsFound: null, done: false, error: null, errorCode: null, discovered: [],
 }
 const discoveredAccount = (externalId: string) => ({
   externalId, name: externalId, type: 'CHECKING', currency: 'EUR', balance: 10,
@@ -110,6 +116,9 @@ const REVOLUT_DONE = {
 const SIMPLEFIN_DISCONNECTED = {
   connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null,
 }
+let amexStatus: Record<string, unknown>
+let corumStatus: Record<string, unknown>
+let sofidyStatus: Record<string, unknown>
 
 const AMUNDI_INACTIVE = {
   isActive: false, syncStatus: 'IDLE', lastSyncError: null,
@@ -124,10 +133,32 @@ const AMUNDI_ACCOUNT = {
   provider: 'Amundi Épargne Salariale',
 }
 
+/** A credit card created by the Amex sidecar (`AmexSyncService.PROVIDER`). */
+const AMEX_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 4,
+  name: 'Gold Card',
+  type: 'CREDIT_CARD',
+  provider: 'American Express',
+}
+
+/** A SCPI account linked to no provider fund; tests set `provider` and the fund codes. */
+const SCPI_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 3,
+  name: 'Corum Origin',
+  type: 'SCPI',
+  provider: null as string | null,
+  scpi: { corumFundCode: null, sofidyFundCode: null },
+}
+
 /** Resets the per-test fixtures to "only Trade Republic exists". */
 function resetFixtures() {
   amundiStatus = AMUNDI_INACTIVE
   simplefinStatus = SIMPLEFIN_DISCONNECTED
+  amexStatus = AMUNDI_INACTIVE
+  corumStatus = AMUNDI_INACTIVE
+  sofidyStatus = AMUNDI_INACTIVE
   accountsFixture = [TR_ACCOUNT]
   revolutStatus = REVOLUT_NOT_REMEMBERED
   revolutProgress = REVOLUT_DONE
@@ -375,6 +406,101 @@ describe('SyncAllModal session providers', () => {
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amundi/sync'))
     expect(navigate).not.toHaveBeenCalled()
   })
+
+  it('lists and syncs a live American Express session', async () => {
+    amexStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: amexStatus })
+    renderModal()
+
+    const row = (await screen.findByText('American Express')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amex/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('keeps an expired American Express row with its card and routes to its tab', async () => {
+    accountsFixture = [TR_ACCOUNT, AMEX_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('American Express')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=amex'))
+    expect(apiPost).not.toHaveBeenCalledWith('/amex/sync')
+  })
+
+  it('reports a failed American Express run on a live session', async () => {
+    amexStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'FAILED', lastSyncError: 'INTERNAL_ERROR' }
+    renderModal()
+
+    const row = (await screen.findByText('American Express')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('FAILED')).toBeInTheDocument()
+  })
+
+  it('hides American Express with no session and no card', async () => {
+    renderModal()
+
+    expect(await screen.findByText('Trade Republic')).toBeInTheDocument()
+    expect(screen.queryByText('American Express')).not.toBeInTheDocument()
+  })
+
+  it('lists and syncs a live Sofidy session', async () => {
+    sofidyStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: sofidyStatus })
+    renderModal()
+
+    const row = (await screen.findByText('Sofidy')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/sofidy/sync'))
+  })
+
+  it('hides CORUM and Sofidy when their sessions are inactive and no SCPI account is theirs', async () => {
+    accountsFixture = [TR_ACCOUNT, { ...SCPI_ACCOUNT, provider: null }]
+    renderModal()
+
+    expect(await screen.findByText('Trade Republic')).toBeInTheDocument()
+    expect(screen.queryByText('CORUM')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sofidy')).not.toBeInTheDocument()
+  })
+
+  it('lists CORUM when its session is live', async () => {
+    corumStatus = { ...AMUNDI_INACTIVE, isActive: true }
+    renderModal()
+
+    expect(await screen.findByText('CORUM')).toBeInTheDocument()
+  })
+
+  /**
+   * An expired SCPI session must stay listed and route to its tab, like every other session
+   * connector: the reconciler stamps `provider` on the accounts it creates.
+   */
+  it.each([
+    ['CORUM', 'corum'],
+    ['Sofidy', 'sofidy'],
+  ])('keeps an expired %s row with a reconnect action when it created an account', async (provider, tab) => {
+    accountsFixture = [TR_ACCOUNT, { ...SCPI_ACCOUNT, provider }]
+    renderModal()
+
+    const row = (await screen.findByText(provider)).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith(`/sync?tab=${tab}`))
+    expect(apiPost).not.toHaveBeenCalledWith(`/${tab}/sync`)
+  })
+
+  /** A manual SCPI the sync adopted keeps the provider the user typed; its fund code links it. */
+  it.each([
+    ['CORUM', 'corumFundCode'],
+    ['Sofidy', 'sofidyFundCode'],
+  ])('keeps an expired %s row for an adopted SCPI account', async (provider, fundCodeKey) => {
+    accountsFixture = [TR_ACCOUNT, {
+      ...SCPI_ACCOUNT, provider: 'Mon conseiller',
+      scpi: { ...SCPI_ACCOUNT.scpi, [fundCodeKey]: 'F1' },
+    }]
+    renderModal()
+
+    expect(await screen.findByText(provider)).toBeInTheDocument()
+  })
 })
 
 /**
@@ -538,6 +664,23 @@ describe('SyncAllModal Revolut and "Sync all"', () => {
     fireEvent.click(button)
 
     await waitFor(() => expect(button).toBeEnabled())
+    expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync/confirm', expect.anything())
+  })
+
+  it('shows a translated captcha message on the Revolut row, never the approval countdown', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    revolutProgress = {
+      ...REVOLUT_DONE, phase: 'LOGGING_IN', discovered: [],
+      error: 'English sentence', errorCode: 'HUMAN_VERIFICATION_REQUIRED',
+    }
+    renderModal()
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    expect(await within(row).findByText('sync.revolut.errors.humanVerificationRequired')).toBeInTheDocument()
+    expect(within(row).queryByText('English sentence')).not.toBeInTheDocument()
+    expect(within(row).queryByText(/awaitingApproval/)).not.toBeInTheDocument()
     expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync/confirm', expect.anything())
   })
 

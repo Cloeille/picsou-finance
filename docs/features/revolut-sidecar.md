@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-07-08 (bounded Camoufox launch + unattended sync guard)
+> Last updated: 2026-10-19 (login fails fast on an hCaptcha challenge instead of waiting for a push that never comes)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -23,8 +23,9 @@ The `services/revolut-auth/` sidecar (Python + FastAPI + **Camoufox** = stealth 
   phone) then harvests. `allowLogin=false` is for unattended scheduler calls: reuse a live profile if
   possible, but return `401 SESSION_EXPIRED` instead of starting a fresh login/mobile approval.
   Returns `{accounts: [...]}` or `408 APPROVAL_TIMEOUT` / `401 SESSION_EXPIRED` /
-  `409 SYNC_IN_PROGRESS` / `503 BROWSER_LAUNCH_FAILED`. The call can block up to ~5 min waiting for
-  mobile approval, plus bounded browser launch and harvest time.
+  `409 SYNC_IN_PROGRESS` / `503 BROWSER_LAUNCH_FAILED` / `504 LOGIN_SCREEN_TIMEOUT` /
+  `403 HUMAN_VERIFICATION_REQUIRED` / `424 UPSTREAM_FORMAT_CHANGED`. The call can block up to ~5 min
+  waiting for mobile approval, plus bounded browser launch and harvest time.
 - `GET /progress/{memberId}` — the sidecar's live phase for the in-flight `/sync` (CHECKING_SESSION →
   LOGGING_IN → AWAITING_APPROVAL w/ countdown → HARVESTING w/ accounts-found). Purely additive; it does
   not change `/sync`'s control flow or error codes.
@@ -121,7 +122,7 @@ root-formatter installation test inspect the application's own logger.
 - `backend/.../model/RevolutSession.java`; `db/migration/V48__revolut_session.sql`, `V49__…credentials.sql`.
 - `frontend/src/pages/sync/RevolutTab.tsx` — auto-sync tab (live phase → auto-confirm all, no selection).
 - `frontend/src/components/sync/RevolutSelectionCard.tsx` — Add-account selection (only not-imported;
-  child-check implies parent-check). `features/sync/revolut-phase.ts` — shared phase label.
+  child-check implies parent-check). `features/sync/revolut-phase.ts` — shared phase and error labels.
 - `frontend/src/features/sync/{api.ts,hooks.ts}` (`useSyncProgress`/`useStartRevolutSync`/`useConfirmRevolutSync`),
   `types/api.ts`, `components/shared/AddAccountModal.tsx` (RevolutWizard), `components/sync/SyncAllModal.tsx`.
 - `SyncAllModal` syncs a remembered Revolut session in place (discover → auto-confirm all discovered
@@ -179,6 +180,42 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 - **Money-box balance is nested**: `{"amount": <cents>, "currency": "EUR"}` (not a flat number).
 - **Pocket filtering**: money-box pockets are excluded by their `pocket.id` (else vaults appear twice —
   once CHECKING, once SAVINGS); `MERCHANT`/`REVX_FIAT` and non-fiat (crypto) pockets are dropped.
+- **Login waits for the first SSO screen; it never sniffs the URL.** `app.revolut.com` redirects to
+  `sso.revolut.com/signin`, and a known device (persistent profile) only lands on `/passcode` after a
+  delay, while a fresh one renders the phone input. `_wait_for_login_screen` polls (bounded by
+  `LOGIN_SCREEN_WAIT_S`, 30 s) for whichever appears first, and after the phone step waits again for
+  the passcode screen (no fixed sleep after the phone step: the poll is the wait). A screen counts only
+  once its **inputs** exist (6 textboxes, or `input[type=password]` / `input[inputmode=numeric]` for the
+  passcode); the URL is ignored because the SPA switches to `/passcode` before the boxes render, and
+  typing then hits nothing. Deciding after a fixed sleep used to pick the phone branch on a stale `/signin`
+  URL and time out on a phone input that never came (HTTP 500). If neither screen appears the sidecar
+  returns `504 LOGIN_SCREEN_TIMEOUT`; Java has no dedicated mapping, so it logs the body and shows the
+  generic "Failed to sync Revolut accounts" message.
+- **The approval wait starts only after the passcode was typed.** Revolut can answer the phone step
+  with an **hCaptcha image challenge**: the page stays on `/signin` with the phone field, an
+  `iframe[src*='hcaptcha.com']` is shown, and no push is ever sent. `_wait_for_login_screen` therefore
+  also returns `"captcha"` when a *visible* hCaptcha frame is on the page (hidden hCaptcha frames
+  exist on pages with no challenge), which ends the wait at once. The passcode inputs are checked
+  first, then the captcha, then the phone input: a profile challenged last time can show the phone
+  field with the challenge on top, which must be reported as a captcha, not typed into. The sidecar then answers a flat `403 HUMAN_VERIFICATION_REQUIRED`, and the progress phase stays
+  `LOGGING_IN`, never `AWAITING_APPROVAL`. Any other end state — no passcode screen after the phone
+  step, no passcode input to type into (`_fill_passcode` returns `False`), or a Playwright timeout in a
+  login step (the `page.goto`, the screen waits, `Locator.click`; each used to surface as a 500) —
+  answers a flat `424 UPSTREAM_FORMAT_CHANGED`. The same code also covers a rejected phone number
+  (Revolut keeps `/signin` with an inline error) and a slow network, so the user-facing wording says
+  "the sign-in didn't go through, check your phone number" rather than blaming the page. `424` because `502` is already the harvest's
+  `UPSTREAM_UNAVAILABLE`/`INVALID_DATA`, which the backend treats as a generic failure.
+  Both fail before the 300 s approval loop, so there is no countdown to show.
+  The challenge is **reported, not solved**: letting the member complete it (remote view of the sidecar
+  browser) is not implemented, and no third-party solver is used. A successful login on the persistent
+  profile may avoid the challenge on later syncs, which is unverified.
+- **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `403`/`424` to
+  `SyncException` with the code as both message and `getCode()`; `RevolutSyncService.friendly()` turns
+  them into English sentences, and `discover` passes the code to `SyncProgressService.error`, which
+  exposes it as `SyncProgress.errorCode`. The three Revolut surfaces (Sync tab, Add-account wizard,
+  Sync-all row) render `revolutErrorLabel` (`features/sync/revolut-phase.ts`), which translates the code
+  (`sync.revolut.errors.*`) and falls back to the English sentence for any other failure. The
+  unattended scheduler path keeps its generic `FAILED` result.
 - **6-digit passcode auto-submits** — do not click "Continuer" after typing it (that hung `auto_login`).
 - **One Firefox per profile — serialize per member.** A persistent Camoufox profile can be opened by
   only ONE Firefox process at a time. Two `/sync` calls for the same member (double-click, or the
@@ -212,6 +249,15 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 
 ## Tests
 
+- `services/revolut-auth/tests/test_login_screen.py` — fake-page tests of `sync()`: known device /
+  phone screen nominal paths, passcode URL before its inputs render, `?redirect=…passcode` query
+  string, single-field passcode fallbacks, `504 LOGIN_SCREEN_TIMEOUT`, captcha after the phone step
+  and on the first screen (also over a visible phone field; `403`, approval loop never entered),
+  unknown post-phone state / missing passcode input / Playwright timeout in `goto` or a login step
+  (`424`). Needs `pytest` + `pytest-asyncio` (see the run command above).
+- `RevolutAdapterTest` (`403`/`424` mapping), `RevolutSyncServiceTest` (code + friendly message on
+  `discover`/`sync`), `SyncProgressServiceTest` (`errorCode`), and `features/sync/revolut-phase.test.ts`
+  plus `SyncAllModal.test.tsx` (translated captcha message, no countdown).
 - `backend/.../service/RevolutSyncServiceTest.java` — sync mapping (pockets/vaults), IBAN dedup vs
   Enable Banking, transaction dedup, remembered-vs-not credentials, always-upsert session marker row.
 - Live end-to-end (login + harvest against a real account) is still pending the account cool-down.

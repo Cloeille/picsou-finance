@@ -93,6 +93,16 @@ public class RevolutAdapter implements RevolutPort {
                         log.warn("revolut-auth sidecar reports a sync already in progress (409) for member {}", memberId);
                         return Mono.error(new SyncException("SYNC_IN_PROGRESS"));
                     }
+                    if (ex.getStatusCode().value() == 403) {
+                        log.warn("revolut-auth sidecar reports Revolut asked for a human verification (403) for member {}", memberId);
+                        return Mono.error(new SyncException(
+                            "HUMAN_VERIFICATION_REQUIRED", null, "HUMAN_VERIFICATION_REQUIRED"));
+                    }
+                    if (ex.getStatusCode().value() == 424) {
+                        log.warn("revolut-auth sidecar reports an unrecognised login page (424) for member {}", memberId);
+                        return Mono.error(new SyncException(
+                            "UPSTREAM_FORMAT_CHANGED", null, "UPSTREAM_FORMAT_CHANGED"));
+                    }
                     if (ex.getStatusCode().value() == 503) {
                         log.warn("revolut-auth sidecar could not launch the browser for member {}", memberId);
                         return Mono.error(new SyncException("BROWSER_LAUNCH_FAILED"));

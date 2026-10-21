@@ -9,12 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Shared browser service (draft, opt-in).** A new `browser-service` container owns the
-  only Chromium and starts one fresh Chromium process per login or sync, wiped when it
-  ends. The CORUM connector can use it by setting `CORUM_BROWSER_SERVICE_URL` with the
-  `shared-browser` Compose profile; without it, nothing changes. Groundwork for the
-  desktop app (#235). See [ADR](docs/decisions/2026-10-18-shared-browser-service.md) and
+- **Shared browser service for the desktop app (draft, not used by Docker).** A new
+  `browser-service` owns the only Chromium binary and starts one fresh Chromium process
+  per login or sync, wiped when it ends. It rebuilds, outside Docker, what Docker already
+  gives a Compose install: one copy of Chromium on disk and one owner for every browser
+  process. The Docker install does not start it and no sidecar uses it there. Groundwork
+  for the desktop app (#235). See [ADR](docs/decisions/2026-10-18-shared-browser-service.md) and
   [feature note](docs/features/browser-service.md).
+- **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
+  the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
+  and SCPI distributions, from the annual distribution per share and the frequency you enter
+  on the SCPI position. Amounts are gross estimates, weighted by your ownership share; a
+  dividend paid inside a PEA, an assurance vie, a PER or an employee savings plan, or a
+  reinvested SCPI distribution, is listed but left out of the total, since it stays in the
+  envelope. Dividend histories are refreshed once a week, on a six-day cutoff so the Sunday
+  pass actually hits, from Yahoo Finance, completed by Nasdaq for Nasdaq-listed stocks (real payment dates and dividends
+  already declared), and never while prices are rate-limited, so opening Budget sends no
+  request. A failed refresh keeps the last forecast. The 60-day window is the payment date
+  when one is known, otherwise the ex-date. A new default income category, *Revenus du capital*, is added for every member.
+  The page of a compte-titres or a PEA lists its dividends for the next 12 months, with the
+  ex-date and the payment date of each; the payment date is learned from your past dividend
+  transactions on that line and shown as unknown when there are none.
+  `GET /api/dividends/upcoming` exposes the forecast. See
+  [ADR](docs/decisions/2026-10-20-dividend-forecast-weekly-yahoo-history.md) and
+  [feature note](docs/features/dividend-forecast.md) (#244).
 - **SimpleFIN bank sync.** A member can paste a one-time setup token from SimpleFIN
   Bridge. Picsou claims it, stores the access URL encrypted, and imports account
   balances and posted transactions alongside Enable Banking, by hand, from Sync All
@@ -187,6 +205,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
+  Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
+  Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
+  of disappearing.
+- **Revolut tells you when it asks for a captcha instead of counting down for a push that never
+  comes.** Revolut can answer the phone number with an image challenge; the sidecar used to type
+  nothing further, then show "Approve the connection in your Revolut app… (300s left)" until it
+  timed out. It now stops at once and every Revolut sync screen says Revolut is asking for a human
+  verification and that no approval was sent. A sign-in page the sidecar does not recognise, or a
+  step of it that times out (previously an unexplained server error), is reported the same way.
+  Solving the challenge from Picsou is not available yet. See
+  [feature note](docs/features/revolut-sidecar.md).
 - **BoursoBank account names show apostrophes and ampersands as typed.** A name such as
   `LIVRET D'EPARGNE` was stored as `LIVRET D&#039;EPARGNE` and shown that way in the
   dashboard, legend and accounts list. The next BoursoBank sync rewrites existing names.

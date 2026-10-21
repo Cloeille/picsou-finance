@@ -60,4 +60,17 @@ public enum AccountType {
     public boolean isLiability() {
         return this == LOAN || this == CREDIT_CARD;
     }
+
+    /**
+     * Whether a dividend paid into this account stays inside a wrapper the member cannot
+     * freely withdraw from.
+     *
+     * <p>A PEA, an assurance-vie, a PER and employee savings all hold the cash inside the
+     * envelope: the dividend is real and worth forecasting, but it is not money the budget
+     * can spend. A brokerage account and a SCPI distribution paid in cash are. Reinvestment
+     * is a separate flag — it is a choice about the payment, not a property of the account type.
+     */
+    public boolean isLockedWrapper() {
+        return this == PEA || this == ASSURANCE_VIE || this == PER || this == EMPLOYEE_SAVINGS;
+    }
 }
