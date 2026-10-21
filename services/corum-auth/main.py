@@ -38,6 +38,12 @@ from playwright.async_api import (
     Page,
     async_playwright,
 )
+from picsou_browser import (
+    BrowserCapacityError,
+    BrowserLease,
+    BrowserUnavailableError,
+    launch_chromium,
+)
 from positions_parser import PositionsFormatError, parse_snapshot
 
 logging.basicConfig(level=logging.INFO)
@@ -101,6 +107,11 @@ async def _release_browser_slot() -> None:
     global _browsers
     async with _browser_lock:
         _browsers = max(0, _browsers - 1)
+
+
+# Keyed by the browser object the caller already closes through. The lease is
+# what actually closes a remote Chromium and DELETEs the session.
+_leases: dict[int, BrowserLease] = {}
 
 
 @asynccontextmanager
@@ -279,19 +290,29 @@ async def _close_resources(
     returns with a slot held and a live browser, or raises having released.
     Every open path closes through here exactly once.
     """
+    # Popped before any await, so the id() cannot be reused by another browser
+    # while this one is still being closed.
+    lease = _leases.pop(id(browser), None) if browser is not None else None
     if browser is not None:
         await _release_browser_slot()
-    for resource, close_method in (
-        (context, "close"),
-        (browser, "close"),
-        (playwright, "stop"),
-    ):
-        if resource is None:
-            continue
+    if context is not None:
         try:
-            await asyncio.wait_for(getattr(resource, close_method)(), timeout=5)
-        except Exception:
-            log.warning("CORUM browser resource cleanup failed", exc_info=True)
+            await asyncio.wait_for(context.close(), timeout=5)
+        except Exception as exc:
+            log.warning("CORUM browser resource cleanup failed (%s)", type(exc).__name__)
+    if lease is not None:
+        # Lease.close never raises. It closes the browser, then DELETEs a remote session.
+        await lease.close()
+    elif browser is not None:
+        try:
+            await asyncio.wait_for(browser.close(), timeout=5)
+        except Exception as exc:
+            log.warning("CORUM browser resource cleanup failed (%s)", type(exc).__name__)
+    if playwright is not None:
+        try:
+            await asyncio.wait_for(playwright.stop(), timeout=5)
+        except Exception as exc:
+            log.warning("CORUM browser resource cleanup failed (%s)", type(exc).__name__)
 
 
 async def _type_into(page: Any, selectors: list[str], value: str) -> bool:
@@ -347,11 +368,19 @@ async def _new_browser(
     """
     await _acquire_browser_slot()
     try:
-        browser = await pw.chromium.launch(headless=True, args=LAUNCH_ARGS)
+        lease = await launch_chromium(pw, args=LAUNCH_ARGS, headless=True)
+        browser = lease.browser
+    except BrowserCapacityError:
+        await _release_browser_slot()
+        raise HTTPException(status_code=503, detail="UPSTREAM_UNAVAILABLE") from None
+    except BrowserUnavailableError:
+        await _release_browser_slot()
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from None
     except BaseException:
         # Nothing to close yet: the slot is the only thing held.
         await _release_browser_slot()
         raise
+    _leases[id(browser)] = lease
     try:
         context = await browser.new_context(
             locale="fr-FR",

@@ -21,11 +21,14 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/app/playwright-browsers \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
+# Build context is services/ so the shared pin file and picsou_browser can be copied.
+# The image keeps its own Chromium for the local-launch fallback.
+COPY requirements-shared.txt .
+RUN pip install --no-cache-dir -r requirements-shared.txt \
     && playwright install chromium
 
-COPY main.py positions_parser.py ./
+COPY shared/picsou_browser /app/picsou_browser
+COPY corum-auth/main.py corum-auth/positions_parser.py /app/
 
 USER corum
 EXPOSE 8001

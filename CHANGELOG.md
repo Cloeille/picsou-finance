@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Shared browser service for the desktop app (draft, not used by Docker).** A new
+  `browser-service` owns the only Chromium binary and starts one fresh Chromium process
+  per login or sync, wiped when it ends. It rebuilds, outside Docker, what Docker already
+  gives a Compose install: one copy of Chromium on disk and one owner for every browser
+  process. The Docker install does not start it and no sidecar uses it there. Groundwork
+  for the desktop app (#235). See [ADR](docs/decisions/2026-10-18-shared-browser-service.md) and
+  [feature note](docs/features/browser-service.md).
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
   the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
   and SCPI distributions, from the annual distribution per share and the frequency you enter
