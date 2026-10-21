@@ -57,6 +57,18 @@ public class ScpiPosition extends AuditableEntity {
     private LocalDate jouissanceDate;
 
     /**
+     * What one share pays over a year, in euros, as the member declared it. Null means
+     * "not stated": the forecast stays quiet rather than inventing a distribution.
+     */
+    @Column(name = "annual_distribution_per_share_eur", precision = 20, scale = 8)
+    private BigDecimal annualDistributionPerShareEur;
+
+    /** Monthly or quarterly. Null means the member did not say, and nothing is projected. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "distribution_frequency", length = 20)
+    private DistributionFrequency distributionFrequency;
+
+    /**
      * The CORUM fund this position mirrors ({@code US}, {@code XL}, ...), set
      * when the account was linked to a client space. Null for an account entered
      * by hand, which no sync will touch.

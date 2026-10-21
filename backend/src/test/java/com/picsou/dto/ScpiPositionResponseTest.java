@@ -28,5 +28,9 @@ class ScpiPositionResponseTest {
         assertThat(json.path("corumFundCode").isNull()).isTrue();
         assertThat(json.has("sofidyFundCode")).isTrue();
         assertThat(json.path("sofidyFundCode").isNull()).isTrue();
+        assertThat(json.has("annualDistributionPerShareEur")).isTrue();
+        assertThat(json.path("annualDistributionPerShareEur").isNull()).isTrue();
+        assertThat(json.has("distributionFrequency")).isTrue();
+        assertThat(json.path("distributionFrequency").isNull()).isTrue();
     }
 }
