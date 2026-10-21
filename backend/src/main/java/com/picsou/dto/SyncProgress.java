@@ -17,6 +17,10 @@ import java.util.List;
  * @param error            set when the job terminated with an unhandled exception
  * @param errorCode        stable code for {@code error} when the UI translates it (e.g.
  *                         {@code "HUMAN_VERIFICATION_REQUIRED"}), otherwise null
+ * @param viewerPort       Revolut only, phase {@code AWAITING_HUMAN}: port of the sidecar's remote
+ *                         view where the member solves a captcha by hand; null otherwise
+ * @param viewerPassword   one-time password of that view (valid until the hand-off ends), null
+ *                         otherwise; only ever part of the member's own progress
  * @param discovered       Revolut only: accounts harvested but not yet persisted, awaiting
  *                         {@code POST /api/revolut/sync/confirm}; empty once confirmed
  */
@@ -29,5 +33,16 @@ public record SyncProgress(
     boolean done,
     String error,
     String errorCode,
+    Integer viewerPort,
+    String viewerPassword,
     List<DiscoveredRevolutAccount> discovered
-) {}
+) {
+
+    /** A record prints every component; the view's one-time password must not reach a log line by accident. */
+    @Override
+    public String toString() {
+        return "SyncProgress[running=" + running + ", phase=" + phase + ", done=" + done
+            + ", errorCode=" + errorCode + ", viewerPort=" + viewerPort
+            + ", viewerPassword=" + (viewerPassword == null ? "null" : "***") + "]";
+    }
+}

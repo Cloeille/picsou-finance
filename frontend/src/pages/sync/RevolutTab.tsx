@@ -14,7 +14,8 @@ import {
   useSyncProgress,
   useConfirmRevolutSync,
 } from '@/features/sync/hooks'
-import { revolutErrorLabel, revolutPhaseLabel } from '@/features/sync/revolut-phase'
+import { revolutErrorLabel } from '@/features/sync/revolut-phase'
+import { RevolutPhaseLine } from '@/components/sync/RevolutPhaseLine'
 import { formatApiError } from '@/lib/errors'
 import { formatDateTime } from '@/lib/utils'
 
@@ -148,7 +149,7 @@ export function RevolutTab() {
         <Card size="sm">
           <CardContent className="flex items-center gap-3 py-4">
             <Loader2 className="size-5 animate-spin text-muted-foreground shrink-0" />
-            <p className="text-sm text-muted-foreground">{revolutPhaseLabel(t, progress.data)}</p>
+            <p className="text-sm text-muted-foreground"><RevolutPhaseLine progress={progress.data} /></p>
           </CardContent>
         </Card>
       )}

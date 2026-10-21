@@ -58,7 +58,8 @@ import {
 } from '@/features/sync/hooks'
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
 import { RevolutSelectionCard } from '@/components/sync/RevolutSelectionCard'
-import { revolutErrorLabel, revolutPhaseLabel } from '@/features/sync/revolut-phase'
+import { revolutErrorLabel } from '@/features/sync/revolut-phase'
+import { RevolutPhaseLine } from '@/components/sync/RevolutPhaseLine'
 import {
   Landmark,
   HousePlus,
@@ -1007,7 +1008,7 @@ function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: () => v
         {isSyncing && (
           <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin shrink-0" />
-            {revolutPhaseLabel(t, progress.data)}
+            <RevolutPhaseLine progress={progress.data} />
           </div>
         )}
 

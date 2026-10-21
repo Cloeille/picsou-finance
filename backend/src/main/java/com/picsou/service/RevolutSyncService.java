@@ -327,8 +327,11 @@ public class RevolutSyncService {
                 "The mobile approval was not confirmed in time. Please try again and approve the " +
                     "push notification on your phone.";
             case "HUMAN_VERIFICATION_REQUIRED" ->
-                "Revolut is asking for a human verification (captcha) that Picsou cannot complete, " +
-                    "so no approval was sent to your phone. Please try again later.";
+                "Revolut asked for a human verification (captcha) that was not completed, " +
+                    "so no approval was sent to your phone. Picsou will not try again before tomorrow.";
+            case "LOGIN_PACED" ->
+                "A Revolut login already failed today. Picsou waits until tomorrow before trying " +
+                    "again, because repeated logins make Revolut ask for more captchas.";
             case "UPSTREAM_FORMAT_CHANGED" ->
                 "The Revolut sign-in didn't go through. Check your phone number and try again.";
             case "SYNC_IN_PROGRESS" ->
