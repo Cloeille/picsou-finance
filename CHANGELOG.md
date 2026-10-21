@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Revolut: a captcha is solved by you, in a window Picsou opens.** When Revolut shows its
+  "prove you are human" challenge during a sync, Picsou no longer waits five minutes for a phone
+  approval that is never sent: it detects the challenge (also when it appears only after the
+  passcode), shows a link, "Open the captcha window", and keeps the browser open for four minutes
+  while you solve it yourself. Picsou never solves a captcha for you. The sidecar now keeps the
+  same browser identity for each member, to make the challenge rarer, and does not start a new
+  automatic login the same day after one has failed (`LOGIN_PACED`; the scheduled sync only
+  reuses a live session). The Revolut sidecar publishes port 6080 for that window. See
+  [ADR](docs/decisions/2026-10-21-revolut-captcha-hand-off.md) and
+  [feature note](docs/features/revolut-sidecar.md).
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
   the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
   and SCPI distributions, from the annual distribution per share and the frequency you enter

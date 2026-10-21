@@ -8,9 +8,10 @@ RUN groupadd -r revoauth && useradd -r -g revoauth -m -d /home/revoauth revoauth
 # Firefox (headless=False) when re-auth is needed, so the server runs under a virtual
 # X display started by entrypoint.sh — we drive Xvfb directly (the xvfb-run wrapper
 # hangs on this trixie base and never exec's the server, and would need xauth; the
-# direct Xvfb launch needs neither xvfb-run nor xauth).
+# direct Xvfb launch needs neither xvfb-run nor xauth). x11vnc shares that display
+# with the user while a captcha has to be solved by hand (viewer.py).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        xvfb \
+        xvfb x11vnc \
         libgtk-3-0 libdbus-glib-1-2 libx11-xcb1 libxcb-shm0 libxcomposite1 \
         libxcursor1 libxdamage1 libxi6 libxtst6 libxrandr2 libxt6 libxext6 \
         libasound2 libpangocairo-1.0-0 libpango-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 \
@@ -20,6 +21,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Captcha hand-off view (viewer.py): websockify bridges the browser's WebSocket to x11vnc and
+# serves the noVNC client. Installed without its dependencies on purpose: they are only for token
+# plugins (jwcrypto, redis); numpy and requests come with camoufox already.
+RUN pip install --no-cache-dir --no-deps websockify==0.13.0
+COPY fetch_novnc.py .
+RUN python fetch_novnc.py && rm fetch_novnc.py
 
 # Persistent per-member session profiles live here (mount a volume in docker-compose).
 # camoufox[geoip] writes GeoLite2-City.mmdb INTO its own package dir at fetch time, so that
@@ -38,9 +46,11 @@ USER revoauth
 COPY pin_camoufox.py .
 RUN python pin_camoufox.py
 
-COPY --chown=revoauth:revoauth main.py entrypoint.sh ./
+COPY --chown=revoauth:revoauth main.py captcha.py member_state.py viewer.py entrypoint.sh ./
 
 ENV REVOLUT_PROFILES_DIR=/data/revolut-profiles
-EXPOSE 8002
+# 8002: the API (internal). 6080: the captcha hand-off view, listening only while a human has
+# to act in the browser (viewer.py) -- docker-compose publishes it.
+EXPOSE 8002 6080
 
 CMD ["sh", "entrypoint.sh"]

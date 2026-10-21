@@ -11,7 +11,9 @@
 set -e
 
 mkdir -p /tmp/.X11-unix
-Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp &
+# The screen is the one member_state.SCREEN tells the page about, so what the site is told
+# matches the display Firefox really runs on (and the size of the captcha hand-off view).
+Xvfb :99 -screen 0 1600x900x24 -nolisten tcp &
 export DISPLAY=:99
 
 # Wait (briefly) for the X socket so a fast /sync right after boot still has a display.

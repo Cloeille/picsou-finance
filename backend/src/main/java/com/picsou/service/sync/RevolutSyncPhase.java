@@ -10,6 +10,7 @@ package com.picsou.service.sync;
 public enum RevolutSyncPhase {
     CHECKING_SESSION,
     LOGGING_IN,
+    AWAITING_HUMAN,
     AWAITING_APPROVAL,
     HARVESTING
 }

@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-10-19 (login fails fast on an hCaptcha challenge instead of waiting for a push that never comes)
+> Last updated: 2026-10-21 (an hCaptcha challenge is handed to the member in a remote view of the sidecar browser; pinned browser identity per member; one failed login per day)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -24,10 +24,12 @@ The `services/revolut-auth/` sidecar (Python + FastAPI + **Camoufox** = stealth 
   possible, but return `401 SESSION_EXPIRED` instead of starting a fresh login/mobile approval.
   Returns `{accounts: [...]}` or `408 APPROVAL_TIMEOUT` / `401 SESSION_EXPIRED` /
   `409 SYNC_IN_PROGRESS` / `503 BROWSER_LAUNCH_FAILED` / `504 LOGIN_SCREEN_TIMEOUT` /
-  `403 HUMAN_VERIFICATION_REQUIRED` / `424 UPSTREAM_FORMAT_CHANGED`. The call can block up to ~5 min
-  waiting for mobile approval, plus bounded browser launch and harvest time.
+  `403 HUMAN_VERIFICATION_REQUIRED` / `429 LOGIN_PACED` / `424 UPSTREAM_FORMAT_CHANGED`. The call can
+  block up to ~5 min waiting for mobile approval and up to 4 min while the member solves a captcha,
+  plus bounded browser launch and harvest time.
 - `GET /progress/{memberId}` — the sidecar's live phase for the in-flight `/sync` (CHECKING_SESSION →
-  LOGGING_IN → AWAITING_APPROVAL w/ countdown → HARVESTING w/ accounts-found). Purely additive; it does
+  LOGGING_IN → AWAITING_HUMAN w/ the remote view's port and one-time password, only while a captcha is
+  on screen → AWAITING_APPROVAL w/ countdown → HARVESTING w/ accounts-found). Purely additive; it does
   not change `/sync`'s control flow or error codes.
 
 **Live progress + selection (backend as a background job).** The backend no longer blocks the HTTP
@@ -101,14 +103,21 @@ root-formatter installation test inspect the application's own logger.
 - `services/revolut-auth/main.py` — sidecar: `/sync`, `/progress/{memberId}`, Camoufox launch, login
   auto-fill, harvest + synthetic wallet-parent emission (`_with_wallet_parents`), per-member
   serialization + stale profile-lock clearing.
-- `services/revolut-auth/tests/{test_profile_lock.py,test_harvest_shape.py,test_sidecar_auth.py}` —
-  regression tests (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent +
-  same-currency sum; shared-key 401 challenge, `/health` exemption, startup refusal);
-  run `.venv/bin/python tests/test_*.py` (anyio, no pytest).
+- `services/revolut-auth/captcha.py` — hCaptcha detection (`visible`, `describe`): walks `page.frames`
+  and checks that a frame of an hCaptcha host really is on screen.
+- `services/revolut-auth/member_state.py` — the pinned browser identity (`<member>.fingerprint.json`) and
+  the failed-login date (`<member>.login-failed`), both next to the profile directory, not inside it.
+- `services/revolut-auth/viewer.py` — the remote view opened for a captcha: x11vnc on the sidecar's
+  Xvfb display + websockify serving the noVNC client on port 6080. `fetch_novnc.py` installs noVNC at
+  image build (pinned, SHA-256 checked).
+- `services/revolut-auth/tests/` — `test_profile_lock.py`, `test_harvest_shape.py`, `test_sidecar_auth.py`
+  (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent + same-currency sum;
+  shared-key 401 challenge), `test_login_screen.py`, `test_member_state.py`, `test_captcha_detection.py`;
+  run `python -m pytest tests` (`pytest.ini` sets asyncio mode; CI job `revolut-sidecar`).
 - `services/revolut-auth/Dockerfile` — Camoufox image (Firefox deps + Xvfb + `camoufox fetch`).
-- `backend/.../adapter/RevolutAdapter.java` — `SidecarWebClientFactory` client → sidecar `/sync` (480 s
+- `backend/.../adapter/RevolutAdapter.java` — `SidecarWebClientFactory` client → sidecar `/sync` (840 s
   timeout) + a best-effort `/progress` poll side-channel relayed into `SyncProgressService`; maps
-  `401`/`408`/`409`/`503`. A 401 carrying the `Picsou-Sidecar-Key` challenge is a key mismatch
+  `401`/`408`/`409`/`503`/`403`/`429`/`424`. A 401 carrying the `Picsou-Sidecar-Key` challenge is a key mismatch
   (`SIDECAR_UNAUTHORIZED`), never `SESSION_EXPIRED`.
 - `backend/.../service/sync/SyncProgressService.java` — per-member+provider live progress (single-flight
   guard, phase/countdown/count, + Revolut's harvested-but-unpersisted discovery held in memory between
@@ -191,25 +200,58 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   URL and time out on a phone input that never came (HTTP 500). If neither screen appears the sidecar
   returns `504 LOGIN_SCREEN_TIMEOUT`; Java has no dedicated mapping, so it logs the body and shows the
   generic "Failed to sync Revolut accounts" message.
-- **The approval wait starts only after the passcode was typed.** Revolut can answer the phone step
-  with an **hCaptcha image challenge**: the page stays on `/signin` with the phone field, an
-  `iframe[src*='hcaptcha.com']` is shown, and no push is ever sent. `_wait_for_login_screen` therefore
-  also returns `"captcha"` when a *visible* hCaptcha frame is on the page (hidden hCaptcha frames
-  exist on pages with no challenge), which ends the wait at once. The passcode inputs are checked
-  first, then the captcha, then the phone input: a profile challenged last time can show the phone
-  field with the challenge on top, which must be reported as a captcha, not typed into. The sidecar then answers a flat `403 HUMAN_VERIFICATION_REQUIRED`, and the progress phase stays
-  `LOGGING_IN`, never `AWAITING_APPROVAL`. Any other end state — no passcode screen after the phone
-  step, no passcode input to type into (`_fill_passcode` returns `False`), or a Playwright timeout in a
-  login step (the `page.goto`, the screen waits, `Locator.click`; each used to surface as a 500) —
-  answers a flat `424 UPSTREAM_FORMAT_CHANGED`. The same code also covers a rejected phone number
-  (Revolut keeps `/signin` with an inline error) and a slow network, so the user-facing wording says
-  "the sign-in didn't go through, check your phone number" rather than blaming the page. `424` because `502` is already the harvest's
-  `UPSTREAM_UNAVAILABLE`/`INVALID_DATA`, which the backend treats as a generic failure.
-  Both fail before the 300 s approval loop, so there is no countdown to show.
-  The challenge is **reported, not solved**: letting the member complete it (remote view of the sidecar
-  browser) is not implemented, and no third-party solver is used. A successful login on the persistent
-  profile may avoid the challenge on later syncs, which is unverified.
-- **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `403`/`424` to
+- **The approval wait starts only after the passcode was typed, and a captcha can come at either step.**
+  Revolut can answer the phone step *or* the passcode with an **hCaptcha image challenge**: the page
+  stays on `/signin`, a challenge is shown, and no push is ever sent (seen 2026-10-21: the form was
+  submitted, the sidecar waited 300 s for an approval that never came). The detection is
+  `captcha.visible(page)`, polled at every screen wait **and on every poll of the approval wait**.
+  The earlier CSS check (`iframe[src*='hcaptcha.com']:visible`) could not work: it ran once, before
+  the passcode, on the main document only, matched a URL *substring*, and `:visible` accepts an
+  `opacity: 0` frame. Revolut's sign-in page **always** carries two hCaptcha frames — an invisible
+  checkbox (`display: none`) and a challenge frame parked at `top: -9999px` in a hidden wrapper — so
+  presence means nothing. The check lists `page.frames`, keeps the frames whose **host** is `hcaptcha.com`
+  (or a subdomain: `newassets.`, `js.`), and requires the part of the frame left after clipping by
+  its ancestors and the viewport to be a real size, with no hidden / `display: none` /
+  fully transparent ancestor, walked across frame boundaries. The login failure log carries
+  `captcha.describe(page)` (kind, size, position, shown/hidden of each frame), so a missed detection
+  shows its geometry.
+- **The captcha is handed to the member, never solved.** No solver service, no AI. When `captcha.visible`
+  is true the sidecar opens a remote view of its Xvfb display (`viewer.start`: x11vnc on loopback +
+  websockify, port `6080`, published by `docker-compose.yml`), publishes
+  `AWAITING_HUMAN {viewerPort, viewerPassword, remainingSeconds}` on `/progress`, and polls until the
+  challenge is gone (two quiet polls in a row, since a wrong answer swaps the challenge for a new one).
+  The backend relays port and password to `SyncProgress`, the UI shows a link
+  (`http://<host the member reached Picsou on>:<viewerPort>/vnc.html#password=…`; the password is in the
+  URL fragment, which no server or proxy ever sees). The budget is 240 s per login, shared by every
+  captcha that login meets; the approval window is not charged for the time spent on the captcha.
+  Each hand-off has a fresh random password in a 0600 file that x11vnc deletes as it reads it; nothing
+  listens on `6080` outside a hand-off, and one display means one hand-off at a time (a second login
+  meeting a captcha meanwhile gets `403` at once). If the view cannot start (missing binary, no display) or
+  nobody solves the captcha in time, the sidecar answers a flat `403 HUMAN_VERIFICATION_REQUIRED`; the
+  progress phase never reaches `AWAITING_APPROVAL` for a push that was not sent. The session the member
+  unlocks is saved in the persistent profile like any login, so later syncs reuse it.
+  Any other end state — no passcode screen after the phone step, no passcode input to type into
+  (`_fill_passcode` returns `False`), or a Playwright timeout in a login step — answers a flat
+  `424 UPSTREAM_FORMAT_CHANGED`. The same code also covers a rejected phone number (Revolut keeps `/signin`
+  with an inline error) and a slow network, so the user-facing wording says "the sign-in didn't go
+  through, check your phone number" rather than blaming the page. `424` because `502` is already the
+  harvest's `UPSTREAM_UNAVAILABLE`/`INVALID_DATA`, which the backend treats as a generic failure.
+- **One failed login per member per day (`429 LOGIN_PACED`).** A login that ends in an unsolved captcha
+  or an approval timeout writes the Europe/Paris date to `<member>.login-failed`; until tomorrow every
+  fresh login for that member is refused before any browser starts. Reusing a live session is never
+  paced, and `allowLogin=false` (scheduler) still answers `401 SESSION_EXPIRED`. A successful login
+  deletes the file. To retry the same day on purpose, delete `/data/revolut-profiles/<member>.login-failed`
+  (the key is the member id with anything outside `[A-Za-z0-9_-]` replaced by `_`).
+- **The browser identity is generated once per member and reused.** `launch_options` draws a new
+  fingerprint (user agent, screen, WebGL, fonts, canvas offset) on every call, which makes each launch a
+  new device to Revolut. `member_state.launch_kwargs` stores one in `<member>.fingerprint.json` —
+  Linux Firefox, `fr-FR`, a fixed 1600×900 screen (the Xvfb display's size), `Europe/Paris` — and
+  passes it to every launch (the session check, the login and the scheduler's). A missing, unreadable
+  or inconsistent file (another OS, screen or locale; a field Camoufox no longer knows) is replaced by
+  a fresh identity. It sits beside the profile so quarantining a corrupted profile keeps it. The
+  timezone and language follow the egress IP (`geoip=True`), which is Europe/Paris from the home
+  connection.
+- **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `403`/`424`/`429` to
   `SyncException` with the code as both message and `getCode()`; `RevolutSyncService.friendly()` turns
   them into English sentences, and `discover` passes the code to `SyncProgressService.error`, which
   exposes it as `SyncProgress.errorCode`. The three Revolut surfaces (Sync tab, Add-account wizard,
@@ -249,15 +291,22 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 
 ## Tests
 
+- `services/revolut-auth/tests/test_captcha_detection.py` — real Camoufox pages (local HTML, no network;
+  skipped without the browser binary): Revolut's resting state with its two parked frames (not a
+  captcha), a frame added late, a fading-in or hidden overlay, a nested frame, look-alike hosts.
+- `services/revolut-auth/tests/test_member_state.py` — the fingerprint is created once and reused,
+  repaired when missing or corrupt (16 corruptions), and the same-day failure marker.
 - `services/revolut-auth/tests/test_login_screen.py` — fake-page tests of `sync()`: known device /
   phone screen nominal paths, passcode URL before its inputs render, `?redirect=…passcode` query
   string, single-field passcode fallbacks, `504 LOGIN_SCREEN_TIMEOUT`, captcha after the phone step
   and on the first screen (also over a visible phone field; `403`, approval loop never entered),
   unknown post-phone state / missing passcode input / Playwright timeout in `goto` or a login step
-  (`424`). Needs `pytest` + `pytest-asyncio` (see the run command above).
-- `RevolutAdapterTest` (`403`/`424` mapping), `RevolutSyncServiceTest` (code + friendly message on
-  `discover`/`sync`), `SyncProgressServiceTest` (`errorCode`), and `features/sync/revolut-phase.test.ts`
-  plus `SyncAllModal.test.tsx` (translated captcha message, no countdown).
+  (`424`); the captcha hand-off (late captcha after the passcode, bounded budget, view closed on
+  cancel, view unavailable) and the same-day pacing. Needs `pytest` + `pytest-asyncio`.
+- `RevolutAdapterTest` (`403`/`424`/`429` mapping, viewer relay), `RevolutSyncServiceTest` (code +
+  friendly message on `discover`/`sync`), `SyncProgressServiceTest` (`errorCode`, viewer lifecycle), and
+  `features/sync/revolut-phase.test.ts` + `RevolutPhaseLine.test.tsx` (viewer link) +
+  `SyncAllModal.test.tsx` (translated captcha message, no countdown).
 - `backend/.../service/RevolutSyncServiceTest.java` — sync mapping (pockets/vaults), IBAN dedup vs
   Enable Banking, transaction dedup, remembered-vs-not credentials, always-upsert session marker row.
 - Live end-to-end (login + harvest against a real account) is still pending the account cool-down.
@@ -268,6 +317,7 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 
 ## Links
 
+- Decision: [captcha hand-off through a remote view](../decisions/2026-10-21-revolut-captcha-hand-off.md)
 - Precedent ADR: [tr-auth slim sidecar](../decisions/2026-04-25-tr-auth-sidecar-slim-image.md)
 - Related: [Bank Sync](./bank-sync.md), [Trade Republic](./trade-republic.md),
   [Encryption at rest](./encryption-at-rest.md), [Budget](./budget.md)

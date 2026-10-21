@@ -179,4 +179,66 @@ class SyncProgressServiceTest {
         assertThat(service.status(MEMBER_ID, SyncProvider.REVOLUT).errorCode())
             .isEqualTo("HUMAN_VERIFICATION_REQUIRED");
     }
+
+    // ─── captcha hand-off: the sidecar's remote view ─────────────────────────────
+
+    @Test
+    void viewer_isExposedWhileTheHandOffIsOpenAndDroppedWhenTheSidecarReportsNone() {
+        SyncProgressService service = new SyncProgressService();
+        service.startIfIdle(MEMBER_ID, SyncProvider.REVOLUT);
+
+        service.viewer(MEMBER_ID, SyncProvider.REVOLUT, 6080, "Ab3dEf9Z");
+        SyncProgress open = service.status(MEMBER_ID, SyncProvider.REVOLUT);
+        service.viewer(MEMBER_ID, SyncProvider.REVOLUT, null, null);
+        SyncProgress closed = service.status(MEMBER_ID, SyncProvider.REVOLUT);
+
+        assertThat(open.viewerPort()).isEqualTo(6080);
+        assertThat(open.viewerPassword()).isEqualTo("Ab3dEf9Z");
+        assertThat(closed.viewerPort()).isNull();
+        assertThat(closed.viewerPassword()).isNull();
+    }
+
+    @Test
+    void viewerPassword_doesNotAppearInTheStringFormOfTheProgress() {
+        SyncProgressService service = new SyncProgressService();
+        service.startIfIdle(MEMBER_ID, SyncProvider.REVOLUT);
+        service.viewer(MEMBER_ID, SyncProvider.REVOLUT, 6080, "Ab3dEf9Z");
+
+        assertThat(service.status(MEMBER_ID, SyncProvider.REVOLUT).toString())
+            .doesNotContain("Ab3dEf9Z").contains("viewerPort=6080");
+    }
+
+    @Test
+    void viewer_isNeverKeptOnceTheJobEnds() {
+        SyncProgressService service = new SyncProgressService();
+        service.startIfIdle(MEMBER_ID, SyncProvider.REVOLUT);
+        service.viewer(MEMBER_ID, SyncProvider.REVOLUT, 6080, "Ab3dEf9Z");
+        service.error(MEMBER_ID, SyncProvider.REVOLUT, "captcha", "HUMAN_VERIFICATION_REQUIRED");
+        assertThat(service.status(MEMBER_ID, SyncProvider.REVOLUT).viewerPassword()).isNull();
+
+        service.startIfIdle(MEMBER_ID, SyncProvider.REVOLUT);
+        service.viewer(MEMBER_ID, SyncProvider.REVOLUT, 6080, "Zz9yXw8V");
+        service.done(MEMBER_ID, SyncProvider.REVOLUT);
+        assertThat(service.status(MEMBER_ID, SyncProvider.REVOLUT).viewerPassword()).isNull();
+    }
+
+    @Test
+    void viewer_isScopedToTheMemberWhoseLoginIsChallenged() {
+        SyncProgressService service = new SyncProgressService();
+        service.startIfIdle(MEMBER_ID, SyncProvider.REVOLUT);
+        service.startIfIdle(MEMBER_ID + 1, SyncProvider.REVOLUT);
+
+        service.viewer(MEMBER_ID, SyncProvider.REVOLUT, 6080, "Ab3dEf9Z");
+
+        assertThat(service.status(MEMBER_ID + 1, SyncProvider.REVOLUT).viewerPassword()).isNull();
+    }
+
+    @Test
+    void viewer_ofAnUnknownJobIsIgnored() {
+        SyncProgressService service = new SyncProgressService();
+
+        service.viewer(MEMBER_ID, SyncProvider.REVOLUT, 6080, "Ab3dEf9Z");
+
+        assertThat(service.status(MEMBER_ID, SyncProvider.REVOLUT).viewerPassword()).isNull();
+    }
 }

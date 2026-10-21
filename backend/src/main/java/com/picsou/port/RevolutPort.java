@@ -65,10 +65,13 @@ public interface RevolutPort {
      * @throws com.picsou.exception.SyncException with message {@code "SESSION_EXPIRED"} when the
      *         sidecar reports the credentials/session are no longer valid (HTTP 401), or
      *         {@code "APPROVAL_TIMEOUT"} when the mobile push was never approved in time (HTTP 408),
-     *         {@code "HUMAN_VERIFICATION_REQUIRED"} when Revolut showed a captcha the sidecar cannot
-     *         solve, so no push was sent (HTTP 403), or {@code "UPSTREAM_FORMAT_CHANGED"} when the
-     *         login flow ended on a page the sidecar does not recognise (HTTP 424). These last two
-     *         also carry the same value as {@link com.picsou.exception.SyncException#getCode()}.
+     *         {@code "HUMAN_VERIFICATION_REQUIRED"} when Revolut showed a captcha that nobody cleared
+     *         (the sidecar never solves one itself; the member does, in its remote view), so no push
+     *         was sent (HTTP 403), {@code "LOGIN_PACED"} when a login already failed today for this
+     *         member and the sidecar will not try another before tomorrow (HTTP 429), or
+     *         {@code "UPSTREAM_FORMAT_CHANGED"} when the login flow ended on a page the sidecar does
+     *         not recognise (HTTP 424). These last three also carry the same value as
+     *         {@link com.picsou.exception.SyncException#getCode()}.
      */
     List<RevolutAccountData> sync(String phoneNumber, String passcode, Long memberId);
 

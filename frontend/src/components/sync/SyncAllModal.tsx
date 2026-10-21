@@ -79,6 +79,7 @@ import type { Account } from '@/types/api'
 import { formatApiError, formatTrAuthError, isTrSessionDeadError } from '@/lib/errors'
 import { syncKeys } from '@/features/sync/hooks'
 import { revolutErrorLabel } from '@/features/sync/revolut-phase'
+import { RevolutPhaseLine } from './RevolutPhaseLine'
 import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 
 const REVOLUT_CONNECTION_ID = 'revolut'
@@ -775,6 +776,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                           <p className="text-xs text-muted-foreground">
                             {t('sync.all.lastSync')}: {formatTimeAgo(connection.lastSyncedAt)}
                           </p>
+                          {isRevolut && revolutPolling && (
+                            <p className="text-xs text-muted-foreground">
+                              <RevolutPhaseLine progress={revolutProgress.data} />
+                            </p>
+                          )}
                           {rowErrors[connection.id] && (
                             <p className="flex items-center gap-1.5 text-xs text-destructive">
                               <AlertTriangle className="size-3 shrink-0" />

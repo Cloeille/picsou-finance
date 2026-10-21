@@ -39,6 +39,9 @@ public class SyncProgressService {
         volatile String error;
         /** Stable machine-readable code for {@link #error}, when the failure has one the UI translates. */
         volatile String errorCode;
+        /** Remote-view port and one-time password of an open captcha hand-off; null outside one. */
+        volatile Integer viewerPort;
+        volatile String viewerPassword;
         volatile String phase;
         volatile Integer remainingSeconds;
         volatile Integer accountsFound;
@@ -55,7 +58,8 @@ public class SyncProgressService {
                 ? elapsedSecondsOverride
                 : (int) Duration.between(startedAt, Instant.now()).getSeconds();
             List<DiscoveredRevolutAccount> discovered = discoveredPreview != null ? discoveredPreview : List.of();
-            return new SyncProgress(running, phase, elapsed, remainingSeconds, accountsFound, done, error, errorCode, discovered);
+            return new SyncProgress(running, phase, elapsed, remainingSeconds, accountsFound, done, error, errorCode,
+                viewerPort, viewerPassword, discovered);
         }
     }
 
@@ -84,7 +88,7 @@ public class SyncProgressService {
     public SyncProgress status(Long memberId, SyncProvider provider) {
         State s = jobs.get(new Key(memberId, provider));
         return s == null
-            ? new SyncProgress(false, null, null, null, null, false, null, null, List.of())
+            ? new SyncProgress(false, null, null, null, null, false, null, null, null, null, List.of())
             : s.toDto();
     }
 
@@ -103,6 +107,18 @@ public class SyncProgressService {
         if (remainingSeconds != null) s.remainingSeconds = remainingSeconds;
         if (elapsedSeconds != null) s.elapsedSecondsOverride = elapsedSeconds;
         if (accountsFound != null) s.accountsFound = accountsFound;
+    }
+
+    /**
+     * Sets the captcha hand-off's remote view, or clears it (both null) when the sidecar reports no
+     * open hand-off -- the connector re-reports its state on every poll, so a view that was closed
+     * disappears from the progress at the next one.
+     */
+    public void viewer(Long memberId, SyncProvider provider, Integer port, String password) {
+        State s = jobs.get(new Key(memberId, provider));
+        if (s == null) return;
+        s.viewerPort = port;
+        s.viewerPassword = password;
     }
 
     public void accountsFound(Long memberId, SyncProvider provider, int count) {
@@ -137,6 +153,8 @@ public class SyncProgressService {
         if (s == null) return;
         s.done = true;
         s.running = false;
+        s.viewerPort = null;
+        s.viewerPassword = null;
     }
 
     /** {@code code} is the stable code the UI translates, or null when the failure has none. */
@@ -147,5 +165,7 @@ public class SyncProgressService {
         s.errorCode = code;
         s.done = true;
         s.running = false;
+        s.viewerPort = null;
+        s.viewerPassword = null;
     }
 }
