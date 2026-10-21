@@ -81,14 +81,19 @@ one network policy per bank.
   the shared set). A few hundred KiB.
 - **tr-auth moves from Playwright 1.44 to 1.52**, and bourse-direct, fortuneo,
   tr and degiro from fastapi 0.111 to 0.141. Their unit tests pass; Trade
-  Republic needs a live login before release.
+  Republic, Bourse Direct and Caisse d'Epargne passed a live login and sync on a
+  disposable instance built from this branch (2026-10-21).
 
 ## Consequences
 
 - New `services/base/` and two GHCR images, `sidecar-python` and
   `sidecar-chromium`, tagged by commit SHA. They are build inputs, not services.
 - `docker compose pull` is unchanged for users. `docker compose up --build`
-  builds the two bases first.
+  builds the two bases first and needs Compose v2.33+.
+- **The two base packages must be public on GHCR.** They are labelled with the
+  repository as source, but a package first pushed by `GITHUB_TOKEN` can start
+  private. Sidecar layers may be mounted from them, so after the first publish
+  the owner checks their visibility and an anonymous `docker pull` of a sidecar.
 - Chromium moves to `/opt/playwright-browsers` (was `/app/playwright-browsers`),
   so a sidecar's `chown -R /app` no longer copies it into a new layer.
 - tr-auth gets a CI job; it had none.

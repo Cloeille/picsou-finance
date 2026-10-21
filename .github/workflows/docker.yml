@@ -55,6 +55,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.names.outputs.python }}:${{ github.sha }}
+          # Links the package to this repository so it inherits the repository's
+          # access; check it is public after the first publish (anonymous pulls).
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha,scope=sidecar-python
           cache-to: type=gha,mode=max,scope=sidecar-python
 
@@ -67,6 +70,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.names.outputs.chromium }}:${{ github.sha }}
+          # Links the package to this repository so it inherits the repository's
+          # access; check it is public after the first publish (anonymous pulls).
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha,scope=sidecar-chromium
           cache-to: type=gha,mode=max,scope=sidecar-chromium
 

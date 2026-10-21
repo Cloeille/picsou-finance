@@ -187,8 +187,8 @@ jobs:
         run: docker build --tag picsou-caisse-epargne-auth:test services/caisse-epargne-auth
       # Every test is a stdlib `unittest` case, so the production image runs
       # them as is. The whole services/ tree is mounted read-only:
-      # test_dockerfile.py checks this service's Dockerfile and compares the
-      # Playwright pin with amundi-auth.
+      # test_dockerfile.py checks this service's Dockerfile and the shared
+      # chromium base in services/base.
       - name: Run parser, replay, fetcher, login and contract tests
         run: >-
           docker run --rm
