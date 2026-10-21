@@ -111,20 +111,23 @@ services:
     depends_on:
       - app
 
-  # Shared sidecar base images (services/base). Build-only: never started, and
-  # `docker compose pull` skips them because the published sidecar images
-  # already contain these layers. `--build` builds them before the sidecars.
+  # Shared sidecar base images (services/base). Never started (`scale: 0`).
+  # `docker compose pull` fetches them by name; their layers are the ones the
+  # published sidecars are built from, so nothing is downloaded twice.
+  # `--build` builds them before the sidecars (Compose v2.33+).
   sidecar-python:
+    image: ghcr.io/cloeille/picsou-finance/sidecar-python:latest
     build:
       context: ../services/base
       target: python
-    profiles: ["sidecar-base"]
+    scale: 0
 
   sidecar-chromium:
+    image: ghcr.io/cloeille/picsou-finance/sidecar-chromium:latest
     build:
       context: ../services/base
       target: chromium
-    profiles: ["sidecar-base"]
+    scale: 0
 
   tr-auth:
     image: ghcr.io/cloeille/picsou-finance/tr-auth:latest

@@ -36,7 +36,8 @@ code. No sidecar installs a package.
   each sidecar its base **by digest**. Every published sidecar therefore shares
   the base layers byte for byte, and a pull fetches them once.
 - **Compose `--build`**: the bases are build-only Compose services
-  (`profiles: ["sidecar-base"]`, never started); each sidecar points at one with
+  (`scale: 0`, never started, not a profile: `docker compose down` and `config`
+  without the profile would not see them and reject the sidecars' contexts); each sidecar points at one with
   `additional_contexts: service:…`, so Compose builds it first.
 - **CI**: each sidecar job builds its base, then the sidecar, then runs the same
   tests as before. A change under `services/base/` therefore reruns every
@@ -87,7 +88,7 @@ one network policy per bank.
 ## Consequences
 
 - New `services/base/` and two GHCR images, `sidecar-python` and
-  `sidecar-chromium`, tagged by commit SHA. They are build inputs, not services.
+  `sidecar-chromium`, tagged like the sidecars (branch, `latest`, semver, SHA). They are build inputs, not services.
 - `docker compose pull` is unchanged for users. `docker compose up --build`
   builds the two bases first and needs Compose v2.33+.
 - **The two base packages must be public on GHCR.** They are labelled with the

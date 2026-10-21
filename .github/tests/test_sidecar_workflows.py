@@ -195,7 +195,11 @@ class SharedSidecarBaseTest(unittest.TestCase):
                     base = compose[f"sidecar-{target}"]
                     self.assertEqual(base["build"]["target"], target)
                     self.assertTrue(base["build"]["context"].endswith("services/base"))
-                    self.assertEqual(base["profiles"], ["sidecar-base"])
+                    # Not a profile: a profiled service is invisible to `down`/`config`
+                    # without it, and Compose then rejects the sidecars' contexts.
+                    self.assertNotIn("profiles", base)
+                    self.assertEqual(base["scale"], 0)
+                    self.assertEqual(base["image"], f"ghcr.io/cloeille/picsou-finance/sidecar-{target}:latest")
             for service in _shared_base_services():
                 target = _sidecar_base(service)
                 with self.subTest(compose_file=path.relative_to(ROOT), service=service):

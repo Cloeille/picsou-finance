@@ -74,7 +74,7 @@ two shared bases, built from one pin set (`services/base/requirements*.txt`):
 The publish workflow pushes `sidecar-python` and `sidecar-chromium` first and
 builds every sidecar from them by digest, so a pull stores Chromium once. With
 `docker compose up --build`, the build-only services `sidecar-python` and
-`sidecar-chromium` (profile `sidecar-base`, never started) are built first; this
+`sidecar-chromium` (`scale: 0`, never started) are built first; this
 needs Compose v2.33+ (`additional_contexts: service:`), tested on 5.6.0.
 `docker compose pull` needs no particular version and never pulls the bases. See
 [ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md).
