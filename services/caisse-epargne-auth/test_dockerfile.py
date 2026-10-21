@@ -69,19 +69,16 @@ class DockerfileCopyTest(unittest.TestCase):
         for name in copied_files():
             self.assertFalse(name.startswith("test_") or name == "fake_browser.py", name)
 
-    def test_the_image_installs_chromium_only_and_runs_unprivileged(self):
+    def test_the_image_builds_on_the_chromium_base_and_runs_unprivileged(self):
+        # Chromium and the Playwright pin live in services/base, shared with every
+        # other browser sidecar; see .github/tests/test_sidecar_workflows.py.
         text = (SERVICE_DIR / "Dockerfile").read_text()
-        self.assertIn("playwright install chromium", text)
-        self.assertNotRegex(text, r"playwright install(?! chromium)")
-        self.assertIn("PLAYWRIGHT_BROWSERS_PATH", text)
+        self.assertRegex(text, r"(?m)^ARG SIDECAR_BASE=picsou-sidecar-chromium$")
+        self.assertRegex(text, r"(?m)^FROM \$\{SIDECAR_BASE\}$")
         self.assertRegex(text, r"(?m)^USER caisse$")
-
-    def test_playwright_is_pinned_to_the_amundi_version(self):
-        requirements = (SERVICE_DIR / "requirements.txt").read_text()
-        amundi = (SERVICE_DIR.parent / "amundi-auth" / "requirements.txt").read_text()
-        pin = re.search(r"(?m)^playwright==[\d.]+$", amundi)
-        self.assertIsNotNone(pin)
-        self.assertIn(pin.group(0), requirements)
+        base = (SERVICE_DIR.parent / "base" / "Dockerfile").read_text()
+        self.assertIn("playwright install chromium", base)
+        self.assertNotRegex(base, r"playwright install(?! chromium)")
 
     def test_the_helper_catches_a_missing_module(self):
         # Guards the guard: the closure walk really follows imports.

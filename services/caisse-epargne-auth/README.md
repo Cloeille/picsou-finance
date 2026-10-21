@@ -271,7 +271,7 @@ Logout.
 
 ```
 python3 -m venv "$TMPDIR/ce-venv"          # outside the repo
-"$TMPDIR/ce-venv/bin/pip" install -r requirements.txt
+"$TMPDIR/ce-venv/bin/pip" install -r ../base/requirements.txt -r ../base/requirements-chromium.txt
 cd services/caisse-epargne-auth && APP_SIDECAR_API_KEY=test-key \
   env -u PYTHONPATH "$TMPDIR/ce-venv/bin/python" -m unittest discover -v
 ```

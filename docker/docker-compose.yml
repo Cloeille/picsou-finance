@@ -111,11 +111,30 @@ services:
     depends_on:
       - app
 
+  # Shared sidecar base images (services/base). Build-only: never started, and
+  # `docker compose pull` skips them because the published sidecar images
+  # already contain these layers. `--build` builds them before the sidecars.
+  sidecar-python:
+    build:
+      context: ../services/base
+      target: python
+    profiles: ["sidecar-base"]
+
+  sidecar-chromium:
+    build:
+      context: ../services/base
+      target: chromium
+    profiles: ["sidecar-base"]
+
   tr-auth:
     image: ghcr.io/cloeille/picsou-finance/tr-auth:latest
     build:
       context: ../services/tr-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -136,6 +155,10 @@ services:
     build:
       context: ../services/bourso-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -145,6 +168,10 @@ services:
     build:
       context: ../services/caisse-epargne-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -154,6 +181,10 @@ services:
     build:
       context: ../services/bourse-direct-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -163,6 +194,10 @@ services:
     build:
       context: ../services/amundi-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -172,6 +207,10 @@ services:
     build:
       context: ../services/fortuneo-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -184,6 +223,10 @@ services:
     build:
       context: ../services/corum-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -193,6 +236,10 @@ services:
     build:
       context: ../services/sofidy-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -213,6 +260,10 @@ services:
     build:
       context: ../services/degiro-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}

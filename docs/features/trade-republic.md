@@ -199,17 +199,16 @@ TRAdapter.refreshSession() --> retry with new token
 
 ## Docker / deployment
 
-The `tr-auth` sidecar uses `python:3.12-slim` as base (not the official `mcr.microsoft.com/playwright/python` image) — see [ADR 2026-04-25](../decisions/2026-04-25-tr-auth-sidecar-slim-image.md) for the size rationale (969MB → 547MB release archive). Only Chromium is installed; Firefox and WebKit are skipped. The container runs as a non-root user (`trauth`). Two ordering rules matter:
+The `tr-auth` sidecar builds on the shared `chromium` base (`services/base`, see [ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md)): Python 3.12 slim bookworm, Playwright 1.52 and Chromium only, shared with the other browser sidecars. Its own Dockerfile adds only the `trauth` user and `main.py`. The two rules below now live in `services/base/Dockerfile` (Chromium in `/opt/playwright-browsers`, world-readable). The original size rationale is in [ADR 2026-04-25](../decisions/2026-04-25-tr-auth-sidecar-slim-image.md). Two ordering rules matter:
 
 1. **Chromium system deps must be `apt-get install`-ed manually.** `playwright install --with-deps` would be simpler but fails on Debian bookworm because it tries to install Ubuntu-only font packages (`ttf-unifont`, `ttf-ubuntu-font-family`). The Dockerfile lists the working subset explicitly.
 2. **`PLAYWRIGHT_BROWSERS_PATH` must be set BEFORE `playwright install chromium` runs**, so the browser lands in a directory owned by `trauth`:
 
 ```dockerfile
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/playwright-browsers
-RUN pip install --no-cache-dir -r requirements.txt \
-    && playwright install chromium
-RUN chown -R trauth:trauth /app
-USER trauth
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+RUN pip install --no-cache-dir -r /opt/sidecar-base/requirements-chromium.txt \
+    && playwright install chromium \
+    && chmod -R a+rX /opt/playwright-browsers
 ```
 
 Without rule 2, Playwright installs to `/root/.cache/ms-playwright/`, which the `trauth` user cannot read → every `/initiate` call throws an unhandled exception → FastAPI returns 500 with no useful error message.
