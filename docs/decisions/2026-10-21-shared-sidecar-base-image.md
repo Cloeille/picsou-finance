@@ -81,9 +81,18 @@ one network policy per bank.
 - **Browserless sidecars carry httpx** even when they do not use it (it is in
   the shared set). A few hundred KiB.
 - **tr-auth moves from Playwright 1.44 to 1.52**, and bourse-direct, fortuneo,
-  tr and degiro from fastapi 0.111 to 0.141. Their unit tests pass; Trade
-  Republic, Bourse Direct and Caisse d'Epargne passed a live login and sync on a
-  disposable instance built from this branch (2026-10-21).
+  tr and degiro from fastapi 0.111 to 0.141 (with uvicorn 0.52, pydantic 2.13,
+  and httpx 0.28 for tr and degiro). These four lose uvicorn's `[standard]`
+  extras, which fastapi 0.111 pulled in; the other five already ran without
+  them. Their unit tests pass; Trade Republic, Bourse Direct and Caisse
+  d'Epargne passed a live login and sync on a disposable instance built from
+  this branch (2026-10-21). **Fortuneo and DEGIRO have unit and image tests
+  only**: a live login is still owed by someone with an account.
+- **One base failure blocks every published image.** `build` needs `base`, so
+  the app and the Camoufox images wait on it too. Accepted: the base is the
+  first thing to fix either way.
+- **Dependabot bumps the base digest** (`docker` entry for `/services/base`),
+  so Debian security fixes still reach every sidecar.
 
 ## Consequences
 
@@ -97,4 +106,6 @@ one network policy per bank.
   the owner checks their visibility and an anonymous `docker pull` of a sidecar.
 - Chromium moves to `/opt/playwright-browsers` (was `/app/playwright-browsers`),
   so a sidecar's `chown -R /app` no longer copies it into a new layer.
-- tr-auth gets a CI job; it had none.
+- tr-auth gets a CI job; it had none. `compose-sidecar-build` builds two
+  sidecars through Compose (bases, `additional_contexts`) and tears down without
+  a profile, so the wiring is tested as users run it.

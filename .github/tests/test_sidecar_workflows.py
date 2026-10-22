@@ -98,7 +98,6 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
                         self.assertIn(mount, commands)
 
 
-
 def _sidecar_base(service):
     """The base target a sidecar Dockerfile builds on, or None for its own base."""
     text = (ROOT / "services" / service / "Dockerfile").read_text(encoding="utf-8")

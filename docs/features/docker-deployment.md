@@ -76,7 +76,9 @@ builds every sidecar from them by digest, so a pull stores Chromium once. With
 `docker compose up --build`, the build-only services `sidecar-python` and
 `sidecar-chromium` (`scale: 0`, never started) are built first; this
 needs Compose v2.33+ (`additional_contexts: service:`), tested on 5.6.0.
-`docker compose pull` needs no particular version and never pulls the bases. See
+`docker compose pull` needs no particular version. It also pulls the two bases
+by name (`ghcr.io/cloeille/picsou-finance/sidecar-*:latest`); their layers are
+the ones the published sidecars are built from, so nothing is downloaded twice. See
 [ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md).
 
 ### tr-auth sidecar — `services/tr-auth/Dockerfile`

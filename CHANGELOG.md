@@ -292,7 +292,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Sidecars share one dependency pin set.** Bourse Direct, Fortuneo, Trade Republic and
   DEGIRO move from fastapi 0.111 (and the Starlette range with published DoS advisories it
-  pulled in) to fastapi 0.141, and Trade Republic from Playwright 1.44 to 1.52. A future
+  pulled in) to fastapi 0.141, uvicorn 0.52 and pydantic 2.13, DEGIRO and Trade Republic
+  from httpx 0.27 to 0.28, and Trade Republic from Playwright 1.44 to 1.52. These four no
+  longer get uvicorn's `[standard]` extras (uvloop, httptools, websockets) that fastapi 0.111
+  pulled in: they run on the default asyncio loop and h11, like the other sidecars already did. A future
   bump is one line in `services/base/requirements*.txt` for all nine sidecars.
 
 - **Every connector sidecar now checks the shared `APP_SIDECAR_API_KEY`.** The

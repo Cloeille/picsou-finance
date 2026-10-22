@@ -339,6 +339,30 @@ jobs:
           picsou-tr-auth:test
           -m unittest discover -v
 
+  compose-sidecar-build:
+    # The Compose wiring (build-only bases, `additional_contexts: service:`)
+    # as users run it, not only as YAML assertions.
+    runs-on: ubuntu-latest
+    env:
+      APP_SIDECAR_API_KEY: ci-test-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Resolve the published Compose file
+        run: |
+          docker compose version
+          docker compose -f docker/docker-compose.yml config --quiet
+      - name: Build one sidecar per base through Compose
+        run: docker compose -f docker/docker-compose.yml build tr-auth bourso-auth
+      - name: The sidecars run on their base
+        run: >-
+          docker compose -f docker/docker-compose.yml run --rm --no-deps
+          --entrypoint python tr-auth
+          -c "import os, playwright; assert os.environ['PLAYWRIGHT_BROWSERS_PATH'] == '/opt/playwright-browsers'"
+      - name: Tear down without a profile
+        run: docker compose -f docker/docker-compose.yml down --volumes --remove-orphans
+
   workflow-inventory:
     runs-on: ubuntu-latest
     steps:

@@ -1,6 +1,6 @@
 """Export the actual /positions HTTP JSON for the opt-in Java adapter test.
 
-Run with the sidecar's pinned requirements. Only the upstream transport is fake;
+Run with the shared sidecar pins (services/base/requirements.txt). Only the upstream transport is fake;
 parser, app route, Pydantic response filtering and JSON serialization are real.
 """
 import os
