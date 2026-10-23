@@ -198,6 +198,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **American Express no longer stores a second copy of a charge AMEX re-describes.** A
+  charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
+  `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its
+  category, so budgets counted it twice. The stored row now takes the new label and keeps its
+  category; two identical purchases on the same day stay two rows. A migration removes the
+  copies a later sync already stored when they carry no category or AI suggestion, and keeps
+  them in `amex_v117_removed` until you drop that table (#245).
 - **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead

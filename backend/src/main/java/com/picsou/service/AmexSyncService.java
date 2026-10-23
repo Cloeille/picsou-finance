@@ -47,6 +47,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Imports the American Express credit card: balance, and (when the sidecar returns them)
@@ -429,7 +430,9 @@ public class AmexSyncService {
      * Regular sync upserts the 90-day window and deletes only stored pending charges the pending
      * feed no longer reports. Recovery instead imports the full bounded history returned by AMEX
      * and merges without updating or deleting existing/manual rows, except stored pending charges
-     * an answered pending feed no longer reports, purged exactly as a routine sync does.
+     * an answered pending feed no longer reports, purged exactly as a routine sync does, and except
+     * {@link #adoptRelabelledCharges}, which re-keys a stored posted row (external id and label) to
+     * the charge AMEX now reports, in both modes, history included.
      */
     private void syncTransactions(
         Account account,
@@ -442,6 +445,7 @@ public class AmexSyncService {
         transactions.forEach(tx -> returned.add(tx.externalId()));
         List<Transaction> stored = rekeyLegacyRows(
             account, transactionRepository.findByAccountIdAndIsManualFalse(account.getId()), returned);
+        List<Transaction> adopted = adoptRelabelledCharges(stored, transactions, returned);
         // The posted feed is one page, cut on a date that is not the one rows carry, so a posted
         // row missing from it proves nothing: posted rows are never deleted here. A stored
         // pending charge the pending feed no longer returns has settled or was cancelled, but
@@ -468,6 +472,7 @@ public class AmexSyncService {
                 .map(tx -> Transaction.builder().account(account).externalId(tx.externalId())
                     .date(tx.date()).description(tx.label()).amount(tx.amountEur()).nativeCurrency("EUR").build()).toList());
             addMissing(missing, carryOverSettledCharges(obsolete, postedRows(storedPosted, missing)));
+            addMissing(missing, adopted);
             if (!obsolete.isEmpty()) {
                 transactionRepository.deleteAll(obsolete);
                 transactionRepository.flush();
@@ -505,7 +510,77 @@ public class AmexSyncService {
             upserts.add(row);
         }
         addMissing(upserts, carryOverSettledCharges(obsolete, postedRows(storedPosted, inserted)));
+        addMissing(upserts, adopted);
         transactionWriter.reconcileHistory(obsolete, upserts);
+    }
+
+    /**
+     * AMEX re-describes a charge between two syncs ("ANTHROPIC PBC" becomes "ANTHROPIC* CLAUDE
+     * SUB SAN FRANCISCO"). A derived id hashes the label, so the charge arrives under an id nothing
+     * stored holds; inserted as such it sits beside the row it replaces, uncategorised, and a
+     * budget counts the spend twice.
+     *
+     * <p>A stored posted row the response no longer reports, with the same date and amount as a
+     * reported posted charge nobody stores, is that charge: it takes the reported identity and
+     * label and keeps its category and series. Three things keep this from merging genuine
+     * purchases:
+     * <ul>
+     *   <li>a row the response still reports is never a candidate, so identical purchases AMEX
+     *       still lists stay separate rows;
+     *   <li>each stored row pairs with at most one charge, so two identical purchases of which
+     *       only one was relabelled stay two rows;
+     *   <li>the row must be dated more than {@link #SETTLEMENT_WINDOW_DAYS} days after the oldest
+     *       posted charge the response reports: the posted feed is one page cut on the posting
+     *       date while rows carry the charge date, so a stored row near that edge may simply sit
+     *       past the cut, which proves nothing.
+     * </ul>
+     * Provider-issued ids never take part: they already say which charge is which. Pending rows
+     * follow their own lifecycle (see {@link #carryOverSettledCharges}).
+     *
+     * @return the re-keyed rows, which the caller saves
+     */
+    private List<Transaction> adoptRelabelledCharges(
+        List<Transaction> stored,
+        List<PreparedTransaction> reported,
+        Set<String> returned
+    ) {
+        Set<String> storedIds = new HashSet<>();
+        stored.forEach(row -> storedIds.add(row.getExternalId()));
+        List<PreparedTransaction> unstored = reported.stream()
+            .filter(tx -> tx.externalId().startsWith(POSTED_TX_ID_PREFIX) && !storedIds.contains(tx.externalId()))
+            .toList();
+        if (unstored.isEmpty()) return List.of();
+        LocalDate oldestReported = reported.stream()
+            .filter(tx -> tx.externalId().startsWith(POSTED_TX_ID_PREFIX))
+            .map(PreparedTransaction::date)
+            .min(Comparator.naturalOrder())
+            .orElseThrow();
+
+        List<Transaction> candidates = stored.stream()
+            .filter(row -> row.getExternalId() != null
+                && row.getExternalId().startsWith(POSTED_TX_ID_PREFIX)
+                && !returned.contains(row.getExternalId())
+                && row.getDate().isAfter(oldestReported.plusDays(SETTLEMENT_WINDOW_DAYS)))
+            .sorted(Comparator.comparing(Transaction::getDate)
+                .thenComparing(Transaction::getId, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(Transaction::getExternalId))
+            .collect(Collectors.toCollection(ArrayList::new));
+        List<Transaction> adopted = new ArrayList<>();
+        for (PreparedTransaction tx : unstored) {
+            candidates.stream()
+                .filter(row -> row.getDate().equals(tx.date()) && row.getAmount().compareTo(tx.amountEur()) == 0)
+                .findFirst()
+                .ifPresent(row -> {
+                    candidates.remove(row);
+                    row.setExternalId(tx.externalId());
+                    row.setDescription(tx.label());
+                    adopted.add(row);
+                });
+        }
+        if (!adopted.isEmpty()) {
+            log.info("American Express matched {} relabelled charge(s) to stored rows", adopted.size());
+        }
+        return adopted;
     }
 
     /** Posted rows a settled pending may have become: stored on any earlier sync, or new now. */
