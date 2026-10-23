@@ -47,6 +47,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Imports the American Express credit card: balance, and (when the sidecar returns them)
@@ -429,7 +430,9 @@ public class AmexSyncService {
      * Regular sync upserts the 90-day window and deletes only stored pending charges the pending
      * feed no longer reports. Recovery instead imports the full bounded history returned by AMEX
      * and merges without updating or deleting existing/manual rows, except stored pending charges
-     * an answered pending feed no longer reports, purged exactly as a routine sync does.
+     * an answered pending feed no longer reports, purged exactly as a routine sync does, and except
+     * {@link #adoptRelabelledCharges}, which re-keys a stored posted row (external id and label) to
+     * the charge AMEX now reports, in both modes, history included.
      */
     private void syncTransactions(
         Account account,
@@ -561,7 +564,7 @@ public class AmexSyncService {
             .sorted(Comparator.comparing(Transaction::getDate)
                 .thenComparing(Transaction::getId, Comparator.nullsLast(Comparator.naturalOrder()))
                 .thenComparing(Transaction::getExternalId))
-            .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+            .collect(Collectors.toCollection(ArrayList::new));
         List<Transaction> adopted = new ArrayList<>();
         for (PreparedTransaction tx : unstored) {
             candidates.stream()

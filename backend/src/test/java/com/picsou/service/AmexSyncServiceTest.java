@@ -541,7 +541,7 @@ class AmexSyncServiceTest {
     // ─── Issue #245: statement payment, then a re-sync where AMEX re-describes stored charges ───
 
     @Test
-    void resyncAfterPayment_relabelledPurchasesStayOneRowEachAndBalanceIsCountedOnce() {
+    void resyncAfterPayment_relabelledPurchasesStayOneRowEachAndBalanceIsStoredAsReported() {
         AmexPort.Transaction anchor = charge(40, "STATEMENT PERIOD PURCHASE", "-9.00");
         AmexPort.Transaction payment = charge(20, "PRELEVEMENT AUTOMATIQUE ENREGISTRE-MERCI", "1500.00");
         AmexPort.Transaction subscription = charge(15, "ANTHROPIC PBC", "-20.00");
@@ -575,16 +575,11 @@ class AmexSyncServiceTest {
             .extracting(Transaction::getDescription)
             .containsExactlyInAnyOrder("STATEMENT PERIOD PURCHASE", "COFFEE SHOP", "GROCERY STORE", "BAKERY");
 
-        // the stored balance is the provider's debt, written once: minus the purchases since the payment
-        BigDecimal purchasesSincePayment = second.upserts().stream()
-            .filter(tx -> tx.getAmount().signum() < 0 && tx.getDate().isAfter(LocalDate.now().minusDays(21)))
-            .map(Transaction::getAmount)
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // The backend stores the sidecar balance verbatim; the sidecar self-check
+        // (services/amex-auth/main.py) is what pins the 2x formula.
         ArgumentCaptor<Account> saved = ArgumentCaptor.forClass(Account.class);
         verify(accountRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
-        assertThat(saved.getValue().getCurrentBalance())
-            .isEqualByComparingTo(purchasesSincePayment)
-            .isEqualByComparingTo(debtSincePayment);
+        assertThat(saved.getValue().getCurrentBalance()).isEqualByComparingTo(debtSincePayment);
     }
 
     @Test
