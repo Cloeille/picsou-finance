@@ -15,8 +15,27 @@
 --     one removed. Three or more rows could hold a genuine second purchase, and two rows with the
 --     same label are what two identical purchases look like, so both are left alone;
 --   * the removed row must carry nothing of the user's: no category (managed or legacy), no manual
---     category flag, no recurring series. A copy someone categorised is left for them to merge.
--- Idempotent: once a group is down to one row it no longer matches.
+--     category flag, no recurring series, no AI category suggestion. A copy someone categorised, or
+--     that the AI already looked at, is left for them to merge;
+--   * the removed row must come from a LATER sync than the kept one (`created_at` more than one
+--     hour after it). A relabelled copy always lands in a sync after the row it replaces; two
+--     genuine same-day purchases at one merchant ("AMZN MKTP FR*1A2B" / "AMZN MKTP FR*3C4D",
+--     "SNCF" / "SNCF CONNECT") land in the same sync, with created_at within seconds, and stay.
+--     `transaction.created_at` is TIMESTAMPTZ NOT NULL DEFAULT NOW() (V12), and the JPA entity
+--     fills it with the insert time (Transaction.createdAt), so it records the sync that stored
+--     the row.
+--
+-- Nothing is lost for good: the removed rows are copied, in the same statement, to the table
+-- `amex_v117_removed` (same columns as `transaction`, no constraints). To restore one:
+--     INSERT INTO transaction SELECT * FROM amex_v117_removed WHERE id = <id>;
+-- Drop the table once the result has been checked: DROP TABLE amex_v117_removed;
+-- The only table that references `transaction` is `ai_call_log` (V42, ON DELETE SET NULL), so the
+-- delete cascades nowhere and is blocked by nothing.
+--
+-- Idempotent: once a group is down to one row it no longer matches, and the backup table is only
+-- created when missing, so re-running the script fails on nothing and deletes nothing more.
+
+CREATE TABLE IF NOT EXISTS amex_v117_removed AS SELECT * FROM transaction WITH NO DATA;
 
 WITH amex_rows AS (
     SELECT t.id,
@@ -38,13 +57,19 @@ pairs AS (
     WHERE first_word IS NOT NULL
     GROUP BY account_id, date, amount, first_word
     HAVING count(*) = 2
+),
+removed AS (
+    DELETE FROM transaction dup
+    USING pairs p, transaction kept
+    WHERE dup.id = p.dup_id
+      AND kept.id = p.kept_id
+      AND dup.description <> kept.description
+      AND dup.created_at > kept.created_at + interval '1 hour'
+      AND dup.category_id IS NULL
+      AND dup.category IS NULL
+      AND dup.category_manual = FALSE
+      AND dup.recurring_series_id IS NULL
+      AND dup.ai_suggested_category_id IS NULL
+    RETURNING dup.*
 )
-DELETE FROM transaction dup
-USING pairs p, transaction kept
-WHERE dup.id = p.dup_id
-  AND kept.id = p.kept_id
-  AND dup.description <> kept.description
-  AND dup.category_id IS NULL
-  AND dup.category IS NULL
-  AND dup.category_manual = FALSE
-  AND dup.recurring_series_id IS NULL;
+INSERT INTO amex_v117_removed SELECT * FROM removed;
