@@ -6,3 +6,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # The shared sidecar base pins python:3.12-slim-bookworm by digest, so OS
+  # security fixes only arrive through this bump. Every sidecar CI job rebuilds
+  # on top of it.
+  - package-ecosystem: docker
+    directory: /services/base
+    schedule:
+      interval: weekly

@@ -10,7 +10,114 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  # Shared sidecar bases (services/base), published before the sidecars so every
+  # sidecar is built FROM the same digest and Docker stores its layers once.
+  base:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      python: ${{ steps.refs.outputs.python }}
+      chromium: ${{ steps.refs.outputs.chromium }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image names
+        id: names
+        shell: bash
+        run: |
+          repo="${REGISTRY}/${GITHUB_REPOSITORY,,}"
+          echo "python=${repo}/sidecar-python" >> "$GITHUB_OUTPUT"
+          echo "chromium=${repo}/sidecar-chromium" >> "$GITHUB_OUTPUT"
+
+      - name: Tags for the python base
+        id: meta-python
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ steps.names.outputs.python }}
+          tags: |
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,format=short
+
+      - name: Build and push the python base
+        id: python
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: services/base
+          target: python
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-python.outputs.tags }}
+          # Links the package to this repository so it inherits the repository's
+          # access; check it is public after the first publish (anonymous pulls).
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=sidecar-python
+          cache-to: type=gha,mode=max,scope=sidecar-python
+
+      - name: Tags for the chromium base
+        id: meta-chromium
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ steps.names.outputs.chromium }}
+          tags: |
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,format=short
+
+      - name: Build and push the chromium base
+        id: chromium
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: services/base
+          target: chromium
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-chromium.outputs.tags }}
+          # Links the package to this repository so it inherits the repository's
+          # access; check it is public after the first publish (anonymous pulls).
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=sidecar-chromium
+          cache-to: type=gha,mode=max,scope=sidecar-chromium
+
+      - name: Pin the bases by digest
+        id: refs
+        shell: bash
+        env:
+          PYTHON_REF: ${{ steps.names.outputs.python }}@${{ steps.python.outputs.digest }}
+          CHROMIUM_REF: ${{ steps.names.outputs.chromium }}@${{ steps.chromium.outputs.digest }}
+        run: |
+          echo "python=${PYTHON_REF}" >> "$GITHUB_OUTPUT"
+          echo "chromium=${CHROMIUM_REF}" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: base
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -29,6 +136,7 @@ jobs:
             image: ${{ github.repository }}/tr-auth
             context: services/tr-auth
             dockerfile: services/tr-auth/Dockerfile
+            base: chromium
             versioned: false
           - name: revolut-auth
             image: ${{ github.repository }}/revolut-auth
@@ -38,36 +146,43 @@ jobs:
             image: ${{ github.repository }}/bourse-direct-auth
             context: services/bourse-direct-auth
             dockerfile: services/bourse-direct-auth/Dockerfile
+            base: chromium
             versioned: false
           - name: amundi-auth
             image: ${{ github.repository }}/amundi-auth
             context: services/amundi-auth
             dockerfile: services/amundi-auth/Dockerfile
+            base: chromium
             versioned: false
           - name: bourso-auth
             image: ${{ github.repository }}/bourso-auth
             context: services/bourso-auth
             dockerfile: services/bourso-auth/Dockerfile
+            base: python
             versioned: false
           - name: caisse-epargne-auth
             image: ${{ github.repository }}/caisse-epargne-auth
             context: services/caisse-epargne-auth
             dockerfile: services/caisse-epargne-auth/Dockerfile
+            base: chromium
             versioned: false
           - name: fortuneo-auth
             image: ${{ github.repository }}/fortuneo-auth
             context: services/fortuneo-auth
             dockerfile: services/fortuneo-auth/Dockerfile
+            base: chromium
             versioned: false
           - name: corum-auth
             image: ${{ github.repository }}/corum-auth
             context: services/corum-auth
             dockerfile: services/corum-auth/Dockerfile
+            base: chromium
             versioned: false
           - name: sofidy-auth
             image: ${{ github.repository }}/sofidy-auth
             context: services/sofidy-auth
             dockerfile: services/sofidy-auth/Dockerfile
+            base: python
             versioned: false
           - name: amex-auth
             image: ${{ github.repository }}/amex-auth
@@ -78,6 +193,7 @@ jobs:
             image: ${{ github.repository }}/degiro-auth
             context: services/degiro-auth
             dockerfile: services/degiro-auth/Dockerfile
+            base: python
             versioned: false
 
     steps:
@@ -138,6 +254,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: ${{ matrix.versioned && format('APP_VERSION={0}', steps.app-version.outputs.version) || '' }}
+          # Empty lines are dropped. A sidecar gets its base by digest, never a tag.
+          build-args: |
+            ${{ matrix.versioned && format('APP_VERSION={0}', steps.app-version.outputs.version) || '' }}
+            ${{ matrix.base && format('SIDECAR_BASE={0}', needs.base.outputs[matrix.base]) || '' }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
