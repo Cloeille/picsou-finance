@@ -1,6 +1,7 @@
 package com.picsou.migration;
 
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
@@ -69,11 +70,11 @@ class V117AmexRelabelledDuplicatesMigrationTest {
     }
 
     @BeforeAll
-    static void migrateToV115() {
+    static void migrateToJustBeforeV117() {
         Flyway.configure()
             .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
             .locations("classpath:db/migration")
-            .target("115")
+            .target("116?") // "?" tolerates a missing V116: stops at 115 without it, so V117 is the only pending migration either way
             .load()
             .migrate();
     }
@@ -207,8 +208,9 @@ class V117AmexRelabelledDuplicatesMigrationTest {
             .locations("classpath:db/migration")
             .target("117") // later migrations are covered by their own tests
             .load();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("115");
+        assertThat(flyway.info().current().getVersion()).isLessThan(MigrationVersion.fromVersion("117"));
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("117");
 
         assertThat(survivors(amex)).containsExactly(
             "ANTHROPIC PBC",
