@@ -10,6 +10,9 @@ import com.picsou.config.SecurityConfig;
 import com.picsou.config.SetupFilter;
 import com.picsou.controller.AdminController;
 import com.picsou.controller.TelemetryController;
+import com.picsou.dto.InstanceStatusResponse;
+import com.picsou.dto.SidecarIssue;
+import com.picsou.dto.SidecarIssueCode;
 import com.picsou.dto.TelemetryConfigResponse;
 import com.picsou.mcp.AccessKeyService;
 import com.picsou.repository.AppSettingRepository;
@@ -17,6 +20,7 @@ import com.picsou.repository.AppUserRepository;
 import com.picsou.service.AiCallLogService;
 import com.picsou.service.EnableBankingCallLogger;
 import com.picsou.service.EnableBankingKeyPairService;
+import com.picsou.service.InstanceStatusService;
 import com.picsou.service.IntegrationsService;
 import com.picsou.service.MfaService;
 import com.picsou.service.PersistentSessionService;
@@ -38,6 +42,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -69,6 +74,7 @@ class TelemetryEndpointsTest {
     @MockitoBean AiConfigProvider aiConfigProvider;
     @MockitoBean AiCallLogService aiCallLogService;
     @MockitoBean EnableBankingCallLogger ebCallLogger;
+    @MockitoBean InstanceStatusService instanceStatusService;
 
     // SecurityConfig collaborators (same set as the CSRF slice)
     @MockitoBean JwtUtil jwtUtil;
@@ -239,6 +245,27 @@ class TelemetryEndpointsTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.telemetry.available").value(true))
             .andExpect(jsonPath("$.telemetry.consent").value("UNSET"));
+    }
+
+    @Test
+    void instanceStatus_admin_serialisesExplicitNulls() throws Exception {
+        when(instanceStatusService.status()).thenReturn(new InstanceStatusResponse("1.1.0", null,
+            List.of(new SidecarIssue(SidecarIssueCode.SIDECAR_UNREACHABLE, "amex-auth", null))));
+
+        mvc.perform(asAdmin(get("/api/admin/instance-status")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.currentVersion").value("1.1.0"))
+            .andExpect(jsonPath("$.update").value((Object) null))
+            .andExpect(jsonPath("$.issues[0].code").value("SIDECAR_UNREACHABLE"))
+            .andExpect(jsonPath("$.issues[0].sidecar").value("amex-auth"))
+            .andExpect(jsonPath("$.issues[0].expectedBase").value((Object) null));
+    }
+
+    @Test
+    void instanceStatus_member_isForbidden() throws Exception {
+        mvc.perform(asMember(get("/api/admin/instance-status"))).andExpect(status().isForbidden());
+
+        verifyNoInteractions(instanceStatusService);
     }
 
     @Test
