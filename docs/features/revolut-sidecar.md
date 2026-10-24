@@ -81,15 +81,26 @@ Cashflow totals. The same rule applies per transaction: a leg whose own
 
 Before #251 the foreign leg of an exchange was stored as EUR at the wrong scale
 (units x 10^6, so 17x its euro value for BTC, 10^7x for a 0.10 EUR coin).
-`V118__revolut_exchange_leg_repair.sql` deletes it: two non-manual Revolut rows of
-one member on two accounts sharing an `external_id`, with opposite signs, where
-exactly one reads `Exchanged to EUR` or `Exchanged from EUR`. That leg goes and the
-EUR leg (`Exchanged from|to <CODE>`) stays. The description, not the magnitude gap,
-picks the leg, because the gap depends on the asset's price. A pair between two
-non-EUR currencies is left alone. Side effects: a manual category on a deleted row
-is lost, and recurring series are only refreshed by the next detection run (any
-sync, or `POST /api/recurring/detect`). `docker/deploy.sh` takes a `pg_dump` before
-migrating; any other deployment should take one first.
+`V118__revolut_exchange_leg_repair.sql` deletes it, row by row, from the wording and
+the sign. `Exchanged to EUR` means EUR was received, so the EUR leg is the credit and a
+debit with that description is the foreign leg. `Exchanged from EUR` means EUR was spent,
+so the EUR leg is the debit and a credit with that description is the foreign leg. The
+row goes when its account is a Revolut account (soft-deleted ones included), it is not
+manual, it has an `external_id`, it matches one of those two cases (case and spacing
+ignored), and another Revolut account of the same member holds a row with the same
+`external_id` and the opposite sign (the EUR leg that stays). It works whether Revolut
+gives each leg its own description or both legs the same one.
+
+The rule ignores amounts, because the gap depends on the asset's price. It ignores
+`external_transaction_id` and the number of rows per exchange, because legacy rows have no
+`external_transaction_id` and an exchange can span duplicate Revolut accounts, so it can
+hold more than two rows. A pair between two non-EUR currencies is left alone.
+
+The deleted rows are first copied to `transaction_v118_backup`, so a manual category stays
+recoverable. To undo, run `INSERT INTO transaction SELECT * FROM transaction_v118_backup;`,
+then drop the table once the result is checked. Recurring series are only refreshed by the
+next detection run (any sync, or `POST /api/recurring/detect`). `docker/deploy.sh` takes a
+`pg_dump` before migrating; any other deployment should take one first.
 
 The source's generic `TRANSFER` type alone does not prove an own-account move.
 Both legs are classified as `TRANSFER` only when exactly two distinct harvested
