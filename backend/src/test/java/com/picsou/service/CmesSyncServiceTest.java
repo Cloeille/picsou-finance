@@ -125,14 +125,14 @@ class CmesSyncServiceTest {
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(encryption.encrypt("fresh-state")).thenReturn("fresh-encrypted");
         when(port.fetchPlans("plain-state")).thenThrow(expired());
-        when(port.initiateAuth("12345678", "secret", "plain-state"))
+        when(port.reauthenticate("12345678", "secret", "plain-state"))
             .thenReturn(new CmesPort.InitiateResult(null, false, null, "fresh-state"));
         when(port.fetchPlans("fresh-state")).thenReturn(List.of(pegPlan()));
 
         service.queueSync(7L);
 
         // The previous session is what carries the remembered-device cookie.
-        verify(port).initiateAuth("12345678", "secret", "plain-state");
+        verify(port).reauthenticate("12345678", "secret", "plain-state");
         assertThat(session.getSessionState()).isEqualTo("fresh-encrypted");
         assertThat(session.getSyncStatus()).isEqualTo(CmesSyncStatus.SUCCESS);
         verify(port, times(2)).fetchPlans(anyString());
@@ -145,7 +145,7 @@ class CmesSyncServiceTest {
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(port.fetchPlans("plain-state")).thenThrow(expired());
-        when(port.initiateAuth("12345678", "secret", "plain-state"))
+        when(port.reauthenticate("12345678", "secret", "plain-state"))
             .thenReturn(new CmesPort.InitiateResult("process", true, "APP_PUSH", null));
 
         service.queueSync(7L);
@@ -164,7 +164,7 @@ class CmesSyncServiceTest {
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(port.fetchPlans("plain-state")).thenThrow(expired());
-        when(port.initiateAuth("12345678", "secret", "plain-state"))
+        when(port.reauthenticate("12345678", "secret", "plain-state"))
             .thenThrow(new SyncException("bad", null, CmesErrorCode.INVALID_CREDENTIALS.name()));
 
         service.queueSync(7L);
@@ -182,7 +182,7 @@ class CmesSyncServiceTest {
         service.queueSync(7L);
 
         assertThat(session.getLastSyncError()).isEqualTo(CmesErrorCode.SESSION_EXPIRED);
-        verify(port, never()).initiateAuth(anyString(), anyString(), any());
+        verify(port, never()).reauthenticate(anyString(), anyString(), any());
     }
 
     @Test

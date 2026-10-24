@@ -187,6 +187,14 @@ class FlowTest(unittest.TestCase):
         self.assertIsNotNone(response.json()["sessionState"])
         self.assertNotIn(("GET", MFA_PATH), self.site.requests)
 
+    def test_an_unattended_re_login_withdraws_the_confirmation_from_the_phone(self):
+        response = self.client.post(
+            "/initiate", json={"login": "12345678", "password": "secret", "unattended": True}, headers=HEADERS
+        )
+
+        self.assertEqual((response.status_code, response.json()), (401, {"detail": "SESSION_EXPIRED"}))
+        self.assertTrue(self.site.cancelled)
+
     def test_a_previous_session_only_lends_its_remembered_device_cookie(self):
         stale = json.dumps({"cookies": [{"name": "IdSes", "value": "dead", "domain": "", "path": "/"}]})
 

@@ -443,11 +443,16 @@ public class RateLimitConfig {
             .build();
     }
 
+    /**
+     * Ten per 15 minutes, not five: a login takes two calls (initiate, then
+     * complete), and a budget of five left the confirmation of the third try
+     * rejected with 429 while the phone had already been notified.
+     */
     public static Bucket createCmesAuthBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
-                .capacity(5)
-                .refillIntervally(5, Duration.ofMinutes(15))
+                .capacity(10)
+                .refillIntervally(10, Duration.ofMinutes(15))
                 .build())
             .build();
     }

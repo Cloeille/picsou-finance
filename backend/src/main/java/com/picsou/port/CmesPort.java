@@ -19,6 +19,13 @@ public interface CmesPort {
     InitiateResult initiateAuth(String login, String password, String previousSessionState);
 
     /**
+     * The same login for a scheduled re-login with stored credentials: nobody is
+     * there to approve, so the sidecar withdraws a mobile confirmation at once and
+     * reports the session as expired rather than leaving a request on the phone.
+     */
+    InitiateResult reauthenticate(String login, String password, String previousSessionState);
+
+    /**
      * Finishes the second factor: {@code code} is the SMS code, or null for a
      * mobile confirmation, which waits for the saver to approve in the app.
      */

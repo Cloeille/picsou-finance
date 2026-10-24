@@ -276,7 +276,7 @@ public class CmesSyncService {
         } catch (RuntimeException ex) {
             throw error(CmesErrorCode.SESSION_EXPIRED, "CMES session expired", ex);
         }
-        CmesPort.InitiateResult result = port.initiateAuth(credentials.login(), credentials.password(), job.plainState());
+        CmesPort.InitiateResult result = port.reauthenticate(credentials.login(), credentials.password(), job.plainState());
         if (result.mfaRequired()) {
             log.info("CMES asks for a new second factor (member={}; type={})", job.memberId(), result.mfaType());
             throw error(CmesErrorCode.SESSION_EXPIRED, "CMES requires a new second factor", null);
