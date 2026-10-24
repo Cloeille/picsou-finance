@@ -122,6 +122,24 @@ class RevolutAdapterTest {
         }
     }
 
+    @Test
+    void sync_mapsEachLegsOwnCurrencyFromSidecar() throws Exception {
+        try (TestServer server = TestServer.start(exchange -> respond(exchange, 200, """
+            {"accounts":[{"externalId":"wallet","name":"Wallet","type":"CHECKING","balance":10,
+              "currency":"EUR","transactions":[
+                {"externalId":"x","date":"2026-09-20","description":"Exchanged to EUR","amount":-0.05,
+                 "counterparty":null,"currency":"BTC"},
+                {"externalId":"y","date":"2026-09-20","description":"Coffee","amount":-3,
+                 "counterparty":null}]}]}
+            """))) {
+            var accounts = adapter(server).sync("+336****0000", "123456", 5L, false);
+
+            assertThat(accounts).singleElement().satisfies(account ->
+                assertThat(account.txns()).extracting(com.picsou.port.RevolutPort.RevolutTxn::currency)
+                    .containsExactly("BTC", null));
+        }
+    }
+
     private static RevolutAdapter adapter(TestServer server) {
         return new RevolutAdapter(
             new SidecarWebClientFactory("test-key"), server.baseUrl(), mock(SyncProgressService.class));
