@@ -302,6 +302,7 @@ def _minor_to_major(value: Any) -> float:
 # currencies. Harmless while the importer keeps only EUR legs; fix it before booking any other.
 _CRYPTO_MINOR_UNITS = 100_000_000
 _CURRENCY_RE = re.compile(r"^[A-Z0-9]{1,10}$")
+_FIAT_CODE_RE = re.compile(r"^[A-Z]{3}$")
 
 
 def _transaction_currency(raw: Any) -> Optional[str]:
@@ -444,13 +445,12 @@ async def _fetch_fiat_currencies(page, device_id) -> set:
         data = resp["data"]
         items = data if isinstance(data, list) else (list(data.values()) if isinstance(data, dict) else [])
         for it in items:
-            if isinstance(it, str):
-                codes.add(it)
-            elif isinstance(it, dict):
-                c = _pick(it, "code", "currency", "isoCode", "id")
-                if isinstance(c, str):
-                    codes.add(c)
-    return codes or set(FIAT_FALLBACK)
+            c = it if isinstance(it, str) else _pick(it, "code", "currency", "isoCode", "id") \
+                if isinstance(it, dict) else None
+            if isinstance(c, str) and _FIAT_CODE_RE.match(c.strip().upper()):
+                codes.add(c.strip().upper())
+    # A set without EUR is not a fiat list we can trust: it would read EUR legs as crypto.
+    return codes if "EUR" in codes else set(FIAT_FALLBACK)
 
 
 async def _fetch_iban(page, device_id, wallet_id, currency) -> Optional[str]:
@@ -514,10 +514,12 @@ async def _fetch_transactions(page, device_id, pocket_id,
                 raise HTTPException(status_code=502, detail="INVALID_DATA") from None
             if not math.isfinite(amount):
                 raise HTTPException(status_code=502, detail="INVALID_DATA")
+            # Both legs of an exchange can sit in one pocket's feed under one id. Keyed by id
+            # alone, whichever came first won, and the EUR leg was lost when it came second.
             currency = _transaction_currency(t.get("currency"))
-            if tid in seen:
+            if (tid, currency) in seen:
                 continue
-            seen.add(tid)
+            seen.add((tid, currency))
             new_count += 1
             if ts < cutoff:
                 continue

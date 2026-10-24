@@ -190,7 +190,7 @@ public class EssentialExpenseEstimator {
      * True when a credit on another account carries the debit's provider id. Revolut books both
      * legs of a currency exchange under one id, and their amounts never agree: one is in the
      * source currency. Amount matching cannot pair them, so the shared id does (#251). Ids are
-     * only unique per provider, so both accounts must come from the same one.
+     * only unique per provider, so both accounts must come from the same, known one.
      */
     private boolean matchSharedId(Transaction debit,
                                   Map<String, List<Transaction>> creditsByExternalId,
@@ -201,7 +201,8 @@ public class EssentialExpenseEstimator {
         for (Transaction credit : candidates) {
             if (consumed.contains(credit.getId())) continue;
             if (Objects.equals(credit.getAccount().getId(), debit.getAccount().getId())) continue;
-            if (!Objects.equals(credit.getAccount().getProvider(), debit.getAccount().getProvider())) continue;
+            String provider = debit.getAccount().getProvider();
+            if (provider == null || !provider.equals(credit.getAccount().getProvider())) continue;
             if (Math.abs(ChronoUnit.DAYS.between(debit.getDate(), credit.getDate())) > TRANSFER_MATCH_DAYS) {
                 continue;
             }

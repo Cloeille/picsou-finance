@@ -150,8 +150,8 @@ exists to prevent.
    **consumed**, so one salary cannot excuse six debits that share its amount. A credit on
    another account carrying the debit's own `external_id` is matched first, whatever its
    amount: Revolut books both legs of a currency exchange under one id, and their amounts are
-   in two currencies (#251). Both accounts must have the same `provider`, since ids are only
-   unique per provider.
+   in two currencies (#251). Both accounts must have the same, non-null `provider`, since ids are
+   only unique per provider.
 4. **Investment legs** — `BUY`/`SELL`/`DEPOSIT`, or any row with a ticker.
 5. **Label heuristic**, explicitly last and explicitly weak, only when matching found nothing.
    It includes Revolut's exact `Exchanged to|from <CODE>` wording: the importer stores only EUR

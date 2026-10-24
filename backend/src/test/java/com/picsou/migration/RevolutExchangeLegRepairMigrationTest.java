@@ -111,8 +111,11 @@ class RevolutExchangeLegRepairMigrationTest {
             exchange(c, eur, crypto, "eur-credit", "3000", "Exchanged to EUR", "-2", "Exchanged from BTC");
             exchange(c, eur, crypto, "eur-debit", "-500", "Exchanged from EUR", "2", "Exchanged to BTC");
             exchange(c, eur, crypto, "manual", "9", "Exchanged from BTC", "-90000", "Exchanged to EUR");
+            // A lone foreign-worded row stamped in another currency has no proof of being foreign.
+            tx(c, usd, "usd-lone", "-60", "Exchanged to EUR");
             try (Statement st = c.createStatement()) {
                 st.execute("UPDATE transaction SET is_manual = true WHERE external_id = 'manual'");
+                st.execute("UPDATE transaction SET native_currency = 'USD' WHERE external_id = 'usd-lone'");
             }
         }
         migrateTo("118");
@@ -158,19 +161,27 @@ class RevolutExchangeLegRepairMigrationTest {
     }
 
     @Test
+    void deletesALoneEurStampedForeignLegWhoseTwinWasNeverStored() throws SQLException {
+        // The old sidecar read both legs from the EUR pocket under one id and kept the first,
+        // so the foreign leg is often the only row. The cross-member twin does not count either.
+        assertThat(transactionRows()).doesNotContain("lone -Exchanged to EUR", "cross-member -Exchanged to EUR");
+        assertThat(transactionRows()).contains("cross-member +Exchanged from BTC");
+    }
+
+    @Test
     void leavesEveryOtherRowAlone() throws SQLException {
         assertThat(transactionRows()).contains(
             "usd-btc -Exchanged to BTC", "usd-btc +Exchanged from USD",
             "transfer -To pocket", "transfer +From pocket",
-            "cross-member +Exchanged from BTC", "cross-member -Exchanged to EUR",
+            "cross-member +Exchanged from BTC",
             "bourso -Exchanged to EUR", "bourso +Exchanged from BTC",
             "card -Coffee",
             "null +Exchanged from BTC", "null -Exchanged to EUR",
-            "lone -Exchanged to EUR",
+            "usd-lone -Exchanged to EUR",
             "eur-credit +Exchanged to EUR", "eur-credit -Exchanged from BTC",
             "eur-debit -Exchanged from EUR", "eur-debit +Exchanged to BTC",
             "manual +Exchanged from BTC", "manual -Exchanged to EUR");
-        assertThat(transactionRows()).hasSize(29);
+        assertThat(transactionRows()).hasSize(28);
     }
 
     @Test
@@ -178,7 +189,8 @@ class RevolutExchangeLegRepairMigrationTest {
         assertThat(backupRows()).containsExactlyInAnyOrder(
             "btc -Exchanged to EUR", "eth -Exchanged to EUR", "sol -Exchanged to EUR",
             "doge -Exchanged to EUR", "buy-btc +Exchanged from EUR", "same -Exchanged to EUR",
-            "padded -" + PADDED, "prod -Exchanged to EUR", "fee -Exchanged to EUR");
+            "padded -" + PADDED, "prod -Exchanged to EUR", "fee -Exchanged to EUR",
+            "lone -Exchanged to EUR", "cross-member -Exchanged to EUR");
         try (Connection c = connect(); Statement st = c.createStatement();
              ResultSet rs = st.executeQuery(
                  "SELECT category_id FROM transaction_v118_backup WHERE external_id = 'prod'")) {
@@ -195,7 +207,7 @@ class RevolutExchangeLegRepairMigrationTest {
                 st.execute("INSERT INTO transaction SELECT * FROM transaction_v118_backup");
                 try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM transaction")) {
                     rs.next();
-                    assertThat(rs.getInt(1)).isEqualTo(29 + 9);
+                    assertThat(rs.getInt(1)).isEqualTo(28 + 11);
                 }
             } finally {
                 c.rollback();

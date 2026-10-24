@@ -157,6 +157,8 @@ class EssentialExpenseEstimatorTest {
     @Test
     void anExchangeBetweenOwnPocketsIsExcludedThroughItsSharedId() {
         Account cryptoPocket = account(3L, AccountType.CHECKING);
+        current.setProvider("Revolut");
+        cryptoPocket.setProvider("Revolut");
         tx(current, 1, 5, "-1500");     // real spending
         tx(current, 2, 5, "-1500");
         // Revolut books both legs of "Exchanged to EUR" under one id. The source leg was
@@ -186,6 +188,20 @@ class EssentialExpenseEstimatorTest {
 
         assertThat(response.excludedTransferCount()).isEqualTo(1);
         assertThat(response.estimate()).isEqualByComparingTo("1100.00");
+    }
+
+    @Test
+    void aSharedIdBetweenTwoAccountsWithoutProviderIsNotAnExchange() {
+        Account other = account(3L, AccountType.CHECKING);
+        Transaction debit = tx(current, 1, 5, "-80");
+        debit.setExternalId("same-id");
+        Transaction credit = tx(other, 1, 5, "30");
+        credit.setExternalId("same-id");
+
+        EssentialExpenseEstimateResponse response = estimator.estimate(MEMBER);
+
+        assertThat(response.excludedTransferCount()).isZero();
+        assertThat(response.estimate()).isEqualByComparingTo("80.00");
     }
 
     @Test

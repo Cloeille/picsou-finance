@@ -77,28 +77,41 @@ success is not implemented. Until FX conversion is available, non-EUR accounts
 keep their balances but their transactions are not imported into EUR Budget and
 Cashflow totals. The same rule applies per transaction: a leg whose own
 `currency` is not EUR is skipped even on an EUR pocket, and a stored row's
-`native_currency` is the leg's currency, not the pocket's.
+`native_currency` is the leg's currency when it has one, else the pocket's. A foreign leg
+that arrives without a currency (a debit `Exchanged to EUR` or a credit `Exchanged from
+EUR`) is dropped by `RevolutSyncService`, because the pocket fallback would book it as EUR
+at the wrong scale. In one pocket's feed, two rows with the same id and different
+currencies are both kept: they are the two legs of one exchange.
 
 Before #251 the foreign leg of an exchange was stored as EUR at the wrong scale
-(units x 10^6, so 17x its euro value for BTC, 10^7x for a 0.10 EUR coin).
+(units x 10^6, so 10x to 20x its euro value for BTC, 10^7x for a 0.10 EUR coin).
 `V118__revolut_exchange_leg_repair.sql` deletes it, row by row, from the wording and
 the sign. `Exchanged to EUR` means EUR was received, so the EUR leg is the credit and a
 debit with that description is the foreign leg. `Exchanged from EUR` means EUR was spent,
 so the EUR leg is the debit and a credit with that description is the foreign leg. The
 row goes when its account is a Revolut account (soft-deleted ones included), it is not
 manual, it has an `external_id`, it matches one of those two cases (case and spacing
-ignored), and another Revolut account of the same member holds a row with the same
-`external_id` and the opposite sign (the EUR leg that stays). It works whether Revolut
+ignored), and either it is stamped `EUR` or another Revolut account of the same member
+holds a row with the same `external_id` and the opposite sign. It works whether Revolut
 gives each leg its own description or both legs the same one.
+
+An EUR-stamped row needs no partner. The old sidecar never read crypto pockets, so both legs
+came from the EUR pocket's feed under one id, and the per-pocket dedup kept only the first.
+When the foreign leg came first, it is the only row of that exchange. The EUR leg of the same
+wording has the opposite sign, so it never matches. A row stamped in another currency (a USD
+pocket's real leg) still needs a partner.
 
 The rule ignores amounts, because the gap depends on the asset's price. It ignores
 `external_transaction_id` and the number of rows per exchange, because legacy rows have no
 `external_transaction_id` and an exchange can span duplicate Revolut accounts, so it can
-hold more than two rows. A pair between two non-EUR currencies is left alone.
+hold more than two rows. A pair between two non-EUR currencies is left alone. The wording is
+English only; a row in another language is not repaired.
 
 The deleted rows are first copied to `transaction_v118_backup`, so a manual category stays
 recoverable. To undo, run `INSERT INTO transaction SELECT * FROM transaction_v118_backup;`,
-then drop the table once the result is checked. Recurring series are only refreshed by the
+then drop the table once the result is checked. The undo works while `transaction` has not
+lost a column, and it does not restore `ai_call_log.transaction_id` (set to NULL by the
+delete). Recurring series are only refreshed by the
 next detection run (any sync, or `POST /api/recurring/detect`). `docker/deploy.sh` takes a
 `pg_dump` before migrating; any other deployment should take one first.
 
