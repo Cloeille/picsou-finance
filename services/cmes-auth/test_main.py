@@ -83,6 +83,9 @@ class FakeSite:
                 or "_FID_CheckOrDeliverBackup" not in self.final_fields
             ):
                 return httpx.Response(200, text=SMS_WRONG_CODE_PAGE)
+            if self.second_factor == "mobile" and "_FID_DoValidate" not in self.final_fields:
+                # Approved on the phone but not submitted with the button: still parked.
+                return httpx.Response(200, text=MOBILE_CONFIRMATION_PAGE)
             return self.redirect(
                 DASHBOARD_PATH,
                 "IdSes=live; Path=/",

@@ -615,7 +615,10 @@ def _start_mobile_confirmation(page: httpx.Response) -> dict[str, Any]:
         "stateUrl": _same_origin(urljoin(page_url, state_url.group("url"))),
         "cancelUrl": _same_origin(urljoin(page_url, cancel_url.group("url"))) if cancel_url else None,
         "finalUrl": _same_origin(urljoin(page_url, form.action or page_url)),
-        "finalFields": dict(form.fields),
+        # With the form's buttons, as woob's forms send them: without them the
+        # site keeps the login on the strong-authentication page even though
+        # the phone approved it.
+        "finalFields": {**form.fields, **form.buttons},
         "pageUrl": page_url,
     }
 
@@ -660,7 +663,9 @@ async def _finish_confirmation(client: httpx.AsyncClient, state: dict[str, Any])
 
 
 def _require_logged_in(stage: str, response: httpx.Response) -> None:
-    if LOGGED_IN_MARKER not in response.text:
+    # The strong-authentication page carries the logout link too: being on it
+    # is not being logged in.
+    if _is_mfa_page(response) or LOGGED_IN_MARKER not in response.text:
         _diagnose(stage, response)
         raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "Did not reach the saver's space")
 
@@ -685,7 +690,9 @@ async def _situation(client: httpx.AsyncClient) -> str:
     if response.status_code != 200:
         code = "UPSTREAM_UNAVAILABLE" if response.status_code == 429 or response.status_code >= 500 else "UPSTREAM_FORMAT_CHANGED"
         raise UpstreamError(code, f"Situation page answered HTTP {response.status_code}")
-    if LOGGED_IN_MARKER not in response.text:
+    if _is_mfa_page(response) or LOGGED_IN_MARKER not in response.text:
+        # Parked on the strong-authentication page: the session needs a new
+        # second factor, which only the customer can give.
         raise UpstreamError("SESSION_EXPIRED", "Session expired")
     return response.text
 
