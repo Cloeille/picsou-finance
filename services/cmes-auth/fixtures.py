@@ -165,8 +165,8 @@ SMS_CONFIRMATION_PAGE = """
   <input type="hidden" name="otp_hidden" value="opaque-otp-state" />
   <input type="text" name="otp_password" id="C:otp" maxlength="6" />
   <input type="hidden" name="global_backup_hidden_key" value="" />
-  <input type="submit" name="_FID_CheckOrDeliverBackup" value="Utiliser un autre moyen" />
-  <input type="submit" name="InputHiddenKeySMSSendNew1" value="Recevoir un nouveau code" />
+  <input type="hidden" name="InputHiddenKeySMSSendNew1" value="" />
+  <input type="submit" name="_FID_CheckOrDeliverBackup" value="Valider" />
   <input name="$CPT" type="hidden" value="opaque-page-state" />
   <input name="_wxf2_cc" type="hidden" value="fr-FR" />
 </form>

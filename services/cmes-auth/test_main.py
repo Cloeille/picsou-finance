@@ -78,7 +78,10 @@ class FakeSite:
             return httpx.Response(200, text="")
         if path == MFA_PATH:
             self.final_fields = parse_qs(request.content.decode(), keep_blank_values=True)
-            if self.second_factor == "sms" and self.final_fields.get("otp_password") != ["123456"]:
+            if self.second_factor == "sms" and (
+                self.final_fields.get("otp_password") != ["123456"]
+                or "_FID_CheckOrDeliverBackup" not in self.final_fields
+            ):
                 return httpx.Response(200, text=SMS_WRONG_CODE_PAGE)
             return self.redirect(
                 DASHBOARD_PATH,
@@ -224,9 +227,8 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(self.site.final_fields["otp_password"], ["123456"])
         self.assertEqual(self.site.final_fields["otp_hidden"], ["opaque-otp-state"])
         self.assertEqual(self.site.final_fields["$CPT"], ["opaque-page-state"])
-        # No button pressed: "another means" and "new code" would derail the login.
-        self.assertNotIn("_FID_CheckOrDeliverBackup", self.site.final_fields)
-        self.assertNotIn("InputHiddenKeySMSSendNew1", self.site.final_fields)
+        # The form's button is what checks the code; without it the site sends a new SMS.
+        self.assertEqual(self.site.final_fields["_FID_CheckOrDeliverBackup"], ["Valider"])
         names = {cookie["name"] for cookie in json.loads(response.json()["sessionState"])["cookies"]}
         self.assertIn("auth_client_state", names)
 

@@ -522,11 +522,22 @@ def _otp_form(page: str) -> Form | None:
     return None
 
 
+def _sms_fields(form: Form) -> dict[str, str]:
+    """The fields the code goes with, the form's submit button pressed.
+
+    The page's one named button, `_FID_CheckOrDeliverBackup`, is what checks
+    the code: a post without it is a mere refresh, and the site answers it by
+    sending a new SMS. Like woob's forms, every named submit is sent.
+    """
+    fields = {name: value for name, value in form.fields.items() if name != OTP_FIELD}
+    fields.update(form.buttons)
+    return fields
+
+
 def _start_sms(page: httpx.Response, form: Form) -> dict[str, Any]:
     page_url = str(page.url)
-    fields = dict(form.fields)
-    fields.pop(OTP_FIELD, None)
-    log.info("CMES: code sent by SMS (form buttons=%s)", form.buttons[:10])
+    fields = _sms_fields(form)
+    log.info("CMES: code sent by SMS (form buttons=%s)", list(form.buttons)[:10])
     return {
         "kind": "SMS",
         "finalUrl": _same_origin(urljoin(page_url, form.action or page_url)),
@@ -538,8 +549,7 @@ def _start_sms(page: httpx.Response, form: Form) -> dict[str, Any]:
 async def _submit_sms_code(client: httpx.AsyncClient, state: dict[str, Any], code: str) -> httpx.Response:
     """Post the code with the page state, the way the bank's own form does.
 
-    Like woob's creditmutuel module, no button is pressed: the hidden fields
-    and the code are the whole submission.
+    The hidden fields, the code and the form's button: see `_sms_fields`.
     """
     response = await client.post(
         state["finalUrl"],
@@ -557,7 +567,7 @@ async def _submit_sms_code(client: httpx.AsyncClient, state: dict[str, Any], cod
             raise UpstreamError("ACTION_REQUIRED", "Too many wrong codes, access locked")
         # Same page again: the code was wrong. The saver may try once more on
         # this same request, with the page's refreshed state.
-        state["finalFields"] = {name: value for name, value in retry.fields.items() if name != OTP_FIELD}
+        state["finalFields"] = _sms_fields(retry)
         state["pageUrl"] = str(landing.url)
         raise UpstreamError("INVALID_OTP", "Wrong SMS code")
     if TRUST_COOKIE not in {cookie.name for cookie in client.cookies.jar}:

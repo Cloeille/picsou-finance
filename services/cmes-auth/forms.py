@@ -26,7 +26,8 @@ class Form:
     name: str = ""
     id: str = ""
     fields: dict[str, str] = field(default_factory=dict)
-    buttons: list[str] = field(default_factory=list)
+    # Submit buttons, name -> value: sent only when pressed.
+    buttons: dict[str, str] = field(default_factory=dict)
 
 
 def _attrs(raw: str) -> dict[str, str]:
@@ -55,7 +56,7 @@ def parse_forms(page: str) -> list[Form]:
                 continue
             kind = field_attrs.get("type", "").lower()
             if kind == "submit":
-                form.buttons.append(name)
+                form.buttons[name] = field_attrs.get("value", "")
             elif kind in ("checkbox", "radio"):
                 if "checked" in field_match.group("attrs").lower():
                     form.fields[name] = field_attrs.get("value", "on")
