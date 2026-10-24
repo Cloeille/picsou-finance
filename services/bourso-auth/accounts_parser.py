@@ -857,7 +857,7 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
     `table[data-table-trading-operations]` with one row per support -- Valeur
     (label, ISIN, link to its quote), Date de valeur, Quantité, Px. revient,
     Cours, Montant, +/- latentes, +/- %. A unit-linked line becomes a position;
-    the euro fund, which has no units and no ISIN, becomes the cash leg, the
+    the euro fund, which has no ISIN and no units (or "0,0000"), becomes the cash leg, the
     slot Picsou keeps for it on a life-insurance account. Any other row shape is
     refused rather than guessed, and the lines must add up to the valuation.
     """
@@ -888,11 +888,14 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
         quantity = _li_amount(cells[2], "quantity", required=False)
         if not label:
             raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no label")
-        if quantity is None:
+        if quantity is None or quantity == 0:
+            # The euro fund is shown either with no units or with "0,0000": it
+            # is a balance, not units of a fund.
             if isin is None and _LI_EURO_FUND_RE.search(_deaccent(label)):
                 cash += value
                 continue
-            raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no units and is not a euro fund")
+            if quantity is None or value != 0:
+                raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no units and is not a euro fund")
         positions.append({
             "isin": isin,
             "symbol": (symbol.group("symbol") if symbol else None) or isin or label[:100],

@@ -48,6 +48,28 @@ class LifeInsurancePageTest(unittest.TestCase):
         self.assertEqual(second["pnlEur"], Decimal("-40.00"))
         self.assertEqual(second["quoteCurrency"], "EUR")
 
+    def test_a_euro_fund_shown_with_zero_units_is_the_cash_leg(self):
+        rows = (
+            life_insurance_row("iShares MSCI World SRI UCITS ETF", "IE00BYX2JD69", "1rASUSW",
+                               "100,0000", "10,00 €", "12,00 €", "1 200,00 €", "200,00 €")
+            + life_insurance_row("Fonds en Euro Eurossima", None, None,
+                                 "0,0000", "0,00 €", "0,00 €", "2 100,00 €", "0,00 €")
+        )
+
+        contract = parse_life_insurance(life_insurance_page(rows))
+
+        self.assertEqual(contract["cashEur"], Decimal("2100.00"))
+        self.assertEqual([position["isin"] for position in contract["positions"]], ["IE00BYX2JD69"])
+
+    def test_a_unit_linked_line_with_zero_units_but_a_value_is_refused(self):
+        rows = life_insurance_row("Fonds Actions Europe A", "LU0123456789", "0P0000ABCD",
+                                  "0,0000", "26,00 €", "25,00 €", "3 300,00 €", "0,00 €")
+
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_life_insurance(life_insurance_page(rows))
+
+        self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
     def test_lines_that_do_not_add_up_to_the_valuation_are_refused(self):
         with self.assertRaises(AccountsFormatError) as raised:
             parse_life_insurance(life_insurance_page(LIFE_INSURANCE_ROWS, valuation="9 999,99 €"))
