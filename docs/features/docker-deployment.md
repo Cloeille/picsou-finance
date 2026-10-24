@@ -80,6 +80,8 @@ needs Compose v2.33+ (`additional_contexts: service:`), tested on 5.6.0.
 by name (`ghcr.io/cloeille/picsou-finance/sidecar-*:latest`); their layers are
 the ones the published sidecars are built from, so nothing is downloaded twice. See
 [ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md).
+A sidecar whose base is missing, or still on a pre-base image, is reported to the admin
+by the [instance-status alert](./admin-instance-status.md).
 
 ### tr-auth sidecar — `services/tr-auth/Dockerfile`
 
