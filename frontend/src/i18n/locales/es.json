@@ -1840,6 +1840,20 @@
       "next": "Next",
       "empty": "No AI calls recorded yet.",
       "loading": "Loading…"
+    },
+    "instanceStatus": {
+      "title": "Estado de la instancia",
+      "description": "Un sidecar está mal configurado, o hay una versión más reciente.",
+      "issuesTitle": "Problema de configuración",
+      "unreachable": "Este sidecar no responde. Falta el contenedor, o sigue en marcha una versión antigua.",
+      "unreachableWithBase": "Este sidecar no responde. Probablemente falta la imagen base compartida: la construcción falló y el contenedor antiguo sigue en marcha, o no existe.",
+      "outdated": "Este sidecar responde, pero no corre con la imagen base compartida esperada.",
+      "expectedBase": "Imagen base compartida esperada:",
+      "fixIntro": "Para corregirlo, actualiza las imágenes y reinicia:",
+      "fixBuildIntro": "Si compilas desde el código, con Compose v2.33 o posterior (construye primero sidecar-python y sidecar-chromium):",
+      "updateTitle": "Actualización disponible",
+      "releaseNotes": "Notas de la versión",
+      "later": "Más tarde"
     }
   },
   "error": {

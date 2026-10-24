@@ -13,10 +13,16 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+# The backend's admin instance-status check reads this via /health to spot a
+# sidecar still on a pre-base image. The chromium target overrides it.
+ENV PICSOU_SIDECAR_BASE=sidecar-python
+
 COPY requirements.txt /opt/sidecar-base/requirements.txt
 RUN pip install --no-cache-dir -r /opt/sidecar-base/requirements.txt
 
 FROM python AS chromium
+
+ENV PICSOU_SIDECAR_BASE=sidecar-chromium
 
 # Chromium-only runtime. The official Playwright image also ships Firefox and
 # WebKit, which no sidecar uses. Playwright's own `--with-deps` option would pull
