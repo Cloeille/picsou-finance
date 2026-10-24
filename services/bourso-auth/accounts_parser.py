@@ -57,8 +57,10 @@ SECTION_PATTERNS = {
     "children": re.compile(r"data-summary-child>(.*?)</div>", re.DOTALL),
 }
 
+# Most cards link to `/compte/<kind>/<id>/`; assurance-vie cards drop the
+# trailing slash (`/compte/assurance-vie/<id>`), hence the optional one.
 _ACCOUNT_RE = re.compile(
-    r"/compte/(.*?)?/?(?P<id>[a-f0-9]{32})/(.*?)"
+    r"/compte/(.*?)?/?(?P<id>[a-f0-9]{32})/?\"(.*?)"
     r"Solde\s:\s(?P<balance>[\d\s\u00a0\u2212-]+,?\d{0,2})\s€"
     r".+?c-info-box__account-label.+?>(?P<name>.+?)</span>"
     r".+?c-info-box__account-sub-label.+?>(?P<bank>.+?)</span>",
@@ -68,8 +70,9 @@ _ACCOUNT_RE = re.compile(
 # Used only to count the account cards a section *should* have yielded, so a card
 # that stopped matching the full pattern is a hard failure instead of a silent drop.
 _ACCOUNT_LINK_RE = re.compile(
-    r"href=\"(?P<href>[^\"]*?/compte/[^\"]*?(?P<id>[a-f0-9]{32})/)\""
+    r"href=\"(?P<href>[^\"]*?/compte/[^\"]*?(?P<id>[a-f0-9]{32})/?)\""
 )
+LIFE_INSURANCE_PATH = "/compte/assurance-vie/"
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -215,6 +218,7 @@ AccountKind = Literal[
     "CEL",
     "PEA",
     "COMPTE_TITRES",
+    "ASSURANCE_VIE",
 ]
 
 # The French regulated passbooks, matched on the label BoursoBank prints, in the
@@ -233,13 +237,17 @@ _SAVINGS_PATTERNS: tuple[tuple[AccountKind, str], ...] = (
 )
 
 
-def account_type(section: str, name: str) -> AccountKind:
+def account_type(section: str, name: str, href: str = "") -> AccountKind:
     """Map a BoursoBank account onto a Picsou AccountType.
 
     PEA-PME folds into PEA: Picsou has no separate envelope for it, and the two
-    share a tax regime and a reporting shape.
+    share a tax regime and a reporting shape. An assurance-vie sits in the
+    trading section too and is told apart by its link, its label being only
+    "Contrat N° …".
     """
     label = _deaccent(name)
+    if section == "trading" and LIFE_INSURANCE_PATH in href:
+        return "ASSURANCE_VIE"
     if section == "trading":
         return "PEA" if re.search(r"\bPEA\b|\bPEA-?PME\b", label) else "COMPTE_TITRES"
     if section == "savings":
@@ -306,7 +314,7 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
                     {
                         "id": account_id,
                         "name": name,
-                        "type": account_type(section, name),
+                        "type": account_type(section, name, linked[account_id]),
                         "balanceEur": balance,
                         "section": section,
                         "href": linked[account_id],
@@ -811,3 +819,97 @@ def guard_symbol_collisions(positions: list[dict[str, Any]]) -> None:
                 INVALID_DATA, f"Two positions without an ISIN share the symbol {fallback}"
             )
         fallbacks.add(fallback)
+
+
+# ─── Assurance vie ─────────────────────────────────────────────────────────
+
+LIFE_INSURANCE_POSITIONS_SUFFIX = "positions"
+
+_LI_VALUATION_RE = re.compile(
+    r'c-databox__name">\s*Valorisation au\s*(?P<date>\d{2}/\d{2}/\d{4})\s*</div>\s*'
+    r'<div class="c-databox__value[^"]*">\s*(?P<amount>[^<]+?)\s*</div>',
+    re.DOTALL,
+)
+_LI_TABLE_RE = re.compile(r"<table\b[^>]*data-table-trading-operations[^>]*>(?P<body>.*?)</table>", re.DOTALL)
+_LI_TBODY_RE = re.compile(r"<tbody\b[^>]*>(?P<rows>.*?)</tbody>", re.DOTALL)
+_LI_ROW_RE = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.DOTALL)
+_LI_CELL_RE = re.compile(r"<td\b[^>]*>(?P<cell>.*?)</td>", re.DOTALL)
+_LI_LABEL_RE = re.compile(r'class="c-link__label[^"]*">(?P<label>.*?)</span>', re.DOTALL)
+_LI_MENTION_RE = re.compile(r'class="c-table__mention[^"]*">(?P<mention>.*?)</span>', re.DOTALL)
+_LI_SYMBOL_RE = re.compile(r'href="[^"]*/cours/(?P<symbol>[^/"?]+)/?"')
+_LI_ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}\d$")
+# The euro fund carries no unit and no ISIN; its label is what names it.
+_LI_EURO_FUND_RE = re.compile(r"\bEUROS?\b|FONDS? EURO", re.IGNORECASE)
+
+
+def _li_amount(cell: str, field: str, *, required: bool = True) -> Decimal | None:
+    text = text_value(cell, 100)
+    value = parse_amount(text.replace("€", "").replace("%", "")) if text and text not in ("-", "—") else None
+    if value is None and required:
+        raise AccountsFormatError(FORMAT_CHANGED, f"Assurance-vie line has no readable {field}")
+    return value
+
+
+def parse_life_insurance(html: str) -> dict[str, Any]:
+    """Read an assurance-vie contract's positions page (`/compte/assurance-vie/<id>/positions`).
+
+    Server-rendered: a "Valorisation au <date>" box with the contract total, and
+    `table[data-table-trading-operations]` with one row per support -- Valeur
+    (label, ISIN, link to its quote), Date de valeur, Quantité, Px. revient,
+    Cours, Montant, +/- latentes, +/- %. A unit-linked line becomes a position;
+    the euro fund, which has no units and no ISIN, becomes the cash leg, the
+    slot Picsou keeps for it on a life-insurance account. Any other row shape is
+    refused rather than guessed, and the lines must add up to the valuation.
+    """
+    valuation = _LI_VALUATION_RE.search(html)
+    table = _LI_TABLE_RE.search(html)
+    if valuation is None or table is None:
+        raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie page has no valuation or no supports table")
+    total = parse_amount(text_value(valuation.group("amount"), 100).replace("€", ""))
+    if total is None:
+        raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie valuation is unreadable")
+    body = _LI_TBODY_RE.search(table.group("body"))
+    rows = [row.group("row") for row in _LI_ROW_RE.finditer(body.group("rows") if body else "")]
+
+    positions: list[dict[str, Any]] = []
+    cash = Decimal("0")
+    for row in rows:
+        cells = [cell.group("cell") for cell in _LI_CELL_RE.finditer(row)]
+        if len(cells) < 7:
+            raise AccountsFormatError(FORMAT_CHANGED, f"Assurance-vie line has {len(cells)} cells, expected 8")
+        label_match = _LI_LABEL_RE.search(cells[0])
+        label = text_value(label_match.group("label"), 200) if label_match else text_value(cells[0], 200)
+        mention = _LI_MENTION_RE.search(cells[0])
+        isin = text_value(mention.group("mention"), 20) if mention else None
+        if isin and not _LI_ISIN_RE.match(isin):
+            isin = None
+        symbol = _LI_SYMBOL_RE.search(cells[0])
+        value = _li_amount(cells[5], "amount")
+        quantity = _li_amount(cells[2], "quantity", required=False)
+        if not label:
+            raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no label")
+        if quantity is None:
+            if isin is None and _LI_EURO_FUND_RE.search(_deaccent(label)):
+                cash += value
+                continue
+            raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no units and is not a euro fund")
+        positions.append({
+            "isin": isin,
+            "symbol": (symbol.group("symbol") if symbol else None) or isin or label[:100],
+            "label": label,
+            "quantity": quantity,
+            "buyingPriceEur": _li_amount(cells[3], "buying price", required=False),
+            "currentPrice": _li_amount(cells[4], "price", required=False),
+            "quoteCurrency": "EUR",
+            "currentValueEur": value,
+            "pnlEur": _li_amount(cells[6], "gain", required=False),
+        })
+
+    lines_total = sum((position["currentValueEur"] for position in positions), cash)
+    if not money_close(lines_total, total):
+        raise AccountsFormatError(
+            INCOMPLETE,
+            f"Assurance-vie lines do not reconcile with the valuation "
+            f"({len(positions)} line(s); lines vs valuation={relative_difference(lines_total, total)})",
+        )
+    return {"cashEur": cash, "totalEur": total, "positions": positions}

@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands that fix it. The same pop-up announces a newer Picsou release, read from GitHub at
   most once every 6 hours; `APP_UPDATE_CHECK_ENABLED=false` turns that call off. See
   [feature note](docs/features/admin-instance-status.md).
+- **BoursoBank assurance vie.** Contracts listed on the dashboard are now synced as
+  `ASSURANCE_VIE` accounts: unit-linked supports as holdings (ISIN, units, buying price, latent
+  gain), the euro fund in the cash balance, reconciled against the contract valuation. They were
+  silently skipped before: their links have no trailing slash.
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per

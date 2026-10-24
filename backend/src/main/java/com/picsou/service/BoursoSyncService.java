@@ -44,7 +44,9 @@ import java.util.Set;
 import java.util.concurrent.Executor;
 
 /**
- * Imports BoursoBank current accounts, livrets and securities accounts.
+ * Imports BoursoBank current accounts, livrets, securities accounts and
+ * assurance-vie contracts (unit-linked supports as holdings, the euro fund in
+ * the cash leg).
  *
  * <p>Shaped like {@link BourseDirectSyncService}: authentication only queues the
  * import, upstream I/O happens outside any transaction, and one short
@@ -73,7 +75,8 @@ public class BoursoSyncService {
         AccountType.PEL,
         AccountType.CEL,
         AccountType.PEA,
-        AccountType.COMPTE_TITRES
+        AccountType.COMPTE_TITRES,
+        AccountType.ASSURANCE_VIE
     );
 
     private final BoursoPort port;
@@ -713,6 +716,7 @@ public class BoursoSyncService {
         return switch (type) {
             case PEA -> "#10b981";
             case COMPTE_TITRES -> "#3b82f6";
+            case ASSURANCE_VIE -> "#8b5cf6";
             case SAVINGS, LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL -> "#f59e0b";
             default -> "#ec4899";
         };

@@ -32,9 +32,11 @@ public interface BoursoPort {
     String completeAuth(String processId);
 
     /**
-     * Reads every in-scope account: current accounts, livrets and the securities
-     * accounts with their positions. Aggregated third-party accounts and loans
-     * are filtered out by the sidecar.
+     * Reads every in-scope account: current accounts, livrets, the securities
+     * accounts with their positions and the assurance-vie contracts with their
+     * unit-linked supports (euro fund in {@code cashBalance}). Aggregated
+     * third-party accounts, loans and children's accounts are filtered out by
+     * the sidecar.
      */
     List<AccountData> fetchAccounts(String sessionState);
 

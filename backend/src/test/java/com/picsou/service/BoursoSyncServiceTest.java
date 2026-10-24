@@ -207,6 +207,27 @@ class BoursoSyncServiceTest {
      * phantom cash balance that AccountService folds into the invested amount.
      */
     @Test
+    void queueSync_importsAnAssuranceVieWithItsSupportsAndEuroFund() {
+        arrangeCommittableSync(account("bourso_0a1b2c3d4e5f60718293a4b5c6d7e8f9", "Contrat N° 12345678",
+            AccountType.ASSURANCE_VIE, "3300.00", "1100.00",
+            position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
+                "100", "10.00", "12.00", "1200.00", "200.00"),
+            position("LU0123456789", "0P0000ABCD", "Fonds Actions Europe A",
+                "40", "26.00", "25.00", "1000.00", "-40.00")));
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        Account saved = accountCaptor.getValue();
+        assertThat(saved.getType()).isEqualTo(AccountType.ASSURANCE_VIE);
+        assertThat(saved.getCurrentBalance()).isEqualByComparingTo("3300.00");
+        // The euro fund rides in the cash leg, like the cash inside a PEA.
+        assertThat(saved.getCashBalance()).isEqualByComparingTo("1100.00");
+        verify(holdingRepository).saveAll(holdingsCaptor.capture());
+        assertThat(holdingsCaptor.getValue()).hasSize(2);
+    }
+
+    @Test
     void queueSync_leavesTheCashBalanceNullOnACashAccount() {
         arrangeCommittableSync(checkingAccount(), peaAccount());
 

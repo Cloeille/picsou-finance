@@ -547,3 +547,18 @@ the imported list against the BoursoBank dashboard after the first sync.
 - Related: [degiro-sync.md](./degiro-sync.md) — the other `httpx`-only sidecar
 - Related: [encryption-at-rest.md](./encryption-at-rest.md)
 - Upstream reference: [azerpas/bourso-api](https://github.com/azerpas/bourso-api)
+
+## Assurance vie (2026-10-24)
+
+Assurance-vie contracts sit in the dashboard's `data-summary-trading` section, next to the PEA,
+but their cards link to `/compte/assurance-vie/<id>` with **no trailing slash**. The card and link
+patterns now accept that, so the contracts are parsed and counted instead of silently missing
+(the completeness check never saw them either). A contract is typed `ASSURANCE_VIE` from its link,
+its label being only "Contrat N° …". Contracts in the children's panel stay skipped.
+
+Positions come from the contract's server-rendered page `/compte/assurance-vie/<id>/positions`, not
+the trading board: the "Valorisation au <date>" box gives the total, and
+`table[data-table-trading-operations]` one row per support (label, ISIN in `.c-table__mention`,
+Boursorama symbol from the quote link, quantity, buying price, price, amount, latent gain). A
+unit-linked line becomes a position; the euro fund (no units, no ISIN) becomes `cashBalance`. Any
+other row shape is refused, and the lines must reconcile with the valuation.
