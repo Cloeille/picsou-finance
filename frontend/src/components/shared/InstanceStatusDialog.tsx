@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import {
@@ -24,7 +25,7 @@ function explanationKey(issue: InstanceStatusIssue): string {
 /**
  * Admin-only alert when a sidecar the household uses is unreachable or still on a pre-base image,
  * or when a newer Picsou release exists. Dismiss persists a fingerprint; the dialog returns only
- * when that fingerprint changes. Stays closed while the telemetry consent dialog would be open.
+ * when that fingerprint changes. A clean status clears it, so the same problem coming back alerts again. Stays closed while the telemetry consent dialog would be open.
  */
 export function InstanceStatusDialog() {
   const { t } = useTranslation()
@@ -48,6 +49,11 @@ export function InstanceStatusDialog() {
     hasAlert &&
     fingerprint != null &&
     fingerprint !== dismissedFingerprint
+
+  const clean = status != null && !hasAlert
+  useEffect(() => {
+    if (clean && dismissedFingerprint != null) dismiss(null)
+  }, [clean, dismissedFingerprint, dismiss])
 
   function remember() {
     if (fingerprint) dismiss(fingerprint)

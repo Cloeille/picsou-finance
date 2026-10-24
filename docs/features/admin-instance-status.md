@@ -42,7 +42,12 @@ overall).
 
 **Update check.** `ReleaseCheckService` reads `tag_name` and `html_url` from
 `GET https://api.github.com/repos/Cloeille/picsou-finance/releases/latest` (5 s timeout) and
-keeps the answer, success or failure, in memory for 6 hours. `update` is `null` when the
+keeps the answer, success or failure, in memory for 6 hours. The fetch runs on its own
+virtual thread and concurrent callers share it. It shares the endpoint's 3 s deadline with the
+sidecar probes: on a cold cache the first response may carry `update: null` while the fetch
+finishes and fills the cache for the next call. `html_url` must start with
+`https://github.com/Cloeille/picsou-finance/releases/`, so the link the admin clicks can only
+point at this project's releases. `update` is `null` when the
 check is off, failed, finds nothing newer, or when `APP_VERSION` is not plain `X.Y.Z`
 (`dev`, `nightly-…`, branch builds). Versions compare numerically (`1.0.10` > `1.0.9`).
 
@@ -52,7 +57,9 @@ for the telemetry consent dialog, so two modals never stack. It lists each issue
 (`docker compose pull` then `docker compose up -d`, or `docker compose up -d --build` with
 Compose v2.33+) and the update with a link to the release notes. Closing it stores a
 fingerprint (sorted `code:sidecar` plus the latest version) in the persisted app store; it
-shows again only when that fingerprint changes.
+shows again only when that fingerprint changes. A clean status clears the stored fingerprint,
+so a problem that is fixed and later comes back alerts again. The request opts out of the
+global error redirect: a 5xx on this optional check never sends the app to `/error/500`.
 
 ### Key files
 
@@ -72,8 +79,6 @@ shows again only when that fingerprint changes.
 | Variable | Default | Effect |
 |----------|---------|--------|
 | `APP_UPDATE_CHECK_ENABLED` | `true` | `false` makes no outbound call at all |
-| `APP_UPDATE_CHECK_GITHUB_API_URL` | `https://api.github.com` | Override for a stub or a mirror |
-| `APP_UPDATE_CHECK_REPOSITORY` | `Cloeille/picsou-finance` | Repository whose releases are read |
 
 ## Technical choices
 

@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -41,15 +42,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Admin instance check. In-use sidecars are probed in parallel (2s each, 3s overall).
- * A probe failure is data, never an error response.
+ * Admin instance check. The release check and in-use sidecar probes share one 3s
+ * deadline (2s per probe). A probe failure is data, never an error response.
  */
 @Service
 public class InstanceStatusService {
 
     private static final Logger log = LoggerFactory.getLogger(InstanceStatusService.class);
-    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(2);
-    private static final Duration OVERALL_DEADLINE = Duration.ofSeconds(3);
+    static final Duration PROBE_TIMEOUT = Duration.ofSeconds(2);
+    static final Duration OVERALL_DEADLINE = Duration.ofSeconds(3);
     private static final String BASE_PYTHON = "sidecar-python";
     private static final String BASE_CHROMIUM = "sidecar-chromium";
 
@@ -57,12 +58,15 @@ public class InstanceStatusService {
     private final ReleaseCheckService releaseCheck;
     private final String currentVersion;
     private final WebClient webClient;
+    private final Duration probeTimeout;
+    private final Duration overallDeadline;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
     public InstanceStatusService(
         ReleaseCheckService releaseCheck,
         SetupService setupService,
+        Environment env,
         TradeRepublicSessionRepository trSessions,
         BoursoSessionRepository boursoSessions,
         CaisseEpargneSessionRepository caisseEpargneSessions,
@@ -74,69 +78,72 @@ public class InstanceStatusService {
         FortuneoSessionRepository fortuneoSessions,
         CorumSessionRepository corumSessions,
         SofidySessionRepository sofidySessions,
-        @Value("${info.app.version:dev}") String currentVersion,
-        @Value("${app.tr-auth.url:http://tr-auth:8001}") String trUrl,
-        @Value("${app.bourso-auth.url:http://bourso-auth:8001}") String boursoUrl,
-        @Value("${app.caisse-epargne-auth.url:http://caisse-epargne-auth:8001}") String caisseEpargneUrl,
-        @Value("${app.revolut-auth.url:http://revolut-auth:8002}") String revolutUrl,
-        @Value("${app.bourse-direct-auth.url:http://bourse-direct-auth:8001}") String bourseDirectUrl,
-        @Value("${app.degiro-auth.url:http://degiro-auth:8001}") String degiroUrl,
-        @Value("${app.amundi-auth.url:http://amundi-auth:8001}") String amundiUrl,
-        @Value("${app.amex-auth.url:http://amex-auth:8001}") String amexUrl,
-        @Value("${app.fortuneo-auth.url:http://fortuneo-auth:8001}") String fortuneoUrl,
-        @Value("${app.corum-auth.url:http://corum-auth:8001}") String corumUrl,
-        @Value("${app.sofidy-auth.url:http://sofidy-auth:8001}") String sofidyUrl
+        @Value("${info.app.version:dev}") String currentVersion
     ) {
         this(releaseCheck, currentVersion, registry(
-            setupService,
-            trUrl, boursoUrl, caisseEpargneUrl, revolutUrl, bourseDirectUrl, degiroUrl,
-            amundiUrl, amexUrl, fortuneoUrl, corumUrl, sofidyUrl,
+            setupService, env,
             trSessions, boursoSessions, caisseEpargneSessions, revolutSessions, bourseDirectSessions,
             degiroSessions, amundiSessions, amexSessions, fortuneoSessions, corumSessions, sofidySessions
-        ), defaultWebClient());
+        ), defaultWebClient(PROBE_TIMEOUT), PROBE_TIMEOUT, OVERALL_DEADLINE);
     }
 
     InstanceStatusService(ReleaseCheckService releaseCheck, String currentVersion,
-                          List<SidecarTarget> sidecars, WebClient webClient) {
+                          List<SidecarTarget> sidecars, WebClient webClient,
+                          Duration probeTimeout, Duration overallDeadline) {
         this.releaseCheck = releaseCheck;
         this.currentVersion = currentVersion == null || currentVersion.isBlank() ? "dev" : currentVersion.trim();
         this.sidecars = List.copyOf(sidecars);
         this.webClient = webClient;
+        this.probeTimeout = probeTimeout;
+        this.overallDeadline = overallDeadline;
     }
 
     public InstanceStatusResponse status() {
-        return new InstanceStatusResponse(currentVersion, updateOrNull(), issuesOrEmpty());
+        long deadline = System.nanoTime() + overallDeadline.toNanos();
+        CompletableFuture<ReleaseUpdate> update = releaseCheck.checkAsync(currentVersion);
+        List<SidecarIssue> issues = issuesOrEmpty(deadline);
+        awaitRelease(update, deadline);
+        return new InstanceStatusResponse(currentVersion, completedUpdate(update), issues);
     }
 
     List<SidecarTarget> targets() {
         return sidecars;
     }
 
-    static String boursoUrl(SetupService setupService, String propertyUrl) {
-        return setupService.readSetting(SetupService.KEY_BOURSO_AUTH_URL)
-            .filter(value -> !value.isBlank())
-            .orElse(propertyUrl);
+    private static ReleaseUpdate completedUpdate(CompletableFuture<ReleaseUpdate> update) {
+        if (!update.isDone() || update.isCancelled() || update.isCompletedExceptionally()) {
+            return null;
+        }
+        return update.join();
     }
 
-    private ReleaseUpdate updateOrNull() {
+    private static void awaitRelease(CompletableFuture<?> update, long deadlineNanos) {
+        if (update.isDone()) {
+            return;
+        }
+        long remaining = deadlineNanos - System.nanoTime();
+        if (remaining <= 0) {
+            return;
+        }
         try {
-            return releaseCheck.check(currentVersion);
-        } catch (RuntimeException ex) {
-            log.warn("instance-status.release.failed", ex);
-            return null;
+            update.get(remaining, TimeUnit.NANOSECONDS);
+        } catch (TimeoutException | ExecutionException ignored) {
+            // Leave the fetch running so it can fill the 6 h cache.
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
         }
     }
 
-    private List<SidecarIssue> issuesOrEmpty() {
+    private List<SidecarIssue> issuesOrEmpty(long deadlineNanos) {
         try {
-            return probeInUse();
+            return probeInUse(deadlineNanos);
         } catch (RuntimeException ex) {
             log.warn("instance-status.probe.failed", ex);
             return List.of();
         }
     }
 
-    private List<SidecarIssue> probeInUse() {
+    private List<SidecarIssue> probeInUse(long deadlineNanos) {
         List<SidecarTarget> inUse = new ArrayList<>();
         for (SidecarTarget target : sidecars) {
             try {
@@ -155,9 +162,13 @@ public class InstanceStatusService {
             List<CompletableFuture<Optional<SidecarIssue>>> futures = inUse.stream()
                 .map(target -> CompletableFuture.supplyAsync(() -> probe(target), executor))
                 .toList();
+            long remaining = deadlineNanos - System.nanoTime();
+            if (remaining < 0) {
+                remaining = 0;
+            }
             try {
                 CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
-                    .get(OVERALL_DEADLINE.toMillis(), TimeUnit.MILLISECONDS);
+                    .get(remaining, TimeUnit.NANOSECONDS);
             } catch (TimeoutException ex) {
                 futures.forEach(future -> future.cancel(true));
             } catch (InterruptedException ex) {
@@ -225,8 +236,8 @@ public class InstanceStatusService {
                     .defaultIfEmpty(new byte[0])
                     .map(body -> new HealthResponse(status, body));
             })
-            .timeout(PROBE_TIMEOUT)
-            .block(PROBE_TIMEOUT);
+            .timeout(probeTimeout)
+            .block(probeTimeout);
     }
 
     private Optional<SidecarIssue> classify(SidecarTarget target, byte[] body) {
@@ -270,17 +281,7 @@ public class InstanceStatusService {
 
     private static List<SidecarTarget> registry(
         SetupService setupService,
-        String trUrl,
-        String boursoUrl,
-        String caisseEpargneUrl,
-        String revolutUrl,
-        String bourseDirectUrl,
-        String degiroUrl,
-        String amundiUrl,
-        String amexUrl,
-        String fortuneoUrl,
-        String corumUrl,
-        String sofidyUrl,
+        Environment env,
         TradeRepublicSessionRepository trSessions,
         BoursoSessionRepository boursoSessions,
         CaisseEpargneSessionRepository caisseEpargneSessions,
@@ -294,26 +295,42 @@ public class InstanceStatusService {
         SofidySessionRepository sofidySessions
     ) {
         return List.of(
-            new SidecarTarget("bourso-auth", BASE_PYTHON, () -> boursoUrl(setupService, boursoUrl), boursoSessions::count),
-            new SidecarTarget("sofidy-auth", BASE_PYTHON, () -> sofidyUrl, sofidySessions::count),
-            new SidecarTarget("degiro-auth", BASE_PYTHON, () -> degiroUrl, degiroSessions::count),
-            new SidecarTarget("tr-auth", BASE_CHROMIUM, () -> trUrl, trSessions::count),
-            new SidecarTarget("caisse-epargne-auth", BASE_CHROMIUM, () -> caisseEpargneUrl, caisseEpargneSessions::count),
-            new SidecarTarget("bourse-direct-auth", BASE_CHROMIUM, () -> bourseDirectUrl, bourseDirectSessions::count),
-            new SidecarTarget("amundi-auth", BASE_CHROMIUM, () -> amundiUrl, amundiSessions::count),
-            new SidecarTarget("fortuneo-auth", BASE_CHROMIUM, () -> fortuneoUrl, fortuneoSessions::count),
-            new SidecarTarget("corum-auth", BASE_CHROMIUM, () -> corumUrl, corumSessions::count),
-            new SidecarTarget("amex-auth", null, () -> amexUrl, amexSessions::count),
-            new SidecarTarget("revolut-auth", null, () -> revolutUrl, revolutSessions::count)
+            new SidecarTarget("bourso-auth", BASE_PYTHON,
+                () -> setupService.boursoAuthUrl(propertyUrl(env, "bourso-auth")), boursoSessions::count),
+            new SidecarTarget("sofidy-auth", BASE_PYTHON,
+                () -> propertyUrl(env, "sofidy-auth"), sofidySessions::count),
+            new SidecarTarget("degiro-auth", BASE_PYTHON,
+                () -> propertyUrl(env, "degiro-auth"), degiroSessions::count),
+            new SidecarTarget("tr-auth", BASE_CHROMIUM,
+                () -> propertyUrl(env, "tr-auth"), trSessions::count),
+            new SidecarTarget("caisse-epargne-auth", BASE_CHROMIUM,
+                () -> propertyUrl(env, "caisse-epargne-auth"), caisseEpargneSessions::count),
+            new SidecarTarget("bourse-direct-auth", BASE_CHROMIUM,
+                () -> propertyUrl(env, "bourse-direct-auth"), bourseDirectSessions::count),
+            new SidecarTarget("amundi-auth", BASE_CHROMIUM,
+                () -> propertyUrl(env, "amundi-auth"), amundiSessions::count),
+            new SidecarTarget("fortuneo-auth", BASE_CHROMIUM,
+                () -> propertyUrl(env, "fortuneo-auth"), fortuneoSessions::count),
+            new SidecarTarget("corum-auth", BASE_CHROMIUM,
+                () -> propertyUrl(env, "corum-auth"), corumSessions::count),
+            new SidecarTarget("amex-auth", null,
+                () -> propertyUrl(env, "amex-auth"), amexSessions::count),
+            new SidecarTarget("revolut-auth", null,
+                () -> propertyUrl(env, "revolut-auth"), revolutSessions::count)
         );
     }
 
-    private static WebClient defaultWebClient() {
+    private static String propertyUrl(Environment env, String name) {
+        String value = env.getProperty("app." + name + ".url");
+        return value == null ? "" : value;
+    }
+
+    static WebClient defaultWebClient(Duration timeout) {
         // A 3xx is not a healthy sidecar; following it would hide a mispointed URL.
         HttpClient reactor = HttpClient.create()
             .followRedirect(false)
-            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) PROBE_TIMEOUT.toMillis())
-            .responseTimeout(PROBE_TIMEOUT);
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) timeout.toMillis())
+            .responseTimeout(timeout);
         return WebClient.builder()
             .clientConnector(new ReactorClientHttpConnector(reactor))
             .build();

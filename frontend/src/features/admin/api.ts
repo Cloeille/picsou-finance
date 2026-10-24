@@ -92,7 +92,7 @@ export const adminApi = {
     api.get<AiCallLogPage>('/admin/ai-calls', { params: { limit, offset } }).then(r => r.data),
 
   getInstanceStatus: () =>
-    api.get<InstanceStatus>('/admin/instance-status').then(r => r.data),
+    api.get<InstanceStatus>('/admin/instance-status', { skipGlobalErrorRedirect: true }).then(r => r.data),
 
   getEbCallLog: () =>
     api.get<EbCallEntry[]>('/admin/enablebanking/call-log').then(r => r.data),

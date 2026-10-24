@@ -1,7 +1,6 @@
 package com.picsou.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.dto.ReleaseUpdate;
 import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
@@ -11,18 +10,23 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * Latest GitHub release, cached in memory for 6 hours including failures so a dead
- * network is not one outbound call per admin page load. Disabled means no call at all.
+ * network is not one outbound call per admin page load. The fetch runs on its own
+ * virtual thread: a caller that times out or cancels does not abort it. Disabled
+ * means no call at all.
  */
 @Service
 public class ReleaseCheckService {
@@ -33,76 +37,94 @@ public class ReleaseCheckService {
     private static final String ACCEPT = "application/vnd.github+json";
     private static final String USER_AGENT = "picsou-finance";
     private static final Pattern SEMVER = Pattern.compile("^v?(\\d+)\\.(\\d+)\\.(\\d+)$");
+    static final String GITHUB_API = "https://api.github.com";
+    static final String REPOSITORY = "Cloeille/picsou-finance";
+    private static final String RELEASE_HTML_PREFIX = "https://github.com/" + REPOSITORY + "/releases/";
 
     private final boolean enabled;
     private final String githubApiUrl;
-    private final String repository;
     private final Clock clock;
     private final Duration timeout;
     private final WebClient webClient;
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private volatile CachedRelease cache;
+    private final AtomicReference<CompletableFuture<Release>> inFlight = new AtomicReference<>();
 
     @Autowired
-    public ReleaseCheckService(
-        @Value("${app.update-check.enabled:true}") boolean enabled,
-        @Value("${app.update-check.github-api-url:https://api.github.com}") String githubApiUrl,
-        @Value("${app.update-check.repository:Cloeille/picsou-finance}") String repository
-    ) {
-        this(enabled, githubApiUrl, repository, Clock.systemUTC(), DEFAULT_TIMEOUT, defaultWebClient());
+    public ReleaseCheckService(@Value("${app.update-check.enabled:true}") boolean enabled) {
+        this(enabled, GITHUB_API, Clock.systemUTC(), DEFAULT_TIMEOUT, defaultWebClient(DEFAULT_TIMEOUT));
     }
 
-    ReleaseCheckService(boolean enabled, String githubApiUrl, String repository,
-                        Clock clock, Duration timeout, WebClient webClient) {
+    ReleaseCheckService(boolean enabled, String githubApiUrl, Clock clock, Duration timeout, WebClient webClient) {
         this.enabled = enabled;
         this.githubApiUrl = githubApiUrl;
-        this.repository = repository;
         this.clock = clock;
         this.timeout = timeout;
         this.webClient = webClient;
     }
 
     /**
-     * @return the newer release, or null when disabled, current is not plain semver,
-     *         the check failed, or GitHub is not strictly newer
+     * @return a future completed immediately when disabled, current is not plain semver,
+     *         or the cache is fresh; otherwise the shared in-flight fetch. Cancelling the
+     *         returned future does not cancel that fetch.
      */
-    public ReleaseUpdate check(String currentVersion) {
-        try {
-            if (!enabled || semver(currentVersion) == null) {
-                return null;
+    public CompletableFuture<ReleaseUpdate> checkAsync(String currentVersion) {
+        if (!enabled || semver(currentVersion) == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        CachedRelease snapshot = cache;
+        if (fresh(snapshot, clock.instant())) {
+            return CompletableFuture.completedFuture(toUpdate(snapshot.release(), currentVersion));
+        }
+        CompletableFuture<ReleaseUpdate> returned = new CompletableFuture<>();
+        fetchShared().whenComplete((release, error) -> {
+            if (!returned.isDone()) {
+                returned.complete(error == null ? toUpdate(release, currentVersion) : null);
             }
-            Release latest = cachedLatest();
-            if (latest == null || !isNewer(latest.tag(), currentVersion)) {
-                return null;
-            }
-            return new ReleaseUpdate(latest.tag(), latest.url());
-        } catch (RuntimeException ex) {
-            log.warn("instance-status.release.failed", ex);
+        });
+        return returned;
+    }
+
+    private static ReleaseUpdate toUpdate(Release latest, String currentVersion) {
+        if (latest == null || !isNewer(latest.tag(), currentVersion)) {
             return null;
+        }
+        return new ReleaseUpdate(latest.tag(), latest.url());
+    }
+
+    private CompletableFuture<Release> fetchShared() {
+        while (true) {
+            CachedRelease snapshot = cache;
+            if (fresh(snapshot, clock.instant())) {
+                return CompletableFuture.completedFuture(snapshot.release());
+            }
+            CompletableFuture<Release> current = inFlight.get();
+            if (current != null && !current.isDone()) {
+                return current;
+            }
+            if (current != null) {
+                inFlight.compareAndSet(current, null);
+                continue;
+            }
+            CompletableFuture<Release> created = new CompletableFuture<>();
+            if (inFlight.compareAndSet(null, created)) {
+                // Own virtual thread: cancelling or interrupting the caller must not abort this fetch.
+                Thread.startVirtualThread(() -> runFetch(created));
+                return created;
+            }
         }
     }
 
-    private Release cachedLatest() {
-        Instant now = clock.instant();
-        CachedRelease snapshot = cache;
-        if (fresh(snapshot, now)) {
-            return snapshot.release();
-        }
-        synchronized (this) {
-            now = clock.instant();
-            snapshot = cache;
-            if (fresh(snapshot, now)) {
-                return snapshot.release();
-            }
-            Release release = null;
-            try {
-                release = fetch();
-            } catch (Exception ex) {
-                log.info("instance-status.release.fetch_failed err={}", ex.toString());
-            }
+    private void runFetch(CompletableFuture<Release> created) {
+        Release release = null;
+        try {
+            release = fetch();
+        } catch (Exception ex) {
+            log.info("instance-status.release.fetch_failed err={}", ex.toString());
+        } finally {
             cache = new CachedRelease(clock.instant(), release);
-            return release;
+            created.complete(release);
+            inFlight.compareAndSet(created, null);
         }
     }
 
@@ -116,8 +138,13 @@ public class ReleaseCheckService {
             .uri(latestUri())
             .header("Accept", ACCEPT)
             .header("User-Agent", USER_AGENT)
-            .retrieve()
-            .bodyToMono(JsonNode.class)
+            .exchangeToMono(response -> {
+                if (!response.statusCode().is2xxSuccessful()) {
+                    return response.releaseBody().then(Mono.error(
+                        new IllegalStateException("github release status " + response.statusCode().value())));
+                }
+                return response.bodyToMono(JsonNode.class);
+            })
             .timeout(timeout)
             .block(timeout);
         if (node == null) {
@@ -125,7 +152,7 @@ public class ReleaseCheckService {
         }
         String tag = text(node, "tag_name");
         String url = text(node, "html_url");
-        if (tag == null || url == null) {
+        if (tag == null || url == null || !url.startsWith(RELEASE_HTML_PREFIX)) {
             throw new IllegalStateException("github release missing tag_name or html_url");
         }
         return new Release(tag, url);
@@ -136,8 +163,7 @@ public class ReleaseCheckService {
         while (base.endsWith("/")) {
             base = base.substring(0, base.length() - 1);
         }
-        String repo = repository == null ? "" : repository.trim();
-        return URI.create(base + "/repos/" + repo + "/releases/latest");
+        return URI.create(base + "/repos/" + REPOSITORY + "/releases/latest");
     }
 
     static boolean isNewer(String latest, String current) {
@@ -182,12 +208,12 @@ public class ReleaseCheckService {
         return text.isEmpty() ? null : text;
     }
 
-    private static WebClient defaultWebClient() {
+    static WebClient defaultWebClient(Duration timeout) {
         // A redirect must not move the check off the configured GitHub API host.
         HttpClient reactor = HttpClient.create()
             .followRedirect(false)
-            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) DEFAULT_TIMEOUT.toMillis())
-            .responseTimeout(DEFAULT_TIMEOUT);
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) timeout.toMillis())
+            .responseTimeout(timeout);
         return WebClient.builder()
             .clientConnector(new ReactorClientHttpConnector(reactor))
             .build();

@@ -2,7 +2,11 @@ package com.picsou.service;
 
 import com.picsou.dto.SidecarIssue;
 import com.picsou.dto.SidecarIssueCode;
+import com.picsou.model.AppSetting;
 import com.picsou.repository.AmexSessionRepository;
+import com.picsou.repository.AppSettingRepository;
+import com.picsou.repository.AppUserRepository;
+import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.AmundiSessionRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
@@ -15,7 +19,8 @@ import com.picsou.repository.SofidySessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.mock.env.MockEnvironment;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -180,9 +185,107 @@ class InstanceStatusServiceTest {
     }
 
     @Test
+    void probeTimeout_isUnreachableAndBounded() throws Exception {
+        HttpServer server = hang("/health", 10_000);
+        try {
+            Duration probe = Duration.ofMillis(200);
+            InstantStart start = InstantStart.now();
+            var response = service(probe, Duration.ofSeconds(5),
+                target("tr-auth", "sidecar-chromium", url(server), 1)).status();
+            // 5s overall deadline: under 3s means the per-probe timeout won, not the deadline.
+            assertThat(start.elapsed()).isLessThan(Duration.ofSeconds(3));
+            assertThat(response.issues()).containsExactly(
+                new SidecarIssue(SidecarIssueCode.SIDECAR_UNREACHABLE, "tr-auth", "sidecar-chromium"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void redirect_isUnreachable() throws Exception {
+        AtomicInteger followed = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(daemonPool());
+        int port = server.getAddress().getPort();
+        byte[] healthy = "{\"status\":\"ok\",\"base\":\"sidecar-python\"}".getBytes(StandardCharsets.UTF_8);
+        server.createContext("/health", exchange -> {
+            exchange.getResponseHeaders().set("Location", "http://127.0.0.1:" + port + "/healthy");
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(301, healthy.length);
+            exchange.getResponseBody().write(healthy);
+            exchange.close();
+        });
+        server.createContext("/healthy", exchange -> {
+            followed.incrementAndGet();
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, healthy.length);
+            exchange.getResponseBody().write(healthy);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var response = service(target("bourso-auth", "sidecar-python", url(server), 1)).status();
+            assertThat(followed).hasValue(0);
+            assertThat(response.issues()).containsExactly(
+                new SidecarIssue(SidecarIssueCode.SIDECAR_UNREACHABLE, "bourso-auth", "sidecar-python"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void hangingReleaseAndSidecars_returnWithinOverallDeadline() throws Exception {
+        HttpServer github = hang("/repos/" + ReleaseCheckService.REPOSITORY + "/releases/latest", 10_000);
+        HttpServer sidecars = hang("/health", 10_000);
+        try {
+            Duration releaseTimeout = Duration.ofSeconds(5);
+            ReleaseCheckService releases = new ReleaseCheckService(
+                true,
+                url(github),
+                Clock.systemUTC(),
+                releaseTimeout,
+                ReleaseCheckService.defaultWebClient(releaseTimeout));
+            InstanceStatusService service = new InstanceStatusService(
+                releases,
+                "1.0.0",
+                List.of(
+                    target("bourso-auth", "sidecar-python", url(sidecars), 1),
+                    target("sofidy-auth", "sidecar-python", url(sidecars), 1)),
+                InstanceStatusService.defaultWebClient(InstanceStatusService.PROBE_TIMEOUT),
+                InstanceStatusService.PROBE_TIMEOUT,
+                InstanceStatusService.OVERALL_DEADLINE);
+            InstantStart start = InstantStart.now();
+            var response = service.status();
+            assertThat(start.elapsed()).isLessThan(Duration.ofMillis(3500));
+            assertThat(response.update()).isNull();
+            assertThat(response.issues()).containsExactly(
+                new SidecarIssue(SidecarIssueCode.SIDECAR_UNREACHABLE, "bourso-auth", "sidecar-python"),
+                new SidecarIssue(SidecarIssueCode.SIDECAR_UNREACHABLE, "sofidy-auth", "sidecar-python"));
+        } finally {
+            github.stop(0);
+            sidecars.stop(0);
+        }
+    }
+
+    @Test
     void registry_encodesNameBaseUrlAndSessionCount() {
-        SetupService setup = mock(SetupService.class);
-        when(setup.readSetting(SetupService.KEY_BOURSO_AUTH_URL)).thenReturn(Optional.of("http://setup-bourso"));
+        AppSettingRepository settings = mock(AppSettingRepository.class);
+        when(settings.findByKey(SetupService.KEY_BOURSO_AUTH_URL))
+            .thenReturn(Optional.of(setting("http://setup-bourso")));
+        SetupService setup = new SetupService(
+            settings, mock(AppUserRepository.class), mock(FamilyMemberRepository.class), mock(PasswordEncoder.class));
+        MockEnvironment env = new MockEnvironment()
+            .withProperty("app.bourso-auth.url", "http://property-bourso")
+            .withProperty("app.sofidy-auth.url", "http://sofidy")
+            .withProperty("app.degiro-auth.url", "http://degiro")
+            .withProperty("app.tr-auth.url", "http://tr")
+            .withProperty("app.caisse-epargne-auth.url", "http://caisse")
+            .withProperty("app.bourse-direct-auth.url", "http://bourse")
+            .withProperty("app.amundi-auth.url", "http://amundi")
+            .withProperty("app.fortuneo-auth.url", "http://fortuneo")
+            .withProperty("app.corum-auth.url", "http://corum")
+            .withProperty("app.amex-auth.url", "http://amex")
+            .withProperty("app.revolut-auth.url", "http://revolut");
         var tr = mock(TradeRepublicSessionRepository.class);
         var bourso = mock(BoursoSessionRepository.class);
         var caisse = mock(CaisseEpargneSessionRepository.class);
@@ -209,10 +312,9 @@ class InstanceStatusServiceTest {
         InstanceStatusService wired = new InstanceStatusService(
             disabledReleases(),
             setup,
+            env,
             tr, bourso, caisse, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy,
-            "1.1.0",
-            "http://tr", "http://property-bourso", "http://caisse", "http://revolut", "http://bourse",
-            "http://degiro", "http://amundi", "http://amex", "http://fortuneo", "http://corum", "http://sofidy");
+            "1.1.0");
 
         assertThat(wired.targets())
             .extracting(SidecarTarget::name, SidecarTarget::expectedBase)
@@ -230,9 +332,9 @@ class InstanceStatusServiceTest {
                 tuple("revolut-auth", null));
 
         assertThat(byName(wired, "bourso-auth").url().get()).isEqualTo("http://setup-bourso");
-        when(setup.readSetting(SetupService.KEY_BOURSO_AUTH_URL)).thenReturn(Optional.of("  "));
+        when(settings.findByKey(SetupService.KEY_BOURSO_AUTH_URL)).thenReturn(Optional.of(setting("  ")));
         assertThat(byName(wired, "bourso-auth").url().get()).isEqualTo("http://property-bourso");
-        when(setup.readSetting(SetupService.KEY_BOURSO_AUTH_URL)).thenReturn(Optional.empty());
+        when(settings.findByKey(SetupService.KEY_BOURSO_AUTH_URL)).thenReturn(Optional.empty());
         assertThat(byName(wired, "bourso-auth").url().get()).isEqualTo("http://property-bourso");
 
         assertThat(byName(wired, "tr-auth").url().get()).isEqualTo("http://tr");
@@ -259,17 +361,32 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "sofidy-auth").sessions().getAsLong()).isEqualTo(11L);
     }
 
+    private static AppSetting setting(String value) {
+        return AppSetting.builder().key(SetupService.KEY_BOURSO_AUTH_URL).value(value).build();
+    }
+
     private static SidecarTarget byName(InstanceStatusService service, String name) {
         return service.targets().stream().filter(target -> target.name().equals(name)).findFirst().orElseThrow();
     }
 
     private static InstanceStatusService service(SidecarTarget... targets) {
-        return new InstanceStatusService(disabledReleases(), "1.1.0", List.of(targets), WebClient.builder().build());
+        return service(InstanceStatusService.PROBE_TIMEOUT, InstanceStatusService.OVERALL_DEADLINE, targets);
+    }
+
+    private static InstanceStatusService service(Duration probeTimeout, Duration overall, SidecarTarget... targets) {
+        return new InstanceStatusService(
+            disabledReleases(),
+            "1.1.0",
+            List.of(targets),
+            InstanceStatusService.defaultWebClient(probeTimeout),
+            probeTimeout,
+            overall);
     }
 
     private static ReleaseCheckService disabledReleases() {
-        return new ReleaseCheckService(false, "http://127.0.0.1:9", "Cloeille/picsou-finance",
-            Clock.systemUTC(), Duration.ofSeconds(1), WebClient.builder().build());
+        Duration timeout = Duration.ofSeconds(1);
+        return new ReleaseCheckService(false, "http://127.0.0.1:9", Clock.systemUTC(), timeout,
+            ReleaseCheckService.defaultWebClient(timeout));
     }
 
     private static SidecarTarget target(String name, String expectedBase, String url, long sessions) {
@@ -301,11 +418,36 @@ class InstanceStatusServiceTest {
         return server;
     }
 
+    private static HttpServer hang(String path, long sleepMs) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(daemonPool());
+        server.createContext(path, exchange -> {
+            try {
+                Thread.sleep(sleepMs);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            exchange.close();
+        });
+        server.start();
+        return server;
+    }
+
     private static ExecutorService daemonPool() {
         return Executors.newCachedThreadPool(runnable -> {
             Thread thread = new Thread(runnable, "instance-status-stub");
             thread.setDaemon(true);
             return thread;
         });
+    }
+
+    private record InstantStart(long nanos) {
+        static InstantStart now() {
+            return new InstantStart(System.nanoTime());
+        }
+
+        Duration elapsed() {
+            return Duration.ofNanos(System.nanoTime() - nanos);
+        }
     }
 }

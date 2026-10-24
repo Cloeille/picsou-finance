@@ -209,6 +209,22 @@ describe('InstanceStatusDialog', () => {
     expect(screen.queryByText('admin.instanceStatus.title')).not.toBeInTheDocument()
   })
 
+  it('forgets the dismissal once the status is clean, so a recurring problem alerts again', async () => {
+    useAppStore.setState({ dismissedInstanceStatusFingerprint: 'SIDECAR_UNREACHABLE:corum-auth' })
+    renderDialog()
+    await waitFor(() => expect(useAppStore.getState().dismissedInstanceStatusFingerprint).toBeNull())
+  })
+
+  it('keeps the dismissal while the same problem is still there', async () => {
+    useAppStore.setState({ dismissedInstanceStatusFingerprint: 'SIDECAR_UNREACHABLE:corum-auth' })
+    instanceStatus({ update: null, issues: [ISSUE] })
+    renderDialog()
+    await waitFor(() => expect(api.getInstanceStatus).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 20))
+    expect(useAppStore.getState().dismissedInstanceStatusFingerprint).toBe('SIDECAR_UNREACHABLE:corum-auth')
+    expect(screen.queryByText('admin.instanceStatus.title')).not.toBeInTheDocument()
+  })
+
   it('stores the fingerprint on Later, including across a reload', async () => {
     instanceStatus({ update: null, issues: [ISSUE] })
     renderDialog()

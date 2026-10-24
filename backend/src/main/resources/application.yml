@@ -213,8 +213,6 @@ app:
   # APP_UPDATE_CHECK_ENABLED=false skips the call entirely.
   update-check:
     enabled: ${APP_UPDATE_CHECK_ENABLED:true}
-    github-api-url: ${APP_UPDATE_CHECK_GITHUB_API_URL:https://api.github.com}
-    repository: ${APP_UPDATE_CHECK_REPOSITORY:Cloeille/picsou-finance}
   # Meria's public API. Overridable like every other external base URL above, which is what lets
   # an integration environment point it at a stub without editing the packaged config.
   # MeriaAdapter carries the same value as its @Value default, so a stripped config still boots.
