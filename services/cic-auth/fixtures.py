@@ -62,6 +62,7 @@ MOBILE_CONFIRMATION_PAGE = """
 <html><body>
 <form id="C:P:F" action="/fr/banque/validation.aspx?_tabi=C&amp;_pid=OtpValidationPage" method="post">
   <input name="$CPT" type="hidden" value="opaque-page-state" />
+  <input type="submit" name="_FID_DoValidate" value="Continuer" class="hideifscript" />
   <div id="C:inMobileAppMessage"><h2>Une demande de confirmation mobile a &#233;t&#233; transmise &#224; votre appareil.</h2>
   <p>D&#233;marrez votre application mobile CIC pour v&#233;rifier et confirmer cette op&#233;ration.</p></div>
 </form>

@@ -81,6 +81,9 @@ class FakeBank:
                 or "_FID_CheckOrDeliverBackup" not in self.final_fields
             ):
                 return httpx.Response(200, text=SMS_CONFIRMATION_PAGE)
+            if self.second_factor == "mobile" and "_FID_DoValidate" not in self.final_fields:
+                # Approved on the phone but not submitted with the button: still parked.
+                return httpx.Response(200, text=MOBILE_CONFIRMATION_PAGE)
             target = AUTHORITY_PATH if self.authority_notice else HOME_PATH
             return self.redirect(
                 target, "IdSes=live; Path=/", "auth_client_state=trusted-device; Path=/; Max-Age=7776000"
