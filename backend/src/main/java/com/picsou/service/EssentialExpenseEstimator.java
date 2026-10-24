@@ -54,7 +54,10 @@ public class EssentialExpenseEstimator {
         "VERS\\s+(LE\\s+)?LIVRET",
         "EPARGNE\\s+AUTO",
         "TRANSFER\\s+TO\\s+(MY|SELF)",
-        "INTERNAL\\s+TRANSFER"
+        "INTERNAL\\s+TRANSFER",
+        // Revolut's own wording for a currency exchange between the member's pockets. Its other
+        // leg is never stored when it is not in EUR, so neither matcher above can see it (#251).
+        "^EXCHANGED\\s+(TO|FROM)\\s+[A-Z]{3,5}$"
     ).map(p -> Pattern.compile(p, Pattern.CASE_INSENSITIVE)).toList();
 
     /** Investment legs: moving money into a position is not consumption. */
@@ -96,9 +99,13 @@ public class EssentialExpenseEstimator {
             transactionRepository.findByAccountIdInAndDateBetweenOrderByDateAsc(byId.keySet(), from, to);
 
         Map<Long, List<Transaction>> creditsByCents = new HashMap<>();
+        Map<String, List<Transaction>> creditsByExternalId = new HashMap<>();
         for (Transaction t : all) {
             if (t.getAmount() != null && t.getAmount().signum() > 0) {
                 creditsByCents.computeIfAbsent(cents(t.getAmount()), k -> new ArrayList<>()).add(t);
+                if (t.getExternalId() != null && !t.getExternalId().isBlank()) {
+                    creditsByExternalId.computeIfAbsent(t.getExternalId(), k -> new ArrayList<>()).add(t);
+                }
             }
         }
         Set<Long> consumedCredits = new HashSet<>();
@@ -114,9 +121,10 @@ public class EssentialExpenseEstimator {
             if (t.getTicker() != null && !t.getTicker().isBlank()) continue;
             if (t.getTxType() != null && INVESTMENT_TYPES.contains(t.getTxType())) continue;
 
-            if (matchCounterparty(t, creditsByCents, consumedCredits)) {
+            if (matchSharedId(t, creditsByExternalId, consumedCredits)
+                || matchCounterparty(t, creditsByCents, consumedCredits)) {
                 excludedTransfers++;
-                log.debug("Excluding {} on {} as an internal transfer (counterparty match)",
+                log.debug("Excluding {} on {} as an internal transfer (counterparty or shared-id match)",
                     t.getAmount(), t.getDate());
                 continue;
             }
@@ -164,6 +172,29 @@ public class EssentialExpenseEstimator {
                                       Map<Long, List<Transaction>> creditsByCents,
                                       Set<Long> consumed) {
         List<Transaction> candidates = creditsByCents.get(cents(debit.getAmount().abs()));
+        if (candidates == null) return false;
+        for (Transaction credit : candidates) {
+            if (consumed.contains(credit.getId())) continue;
+            if (Objects.equals(credit.getAccount().getId(), debit.getAccount().getId())) continue;
+            if (Math.abs(ChronoUnit.DAYS.between(debit.getDate(), credit.getDate())) > TRANSFER_MATCH_DAYS) {
+                continue;
+            }
+            consumed.add(credit.getId());
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * True when a credit on another account carries the debit's provider id. Revolut books both
+     * legs of a currency exchange under one id, and their amounts never agree: one is in the
+     * source currency. Amount matching cannot pair them, so the shared id does (#251).
+     */
+    private boolean matchSharedId(Transaction debit,
+                                  Map<String, List<Transaction>> creditsByExternalId,
+                                  Set<Long> consumed) {
+        if (debit.getExternalId() == null || debit.getExternalId().isBlank()) return false;
+        List<Transaction> candidates = creditsByExternalId.get(debit.getExternalId());
         if (candidates == null) return false;
         for (Transaction credit : candidates) {
             if (consumed.contains(credit.getId())) continue;

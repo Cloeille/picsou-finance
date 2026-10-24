@@ -140,7 +140,8 @@ public class RevolutAdapter implements RevolutPort {
                     textOrNull(txNode, "description"),
                     txNode.path("amount").decimalValue(),
                     textOrNull(txNode, "counterparty"),
-                    categoryKindOrNull(textOrNull(txNode, "kind"))
+                    categoryKindOrNull(textOrNull(txNode, "kind")),
+                    textOrNull(txNode, "currency")
                 ));
             }
 

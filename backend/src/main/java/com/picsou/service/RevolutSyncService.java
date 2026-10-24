@@ -540,7 +540,7 @@ public class RevolutSyncService {
                 CategoryKind kind = transferLegs.contains(transferKey(data, txn))
                     ? CategoryKind.TRANSFER : txn.kind() == CategoryKind.TRANSFER ? null : txn.kind();
                 return new RevolutTxn(txn.externalId(), txn.date(), txn.description(), txn.amount(),
-                    txn.counterparty(), kind).toSidecarTransaction();
+                    txn.counterparty(), kind, txn.currency()).toSidecarTransaction();
             }).toList(), ctx, "revolut");
         if (inserted > 0) {
             log.info("Ingested {} new Revolut transactions for account {}", inserted, account.getId());

@@ -75,7 +75,15 @@ This rejects the whole sync, including balance updates for other accounts, if a
 very active pocket exhausts the page limit inside the window. Per-account partial
 success is not implemented. Until FX conversion is available, non-EUR accounts
 keep their balances but their transactions are not imported into EUR Budget and
-Cashflow totals; previously stored non-EUR transactions are not rewritten.
+Cashflow totals. The same rule applies per transaction: a leg whose own
+`currency` is not EUR is skipped even on an EUR pocket, and a stored row's
+`native_currency` is the leg's currency, not the pocket's.
+
+Before #251 the foreign leg of an exchange was stored as EUR and 10^7 to 10^8 too
+large. `V118__revolut_exchange_leg_repair.sql` deletes it: two Revolut rows of one
+member on two accounts sharing an `external_id`, opposite signs, magnitudes over
+1000x apart; the larger one goes. The EUR leg stays. `docker/deploy.sh` takes a
+`pg_dump` before migrating.
 
 The source's generic `TRANSFER` type alone does not prove an own-account move.
 Both legs are classified as `TRANSFER` only when exactly two distinct harvested
@@ -175,6 +183,12 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   Measure the true TTL after a ~24 h cool-down before deciding if unattended daily sync (keep-alive
   loop) is viable. On-demand sync works regardless.
 - **Balances are integer MINOR units** (cents): `12345` == `123.45` → `_minor_to_major` divides by 100.
+- **Transaction amounts use their own currency's scale.** A transaction carries its own
+  `currency`, which can differ from its pocket's: the source leg of an `Exchanged to EUR` is in
+  the source asset. `_fetch_transactions` emits that `currency` and divides a fiat leg by 100
+  and any other (crypto) leg by 10^8. The 10^8 scale comes from a community client
+  (tducret/revolut-python), not from a captured payload. A malformed `currency` fails closed
+  with `502 INVALID_DATA`; an absent one means the pocket's (#251).
 - **`/api/retail/wallets` is a dict keyed by account type** (`{PERSONAL:[...], PERSONAL_JOINT:[...],
   YOUTH:[], ...}`), NOT a list, and NOT under a `wallets` key. Each wallet has a `pockets` list.
 - **Money-box balance is nested**: `{"amount": <cents>, "currency": "EUR"}` (not a flat number).

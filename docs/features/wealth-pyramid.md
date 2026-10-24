@@ -147,9 +147,14 @@ exists to prevent.
 3. **Counterparty matching**, the only reliable rule — a debit is internal when a credit of the
    same amount landed on another readable account within ±3 days. Real double-entry matching,
    so it catches a livret top-up or a PEA funding whatever the wording. A matched credit is
-   **consumed**, so one salary cannot excuse six debits that share its amount.
+   **consumed**, so one salary cannot excuse six debits that share its amount. A credit on
+   another account carrying the debit's own `external_id` is matched first, whatever its
+   amount: Revolut books both legs of a currency exchange under one id, and their amounts are
+   in two currencies (#251).
 4. **Investment legs** — `BUY`/`SELL`/`DEPOSIT`, or any row with a ticker.
 5. **Label heuristic**, explicitly last and explicitly weak, only when matching found nothing.
+   It includes Revolut's exact `Exchanged to|from <CODE>` wording: the importer stores only EUR
+   legs, so the other leg of an EUR to crypto or foreign-currency exchange is never there to match.
 
 `estimate = Σ kept debits / monthsObserved` — divided by the months **observed**, never by six.
 
@@ -255,8 +260,9 @@ GET /api/analysis/pyramid
   override, envelope cash residual, shares applied once, property net of debt, the three
   safety-net regimes, the excess entering the vector, half-L1 on a known vector, crypto penalty
   scaled by weight, a balance-only crypto account drawing none, the leverage curve at 30/60/85/100
-- `EssentialExpenseEstimatorTest` (14) — current month excluded, divisor is months observed,
-  counterparty matching and credit consumption, investment legs, label rules firing last and not
+- `EssentialExpenseEstimatorTest` (19) — current month excluded, divisor is months observed,
+  counterparty matching and credit consumption, exchange legs paired on a shared id (not on
+  the same account), the exact Revolut exchange label, investment legs, label rules firing last and not
   on ordinary wording, share weighting, null rather than zero without history
 - `AllocationTargetServiceTest` — defaults without an insert, create, update, clearing expenses
 - `AllocationTargetsRequestTest` — pins that `@AssertTrue` on a *record* is picked up at all
