@@ -23,9 +23,14 @@ speaks HTTPS with `httpx`, on the shared `sidecar-python` base.
    page script carries a `transactionId` and the URL of `SOSD_OTP_GetTransactionState.htm`.
    `/complete` polls it until `VALIDATED`, then submits the page form. This is the choreography the
    platform uses on its banking sites, as documented by woob's `creditmutuel` module; it is
-   reimplemented, not copied. SMS, Digipass and Safetrans answer `MFA_TYPE_UNSUPPORTED`. A
-   request not approved within 120 s is withdrawn from the phone (`SOSD_OTP_CancelTransaction`).
-3. **Remembered device**: once a confirmation is approved, the site sets `auth_client_state`,
+   reimplemented, not copied. A request not approved within 120 s is withdrawn from the phone
+   (`SOSD_OTP_CancelTransaction`).
+   **Code by SMS** (seen live on a CIC saver's access): the same page instead holds a form with
+   `otp_password`. `/initiate` answers `mfaType: "SMS"`, `/complete` posts the code with the
+   page's hidden fields and no button (the page's buttons ask for another channel or a new
+   code). A wrong code brings the same form back with an error: `INVALID_OTP`, and the attempt
+   stays open for another try. Digipass and Safetrans answer `MFA_TYPE_UNSUPPORTED`.
+3. **Remembered device**: once the second factor is passed, the site sets `auth_client_state`,
    which spares the confirmation for a while (90 days on the banking sites of the same platform).
    `/initiate` accepts the previous session and replays that cookie only, so a re-login with
    stored credentials completes without anyone at the phone.
@@ -58,15 +63,15 @@ the site's valuation.
 
 ### Frontend
 
-`CmesPanel` is a `SidecarSessionPanel` with `appPush`: login form, then a waiting state while
-the saver confirms on the phone. Tab `cmes` on `/sync`.
+`CmesPanel` is a `SidecarSessionPanel` with `appPush`: login form, then either a waiting state
+while the saver confirms on the phone or a field for the SMS code, depending on `mfaType`. Tab `cmes` on `/sync`.
 
 ## Key files
 
 - `services/cmes-auth/{main.py,forms.py,situation_parser.py,fund_parser.py}` and their tests.
 - `backend/.../port/CmesPort.java`, `CmesErrorCode.java`, `adapter/CmesAdapter.java`,
   `service/CmesSyncService.java`, `controller/CmesController.java`, `model/CmesSession.java`,
-  `db/migration/V117__cmes_session.sql`.
+  `db/migration/V117__cmes_session.sql`, `V118__cmes_session_invalid_otp.sql`.
 - `frontend/src/components/sync/CmesPanel.tsx`, `features/sync/{api,hooks}.ts`.
 - `docker/nginx.conf`, `frontend/nginx.conf`: `/api/cmes/auth/complete` gets 180 s, the
   confirmation can take two minutes.

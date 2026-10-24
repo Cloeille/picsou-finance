@@ -8,12 +8,14 @@ Auth flow:
   POST /initiate {login, password, sessionState?}
     → no second factor: {processId: null, mfaRequired: false, sessionState}
     → mobile confirmation: {processId, mfaRequired: true, mfaType: "APP_PUSH"}
-  POST /complete {processId}
-    → holds open while the user approves in the bank's app → {sessionState}
+    → code by SMS:         {processId, mfaRequired: true, mfaType: "SMS"}
+  POST /complete {processId, code?}
+    → APP_PUSH: holds open while the user approves in the bank's app
+    → SMS: submits the code → {sessionState}
   POST /positions {sessionState}
     → [{externalId, name, planKind, employer, balanceEur, positions[], snapshotComplete}]
 
-Once a mobile confirmation is approved, the site sets a remembered-device cookie
+Once the second factor is passed, the site sets a remembered-device cookie
 (`auth_client_state`) that spares the second factor for a while (90 days on the
 banking sites built on the same platform). `/initiate` accepts the previous
 session so that cookie is replayed: a stored-credentials re-login after the
@@ -200,9 +202,8 @@ class CompleteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     processId: str = Field(min_length=1, max_length=100)
-    # Contract symmetry with the other connectors: a mobile confirmation has
-    # nothing to type, and a code sent anyway is refused rather than ignored.
-    code: None = None
+    # The SMS code; absent for a mobile confirmation, which has nothing to type.
+    code: str | None = Field(default=None, pattern=r"^\d{4,8}$")
 
 
 class PositionsRequest(BaseModel):
@@ -253,7 +254,7 @@ class SessionResponse(BaseModel):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
     fields = {str(error["loc"][-1]) for error in exc.errors() if error.get("loc")}
-    detail = "MFA_TYPE_UNSUPPORTED" if "code" in fields else "INVALID_DATA"
+    detail = "INVALID_OTP" if "code" in fields else "INVALID_DATA"
     return JSONResponse(status_code=400, content={"detail": detail})
 
 
@@ -509,10 +510,63 @@ async def _bypass_second_factor(client: httpx.AsyncClient, page: httpx.Response)
     return await _follow(client, await client.get(_same_origin(link)))
 
 
+OTP_FIELD = "otp_password"
+_OTP_ERROR_RE = re.compile(r'<div\b[^>]*class="[^"]*\bbloctxt\s+err\b[^"]*"[^>]*>(?P<text>.*?)</div>', re.DOTALL)
+
+
+def _otp_form(page: str) -> Form | None:
+    """The form the SMS code is typed into, recognised by its code field."""
+    for form in parse_forms(page):
+        if OTP_FIELD in form.fields:
+            return form
+    return None
+
+
+def _start_sms(page: httpx.Response, form: Form) -> dict[str, Any]:
+    page_url = str(page.url)
+    fields = dict(form.fields)
+    fields.pop(OTP_FIELD, None)
+    log.info("CMES: code sent by SMS (form buttons=%s)", form.buttons[:10])
+    return {
+        "kind": "SMS",
+        "finalUrl": _same_origin(urljoin(page_url, form.action or page_url)),
+        "finalFields": fields,
+        "pageUrl": page_url,
+    }
+
+
+async def _submit_sms_code(client: httpx.AsyncClient, state: dict[str, Any], code: str) -> httpx.Response:
+    """Post the code with the page state, the way the bank's own form does.
+
+    Like woob's creditmutuel module, no button is pressed: the hidden fields
+    and the code are the whole submission.
+    """
+    response = await client.post(
+        state["finalUrl"],
+        data={**state["finalFields"], OTP_FIELD: code},
+        headers={"Origin": BASE_URL, "Referer": state["pageUrl"]},
+    )
+    landing = await _follow(client, response)
+    if LOGIN_PATH in _path(landing.url):
+        raise UpstreamError("AUTH_ATTEMPT_EXPIRED", "The SMS code is no longer valid")
+    retry = _otp_form(landing.text)
+    if retry is not None:
+        error = _OTP_ERROR_RE.search(landing.text)
+        message = _text(error.group("text")).lower() if error else ""
+        if "bloqué" in message or "erreurs de saisie" in message:
+            raise UpstreamError("ACTION_REQUIRED", "Too many wrong codes, access locked")
+        # Same page again: the code was wrong. The saver may try once more on
+        # this same request, with the page's refreshed state.
+        state["finalFields"] = {name: value for name, value in retry.fields.items() if name != OTP_FIELD}
+        state["pageUrl"] = str(landing.url)
+        raise UpstreamError("INVALID_OTP", "Wrong SMS code")
+    if TRUST_COOKIE not in {cookie.name for cookie in client.cookies.jar}:
+        log.info("CMES: no remembered-device cookie after the SMS code; every login will ask again")
+    return await _skip_notices(client, landing)
+
+
 def _unsupported_factor(page: str) -> str | None:
     lowered = page.lower()
-    if "code de confirmation vient de vous être envoyé" in lowered:
-        return "SMS"
     if "lecteur digipass" in lowered:
         return "DIGIPASS"
     if "safetrans" in lowered:
@@ -700,6 +754,7 @@ def _http_error(exc: Exception) -> HTTPException:
         "MFA_TYPE_UNSUPPORTED": 501,
         "APP_VALIDATION_TIMEOUT": 408,
         "APP_VALIDATION_CANCELLED": 401,
+        "INVALID_OTP": 400,
         "AUTH_ATTEMPT_EXPIRED": 410,
     }.get(code, 502)
     return HTTPException(status_code=status, detail=code)
@@ -734,6 +789,20 @@ async def initiate(req: InitiateRequest) -> dict:
                 "sessionState": serialize_cookies(client),
             }
 
+        sms_form = _otp_form(landing.text)
+        if sms_form is not None:
+            state = _start_sms(landing, sms_form)
+            state["client"] = client
+            state["created_at"] = time.time()
+            await _store_pending(process_id, state)
+            keep_client = True
+            return {
+                "processId": process_id,
+                "mfaRequired": True,
+                "mfaType": "SMS",
+                "sessionState": None,
+            }
+
         unsupported = _unsupported_factor(landing.text)
         if unsupported:
             log.info("CMES asked for an unsupported second factor: %s", unsupported)
@@ -742,6 +811,7 @@ async def initiate(req: InitiateRequest) -> dict:
             log.info("CMES: remembered-device cookie no longer spares the confirmation")
 
         state = _start_mobile_confirmation(landing)
+        state["kind"] = "APP_PUSH"
         state["client"] = client
         state["created_at"] = time.time()
         await _store_pending(process_id, state)
@@ -779,13 +849,28 @@ async def complete(req: CompleteRequest) -> dict:
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
 
     client: httpx.AsyncClient = state["client"]
+    keep_state = False
     try:
-        await _await_confirmation(client, state)
-        landing = await _finish_confirmation(client, state)
-        _require_logged_in("after confirmation", landing)
+        if state["kind"] == "SMS":
+            if req.code is None:
+                # Not a failure of the attempt: the code can still be sent.
+                keep_state = True
+                raise UpstreamError("INVALID_OTP", "An SMS code is required")
+            landing = await _submit_sms_code(client, state, req.code)
+        else:
+            if req.code is not None:
+                raise UpstreamError("MFA_TYPE_UNSUPPORTED", "A mobile confirmation takes no code")
+            await _await_confirmation(client, state)
+            landing = await _finish_confirmation(client, state)
+        _require_logged_in("after second factor", landing)
         return {"sessionState": serialize_cookies(client)}
     except UpstreamError as exc:
-        log.warning("CMES confirmation rejected (code=%s): %s", exc.code, exc)
+        if exc.code == "INVALID_OTP" and state["kind"] == "SMS":
+            # A mistyped code leaves the request open on the site: keep it so
+            # the saver can type the code again.
+            keep_state = True
+            await _store_pending(req.processId, state)
+        log.warning("CMES second factor rejected (code=%s): %s", exc.code, exc)
         raise _http_error(exc) from exc
     except HTTPException:
         raise
@@ -796,7 +881,8 @@ async def complete(req: CompleteRequest) -> dict:
         log.exception("Unexpected CMES authentication completion failure")
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
     finally:
-        await _dispose_pending_state(state)
+        if not keep_state:
+            await _dispose_pending_state(state)
 
 
 @app.post("/positions", response_model=list[PlanPayload])

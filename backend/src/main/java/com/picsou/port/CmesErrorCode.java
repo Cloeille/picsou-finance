@@ -6,8 +6,8 @@ package com.picsou.port;
  * translated by the frontend. The column carries a CHECK constraint
  * enumerating these values: adding one needs a migration.
  *
- * <p>There is no {@code INVALID_OTP}: the mobile confirmation is the only
- * second factor driven, so no code is ever submitted.
+ * <p>The second factor is either a mobile confirmation or a code sent by SMS,
+ * depending on how the saver's access is set up.
  */
 public enum CmesErrorCode {
     INVALID_CREDENTIALS,
@@ -16,8 +16,10 @@ public enum CmesErrorCode {
      * accept, contact details to fill in). The credentials were accepted.
      */
     ACTION_REQUIRED,
-    /** The site asked for an SMS code, a Digipass or Safetrans, which this connector does not drive. */
+    /** The site asked for a Digipass or Safetrans, which this connector does not drive. */
     MFA_TYPE_UNSUPPORTED,
+    /** The SMS code was wrong; the same attempt can take another try. */
+    INVALID_OTP,
     APP_VALIDATION_TIMEOUT,
     /** The saver refused the confirmation request in the app. */
     APP_VALIDATION_CANCELLED,

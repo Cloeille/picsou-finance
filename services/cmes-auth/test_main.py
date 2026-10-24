@@ -23,6 +23,7 @@ from fixtures import (
     SITUATION_PAGE,
     SKIP_LATER_PAGE,
     SMS_CONFIRMATION_PAGE,
+    SMS_WRONG_CODE_PAGE,
     fund_summary_page,
     transaction_state,
 )
@@ -77,6 +78,8 @@ class FakeSite:
             return httpx.Response(200, text="")
         if path == MFA_PATH:
             self.final_fields = parse_qs(request.content.decode(), keep_blank_values=True)
+            if self.second_factor == "sms" and self.final_fields.get("otp_password") != ["123456"]:
+                return httpx.Response(200, text=SMS_WRONG_CODE_PAGE)
             return self.redirect(
                 DASHBOARD_PATH,
                 "IdSes=live; Path=/",
@@ -205,12 +208,45 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertFalse(response.json()["mfaRequired"])
 
-    def test_an_sms_code_is_refused_rather_than_half_driven(self):
+    def sms_login(self) -> str:
         self.site.second_factor = "sms"
+        started = self.initiate()
+        self.assertEqual(started.status_code, 200, started.text)
+        self.assertEqual(started.json()["mfaType"], "SMS")
+        return started.json()["processId"]
 
-        response = self.initiate()
+    def test_an_sms_code_logs_in_and_earns_the_remembered_device(self):
+        process = self.sms_login()
 
-        self.assertEqual((response.status_code, response.json()), (501, {"detail": "MFA_TYPE_UNSUPPORTED"}))
+        response = self.client.post("/complete", json={"processId": process, "code": "123456"}, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.site.final_fields["otp_password"], ["123456"])
+        self.assertEqual(self.site.final_fields["otp_hidden"], ["opaque-otp-state"])
+        self.assertEqual(self.site.final_fields["$CPT"], ["opaque-page-state"])
+        # No button pressed: "another means" and "new code" would derail the login.
+        self.assertNotIn("_FID_CheckOrDeliverBackup", self.site.final_fields)
+        self.assertNotIn("InputHiddenKeySMSSendNew1", self.site.final_fields)
+        names = {cookie["name"] for cookie in json.loads(response.json()["sessionState"])["cookies"]}
+        self.assertIn("auth_client_state", names)
+
+    def test_a_mistyped_sms_code_can_be_typed_again(self):
+        process = self.sms_login()
+
+        wrong = self.client.post("/complete", json={"processId": process, "code": "000000"}, headers=HEADERS)
+        right = self.client.post("/complete", json={"processId": process, "code": "123456"}, headers=HEADERS)
+
+        self.assertEqual((wrong.status_code, wrong.json()), (400, {"detail": "INVALID_OTP"}))
+        self.assertEqual(right.status_code, 200, right.text)
+
+    def test_an_sms_login_without_its_code_stays_open(self):
+        process = self.sms_login()
+
+        missing = self.client.post("/complete", json={"processId": process}, headers=HEADERS)
+        right = self.client.post("/complete", json={"processId": process, "code": "123456"}, headers=HEADERS)
+
+        self.assertEqual(missing.json(), {"detail": "INVALID_OTP"})
+        self.assertEqual(right.status_code, 200, right.text)
 
     def test_a_confirmation_refused_on_the_phone(self):
         self.site.states = ["PENDING", "CANCELLED"]
@@ -235,10 +271,19 @@ class FlowTest(unittest.TestCase):
 
         self.assertEqual((response.status_code, response.json()), (410, {"detail": "AUTH_ATTEMPT_EXPIRED"}))
 
-    def test_a_code_is_refused(self):
-        response = self.client.post("/complete", json={"processId": "p", "code": "123456"}, headers=HEADERS)
+    def test_a_malformed_code_is_refused(self):
+        response = self.client.post("/complete", json={"processId": "p", "code": "12ab"}, headers=HEADERS)
 
-        self.assertEqual((response.status_code, response.json()), (400, {"detail": "MFA_TYPE_UNSUPPORTED"}))
+        self.assertEqual((response.status_code, response.json()), (400, {"detail": "INVALID_OTP"}))
+
+    def test_a_mobile_confirmation_takes_no_code(self):
+        started = self.initiate()
+
+        response = self.client.post(
+            "/complete", json={"processId": started.json()["processId"], "code": "123456"}, headers=HEADERS
+        )
+
+        self.assertEqual(response.json(), {"detail": "MFA_TYPE_UNSUPPORTED"})
 
     def test_an_expired_session_reads_as_session_expired(self):
         dead = json.dumps({"cookies": [{"name": "other", "value": "x", "domain": "", "path": "/"}]})

@@ -8,6 +8,7 @@ import io.github.bucket4j.Bucket;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -43,7 +44,7 @@ public class CmesController {
     @PostMapping("/auth/complete")
     public ResponseEntity<?> complete(@Valid @RequestBody CompleteRequest req, HttpServletRequest request) {
         if (!consumeAuthToken(request)) return rateLimited("Too many Crédit Mutuel Épargne Salariale authentication attempts. Please wait before retrying.");
-        return ResponseEntity.ok(service.completeAuth(req.processId(), userContext.currentMemberId()));
+        return ResponseEntity.ok(service.completeAuth(req.processId(), req.code(), userContext.currentMemberId()));
     }
 
     /**
@@ -95,8 +96,12 @@ public class CmesController {
         @NotBlank @Size(max = 100) String password
     ) {}
 
-    /** No code: the mobile confirmation is approved in the bank's app, there is nothing to type. */
+    /**
+     * {@code code} is the SMS code; absent for a mobile confirmation, which is
+     * approved in the bank's app, so it is only validated when present.
+     */
     record CompleteRequest(
-        @NotBlank @Size(max = 100) String processId
+        @NotBlank @Size(max = 100) String processId,
+        @Pattern(regexp = "\\d{4,8}") String code
     ) {}
 }

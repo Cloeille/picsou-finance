@@ -77,15 +77,26 @@ class CmesAdapterTest {
     }
 
     @Test
-    void completeAuth_sendsAnExplicitNullCode() throws Exception {
+    void completeAuth_sendsAnExplicitNullCodeForAMobileConfirmation() throws Exception {
         List<String> bodies = new ArrayList<>();
         CmesAdapter adapter = adapter(bodies, HttpStatus.OK, "{\"sessionState\":\"cookies\"}");
 
-        assertThat(adapter.completeAuth("p1")).isEqualTo("cookies");
+        assertThat(adapter.completeAuth("p1", null)).isEqualTo("cookies");
+        adapter.completeAuth("p1", "123456");
 
-        JsonNode body = JSON.readTree(bodies.getFirst());
-        assertThat(body.has("code")).isTrue();
-        assertThat(body.get("code").isNull()).isTrue();
+        JsonNode push = JSON.readTree(bodies.get(0));
+        assertThat(push.has("code")).isTrue();
+        assertThat(push.get("code").isNull()).isTrue();
+        assertThat(JSON.readTree(bodies.get(1)).path("code").asText()).isEqualTo("123456");
+    }
+
+    @Test
+    void aWrongSmsCodeKeepsItsOwnCode() {
+        CmesAdapter adapter = adapter(new ArrayList<>(), HttpStatus.BAD_REQUEST, "{\"detail\":\"INVALID_OTP\"}");
+
+        assertThatThrownBy(() -> adapter.completeAuth("p1", "000000"))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CmesErrorCode.INVALID_OTP.name()));
     }
 
     @Test
@@ -93,7 +104,7 @@ class CmesAdapterTest {
         CmesAdapter adapter = adapter(new ArrayList<>(), HttpStatus.UNAUTHORIZED,
             "{\"detail\":\"APP_VALIDATION_CANCELLED\"}");
 
-        assertThatThrownBy(() -> adapter.completeAuth("p1"))
+        assertThatThrownBy(() -> adapter.completeAuth("p1", null))
             .isInstanceOfSatisfying(SyncException.class, error ->
                 assertThat(error.getCode()).isEqualTo(CmesErrorCode.APP_VALIDATION_CANCELLED.name()));
     }

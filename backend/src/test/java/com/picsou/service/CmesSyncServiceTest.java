@@ -216,7 +216,7 @@ class CmesSyncServiceTest {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new CmesPort.InitiateResult("p2", true, "APP_PUSH", null));
-        when(port.completeAuth("p2")).thenReturn("cookies");
+        when(port.completeAuth("p2", null)).thenReturn("cookies");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
         when(encryption.encrypt(anyString())).thenAnswer(invocation ->
             "cookies".equals(invocation.getArgument(0)) ? "encrypted-state" : "encrypted-credentials");
@@ -229,9 +229,35 @@ class CmesSyncServiceTest {
             .thenThrow(new SyncException("transient", null, CmesErrorCode.UPSTREAM_UNAVAILABLE.name()));
 
         service.initiateAuth("12345678", "secret", 7L);
-        service.completeAuth("p2", 7L);
+        service.completeAuth("p2", null, 7L);
 
-        verify(port).completeAuth("p2");
+        verify(port).completeAuth("p2", null);
+        verify(sessionRepository).saveAndFlush(any(CmesSession.class));
+    }
+
+    @Test
+    void aMistypedSmsCodeKeepsTheCredentialsForTheNextTry() {
+        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(port.initiateAuth("12345678", "secret", null))
+            .thenReturn(new CmesPort.InitiateResult("p4", true, "SMS", null));
+        when(port.completeAuth("p4", "000000"))
+            .thenThrow(new SyncException("wrong", null, CmesErrorCode.INVALID_OTP.name()));
+        when(port.completeAuth("p4", "123456")).thenReturn("cookies");
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(encryption.encrypt(anyString())).thenAnswer(invocation ->
+            "cookies".equals(invocation.getArgument(0)) ? "encrypted-state" : "encrypted-credentials");
+        when(sessionRepository.saveAndFlush(any(CmesSession.class))).thenAnswer(invocation -> {
+            CmesSession stored = invocation.getArgument(0);
+            assertThat(stored.getEncryptedCredentials()).isEqualTo("encrypted-credentials");
+            return stored;
+        });
+        lenient().when(port.fetchPlans("cookies"))
+            .thenThrow(new SyncException("transient", null, CmesErrorCode.UPSTREAM_UNAVAILABLE.name()));
+        service.initiateAuth("12345678", "secret", 7L);
+
+        assertThatThrownBy(() -> service.completeAuth("p4", "000000", 7L)).isInstanceOf(SyncException.class);
+        service.completeAuth("p4", "123456", 7L);
+
         verify(sessionRepository).saveAndFlush(any(CmesSession.class));
     }
 
@@ -242,10 +268,10 @@ class CmesSyncServiceTest {
             .thenReturn(new CmesPort.InitiateResult("p3", true, "APP_PUSH", null));
         service.initiateAuth("12345678", "secret", 7L);
 
-        assertThatThrownBy(() -> service.completeAuth("p3", 8L))
+        assertThatThrownBy(() -> service.completeAuth("p3", null, 8L))
             .isInstanceOfSatisfying(SyncException.class, error ->
                 assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
-        verify(port, never()).completeAuth(anyString());
+        verify(port, never()).completeAuth(anyString(), any());
     }
 
     @Test

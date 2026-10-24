@@ -611,8 +611,8 @@ export function useInitiateCmesAuth() {
 export function useCompleteCmesAuth() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ processId }: { processId: string; code?: string }) =>
-      cmesApi.completeAuth(processId),
+    mutationFn: ({ processId, code }: { processId: string; code?: string }) =>
+      cmesApi.completeAuth(processId, code),
     onSuccess: status => {
       queryClient.setQueryData(syncKeys.cmes(), status)
       queryClient.invalidateQueries({ queryKey: syncKeys.cmes() })

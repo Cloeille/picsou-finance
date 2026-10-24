@@ -85,12 +85,12 @@ public class CmesAdapter implements CmesPort {
     }
 
     @Override
-    public String completeAuth(String processId) {
-        // The sidecar forbids unknown fields but declares `code`, so the key has
-        // to carry an explicit null rather than be omitted.
+    public String completeAuth(String processId, String code) {
+        // A null code is the mobile-confirmation case; the sidecar forbids
+        // unknown fields, so the key carries an explicit null rather than be omitted.
         Map<String, Object> body = new HashMap<>();
         body.put("processId", processId);
-        body.put("code", null);
+        body.put("code", code);
         SessionResponse response = sidecar.post("/complete", body, SessionResponse.class, validationTimeout,
             "Could not complete Crédit Mutuel Épargne Salariale authentication", CmesErrorCode.APP_VALIDATION_TIMEOUT);
         return response.sessionState();
@@ -115,8 +115,9 @@ public class CmesAdapter implements CmesPort {
             case ACTION_REQUIRED ->
                 "Crédit Mutuel Épargne Salariale needs you to log in on their website once and complete the pending step, then retry";
             case MFA_TYPE_UNSUPPORTED ->
-                "Crédit Mutuel Épargne Salariale asked for an SMS code or a Digipass, which Picsou cannot handle. "
-                    + "Switch your security settings to mobile confirmation.";
+                "Crédit Mutuel Épargne Salariale asked for a Digipass or Safetrans, which Picsou cannot handle. "
+                    + "Switch your security settings to mobile confirmation or SMS.";
+            case INVALID_OTP -> "Crédit Mutuel Épargne Salariale rejected the SMS code";
             case APP_VALIDATION_TIMEOUT -> "The mobile confirmation was not approved in time";
             case APP_VALIDATION_CANCELLED -> "The mobile confirmation was refused in the app";
             case AUTH_ATTEMPT_EXPIRED -> "The Crédit Mutuel Épargne Salariale authentication attempt expired";

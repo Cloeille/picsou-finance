@@ -123,12 +123,15 @@ public class CmesSyncService {
         return new AuthInitResponse(result.processId(), result.mfaRequired(), result.mfaType());
     }
 
-    public SessionStatusResponse completeAuth(String processId, Long memberId) {
+    /** {@code code} is the SMS code, or null for a mobile confirmation. */
+    public SessionStatusResponse completeAuth(String processId, String code, Long memberId) {
         PendingCredentials credentials = pendingCredentials.get(processId);
         if (credentials != null && !credentials.memberId().equals(memberId)) {
             throw error(CmesErrorCode.AUTH_ATTEMPT_EXPIRED, "CMES authentication attempt expired", null);
         }
-        String plainState = port.completeAuth(processId);
+        // A wrong SMS code throws INVALID_OTP before the pending credentials are
+        // dropped, so the saver's next try on the same attempt still stores them.
+        String plainState = port.completeAuth(processId, code);
         pendingCredentials.remove(processId);
         if (plainState == null || plainState.isBlank()) {
             throw error(CmesErrorCode.INVALID_DATA, "CMES did not return a session", null);
@@ -255,8 +258,8 @@ public class CmesSyncService {
     /**
      * The site's sessions last minutes, so nearly every scheduled sync lands
      * here. The stored credentials log in again, carrying the previous session
-     * for its remembered-device cookie; a login that still asks for a mobile
-     * confirmation cannot be finished unattended and reads as an expired session.
+     * for its remembered-device cookie; a login that still asks for a second
+     * factor cannot be finished unattended and reads as an expired session.
      */
     private List<CmesPort.PlanData> reauthenticateAndFetch(SyncJob job) {
         CmesSession session = requireTransactionResult(txTemplate.execute(
@@ -275,8 +278,8 @@ public class CmesSyncService {
         }
         CmesPort.InitiateResult result = port.initiateAuth(credentials.login(), credentials.password(), job.plainState());
         if (result.mfaRequired()) {
-            log.info("CMES asks for a new mobile confirmation (member={})", job.memberId());
-            throw error(CmesErrorCode.SESSION_EXPIRED, "CMES requires a new mobile confirmation", null);
+            log.info("CMES asks for a new second factor (member={}; type={})", job.memberId(), result.mfaType());
+            throw error(CmesErrorCode.SESSION_EXPIRED, "CMES requires a new second factor", null);
         }
         if (result.sessionState() == null || result.sessionState().isBlank()) {
             throw error(CmesErrorCode.INVALID_DATA, "CMES returned no session", null);

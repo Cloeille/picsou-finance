@@ -89,7 +89,7 @@ const ERROR_MESSAGE_SUFFIXES: Record<string, string> = {
   APP_VALIDATION_CANCELLED: "appValidationCancelled",
   /** The site parks the login on a step only the holder can complete on its website. */
   ACTION_REQUIRED: "actionRequired",
-  /** The site asked for a second factor the connector does not drive (SMS, Digipass). */
+  /** The site asked for a second factor the connector does not drive (Digipass, Safetrans). */
   MFA_TYPE_UNSUPPORTED: "mfaTypeUnsupported",
   SAFEKEY_TIMEOUT: "appValidationTimeout",
   AUTH_ATTEMPT_EXPIRED: "authAttemptExpired",

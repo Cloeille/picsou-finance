@@ -1121,6 +1121,7 @@ export type CmesErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'ACTION_REQUIRED'
   | 'MFA_TYPE_UNSUPPORTED'
+  | 'INVALID_OTP'
   | 'APP_VALIDATION_TIMEOUT'
   | 'APP_VALIDATION_CANCELLED'
   | 'AUTH_ATTEMPT_EXPIRED'
@@ -1131,11 +1132,11 @@ export type CmesErrorCode =
   | 'INVALID_DATA'
   | 'INTERNAL_ERROR'
 
-/** The mobile confirmation is the only second factor: `mfaType` is `APP_PUSH` or null. */
+/** `mfaType` is `APP_PUSH` for a mobile confirmation, `SMS` for a code to type. */
 export interface CmesAuthInitResponse {
   processId: string | null
   mfaRequired: boolean
-  mfaType: 'APP_PUSH' | null
+  mfaType: 'APP_PUSH' | 'SMS' | null
 }
 
 /** `mfaType` is `APP_PUSH` when the user must approve in the Mon Épargne app, `SMS` otherwise. */

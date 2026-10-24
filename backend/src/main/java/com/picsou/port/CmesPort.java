@@ -7,18 +7,22 @@ import java.util.List;
  * Read-only access to a Crédit Mutuel Épargne Salariale saver's space, the one
  * CIC savers use too.
  *
- * <p>The login is a plain form; the site then asks for a mobile confirmation
- * unless it still remembers the device. {@link #initiateAuth} takes the
- * previous session so the sidecar can replay that remembered-device cookie: a
- * re-login with stored credentials then completes without anyone at the phone.
+ * <p>The login is a plain form; the site then asks for a mobile confirmation or
+ * sends a code by SMS, unless it still remembers the device. {@link #initiateAuth}
+ * takes the previous session so the sidecar can replay that remembered-device
+ * cookie: a re-login with stored credentials then completes without anyone at
+ * the phone.
  * The session state is opaque to the domain and only ever stored encrypted.
  */
 public interface CmesPort {
-    /** {@code previousSessionState} is null on a first login. */
+    /** {@code previousSessionState} is null on a first login. {@code mfaType} is {@code APP_PUSH} or {@code SMS}. */
     InitiateResult initiateAuth(String login, String password, String previousSessionState);
 
-    /** Waits for the saver to approve the confirmation in the bank's app. Takes no code. */
-    String completeAuth(String processId);
+    /**
+     * Finishes the second factor: {@code code} is the SMS code, or null for a
+     * mobile confirmation, which waits for the saver to approve in the app.
+     */
+    String completeAuth(String processId, String code);
 
     List<PlanData> fetchPlans(String sessionState);
 

@@ -331,10 +331,10 @@ export const cmesApi = {
       .post<CmesAuthInitResponse>('/cmes/auth/initiate', { login, password })
       .then(r => r.data),
 
-  // No code: the saver approves the mobile confirmation in the bank's app.
-  completeAuth: (processId: string) =>
+  // `code` is the SMS code, omitted for a mobile confirmation.
+  completeAuth: (processId: string, code?: string) =>
     api
-      .post<CmesSessionStatus>('/cmes/auth/complete', { processId })
+      .post<CmesSessionStatus>('/cmes/auth/complete', { processId, code })
       .then(r => r.data),
 
   sync: () => api.post<CmesSessionStatus>('/cmes/sync').then(r => r.data),

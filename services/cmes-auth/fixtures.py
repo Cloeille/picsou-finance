@@ -159,12 +159,24 @@ MOBILE_CONFIRMATION_PAGE = """
 
 SMS_CONFIRMATION_PAGE = """
 <html><body>
-<form method="post" action="/epargne-salariale/fr/epargnants/premiers-pas/authentification-forte/index.html">
-<div id="C:OTPDeliveryChannelText">Un code de confirmation vient de vous être envoyé par SMS au 06 XX XX XX 12.</div>
-<input type="text" name="otp_password" />
+<form id="C:P:F" action="/epargne-salariale/fr/epargnants/premiers-pas/authentification-forte/index.html?_tabi=C&amp;_pid=OtpValidation" method="post">
+  {error}
+  <div id="C:OTPDeliveryChannelText">Un code de confirmation vous a été envoyé par SMS au 06 XX XX XX 12.</div>
+  <input type="hidden" name="otp_hidden" value="opaque-otp-state" />
+  <input type="text" name="otp_password" id="C:otp" maxlength="6" />
+  <input type="hidden" name="global_backup_hidden_key" value="" />
+  <input type="submit" name="_FID_CheckOrDeliverBackup" value="Utiliser un autre moyen" />
+  <input type="submit" name="InputHiddenKeySMSSendNew1" value="Recevoir un nouveau code" />
+  <input name="$CPT" type="hidden" value="opaque-page-state" />
+  <input name="_wxf2_cc" type="hidden" value="fr-FR" />
 </form>
 </body></html>
-"""
+""".replace("{error}", "")
+
+SMS_WRONG_CODE_PAGE = SMS_CONFIRMATION_PAGE.replace(
+    '<div id="C:OTPDeliveryChannelText">',
+    '<div class="bloctxt err">Le code de confirmation saisi est erroné.</div><div id="C:OTPDeliveryChannelText">',
+)
 
 SKIP_LATER_PAGE = """
 <html><body>
