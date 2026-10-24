@@ -85,6 +85,12 @@ const ERROR_MESSAGE_SUFFIXES: Record<string, string> = {
   /** Sofidy arms a brute-force counter of its own; the fix is to wait. */
   RATE_LIMITED: "tooManyAttempts",
   APP_VALIDATION_TIMEOUT: "appValidationTimeout",
+  /** The confirmation was refused in the bank's app (Crédit Mutuel Épargne Salariale). */
+  APP_VALIDATION_CANCELLED: "appValidationCancelled",
+  /** The site parks the login on a step only the holder can complete on its website. */
+  ACTION_REQUIRED: "actionRequired",
+  /** The site asked for a second factor the connector does not drive (SMS, Digipass). */
+  MFA_TYPE_UNSUPPORTED: "mfaTypeUnsupported",
   SAFEKEY_TIMEOUT: "appValidationTimeout",
   AUTH_ATTEMPT_EXPIRED: "authAttemptExpired",
   SESSION_EXPIRED: "sessionExpired",

@@ -145,6 +145,15 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP Crédit Mutuel Épargne Salariale auth rate limiter: 5 attempts per
+     * 15 minutes. The site locks an access after a few wrong passwords.
+     */
+    @Bean("cmesAuthBuckets")
+    public Map<String, Bucket> cmesAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP CORUM auth rate limiter: 5 attempts per 15 minutes.
      */
     @Bean("corumAuthBuckets")
@@ -426,6 +435,15 @@ public class RateLimitConfig {
     }
 
     public static Bucket createAmundiAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createCmesAuthBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(5)

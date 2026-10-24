@@ -1063,7 +1063,11 @@
       "transactionsImported": "Transacciones importadas",
       "transactionsSkipped": "Transacciones omitidas",
       "done": "Hecho",
-      "errors": { "invalidPreview": "La respuesta de vista previa no es válida.", "previewFailed": "No se pudo previsualizar el archivo HomeBank.", "importFailed": "Falló la importación de HomeBank." }
+      "errors": {
+        "invalidPreview": "La respuesta de vista previa no es válida.",
+        "previewFailed": "No se pudo previsualizar el archivo HomeBank.",
+        "importFailed": "Falló la importación de HomeBank."
+      }
     },
     "all": {
       "title": "Sincronizar cuentas",
@@ -1244,6 +1248,37 @@
         "formatChanged": "El formato del sitio de Amundi ha cambiado. Se han conservado sus datos existentes.",
         "invalidData": "Amundi devolvió datos incoherentes. Se han conservado sus datos existentes.",
         "serverError": "No se puede contactar con Amundi. Inténtelo de nuevo."
+      }
+    },
+    "cmes": {
+      "title": "Crédit Mutuel / CIC Employee Savings",
+      "login": "Username",
+      "password": "Password",
+      "appValidationPrompt": "Open your bank's app and confirm the sign-in (mobile confirmation).",
+      "appValidationHint": "This page updates on its own as soon as you confirm. Picsou then signs in again by itself as long as the site remembers the device.",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Savings plans synced.",
+      "clearSession": "Disconnect",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your Crédit Mutuel or CIC employee savings plans (PEE, PEG, PERCOL) and the funds they hold: units, unit value and gain.",
+      "errors": {
+        "tooManyAttempts": "Too many attempts. Please wait before retrying.",
+        "invalidCredentials": "Invalid username or password.",
+        "actionRequired": "The site needs you to act first (terms to accept, contact details to complete). Sign in once on the website, then retry.",
+        "mfaTypeUnsupported": "The site asked for an SMS code or a Digipass, which Picsou cannot handle. Choose mobile confirmation in your security settings.",
+        "appValidationTimeout": "The mobile confirmation was not approved in time. Please start over.",
+        "appValidationCancelled": "The mobile confirmation was refused in the app.",
+        "authAttemptExpired": "The authentication attempt expired. Please start over.",
+        "sessionExpired": "The session expired and the site asks for a new mobile confirmation. Please reconnect.",
+        "portfolioIncomplete": "The site returned incomplete plans. Your existing data was kept.",
+        "formatChanged": "The website format changed. Your existing data was kept.",
+        "invalidData": "The site returned inconsistent data. Your existing data was kept.",
+        "serverError": "Could not reach the employee savings site. Please try again."
       }
     },
     "amex": {
