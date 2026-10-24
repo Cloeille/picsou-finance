@@ -74,7 +74,17 @@ public class CicAdapter implements CicPort {
 
     @Override
     public InitiateResult initiateAuth(String login, String password, String previousSessionState) {
+        return initiate(login, password, previousSessionState, false);
+    }
+
+    @Override
+    public InitiateResult reauthenticate(String login, String password, String previousSessionState) {
+        return initiate(login, password, previousSessionState, true);
+    }
+
+    private InitiateResult initiate(String login, String password, String previousSessionState, boolean unattended) {
         Map<String, Object> body = new HashMap<>();
+        if (unattended) body.put("unattended", true);
         body.put("login", login);
         body.put("password", password);
         if (previousSessionState != null && !previousSessionState.isBlank()) {

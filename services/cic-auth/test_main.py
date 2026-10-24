@@ -181,6 +181,14 @@ class FlowTest(unittest.TestCase):
         self.assertFalse(response.json()["mfaRequired"])
         self.assertIn(("POST", AUTHORITY_PATH), self.bank.requests)
 
+    def test_an_unattended_re_login_withdraws_the_confirmation_from_the_phone(self):
+        response = self.client.post(
+            "/initiate", json={"login": "12345678", "password": "secret", "unattended": True}, headers=HEADERS
+        )
+
+        self.assertEqual((response.status_code, response.json()), (401, {"detail": "SESSION_EXPIRED"}))
+        self.assertTrue(self.bank.cancelled)
+
     def test_a_wrong_password_is_reported_as_such(self):
         response = self.initiate(password="wrong")
 

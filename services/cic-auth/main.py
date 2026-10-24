@@ -201,6 +201,9 @@ class InitiateRequest(BaseModel):
     password: str = Field(min_length=1, max_length=100)
     # The previous session, if any: only its remembered-device cookie is reused.
     sessionState: str | None = Field(default=None, max_length=2_000_000)
+    # A scheduled re-login with stored credentials: nobody is there to approve,
+    # so a mobile confirmation is withdrawn at once rather than left on the phone.
+    unattended: bool = False
 
 
 class CompleteRequest(BaseModel):
@@ -621,6 +624,17 @@ def _start_mobile_confirmation(page: httpx.Response) -> dict[str, Any]:
     }
 
 
+async def _withdraw_confirmation(client: httpx.AsyncClient, state: dict[str, Any]) -> None:
+    """Cancel a confirmation request so the phone does not keep showing it."""
+    if not state.get("cancelUrl"):
+        return
+    try:
+        await client.post(state["cancelUrl"], data={"transactionId": state["transactionId"]})
+        log.info("CIC: withdrew the confirmation request of an unattended re-login")
+    except httpx.HTTPError:
+        log.info("CIC could not withdraw the confirmation request")
+
+
 async def _await_confirmation(client: httpx.AsyncClient, state: dict[str, Any]) -> None:
     deadline = time.monotonic() + APP_VALIDATION_TIMEOUT_SECONDS
     data = {"transactionId": state["transactionId"]}
@@ -757,6 +771,10 @@ async def initiate(req: InitiateRequest) -> dict:
             }
 
         sms_form = _otp_form(landing.text)
+        if sms_form is not None and req.unattended:
+            # The site sent the SMS on reaching this page; nothing to withdraw.
+            log.info("CIC: unattended re-login stopped at an SMS code")
+            raise UpstreamError("SESSION_EXPIRED", "Unattended re-login needs an SMS code")
         if sms_form is not None:
             state = _start_sms(landing, sms_form)
             state["client"] = client
@@ -778,6 +796,9 @@ async def initiate(req: InitiateRequest) -> dict:
             log.info("CIC: remembered-device cookie no longer spares the confirmation")
 
         state = _start_mobile_confirmation(landing)
+        if req.unattended:
+            await _withdraw_confirmation(client, state)
+            raise UpstreamError("SESSION_EXPIRED", "Unattended re-login needs a mobile confirmation")
         state["kind"] = "APP_PUSH"
         state["client"] = client
         state["created_at"] = time.time()

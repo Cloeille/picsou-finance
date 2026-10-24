@@ -107,14 +107,14 @@ class CicSyncServiceTest {
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(encryption.encrypt("fresh-state")).thenReturn("fresh-encrypted");
         when(port.fetchAccounts("plain-state")).thenThrow(expired());
-        when(port.initiateAuth("12345678", "secret", "plain-state"))
+        when(port.reauthenticate("12345678", "secret", "plain-state"))
             .thenReturn(new CicPort.InitiateResult(null, false, null, "fresh-state"));
         when(port.fetchAccounts("fresh-state")).thenReturn(accounts());
 
         service.queueSync(7L);
 
         // The previous session is what carries the remembered-device cookie.
-        verify(port).initiateAuth("12345678", "secret", "plain-state");
+        verify(port).reauthenticate("12345678", "secret", "plain-state");
         assertThat(session.getSessionState()).isEqualTo("fresh-encrypted");
         assertThat(session.getSyncStatus()).isEqualTo(CicSyncStatus.SUCCESS);
         verify(port, times(2)).fetchAccounts(anyString());
@@ -127,7 +127,7 @@ class CicSyncServiceTest {
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(port.fetchAccounts("plain-state")).thenThrow(expired());
-        when(port.initiateAuth("12345678", "secret", "plain-state"))
+        when(port.reauthenticate("12345678", "secret", "plain-state"))
             .thenReturn(new CicPort.InitiateResult("process", true, "APP_PUSH", null));
 
         service.queueSync(7L);
@@ -146,7 +146,7 @@ class CicSyncServiceTest {
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(port.fetchAccounts("plain-state")).thenThrow(expired());
-        when(port.initiateAuth("12345678", "secret", "plain-state"))
+        when(port.reauthenticate("12345678", "secret", "plain-state"))
             .thenThrow(new SyncException("bad", null, CicErrorCode.INVALID_CREDENTIALS.name()));
 
         service.queueSync(7L);
@@ -164,7 +164,7 @@ class CicSyncServiceTest {
         service.queueSync(7L);
 
         assertThat(session.getLastSyncError()).isEqualTo(CicErrorCode.SESSION_EXPIRED);
-        verify(port, never()).initiateAuth(anyString(), anyString(), any());
+        verify(port, never()).reauthenticate(anyString(), anyString(), any());
     }
 
     @Test

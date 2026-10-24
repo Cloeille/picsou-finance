@@ -268,7 +268,7 @@ public class CicSyncService {
         } catch (RuntimeException ex) {
             throw error(CicErrorCode.SESSION_EXPIRED, "CIC session expired", ex);
         }
-        CicPort.InitiateResult result = port.initiateAuth(credentials.login(), credentials.password(), job.plainState());
+        CicPort.InitiateResult result = port.reauthenticate(credentials.login(), credentials.password(), job.plainState());
         if (result.mfaRequired()) {
             log.info("CIC asks for a new second factor (member={}; type={})", job.memberId(), result.mfaType());
             throw error(CicErrorCode.SESSION_EXPIRED, "CIC requires a new second factor", null);
