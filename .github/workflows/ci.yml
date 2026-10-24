@@ -357,6 +357,30 @@ jobs:
           picsou-cmes-auth:test
           -m unittest discover -v
 
+  cic-auth-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the shared python sidecar base
+        run: docker build --target python --tag picsou-sidecar-python services/base
+      - name: Build the CIC online-banking sidecar image
+        run: docker build --tag picsou-cic-auth:test services/cic-auth
+      - name: Run sidecar tests in the image
+        run: >-
+          docker run --rm
+          --entrypoint python
+          --env PYTHONPATH=/app
+          --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/cic-auth/fixtures.py:/tests/fixtures.py:ro"
+          --volume "${{ github.workspace }}/services/cic-auth/test_accounts_parser.py:/tests/test_accounts_parser.py:ro"
+          --volume "${{ github.workspace }}/services/cic-auth/test_main.py:/tests/test_main.py:ro"
+          --volume "${{ github.workspace }}/services/cic-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --workdir /tests
+          picsou-cic-auth:test
+          -m unittest discover -v
+
   tr-auth-sidecar:
     runs-on: ubuntu-latest
     steps:
