@@ -57,7 +57,8 @@ public class EssentialExpenseEstimator {
         "INTERNAL\\s+TRANSFER",
         // Revolut's own wording for a currency exchange between the member's pockets. Its other
         // leg is never stored when it is not in EUR, so neither matcher above can see it (#251).
-        "^EXCHANGED\\s+(TO|FROM)\\s+[A-Z]{3,5}$"
+        // The code stays upper-case only, so "Exchanged to cash" is not an exchange.
+        "^EXCHANGED\\s+(TO|FROM)\\s+(?-i:[A-Z]{3,5})$"
     ).map(p -> Pattern.compile(p, Pattern.CASE_INSENSITIVE)).toList();
 
     /** Investment legs: moving money into a position is not consumption. */
@@ -188,7 +189,8 @@ public class EssentialExpenseEstimator {
     /**
      * True when a credit on another account carries the debit's provider id. Revolut books both
      * legs of a currency exchange under one id, and their amounts never agree: one is in the
-     * source currency. Amount matching cannot pair them, so the shared id does (#251).
+     * source currency. Amount matching cannot pair them, so the shared id does (#251). Ids are
+     * only unique per provider, so both accounts must come from the same one.
      */
     private boolean matchSharedId(Transaction debit,
                                   Map<String, List<Transaction>> creditsByExternalId,
@@ -199,6 +201,7 @@ public class EssentialExpenseEstimator {
         for (Transaction credit : candidates) {
             if (consumed.contains(credit.getId())) continue;
             if (Objects.equals(credit.getAccount().getId(), debit.getAccount().getId())) continue;
+            if (!Objects.equals(credit.getAccount().getProvider(), debit.getAccount().getProvider())) continue;
             if (Math.abs(ChronoUnit.DAYS.between(debit.getDate(), credit.getDate())) > TRANSFER_MATCH_DAYS) {
                 continue;
             }

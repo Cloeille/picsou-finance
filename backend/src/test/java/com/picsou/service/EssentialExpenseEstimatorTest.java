@@ -179,11 +179,29 @@ class EssentialExpenseEstimatorTest {
         toBitcoin.setDescription("Exchanged to BTC");
         Transaction lookalike = tx(current, 1, 10, "-40");
         lookalike.setDescription("Exchanged to BTC at the airport kiosk");
+        Transaction ordinaryWord = tx(current, 1, 11, "-60");
+        ordinaryWord.setDescription("Exchanged to cash");
 
         EssentialExpenseEstimateResponse response = estimator.estimate(MEMBER);
 
         assertThat(response.excludedTransferCount()).isEqualTo(1);
-        assertThat(response.estimate()).isEqualByComparingTo("1040.00");
+        assertThat(response.estimate()).isEqualByComparingTo("1100.00");
+    }
+
+    @Test
+    void aSharedIdFromAnotherProviderIsNotAnExchange() {
+        current.setProvider("Revolut");
+        Account bourso = account(3L, AccountType.CHECKING);
+        bourso.setProvider("BoursoBank");
+        Transaction debit = tx(current, 1, 5, "-80");
+        debit.setExternalId("same-id");
+        Transaction credit = tx(bourso, 1, 5, "30");
+        credit.setExternalId("same-id");
+
+        EssentialExpenseEstimateResponse response = estimator.estimate(MEMBER);
+
+        assertThat(response.excludedTransferCount()).isZero();
+        assertThat(response.estimate()).isEqualByComparingTo("80.00");
     }
 
     @Test

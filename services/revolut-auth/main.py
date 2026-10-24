@@ -298,6 +298,8 @@ def _minor_to_major(value: Any) -> float:
 
 # ponytail: crypto scale taken from a community client (tducret/revolut-python), not from a
 # captured payload; per-currency precision from /api/retail/currencies if Revolut ever differs.
+# Every fiat leg is read as cents, which is wrong for 0-decimal (JPY) and 3-decimal (KWD, BHD)
+# currencies. Harmless while the importer keeps only EUR legs; fix it before booking any other.
 _CRYPTO_MINOR_UNITS = 100_000_000
 _CURRENCY_RE = re.compile(r"^[A-Z0-9]{1,10}$")
 

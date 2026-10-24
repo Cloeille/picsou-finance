@@ -248,6 +248,35 @@ class RevolutSyncServiceTest {
     }
 
     @Test
+    void sync_passesEachLegsCurrencyToTheImporterSoAForeignExchangeLegIsNotBooked() {
+        when(categorizationService.loadContext(MEMBER_ID)).thenReturn(
+            new CategorizationService.CategorizationContext(List.of(), Map.of()));
+        LocalDate date = LocalDate.of(2026, 9, 20);
+        RevolutTxn eurLeg = new RevolutTxn("exchange-id", date, "Exchanged from BTC", bd("3000"), null, null, "EUR");
+        RevolutTxn btcLeg = new RevolutTxn("exchange-id", date, "Exchanged to EUR", bd("-0.05"), null, null, "BTC");
+        when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID)).thenReturn(List.of(
+            new RevolutAccountData("wallet-eur", "EUR", AccountType.CHECKING, null, bd("10"), "EUR", null,
+                List.of(eurLeg)),
+            new RevolutAccountData("wallet-crypto", "Crypto", AccountType.CHECKING, null, bd("0"), "EUR", null,
+                List.of(btcLeg))));
+        when(accountRepository.findByExternalAccountIdAndMemberId(anyString(), eq(MEMBER_ID)))
+            .thenReturn(Optional.empty());
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(anyString(), eq(MEMBER_ID)))
+            .thenReturn(false);
+        when(transactionRepository.findByAccountIdAndIsManualFalse(anyLong())).thenReturn(List.of());
+        when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(member()));
+        stubSaveAssignsIncrementingIds(new AtomicLong(960));
+        stubToResponseMirrorsAccount();
+
+        service.sync(MEMBER_ID, PHONE, PASSCODE, false);
+
+        ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(1)).save(saved.capture());
+        assertThat(saved.getValue().getDescription()).isEqualTo("Exchanged from BTC");
+        assertThat(saved.getValue().getNativeCurrency()).isEqualTo("EUR");
+    }
+
+    @Test
     void sync_classifiesOnlyVerifiedMirroredTransferLegsAcrossAccounts() {
         Category transfer = Category.builder().name("Internal transfer").slug("virement-interne")
             .kind(CategoryKind.TRANSFER).build();

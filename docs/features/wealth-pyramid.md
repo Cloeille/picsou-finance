@@ -150,11 +150,16 @@ exists to prevent.
    **consumed**, so one salary cannot excuse six debits that share its amount. A credit on
    another account carrying the debit's own `external_id` is matched first, whatever its
    amount: Revolut books both legs of a currency exchange under one id, and their amounts are
-   in two currencies (#251).
+   in two currencies (#251). Both accounts must have the same `provider`, since ids are only
+   unique per provider.
 4. **Investment legs** — `BUY`/`SELL`/`DEPOSIT`, or any row with a ticker.
 5. **Label heuristic**, explicitly last and explicitly weak, only when matching found nothing.
    It includes Revolut's exact `Exchanged to|from <CODE>` wording: the importer stores only EUR
    legs, so the other leg of an EUR to crypto or foreign-currency exchange is never there to match.
+   The code must be upper-case (`Exchanged to BTC`, not `Exchanged to cash`). The pattern is
+   English only, the wording Revolut's retail API has been seen to return. Product call: an EUR
+   debit spent on crypto or a foreign currency is treated as a move, not as spending, so the
+   estimate leans low for a member who funds foreign spending this way.
 
 `estimate = Σ kept debits / monthsObserved` — divided by the months **observed**, never by six.
 

@@ -79,11 +79,17 @@ Cashflow totals. The same rule applies per transaction: a leg whose own
 `currency` is not EUR is skipped even on an EUR pocket, and a stored row's
 `native_currency` is the leg's currency, not the pocket's.
 
-Before #251 the foreign leg of an exchange was stored as EUR and 10^7 to 10^8 too
-large. `V118__revolut_exchange_leg_repair.sql` deletes it: two Revolut rows of one
-member on two accounts sharing an `external_id`, opposite signs, magnitudes over
-1000x apart; the larger one goes. The EUR leg stays. `docker/deploy.sh` takes a
-`pg_dump` before migrating.
+Before #251 the foreign leg of an exchange was stored as EUR at the wrong scale
+(units x 10^6, so 17x its euro value for BTC, 10^7x for a 0.10 EUR coin).
+`V118__revolut_exchange_leg_repair.sql` deletes it: two non-manual Revolut rows of
+one member on two accounts sharing an `external_id`, with opposite signs, where
+exactly one reads `Exchanged to EUR` or `Exchanged from EUR`. That leg goes and the
+EUR leg (`Exchanged from|to <CODE>`) stays. The description, not the magnitude gap,
+picks the leg, because the gap depends on the asset's price. A pair between two
+non-EUR currencies is left alone. Side effects: a manual category on a deleted row
+is lost, and recurring series are only refreshed by the next detection run (any
+sync, or `POST /api/recurring/detect`). `docker/deploy.sh` takes a `pg_dump` before
+migrating; any other deployment should take one first.
 
 The source's generic `TRANSFER` type alone does not prove an own-account move.
 Both legs are classified as `TRANSFER` only when exactly two distinct harvested
@@ -188,7 +194,9 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   the source asset. `_fetch_transactions` emits that `currency` and divides a fiat leg by 100
   and any other (crypto) leg by 10^8. The 10^8 scale comes from a community client
   (tducret/revolut-python), not from a captured payload. A malformed `currency` fails closed
-  with `502 INVALID_DATA`; an absent one means the pocket's (#251).
+  with `502 INVALID_DATA` for the whole sync, like a malformed amount; an absent one means the
+  pocket's (#251). Every fiat leg is read as cents, which is wrong for 0-decimal (JPY) and
+  3-decimal (KWD, BHD) currencies. It does not matter while only EUR legs are booked.
 - **`/api/retail/wallets` is a dict keyed by account type** (`{PERSONAL:[...], PERSONAL_JOINT:[...],
   YOUTH:[], ...}`), NOT a list, and NOT under a `wallets` key. Each wallet has a `pockets` list.
 - **Money-box balance is nested**: `{"amount": <cents>, "currency": "EUR"}` (not a flat number).
