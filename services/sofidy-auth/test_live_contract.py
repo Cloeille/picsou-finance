@@ -12,8 +12,10 @@ the test fails loudly instead of passing on an empty snapshot.
 """
 
 import json
+import os
 import unittest
 from typing import Any
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -367,7 +369,10 @@ class RouteContract(unittest.TestCase):
     def test_health_is_reachable(self):
         self._stub(logged_in_responses())
 
-        self.assertEqual(self.client.get("/health").json(), {"status": "ok"})
+        with patch.dict(os.environ):
+            os.environ.pop("PICSOU_SIDECAR_BASE", None)
+            body = self.client.get("/health").json()
+        self.assertEqual(body, {"status": "ok"})
 
 
 if __name__ == "__main__":
