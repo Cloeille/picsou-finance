@@ -30,6 +30,7 @@ HEADERS = {"X-Picsou-Sidecar-Key": KEY}
 MFA_PATH = "/fr/banque/validation.aspx"
 HOME_PATH = "/fr/banque/pageaccueil.html"
 AUTHORITY_PATH = "/fr/banque/migr_gestion_pouvoirs.html"
+DEVICE_COOKIE = "%5Fwirt%5Fsosd%5FSOSD%5FOTPAUTH%5Fsaguid"
 TRANSACTION_ID = "0123456789abcdef0123456789abcdef0123456789abcdef0"
 
 
@@ -63,7 +64,9 @@ class FakeBank:
             fields = parse_qs(request.content.decode(), keep_blank_values=True)
             if fields.get("_cm_pwd") != ["secret"]:
                 return httpx.Response(200, text=LOGIN_PAGE_WRONG_PASSWORD)
-            if self.second_factor and "auth_client_state=trusted-device" not in cookies:
+            # The device is remembered by the trust cookie and the device id together.
+            trusted = "auth_client_state=trusted-device" in cookies and f"{DEVICE_COOKIE}=device-1" in cookies
+            if self.second_factor and not trusted:
                 return self.redirect(MFA_PATH, "IdSes=pending; Path=/")
             return self.logged_in()
         if path == MFA_PATH and request.method == "GET":
@@ -86,7 +89,10 @@ class FakeBank:
                 return httpx.Response(200, text=MOBILE_CONFIRMATION_PAGE)
             target = AUTHORITY_PATH if self.authority_notice else HOME_PATH
             return self.redirect(
-                target, "IdSes=live; Path=/", "auth_client_state=trusted-device; Path=/; Max-Age=7776000"
+                target,
+                "IdSes=live; Path=/",
+                "auth_client_state=trusted-device; Path=/; Max-Age=7776000",
+                f"{DEVICE_COOKIE}=device-1; Path=/",
             )
         if not logged:
             return self.redirect(main.LOGIN_PATH)

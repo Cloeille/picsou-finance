@@ -21,8 +21,9 @@ login and second-factor code below is the cmes-auth sidecar's, kept in step by
 hand: each sidecar is its own build context. Once the second factor is passed,
 the site sets a remembered-device cookie (`auth_client_state`, 90 days on the
 banking sites according to woob's `creditmutuel` module); `/initiate` accepts
-the previous session so that cookie is replayed and a stored-credentials
-re-login needs no one at the phone. The mobile-confirmation choreography is the
+the previous session and replays its whole cookie jar, as woob does, so that a
+stored-credentials re-login needs no one at the phone. That cookie alone is not
+enough: the site asked again when only it was replayed. The mobile-confirmation choreography is the
 one woob documents for these sites; it is reimplemented, not copied.
 
 Only the session cookies are returned to Java, which encrypts them before
@@ -199,7 +200,7 @@ class InitiateRequest(BaseModel):
 
     login: str = Field(min_length=1, max_length=100)
     password: str = Field(min_length=1, max_length=100)
-    # The previous session, if any: only its remembered-device cookie is reused.
+    # The previous session, if any: its cookies carry the remembered device.
     sessionState: str | None = Field(default=None, max_length=2_000_000)
     # A scheduled re-login with stored credentials: nobody is there to approve,
     # so a mobile confirmation is withdrawn at once rather than left on the phone.
@@ -353,11 +354,14 @@ def restore_cookies(client: httpx.AsyncClient, raw: str) -> None:
         _set_cookie(client, cookie)
 
 
-def restore_trust_cookie(client: httpx.AsyncClient, raw: str | None) -> bool:
-    """Carry only the remembered-device cookie over from a previous session.
+def restore_previous_session(client: httpx.AsyncClient, raw: str | None) -> bool:
+    """Carry a previous session's cookies over to a new login, as woob does.
 
-    The rest of an old jar is a dead session that would only confuse the login.
-    An unreadable previous session is ignored: it must never block a login.
+    The remembered device is `auth_client_state` plus the other cookies the
+    second factor left (the OTP-auth device id among them): replaying the trust
+    cookie alone brought the confirmation back. Returns whether the trust cookie
+    was there. An unreadable previous session is ignored: it must never block a
+    login.
     """
     if not raw:
         return False
@@ -365,10 +369,9 @@ def restore_trust_cookie(client: httpx.AsyncClient, raw: str | None) -> bool:
         cookies = _decode_cookies(raw)
     except HTTPException:
         return False
-    trusted = [cookie for cookie in cookies if cookie["name"] == TRUST_COOKIE]
-    for cookie in trusted:
+    for cookie in cookies:
         _set_cookie(client, cookie)
-    return bool(trusted)
+    return any(cookie["name"] == TRUST_COOKIE for cookie in cookies)
 
 
 def _path(url: str | httpx.URL) -> str:
@@ -753,7 +756,7 @@ async def initiate(req: InitiateRequest) -> dict:
     client = _new_client()
     keep_client = False
     try:
-        trusted = restore_trust_cookie(client, req.sessionState)
+        trusted = restore_previous_session(client, req.sessionState)
         landing = await _skip_notices(client, await _login(client, req.login, req.password))
 
         if _is_mfa_page(landing):

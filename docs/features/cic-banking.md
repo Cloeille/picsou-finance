@@ -16,8 +16,9 @@ balance.
   build context). Login form `bloc_ident` on `/fr/authentification.html`; second factor on
   `/fr/banque/validation.aspx`, either a mobile confirmation (polled on
   `/fr/banque/async/otp/SOSD_OTP_GetTransactionState.htm`, woob's documented path, when the page
-  script names none) or an SMS code posted with the form's `_FID_CheckOrDeliverBackup` button. The
-  remembered-device cookie (`auth_client_state`) is replayed on re-login. The "Gestion des pouvoirs"
+  script names none) or an SMS code posted with the form's `_FID_CheckOrDeliverBackup` button. On
+  re-login the previous session's whole cookie jar is replayed, as woob does: the
+  remembered-device cookie (`auth_client_state`) alone did not spare the confirmation. The "Gestion des pouvoirs"
   notice is postponed with its `_FID_DoStopPaciAndRemind` button, as woob does.
 - **Accounts**: `/fr/banque/comptes-et-contrats.html`, one `table.ei_comptescontrats` per category,
   captioned "Liste des comptes liés à la catégorie : …". "Comptes courants" rows are `CHECKING`;
