@@ -75,6 +75,8 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: simplefinStatus })
       case '/amex/status':
         return Promise.resolve({ data: amexStatus })
+      case '/caisse-epargne/status':
+        return Promise.resolve({ data: caisseEpargneStatus })
       case '/corum/status':
         return Promise.resolve({ data: corumStatus })
       case '/sofidy/status':
@@ -117,6 +119,7 @@ const SIMPLEFIN_DISCONNECTED = {
   connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null,
 }
 let amexStatus: Record<string, unknown>
+let caisseEpargneStatus: Record<string, unknown>
 let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
 
@@ -142,6 +145,15 @@ const AMEX_ACCOUNT = {
   provider: 'American Express',
 }
 
+/** A current account created by the Caisse d'Epargne sidecar (`CaisseEpargneSyncService.PROVIDER`). */
+const CAISSE_EPARGNE_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 5,
+  name: 'Compte joint',
+  type: 'CHECKING',
+  provider: "Caisse d'Epargne",
+}
+
 /** A SCPI account linked to no provider fund; tests set `provider` and the fund codes. */
 const SCPI_ACCOUNT = {
   ...TR_ACCOUNT,
@@ -157,6 +169,7 @@ function resetFixtures() {
   amundiStatus = AMUNDI_INACTIVE
   simplefinStatus = SIMPLEFIN_DISCONNECTED
   amexStatus = AMUNDI_INACTIVE
+  caisseEpargneStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0 }
   corumStatus = AMUNDI_INACTIVE
   sofidyStatus = AMUNDI_INACTIVE
   accountsFixture = [TR_ACCOUNT]
@@ -427,6 +440,29 @@ describe('SyncAllModal session providers', () => {
     fireEvent.click(within(row).getByRole('button'))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=amex'))
     expect(apiPost).not.toHaveBeenCalledWith('/amex/sync')
+  })
+
+  it("lists and syncs a live Caisse d'Epargne session", async () => {
+    caisseEpargneStatus = { ...caisseEpargneStatus, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: caisseEpargneStatus })
+    renderModal()
+
+    const row = (await screen.findByText("Caisse d'Epargne")).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  /** Its login is the bank's keypad plus a Sécur'Pass approval, which only its tab can run. */
+  it("keeps an expired Caisse d'Epargne row with its accounts and routes to its tab", async () => {
+    accountsFixture = [TR_ACCOUNT, CAISSE_EPARGNE_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText("Caisse d'Epargne")).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=caisse-epargne'))
+    expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
   })
 
   it('reports a failed American Express run on a live session', async () => {
