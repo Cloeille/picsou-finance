@@ -589,6 +589,17 @@ describe('SyncAllModal session providers', () => {
     expect(apiPost).not.toHaveBeenCalledWith('/cic/sync')
   })
 
+  /** Stored credentials only need the phone confirmation, so the tab starts the reconnect itself. */
+  it('asks the CIC tab to reconnect at once when credentials are stored', async () => {
+    cicStatus = { ...AMUNDI_INACTIVE, canReconnect: true }
+    accountsFixture = [TR_ACCOUNT, CIC_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('CIC (livrets)')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cic&reconnect=1'))
+  })
+
   it('reports a failed American Express run on a live session', async () => {
     amexStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'FAILED', lastSyncError: 'INTERNAL_ERROR' }
     renderModal()

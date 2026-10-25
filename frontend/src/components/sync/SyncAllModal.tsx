@@ -100,6 +100,8 @@ type SyncConnection = {
   syncId?: number
   /** Session-based providers open their tab to re-authenticate instead of firing a doomed sync. */
   needsReauth?: boolean
+  /** Its tab can log in again from stored credentials, so the row asks it to start at once. */
+  canReconnect?: boolean
 }
 
 
@@ -304,6 +306,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       type: 'cic' as const, name: 'CIC (livrets)', provider: 'CIC',
       active: cicStatus?.isActive ?? false, lastSyncedAt: cicStatus?.lastSyncCompletedAt ?? null,
       failed: cicStatus?.syncStatus === 'FAILED',
+      canReconnect: cicStatus?.canReconnect === true,
     },
   ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
 
@@ -425,6 +428,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         // clears on its own -- so a failed-but-live session keeps its retry button. Only a
         // session that is gone, or one the provider explicitly flags, goes to its tab.
         needsReauth: !provider.active || provider.reauth === true,
+        canReconnect: provider.canReconnect,
       })
     }
     if (hasRevolutAccount) {
@@ -643,7 +647,10 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     // those flows need multi-step forms or a mobile approval, and firing a sync would only 401.
     const tab = ownTab(connection, revolutStatus?.remembered === true)
     if (tab) {
-      navigate(`/sync?tab=${tab}`)
+      // A lapsed session with stored credentials only needs the phone confirmation: the tab
+      // starts that reconnect on arrival instead of showing the login form.
+      const reconnect = connection.needsReauth && connection.canReconnect ? '&reconnect=1' : ''
+      navigate(`/sync?tab=${tab}${reconnect}`)
       onOpenChange(false)
       return
     }

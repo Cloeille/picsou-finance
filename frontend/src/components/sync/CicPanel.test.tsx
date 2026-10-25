@@ -92,3 +92,55 @@ describe('CicPanel mobile confirmation', () => {
     expect(await screen.findByText('sync.cic.errors.appValidationCancelled')).toBeInTheDocument()
   })
 })
+
+describe('CicPanel reconnect from stored credentials', () => {
+  let canReconnect: boolean
+
+  function renderWith(props: { autoReconnect?: boolean; onAutoReconnectStarted?: () => void } = {}) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    function Wrapper({ children }: { children: ReactNode }) {
+      return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    }
+    render(<CicPanel {...props} />, { wrapper: Wrapper })
+  }
+
+  beforeEach(() => {
+    canReconnect = true
+    apiGet.mockReset().mockImplementation(async () => ({ data: { ...status(false).data, canReconnect } }))
+    apiPost.mockReset().mockImplementation(async (url: string) => {
+      if (url === '/cic/auth/reconnect') return { data: { processId: 'p1', mfaRequired: true, mfaType: 'APP_PUSH' } }
+      // The completion stays open while the user approves on the phone.
+      return new Promise(() => {})
+    })
+  })
+
+  it('logs in again without the form, then waits for the app confirmation', async () => {
+    renderWith()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'sync.cic.reconnect' }))
+
+    expect(await screen.findByText('sync.cic.appValidationPrompt')).toBeInTheDocument()
+    expect(apiPost).toHaveBeenCalledWith('/cic/auth/reconnect')
+    expect(apiPost).toHaveBeenCalledWith('/cic/auth/complete', { processId: 'p1', code: undefined })
+  })
+
+  it('starts on arrival when asked to, and reports it once', async () => {
+    const onAutoReconnectStarted = vi.fn()
+    renderWith({ autoReconnect: true, onAutoReconnectStarted })
+
+    expect(await screen.findByText('sync.cic.appValidationPrompt')).toBeInTheDocument()
+    expect(apiPost.mock.calls.filter(([url]) => url === '/cic/auth/reconnect')).toHaveLength(1)
+    expect(onAutoReconnectStarted).toHaveBeenCalledOnce()
+  })
+
+  it('offers only the form when no credentials are stored', async () => {
+    canReconnect = false
+    const onAutoReconnectStarted = vi.fn()
+    renderWith({ autoReconnect: true, onAutoReconnectStarted })
+
+    expect(await screen.findByLabelText('sync.cic.login')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sync.cic.reconnect' })).not.toBeInTheDocument()
+    expect(apiPost).not.toHaveBeenCalled()
+    expect(onAutoReconnectStarted).toHaveBeenCalledOnce()
+  })
+})

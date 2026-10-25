@@ -1143,6 +1143,8 @@ interface CicSessionStatusBase {
   isActive: boolean
   lastSyncStartedAt: string | null
   lastSyncCompletedAt: string | null
+  /** Credentials from the last login are stored, so a reconnect needs no typing. */
+  canReconnect: boolean
 }
 
 export type CicSessionStatus =

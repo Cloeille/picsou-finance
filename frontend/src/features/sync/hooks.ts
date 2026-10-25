@@ -664,6 +664,16 @@ export function useInitiateCicAuth() {
   })
 }
 
+export function useReconnectCic() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => cicApi.reconnect(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.cic() })
+    },
+  })
+}
+
 export function useCompleteCicAuth() {
   const queryClient = useQueryClient()
   return useMutation({

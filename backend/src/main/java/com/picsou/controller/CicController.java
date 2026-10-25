@@ -41,6 +41,13 @@ public class CicController {
         return ResponseEntity.ok(service.initiateAuth(req.login(), req.password(), userContext.currentMemberId()));
     }
 
+    /** Logs in again from the stored credentials; the saver then approves in the app as after a typed login. */
+    @PostMapping("/auth/reconnect")
+    public ResponseEntity<?> reconnect(HttpServletRequest request) {
+        if (!consumeAuthToken(request)) return rateLimited("Too many CIC authentication attempts. Please wait before retrying.");
+        return ResponseEntity.ok(service.reconnect(userContext.currentMemberId()));
+    }
+
     @PostMapping("/auth/complete")
     public ResponseEntity<?> complete(@Valid @RequestBody CompleteRequest req, HttpServletRequest request) {
         if (!consumeAuthToken(request)) return rateLimited("Too many CIC authentication attempts. Please wait before retrying.");

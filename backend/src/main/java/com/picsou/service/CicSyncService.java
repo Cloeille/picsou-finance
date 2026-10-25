@@ -115,6 +115,28 @@ public class CicSyncService {
         return new AuthInitResponse(result.processId(), result.mfaRequired(), result.mfaType());
     }
 
+    /**
+     * A reconnection the saver starts themselves, from the credentials stored at
+     * the last login. Unlike the scheduled re-login, someone is there to approve
+     * the mobile confirmation, so it goes through the same second-factor steps
+     * as a typed login. Without stored credentials the saver has to type them.
+     */
+    public AuthInitResponse reconnect(Long memberId) {
+        String encrypted = sessionRepository.findByMemberId(memberId)
+            .map(CicSession::getEncryptedCredentials)
+            .orElse(null);
+        if (encrypted == null) {
+            throw error(CicErrorCode.SESSION_EXPIRED, "No stored CIC credentials", null);
+        }
+        Credentials credentials;
+        try {
+            credentials = parseCredentials(encryption.decrypt(encrypted));
+        } catch (RuntimeException ex) {
+            throw error(CicErrorCode.SESSION_EXPIRED, "Stored CIC credentials are unreadable", ex);
+        }
+        return initiateAuth(credentials.login(), credentials.password(), memberId);
+    }
+
     /** {@code code} is the SMS code, or null for a mobile confirmation. */
     public SessionStatusResponse completeAuth(String processId, String code, Long memberId) {
         PendingCredentials credentials = pendingCredentials.get(processId);
@@ -552,7 +574,8 @@ public class CicSyncService {
             session.getSyncStatus(),
             session.getLastSyncStartedAt(),
             session.getLastSyncCompletedAt(),
-            session.getLastSyncError()
+            session.getLastSyncError(),
+            session.getEncryptedCredentials() != null
         );
     }
 
@@ -583,10 +606,12 @@ public class CicSyncService {
         CicSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        CicErrorCode lastSyncError
+        CicErrorCode lastSyncError,
+        /** Whether {@link #reconnect} can log in again without the saver typing their credentials. */
+        boolean canReconnect
     ) {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, CicSyncStatus.IDLE, null, null, null);
+            return new SessionStatusResponse(false, CicSyncStatus.IDLE, null, null, null, false);
         }
     }
 

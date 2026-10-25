@@ -359,6 +359,10 @@ export const cicApi = {
       .post<CicAuthInitResponse>('/cic/auth/initiate', { login, password })
       .then(r => r.data),
 
+  // Logs in again from the credentials stored at the last login.
+  reconnect: () =>
+    api.post<CicAuthInitResponse>('/cic/auth/reconnect').then(r => r.data),
+
   // `code` is the SMS code, omitted for a mobile confirmation.
   completeAuth: (processId: string, code?: string) =>
     api

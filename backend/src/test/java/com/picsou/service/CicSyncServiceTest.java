@@ -193,6 +193,48 @@ class CicSyncServiceTest {
         verify(port).initiateAuth("12345678", "secret", "plain-state");
     }
 
+    /**
+     * The saver clicked Reconnect: the stored credentials log in again, and the
+     * mobile confirmation is awaited like after a typed login instead of being
+     * withdrawn as the scheduled re-login does.
+     */
+    @Test
+    void aReconnectionStartedByTheSaverUsesTheStoredCredentialsAndWaitsForTheApp() {
+        CicSession expiredSession = activeSession(member());
+        expiredSession.setEncryptedCredentials("credentials-encrypted");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(expiredSession));
+        when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
+        when(encryption.decrypt("encrypted")).thenReturn("plain-state");
+        when(port.initiateAuth("12345678", "secret", "plain-state"))
+            .thenReturn(new CicPort.InitiateResult("p1", true, "APP_PUSH", null));
+
+        CicSyncService.AuthInitResponse result = service.reconnect(7L);
+
+        assertThat(result.processId()).isEqualTo("p1");
+        assertThat(result.mfaType()).isEqualTo("APP_PUSH");
+        verify(port, never()).reauthenticate(anyString(), anyString(), any());
+    }
+
+    @Test
+    void aReconnectionWithoutStoredCredentialsAsksTheSaverToTypeThem() {
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(activeSession(member())));
+
+        assertThatThrownBy(() -> service.reconnect(7L))
+            .isInstanceOf(SyncException.class)
+            .extracting("code").isEqualTo(CicErrorCode.SESSION_EXPIRED.name());
+        verify(port, never()).initiateAuth(anyString(), anyString(), any());
+    }
+
+    @Test
+    void theStatusTellsWhetherStoredCredentialsCanReconnect() {
+        CicSession session = activeSession(member());
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        assertThat(service.getStatus(7L).canReconnect()).isFalse();
+
+        session.setEncryptedCredentials("credentials-encrypted");
+        assertThat(service.getStatus(7L).canReconnect()).isTrue();
+    }
+
     @Test
     void theCredentialsAreStoredOnlyOnceTheConfirmationSucceeded() {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
