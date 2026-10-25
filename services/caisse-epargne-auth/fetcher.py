@@ -41,6 +41,10 @@ TRANSACTIONS_PATH = "/pfm/user/v1.1/transactions"
 # Observed live 2026-10-13, read with the personal-loan token (the main token
 # gets 403). The last segment is the synthesis `contractId.id`, blanks stripped.
 LOAN_DETAIL_PATH = "/bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/"
+# Observed live 2026-10-25, read with the home-loan token on the BPCE host.
+# The last segment is `<contractId.entityCode>-<contractId.id>`.
+HOME_LOAN_BASE_URL = "https://www.rs-ext-bad-me.bpce.fr"
+HOME_LOAN_DETAIL_PATH = "/bapi/loan/v1/loans/"
 SYNTHESIS_QUERY = {
     "pfmCharacteristicsIndicator": "true",
     "productFamilyPFM": "1,2,3,4,6,7,17,18,20,19",
@@ -319,35 +323,56 @@ async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvide
 
 
 async def _fetch_loan_details(
-    client: httpx.AsyncClient, base_url: str, accounts: list, loan_token: Optional[LoanTokenProvider]
+    client: httpx.AsyncClient,
+    base_url: str,
+    accounts: list,
+    loan_token: Optional[LoanTokenProvider],
+    home_loan_token: Optional[LoanTokenProvider] = None,
+    home_loan_base_url: str = HOME_LOAN_BASE_URL,
 ) -> tuple[dict, dict]:
     """`({externalId: parsed loan or None}, {externalId: code})` for every LOAN account.
 
-    Without a token provider every loan is null and imported (legacy). A token that cannot be
-    minted leaves every loan unavailable with its code; a detail that cannot be read leaves only
-    its own loan unavailable. A `SessionExpired` propagates: the session itself is dead, and the
-    caller replays or fails.
+    Personal and home loans each read their own app with its own token. Without a token
+    provider a loan is null and imported (legacy). A token that cannot be minted leaves every
+    loan of that product unavailable with its code; a detail that cannot be read leaves only
+    its own loan unavailable. A `SessionExpired` propagates: the session itself is dead, and
+    the caller replays or fails.
     """
-    loans = [a["externalId"] for a in accounts if a["kind"] == "LOAN"]
-    details: dict = {ext: None for ext in loans}
+    loans = [a for a in accounts if a["kind"] == "LOAN"]
+    details: dict = {a["externalId"]: None for a in loans}
     unavailable: dict = {}
-    if not loans or loan_token is None:
-        return details, unavailable
-    try:
-        token = await loan_token()
-    except replay.SessionExpired:
-        raise
-    except replay.ReplayError as exc:
-        return details, {ext: exc.code for ext in loans}
-    for ext in loans:
-        contract_id = ext[len(accounts_parser.CONTRACT_ID_PREFIX):]
-        url = base_url + LOAN_DETAIL_PATH + urllib.parse.quote(contract_id, safe="")
-        # A 401 raises `replay.SessionExpired`, which is not caught here.
+    for product, provider in (("PERSONAL", loan_token), ("HOME", home_loan_token)):
+        group = [a for a in loans if a.get("loanProduct", "PERSONAL") == product]
+        if not group or provider is None:
+            continue
         try:
-            payload = await _get_json(client, url, {}, bearer=token)
-            details[ext] = accounts_parser.parse_loan_detail(payload)
-        except (FetchError, accounts_parser.ParseError) as exc:
-            unavailable[ext] = exc.code
+            token = await provider()
+        except replay.SessionExpired:
+            raise
+        except replay.ReplayError as exc:
+            unavailable.update({a["externalId"]: exc.code for a in group})
+            continue
+        for account in group:
+            ext = account["externalId"]
+            contract_id = ext[len(accounts_parser.CONTRACT_ID_PREFIX):]
+            if product == "HOME":
+                entity_code = account.get("loanEntityCode")
+                if not isinstance(entity_code, str) or not entity_code.isascii() or not entity_code.isalnum():
+                    unavailable[ext] = UpstreamFormatChanged.code
+                    continue
+                url = home_loan_base_url + HOME_LOAN_DETAIL_PATH + urllib.parse.quote(
+                    f"{entity_code}-{contract_id}", safe=""
+                )
+                parse = accounts_parser.parse_home_loan_detail
+            else:
+                url = base_url + LOAN_DETAIL_PATH + urllib.parse.quote(contract_id, safe="")
+                parse = accounts_parser.parse_loan_detail
+            # A 401 raises `replay.SessionExpired`, which is not caught here.
+            try:
+                payload = await _get_json(client, url, {}, bearer=token)
+                details[ext] = parse(payload)
+            except (FetchError, accounts_parser.ParseError) as exc:
+                unavailable[ext] = exc.code
     return details, unavailable
 
 
@@ -362,6 +387,8 @@ async def fetch_import(
     today: Optional[date] = None,
     loan_token: Optional[LoanTokenProvider] = None,
     per_detail: Optional[PerDetailProvider] = None,
+    home_loan_token: Optional[LoanTokenProvider] = None,
+    home_loan_base_url: str = HOME_LOAN_BASE_URL,
 ) -> dict:
     """The `POST /accounts` response body, or a typed error.
 
@@ -369,12 +396,14 @@ async def fetch_import(
     read or serialised is left out of `accounts` and listed in `unavailable`, in synthesis
     order, with its error code; the rest is returned.
 
-    `loan_token` mints the personal-loan token; it is only awaited when the
-    synthesis holds a LOAN contract. Without it, every `loan` is null.
+    `loan_token` mints the personal-loan token and `home_loan_token` the home-loan one;
+    each is only awaited when the synthesis holds a loan of its kind. Without it, the
+    `loan` of those loans is null.
     """
-    if not replay.is_allowed_url(base_url):
+    if not replay.is_allowed_url(base_url) or not replay.is_allowed_url(home_loan_base_url):
         raise replay.HostNotAllowed("Refused a URL outside https *.caisse-epargne.fr")
     base_url = base_url.rstrip("/")
+    home_loan_base_url = home_loan_base_url.rstrip("/")
 
     client = replay.new_client(transport)
     try:
@@ -410,7 +439,9 @@ async def fetch_import(
                     raise UpstreamFormatChanged("Payload does not match the observed format") from None
                 unavailable[external_id] = exc.code
 
-        loans, loan_unavailable = await _fetch_loan_details(client, base_url, accounts, loan_token)
+        loans, loan_unavailable = await _fetch_loan_details(
+            client, base_url, accounts, loan_token, home_loan_token, home_loan_base_url
+        )
         pensions, per_unavailable = await _fetch_per_details(accounts, per_detail)
         unavailable.update(loan_unavailable)
         unavailable.update(per_unavailable)

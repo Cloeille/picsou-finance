@@ -59,7 +59,8 @@ Supported products, from `productFamilyPFM.code` / `subProductFamilyPFM.code`
 | `3` / `01` (or label `LIVRET A` without a sub code) | `LIVRET_A` | `contractPfmId` |
 | `3` / `28` | `LDDS` | `contractPfmId` |
 | `4` / `05` | `PER` (complete owned UC + euro-fund detail, total >= 0) | `contract:<contractId.id>` |
-| `6` / `12` | `LOAN` (balance = outstanding capital, <= 0) | `contract:<contractId.id>` |
+| `6` / `12` | `LOAN` (personal loan; balance = outstanding capital, <= 0) | `contract:<contractId.id>` |
+| `6` / `13` | `LOAN` (home loan, "Crédit immobilier"; same balance rule) | `contract:<contractId.id>` |
 | anything else (home insurance `5`, other sub codes) | listed in `unsupported`, never imported, never fatal | pfm id, else `contract:<id>` |
 
 #### Second token: personal loan
@@ -82,6 +83,21 @@ A detail that cannot be read (loan OAuth refused, 5xx, format change) leaves the
 LOAN out of `accounts` and lists it in `unavailable`; only its error code is
 logged, and the rest of the import goes on. Without a loan token provider,
 `loan` stays null.
+
+#### Third token: home loan
+
+A home loan is managed by another web app (`gestion-client/credit-immobilier`),
+served by the BPCE group hosts (observed live 2026-10-25). Its token comes from
+`www.as-ext-bad-me.bpce.fr`, through the same authorize -> AuthnRequest ->
+consume -> token chain, with that app's public client and redirect, an empty
+`scope` and no `claims` (`replay.HOME_LOAN_CHAIN`). These two BPCE hosts, and
+only them, are added to the allow-list. The detail is
+`GET https://www.rs-ext-bad-me.bpce.fr/bapi/loan/v1/loans/<entityCode>-<contractId.id>`
+(`accounts_parser.parse_home_loan_detail`): ISO dates, the rate in percent in
+`nextDuedateRate`, `duration` in installments. The first due date is not given:
+it is the last one minus `duration - 1` months. The debit account comes without
+its IBAN, so `linkedIban` is null. An installment that matches the annuity to
+within 1 % sends no insurance: a home loan's insurance is often taken elsewhere.
 
 Response 200 (money as decimal strings, never floats; a card's `balance` is its
 outstanding, the sum of operations with a future `dueDate`, so <= 0):
