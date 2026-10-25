@@ -103,6 +103,24 @@ const ERROR_MESSAGE_SUFFIXES: Record<string, string> = {
   INTERNAL_ERROR: "serverError",
 }
 
+/**
+ * How long the panel keeps polling the session once a mobile confirmation's
+ * completion request is lost: the backend's own confirmation window (120 s)
+ * plus the time to import.
+ */
+const LOST_CONFIRMATION_WAIT_MS = 150_000
+const LOST_CONFIRMATION_POLL_MS = 3_000
+
+/**
+ * The completion request got no answer from the backend: iOS drops it while
+ * Safari sits in the background, which is exactly when the user is approving
+ * the push in the bank's app. The backend carries on regardless.
+ */
+function isLostRequest(value: unknown) {
+  const httpStatus = getErrorStatus(value)
+  return httpStatus === undefined || httpStatus === 502 || httpStatus === 504
+}
+
 export interface SidecarSessionPanelProps<
   TStatus extends SidecarSessionStatus,
   TInit extends SidecarAuthInitResponse,
@@ -170,6 +188,7 @@ export function SidecarSessionPanel<
   const [extraValue, setExtraValue] = useState(extraField?.defaultValue ?? "")
   const [processId, setProcessId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [lostConfirmationAt, setLostConfirmationAt] = useState<number | null>(null)
   const notifyConnectedOnSuccess = useRef(false)
 
   const status = useStatus()
@@ -198,6 +217,7 @@ export function SidecarSessionPanel<
     setAuthState("IDLE")
     setProcessId(null)
     setCode("")
+    setLostConfirmationAt(null)
   }
 
   const submitSecondFactor = (id: string, otp?: string) => {
@@ -218,6 +238,11 @@ export function SidecarSessionPanel<
           }
         },
         onError: (value) => {
+          if (appPush && otp === undefined && isLostRequest(value)) {
+            // Keep the waiting card: the session status tells whether it went through.
+            setLostConfirmationAt(Date.now())
+            return
+          }
           setError(formatError(value))
           setCode("")
           if (otpRetryable && getErrorCode(value) === "INVALID_OTP") {
@@ -242,6 +267,31 @@ export function SidecarSessionPanel<
       : null
   const statusError = status.isError ? formatError(status.error) : null
   const visibleError = error ?? backgroundError ?? statusError
+
+  const { refetch: refetchStatus } = status
+  useEffect(() => {
+    if (lostConfirmationAt === null) return
+    const timer = setInterval(() => {
+      if (Date.now() - lostConfirmationAt >= LOST_CONFIRMATION_WAIT_MS) {
+        setLostConfirmationAt(null)
+        setError(t(`${translationPrefix}.errors.appValidationTimeout`))
+        setAuthState("ERROR")
+        setProcessId(null)
+        return
+      }
+      void refetchStatus().then(({ data }) => {
+        if (!data?.isActive) return
+        setLostConfirmationAt(null)
+        setAuthState("IDLE")
+        setProcessId(null)
+        setLogin("")
+        setPassword("")
+        if (data.syncStatus === "SUCCESS") onConnected?.()
+        else notifyConnectedOnSuccess.current = true
+      })
+    }, LOST_CONFIRMATION_POLL_MS)
+    return () => clearInterval(timer)
+  }, [lostConfirmationAt, onConnected, refetchStatus, t, translationPrefix])
 
   useEffect(() => {
     if (syncStatus !== "SUCCESS" || !notifyConnectedOnSuccess.current) return

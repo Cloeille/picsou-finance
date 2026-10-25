@@ -28,7 +28,10 @@ balance.
 - **Backend**: `CicSyncService`, shaped like `CmesSyncService` (stored credentials, re-login with the
   previous session, daily source `cic`), balance-only accounts with `upsertSnapshot`. Migration
   V119 `cic_session`. `/api/cic/*`, `/api/cic/auth/complete` given 180 s in nginx.
-- **Frontend**: `CicPanel` (`SidecarSessionPanel` + app push / SMS), tab `cic` on `/sync`.
+- **Frontend**: `CicPanel` (`SidecarSessionPanel` + app push / SMS), tab `cic` on `/sync`. While
+  the user approves the push in the CIC app, iOS drops Safari's pending `/auth/complete` request; the
+  backend finishes regardless. A completion lost without an answer (network error, 502/504) keeps the
+  waiting card and polls the session status for up to 150 s instead of reporting a failure.
 
 The current account also comes from Enable Banking when that connection exists: hide one of the
 two in Settings → Accounts.
