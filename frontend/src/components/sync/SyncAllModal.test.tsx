@@ -77,6 +77,8 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: amexStatus })
       case '/corum/status':
         return Promise.resolve({ data: corumStatus })
+      case '/cmes/status':
+        return Promise.resolve({ data: cmesStatus })
       case '/sofidy/status':
         return Promise.resolve({ data: sofidyStatus })
       case '/accounts':
@@ -119,6 +121,7 @@ const SIMPLEFIN_DISCONNECTED = {
 let amexStatus: Record<string, unknown>
 let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
+let cmesStatus: Record<string, unknown>
 
 const AMUNDI_INACTIVE = {
   isActive: false, syncStatus: 'IDLE', lastSyncError: null,
@@ -142,6 +145,15 @@ const AMEX_ACCOUNT = {
   provider: 'American Express',
 }
 
+/** An account created by the Crédit Mutuel / CIC Épargne Salariale sidecar (`CmesSyncService.PROVIDER`). */
+const CMES_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 6,
+  name: 'PEG — EURO-INFORMATION',
+  type: 'EMPLOYEE_SAVINGS',
+  provider: 'Crédit Mutuel Épargne Salariale',
+}
+
 /** A SCPI account linked to no provider fund; tests set `provider` and the fund codes. */
 const SCPI_ACCOUNT = {
   ...TR_ACCOUNT,
@@ -159,6 +171,7 @@ function resetFixtures() {
   amexStatus = AMUNDI_INACTIVE
   corumStatus = AMUNDI_INACTIVE
   sofidyStatus = AMUNDI_INACTIVE
+  cmesStatus = AMUNDI_INACTIVE
   accountsFixture = [TR_ACCOUNT]
   revolutStatus = REVOLUT_NOT_REMEMBERED
   revolutProgress = REVOLUT_DONE
@@ -427,6 +440,29 @@ describe('SyncAllModal session providers', () => {
     fireEvent.click(within(row).getByRole('button'))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=amex'))
     expect(apiPost).not.toHaveBeenCalledWith('/amex/sync')
+  })
+
+  it('lists and syncs a live Crédit Mutuel / CIC Épargne Salariale session', async () => {
+    cmesStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: cmesStatus })
+    renderModal()
+
+    const row = (await screen.findByText('Crédit Mutuel / CIC Épargne Salariale')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/cmes/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  /** Its login can need a code by SMS or a confirmation in the app, which only its tab can take. */
+  it('keeps an expired Crédit Mutuel / CIC Épargne Salariale row with its accounts and routes to its tab', async () => {
+    accountsFixture = [TR_ACCOUNT, CMES_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('Crédit Mutuel / CIC Épargne Salariale')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cmes'))
+    expect(apiPost).not.toHaveBeenCalledWith('/cmes/sync')
   })
 
   it('reports a failed American Express run on a live session', async () => {

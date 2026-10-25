@@ -30,7 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   saver's space (www.creditmutuel-ere.fr) and imports each plan (PEE, PEG, PERCOL) with its funds:
   units, unit value and gain. The login is confirmed once in the bank's app; the site then
   remembers the device, and the daily sync logs in again with the stored credentials without
-  asking. See [docs](docs/features/cmes-epargne-salariale.md).
+  asking. It is listed in the dashboard's *Sync all* modal like the other session connectors.
+  See [docs](docs/features/cmes-epargne-salariale.md).
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per
