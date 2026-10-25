@@ -17,8 +17,7 @@ balance.
   `/fr/banque/validation.aspx`, either a mobile confirmation (polled on
   `/fr/banque/async/otp/SOSD_OTP_GetTransactionState.htm`, woob's documented path, when the page
   script names none) or an SMS code posted with the form's `_FID_CheckOrDeliverBackup` button. On
-  re-login the previous session's whole cookie jar is replayed, as woob does: the
-  remembered-device cookie (`auth_client_state`) alone did not spare the confirmation. The "Gestion des pouvoirs"
+  re-login the previous session's whole cookie jar is replayed, as woob does. The "Gestion des pouvoirs"
   notice is postponed with its `_FID_DoStopPaciAndRemind` button, as woob does.
 - **Accounts**: `/fr/banque/comptes-et-contrats.html`, one `table.ei_comptescontrats` per category,
   captioned "Liste des comptes liés à la catégorie : …". "Comptes courants" rows are `CHECKING`;
@@ -33,6 +32,12 @@ balance.
   the user approves the push in the CIC app, iOS drops Safari's pending `/auth/complete` request; the
   backend finishes regardless. A completion lost without an answer (network error, 502/504) keeps the
   waiting card and polls the session status for up to 150 s instead of reporting a failure.
+
+**Daily sync limit**: CIC asks its customers to confirm on the phone again every 24 hours, with
+no remembered device. The daily 08:00 re-login therefore only gets through within a day of the
+last confirmation; otherwise it withdraws the request at once (no notification left on the phone)
+and the session turns inactive until the customer reconnects. Savings balances move rarely, so
+reconnecting now and then is enough.
 
 The current account also comes from Enable Banking when that connection exists: hide one of the
 two in Settings → Accounts.

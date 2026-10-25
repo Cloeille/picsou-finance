@@ -21,9 +21,10 @@ login and second-factor code below is the cmes-auth sidecar's, kept in step by
 hand: each sidecar is its own build context. Once the second factor is passed,
 the site sets a remembered-device cookie (`auth_client_state`, 90 days on the
 banking sites according to woob's `creditmutuel` module); `/initiate` accepts
-the previous session and replays its whole cookie jar, as woob does, so that a
-stored-credentials re-login needs no one at the phone. That cookie alone is not
-enough: the site asked again when only it was replayed. The mobile-confirmation choreography is the
+the previous session and replays its whole cookie jar, as woob does. On CIC
+retail banking the customer is asked to confirm again every 24 hours whatever
+the cookies, so a stored-credentials re-login only gets through within a day
+of the last confirmation; past that, an unattended one is withdrawn. The mobile-confirmation choreography is the
 one woob documents for these sites; it is reimplemented, not copied.
 
 Only the session cookies are returned to Java, which encrypts them before
@@ -357,9 +358,8 @@ def restore_cookies(client: httpx.AsyncClient, raw: str) -> None:
 def restore_previous_session(client: httpx.AsyncClient, raw: str | None) -> bool:
     """Carry a previous session's cookies over to a new login, as woob does.
 
-    The remembered device is `auth_client_state` plus the other cookies the
-    second factor left (the OTP-auth device id among them): replaying the trust
-    cookie alone brought the confirmation back. Returns whether the trust cookie
+    Whatever the second factor left (`auth_client_state`, the OTP-auth device
+    id...) travels together, as woob keeps it. Returns whether the trust cookie
     was there. An unreadable previous session is ignored: it must never block a
     login.
     """
