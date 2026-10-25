@@ -58,6 +58,8 @@ import {
   useSyncCaisseEpargne,
   useCmesStatus,
   useSyncCmes,
+  useCicStatus,
+  useSyncCic,
   useAmundiStatus,
   useSyncAmundi,
   useFortuneoStatus,
@@ -91,7 +93,7 @@ type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
-    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'cmes'
+    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'cmes' | 'cic'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -120,6 +122,7 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   sofidy: Building2,
   'caisse-epargne': Landmark,
   cmes: PiggyBank,
+  cic: PiggyBank,
 }
 
 /** Which Sync-page tab each provider re-authenticates on. */
@@ -136,6 +139,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   sofidy: 'sofidy',
   'caisse-epargne': 'caisse-epargne',
   cmes: 'cmes',
+  cic: 'cic',
   finary: 'finary',
 }
 
@@ -202,6 +206,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: corumStatus } = useCorumStatus()
   const { data: sofidyStatus } = useSofidyStatus()
   const { data: cmesStatus } = useCmesStatus()
+  const { data: cicStatus } = useCicStatus()
   const { data: accounts } = useAccounts()
 
   // Show TR in modal if: there are active TR accounts, the session is active, or the session
@@ -295,7 +300,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       hasSession: cmesStatus != null && cmesStatus.syncStatus !== 'IDLE',
       failed: cmesStatus?.syncStatus === 'FAILED',
     },
-  ], [cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
+    {
+      type: 'cic' as const, name: 'CIC (livrets)', provider: 'CIC',
+      active: cicStatus?.isActive ?? false, lastSyncedAt: cicStatus?.lastSyncCompletedAt ?? null,
+      failed: cicStatus?.syncStatus === 'FAILED',
+    },
+  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -318,6 +328,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncCorumMutation        = useSyncCorum()
   const syncSofidyMutation       = useSyncSofidy()
   const syncCmesMutation = useSyncCmes()
+  const syncCicMutation = useSyncCic()
 
   // Track syncing state per connection
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set())
@@ -526,6 +537,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'cmes':
         syncCmesMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'cic':
+        syncCicMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'revolut':
         // Remembered credentials: a blank body makes the backend fall back to them. The spinner
         // stays on until the discover → confirm effect below finishes or fails.
@@ -570,6 +584,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncCorumMutation,
     syncSofidyMutation,
     syncCmesMutation,
+    syncCicMutation,
     queryClient,
     t,
   ])

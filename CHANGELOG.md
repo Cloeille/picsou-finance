@@ -47,8 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Caisse d'Epargne tab, where the keypad and Sécur'Pass login run.
 - **CIC savings accounts.** A browserless `cic-auth` sidecar reads the CIC customer site and imports
   the current and savings accounts (Livret A, LDDS, PEL…) that the PSD2 connection does not return,
-  balances only. Mobile confirmation or SMS code once; the site then remembers the device and the
-  daily sync logs in again with the stored credentials. See [docs](docs/features/cic-banking.md).
+  balances only. CIC asks for a mobile confirmation at least once every 24 hours, so the daily sync
+  only goes through within a day of the last confirmation. It is listed in the dashboard's
+  *Sync all* modal, which opens the CIC tab when the session has lapsed.
+  See [docs](docs/features/cic-banking.md).
 - **Crédit Mutuel / CIC Épargne Salariale sync.** A browserless `cmes-auth` sidecar reads the
   saver's space (www.creditmutuel-ere.fr) and imports each plan (PEE, PEG, PERCOL) with its funds:
   units, unit value and gain. The login is confirmed once, in the bank's app or with a code

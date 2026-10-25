@@ -81,6 +81,8 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: corumStatus })
       case '/cmes/status':
         return Promise.resolve({ data: cmesStatus })
+      case '/cic/status':
+        return Promise.resolve({ data: cicStatus })
       case '/sofidy/status':
         return Promise.resolve({ data: sofidyStatus })
       case '/accounts':
@@ -125,6 +127,7 @@ let caisseEpargneStatus: Record<string, unknown>
 let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
 let cmesStatus: Record<string, unknown>
+let cicStatus: Record<string, unknown>
 
 const AMUNDI_INACTIVE = {
   isActive: false, syncStatus: 'IDLE', lastSyncError: null,
@@ -166,6 +169,15 @@ const CMES_ACCOUNT = {
   provider: 'Crédit Mutuel Épargne Salariale',
 }
 
+/** An account created by the CIC (livrets) sidecar (`CicSyncService.PROVIDER`). */
+const CIC_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 7,
+  name: 'Livret Bleu',
+  type: 'SAVINGS',
+  provider: 'CIC',
+}
+
 /** A SCPI account linked to no provider fund; tests set `provider` and the fund codes. */
 const SCPI_ACCOUNT = {
   ...TR_ACCOUNT,
@@ -185,6 +197,7 @@ function resetFixtures() {
   corumStatus = AMUNDI_INACTIVE
   sofidyStatus = AMUNDI_INACTIVE
   cmesStatus = AMUNDI_INACTIVE
+  cicStatus = AMUNDI_INACTIVE
   accountsFixture = [TR_ACCOUNT]
   revolutStatus = REVOLUT_NOT_REMEMBERED
   revolutProgress = REVOLUT_DONE
@@ -551,6 +564,29 @@ describe('SyncAllModal session providers', () => {
     fireEvent.click(within(row).getByRole('button'))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cmes'))
     expect(apiPost).not.toHaveBeenCalledWith('/cmes/sync')
+  })
+
+  it('lists and syncs a live CIC (livrets) session', async () => {
+    cicStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: cicStatus })
+    renderModal()
+
+    const row = (await screen.findByText('CIC (livrets)')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/cic/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  /** CIC asks for a confirmation in its app at least once a day, which only its tab can wait for. */
+  it('keeps an expired CIC (livrets) row with its accounts and routes to its tab', async () => {
+    accountsFixture = [TR_ACCOUNT, CIC_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('CIC (livrets)')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cic'))
+    expect(apiPost).not.toHaveBeenCalledWith('/cic/sync')
   })
 
   it('reports a failed American Express run on a live session', async () => {
