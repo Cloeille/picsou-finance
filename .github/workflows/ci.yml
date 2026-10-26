@@ -48,7 +48,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install the Sofidy contract interpreter
-        run: pip install -r services/sofidy-auth/requirements.txt
+        run: pip install -r services/base/requirements.txt
       - name: Run backend tests
         # Migration tests skip themselves when Docker is unreachable so local runs
         # without a socket still work. Runners always have Docker, so require it here --
@@ -110,6 +110,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared chromium sidecar base
+        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
       - name: Build the Chromium-only sidecar image
         run: docker build --tag picsou-bourse-direct-auth:test services/bourse-direct-auth
       - name: Run parser, lifecycle, and browser navigation tests
@@ -131,6 +133,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared chromium sidecar base
+        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
       - name: Build the Chromium-only sidecar image
         run: docker build --tag picsou-fortuneo-auth:test services/fortuneo-auth
       - name: Run parser, lifecycle, and browser navigation tests
@@ -152,6 +156,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared python sidecar base
+        run: docker build --target python --tag picsou-sidecar-python services/base
       - name: Build the browserless sidecar image
         run: docker build --tag picsou-bourso-auth:test services/bourso-auth
       - name: Run parser, contract and lifecycle tests
@@ -175,12 +181,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared chromium sidecar base
+        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
       - name: Build the sidecar image
         run: docker build --tag picsou-caisse-epargne-auth:test services/caisse-epargne-auth
       # Every test is a stdlib `unittest` case, so the production image runs
       # them as is. The whole services/ tree is mounted read-only:
-      # test_dockerfile.py checks this service's Dockerfile and compares the
-      # Playwright pin with amundi-auth.
+      # test_dockerfile.py checks this service's Dockerfile and the shared
+      # chromium base in services/base.
       - name: Run parser, replay, fetcher, login and contract tests
         run: >-
           docker run --rm
@@ -197,6 +205,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared chromium sidecar base
+        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
       - name: Build the Chromium-only sidecar image
         run: docker build --tag picsou-corum-auth:test --file services/corum-auth/Dockerfile services
       - name: Run parser, navigation and live-contract tests
@@ -241,6 +251,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared python sidecar base
+        run: docker build --target python --tag picsou-sidecar-python services/base
       - name: Build the browserless sidecar image
         run: docker build --tag picsou-sofidy-auth:test services/sofidy-auth
       - name: Run parser, redirect and live-contract tests
@@ -263,6 +275,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared chromium sidecar base
+        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
       - name: Build the Chromium-only sidecar image
         run: docker build --tag picsou-amundi-auth:test services/amundi-auth
       - name: Run parser and lifecycle tests
@@ -303,6 +317,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared python sidecar base
+        run: docker build --target python --tag picsou-sidecar-python services/base
       - name: Build the DEGIRO sidecar image
         run: docker build --tag picsou-degiro-auth:test services/degiro-auth
       - name: Run sidecar tests in the image
@@ -318,6 +334,56 @@ jobs:
           --workdir /tests
           picsou-degiro-auth:test
           -m unittest discover -v
+
+  tr-auth-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the shared chromium sidecar base
+        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
+      - name: Build the Trade Republic sidecar image
+        run: docker build --tag picsou-tr-auth:test services/tr-auth
+      - name: Run sidecar tests in the image
+        run: >-
+          docker run --rm
+          --entrypoint python
+          --env PYTHONPATH=/app
+          --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/tr-auth/main.py:/tests/main.py:ro"
+          --volume "${{ github.workspace }}/services/tr-auth/test_complete_url.py:/tests/test_complete_url.py:ro"
+          --volume "${{ github.workspace }}/services/tr-auth/test_log_safety.py:/tests/test_log_safety.py:ro"
+          --volume "${{ github.workspace }}/services/tr-auth/test_mask_phone.py:/tests/test_mask_phone.py:ro"
+          --volume "${{ github.workspace }}/services/tr-auth/test_refresh_method.py:/tests/test_refresh_method.py:ro"
+          --volume "${{ github.workspace }}/services/tr-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --workdir /tests
+          picsou-tr-auth:test
+          -m unittest discover -v
+
+  compose-sidecar-build:
+    # The Compose wiring (build-only bases, `additional_contexts: service:`)
+    # as users run it, not only as YAML assertions.
+    runs-on: ubuntu-latest
+    env:
+      APP_SIDECAR_API_KEY: ci-test-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Resolve the published Compose file
+        run: |
+          docker compose version
+          docker compose -f docker/docker-compose.yml config --quiet
+      - name: Build one sidecar per base through Compose
+        run: docker compose -f docker/docker-compose.yml build tr-auth bourso-auth
+      - name: The sidecars run on their base
+        run: >-
+          docker compose -f docker/docker-compose.yml run --rm --no-deps
+          --entrypoint python tr-auth
+          -c "import os, playwright; assert os.environ['PLAYWRIGHT_BROWSERS_PATH'] == '/opt/playwright-browsers'"
+      - name: Tear down without a profile
+        run: docker compose -f docker/docker-compose.yml down --volumes --remove-orphans
 
   workflow-inventory:
     runs-on: ubuntu-latest

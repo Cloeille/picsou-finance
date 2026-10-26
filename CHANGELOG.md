@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   process. The Docker install does not start it and no sidecar uses it there. Groundwork
   for the desktop app (#235). See [ADR](docs/decisions/2026-10-18-shared-browser-service.md) and
   [feature note](docs/features/browser-service.md).
+- **Shared sidecar base images.** Nine sidecars now build on two shared images,
+  `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
+  install downloads and stores Chromium and the Python packages once instead of once per
+  sidecar. Amex and Revolut keep their own image (Camoufox). See
+  [ADR](docs/decisions/2026-10-21-shared-sidecar-base-image.md).
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
   the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
   and SCPI distributions, from the annual distribution per share and the frequency you enter
@@ -291,6 +296,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#174](https://github.com/Cloeille/picsou-finance/issues/174))
 
 ### Security
+
+- **Sidecars share one dependency pin set.** Bourse Direct, Fortuneo, Trade Republic and
+  DEGIRO move from fastapi 0.111 (and the Starlette range with published DoS advisories it
+  pulled in) to fastapi 0.141, uvicorn 0.52 and pydantic 2.13, DEGIRO and Trade Republic
+  from httpx 0.27 to 0.28, and Trade Republic from Playwright 1.44 to 1.52. These four no
+  longer get uvicorn's `[standard]` extras (uvloop, httptools, websockets) that fastapi 0.111
+  pulled in: they run on the default asyncio loop and h11, like the other sidecars already did. A future
+  bump is one line in `services/base/requirements*.txt` for all nine sidecars.
 
 - **Every connector sidecar now checks the shared `APP_SIDECAR_API_KEY`.** The
   Trade Republic, Revolut, BoursoBank, Bourse Direct, Amundi, Fortuneo and DEGIRO
