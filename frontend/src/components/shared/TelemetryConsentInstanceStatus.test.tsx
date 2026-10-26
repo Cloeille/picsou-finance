@@ -40,9 +40,10 @@ const ISSUE = { code: 'SIDECAR_UNREACHABLE' as const, sidecar: 'corum-auth', exp
 const FINGERPRINT = 'SIDECAR_UNREACHABLE:corum-auth'
 
 let consent: 'ENABLED' | 'DISABLED' | 'UNSET'
+let qc: QueryClient
 
 function renderBoth() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
       <TelemetryConsentDialog />
@@ -54,10 +55,18 @@ function renderBoth() {
 const consentTitle = () => screen.queryByText('telemetry.consent.title')
 const alertTitle = () => screen.queryByText('admin.instanceStatus.title')
 
+/** Both queries have answered and nothing is refetching, so `open` is final for this render. */
+async function queriesSettled() {
+  await waitFor(() => {
+    expect(qc.getQueryState(['admin', 'instance-status'])?.status).toBe('success')
+    expect(qc.getQueryState(['telemetry', 'config'])?.status).toBe('success')
+    expect(qc.isFetching()).toBe(0)
+  })
+}
+
 async function consentOnScreenAlone() {
   expect(await screen.findByText('telemetry.consent.title')).toBeInTheDocument()
-  await waitFor(() => expect(api.getInstanceStatus).toHaveBeenCalled())
-  await new Promise((r) => setTimeout(r, 20))
+  await queriesSettled()
   expect(alertTitle()).not.toBeInTheDocument()
 }
 
@@ -124,7 +133,7 @@ describe('TelemetryConsentDialog and InstanceStatusDialog together', () => {
     await consentOnScreenAlone()
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
     await waitFor(() => expect(consentTitle()).not.toBeInTheDocument())
-    await new Promise((r) => setTimeout(r, 20))
+    await queriesSettled()
     expect(alertTitle()).not.toBeInTheDocument()
     expect(useAppStore.getState().dismissedInstanceStatusFingerprint).toBe(FINGERPRINT)
   })
