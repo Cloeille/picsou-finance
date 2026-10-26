@@ -53,7 +53,9 @@ check is off, failed, finds nothing newer, or when `APP_VERSION` is not plain `X
 
 **Pop-up.** `InstanceStatusDialog` (mounted in `AppLayout`) opens for an admin, outside demo
 mode, when there is an issue or an update. It waits for the one-time sidebar-style prompt and
-for the telemetry consent dialog, so two modals never stack. It lists each issue with the fix
+for the telemetry consent dialog, so two modals never stack. It waits only while that dialog
+is on screen (`useTelemetryConsentPrompt`): closing it unanswered leaves consent `UNSET` but
+lets the alert through for the rest of the page load. It lists each issue with the fix
 (`docker compose pull` then `docker compose up -d`, or `docker compose up -d --build` with
 Compose v2.33+) and the update with a link to the release notes. Closing it stores a
 fingerprint (sorted `code:sidecar` plus the latest version) in the persisted app store; it
@@ -108,4 +110,6 @@ global error redirect: a 5xx on this optional check never sends the app to `/err
   GitHub errors
 - `AdminControllerTest` — endpoint returns the service result
 - `InstanceStatusDialog.test.tsx` — admin/demo/stacking gates, fingerprint dismiss
+- `TelemetryConsentInstanceStatus.test.tsx` — both dialogs mounted together: X, Escape, Yes
+  and No each let the alert through, and closing never records consent
 - Each base-built sidecar's `test_sidecar_auth.py` — `/health` echoes the base
