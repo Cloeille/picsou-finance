@@ -209,6 +209,10 @@ app:
     url: ${CORUM_AUTH_URL:http://corum-auth:8001}
   sofidy-auth:
     url: ${SOFIDY_AUTH_URL:http://sofidy-auth:8001}
+  # Latest GitHub release, checked at most once per 6 h when an admin opens the app.
+  # APP_UPDATE_CHECK_ENABLED=false skips the call entirely.
+  update-check:
+    enabled: ${APP_UPDATE_CHECK_ENABLED:true}
   # Meria's public API. Overridable like every other external base URL above, which is what lets
   # an integration environment point it at a stub without editing the packaged config.
   # MeriaAdapter carries the same value as its @Value default, so a stripped config still boots.
