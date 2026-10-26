@@ -1,10 +1,13 @@
 """browser-service contract tests. Real Chromium, no TCP debug port, stdlib unittest."""
 
+import asyncio
 import json
 import os
+import signal
 import socket
 import struct
 import subprocess
+import tempfile
 import threading
 import time
 import unittest
@@ -544,6 +547,62 @@ class ReaperTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(closed, ["launch-stuck"])
         self.assertFalse(os.path.exists(leftover))
         self.assertNotIn(leftover, main._pending_wipes)
+
+
+class ShutdownDuringExpiryCloseTest(unittest.IsolatedAsyncioTestCase):
+    async def test_shutdown_finishes_a_close_the_reaper_had_started(self):
+        signals = []
+        in_grace_wait = asyncio.Event()
+
+        class FakeProcess:
+            pid = 424242
+            returncode = None
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+        proc = FakeProcess()
+
+        def fake_signal_group(pgid, sig):
+            signals.append(sig)
+            if sig == signal.SIGTERM:
+                in_grace_wait.set()
+            else:
+                proc.returncode = -sig
+
+        session = main.Session("expiring-session-id", "t")
+        session.proc = proc
+        session.pgid = proc.pid
+        session.data_dir = tempfile.mkdtemp(prefix="picsou-browser-test-")
+        session.ready = True
+        session.claimed = True
+        session.expires_mono = time.monotonic() - 1
+        main._sessions[session.id] = session
+        try:
+            with patch.object(main, "SIDECAR_API_KEY", KEY), \
+                    patch.object(main, "_signal_group", fake_signal_group), \
+                    patch.object(main, "_group_pids", lambda pgid: []), \
+                    patch.object(main, "_KILL_WAIT_S", 0.5):
+                async with main.lifespan(main.app):
+                    await asyncio.wait_for(in_grace_wait.wait(), timeout=5)
+                    # The reaper is now inside close() -> _terminate(): shutdown cancels it there.
+        finally:
+            leftover = main._sessions.pop(session.id, None)
+            data_dir_left = os.path.exists(session.data_dir or "")
+
+        self.assertEqual(signals, [signal.SIGTERM, signal.SIGKILL])
+        self.assertIsNone(leftover)
+        self.assertIsNone(session.data_dir)
+        self.assertFalse(data_dir_left)
+        self.assertEqual(session.read_fd, -1)
+        cleanup = session._cleanup
+        self.assertIsNotNone(cleanup)
+        assert cleanup is not None
+        self.assertTrue(cleanup.done())
+        self.assertEqual(main._cleanups, set())
 
 
 class RefuseCommandTest(unittest.TestCase):

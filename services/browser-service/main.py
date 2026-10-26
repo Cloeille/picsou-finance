@@ -300,7 +300,7 @@ class Session:
         self.expires_at = ""
         self._closed = False
         self._close_lock = asyncio.Lock()
-        self._done: asyncio.Event | None = None
+        self._cleanup: asyncio.Task[None] | None = None
         self._buf = bytearray()
         self._early: list[str] = []
         self._inbox: asyncio.Queue[str | None] = asyncio.Queue()
@@ -505,37 +505,33 @@ class Session:
             await asyncio.to_thread(self._write_all, text.encode("utf-8") + b"\0")
 
     async def close(self, reason: str) -> None:
-        start = False
         async with self._close_lock:
             if reason == "claim-timeout" and self.claimed and not self._closed:
                 return
-            if self._closed:
-                done = self._done
-            else:
+            if not self._closed:
                 self._closed = True
                 self.token = ""
-                self._done = asyncio.Event()
-                done = self._done
-                start = True
                 log.info("session %s closing reason=%s", self.prefix, reason)
-        if not start:
-            if done is not None:
-                await done.wait()
-            return
-        assert done is not None
-        try:
-            await self._terminate()
-            self._stop_io()
-            await asyncio.to_thread(self._wipe)
-            async with _sessions_lock:
-                _sessions.pop(self.id, None)
-            websocket = self.websocket
-            self.websocket = None
-            if websocket is not None:
-                with suppress(Exception):
-                    await asyncio.wait_for(websocket.close(code=1001), timeout=1)
-        finally:
-            done.set()
+                # Its own task: cancelling a caller (the reaper at shutdown) must
+                # not stop the kill, the wipe or the registry removal halfway.
+                self._cleanup = asyncio.get_running_loop().create_task(self._cleanup_resources())
+                _cleanups.add(self._cleanup)
+                self._cleanup.add_done_callback(_cleanups.discard)
+            cleanup = self._cleanup
+        if cleanup is not None:
+            await asyncio.shield(cleanup)
+
+    async def _cleanup_resources(self) -> None:
+        await self._terminate()
+        self._stop_io()
+        await asyncio.to_thread(self._wipe)
+        async with _sessions_lock:
+            _sessions.pop(self.id, None)
+        websocket = self.websocket
+        self.websocket = None
+        if websocket is not None:
+            with suppress(Exception):
+                await asyncio.wait_for(websocket.close(code=1001), timeout=1)
 
     async def _terminate(self) -> None:
         proc = self.proc
@@ -567,6 +563,8 @@ class Session:
 
 
 _pending_wipes: set[str] = set()
+# In-flight Session cleanups, including those whose caller was cancelled.
+_cleanups: set[asyncio.Task[None]] = set()
 
 
 def _remove_dir(path: str) -> bool:
@@ -634,6 +632,8 @@ async def _shutdown_sessions() -> None:
     async with _sessions_lock:
         sessions = list(_sessions.values())
     await asyncio.gather(*(session.close("shutdown") for session in sessions), return_exceptions=True)
+    # A cleanup whose session already left the registry can still be closing its socket.
+    await asyncio.gather(*list(_cleanups), return_exceptions=True)
 
 
 @asynccontextmanager

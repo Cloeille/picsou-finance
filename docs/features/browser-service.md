@@ -47,6 +47,9 @@ Allowed extra args: `--disable-blink-features=AutomationControlled` only.
 - Chromium stderr is discarded. A profile dir that cannot be removed is retried
   by the reaper until it is gone.
 - Kill on WS close, `DELETE`, TTL, unclaimed timeout, Chromium exit, shutdown.
+  The kill, wipe and registry removal run in their own task: cancelling the
+  caller (the reaper at shutdown) does not stop them halfway, and shutdown waits
+  for every cleanup in flight.
 - Logs: session id prefix and lifecycle reason only.
 
 ## Configuration
