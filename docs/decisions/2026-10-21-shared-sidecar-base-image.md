@@ -14,7 +14,7 @@ nine `requirements.txt` files, and was not.
 Each sidecar built its own copy of the same layers. Docker shares a layer between
 images only when it is the same layer (same digest), so a Compose install pulled
 and stored Chromium six times. Measured on 1.1.0 (issue #235,
-`services/scripts/shared_env_check.py` in #242): 6 × 894 MiB of Chromium and
+a throwaway check in #242): 6 × 894 MiB of Chromium and
 1,178 MiB of per-sidecar Python environments, against 894 MiB and 159 MiB for one
 copy of each.
 

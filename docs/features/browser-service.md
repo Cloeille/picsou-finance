@@ -1,6 +1,6 @@
 # Shared browser service
 
-> Last updated: 2026-10-21
+> Last updated: 2026-10-26
 > Status: draft (1.2.0, issue #235), desktop app only. Pilot: corum-auth.
 
 ## What it does
@@ -81,4 +81,4 @@ set `BROWSER_SERVICE_URL` on corum-auth.
 - `services/browser-service/main.py`, `Dockerfile`, `test_browser_service.py`
 - `services/shared/picsou_browser/__init__.py`, `services/shared/test_picsou_browser.py`
 - `services/corum-auth/main.py` (`_new_browser`, `_close_resources`), `test_browser_pilot.py`
-- `services/requirements-shared.txt`, `services/scripts/shared_env_check.py`
+- Environment: `services/base` (target `chromium`), shared with the Docker sidecars

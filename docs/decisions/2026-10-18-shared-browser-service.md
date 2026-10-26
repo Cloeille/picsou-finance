@@ -5,14 +5,21 @@
 
 ## Context
 
-Issue #235 adds a desktop app that bundles every sidecar. Today each Playwright
-sidecar image downloads its own Chromium. Measured on 1.1.0
-(`services/scripts/shared_env_check.py`, python:3.12-slim-bookworm, x86_64):
+Issue #235 adds a desktop app that bundles every sidecar, without Docker.
+Measured before 1.1.0 (python:3.12-slim-bookworm, x86_64), when each sidecar
+image installed its own environment:
 
-- 6 sidecars install Chromium (amundi, bourse-direct, caisse-epargne, corum,
+- 6 sidecars installed Chromium (amundi, bourse-direct, caisse-epargne, corum,
   fortuneo, tr): 6 × 894 MiB ≈ 5.4 GiB, against 894 MiB for one copy.
-- 9 per-sidecar Python environments add up to 1,178 MiB. One environment built
-  from `services/requirements-shared.txt` is 159 MiB.
+- 9 per-sidecar Python environments added up to 1,178 MiB, against 159 MiB for
+  one environment from a single pin set. All 967 unit tests of those nine
+  sidecars passed on it unchanged.
+
+Since #249 the Docker install shares both: nine sidecars build on
+`services/base` (`sidecar-python`, `sidecar-chromium`, one pin set), and Docker
+starts each sidecar's Chromium on demand inside its container
+([ADR 2026-10-21](./2026-10-21-shared-sidecar-base-image.md)). The desktop app
+has no Docker to share layers or to own processes, and needs the same result.
 
 The issue also asks that the desktop app stay light at idle, start sidecars and
 Chromium on demand, and leave no orphan Chromium after a crash.
@@ -37,8 +44,11 @@ a sidecar asks it for a session:
 Sidecars call `picsou_browser.launch_chromium()`. Without `BROWSER_SERVICE_URL`
 it launches Chromium locally, exactly as today.
 
-**Scope: the desktop app only.** The service rebuilds, outside Docker, what
-Docker already gives a Compose install:
+**Scope: the desktop app only.** The desktop app ships one Python environment
+built from `services/base/requirements.txt` and `requirements-chromium.txt`, the
+pins of the Docker base, and one Chromium installed by that Playwright.
+browser-service rebuilds, outside Docker, what Docker already gives a Compose
+install:
 
 - one Chromium on disk: Docker shares image layers, so sidecars built `FROM`
   one published base image download and store Chromium once;
@@ -117,18 +127,17 @@ lifecycle owner. B's saving is RAM at peak, which the cap already bounds.
   the separate headless shell. The fingerprint a site sees may differ. A live
   CORUM login and positions sync through the service passed on 2026-10-19
   (Cloudflare accepted it); every other site must be checked when it moves.
-- **Sidecar images keep their own Chromium** for the local fallback, which is
-  the path Docker uses. The desktop packaging decides how sidecars run there.
+- **Docker keeps the local launch.** corum-auth's image builds on
+  `sidecar-chromium` and launches its own Chromium from it when
+  `BROWSER_SERVICE_URL` is unset, which is the Docker path. The desktop
+  packaging decides how sidecars run there.
 
 ## Consequences
 
 - New `services/browser-service/` (image and CI job, no GHCR publication, no
   Compose service) and `services/shared/picsou_browser/` client package.
-- corum-auth builds from the `services/` context and installs
-  `services/requirements-shared.txt`.
-- `services/requirements-shared.txt` is a candidate single environment for the
-  nine non-Camoufox sidecars: all 967 of their existing unit tests pass on it
-  unchanged, including tr-auth on Playwright 1.52 instead of 1.44. Only corum
-  uses it in this PR.
+- browser-service and corum-auth build on `sidecar-chromium`, from the
+  `services/` context so they can copy `picsou_browser`. No second pin set:
+  the desktop environment and the Docker base share `services/base`.
 - The desktop app would start browser-service on demand as a child process,
   bound to `127.0.0.1` on a random port.

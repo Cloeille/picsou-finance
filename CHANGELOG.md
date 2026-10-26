@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `browser-service` owns the only Chromium binary and starts one fresh Chromium process
   per login or sync, wiped when it ends. It rebuilds, outside Docker, what Docker already
   gives a Compose install: one copy of Chromium on disk and one owner for every browser
-  process. The Docker install does not start it and no sidecar uses it there. Groundwork
+  process. It runs on the same pins and Chromium as the shared sidecar base. The Docker
+  install does not start it and no sidecar uses it there. Groundwork
   for the desktop app (#235). See [ADR](docs/decisions/2026-10-18-shared-browser-service.md) and
   [feature note](docs/features/browser-service.md).
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
