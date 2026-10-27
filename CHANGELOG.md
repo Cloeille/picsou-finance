@@ -238,7 +238,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
   the card's corner could still hit delete). They now stay visible on touch screens and when
   keyboard focus is inside the card.
-
+- **Hidden accounts no longer count in the budget.** Hiding an account already took it out of
+  the dashboard and allocation views, but its transactions still fed spending, cashflow,
+  envelopes and recurring detection. When the same bank account is synced by two connectors
+  and one copy is hidden, every movement was counted twice. Opening the hidden account itself
+  still lists its transactions.
 - **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead

@@ -35,34 +35,7 @@ class TransactionRepositoryAccountFetchTest {
     TestEntityManager testEntityManager;
 
     @Test
-    @Sql(statements = {
-        "ALTER TABLE account ADD cash_balance DECIMAL(20, 8)",
-        "ALTER TABLE account ADD color VARCHAR(7)",
-        "ALTER TABLE account ADD created_at TIMESTAMP",
-        "ALTER TABLE account ADD currency VARCHAR(10)",
-        "ALTER TABLE account ADD current_balance DECIMAL(20, 8)",
-        "ALTER TABLE account ADD external_account_id VARCHAR(100)",
-        "ALTER TABLE account ADD hidden BOOLEAN",
-        "ALTER TABLE account ADD iban VARCHAR(34)",
-        "ALTER TABLE account ADD last_synced_at TIMESTAMP",
-        "ALTER TABLE account ADD logo_key VARCHAR(32)",
-        "ALTER TABLE account ADD logo_url VARCHAR(255)",
-        "ALTER TABLE account ADD name VARCHAR(100)",
-        "ALTER TABLE account ADD opened_at DATE",
-        "ALTER TABLE account ADD parent_account_id BIGINT",
-        "ALTER TABLE account ADD payment_due_amount DECIMAL(20, 8)",
-        "ALTER TABLE account ADD payment_due_date DATE",
-        "ALTER TABLE account ADD provider VARCHAR(100)",
-        "ALTER TABLE account ADD requisition_id BIGINT",
-        "ALTER TABLE account ADD reward_points BIGINT",
-        "ALTER TABLE account ADD ticker VARCHAR(20)",
-        "ALTER TABLE account ADD type VARCHAR(100)",
-        "ALTER TABLE account ADD updated_at TIMESTAMP",
-        "UPDATE account SET hidden = FALSE",
-        "CREATE TABLE category (id BIGINT PRIMARY KEY, member_id BIGINT NOT NULL, kind VARCHAR(20) NOT NULL)",
-        "INSERT INTO category (id, member_id, kind) VALUES (10, 1, 'TRANSFER')",
-        "INSERT INTO category (id, member_id, kind) VALUES (11, 1, 'EXPENSE')"
-    })
+    @Sql("classpath:sql/transaction-repository-account-fetch.sql")
     void kindAndDateQueryFetchesAccountAndPreservesFilters() {
         testEntityManager.getEntityManager().createNativeQuery("UPDATE account SET member_id = 2 WHERE id = 2")
             .executeUpdate();
@@ -90,6 +63,41 @@ class TransactionRepositoryAccountFetchTest {
             .containsExactly("matching", "wrong-kind");
         assertThat(dateRangeResult).allSatisfy(transaction ->
             assertThat(persistenceUnitUtil.isLoaded(transaction, "account")).isTrue());
+    }
+
+    @Test
+    @Sql(scripts = "classpath:sql/transaction-repository-account-fetch.sql",
+        statements = "INSERT INTO account (id, is_manual, hidden) VALUES (4, FALSE, TRUE)")
+    void budgetQueriesSkipHiddenAccounts() {
+        LocalDate from = LocalDate.of(2026, 6, 1);
+        LocalDate to = LocalDate.of(2026, 6, 30);
+        persist(1L, 11L, LocalDate.of(2026, 6, 10), "visible");
+        persist(4L, 11L, LocalDate.of(2026, 6, 10), "hidden-copy");
+        persist(1L, 10L, LocalDate.of(2026, 6, 11), "visible-transfer");
+        persist(4L, 10L, LocalDate.of(2026, 6, 11), "hidden-transfer");
+        testEntityManager.flush();
+        testEntityManager.clear();
+
+        assertThat(transactionRepository.findByMemberIdAndDateBetween(1L, from, to))
+            .extracting(Transaction::getDescription).containsExactly("visible", "visible-transfer");
+        assertThat(transactionRepository.searchByMember(1L, from, to, null, null))
+            .extracting(Transaction::getDescription).containsExactly("visible-transfer", "visible");
+        assertThat(transactionRepository.findByMemberIdAndCategoryIdAndDateBetween(1L, 11L, from, to))
+            .extracting(Transaction::getDescription).containsExactly("visible");
+        assertThat(transactionRepository.findByMemberIdAndCategoryIdInAndDateBetween(1L, List.of(10L, 11L), from, to))
+            .extracting(Transaction::getDescription).containsExactly("visible-transfer", "visible");
+        assertThat(transactionRepository.findByMemberIdAndKindAndDateBetween(1L, CategoryKind.TRANSFER, from, to))
+            .extracting(Transaction::getDescription).containsExactly("visible-transfer");
+        assertThat(transactionRepository.sumByCategoryIdAndDateBetween(11L, from, to))
+            .isEqualByComparingTo(BigDecimal.ONE);
+        assertThat(transactionRepository.sumByCategoryIdInAndDateBetween(List.of(10L, 11L), from, to))
+            .isEqualByComparingTo(BigDecimal.valueOf(2));
+        assertThat(transactionRepository.sumByMemberIdAndKindAndDateBetween(1L, CategoryKind.EXPENSE, from, to))
+            .isEqualByComparingTo(BigDecimal.ONE);
+
+        // Asking for the hidden account by id still lists its rows (account detail views).
+        assertThat(transactionRepository.searchByMember(1L, from, to, 4L, null))
+            .extracting(Transaction::getDescription).containsExactly("hidden-transfer", "hidden-copy");
     }
 
     private void persist(long accountId, long categoryId, LocalDate date, String description) {
