@@ -14,6 +14,7 @@ import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.AccountAccessResolver;
 import com.picsou.service.DividendForecastService;
+import com.picsou.service.DividendReceiptService;
 import com.picsou.service.UserContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,7 @@ class DividendControllerAuthorizationTest {
     private static final long MEMBER = 7L;
 
     @Mock UserContext userContext;
+    @Mock DividendReceiptService receiptService;
     @Mock AccountAccessResolver access;
     @Mock AccountHoldingRepository holdings;
     @Mock DividendSourceRepository sources;
@@ -57,7 +59,7 @@ class DividendControllerAuthorizationTest {
     void setUp() {
         DividendForecastService forecast = new DividendForecastService(
             access, holdings, sources, positions, transactions);
-        mvc = MockMvcBuilders.standaloneSetup(new DividendController(forecast, userContext))
+        mvc = MockMvcBuilders.standaloneSetup(new DividendController(forecast, receiptService, userContext))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
     }

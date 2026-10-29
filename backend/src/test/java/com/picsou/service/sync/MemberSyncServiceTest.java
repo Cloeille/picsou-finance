@@ -41,6 +41,7 @@ class MemberSyncServiceTest {
     @Mock private WalletSyncService walletSyncService;
     @Mock private FinaryApiSyncService finaryApiSyncService;
     @Mock private DegiroSyncService degiroSyncService;
+    @Mock private DividendReceiptService dividendReceiptService;
 
     private MemberSyncService memberSyncService;
 
@@ -50,7 +51,7 @@ class MemberSyncServiceTest {
             revolutSyncService, syncService, trSyncService, boursoSyncService,
             bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService,
             ibkrSyncService, simplefinSyncService, cryptoExchangeSyncService, walletSyncService,
-            finaryApiSyncService, degiroSyncService
+            finaryApiSyncService, degiroSyncService, dividendReceiptService
         );
     }
 
@@ -222,6 +223,32 @@ class MemberSyncServiceTest {
         verify(revolutSyncService).resyncReporting(memberId);
         verify(amundiSyncService).resyncReporting(memberId);
         verifyNoInteractions(boursoSyncService, trSyncService); // etc
+    }
+
+    @Test
+    void resyncScheduled_classifiesDividendsOnceAfterTheSources() {
+        Long memberId = 51L;
+        when(walletSyncService.resyncAll(memberId)).thenReturn(new ResyncSummary(1, 1, List.of()));
+        when(finaryApiSyncService.autoSync(memberId)).thenReturn(new FinaryAutoSyncResponse("OK", 1, 0));
+
+        memberSyncService.resyncScheduled(memberId);
+
+        InOrder inOrder = inOrder(finaryApiSyncService, dividendReceiptService);
+        inOrder.verify(finaryApiSyncService).autoSync(memberId);
+        inOrder.verify(dividendReceiptService).classifyRecent(eq(memberId), any(java.time.LocalDate.class));
+        verify(dividendReceiptService, times(1)).classifyRecent(eq(memberId), any(java.time.LocalDate.class));
+    }
+
+    @Test
+    void dividendClassificationFailureDoesNotChangeTheSyncResults() {
+        Long memberId = 52L;
+        when(amexSyncService.resyncReporting(memberId)).thenReturn(success("amex"));
+        when(dividendReceiptService.classifyRecent(eq(memberId), any(java.time.LocalDate.class)))
+            .thenThrow(new IllegalStateException("db down"));
+
+        List<SourceSyncResult> results = memberSyncService.resyncForUser(memberId, Set.of("amex"));
+
+        assertThat(results).containsExactly(success("amex"));
     }
 
     @Test

@@ -1,13 +1,14 @@
 # Feature: Dividend forecast
 
-> Last updated: 2026-10-21
+> Last updated: 2026-10-29
 
 ## Context
 
 Picsou knew what a member holds but not the income those holdings will pay. This feature
 forecasts **future** dividends of listed shares and ETFs, and SCPI distributions, and shows them
 in Budget as upcoming capital income and on the page of a compte-titres or a PEA (issue #244).
-Past dividends are not forecast: they are classified from the real payment on the account.
+Past dividends are not forecast: they are recognised from the real payment on the account,
+see [Received dividends](#received-dividends).
 
 ## How it works
 
@@ -68,6 +69,37 @@ and a rate exists, the Nasdaq amount replaces the Yahoo one.
   distribution: the money stays in the envelope. Such lines are listed but left out of the
   Budget total. The rule lives in the backend only.
 
+### Received dividends
+
+A cash credit is recognised as a dividend from the stored history, with no network call.
+`DividendReceiptService.classifyRecent(memberId, today)` runs after every member sync
+(`MemberSyncService`, in `resyncScheduled` and both `resyncForUser`). It is best effort: a
+failure is logged and never changes the sync result.
+
+1. Owned accounts only. Categories are member-scoped, so a co-owned row is classified by its owner.
+2. Credits of the last 45 days: amount > 0, category not set manually, type empty, `DEPOSIT` or `DIVIDEND`.
+3. Candidate lines: the positive holdings of the credited account. With none, the owned
+   accounts of the same provider (Trade Republic pays into "TR Cash" while the lines sit on the PEA).
+   Crypto lines are skipped.
+4. The event is the one with the latest ex-date in the 60 days before the credit. When it has a
+   payment date, the credit must fall within 7 days of it.
+5. Expected amount = quantity x per-share amount (`amountEur` for a EUR credit, `amount` when the
+   credit currency is the source currency, otherwise skipped). Kept when received / expected
+   is within 0.40 to 1.10, which absorbs withholding tax and FX drift.
+6. **Evidence is required, an amount alone is not enough** (a 100 EUR deposit must not become a
+   dividend): the row is already typed `DIVIDEND`, or its label has `divid`, `coupon`, `dvd` or
+   `distribution`, or it names the instrument (ticker root or a distinctive word of the holding name).
+   A candidate naming the instrument wins; else a keyword or `DIVIDEND` type with exactly one
+   candidate; otherwise the row stays untouched.
+7. The row gets `txType = DIVIDEND`, its ticker and name when empty, and the member's
+   `revenus-capital` category when it has none or an automatic INCOME one. A TRANSFER or
+   EXPENSE auto category and a manual category are kept. A second run changes nothing.
+
+`GET /api/dividends/received?days=30` (clamped to 1..366) lists the `DIVIDEND` rows of every
+readable account. Each line has the same `id` as the forecast line it fulfils
+(`HOLDING:accountId:ticker:exDate`), or `HOLDING:accountId:ticker:tx<id>` when no ex-date is
+known, so a push notifier can say "you received the TotalEnergies dividend".
+
 ### API
 
 `GET /api/dividends/upcoming?horizonDays=60[&accountId=12]` (horizon clamped to 1..366). Each
@@ -89,6 +121,7 @@ notifier (iOS, 2.0) can use to tell "already sent" from "new".
 - `adapter/YahooFinancePriceProvider.java` (`fetchDividendHistory`), `adapter/NasdaqDividendProvider.java`
 - `service/DividendHistoryService.java` — weekly refresh, merge of both sources
 - `service/DividendForecastService.java` — cadence, projection, lag, SCPI, budget flag
+- `service/DividendReceiptService.java` — recognises received dividends, `received` list
 - `controller/DividendController.java`
 - `db/migration/V116__dividend_forecast.sql` — `dividend_source`, `dividend_event`, SCPI fields,
   `revenus-capital` category back-fill
@@ -105,6 +138,11 @@ notifier (iOS, 2.0) can use to tell "already sent" from "new".
   user agent, `Origin` and `Referer`). Those headers are a product decision and are set once
   per request, not also as client defaults.
 - Amounts are gross; withholding tax and PFU are not applied.
+- The expected amount uses today's quantity, not the quantity held at the ex-date.
+- A dividend with no label evidence stays unclassified, even when its amount fits.
+- A co-owned row is classified by the owner only, so it can be listed by `received` before the
+  owner's next sync.
+- `amount` in `/received` is the credit as booked, not weighted by the member's share.
 
 ## Links
 

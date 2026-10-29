@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
+  Picsou matches it to the dividend history it already holds, marks it as a dividend and files
+  it under capital income. `GET /api/dividends/received` lists them, with the same id as the
+  forecast line they fulfil. A deposit that merely has a similar amount is left alone.
+
 - **Instance-status alert for admins.** An admin sees a pop-up when a sidecar the household
   uses does not answer, or still runs an image from before the shared base images (typically
   a build that failed because `sidecar-python` or `sidecar-chromium` was missing), with the

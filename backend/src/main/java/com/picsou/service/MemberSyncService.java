@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -51,6 +52,7 @@ public class MemberSyncService {
     private final WalletSyncService walletSyncService;
     private final FinaryApiSyncService finaryApiSyncService;
     private final DegiroSyncService degiroSyncService;
+    private final DividendReceiptService dividendReceiptService;
 
     public MemberSyncService(
             RevolutSyncService revolutSyncService,
@@ -66,7 +68,8 @@ public class MemberSyncService {
             CryptoExchangeSyncService cryptoExchangeSyncService,
             WalletSyncService walletSyncService,
             FinaryApiSyncService finaryApiSyncService,
-            DegiroSyncService degiroSyncService) {
+            DegiroSyncService degiroSyncService,
+            DividendReceiptService dividendReceiptService) {
         this.revolutSyncService = revolutSyncService;
         this.syncService = syncService;
         this.trSyncService = trSyncService;
@@ -81,6 +84,7 @@ public class MemberSyncService {
         this.walletSyncService = walletSyncService;
         this.finaryApiSyncService = finaryApiSyncService;
         this.degiroSyncService = degiroSyncService;
+        this.dividendReceiptService = dividendReceiptService;
     }
 
     public List<SourceSyncResult> resyncScheduled(Long memberId) {
@@ -94,6 +98,7 @@ public class MemberSyncService {
             SourceSyncResult r = executeSource(source, memberId);
             results.add(r);
         }
+        classifyDividends(memberId);
         return results;
     }
 
@@ -103,6 +108,7 @@ public class MemberSyncService {
             SourceSyncResult r = executeSource(source, memberId);
             results.add(r);
         }
+        classifyDividends(memberId);
         return results;
     }
 
@@ -114,7 +120,20 @@ public class MemberSyncService {
                 results.add(r);
             }
         }
+        classifyDividends(memberId);
         return results;
+    }
+
+    /**
+     * Runs after the sources so a dividend that just landed is recognised on the same sync.
+     * Best effort: a failure here is logged and never changes the sync result.
+     */
+    private void classifyDividends(Long memberId) {
+        try {
+            dividendReceiptService.classifyRecent(memberId, LocalDate.now());
+        } catch (RuntimeException ex) {
+            log.warn("Dividend classification failed for member {}", memberId, ex);
+        }
     }
 
     private SourceSyncResult executeSource(String source, Long memberId) {
