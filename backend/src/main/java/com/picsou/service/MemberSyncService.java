@@ -132,7 +132,7 @@ public class MemberSyncService {
         try {
             dividendReceiptService.classifyRecent(memberId, LocalDate.now());
         } catch (RuntimeException ex) {
-            log.warn("Dividend classification failed for member {}", memberId, ex);
+            log.error("Dividend classification failed for member {}", memberId, ex);
         }
     }
 

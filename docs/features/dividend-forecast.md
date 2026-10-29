@@ -77,7 +77,10 @@ A cash credit is recognised as a dividend from the stored history, with no netwo
 failure is logged and never changes the sync result.
 
 1. Owned accounts only. Categories are member-scoped, so a co-owned row is classified by its owner.
-2. Credits of the last 45 days: amount > 0, category not set manually, type empty, `DEPOSIT` or `DIVIDEND`.
+2. Credits of the last 45 days: amount > 0, category not set manually, type empty, `DEPOSIT` or `DIVIDEND`,
+   category empty or of kind INCOME, and not a Trade Republic `TRADING` row. A TRANSFER or EXPENSE
+   auto category marks a trade leg (TR books the BUY investment leg and the SELL cash leg as
+   positive `DEPOSIT`s), so such a row is never retyped.
 3. Candidate lines: the positive holdings of the credited account. With none, the owned
    accounts of the same provider (Trade Republic pays into "TR Cash" while the lines sit on the PEA).
    Crypto lines are skipped.
@@ -87,18 +90,22 @@ failure is logged and never changes the sync result.
    credit currency is the source currency, otherwise skipped). Kept when received / expected
    is within 0.40 to 1.10, which absorbs withholding tax and FX drift.
 6. **Evidence is required, an amount alone is not enough** (a 100 EUR deposit must not become a
-   dividend): the row is already typed `DIVIDEND`, or its label has `divid`, `coupon`, `dvd` or
-   `distribution`, or it names the instrument (ticker root or a distinctive word of the holding name).
+   dividend): the row is already typed `DIVIDEND`, or a label word starts with `divid`, `coupon`,
+   `dvd` or `distribution` (a word prefix, so `INDIVIDUEL` is not evidence), or it names the
+   instrument (a distinctive word of the holding name, or the ticker root: 4 letters or more alone,
+   a 3-letter root such as `AIR` or `SAN` only next to a keyword or a `DIVIDEND` type).
    A candidate naming the instrument wins; else a keyword or `DIVIDEND` type with exactly one
    candidate; otherwise the row stays untouched.
 7. The row gets `txType = DIVIDEND`, its ticker and name when empty, and the member's
-   `revenus-capital` category when it has none or an automatic INCOME one. A TRANSFER or
-   EXPENSE auto category and a manual category are kept. A second run changes nothing.
+   `revenus-capital` category when it has none or an automatic INCOME one. A second run changes nothing.
 
 `GET /api/dividends/received?days=30` (clamped to 1..366) lists the `DIVIDEND` rows of every
 readable account. Each line has the same `id` as the forecast line it fulfils
 (`HOLDING:accountId:ticker:exDate`), or `HOLDING:accountId:ticker:tx<id>` when no ex-date is
-known, so a push notifier can say "you received the TotalEnergies dividend".
+known, so a push notifier can say "you received the TotalEnergies dividend". `accountId`,
+`accountType` and `countsInBudget` are those of the account holding the line: a Trade Republic
+dividend credited to "TR Cash" for a PEA line reports the PEA, like the forecast does. With no
+readable holder of that ticker, or several of the same provider, the credited account is kept.
 
 ### API
 
@@ -140,9 +147,18 @@ notifier (iOS, 2.0) can use to tell "already sent" from "new".
 - Amounts are gross; withholding tax and PFU are not applied.
 - The expected amount uses today's quantity, not the quantity held at the ex-date.
 - A dividend with no label evidence stays unclassified, even when its amount fits.
+- Only Trade Republic trade legs are excluded by type (`TRADING`). Another broker's sale credit,
+  uncategorised and labelled with the instrument name, is still recognised when its amount fits
+  the band.
+- `/received` resolves the holding account among every readable account, so a co-owned account
+  holding the same ticker can be reported for a credit on the member's own cash account.
 - A co-owned row is classified by the owner only, so it can be listed by `received` before the
   owner's next sync.
 - `amount` in `/received` is the credit as booked, not weighted by the member's share.
+- `/received` lists every readable `DIVIDEND` row, including a broker-typed one that no stored
+  event fits (then `exDate` and `amountPerShare` are null, and the row may stay uncategorised).
+- In `/received`, `exDate` and `amountPerShare` come from the latest event in the 60 days before
+  the credit, with no amount-fit check: they describe the likely payment, not a proven one.
 
 ## Links
 

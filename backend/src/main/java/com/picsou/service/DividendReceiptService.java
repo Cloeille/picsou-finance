@@ -55,11 +55,14 @@ public class DividendReceiptService {
     static final BigDecimal MIN_RATIO = new BigDecimal("0.40");
     static final BigDecimal MAX_RATIO = new BigDecimal("1.10");
     static final String CATEGORY_SLUG = "revenus-capital";
+    /** Raw Trade Republic category of a BUY or SELL row, kept even when no Picsou category resolved. */
+    private static final String TRADING = "TRADING";
     static final int MIN_DAYS = 1;
     static final int MAX_DAYS = 366;
 
     private static final int RATIO_SCALE = 8;
     private static final int MIN_ROOT_LENGTH = 3;
+    private static final int MIN_STRONG_ROOT_LENGTH = 4;
     private static final int MIN_NAME_TOKEN_LENGTH = 4;
     private static final List<String> KEYWORDS = List.of("divid", "coupon", "dvd", "distribution");
     // Words shared by many issuers or fund families: matching one would name no instrument.
@@ -183,12 +186,18 @@ public class DividendReceiptService {
             return List.of();
         }
         Map<String, DividendSource> byTicker = sourcesByTicker(rows.stream().map(Transaction::getTicker).toList());
+        List<Line> lines = holdings.findPositiveByAccountIdIn(byId.keySet()).stream()
+            .filter(h -> h.getAccount() != null && h.getTicker() != null)
+            .map(h -> new Line(byId.get(h.getAccount().getId()), h))
+            .filter(line -> line.account() != null)
+            .toList();
         List<ReceivedDividendResponse> out = new ArrayList<>();
         for (Transaction tx : rows) {
-            Account account = tx.getAccount() == null ? null : byId.get(tx.getAccount().getId());
-            if (account == null) {
+            Account credited = tx.getAccount() == null ? null : byId.get(tx.getAccount().getId());
+            if (credited == null) {
                 continue;
             }
+            Account account = holdingAccount(credited, tx.getTicker(), lines);
             DividendSource source = byTicker.get(tx.getTicker().toUpperCase(Locale.ROOT));
             DividendEvent event = source == null ? null : eventFor(source, tx.getDate());
             LocalDate exDate = event == null ? null : event.getExDate();
@@ -214,9 +223,34 @@ public class DividendReceiptService {
         return out;
     }
 
+    /**
+     * The account that holds the line: the credited one when it holds the ticker, else a readable
+     * account of the same provider that does (Trade Republic credits "TR Cash" for a PEA line).
+     * The forecast id and the budget flag come from that account.
+     */
+    private static Account holdingAccount(Account credited, String ticker, List<Line> lines) {
+        List<Account> holders = lines.stream()
+            .filter(line -> line.holding().getTicker().equalsIgnoreCase(ticker))
+            .map(Line::account)
+            .toList();
+        if (holders.stream().anyMatch(a -> Objects.equals(a.getId(), credited.getId()))
+            || credited.getProvider() == null) {
+            return credited;
+        }
+        List<Account> sameProvider = holders.stream()
+            .filter(a -> credited.getProvider().equals(a.getProvider()))
+            .distinct()
+            .toList();
+        return sameProvider.size() == 1 ? sameProvider.getFirst() : credited;
+    }
+
     private static boolean isClassifiable(Transaction tx) {
+        // A TRANSFER or EXPENSE auto category marks a trade leg (Trade Republic books a BUY
+        // investment leg and a SELL cash leg as positive DEPOSITs): never a dividend.
         return tx.getAmount() != null && tx.getAmount().signum() > 0
             && !tx.isCategoryManual()
+            && replaceable(tx.getCategoryRef())
+            && !TRADING.equalsIgnoreCase(tx.getCategory())
             && (tx.getTxType() == null || tx.getTxType() == TransactionType.DEPOSIT
                 || tx.getTxType() == TransactionType.DIVIDEND);
     }
@@ -260,10 +294,11 @@ public class DividendReceiptService {
     }
 
     private Line pick(Transaction credit, List<Line> lines, Map<String, DividendSource> byTicker) {
-        String label = labelOf(credit);
-        boolean keyword = KEYWORDS.stream().anyMatch(label::contains);
+        Set<String> labelWords = wordsOf(labelOf(credit));
+        // Word prefixes, not substrings: "divid" must not match "individuel".
+        boolean keyword = labelWords.stream()
+            .anyMatch(word -> KEYWORDS.stream().anyMatch(word::startsWith));
         boolean declared = credit.getTxType() == TransactionType.DIVIDEND;
-        Set<String> labelWords = wordsOf(label);
         List<Line> candidates = new ArrayList<>();
         for (Line line : lines) {
             String ticker = line.holding().getTicker();
@@ -277,7 +312,7 @@ public class DividendReceiptService {
             }
         }
         List<Line> named = candidates.stream()
-            .filter(line -> namesInstrument(labelWords, line.holding()))
+            .filter(line -> namesInstrument(labelWords, line.holding(), keyword || declared))
             .toList();
         if (named.size() == 1) {
             return named.getFirst();
@@ -334,11 +369,16 @@ public class DividendReceiptService {
             .orElse(null);
     }
 
-    private static boolean namesInstrument(Set<String> labelWords, AccountHolding holding) {
+    /**
+     * A ticker root of {@value #MIN_ROOT_LENGTH} letters ({@code AIR}, {@code VIE}, {@code SAN})
+     * is a common word, so it names the instrument only next to other dividend evidence.
+     */
+    private static boolean namesInstrument(Set<String> labelWords, AccountHolding holding, boolean evidence) {
         String ticker = holding.getTicker().toLowerCase(Locale.ROOT);
         int dot = ticker.indexOf('.');
         String root = dot < 0 ? ticker : ticker.substring(0, dot);
-        if (root.length() >= MIN_ROOT_LENGTH && labelWords.contains(root)) {
+        int minRoot = evidence ? MIN_ROOT_LENGTH : MIN_STRONG_ROOT_LENGTH;
+        if (root.length() >= minRoot && labelWords.contains(root)) {
             return true;
         }
         if (holding.getName() == null) {

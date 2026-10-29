@@ -8,7 +8,10 @@ import com.picsou.model.AccountType;
 import com.picsou.model.DividendEvent;
 import com.picsou.model.DividendSource;
 import com.picsou.model.DividendSourceStatus;
+import com.picsou.model.Transaction;
+import com.picsou.model.TransactionType;
 import com.picsou.repository.AccountHoldingRepository;
+import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DividendSourceRepository;
 import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
@@ -16,6 +19,7 @@ import com.picsou.service.AccountAccessResolver;
 import com.picsou.service.DividendForecastService;
 import com.picsou.service.DividendReceiptService;
 import com.picsou.service.UserContext;
+import com.picsou.service.budget.CategorizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,6 +56,8 @@ class DividendControllerAuthorizationTest {
     @Mock DividendSourceRepository sources;
     @Mock ScpiPositionRepository positions;
     @Mock TransactionRepository transactions;
+    @Mock AccountRepository accounts;
+    @Mock CategorizationService categorization;
 
     private MockMvc mvc;
 
@@ -62,6 +68,35 @@ class DividendControllerAuthorizationTest {
         mvc = MockMvcBuilders.standaloneSetup(new DividendController(forecast, receiptService, userContext))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
+    }
+
+    @Test
+    void receivedListsOnlyTheReadableAccounts() throws Exception {
+        Account mine = Account.builder().id(4L).name("Mine").type(AccountType.COMPTE_TITRES).currency("EUR").build();
+        Account theirs = Account.builder().id(50L).name("Theirs").type(AccountType.COMPTE_TITRES).currency("EUR").build();
+        Transaction ownRow = Transaction.builder().id(1L).account(mine).date(LocalDate.now().minusDays(3))
+            .amount(new BigDecimal("10")).txType(TransactionType.DIVIDEND).ticker("TTE.PA").build();
+        Transaction foreignRow = Transaction.builder().id(2L).account(theirs).date(LocalDate.now().minusDays(3))
+            .amount(new BigDecimal("10")).txType(TransactionType.DIVIDEND).ticker("TTE.PA").build();
+        DividendReceiptService realReceipts = new DividendReceiptService(
+            accounts, access, holdings, sources, transactions, categorization);
+        MockMvc receivedMvc = MockMvcBuilders.standaloneSetup(new DividendController(
+                new DividendForecastService(access, holdings, sources, positions, transactions), realReceipts, userContext))
+            .setControllerAdvice(new GlobalExceptionHandler())
+            .build();
+        when(userContext.currentMemberId()).thenReturn(MEMBER);
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(mine));
+        when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(any(), any(), any()))
+            .thenReturn(List.of(ownRow, foreignRow));
+
+        receivedMvc.perform(get("/api/dividends/received"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$[0].accountId").value(4))
+            .andExpect(jsonPath("$[?(@.accountId == 50)]").doesNotExist());
+
+        verify(transactions).findByAccountIdInAndDateBetweenOrderByDateAsc(
+            argThat(ids -> ids.contains(4L) && !ids.contains(50L)), any(), any());
     }
 
     @Test

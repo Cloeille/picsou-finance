@@ -217,18 +217,19 @@ class DividendReceiptServiceTest {
     }
 
     @Test
-    void anAutoTransferCategoryKeepsItsCategoryButGetsTheDividendFields() {
+    void anAutoTransferCategoryIsNeverRetypedEvenWithAKeyword() {
         Account cto = account(12L, "CTO", AccountType.COMPTE_TITRES, null);
         Transaction tx = credit(1L, cto, "2026-10-10", "59.50", "DIVIDENDE TOTALENERGIES");
         tx.setCategoryRef(virement);
         stage(List.of(cto), List.of(tx), List.of(line(cto, "TTE.PA", "TotalEnergies", "100")),
             source("TTE.PA", "EUR", event("2026-10-01", "0.85", "0.85", null)));
 
-        assertThat(service.classifyRecent(MEMBER, TODAY)).isEqualTo(1);
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isZero();
 
-        assertThat(tx.getTxType()).isEqualTo(TransactionType.DIVIDEND);
-        assertThat(tx.getTicker()).isEqualTo("TTE.PA");
+        assertThat(tx.getTxType()).isNull();
+        assertThat(tx.getTicker()).isNull();
         assertThat(tx.getCategoryRef()).isSameAs(virement);
+        verify(transactions, never()).saveAll(any());
     }
 
     @Test
@@ -326,6 +327,169 @@ class DividendReceiptServiceTest {
         assertThat(service.received(MEMBER, TODAY, 30)).singleElement().satisfies(line -> {
             assertThat(line.id()).isEqualTo("HOLDING:13:TTE.PA:tx5");
             assertThat(line.exDate()).isNull();
+        });
+    }
+
+    @Test
+    void tradeRepublicBuyAndSellLegsAreNeverDividends() {
+        Account cash = account(20L, "TR Cash", AccountType.CHECKING, "Trade Republic");
+        Account pea = account(21L, "TR PEA", AccountType.PEA, "Trade Republic");
+        Category investissement = category(103L, "investissement", CategoryKind.TRANSFER);
+        Category achat = category(104L, "investissement-achat", CategoryKind.EXPENSE);
+        Transaction buyLeg = credit(1L, pea, "2026-10-10", "55.00", "BUY TotalEnergies");
+        buyLeg.setTxType(TransactionType.DEPOSIT);
+        buyLeg.setCategory("TRADING");
+        buyLeg.setCategoryRef(investissement);
+        Transaction sellLeg = credit(2L, cash, "2026-10-10", "60.00", "SELL TotalEnergies");
+        sellLeg.setTxType(TransactionType.DEPOSIT);
+        sellLeg.setCategory("TRADING");
+        sellLeg.setCategoryRef(achat);
+        Transaction uncategorisedSell = credit(3L, cash, "2026-10-11", "60.00", "SELL TotalEnergies");
+        uncategorisedSell.setTxType(TransactionType.DEPOSIT);
+        uncategorisedSell.setCategory("TRADING");
+        Transaction dividend = credit(4L, cash, "2026-10-10", "59.50", "Dividend");
+        dividend.setTxType(TransactionType.DEPOSIT);
+        stage(List.of(cash, pea), List.of(buyLeg, sellLeg, uncategorisedSell, dividend),
+            List.of(line(pea, "TTE.PA", "TotalEnergies", "100")),
+            source("TTE.PA", "EUR", event("2026-10-01", "0.85", "0.85", null)));
+
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isEqualTo(1);
+
+        assertThat(buyLeg.getTxType()).isEqualTo(TransactionType.DEPOSIT);
+        assertThat(buyLeg.getTicker()).isNull();
+        assertThat(sellLeg.getTxType()).isEqualTo(TransactionType.DEPOSIT);
+        assertThat(sellLeg.getTicker()).isNull();
+        assertThat(uncategorisedSell.getTxType()).isEqualTo(TransactionType.DEPOSIT);
+        assertThat(dividend.getTxType()).isEqualTo(TransactionType.DIVIDEND);
+        verify(transactions).saveAll(List.of(dividend));
+    }
+
+    @Test
+    void individuelIsNotTheDividendKeyword() {
+        Account cto = account(12L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction tx = credit(1L, cto, "2026-10-10", "50.00", "VIREMENT COMPTE TITRES INDIVIDUEL");
+        tx.setTxType(TransactionType.DEPOSIT);
+        stage(List.of(cto), List.of(tx), List.of(line(cto, "TTE.PA", "TotalEnergies", "100")),
+            source("TTE.PA", "EUR", event("2026-10-01", "0.85", "0.85", null)));
+
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isZero();
+
+        assertThat(tx.getTxType()).isEqualTo(TransactionType.DEPOSIT);
+        assertThat(tx.getCategoryRef()).isNull();
+    }
+
+    @Test
+    void aKeywordIsAWordPrefix() {
+        Account cto = account(12L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction tx = credit(1L, cto, "2026-10-10", "59.50", "DIVIDENDES RECUS");
+        stage(List.of(cto), List.of(tx), List.of(line(cto, "TTE.PA", "TotalEnergies", "100")),
+            source("TTE.PA", "EUR", event("2026-10-01", "0.85", "0.85", null)));
+
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isEqualTo(1);
+    }
+
+    @Test
+    void aThreeLetterTickerRootAloneIsNotEvidence() {
+        Account cto = account(12L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction plain = credit(1L, cto, "2026-10-10", "50.00", "VIREMENT AIR LIQUIDE");
+        Transaction withKeyword = credit(2L, cto, "2026-10-11", "50.00", "COUPON AIR");
+        stage(List.of(cto), List.of(plain, withKeyword),
+            List.of(line(cto, "AIR.PA", "Airbus", "50"), line(cto, "TTE.PA", "TotalEnergies", "100")),
+            source("AIR.PA", "EUR", event("2026-10-01", "1.00", "1.00", null)),
+            source("TTE.PA", "EUR", event("2026-10-01", "0.55", "0.55", null)));
+
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isEqualTo(1);
+
+        assertThat(plain.getTxType()).isNull();
+        assertThat(withKeyword.getTicker()).isEqualTo("AIR.PA");
+    }
+
+    @Test
+    void receivedOnTradeRepublicCashUsesTheForecastIdOfThePeaLine() {
+        Account cash = account(20L, "TR Cash", AccountType.CHECKING, "Trade Republic");
+        Account pea = account(21L, "TR PEA", AccountType.PEA, "Trade Republic");
+        Transaction tx = dividend(1L, cash, "2026-10-10", "59.50");
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(cash, pea));
+        when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(anyCollection(), any(), any()))
+            .thenReturn(List.of(tx));
+        when(holdings.findPositiveByAccountIdIn(anyCollection()))
+            .thenReturn(List.of(line(pea, "TTE.PA", "TotalEnergies", "100")));
+        when(sources.findAllWithEventsByTickerIn(anyCollection())).thenReturn(List.of(
+            source("TTE.PA", "EUR", event("2026-10-01", "0.85", "0.85", null))));
+
+        assertThat(service.received(MEMBER, TODAY, 30)).singleElement().satisfies(line -> {
+            assertThat(line.id()).isEqualTo("HOLDING:21:TTE.PA:2026-10-01");
+            assertThat(line.accountId()).isEqualTo(21L);
+            assertThat(line.accountType()).isEqualTo(AccountType.PEA);
+            assertThat(line.countsInBudget()).isFalse();
+            assertThat(line.transactionId()).isEqualTo(1L);
+        });
+    }
+
+    @Test
+    void receivedKeepsTheCreditedAccountWhenTwoSameProviderAccountsHoldTheLine() {
+        Account cash = account(20L, "TR Cash", AccountType.CHECKING, "Trade Republic");
+        Account pea = account(21L, "TR PEA", AccountType.PEA, "Trade Republic");
+        Account cto = account(22L, "TR CTO", AccountType.COMPTE_TITRES, "Trade Republic");
+        Transaction tx = dividend(1L, cash, "2026-10-10", "59.50");
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(cash, pea, cto));
+        when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(anyCollection(), any(), any()))
+            .thenReturn(List.of(tx));
+        when(holdings.findPositiveByAccountIdIn(anyCollection())).thenReturn(List.of(
+            line(pea, "TTE.PA", "TotalEnergies", "50"), line(cto, "TTE.PA", "TotalEnergies", "50")));
+        when(sources.findAllWithEventsByTickerIn(anyCollection())).thenReturn(List.of());
+
+        assertThat(service.received(MEMBER, TODAY, 30)).singleElement()
+            .satisfies(line -> assertThat(line.accountId()).isEqualTo(20L));
+    }
+
+    @Test
+    void receivedDropsRowsOfAccountsTheMemberCannotRead() {
+        Account mine = account(13L, "CTO", AccountType.COMPTE_TITRES, null);
+        Account theirs = account(50L, "Other CTO", AccountType.COMPTE_TITRES, null);
+        Transaction readable = dividend(1L, mine, "2026-10-10", "59.50");
+        Transaction foreign = dividend(2L, theirs, "2026-10-10", "59.50");
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(mine));
+        when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(anyCollection(), any(), any()))
+            .thenReturn(List.of(readable, foreign));
+        when(sources.findAllWithEventsByTickerIn(anyCollection())).thenReturn(List.of());
+
+        assertThat(service.received(MEMBER, TODAY, 30))
+            .extracting(ReceivedDividendResponse::transactionId).containsExactly(1L);
+        verify(transactions).findByAccountIdInAndDateBetweenOrderByDateAsc(
+            org.mockito.ArgumentMatchers.argThat(ids -> ids.contains(13L) && !ids.contains(50L)), any(), any());
+    }
+
+    @Test
+    void receivedOnACoOwnedAccountListsTheCreditAsBooked() {
+        Account shared = account(13L, "Joint CTO", AccountType.COMPTE_TITRES, null);
+        Transaction tx = dividend(1L, shared, "2026-10-10", "59.50");
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(shared));
+        when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(anyCollection(), any(), any()))
+            .thenReturn(List.of(tx));
+        when(sources.findAllWithEventsByTickerIn(anyCollection())).thenReturn(List.of(
+            source("TTE.PA", "EUR", event("2026-10-01", "0.85", "0.85", null))));
+
+        assertThat(service.received(MEMBER, TODAY, 30)).singleElement()
+            .satisfies(line -> assertThat(line.amount()).isEqualByComparingTo("59.50"));
+        verify(access, never()).sharesFor(any(), any());
+    }
+
+    @Test
+    void receivedInUsdUsesTheSourcePerShareAmount() {
+        Account ibkr = account(30L, "IBKR", AccountType.COMPTE_TITRES, null);
+        Transaction tx = dividend(1L, ibkr, "2026-10-10", "75.00");
+        tx.setTicker("MSFT");
+        tx.setNativeCurrency("USD");
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(ibkr));
+        when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(anyCollection(), any(), any()))
+            .thenReturn(List.of(tx));
+        when(sources.findAllWithEventsByTickerIn(anyCollection())).thenReturn(List.of(
+            source("MSFT", "USD", event("2026-10-01", "0.75", "0.69", null))));
+
+        assertThat(service.received(MEMBER, TODAY, 30)).singleElement().satisfies(line -> {
+            assertThat(line.currency()).isEqualTo("USD");
+            assertThat(line.amountPerShare()).isEqualByComparingTo("0.75");
         });
     }
 
