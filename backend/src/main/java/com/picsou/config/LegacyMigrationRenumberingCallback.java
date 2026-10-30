@@ -17,15 +17,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Moves the schema-history rows written under the 1.1.0 branch's old numbering to the versions
- * their files carry since commit 2839c94 (V80, V81, V86-V88 became V93-V99), before Flyway
- * validates the history.
+ * Rewrites schema-history rows written under an older numbering to the version and checksum their
+ * file carries today, before Flyway validates the history. Two renumberings are covered:
  *
- * <p>Without it, a database that applied the old files fails validation (V80/V86-V88 no longer
- * match the files now at those versions, V81 has no file) and would then re-run V93-V99 on
+ * <ul>
+ *   <li>Issue #174: commit 2839c94 moved the 1.1.0 branch's V80, V81 and V86-V88 to V93-V99.</li>
+ *   <li>Issue #265: merging main into 1.1.0 (1906d3a) moved the 1.0.11-1.0.18 releases' V38 and
+ *       V54-V64 to V56-V65, V94 and V96, and added comments to V51 and V55-V58.</li>
+ * </ul>
+ *
+ * <p>Without it, such a database fails validation, and would then re-run the moved files on
  * objects that already exist. A row is matched on old version, description and checksum
- * together: V80 and V86-V88 are also the versions of unrelated migrations, so a version alone
- * identifies nothing. A row is left alone when its new version is already in the history, which
+ * together: the old versions are also the versions of unrelated migrations, so a version alone
+ * identifies nothing. A row is left alone when another row already holds its new version, which
  * makes the callback a no-op on fresh and already-renumbered databases.
  *
  * <p>Spring Boot registers every {@link Callback} bean with the auto-configured Flyway. Flyway
@@ -36,22 +40,46 @@ public class LegacyMigrationRenumberingCallback implements Callback {
 
     private static final Logger log = LoggerFactory.getLogger(LegacyMigrationRenumberingCallback.class);
 
-    private record Renumbering(String oldVersion, String newVersion, String description, int checksum) {
+    /**
+     * One applied file that now lives under {@code newVersion}. {@code newChecksum} differs from
+     * {@code checksum} only when the file gained comments; its SQL is unchanged.
+     */
+    private record Renumbering(String oldVersion, String newVersion, String description,
+                               int checksum, int newChecksum) {
+        Renumbering(String oldVersion, String newVersion, String description, int checksum) {
+            this(oldVersion, newVersion, description, checksum, checksum);
+        }
+
         String script() {
             return "V" + newVersion + "__" + description.replace(' ', '_') + ".sql";
         }
     }
 
-    // 2839c94 renamed the files without touching their content, so the checksum recorded under
-    // the old version is the checksum of the file at the new one.
+    // Applied in list order, inside one transaction. A move whose target still holds an older row
+    // of the same chain must come after the move that frees it: V54 -> V56 waits for V56 -> V58.
     private static final List<Renumbering> RENUMBERINGS = List.of(
+        // #174: 2839c94 renamed the files without touching their content.
         new Renumbering("80", "93", "fortuneo session", -1569596521),
         new Renumbering("80", "94", "backfill tr crypto transaction tickers", 2050086936),
         new Renumbering("81", "95", "fortuneo integration", -76224459),
         new Renumbering("81", "96", "backfill trade republic valuations", 664629777),
         new Renumbering("86", "97", "security profile isin", 1417570777),
         new Renumbering("87", "98", "security profile status", -797426580),
-        new Renumbering("88", "99", "security profile fund facts", 140413632)
+        new Renumbering("88", "99", "security profile fund facts", 140413632),
+        // #265: the 1.0.x releases, highest old version first.
+        new Renumbering("64", "96", "backfill trade republic valuations", 664629777),
+        new Renumbering("63", "65", "constrain bourse direct sync errors", -1764174252),
+        new Renumbering("62", "64", "backfill bourse direct valuations", 88940041),
+        new Renumbering("61", "63", "harden bourse direct sync", -840345283),
+        new Renumbering("60", "62", "bourse direct integration", 236247500),
+        new Renumbering("59", "61", "bourse direct session", 2053764575),
+        new Renumbering("58", "60", "account cash balance", -694849918, -1212750843),
+        new Renumbering("57", "59", "ibkr connection", 1520765453, -1382846890),
+        new Renumbering("56", "58", "persistent session previous token", 720404896, 1251005780),
+        new Renumbering("55", "57", "wallet evm account name", -1244807568, -1770899403),
+        new Renumbering("54", "56", "wallet ethereum to evm", 903440536),
+        new Renumbering("51", "51", "requisition oauth state", 1952390840, 960451194),
+        new Renumbering("38", "94", "backfill tr crypto transaction tickers", 2050086936)
     );
 
     @Override
@@ -85,26 +113,28 @@ public class LegacyMigrationRenumberingCallback implements Callback {
             return;
         }
         String table = quote(schema) + "." + quote(configuration.getTable());
-        String sql = "UPDATE " + table + " SET \"version\" = ?, \"script\" = ?"
-            + " WHERE \"version\" = ? AND \"description\" = ? AND \"checksum\" = ?"
-            + " AND NOT EXISTS (SELECT 1 FROM " + table + " WHERE \"version\" = ?)";
+        String sql = "UPDATE " + table + " AS h SET \"version\" = ?, \"script\" = ?, \"checksum\" = ?"
+            + " WHERE h.\"version\" = ? AND h.\"description\" = ? AND h.\"checksum\" = ?"
+            + " AND NOT EXISTS (SELECT 1 FROM " + table + " o"
+            + " WHERE o.\"version\" = ? AND o.\"installed_rank\" <> h.\"installed_rank\")";
 
         List<String> renumbered = new ArrayList<>();
         try (PreparedStatement update = connection.prepareStatement(sql)) {
             for (Renumbering r : RENUMBERINGS) {
                 update.setString(1, r.newVersion());
                 update.setString(2, r.script());
-                update.setString(3, r.oldVersion());
-                update.setString(4, r.description());
-                update.setInt(5, r.checksum());
-                update.setString(6, r.newVersion());
+                update.setInt(3, r.newChecksum());
+                update.setString(4, r.oldVersion());
+                update.setString(5, r.description());
+                update.setInt(6, r.checksum());
+                update.setString(7, r.newVersion());
                 if (update.executeUpdate() > 0) {
                     renumbered.add("V" + r.oldVersion() + " '" + r.description() + "' -> V" + r.newVersion());
                 }
             }
         }
         if (!renumbered.isEmpty()) {
-            log.info("Renumbered {} legacy Flyway schema-history row(s) (issue #174): {}",
+            log.info("Renumbered {} legacy Flyway schema-history row(s) (issues #174, #265): {}",
                 renumbered.size(), String.join(", ", renumbered));
         }
     }

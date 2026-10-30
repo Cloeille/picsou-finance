@@ -335,6 +335,55 @@ Tag scheme:
 - other branch push → branch name (e.g. `1.0.0`, `feature-foo`)
 - version tag (`1.0.0` or `v1.0.0`) → `latest` + semver (`1.0.0`, `1.0`, `1`)
 
+### Upgrading a 1.0.x database to 1.1.0
+
+Merging main into 1.1.0 (1906d3a) moved migrations that the 1.0.11–1.0.18 releases had already
+applied: V38 to V94, V54–V63 to V56–V65, V64 to V96. It also added comments to V51 and V55–V58,
+which changes their checksum but not their SQL. The 1.1.0 image then stopped at boot with
+`Migration checksum mismatch` on up to 13 versions
+([#265](https://github.com/Cloeille/picsou-finance/issues/265)).
+
+The same callback as below now handles these rows. It moves each one to its new version and, for
+the five edited files, stores the new checksum. A row moves only when its old version,
+description and checksum all match the 1.0.x file, and only when no other row already holds the
+new version. Flyway then applies the 1.1.0 migrations that sat behind the old versions (V33–V35,
+V38–V49, V54, V55, V72, V82–V85, V88–V93, V95, V97 and later) out of order. The INFO line lists
+the moves:
+
+```
+Renumbered 13 legacy Flyway schema-history row(s) (issues #174, #265): V64 'backfill trade republic valuations' -> V96, ...
+```
+
+Do not run `flyway repair` on such a database: it would mark `budget categorization foundation`
+(V38), `oauth2 authorization server` (V54), `account hidden` (V55) and others as applied
+although they never ran. Take a backup and use the [safe release deployment](#safe-release-deployment).
+If you started the 1.1.0 image with `SPRING_FLYWAY_ENABLED=false` to get past the error, follow
+[the steps below](#upgrading-a-110-install-that-applied-the-old-v80v88-numbering) as well.
+
+**Check for duplicate external account ids first.** Among the migrations a 1.0.x database has
+never run, V47 `account external unique` deletes every active account that shares its
+`external_account_id` and member with another active account, keeping the highest id, whatever
+their provider and even for manual accounts. Their holdings, transactions and snapshots go with
+them (`ON DELETE CASCADE`). V72 narrows the index to provider and non-manual accounts afterwards,
+too late for the rows V47 deleted. 1.0.x never enforced this, so check before upgrading:
+
+```sql
+SELECT member_id, external_account_id, count(*)
+FROM account
+WHERE deleted_at IS NULL AND external_account_id IS NOT NULL
+GROUP BY member_id, external_account_id
+HAVING count(*) > 1;
+```
+
+An empty result means V47 deletes nothing. Otherwise, rename or soft-delete the duplicates you
+want to keep apart before upgrading, and rehearse on a restored copy.
+
+Covered: every 1.0.x release tag. `nightly` images of main between two tags are matched row by
+row, so a build between 1.0.15 and 1.0.16 that applied only one of V51 and V64 is handled too.
+Builds of main from before cfc70930 shipped two V57 files and could not boot, so they left no
+history to repair. A row whose checksum matches no released file is left alone, and Flyway still
+rejects it.
+
 ### Upgrading a 1.1.0 install that applied the old V80–V88 numbering
 
 Commit 2839c94 renumbered seven 1.1.0 migrations that some databases had already applied
@@ -349,7 +398,7 @@ version is not in the history yet. On a fresh or already repaired database it do
 moves rows it logs them once at INFO:
 
 ```
-Renumbered 2 legacy Flyway schema-history row(s) (issue #174): V80 'backfill tr crypto transaction tickers' -> V94, V81 'backfill trade republic valuations' -> V96
+Renumbered 2 legacy Flyway schema-history row(s) (issues #174, #265): V80 'backfill tr crypto transaction tickers' -> V94, V81 'backfill trade republic valuations' -> V96
 ```
 
 Flyway then applies the migrations the database has not run yet (out-of-order is enabled), without
@@ -442,7 +491,10 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - Build validation: `docker build -f docker/Dockerfile .`.
 - Backend unit tests run separately via `./mvnw test` (not in Docker build — skipped with `-DskipTests`).
 - `LegacyMigrationRenumberingTest` (Testcontainers) upgrades databases built under the old V80–V88
-  numbering and a fresh database to head, and checks that a second start changes nothing.
+  numbering and a fresh database to head, and checks that a second start changes nothing. It also
+  builds 1.0.18 and 1.0.11 databases from those releases' files (the five comment-edited 1.0.18
+  files are kept verbatim under `src/test/resources/db/legacy-1.0.18`), upgrades them, and
+  compares the resulting schema with a fresh database.
 
 ## Links
 
