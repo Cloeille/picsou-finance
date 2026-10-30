@@ -105,23 +105,35 @@ def generate_device_info() -> str:
 
 
 # A cold container often settles the page before the WAF challenge has set its
-# token. Two attempts stay inside the backend's 60 s wait and nginx's 60 s proxy.
+# token, so a second browser attempt runs when the first gets none.
 WAF_TOKEN_ATTEMPTS = 2
 WAF_PAGE_LOAD_TIMEOUT_MS = 15000
 WAF_CHALLENGE_WAIT_MS = 8000
 WAF_POLL_INTERVAL_MS = 500
+
+# The backend and nginx give up on /initiate and /complete after 60 s. Every
+# token attempt, browser startup included, shares one budget that leaves the TR
+# call its whole timeout, plus a margin, inside that wait.
+CALLER_TIMEOUT_S = 60
+TR_REQUEST_TIMEOUT_S = 15
+WAF_TOKEN_BUDGET_S = CALLER_TIMEOUT_S - TR_REQUEST_TIMEOUT_S - 5
 
 # Detail sent to the backend when AWS WAF, not TR, refused the login.
 WAF_BLOCKED = "TR_WAF_BLOCKED"
 
 
 async def get_waf_token() -> Optional[str]:
-    """Retrieves the AWS WAF token, with a fresh browser when an attempt gets none."""
-    for attempt in range(1, WAF_TOKEN_ATTEMPTS + 1):
-        waf_token = await load_waf_token()
-        if waf_token:
-            return waf_token
-        log.warning("No AWS WAF token on attempt %d/%d", attempt, WAF_TOKEN_ATTEMPTS)
+    """Retrieves the AWS WAF token, with a fresh browser when an attempt gets none,
+    and gives up once WAF_TOKEN_BUDGET_S has passed."""
+    try:
+        async with asyncio.timeout(WAF_TOKEN_BUDGET_S):
+            for attempt in range(1, WAF_TOKEN_ATTEMPTS + 1):
+                waf_token = await load_waf_token()
+                if waf_token:
+                    return waf_token
+                log.warning("No AWS WAF token on attempt %d/%d", attempt, WAF_TOKEN_ATTEMPTS)
+    except TimeoutError:
+        log.warning("No AWS WAF token within %d s", WAF_TOKEN_BUDGET_S)
     return None
 
 
@@ -266,7 +278,8 @@ async def initiate(req: InitiateRequest):
     phone = normalise_phone(req.phoneNumber)
     log.info("Initiating TR auth for %s", safe(mask_phone(phone)))
 
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with asyncio.timeout(TR_REQUEST_TIMEOUT_S), \
+            httpx.AsyncClient(timeout=TR_REQUEST_TIMEOUT_S) as client:
         try:
             resp = await client.post(
                 f"{TR_API}/api/v1/auth/web/login",
@@ -299,7 +312,8 @@ async def complete(req: CompleteRequest):
         raise waf_blocked()
     pending_sessions.pop(req.processId, None)  # clean up
 
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with asyncio.timeout(TR_REQUEST_TIMEOUT_S), \
+            httpx.AsyncClient(timeout=TR_REQUEST_TIMEOUT_S) as client:
         try:
             resp = await client.post(
                 login_complete_url(req.processId, req.tan),
