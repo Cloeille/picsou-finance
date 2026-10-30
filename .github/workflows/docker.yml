@@ -1,10 +1,9 @@
 name: Build & publish Docker images
 
-# Called by CI after backend + frontend + e2e + sidecar are green.
-# workflow_dispatch remains an escape hatch (manual publish without re-running CI).
+# Called by CI after backend + frontend + e2e + every published sidecar are green.
+# No workflow_dispatch: a manual run would publish latest/nightly without that gate.
 on:
   workflow_call:
-  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io

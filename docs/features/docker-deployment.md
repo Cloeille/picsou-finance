@@ -171,7 +171,9 @@ docker compose -f docker/docker-compose.yml up
 
 Git has the images’ source, not the live install. Postgres lives in the `pgdata` volume;
 JWT / encryption / DB password live in `picsou_data` (`/data/.secrets/`). Copy **both**
-or Finary and bank secrets in the database will not decrypt. Commands, volume names, and
+or Finary and bank secrets in the database will not decrypt. With the `tls` profile, also copy
+`caddy_data` and `docker/.env` (`PICSOU_DOMAIN`): the volume holds the internal CA's root key, and
+a new one makes every device that trusted the old root reject the certificate. Commands, volume names, and
 the “build this branch, do not `compose pull` GHCR `:latest`” warning are in the root
 [README — Another machine](../../README.md#another-machine).
 
@@ -190,11 +192,11 @@ docker load < picsou-release.tar.gz
 ### Pulling from GHCR
 
 All three images are published by `.github/workflows/docker.yml` **only after
-CI is green** (backend tests, frontend lint/typecheck/unit, Playwright e2e,
-bourse-direct sidecar). `ci.yml` calls that workflow on a successful `push` to
+CI is green** (backend tests, frontend lint/typecheck/unit, Playwright e2e, and
+the Trade Republic, Bourse Direct, Bourso and Amundi sidecar tests). `ci.yml` calls that workflow on a successful `push` to
 `main` or a version tag — not on pull requests, so a failing test never
-produces `nightly` / `latest` / semver. `workflow_dispatch` on `docker.yml`
-remains a manual escape hatch (publish the current ref without re-running CI).
+produces `nightly` / `latest` / semver. `docker.yml` has no `workflow_dispatch`:
+a manual run would publish without that gate.
 
 To deploy from the registry instead of building or loading a tar.gz:
 
@@ -208,8 +210,8 @@ docker pull ghcr.io/zoeille/picsou-finance/bourse-direct-auth:1.0.0
 Tag scheme:
 - `main` push (CI green) → `nightly` + `latest`
 - version tag (`1.0.0` or `v1.0.0`, CI green) → `latest` + semver (`1.0.0`, `1.0`, `1`)
-- feature-branch pushes no longer publish an image (open a PR to run CI; use
-  `workflow_dispatch` on the Docker workflow if you need a one-off image)
+- feature-branch pushes no longer publish an image (open a PR to run CI; build
+  locally if you need a one-off image)
 
 ### Build version shown in the app
 

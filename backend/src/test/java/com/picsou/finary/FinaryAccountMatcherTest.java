@@ -92,6 +92,19 @@ class FinaryAccountMatcherTest {
         assertThat(hit).isEmpty();
     }
 
+    @Test
+    void neverSuggestsAnAccountOwnedByAnotherConnector() {
+        Account tradeRepublic = account(1L, "Trade Republic", AccountType.COMPTE_TITRES, "tr_portfolio_42");
+        tradeRepublic.setManual(false);
+
+        Optional<FinaryAccountMatcher.Suggestion> hit = FinaryAccountMatcher.suggestAll(
+            List.of(new FinaryAccountMatcher.FinaryRow("inv", "Trade Republic", "investments", null)),
+            List.of(tradeRepublic)
+        ).get(0);
+
+        assertThat(hit).isEmpty();
+    }
+
     private static Account account(Long id, String name, AccountType type, String externalId) {
         Account acc = Account.builder()
             .name(name)

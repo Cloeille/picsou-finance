@@ -109,6 +109,23 @@ jobs:
           picsou-amundi-auth:test
           python -m unittest discover -v
 
+  tr-auth-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the Trade Republic sidecar image
+        run: docker build --tag picsou-tr-auth:test services/tr-auth
+      - name: Run helper and endpoint tests
+        run: >-
+          docker run --rm
+          --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/tr-auth/test_main.py:/tests/test_main.py:ro"
+          --workdir /tests
+          picsou-tr-auth:test
+          python -m unittest discover -v
+
   e2e:
     runs-on: ubuntu-latest
     defaults:
@@ -143,7 +160,7 @@ jobs:
   # Images are only published after every CI job is green, and only on a push
   # to main or a version tag — not on pull requests.
   docker:
-    needs: [backend, frontend, e2e, bourse-direct-sidecar, bourso-sidecar, amundi-sidecar]
+    needs: [backend, frontend, e2e, tr-auth-sidecar, bourse-direct-sidecar, bourso-sidecar, amundi-sidecar]
     if: github.event_name == 'push'
     uses: ./.github/workflows/docker.yml
     secrets: inherit

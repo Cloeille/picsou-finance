@@ -51,7 +51,7 @@ class FinaryHoldingsImporterTest {
             List.of(fiat(3447.07))
         );
 
-        int saved = importer.importHoldings(account, finary);
+        int saved = importer.importHoldings(account, finary, true);
 
         assertThat(saved).isEqualTo(1);
         assertThat(account.getCashBalance()).isEqualByComparingTo("6894.14");
@@ -81,10 +81,10 @@ class FinaryHoldingsImporterTest {
             null,
             new FinaryAssetRefDto(1L, "Bitcoin", "BTC", null, "currency"),
             null
-        );
+        , null, null);
         FinaryAccountDto finary = accountDto(null, List.of(btc), null, null);
 
-        importer.importHoldings(account, finary);
+        importer.importHoldings(account, finary, true);
 
         ArgumentCaptor<AccountHolding> captor = ArgumentCaptor.forClass(AccountHolding.class);
         verify(holdingRepository).save(captor.capture());
@@ -109,16 +109,16 @@ class FinaryHoldingsImporterTest {
             null,
             new FinaryAssetRefDto(2L, "RealT Detroit", longCode, null, "currency"),
             null
-        );
+        , null, null);
         FinaryPositionDto fonds = new FinaryPositionDto(
             "fe1", "FDS EUROS SURAVENIR RENDEMENT", "fonds_euro", 1.0,
             null, 20876.93, null, 20876.93, 0.0,
             20876.93, null, 20876.93, 0.0,
             null, null, null
-        );
+        , null, null);
         FinaryAccountDto finary = accountDto(null, List.of(realt), List.of(fonds), null);
 
-        int saved = importer.importHoldings(account(), finary);
+        int saved = importer.importHoldings(account(), finary, true);
 
         assertThat(saved).isEqualTo(2);
         ArgumentCaptor<AccountHolding> captor = ArgumentCaptor.forClass(AccountHolding.class);
@@ -133,14 +133,126 @@ class FinaryHoldingsImporterTest {
     }
 
     @Test
-    void importHoldings_clearsExistingWhenFinaryHasNoPositions() {
-        FinaryAccountDto empty = accountDto(null, null, null, null);
+    void importHoldings_clearsExistingWhenFinaryConfirmsAnEmptyPortfolio() {
+        Account account = account();
+        account.setCashBalance(new BigDecimal("500"));
+        FinaryAccountDto empty = accountDto(List.of(), List.of(), List.of(), List.of());
 
-        int saved = importer.importHoldings(account(), empty);
+        int saved = importer.importHoldings(account, empty, true);
 
         assertThat(saved).isZero();
+        assertThat(account.getCashBalance()).isNull();
         verify(holdingRepository).deleteByAccountId(9L);
         verify(holdingRepository, never()).save(any());
+    }
+
+    @Test
+    void importHoldings_keepsExistingHoldingsAndCash_whenFinaryOmitsEveryPositionList() {
+        Account account = account();
+        account.setCashBalance(new BigDecimal("500"));
+        FinaryAccountDto omitted = accountDto(null, null, null, null);
+
+        int saved = importer.importHoldings(account, omitted, true);
+
+        assertThat(saved).isZero();
+        assertThat(account.getCashBalance()).isEqualByComparingTo("500");
+        verify(holdingRepository, never()).deleteByAccountId(any());
+        verify(holdingRepository, never()).save(any());
+    }
+
+    @Test
+    void importHoldings_keepsExistingHoldingsAndCash_whenTheDisplayCurrencyIsUnverified() {
+        Account account = account();
+        account.setCashBalance(new BigDecimal("500"));
+        FinaryAccountDto finary = accountDto(
+            List.of(security("AXA", "FR0000120628", 54, 1892.052, 2420.28, 528.228)), null, null, List.of());
+
+        int saved = importer.importHoldings(account, finary, false);
+
+        assertThat(saved).isZero();
+        assertThat(account.getCashBalance()).isEqualByComparingTo("500");
+        verify(holdingRepository, never()).deleteByAccountId(any());
+        verify(holdingRepository, never()).save(any());
+    }
+
+    @Test
+    void importHoldings_ignoresNullPositionsAndNullFiats() {
+        when(isinConverter.resolve("FR0000120628"))
+            .thenReturn(new OpenFigiIsinConverter.TickerResult("CS.PA", "AXA"));
+        when(holdingRepository.save(any(AccountHolding.class))).thenAnswer(inv -> inv.getArgument(0));
+        Account account = account();
+        FinaryAccountDto finary = accountDto(
+            java.util.Arrays.asList(null, security("AXA", "FR0000120628", 54, 1892.052, 2420.28, 528.228)),
+            null, null, java.util.Arrays.asList(null, fiat(10)));
+
+        int saved = importer.importHoldings(account, finary, true);
+
+        assertThat(saved).isEqualTo(1);
+        assertThat(account.getCashBalance()).isEqualByComparingTo("10");
+    }
+
+    @Test
+    void importHoldings_leavesTheValueUnknown_whenOneLineOfAMergedTickerHasNoValue() {
+        when(isinConverter.resolve("FR0000120628"))
+            .thenReturn(new OpenFigiIsinConverter.TickerResult("CS.PA", "AXA"));
+        when(holdingRepository.save(any(AccountHolding.class))).thenAnswer(inv -> inv.getArgument(0));
+        FinaryPositionDto valued = security("AXA", "FR0000120628", 1, 90, 100, 10);
+        FinaryPositionDto unvalued = new FinaryPositionDto(
+            "s2", "AXA", "user_security", 1.0,
+            null, null, null, null, null,
+            null, null, null, null,
+            new FinarySecurityRefDto(1L, "AXA", "FR0000120628", null, null, "security"),
+            null, null, null, null);
+
+        importer.importHoldings(account(), accountDto(List.of(valued, unvalued), null, null, null), true);
+
+        ArgumentCaptor<AccountHolding> captor = ArgumentCaptor.forClass(AccountHolding.class);
+        verify(holdingRepository).save(captor.capture());
+        assertThat(captor.getValue().getQuantity()).isEqualByComparingTo("2");
+        assertThat(captor.getValue().getProviderValueEur()).isNull();
+        assertThat(captor.getValue().getProviderPnlEur()).isNull();
+    }
+
+    @Test
+    void importHoldings_neverLabelsANativeValueAsEur_whenTheDisplayValueIsMissing() {
+        when(holdingRepository.save(any(AccountHolding.class))).thenAnswer(inv -> inv.getArgument(0));
+        FinaryPositionDto nativeOnly = new FinaryPositionDto(
+            "h3", null, "user_crypto", 1.0,
+            90.0, 90.0, 100.0, 100.0, 10.0,
+            null, null, null, null,
+            null,
+            new FinaryAssetRefDto(3L, "Ether", "ETH", null, "currency"),
+            null, null, null);
+
+        importer.importHoldings(account(), accountDto(null, List.of(nativeOnly), null, null), true);
+
+        ArgumentCaptor<AccountHolding> captor = ArgumentCaptor.forClass(AccountHolding.class);
+        verify(holdingRepository).save(captor.capture());
+        AccountHolding holding = captor.getValue();
+        assertThat(holding.getProviderValueEur()).isNull();
+        assertThat(holding.getProviderPnlEur()).isNull();
+        assertThat(holding.getCurrentPrice()).isNull();
+        assertThat(holding.getAverageBuyIn()).isNull();
+    }
+
+    @Test
+    void importHoldings_takesASecuritysEurPnlFromDisplayCurrentUpnl() {
+        when(isinConverter.resolve("FR0000120628"))
+            .thenReturn(new OpenFigiIsinConverter.TickerResult("CS.PA", "AXA"));
+        when(holdingRepository.save(any(AccountHolding.class))).thenAnswer(inv -> inv.getArgument(0));
+        FinaryPositionDto security = new FinaryPositionDto(
+            "s1", "AXA", "user_security", 1.0,
+            null, null, null, 100.0, null,
+            null, null, 90.0, null,
+            new FinarySecurityRefDto(1L, "AXA", "FR0000120628", null, null, "security"),
+            null, null, 10.0, 9.0);
+
+        importer.importHoldings(account(), accountDto(List.of(security), null, null, null), true);
+
+        ArgumentCaptor<AccountHolding> captor = ArgumentCaptor.forClass(AccountHolding.class);
+        verify(holdingRepository).save(captor.capture());
+        assertThat(captor.getValue().getProviderValueEur()).isEqualByComparingTo("90");
+        assertThat(captor.getValue().getProviderPnlEur()).isEqualByComparingTo("9");
     }
 
     @Test
@@ -187,7 +299,7 @@ class FinaryHoldingsImporterTest {
             buy / qty, buy, null, value, pnl,
             buy, null, value, pnl,
             new FinarySecurityRefDto(1L, name, isin, null, null, "security"),
-            null, null);
+            null, null, null, null);
     }
 
     private static FinaryPositionDto cashSecurity(double value) {
@@ -196,7 +308,7 @@ class FinaryHoldingsImporterTest {
             1.0, value, 1.0, value, 0.0,
             value, 1.0, value, 0.0,
             new FinarySecurityRefDto(2L, "Solde Espèces", null, "000000000000", null, "security"),
-            null, null);
+            null, null, null, null);
     }
 
     private static FinaryPositionDto fiat(double value) {
@@ -205,6 +317,6 @@ class FinaryHoldingsImporterTest {
             1.0, value, 1.0, value, 0.0,
             value, 1.0, value, 0.0,
             null, null,
-            new FinaryAssetRefDto(1L, "Euro", "EUR", "€", "currency"));
+            new FinaryAssetRefDto(1L, "Euro", "EUR", "€", "currency"), null, null);
     }
 }

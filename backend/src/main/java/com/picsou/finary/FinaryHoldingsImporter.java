@@ -21,15 +21,19 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 /**
  * Maps Finary account positions (securities, cryptos, fonds euro, …) onto
  * {@link AccountHolding} rows and records leftover cash on the account.
  *
- * <p>XLSX import has no position payload, so this is a no-op when every list is
- * null/empty. Cash-like lines (fiats, "Solde Espèces") are not persisted as
- * holdings — they go into {@code account.cashBalance}.
+ * <p>A payload that omits every position list says nothing about the portfolio, so the
+ * existing holdings and cash are kept; one that sends any list (even empty) is the whole
+ * snapshot. Values are stored as EUR only from {@code display_*} fields, and only once the
+ * caller has proven the display currency is EUR; otherwise nothing is changed. Cash-like
+ * lines (fiats, "Solde Espèces") are not persisted as holdings — they go into
+ * {@code account.cashBalance}.
  */
 @Component
 @RequiredArgsConstructor
@@ -46,7 +50,15 @@ public class FinaryHoldingsImporter {
     private final AccountHoldingRepository holdingRepository;
     private final OpenFigiIsinConverter isinConverter;
 
-    public int importHoldings(Account account, FinaryAccountDto finaryAcc) {
+    public int importHoldings(Account account, FinaryAccountDto finaryAcc, boolean displayIsEur) {
+        if (!suppliesPositions(finaryAcc)) {
+            return 0;
+        }
+        if (!displayIsEur) {
+            log.warn("Keeping the holdings of account {}: Finary's display currency is not proven EUR",
+                account.getId());
+            return 0;
+        }
         List<FinaryPositionDto> positions = collectPositions(finaryAcc);
         BigDecimal cash = sumCash(finaryAcc);
 
@@ -118,6 +130,12 @@ public class FinaryHoldingsImporter {
         return saved;
     }
 
+    static boolean suppliesPositions(FinaryAccountDto acc) {
+        return acc.securities() != null || acc.cryptos() != null || acc.fondsEuro() != null
+            || acc.fiats() != null || acc.genericAssets() != null || acc.scpis() != null
+            || acc.preciousMetals() != null;
+    }
+
     static List<FinaryPositionDto> collectPositions(FinaryAccountDto acc) {
         List<FinaryPositionDto> out = new ArrayList<>();
         addAll(out, acc.securities());
@@ -131,16 +149,16 @@ public class FinaryHoldingsImporter {
 
     private static void addAll(List<FinaryPositionDto> out, List<FinaryPositionDto> src) {
         if (src != null) {
-            out.addAll(src);
+            src.stream().filter(Objects::nonNull).forEach(out::add);
         }
     }
 
     BigDecimal sumCash(FinaryAccountDto acc) {
         BigDecimal cash = BigDecimal.ZERO;
-        if (acc.fiats() != null) {
-            for (FinaryPositionDto fiat : acc.fiats()) {
-                cash = cash.add(nvl(eurValue(fiat)));
-            }
+        List<FinaryPositionDto> fiats = new ArrayList<>();
+        addAll(fiats, acc.fiats());
+        for (FinaryPositionDto fiat : fiats) {
+            cash = cash.add(nvl(eurValue(fiat)));
         }
         for (FinaryPositionDto position : collectPositions(acc)) {
             if (isCash(position)) {
@@ -222,12 +240,14 @@ public class FinaryHoldingsImporter {
         return truncate(cleaned, TICKER_MAX);
     }
 
+    // Native amounts are in the line's own currency, which the payload does not name: an absent
+    // display value stays unknown rather than borrowing the native one as EUR.
     static BigDecimal eurValue(FinaryPositionDto position) {
-        return firstDecimal(position.displayCurrentValue(), position.currentValue());
+        return decimal(position.displayCurrentValue());
     }
 
     static BigDecimal eurPnl(FinaryPositionDto position) {
-        return firstDecimal(position.displayUnrealizedPnl(), position.unrealizedPnl());
+        return firstDecimal(position.displayUnrealizedPnl(), position.displayCurrentUpnl());
     }
 
     static BigDecimal eurPrice(FinaryPositionDto position, BigDecimal qty, BigDecimal valueEur) {
@@ -238,15 +258,15 @@ public class FinaryHoldingsImporter {
         if (valueEur != null && qty != null && qty.signum() != 0) {
             return valueEur.divide(qty, 8, RoundingMode.HALF_UP);
         }
-        return decimal(position.currentPrice());
+        return null;
     }
 
     static BigDecimal averageBuyIn(FinaryPositionDto position, BigDecimal qty) {
-        BigDecimal buyValue = firstDecimal(position.displayBuyingValue(), position.buyingValue());
+        BigDecimal buyValue = decimal(position.displayBuyingValue());
         if (buyValue != null && qty != null && qty.signum() != 0) {
             return buyValue.divide(qty, 8, RoundingMode.HALF_UP);
         }
-        return firstDecimal(position.buyingPrice(), null);
+        return null;
     }
 
     static BigDecimal firstDecimal(Double preferred, Double fallback) {
@@ -294,14 +314,10 @@ public class FinaryHoldingsImporter {
             return new ProviderVal(sum(valueEur, other.valueEur), sum(pnlEur, other.pnlEur));
         }
 
+        // One unknown line makes the merged total unknown: summing only the known lines would
+        // present a partial value as the whole position's, and stop the live-price fallback.
         private static BigDecimal sum(BigDecimal a, BigDecimal b) {
-            if (a == null) {
-                return b;
-            }
-            if (b == null) {
-                return a;
-            }
-            return a.add(b);
+            return a == null || b == null ? null : a.add(b);
         }
     }
 }

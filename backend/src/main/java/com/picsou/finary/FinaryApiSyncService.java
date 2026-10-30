@@ -17,6 +17,7 @@ import com.picsou.model.AccountType;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.FinarySessionRepository;
+import com.picsou.service.PriceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -24,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -61,6 +63,7 @@ public class FinaryApiSyncService {
     private final FinarySessionRepository finarySessionRepository;
     private final FinaryPersistenceHelper persistenceHelper;
     private final FinaryHoldingsImporter holdingsImporter;
+    private final PriceService priceService;
 
     private final ConcurrentHashMap<String, SyncSessionData> cache = new ConcurrentHashMap<>();
 
@@ -213,18 +216,20 @@ public class FinaryApiSyncService {
                 }
             }
 
+            boolean displayIsEur = displayCurrencyIsEur(allAccounts);
             List<FinaryAccountPreview> previews = allAccounts.stream()
                 .map(categorizedAcc -> {
                     FinaryAccountDto acc = categorizedAcc.account();
                     String category = categorizedAcc.category();
+                    Balance balance = balanceOf(acc, displayIsEur, "EUR");
                     return new FinaryAccountPreview(
                         acc.id(),
                         acc.name(),
                         acc.institution() != null ? acc.institution().name() : "Finary",
                         category,
                         FinaryPersistenceHelper.suggestTypeFromApiCategory(category),
-                        acc.balance() != null ? acc.balance() : 0,
-                        acc.currency() != null ? acc.currency().code() : "EUR",
+                        balance.amount().doubleValue(),
+                        balance.currency(),
                         txCountByAccountId.getOrDefault(acc.id(), 0)
                     );
                 })
@@ -294,6 +299,7 @@ public class FinaryApiSyncService {
         if (session == null) {
             throw new SyncException("Sync session expired or invalid -- please start a new sync");
         }
+        rejectSharedTargets(mappings);
         cache.remove(syncToken);
 
         FamilyMember member = familyMemberRepository.findById(memberId)
@@ -305,6 +311,7 @@ public class FinaryApiSyncService {
         int transactionsImported = 0;
         List<ImportedAccountSummary> imported = new ArrayList<>();
 
+        boolean displayIsEur = displayCurrencyIsEur(session.allAccounts());
         Map<String, FinaryAccountDto> finaryByKey = session.allAccounts().stream()
             .collect(Collectors.toMap(
                 categorizedAcc -> buildAccountKey(categorizedAcc.category(), categorizedAcc.account().id()),
@@ -328,9 +335,14 @@ public class FinaryApiSyncService {
                 account = accountRepository.findByIdAndMemberId(mapping.targetAccountId(), memberId)
                     .orElseThrow(() -> new SyncException(
                         "Account " + mapping.targetAccountId() + " not found"));
-                applyBalance(account, finaryAcc);
+                applyBalance(account, finaryAcc, displayIsEur);
                 account.setLastSyncedAt(Instant.now());
-                account.setExternalAccountId(externalId);
+                if (FinaryAccountMatcher.ownedByAnotherConnector(account)) {
+                    log.warn("Finary mapping onto account {} keeps its external id {} and holdings (owned by another connector)",
+                        account.getId(), account.getExternalAccountId());
+                } else {
+                    account.setExternalAccountId(externalId);
+                }
                 accountRepository.save(account);
                 accountsMapped++;
                 log.debug("Mapped account: {} -> {} (balance: {})", finaryAcc.name(), account.getName(), finaryAcc.balance());
@@ -341,20 +353,21 @@ public class FinaryApiSyncService {
 
                 if (existingAccount != null) {
                     // Update existing account instead of creating duplicate
-                    applyBalance(existingAccount, finaryAcc);
+                    applyBalance(existingAccount, finaryAcc, displayIsEur);
                     existingAccount.setLastSyncedAt(Instant.now());
                     account = accountRepository.save(existingAccount);
                     accountsMapped++;
                     log.debug("Upserted existing account (CREATE_NEW with existing externalId): {} (balance: {})", account.getName(), finaryAcc.balance());
                 } else {
                     // Create new account
+                    Balance balance = balanceOf(finaryAcc, displayIsEur, det.currency());
                     account = Account.builder()
                         .member(member)
                         .name(det.name())
                         .type(det.type())
                         .provider(det.provider() != null ? det.provider() : "Finary")
-                        .currency(displayCurrency(finaryAcc, det.currency()))
-                        .currentBalance(eurBalance(finaryAcc))
+                        .currency(balance.currency())
+                        .currentBalance(balance.amount())
                         .isManual(true)
                         .color(det.color() != null ? det.color() : FinaryPersistenceHelper.defaultColorForType(det.type()))
                         .externalAccountId(externalId)
@@ -367,8 +380,10 @@ public class FinaryApiSyncService {
             }
 
             if (account != null) {
-                holdingsImporter.importHoldings(account, finaryAcc);
-                accountRepository.save(account);
+                if (!FinaryAccountMatcher.ownedByAnotherConnector(account)) {
+                    holdingsImporter.importHoldings(account, finaryAcc, displayIsEur);
+                    accountRepository.save(account);
+                }
 
                 // Import transactions for this account
                 List<FinaryTransactionDto> categoryTxs = session.transactionsByCategory().getOrDefault(category, List.of());
@@ -388,10 +403,13 @@ public class FinaryApiSyncService {
                             finalAccount.getName(),
                             Instant.parse(tx.date()).atZone(ZoneOffset.UTC).toLocalDate(),
                             tx.displayName() != null ? tx.displayName() : tx.name(),
-                            BigDecimal.valueOf(tx.value() != null ? tx.value() : 0),
+                            inAccountCurrency(
+                                BigDecimal.valueOf(tx.value() != null ? tx.value() : 0),
+                                tx.currency() != null ? tx.currency().code() : null,
+                                finalAccount.getCurrency()),
                             tx.transactionType(),
                             tx.category() != null ? tx.category().name() : "",
-                            tx.currency().code()
+                            finalAccount.getCurrency()
                         ))
                         .collect(Collectors.toList());
 
@@ -422,7 +440,11 @@ public class FinaryApiSyncService {
     /**
      * Auto-sync: preview + execute in one step if all accounts are already mapped.
      * Returns NEEDS_MAPPING if new accounts are discovered (user must go through mapping UI).
+     *
+     * <p>Transactional because it calls execute() on {@code this}, past the Spring proxy: without
+     * its own transaction a failure halfway through the import left a half-imported account.
      */
+    @Transactional
     public FinaryAutoSyncResponse autoSync(Long memberId) {
         Optional<FinarySession> sessionOpt = finarySessionRepository.findByMemberId(memberId);
         if (sessionOpt.isEmpty()) {
@@ -487,33 +509,82 @@ public class FinaryApiSyncService {
     }
 
     /**
-     * Prefer Finary's display-currency balance (EUR). Native {@code balance} on
-     * USD crypto wallets is the token valuation in USD and must not be stored
-     * as if it were already EUR.
+     * Two Finary rows mapped onto one Picsou account would each replace its balance and holdings,
+     * the last one silently winning. Checked before anything is written.
      */
-    static BigDecimal eurBalance(FinaryAccountDto acc) {
-        Double eur = acc.displayBalance() != null ? acc.displayBalance() : acc.balance();
-        return BigDecimal.valueOf(eur != null ? eur : 0);
+    static void rejectSharedTargets(List<FinaryAccountMapping> mappings) {
+        Set<Long> targets = new HashSet<>();
+        for (FinaryAccountMapping mapping : mappings) {
+            if (mapping.action() == FinaryMappingAction.MAP_EXISTING
+                    && mapping.targetAccountId() != null
+                    && !targets.add(mapping.targetAccountId())) {
+                throw new SyncException("Two Finary accounts are mapped onto the same Picsou account "
+                    + mapping.targetAccountId() + " -- pick a different account for one of them");
+            }
+        }
     }
 
-    static void applyBalance(Account account, FinaryAccountDto acc) {
-        account.setCurrentBalance(eurBalance(acc));
-        account.setCurrency(displayCurrency(acc, account.getCurrency()));
+    record Balance(BigDecimal amount, String currency) {}
+
+    /**
+     * Finary's {@code display_*} amounts are in the user's display currency, which the payload
+     * does not name and which the user can change. It is proven EUR when every EUR account with a
+     * non-zero balance shows a display balance equal to its native one: in any other display
+     * currency those two would differ by the exchange rate. Without that proof, nothing
+     * display-denominated is stored as EUR.
+     */
+    static boolean displayCurrencyIsEur(List<CategorizedFinaryAccount> accounts) {
+        boolean proven = false;
+        for (CategorizedFinaryAccount categorized : accounts) {
+            FinaryAccountDto acc = categorized.account();
+            if (acc.displayBalance() == null || acc.balance() == null || acc.balance() == 0
+                    || acc.currency() == null || !"EUR".equalsIgnoreCase(acc.currency().code())) {
+                continue;
+            }
+            if (Math.abs(acc.displayBalance() - acc.balance()) > 0.01) {
+                return false;
+            }
+            proven = true;
+        }
+        return proven;
     }
 
     /**
-     * When Finary sends {@code display_balance}, the stored amount is already EUR
-     * — keep the account currency as EUR so later FX conversion does not apply
-     * a second time.
+     * The amount and the currency it is in, as one pair: the EUR display balance once the display
+     * currency is proven EUR, the native balance in the account's own currency otherwise (the
+     * dashboard converts it). Preview and execute both read it, so the user approves the number
+     * that gets stored.
      */
-    static String displayCurrency(FinaryAccountDto acc, String fallback) {
-        if (acc.displayBalance() != null) {
-            return "EUR";
+    static Balance balanceOf(FinaryAccountDto acc, boolean displayIsEur, String fallbackCurrency) {
+        if (displayIsEur && acc.displayBalance() != null) {
+            return new Balance(BigDecimal.valueOf(acc.displayBalance()), "EUR");
         }
-        if (acc.currency() != null && acc.currency().code() != null && !acc.currency().code().isBlank()) {
-            return acc.currency().code();
+        String currency = acc.currency() != null && acc.currency().code() != null && !acc.currency().code().isBlank()
+            ? acc.currency().code()
+            : fallbackCurrency != null && !fallbackCurrency.isBlank() ? fallbackCurrency : "EUR";
+        return new Balance(BigDecimal.valueOf(acc.balance() != null ? acc.balance() : 0), currency);
+    }
+
+    static void applyBalance(Account account, FinaryAccountDto acc, boolean displayIsEur) {
+        Balance balance = balanceOf(acc, displayIsEur, account.getCurrency());
+        account.setCurrentBalance(balance.amount());
+        account.setCurrency(balance.currency());
+    }
+
+    /**
+     * Snapshot reconstruction walks back from the stored balance by subtracting transactions, so
+     * a transaction in another currency (a USD wallet stored at its EUR display balance) is
+     * converted into the balance's currency first.
+     */
+    private BigDecimal inAccountCurrency(BigDecimal amount, String txCurrency, String accountCurrency) {
+        if (txCurrency == null || txCurrency.equalsIgnoreCase(accountCurrency)) {
+            return amount;
         }
-        return fallback != null && !fallback.isBlank() ? fallback : "EUR";
+        BigDecimal eur = priceService.toEur(amount, txCurrency, null);
+        if ("EUR".equalsIgnoreCase(accountCurrency)) {
+            return eur;
+        }
+        return eur.divide(priceService.toEur(BigDecimal.ONE, accountCurrency, null), 8, RoundingMode.HALF_UP);
     }
 
     /**

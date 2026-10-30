@@ -59,4 +59,14 @@ class FinaryAccountHoldingsDtoTest {
         assertThat(line.displayCurrentValue()).isEqualTo(23187.66);
         assertThat(acc.fondsEuro()).isEmpty();
     }
+
+    @Test
+    void position_parsesTheSecurityPnlKeys() throws Exception {
+        FinaryPositionDto line = objectMapper.readValue("""
+            { "quantity": 1, "display_current_value": 90, "current_upnl": 10, "display_current_upnl": 9 }
+            """, FinaryPositionDto.class);
+
+        assertThat(line.currentUpnl()).isEqualTo(10.0);
+        assertThat(line.displayCurrentUpnl()).isEqualTo(9.0);
+    }
 }

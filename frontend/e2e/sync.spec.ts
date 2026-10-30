@@ -9,9 +9,20 @@ test.describe('Sync page tabs', () => {
     await page.waitForURL('**/sync')
   })
 
-  test('should show 8 tabs', async ({ page }) => {
+  test('should show every sync source as a tab', async ({ page }) => {
     const tabs = page.locator('[role="tablist"] [role="tab"]')
-    await expect(tabs).toHaveCount(8)
+    await expect(tabs).toHaveText([
+      'Banques',
+      'Exchanges',
+      'Wallets',
+      'Trade Republic',
+      'BoursoBank',
+      'Bourse Direct',
+      'DEGIRO',
+      'Interactive Brokers',
+      'Amundi',
+      'Finary',
+    ])
   })
 
   // Switching tabs no longer rewrites the URL (?tab= is only read as the

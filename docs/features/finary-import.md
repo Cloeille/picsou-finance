@@ -1,6 +1,6 @@
 # Feature: Finary Import
 
-> Last updated: 2026-08-17
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -47,7 +47,13 @@ On execute / auto-sync, `FinaryHoldingsImporter` reads positions already nested 
 | `fonds_euro`, `generic_assets`, `scpis`, `precious_metals` | holding; ticker `FINARY_<sanitized name>` |
 | `fiats` + "Solde Espèces" | `account.cash_balance`, not a holding |
 
-Each holding stores Finary's EUR `display_current_value` / `display_unrealized_pnl` as `provider_value_eur` / `provider_pnl_eur`, so unlisted instruments still value on the dashboard. Account `currentBalance` is `display_balance` when Finary sends it (native `balance` on a USD wallet is USD).
+Each holding stores Finary's `display_current_value` and `display_unrealized_pnl` (securities: `display_current_upnl`) as `provider_value_eur` / `provider_pnl_eur`, so unlisted instruments still value on the dashboard. Native amounts never stand in for a missing display amount: their currency is not in the payload. When two lines resolve to one ticker and either has no value, the merged holding has no provider value either.
+
+A payload that omits every position list keeps the account's holdings and cash as they are. Sending any list, even an empty one, is the whole snapshot and replaces them.
+
+**Display currency.** `display_*` amounts are in the display currency the user picks in Finary, which the payload does not name. `FinaryApiSyncService.displayCurrencyIsEur` proves it is EUR when every EUR account with a non-zero balance has `display_balance == balance`. Once proven, an account stores `display_balance` in EUR and its holdings are imported. Otherwise every account stores its native `balance` in its native currency (the dashboard converts it), and holdings are left untouched. Preview shows the same amount/currency pair execute stores. Transactions in another currency than the stored balance are converted with `PriceService` before the history is rebuilt.
+
+**Accounts owned by another connector** (not manual, with an external id: Trade Republic, Bourso…) are never suggested by name. An explicit `MAP_EXISTING` onto one updates its balance but keeps its external id and holdings, so that connector still finds it. Two rows mapped onto one Picsou account are rejected before anything is written.
 
 ### Cache and session management
 
@@ -112,7 +118,7 @@ FinaryImportService.executeImport(fileToken + mappings)
         +-- Retrieve cached data
         +-- For each mapping:
         |       +-- SKIP: skip
-        |       +-- MAP_EXISTING: update balance, set externalAccountId
+        |       +-- MAP_EXISTING: take the Finary balance and currency
         |       +-- CREATE_NEW: create account, set externalAccountId
         |       +-- Reconstruct balance snapshots from transactions
         |       +-- Import transactions (xlsx has no holdings payload)
@@ -154,9 +160,10 @@ FinaryApiSyncService.execute(syncToken + mappings)
         |
         +-- Retrieve cached session
         +-- Apply mappings
-        +-- Persist holdings (ISIN → OpenFIGI ticker, crypto code as ticker)
-        +-- Store display_balance as EUR currentBalance (fixes USD crypto wallets)
-        +-- Import transactions
+        +-- Reject two rows mapped onto one Picsou account
+        +-- Store display_balance in EUR once the display currency is proven EUR, native balance otherwise
+        +-- Persist holdings (ISIN → OpenFIGI ticker, crypto code as ticker), not on accounts another connector owns
+        +-- Import transactions (converted into the stored balance's currency)
         +-- Remove from cache
         +-- Return result
 
@@ -203,10 +210,10 @@ POST /api/finary/api-sync/auto
 - **Account name matching is case-insensitive, trimmed, and type-aware**: a Finary `investments` row can map to PEA / CTO / épargne salariale with the same name; `fonds_euro` maps to SAVINGS/livrets, not the CTO of the same label. Two Coinbase wallets of type CRYPTO stay unmatched (ambiguous). After the first successful MAP_EXISTING, `externalAccountId` is written so the next auto-sync skips the wizard.
 - **Transactions are per-category**: API sync fetches transactions only from checkings, savings, investments, and credits categories. Other categories (real estate, cryptos) do not have a transactions endpoint.
 - **Holdings come from the account payload, not a separate endpoint**: `/portfolio/{cat}/holdings` is 404. Positions live on each account as `securities`, `cryptos`, `fonds_euro`, `fiats`, `generic_assets`, `scpis`, `precious_metals`. `FinaryHoldingsImporter` reads those lists on execute/auto-sync. XLSX import still has no holdings.
-- **Use `display_*` for EUR, never native `balance` on FX accounts**: USD crypto wallets report `balance` / `current_value` in USD. `display_balance` / `display_current_value` are already in the user's display currency (EUR). Storing native USD as EUR is what used to inflate those wallets ~80×.
+- **Never label an amount EUR without proof**: USD crypto wallets report `balance` / `current_value` in USD, and `display_*` is in whatever display currency the user chose. Storing either as EUR unchecked is what used to inflate those wallets. See **Display currency** above.
 - **Cash is not a holding**: fiats and "Solde Espèces" (`symbol`/`isin` `000000000000`) go to `account.cash_balance`. Everything else is replaced on each sync (same wipe-and-write as Bourse Direct / TR).
 - **Many Finary instruments have no Yahoo ticker**: Yomoni fonds, RealT tokens, fonds euros, Amundi `QS…` employee-savings codes. `provider_value_eur` / `provider_pnl_eur` keep the Finary valuation so the live balance does not collapse to cash-only.
-- **Ticker column is VARCHAR(100)** (V80): RealT property codes exceed the old 30-char limit. Names widened to 255. `V64` on `origin/main` is already `backfill_trade_republic_valuations`.
+- **Ticker column is VARCHAR(100)** (`V119__widen_holding_ticker.sql`): RealT property codes exceed the old 30-char limit. Names widened to 255.
 - **External IDs use Finary category + ID**: Format is `finary_{category}_{finaryId}`. This means the same Finary account always maps to the same external ID, preventing duplicates across imports.
 - **Loans come from a separate endpoint (issue #11)**: loan/mortgage accounts are *not* returned by the portfolio `credits`/`credit_accounts` categories — they live on the dedicated `/loans` endpoint. The API sync fetches them via `FinaryApiClient.fetchLoans()` and adapts each entry to the common `FinaryAccountDto` under a synthetic `loans` category (external ID `finary_loans_{id}`), so they flow through the normal preview/mapping/execute pipeline and map to `AccountType.LOAN`. The outstanding amount is stored as a **negative** balance (a loan is a liability). Only the balance is imported — the loans payload does not expose the original principal or interest rate, so **no `Debt` row is created**; the imported LOAN account shows a static balance until the user fills in the loan parameters for the amortization view (see [loans.md](loans.md)). The exact `/loans` JSON shape and path are best-effort from the issue's sample (`type`, `name`, `outstanding_amount`, `monthly_repayment`, `start_date`, `end_date`); `FinaryLoanDto` maps the snake_case keys explicitly and accepts camelCase aliases as a fallback.
 - **Import mapping wizard type dropdown includes all account types (fix #17)**: The `CREATE_NEW` type selector in `FinaryTab` now uses `ACCOUNT_TYPES` from `@/lib/constants` instead of a hard-coded subset. This ensures `LOAN` and `REAL_ESTATE` are available in the dropdown, so loans imported from `/loans` are no longer forced into `OTHER` when the user overrides the backend suggestion.
@@ -219,9 +226,10 @@ POST /api/finary/api-sync/auto
 - `FinaryAccountMatcherTest` -- external-id vs name+type, duplicate names, Fortuneo AV vs fonds euros
 - `FinaryApiSyncServiceTest` -- unit tests for API sync flow, incl. loans appearing in the preview and being created as LOAN accounts on execute
 - `FinaryLoanDtoTest` -- unit tests for parsing the `/loans` payload (snake_case + camelCase aliases)
-- `FinaryHoldingsImporterTest` -- securities / crypto / fonds-euro mapping, cash skip, ticker sanitizing
+- `FinaryHoldingsImporterTest` -- securities / crypto / fonds-euro mapping, cash skip, ticker sanitizing, omitted vs empty snapshot, unproven display currency, null lines, partial merged values
 - `FinaryAccountHoldingsDtoTest` -- Jackson parse of `display_balance` + nested positions
-- `FinaryApiSyncServiceTest.eurBalance_prefersDisplayBalanceOverNativeUsd` -- stored balance uses display EUR, not native USD
+- `FinaryApiSyncServiceTest` -- preview and execute agree on the balance with and without a proven EUR display currency, foreign-currency transactions are converted, connector-owned accounts keep their id and holdings, shared targets are rejected, `autoSync` stays transactional
+- `FinaryPersistenceHelperTest` -- rebuilt history records each day's end-of-day balance
 - Manual integration testing with real Finary accounts
 
 ## Links

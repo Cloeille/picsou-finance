@@ -15,7 +15,8 @@ import java.util.Set;
  *
  * <p>Lookup order: current API external id, legacy xlsx external id, then a
  * unique (trimmed name + compatible type) pair. Already-claimed Picsou
- * accounts are skipped so two Finary rows cannot steal the same target.
+ * accounts are skipped so two Finary rows cannot steal the same target, and
+ * the name tier never offers an account another connector owns.
  */
 public final class FinaryAccountMatcher {
 
@@ -56,6 +57,7 @@ public final class FinaryAccountMatcher {
         }
         List<Account> nameHits = existing.stream()
             .filter(a -> a.getId() != null && !claimed.contains(a.getId()))
+            .filter(a -> !ownedByAnotherConnector(a))
             .filter(a -> needle.equals(normalize(a.getName())))
             .filter(a -> typesCompatible(row.category(), a.getType()))
             .toList();
@@ -63,6 +65,16 @@ public final class FinaryAccountMatcher {
             return Optional.of(new Suggestion(nameHits.get(0), "name+type"));
         }
         return Optional.empty();
+    }
+
+    /**
+     * A synced account another connector (Trade Republic, Bourso, …) finds by its external id.
+     * Finary accounts are created manual, so they never count. Mapping Finary onto such an account
+     * must neither take its id nor replace its holdings, or that connector's next sync creates a
+     * duplicate and the portfolio it owns is lost.
+     */
+    public static boolean ownedByAnotherConnector(Account account) {
+        return !account.isManual() && account.getExternalAccountId() != null;
     }
 
     static String externalId(String category, String id) {

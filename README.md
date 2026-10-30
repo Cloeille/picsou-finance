@@ -377,6 +377,7 @@ Git has the **code** only. It does **not** contain your Postgres data, encryptio
 | `feature/finary-holdings-import` | yes | checkout that branch |
 | Accounts, holdings, transactions | no (`docker_pgdata`) | empty database |
 | `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`, Postgres password | no (`docker_picsou_data`) | new secrets, wizard again |
+| TLS profile only: Caddy's internal CA and certificates, `PICSOU_DOMAIN` | no (`docker_caddy_data`, `docker/.env`) | new root CA, every device must trust it again |
 | Finary / bank logins | no (encrypted in DB) | reconnect + TOTP |
 | `data/*.zip` bank exports | no | not required to run |
 
@@ -403,9 +404,11 @@ Compose project name must stay `docker` so volumes stay `docker_pgdata` and `doc
 docker compose -f docker/docker-compose.yml stop
 docker run --rm -v docker_pgdata:/from -v "$PWD:/to" alpine tar czf /to/pgdata.tar.gz -C /from .
 docker run --rm -v docker_picsou_data:/from -v "$PWD:/to" alpine tar czf /to/picsou_data.tar.gz -C /from .
+# TLS profile only: the internal CA's root key lives here
+docker run --rm -v docker_caddy_data:/from -v "$PWD:/to" alpine tar czf /to/caddy_data.tar.gz -C /from .
 ```
 
-Copy `pgdata.tar.gz` and `picsou_data.tar.gz` (AirDrop, USB, `scp`). Do **not** commit them.
+Copy `pgdata.tar.gz` and `picsou_data.tar.gz` (AirDrop, USB, `scp`), plus `caddy_data.tar.gz` and `docker/.env` if you run the `tls` profile. Do **not** commit them.
 
 **On the other Mac**, after clone + checkout, **before** the first `up`:
 
@@ -417,7 +420,15 @@ docker run --rm -v docker_picsou_data:/to -v "$PWD:/from" alpine tar xzf /from/p
 docker compose -f docker/docker-compose.yml up --build -d
 ```
 
-You must copy **both** archives. Restoring Postgres without `picsou_data` uses a new encryption key and Finary/bank secrets in the DB will not decrypt.
+With the `tls` profile, put the copied `docker/.env` (same `PICSOU_DOMAIN`) in place and restore Caddy's volume before starting it:
+
+```bash
+docker volume create docker_caddy_data
+docker run --rm -v docker_caddy_data:/to -v "$PWD:/from" alpine tar xzf /from/caddy_data.tar.gz -C /to
+docker compose -f docker/docker-compose.yml --profile tls up --build -d
+```
+
+You must copy **both** `pgdata` and `picsou_data`. Restoring Postgres without `picsou_data` uses a new encryption key and Finary/bank secrets in the DB will not decrypt. Without `caddy_data`, Caddy generates a new root CA and devices that trusted the old one reject its certificate.
 
 ## Development
 

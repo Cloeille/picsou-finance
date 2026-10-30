@@ -6,4 +6,3 @@ ALTER TABLE account_holding
 
 ALTER TABLE account_holding
     ALTER COLUMN name TYPE VARCHAR(255);
-

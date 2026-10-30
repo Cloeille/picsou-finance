@@ -168,6 +168,10 @@ public class FinaryImportService {
                     .orElseThrow(() -> new IllegalArgumentException(
                         "Account " + mapping.targetAccountId() + " not found"
                     ));
+                // The rebuilt history is anchored at the Finary balance; the account must show it too.
+                account.setCurrentBalance(finaryAcc.balance());
+                account.setCurrency(finaryAcc.currency());
+                account = accountRepository.save(account);
                 accountsMapped++;
             } else if (mapping.action() == com.picsou.dto.FinaryMappingAction.CREATE_NEW) {
                 NewAccountDetails det = mapping.newAccount();
