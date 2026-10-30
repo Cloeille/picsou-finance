@@ -27,16 +27,23 @@ public interface RevolutPort {
         String description,
         BigDecimal amount,
         String counterparty,
-        CategoryKind kind
+        CategoryKind kind,
+        /** The leg's own currency; null means the pocket's. */
+        String currency
     ) {
         public RevolutTxn(String externalId, LocalDate date, String description, BigDecimal amount,
                           String counterparty) {
-            this(externalId, date, description, amount, counterparty, null);
+            this(externalId, date, description, amount, counterparty, null, null);
+        }
+
+        public RevolutTxn(String externalId, LocalDate date, String description, BigDecimal amount,
+                          String counterparty, CategoryKind kind) {
+            this(externalId, date, description, amount, counterparty, kind, null);
         }
 
         public SidecarTransaction toSidecarTransaction() {
             return new SidecarTransaction(externalId, date, description, amount, counterparty,
-                kind == null ? null : kind.name());
+                kind == null ? null : kind.name(), currency);
         }
     }
 
@@ -64,7 +71,11 @@ public interface RevolutPort {
      *
      * @throws com.picsou.exception.SyncException with message {@code "SESSION_EXPIRED"} when the
      *         sidecar reports the credentials/session are no longer valid (HTTP 401), or
-     *         {@code "APPROVAL_TIMEOUT"} when the mobile push was never approved in time (HTTP 408).
+     *         {@code "APPROVAL_TIMEOUT"} when the mobile push was never approved in time (HTTP 408),
+     *         {@code "HUMAN_VERIFICATION_REQUIRED"} when Revolut showed a captcha the sidecar cannot
+     *         solve, so no push was sent (HTTP 403), or {@code "UPSTREAM_FORMAT_CHANGED"} when the
+     *         login flow ended on a page the sidecar does not recognise (HTTP 424). These last two
+     *         also carry the same value as {@link com.picsou.exception.SyncException#getCode()}.
      */
     List<RevolutAccountData> sync(String phoneNumber, String passcode, Long memberId);
 

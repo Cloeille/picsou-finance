@@ -109,8 +109,8 @@ queue and completeness gates.
 
 ## Deployment
 
-Docker Compose builds `services/bourse-direct-auth/Dockerfile`. The image uses
-`python:3.12-slim-bookworm`, installs Chromium only and runs as a non-root user. The
+Docker Compose builds `services/bourse-direct-auth/Dockerfile` on the shared
+`chromium` sidecar base (Chromium only) and runs it as a non-root user. The
 service is reachable only from the internal Compose network. The backend URL
 defaults to `http://bourse-direct-auth:8001` and can be overridden with
 `BOURSE_DIRECT_AUTH_URL`; local development defaults to

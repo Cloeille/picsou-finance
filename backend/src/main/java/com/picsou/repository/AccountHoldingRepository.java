@@ -84,4 +84,29 @@ public interface AccountHoldingRepository extends JpaRepository<AccountHolding, 
         WHERE h.ticker IS NOT NULL AND a.deletedAt IS NULL AND a.type = :type
         """)
     Set<String> findDistinctTickersByAccountType(@Param("type") AccountType type);
+
+    /**
+     * Tickers with at least one live holding whose account is not {@code type}.
+     * A symbol held only as crypto is absent; the same symbol also held in a compte-titres
+     * is present. Does not replace {@link #findDistinctTickersByAccountType}.
+     */
+    @Query("""
+        SELECT DISTINCT h.ticker FROM AccountHolding h
+        JOIN h.account a
+        WHERE h.ticker IS NOT NULL AND a.deletedAt IS NULL AND a.type <> :type
+        """)
+    Set<String> findDistinctTickersHeldOutside(@Param("type") AccountType type);
+
+    /**
+     * Positive lines of the given accounts, account fetched, so a forecast can name the
+     * envelope without a second query. Callers pass ids they have already decided are readable.
+     */
+    @Query("""
+        SELECT h FROM AccountHolding h
+        JOIN FETCH h.account a
+        WHERE a.id IN :accountIds
+          AND a.deletedAt IS NULL
+          AND h.quantity > 0
+        """)
+    List<AccountHolding> findPositiveByAccountIdIn(@Param("accountIds") Collection<Long> accountIds);
 }

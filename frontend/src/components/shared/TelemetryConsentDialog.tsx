@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -11,9 +10,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useUpdateTelemetry } from '@/features/admin/hooks'
-import { useTelemetryConfig } from '@/features/telemetry/hooks'
+import { useTelemetryConsentPrompt } from '@/features/telemetry/hooks'
 import { useAppStore } from '@/stores/app-store'
-import { useAuthStore } from '@/stores/auth-store'
 
 const COLLECTED = ['collected1', 'collected2', 'collected3'] as const
 const NEVER = ['never1', 'never2', 'never3'] as const
@@ -26,16 +24,10 @@ const NEVER = ['never1', 'never2', 'never3'] as const
  */
 export function TelemetryConsentDialog() {
   const { t } = useTranslation()
-  const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
-  const demoMode = useAppStore((s) => s.demoMode)
-  const { data } = useTelemetryConfig(isAdmin && !demoMode)
+  // Waits for the one-time sidebar prompt so two modals never stack on first launch.
+  const { open } = useTelemetryConsentPrompt()
+  const dismiss = useAppStore((s) => s.dismissTelemetryConsent)
   const update = useUpdateTelemetry()
-  // Wait for the one-time sidebar prompt so two modals never stack on first launch.
-  const sidebarPromptSeen = useAppStore((s) => s.hasSeenSidebarStylePrompt)
-  const [dismissed, setDismissed] = useState(false)
-
-  const open =
-    isAdmin && !demoMode && sidebarPromptSeen && !dismissed && data?.available === true && data.consent === 'UNSET'
 
   function choose(enabled: boolean) {
     update.mutate(enabled, {
@@ -44,7 +36,7 @@ export function TelemetryConsentDialog() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) setDismissed(true) }}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) dismiss() }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t('telemetry.consent.title')}</DialogTitle>

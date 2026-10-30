@@ -227,6 +227,29 @@
     "tabOverview": "Overview",
     "cashBalance": "Cash in the PEA/securities account",
     "perEuroFundBalance": "PER euro fund (last sync)",
+    "dividends": {
+      "title": "Upcoming dividends",
+      "carousel": "Upcoming dividends carousel",
+      "prev": "Previous dividends",
+      "next": "Next dividends",
+      "exDate": "Ex-date",
+      "paymentDate": "Payment",
+      "paymentUnknown": "Payment date unknown",
+      "estimated": "estimated",
+      "announced": "Announced",
+      "estimatedBasis": "Estimated",
+      "perShare": "per share",
+      "empty": "No dividend expected",
+      "refreshWeekly": "Dividend histories refresh every week.",
+      "error": "Could not load upcoming dividends.",
+      "yearTotal": "over 12 months",
+      "cadence": {
+        "MONTHLY": "Monthly",
+        "QUARTERLY": "Quarterly",
+        "SEMI_ANNUAL": "Semi-annual",
+        "ANNUAL": "Annual"
+      }
+    },
     "snapshots": "Monthly snapshots",
     "changeCategory": "Change category",
     "importCsvTR": "+ Add CSV (TR)",
@@ -441,6 +464,12 @@
     "cash": "Paid out",
     "reinvest": "Reinvested",
     "jouissanceDate": "Enjoyment date",
+    "annualDistribution": "Annual distribution per share (€)",
+    "annualDistributionHint": "Optional, but the amount and the frequency go together: both, or neither. Used to estimate upcoming payments. Reinvested amounts stay out of the budget.",
+    "distributionFrequency": "Distribution frequency",
+    "frequencyMonthly": "Monthly",
+    "frequencyQuarterly": "Quarterly",
+    "frequencyNone": "Not set",
     "isin": "ISIN",
     "incomplete": "Withdrawal price missing: the previous balance is kept.",
     "position": "Position",
@@ -788,7 +817,13 @@
       "toCategorize_other": "{{count}} transactions to categorize",
       "topEnvelopes": "Most-used envelopes",
       "pastPeriodNote": "Envelope budgets and upcoming charges always reflect the current cycle.",
-      "error": "Couldn't load the overview."
+      "error": "Couldn't load the overview.",
+      "capitalIncome": "Capital income ahead",
+      "capitalIncomeGross": "Gross estimated amounts",
+      "capitalIncomeEmpty": "No capital income expected in the next 60 days.",
+      "reinvested": "Reinvested",
+      "staysInEnvelope": "Stays in the envelope",
+      "capitalizedOutside": "capitalized, outside the budget"
     },
     "cashflow": {
       "subtitle": "Money in, money out and net balance (transfers excluded).",
@@ -1093,6 +1128,10 @@
         "loggingIn": "Logging in to Revolut…",
         "awaitingApproval": "Approve the connection in your Revolut app… ({{remaining}}s left)",
         "harvesting": "Fetching your accounts… ({{count}} found)"
+      },
+      "errors": {
+        "humanVerificationRequired": "Revolut is asking you to prove you are human (captcha), and Picsou cannot do that for you. No approval was sent to your phone. Try again later.",
+        "upstreamFormatChanged": "The sign-in didn't go through. Check your phone number and try again."
       },
       "selection": {
         "title": "Choose which accounts to import",
@@ -2110,6 +2149,20 @@
       "next": "Next",
       "empty": "No AI calls recorded yet.",
       "loading": "Loading…"
+    },
+    "instanceStatus": {
+      "title": "Instance status",
+      "description": "A sidecar is misconfigured, or a newer release is available.",
+      "issuesTitle": "Configuration problem",
+      "unreachable": "This sidecar is not responding. The container is missing, or an old one is still running.",
+      "unreachableWithBase": "This sidecar is not responding. The shared base image is probably missing, so the build failed and the old container kept running — or none exists.",
+      "outdated": "This sidecar answers, but it is not running on the expected shared base image.",
+      "expectedBase": "Expected shared base image:",
+      "fixIntro": "To fix it, refresh the images, then restart:",
+      "fixBuildIntro": "When building from source, with Compose v2.33 or newer (it builds sidecar-python and sidecar-chromium first):",
+      "updateTitle": "Update available",
+      "releaseNotes": "Release notes",
+      "later": "Later"
     }
   },
   "error": {

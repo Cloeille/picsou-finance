@@ -48,6 +48,9 @@ vi.mock('@/components/shared/ImportTransactionsModal', () => ({ ImportTransactio
 vi.mock('@/components/shared/AddTransactionModal', () => ({ AddTransactionModal: () => null }))
 vi.mock('@/components/shared/EditHoldingModal', () => ({ EditHoldingModal: () => null }))
 vi.mock('@/components/shared/MonthEndBalanceModal', () => ({ MonthEndBalanceModal: () => null }))
+vi.mock('@/components/dividends/AccountDividendsSection', () => ({
+  AccountDividendsSection: () => <div data-testid="account-dividends" />,
+}))
 vi.mock('@/features/savings/SavingsConfigSection', () => ({ SavingsConfigSection: () => null }))
 
 vi.mock('react-router-dom', () => ({
@@ -125,5 +128,25 @@ describe('AccountDetailPage holdings (#231)', () => {
 
     expect(screen.getAllByTestId('holdings-table')).toHaveLength(1)
     expect(screen.getAllByTestId('realized-pnl')).toHaveLength(1)
+  })
+
+  it('does not mount upcoming dividends on a checking account', () => {
+    account.mockReturnValue(investmentAccount({ type: 'CHECKING' }))
+    render(<AccountDetailPage />)
+    expect(screen.queryByTestId('account-dividends')).not.toBeInTheDocument()
+  })
+
+  it('mounts upcoming dividends once on a securities account and a PEA, not on a wrapper', () => {
+    account.mockReturnValue(investmentAccount({ type: 'COMPTE_TITRES' }))
+    const { rerender } = render(<AccountDetailPage />)
+    expect(screen.getAllByTestId('account-dividends')).toHaveLength(1)
+
+    account.mockReturnValue(investmentAccount({ type: 'PEA' }))
+    rerender(<AccountDetailPage />)
+    expect(screen.getAllByTestId('account-dividends')).toHaveLength(1)
+
+    account.mockReturnValue(investmentAccount({ type: 'ASSURANCE_VIE' }))
+    rerender(<AccountDetailPage />)
+    expect(screen.queryByTestId('account-dividends')).not.toBeInTheDocument()
   })
 })

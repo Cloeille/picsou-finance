@@ -40,6 +40,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -182,11 +183,11 @@ public class RevolutSyncService {
             progressService.accountsFound(memberId, SyncProvider.REVOLUT, harvested.size());
             progressService.done(memberId, SyncProvider.REVOLUT);
         } catch (SyncException e) {
-            progressService.error(memberId, SyncProvider.REVOLUT, friendly(e.getMessage()));
+            progressService.error(memberId, SyncProvider.REVOLUT, friendly(e.getMessage()), e.getCode());
         } catch (Exception e) {
             log.warn("Revolut discovery failed for member {}: {}", memberId, e.getMessage());
             progressService.error(memberId, SyncProvider.REVOLUT,
-                "Failed to sync Revolut accounts. Please try again later.");
+                "Failed to sync Revolut accounts. Please try again later.", null);
         }
     }
 
@@ -326,6 +327,11 @@ public class RevolutSyncService {
             case "APPROVAL_TIMEOUT" ->
                 "The mobile approval was not confirmed in time. Please try again and approve the " +
                     "push notification on your phone.";
+            case "HUMAN_VERIFICATION_REQUIRED" ->
+                "Revolut is asking for a human verification (captcha) that Picsou cannot complete, " +
+                    "so no approval was sent to your phone. Please try again later.";
+            case "UPSTREAM_FORMAT_CHANGED" ->
+                "The Revolut sign-in didn't go through. Check your phone number and try again.";
             case "SYNC_IN_PROGRESS" ->
                 "A Revolut sync is already running for this account. Please wait for it to finish " +
                     "before starting another.";
@@ -525,17 +531,35 @@ public class RevolutSyncService {
         return Optional.of(accountService.toResponse(account));
     }
 
+    private static final Pattern EXCHANGED_TO_EUR = Pattern.compile("^exchanged\\s+to\\s+eur$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern EXCHANGED_FROM_EUR =
+        Pattern.compile("^exchanged\\s+from\\s+eur$", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * A debit "Exchanged to EUR" or a credit "Exchanged from EUR" is the foreign leg of an
+     * exchange (V118 uses the same rule). Without its own currency it would fall back to the
+     * pocket's EUR and be booked at the wrong scale (#251), so it is dropped.
+     */
+    private static boolean foreignLegWithoutCurrency(RevolutTxn txn) {
+        if (txn.currency() != null && !txn.currency().isBlank()) return false;
+        if (txn.description() == null || txn.amount() == null) return false;
+        String description = txn.description().strip();
+        int sign = txn.amount().signum();
+        return sign < 0 && EXCHANGED_TO_EUR.matcher(description).matches()
+            || sign > 0 && EXCHANGED_FROM_EUR.matcher(description).matches();
+    }
+
     /** Shared account-scoped ingestion and one-sync categorization context. */
     private void ingestTransactions(Account account, RevolutAccountData data,
                                      CategorizationService.CategorizationContext ctx,
                                      Set<TransferMirrorKey> transferLegs) {
         List<RevolutTxn> txns = data.txns();
         int inserted = transactionImporter.importFor(account,
-            txns == null ? null : txns.stream().map(txn -> {
+            txns == null ? null : txns.stream().filter(txn -> !foreignLegWithoutCurrency(txn)).map(txn -> {
                 CategoryKind kind = transferLegs.contains(transferKey(data, txn))
                     ? CategoryKind.TRANSFER : txn.kind() == CategoryKind.TRANSFER ? null : txn.kind();
                 return new RevolutTxn(txn.externalId(), txn.date(), txn.description(), txn.amount(),
-                    txn.counterparty(), kind).toSidecarTransaction();
+                    txn.counterparty(), kind, txn.currency()).toSidecarTransaction();
             }).toList(), ctx, "revolut");
         if (inserted > 0) {
             log.info("Ingested {} new Revolut transactions for account {}", inserted, account.getId());

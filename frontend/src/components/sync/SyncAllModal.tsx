@@ -78,6 +78,7 @@ import { formatTimeAgo } from '@/lib/utils'
 import type { Account } from '@/types/api'
 import { formatApiError, formatTrAuthError, isTrSessionDeadError } from '@/lib/errors'
 import { syncKeys } from '@/features/sync/hooks'
+import { revolutErrorLabel } from '@/features/sync/revolut-phase'
 import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 
 const REVOLUT_CONNECTION_ID = 'revolut'
@@ -555,7 +556,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       })
       const setError = (message: string) => setRowErrors(prev => ({ ...prev, [REVOLUT_CONNECTION_ID]: message }))
       if (data?.error) {
-        setError(data.error)
+        setError(revolutErrorLabel(t, data))
         queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
         clearSyncing()
       } else if (data && data.discovered.length > 0) {

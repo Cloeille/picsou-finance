@@ -295,6 +295,8 @@ export const mockAccounts: Account[] = [
       dividendPolicy: 'REINVEST',
       jouissanceDate: null,
       valuationStatus: 'OK',
+      annualDistributionPerShareEur: 12,
+      distributionFrequency: 'QUARTERLY',
     },
   },
 ]

@@ -108,6 +108,15 @@ export function useEbCallLog(enabled: boolean) {
   })
 }
 
+export function useInstanceStatus(enabled = true) {
+  return useQuery({
+    queryKey: [...adminKeys.all, 'instance-status'],
+    queryFn: adminApi.getInstanceStatus,
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 export function useClearEbCallLog() {
   const queryClient = useQueryClient()
   return useMutation({

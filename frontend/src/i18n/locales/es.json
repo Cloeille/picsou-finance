@@ -215,6 +215,29 @@
     },
     "cashBalance": "Efectivo en la cuenta PEA/de valores",
     "perEuroFundBalance": "Fondo en euros del PER (última sincronización)",
+    "dividends": {
+      "title": "Dividendos por venir",
+      "carousel": "Carrusel de dividendos por venir",
+      "prev": "Dividendos anteriores",
+      "next": "Dividendos siguientes",
+      "exDate": "Fecha ex-dividendo",
+      "paymentDate": "Pago",
+      "paymentUnknown": "Fecha de pago desconocida",
+      "estimated": "estimada",
+      "announced": "Anunciado",
+      "estimatedBasis": "Estimado",
+      "perShare": "por acción",
+      "empty": "Ningún dividendo previsto",
+      "refreshWeekly": "Los historiales de dividendos se actualizan cada semana.",
+      "error": "No se han podido cargar los dividendos por venir.",
+      "yearTotal": "a 12 meses",
+      "cadence": {
+        "MONTHLY": "Mensual",
+        "QUARTERLY": "Trimestral",
+        "SEMI_ANNUAL": "Semestral",
+        "ANNUAL": "Anual"
+      }
+    },
     "snapshots": "Registros mensuales",
     "addSnapshot": "Guardar",
     "monthlyHistory": "Saldo a fin de mes",
@@ -430,6 +453,12 @@
     "cash": "Pagados",
     "reinvest": "Reinvertidos",
     "jouissanceDate": "Fecha de disfrute",
+    "annualDistribution": "Distribución anual por participación (€)",
+    "annualDistributionHint": "Opcional, pero el importe y la frecuencia van juntos: los dos, o ninguno. Estima los pagos futuros. Los importes reinvertidos quedan fuera del presupuesto.",
+    "distributionFrequency": "Frecuencia de distribución",
+    "frequencyMonthly": "Mensual",
+    "frequencyQuarterly": "Trimestral",
+    "frequencyNone": "Sin indicar",
     "isin": "ISIN",
     "incomplete": "Falta el precio de reembolso: se conserva el saldo anterior.",
     "position": "Posición",
@@ -1272,6 +1301,10 @@
         "awaitingApproval": "Approve the connection in your Revolut app… ({{remaining}}s left)",
         "harvesting": "Fetching your accounts… ({{count}} found)"
       },
+      "errors": {
+        "humanVerificationRequired": "Revolut te pide demostrar que eres humano (captcha) y Picsou no puede hacerlo por ti. No se envió ninguna aprobación a tu teléfono. Inténtalo de nuevo más tarde.",
+        "upstreamFormatChanged": "El inicio de sesión no se completó. Comprueba tu número de teléfono e inténtalo de nuevo."
+      },
       "selection": {
         "title": "Choose which accounts to import",
         "selectAll": "Select all",
@@ -1807,6 +1840,20 @@
       "next": "Next",
       "empty": "No AI calls recorded yet.",
       "loading": "Loading…"
+    },
+    "instanceStatus": {
+      "title": "Estado de la instancia",
+      "description": "Un sidecar está mal configurado, o hay una versión más reciente.",
+      "issuesTitle": "Problema de configuración",
+      "unreachable": "Este sidecar no responde. Falta el contenedor, o sigue en marcha una versión antigua.",
+      "unreachableWithBase": "Este sidecar no responde. Probablemente falta la imagen base compartida: la construcción falló y el contenedor antiguo sigue en marcha, o no existe.",
+      "outdated": "Este sidecar responde, pero no corre con la imagen base compartida esperada.",
+      "expectedBase": "Imagen base compartida esperada:",
+      "fixIntro": "Para corregirlo, actualiza las imágenes y reinicia:",
+      "fixBuildIntro": "Si compilas desde el código, con Compose v2.33 o posterior (construye primero sidecar-python y sidecar-chromium):",
+      "updateTitle": "Actualización disponible",
+      "releaseNotes": "Notas de la versión",
+      "later": "Más tarde"
     }
   },
   "error": {
@@ -2531,7 +2578,13 @@
       "toCategorize_other": "{{count}} transactions to categorize",
       "topEnvelopes": "Most-used envelopes",
       "pastPeriodNote": "Envelope budgets and upcoming charges always reflect the current cycle.",
-      "error": "Couldn't load the overview."
+      "error": "Couldn't load the overview.",
+      "capitalIncome": "Ingresos de capital por venir",
+      "capitalIncomeGross": "Importes brutos estimados",
+      "capitalIncomeEmpty": "Ningún ingreso de capital previsto en los próximos 60 días.",
+      "reinvested": "Reinvertido",
+      "staysInEnvelope": "Permanece en la envoltura",
+      "capitalizedOutside": "capitalizados, fuera del presupuesto"
     },
     "cashflow": {
       "subtitle": "Money in, money out and net balance (transfers excluded).",

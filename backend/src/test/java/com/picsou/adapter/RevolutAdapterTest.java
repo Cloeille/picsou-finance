@@ -80,6 +80,34 @@ class RevolutAdapterTest {
     }
 
     @Test
+    void sync_mapsHumanVerificationToACodedSyncException() throws Exception {
+        try (TestServer server = TestServer.start(exchange ->
+            respond(exchange, 403, "{\"error\":\"HUMAN_VERIFICATION_REQUIRED\"}"))) {
+            RevolutAdapter adapter = adapter(server);
+
+            assertThatThrownBy(() -> adapter.sync("+336****0000", "123456", 5L))
+                .isInstanceOfSatisfying(SyncException.class, error -> {
+                    assertThat(error).hasMessage("HUMAN_VERIFICATION_REQUIRED");
+                    assertThat(error.getCode()).isEqualTo("HUMAN_VERIFICATION_REQUIRED");
+                });
+        }
+    }
+
+    @Test
+    void sync_mapsAnUnrecognisedLoginPageToACodedSyncException() throws Exception {
+        try (TestServer server = TestServer.start(exchange ->
+            respond(exchange, 424, "{\"error\":\"UPSTREAM_FORMAT_CHANGED\"}"))) {
+            RevolutAdapter adapter = adapter(server);
+
+            assertThatThrownBy(() -> adapter.sync("+336****0000", "123456", 5L))
+                .isInstanceOfSatisfying(SyncException.class, error -> {
+                    assertThat(error).hasMessage("UPSTREAM_FORMAT_CHANGED");
+                    assertThat(error.getCode()).isEqualTo("UPSTREAM_FORMAT_CHANGED");
+                });
+        }
+    }
+
+    @Test
     void sync_mapsTransactionKindFromSidecar() throws Exception {
         try (TestServer server = TestServer.start(exchange -> respond(exchange, 200, """
             {"accounts":[{"externalId":"wallet","name":"Wallet","type":"CHECKING","balance":10,
@@ -91,6 +119,24 @@ class RevolutAdapterTest {
             assertThat(accounts).singleElement().satisfies(account ->
                 assertThat(account.txns()).singleElement().satisfies(transaction ->
                     assertThat(transaction.kind()).isEqualTo(CategoryKind.TRANSFER)));
+        }
+    }
+
+    @Test
+    void sync_mapsEachLegsOwnCurrencyFromSidecar() throws Exception {
+        try (TestServer server = TestServer.start(exchange -> respond(exchange, 200, """
+            {"accounts":[{"externalId":"wallet","name":"Wallet","type":"CHECKING","balance":10,
+              "currency":"EUR","transactions":[
+                {"externalId":"x","date":"2026-09-20","description":"Exchanged to EUR","amount":-0.05,
+                 "counterparty":null,"currency":"BTC"},
+                {"externalId":"y","date":"2026-09-20","description":"Coffee","amount":-3,
+                 "counterparty":null}]}]}
+            """))) {
+            var accounts = adapter(server).sync("+336****0000", "123456", 5L, false);
+
+            assertThat(accounts).singleElement().satisfies(account ->
+                assertThat(account.txns()).extracting(com.picsou.port.RevolutPort.RevolutTxn::currency)
+                    .containsExactly("BTC", null));
         }
     }
 

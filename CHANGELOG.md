@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Instance-status alert for admins.** An admin sees a pop-up when a sidecar the household
+  uses does not answer, or still runs an image from before the shared base images (typically
+  a build that failed because `sidecar-python` or `sidecar-chromium` was missing), with the
+  commands that fix it. The same pop-up announces a newer Picsou release, read from GitHub at
+  most once every 6 hours; `APP_UPDATE_CHECK_ENABLED=false` turns that call off. See
+  [feature note](docs/features/admin-instance-status.md).
+- **Shared sidecar base images.** Nine sidecars now build on two shared images,
+  `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
+  install downloads and stores Chromium and the Python packages once instead of once per
+  sidecar. Amex and Revolut keep their own image (Camoufox). See
+  [ADR](docs/decisions/2026-10-21-shared-sidecar-base-image.md).
+- **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
+  the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
+  and SCPI distributions, from the annual distribution per share and the frequency you enter
+  on the SCPI position. Amounts are gross estimates, weighted by your ownership share; a
+  dividend paid inside a PEA, an assurance vie, a PER or an employee savings plan, or a
+  reinvested SCPI distribution, is listed but left out of the total, since it stays in the
+  envelope. Dividend histories are refreshed once a week, on a six-day cutoff so the Sunday
+  pass actually hits, from Yahoo Finance, completed by Nasdaq for Nasdaq-listed stocks (real payment dates and dividends
+  already declared), and never while prices are rate-limited, so opening Budget sends no
+  request. A failed refresh keeps the last forecast. The 60-day window is the payment date
+  when one is known, otherwise the ex-date. A new default income category, *Revenus du capital*, is added for every member.
+  The page of a compte-titres or a PEA lists its dividends for the next 12 months, with the
+  ex-date and the payment date of each; the payment date is learned from your past dividend
+  transactions on that line and shown as unknown when there are none.
+  `GET /api/dividends/upcoming` exposes the forecast. See
+  [ADR](docs/decisions/2026-10-20-dividend-forecast-weekly-yahoo-history.md) and
+  [feature note](docs/features/dividend-forecast.md) (#244).
 - **SimpleFIN bank sync.** A member can paste a one-time setup token from SimpleFIN
   Bridge. Picsou claims it, stores the access URL encrypted, and imports account
   balances and posted transactions alongside Enable Banking, by hand, from Sync All
@@ -190,10 +218,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so no charge takes another's category or recurring series. Copies stored before the
   fix are not removed automatically, since nothing tells them from a genuine second purchase;
   delete them by hand (#245).
+- **Account edit and delete buttons on touch screens.** On the Accounts page these buttons
+  only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
+  the card's corner could still hit delete). They now stay visible on touch screens and when
+  keyboard focus is inside the card.
+
 - **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
   of disappearing.
+- **Revolut tells you when it asks for a captcha instead of counting down for a push that never
+  comes.** Revolut can answer the phone number with an image challenge; the sidecar used to type
+  nothing further, then show "Approve the connection in your Revolut app… (300s left)" until it
+  timed out. It now stops at once and every Revolut sync screen says Revolut is asking for a human
+  verification and that no approval was sent. A sign-in page the sidecar does not recognise, or a
+  step of it that times out (previously an unexplained server error), is reported the same way.
+  Solving the challenge from Picsou is not available yet. See
+  [feature note](docs/features/revolut-sidecar.md).
 - **BoursoBank account names show apostrophes and ampersands as typed.** A name such as
   `LIVRET D'EPARGNE` was stored as `LIVRET D&#039;EPARGNE` and shown that way in the
   dashboard, legend and accounts list. The next BoursoBank sync rewrites existing names.
@@ -268,6 +309,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#174](https://github.com/Cloeille/picsou-finance/issues/174))
 
 ### Security
+
+- **Sidecars share one dependency pin set.** Bourse Direct, Fortuneo, Trade Republic and
+  DEGIRO move from fastapi 0.111 (and the Starlette range with published DoS advisories it
+  pulled in) to fastapi 0.141, uvicorn 0.52 and pydantic 2.13, DEGIRO and Trade Republic
+  from httpx 0.27 to 0.28, and Trade Republic from Playwright 1.44 to 1.52. These four no
+  longer get uvicorn's `[standard]` extras (uvloop, httptools, websockets) that fastapi 0.111
+  pulled in: they run on the default asyncio loop and h11, like the other sidecars already did. A future
+  bump is one line in `services/base/requirements*.txt` for all nine sidecars.
 
 - **Every connector sidecar now checks the shared `APP_SIDECAR_API_KEY`.** The
   Trade Republic, Revolut, BoursoBank, Bourse Direct, Amundi, Fortuneo and DEGIRO
@@ -469,6 +518,19 @@ information architecture.
   [feature note](docs/features/ibkr-sync.md).
 ### Fixed
 
+- **Docker deployments with a custom PostgreSQL password no longer crash-loop because Spring uses `picsou`.**
+  The entrypoint now forwards the resolved PostgreSQL password to Spring, while
+  preserving an explicit Spring datasource password override. The database's
+  own password must still be configured to match.
+- **A Trade Republic position that never gets a price no longer fails the whole
+  sync.** The read waited for every ticker subscription to answer, bounded only by
+  a timeout on the gap between two frames, and answered tickers keep streaming
+  deltas: with one silent subscription (a delisted share, a contingent value
+  right) the gap never opened, the 45-second hard timeout failed the sync and no
+  account was stored, right after a successful login. The read now stops after 30
+  seconds in total and persists what answered; the silent position falls back to
+  its average buy-in price, as a missing ticker price already did. A WebSocket
+  error mid-read still keeps what arrived instead of failing the sync.
 - **A BoursoBank contract invested in a single fund syncs instead of failing the
   whole import** ([#154](https://github.com/Cloeille/picsou-finance/issues/154)).
   Its trading summary reports the contract balance and one `fund` node, with no

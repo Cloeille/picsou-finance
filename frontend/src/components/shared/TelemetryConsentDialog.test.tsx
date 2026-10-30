@@ -52,7 +52,7 @@ describe('TelemetryConsentDialog', () => {
     vi.clearAllMocks()
     api.updateTelemetry.mockResolvedValue(undefined)
     useAuthStore.setState({ user: ADMIN, isAuthenticated: true })
-    useAppStore.setState({ demoMode: false, hasSeenSidebarStylePrompt: true })
+    useAppStore.setState({ demoMode: false, hasSeenSidebarStylePrompt: true, telemetryConsentDismissed: false })
   })
 
   it('shows for an admin when telemetry is available and consent is UNSET', async () => {

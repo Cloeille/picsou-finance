@@ -1,18 +1,12 @@
-FROM python:3.12-slim-bookworm
-
-WORKDIR /app
+# Base: services/base, target `python` (Python and the shared pins, no browser).
+# Compose and CI build it first (`docker build --target python --tag
+# picsou-sidecar-python services/base`); the publish workflow passes the GHCR
+# image by digest instead.
+ARG SIDECAR_BASE=picsou-sidecar-python
+FROM ${SIDECAR_BASE}
 
 RUN groupadd -r bourso && useradd -r -g bourso bourso
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# No browser: BoursoBank's only anti-bot token is handed out by the server and
-# echoed back, so plain HTTPS is enough and this image stays a tenth the size of
-# the Playwright sidecars.
 COPY main.py virtual_pad.py accounts_parser.py ./
 
 USER bourso

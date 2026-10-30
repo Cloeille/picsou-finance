@@ -227,6 +227,29 @@
     "tabOverview": "Aperçu",
     "cashBalance": "Liquidités dans le PEA/CTO",
     "perEuroFundBalance": "Fonds en euros du PER (dernière synchro)",
+    "dividends": {
+      "title": "Dividendes à venir",
+      "carousel": "Carrousel des dividendes à venir",
+      "prev": "Dividendes précédents",
+      "next": "Dividendes suivants",
+      "exDate": "Détachement",
+      "paymentDate": "Versement",
+      "paymentUnknown": "Date de versement inconnue",
+      "estimated": "estimée",
+      "announced": "Annoncé",
+      "estimatedBasis": "Estimé",
+      "perShare": "par action",
+      "empty": "Aucun dividende prévu",
+      "refreshWeekly": "Les historiques de dividendes sont actualisés chaque semaine.",
+      "error": "Impossible de charger les dividendes à venir.",
+      "yearTotal": "sur 12 mois",
+      "cadence": {
+        "MONTHLY": "Mensuel",
+        "QUARTERLY": "Trimestriel",
+        "SEMI_ANNUAL": "Semestriel",
+        "ANNUAL": "Annuel"
+      }
+    },
     "snapshots": "Relevés mensuels",
     "changeCategory": "Changer la catégorie",
     "importCsvTR": "+ Ajouter CSV (TR)",
@@ -441,6 +464,12 @@
     "cash": "Versés",
     "reinvest": "Réinvestis",
     "jouissanceDate": "Date de jouissance",
+    "annualDistribution": "Distribution annuelle par part (€)",
+    "annualDistributionHint": "Facultatif, mais le montant et la fréquence vont ensemble : les deux, ou aucun. Sert à estimer les versements à venir. Les montants réinvestis restent hors budget.",
+    "distributionFrequency": "Fréquence de distribution",
+    "frequencyMonthly": "Mensuelle",
+    "frequencyQuarterly": "Trimestrielle",
+    "frequencyNone": "Non renseignée",
     "isin": "ISIN",
     "incomplete": "Prix de retrait manquant : le solde précédent est conservé.",
     "position": "Position",
@@ -788,7 +817,13 @@
       "toCategorize_other": "{{count}} transactions à catégoriser",
       "topEnvelopes": "Enveloppes les plus sollicitées",
       "pastPeriodNote": "Les budgets d'enveloppes et les prochaines échéances reflètent toujours le cycle en cours.",
-      "error": "Impossible de charger l'aperçu."
+      "error": "Impossible de charger l'aperçu.",
+      "capitalIncome": "Revenus du capital à venir",
+      "capitalIncomeGross": "Montants bruts estimés",
+      "capitalIncomeEmpty": "Aucun revenu du capital prévu sur 60 jours.",
+      "reinvested": "Réinvesti",
+      "staysInEnvelope": "Reste dans l'enveloppe",
+      "capitalizedOutside": "capitalisés, hors budget"
     },
     "cashflow": {
       "subtitle": "Entrées, sorties et solde net (virements exclus).",
@@ -1093,6 +1128,10 @@
         "loggingIn": "Connexion à Revolut…",
         "awaitingApproval": "Approuve la connexion sur ton app Revolut… ({{remaining}} s restantes)",
         "harvesting": "Récupération de tes comptes… ({{count}} trouvés)"
+      },
+      "errors": {
+        "humanVerificationRequired": "Revolut te demande de prouver que tu es humain (captcha), ce que Picsou ne peut pas faire à ta place. Aucune approbation n'a été envoyée sur ton téléphone. Réessaie plus tard.",
+        "upstreamFormatChanged": "La connexion n'a pas abouti. Vérifie ton numéro de téléphone et réessaie."
       },
       "selection": {
         "title": "Choisis les comptes à importer",
@@ -2110,6 +2149,20 @@
       "next": "Suivant",
       "empty": "Aucun appel IA enregistré pour l'instant.",
       "loading": "Chargement…"
+    },
+    "instanceStatus": {
+      "title": "État de l'instance",
+      "description": "Un sidecar est mal configuré, ou une version plus récente est disponible.",
+      "issuesTitle": "Problème de configuration",
+      "unreachable": "Ce sidecar ne répond pas. Le conteneur est absent, ou une ancienne version tourne encore.",
+      "unreachableWithBase": "Ce sidecar ne répond pas. L'image de base partagée est probablement absente : la construction a échoué, l'ancien conteneur continue ou n'existe pas.",
+      "outdated": "Ce sidecar répond, mais il ne tourne pas sur l'image de base partagée attendue.",
+      "expectedBase": "Image de base partagée attendue :",
+      "fixIntro": "Pour corriger, mettez à jour les images, puis relancez :",
+      "fixBuildIntro": "Depuis les sources, avec Compose v2.33 ou plus récent (il construit d'abord sidecar-python et sidecar-chromium) :",
+      "updateTitle": "Mise à jour disponible",
+      "releaseNotes": "Notes de version",
+      "later": "Plus tard"
     }
   },
   "error": {

@@ -73,6 +73,7 @@ public class CategoryService {
         // ── Income ────────────────────────────────────────────────────────────
         new DefaultCategory("salaire", "Salaire", CategoryKind.INCOME, "#16a34a", "wallet"),
         new DefaultCategory("autres-revenus", "Autres revenus", CategoryKind.INCOME, "#65a30d", "hand-coins"),
+        new DefaultCategory("revenus-capital", "Revenus du capital", CategoryKind.INCOME, "#ca8a04", "coins"),
         new DefaultCategory("remboursements", "Remboursements", CategoryKind.INCOME, "#0ea5e9", "undo-2"),
         // ── Transfers (excluded from cashflow, feed allocation) ─────────────────
         new DefaultCategory("epargne", "Épargne", CategoryKind.TRANSFER, "#0891b2", "piggy-bank"),

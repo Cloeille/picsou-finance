@@ -160,11 +160,23 @@ class SyncProgressServiceTest {
         SyncProgressService service = new SyncProgressService();
         service.startIfIdle(MEMBER_ID, SyncProvider.REVOLUT);
 
-        service.error(MEMBER_ID, SyncProvider.REVOLUT, "boom");
+        service.error(MEMBER_ID, SyncProvider.REVOLUT, "boom", null);
 
         SyncProgress status = service.status(MEMBER_ID, SyncProvider.REVOLUT);
         assertThat(status.running()).isFalse();
         assertThat(status.done()).isTrue();
         assertThat(status.error()).isEqualTo("boom");
+        assertThat(status.errorCode()).isNull();
+    }
+
+    @Test
+    void error_exposesTheStableCodeSoTheUiCanTranslateIt() {
+        SyncProgressService service = new SyncProgressService();
+        service.startIfIdle(MEMBER_ID, SyncProvider.REVOLUT);
+
+        service.error(MEMBER_ID, SyncProvider.REVOLUT, "captcha", "HUMAN_VERIFICATION_REQUIRED");
+
+        assertThat(service.status(MEMBER_ID, SyncProvider.REVOLUT).errorCode())
+            .isEqualTo("HUMAN_VERIFICATION_REQUIRED");
     }
 }
