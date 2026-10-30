@@ -76,6 +76,9 @@ bootstrap_secret "jwt_secret"        "JWT_SECRET"            "rand -base64 48"
 bootstrap_secret "crypto_key"        "CRYPTO_ENCRYPTION_KEY" "rand -base64 32"
 bootstrap_secret "postgres_password" "POSTGRES_PASSWORD"     "rand -base64 24"
 
+# Spring reads its datasource password from this variable, not POSTGRES_PASSWORD.
+export SPRING_DATASOURCE_PASSWORD="${SPRING_DATASOURCE_PASSWORD:-$POSTGRES_PASSWORD}"
+
 # ── HSTS (opt-in) ────────────────────────────────────────────────────────
 # nginx.conf includes this snippet; empty means the header is never sent.
 #
