@@ -82,6 +82,20 @@ UPDATE debt d SET linked_account_id = m.survivor_id
 UPDATE transaction t SET account_id = m.survivor_id
   FROM account_merge_map m WHERE t.account_id = m.loser_id;
 
+-- resource_id has no foreign key: a MANUAL share of a loser would point at nothing.
+DELETE FROM shared_resource r USING account_merge_map m
+ WHERE r.resource_type = 'ACCOUNT' AND r.resource_id = m.loser_id
+   AND EXISTS (SELECT 1 FROM shared_resource k
+                WHERE k.owner_member_id = r.owner_member_id AND k.resource_type = 'ACCOUNT'
+                  AND k.resource_id = m.survivor_id);
+DELETE FROM shared_resource r USING account_merge_map m
+ WHERE r.resource_type = 'ACCOUNT' AND r.resource_id = m.loser_id
+   AND EXISTS (SELECT 1 FROM shared_resource k JOIN account_merge_map n ON n.loser_id = k.resource_id
+                WHERE k.owner_member_id = r.owner_member_id AND k.resource_type = 'ACCOUNT'
+                  AND n.survivor_id = m.survivor_id AND n.rank < m.rank);
+UPDATE shared_resource r SET resource_id = m.survivor_id
+  FROM account_merge_map m WHERE r.resource_type = 'ACCOUNT' AND r.resource_id = m.loser_id;
+
 -- The 1.0.x line created these tables in V66 and V74, so they exist here only on a 1.0.x
 -- database. PL/pgSQL resolves a table when the statement first runs, not before.
 DO $$

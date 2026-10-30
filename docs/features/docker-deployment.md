@@ -374,9 +374,14 @@ the 1.1.0-only migrations out of order. Do not run `flyway repair` instead: it w
 One of those out-of-order migrations, V47, adds the unique index on synced accounts. On a 1.0.x
 database it keeps every account that differs in provider or is manual. It merges only active synced
 accounts that share member, external id and provider, into the highest id, moving their
-transactions, snapshots, holdings and other dependent rows the way V77 does. A 1.1.0 database
-already ran an earlier V47 that deleted duplicates without merging them, and the callback gives
-that row the current checksum.
+transactions, snapshots, holdings and other dependent rows the way V77 does, and repointing
+manual family sharing at the survivor. A 1.1.0 database already ran an earlier V47 that deleted
+duplicates without merging them, and the callback gives that row the current checksum.
+
+A database from 1.0.11 to 1.0.15 also runs V77 for the first time. V77 merges synced accounts
+that share member, external id and provider, and leaves a manual account carrying the same external
+id alone. Databases from 1.0.16 on, and 1.1.0, already ran an earlier V77 that could merge such a
+manual account into the synced group. The callback gives that row the current checksum.
 
 **If you disabled Flyway as a workaround:**
 

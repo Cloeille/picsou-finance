@@ -92,9 +92,18 @@ class LegacyMigrationRenumberingTest {
         Map.entry("V65__constrain_bourse_direct_sync_errors.sql", "V63__constrain_bourse_direct_sync_errors.sql"),
         Map.entry("V96__backfill_trade_republic_valuations.sql", "V64__backfill_trade_republic_valuations.sql"));
 
-    /** Versions 1.0.18 shipped under the number and content they still have. */
+    /**
+     * Versions 1.0.18 shipped under the number and content they still have. V77 had its merge
+     * narrowed since, so it comes from legacy-migrations/1.0.18.
+     */
     private static final IntPredicate UNCHANGED_SINCE_1_0_18 = v -> v <= 32 || v == 36 || v == 37
-        || v == 50 || v == 52 || v == 53 || (v >= 66 && v <= 80 && v != 72) || v == 86 || v == 87;
+        || v == 50 || v == 52 || v == 53 || (v >= 66 && v <= 80 && v != 72 && v != 77) || v == 86 || v == 87;
+
+    /** Release 1.0.11 (#265), the oldest the renumbering covers: it predates V77. */
+    private static final IntPredicate UNCHANGED_SINCE_1_0_11 = v -> v <= 32 || v == 36 || v == 37 || v == 50;
+
+    private static final Map<String, String> RELEASE_1_0_11_RENAMED = Map.of(
+        "V94__backfill_tr_crypto_transaction_tickers.sql", "V38__backfill_tr_crypto_transaction_tickers.sql");
 
     @Test
     void aFreshDatabaseMigratesToHeadUnderTheNewNumbers() throws Exception {
@@ -193,7 +202,12 @@ class LegacyMigrationRenumberingTest {
                 + "(11, 'Bank B current', 'Bank B', '12345', false, 900), "
                 + "(12, 'Manual', 'Bank B', '12345', true, 900), "
                 + "(13, 'Bank C duplicate', 'Bank C', '67890', false, 900), "
-                + "(14, 'Bank C', 'Bank C', '67890', false, 900)",
+                + "(14, 'Bank C', 'Bank C', '67890', false, 900), "
+                + "(15, 'Bank D duplicate', 'Bank D', '24680', false, 900), "
+                + "(16, 'Bank D', 'Bank D', '24680', false, 900)",
+            "INSERT INTO sharing_settings (member_id, resource_type, sharing_level) VALUES (900, 'ACCOUNT', 'MANUAL')",
+            "INSERT INTO shared_resource (owner_member_id, resource_type, resource_id) VALUES "
+                + "(900, 'ACCOUNT', 13), (900, 'ACCOUNT', 15), (900, 'ACCOUNT', 16), (900, 'GOAL', 13)",
             "INSERT INTO transaction (account_id, date, description, amount) VALUES "
                 + "(10, '2026-01-01', 'a', 1), (11, '2026-01-01', 'b', 2), (12, '2026-01-01', 'c', 3), "
                 + "(13, '2026-01-01', 'd', 4), (14, '2026-01-02', 'e', 5)",
@@ -205,13 +219,42 @@ class LegacyMigrationRenumberingTest {
 
         assertThat(upgrade(url).info().pending()).isEmpty();
         assertThat(query(url, "SELECT id FROM account WHERE member_id = 900 ORDER BY id"))
-            .containsExactly("10", "11", "12", "14");
+            .containsExactly("10", "11", "12", "14", "16");
         assertThat(query(url, "SELECT account_id || ' ' || description FROM transaction ORDER BY description"))
             .containsExactly("10 a", "11 b", "12 c", "14 d", "14 e");
         assertThat(query(url, "SELECT account_id || ' ' || date || ' ' || balance::int FROM balance_snapshot "
             + "ORDER BY account_id, date")).containsExactly(
             "10 2026-01-01 10", "11 2026-01-01 11", "12 2026-01-01 12",
             "14 2026-01-01 14", "14 2026-01-02 13");
+        assertThat(query(url, "SELECT resource_type || ' ' || resource_id FROM shared_resource "
+            + "ORDER BY resource_type, resource_id")).containsExactly("ACCOUNT 14", "ACCOUNT 16", "GOAL 13");
+    }
+
+    @Test
+    void aRelease1011DatabaseKeepsAManualAccountSharingASyncedAccountsExternalId() throws Exception {
+        String url = createDatabase("release_1_0_11_accounts");
+        migrateLegacy(url, UNCHANGED_SINCE_1_0_11, RELEASE_1_0_11_RENAMED, null);
+        execute(url,
+            "INSERT INTO family_member (id, display_name) VALUES (900, 'Owner')",
+            "INSERT INTO account (id, name, provider, external_account_id, is_manual, member_id, created_at, deleted_at) "
+                + "VALUES (10, 'Manual', 'BTC', 'wallet_bitcoin_1', true, 900, '2026-01-01', NULL), "
+                + "(11, 'Bitcoin', 'BTC', 'wallet_bitcoin_1', false, 900, '2026-02-01', NULL), "
+                + "(12, 'Bitcoin deleted', 'BTC', 'wallet_bitcoin_1', false, 900, '2026-01-10', '2026-01-20')",
+            "INSERT INTO transaction (account_id, date, description, amount) VALUES "
+                + "(10, '2026-03-01', 'a', 1), (11, '2026-03-01', 'b', 2), (12, '2026-01-15', 'c', 3)",
+            "INSERT INTO balance_snapshot (account_id, date, balance, invested_amount) VALUES "
+                + "(10, '2026-03-01', 10, 0), (11, '2026-03-01', 11, 0), (12, '2026-01-15', 12, 0)");
+
+        upgrade(url).migrate();
+
+        assertThat(upgrade(url).info().pending()).isEmpty();
+        assertThat(query(url, "SELECT id FROM account WHERE member_id = 900 ORDER BY id"))
+            .containsExactly("10", "11");
+        assertThat(query(url, "SELECT account_id || ' ' || description FROM transaction ORDER BY description"))
+            .containsExactly("10 a", "11 b", "11 c");
+        assertThat(query(url, "SELECT account_id || ' ' || date || ' ' || balance::int FROM balance_snapshot "
+            + "ORDER BY account_id, date")).containsExactly(
+            "10 2026-03-01 10", "11 2026-01-15 12", "11 2026-03-01 11");
     }
 
     @Test
@@ -240,11 +283,12 @@ class LegacyMigrationRenumberingTest {
     }
 
     /**
-     * Applies V1-V79, with V47 as 1.1.0 shipped it, and the line's files under the names they had
-     * before 2839c94.
+     * Applies V1-V79, with V47 and V77 as 1.1.0 shipped them, and the line's files under the names
+     * they had before 2839c94.
      */
     private static void migrateLegacy(String url, Map<String, String> line) throws Exception {
-        migrateLegacy(url, version -> version <= 79 && version != 47, line, "/legacy-migrations/1.1.0");
+        migrateLegacy(url, version -> version <= 79 && version != 47 && version != 77, line,
+            "/legacy-migrations/1.1.0");
     }
 
     /**

@@ -39,6 +39,7 @@ ranked AS (
         ON d.member_id = a.member_id
        AND d.external_account_id = a.external_account_id
        AND d.provider IS NOT DISTINCT FROM a.provider
+     WHERE a.is_manual = false
     WINDOW w AS (
         PARTITION BY a.member_id, a.external_account_id, a.provider
         -- Live row first; among equals, the most recent. id breaks the remaining ties so the
