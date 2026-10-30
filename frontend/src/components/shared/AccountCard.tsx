@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useMoney } from '@/hooks/use-money'
 import { TriangleAlert } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import type { Account, PropertyKind } from '@/types/api'
@@ -10,11 +11,9 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   FRESHNESS_TEXT_CLASS,
-  formatCurrency,
   formatDate,
   formatTimeAgo,
   freshnessLevel,
-  localeFromLanguage,
   type FreshnessLevel,
 } from '@/lib/utils'
 import { SYNC_FRESHNESS_BOUNDS_MS, VALUATION_FRESHNESS_BOUNDS_MS } from '@/lib/constants'
@@ -78,8 +77,8 @@ function PropertyAvatar({ kind, color }: { kind: PropertyKind; color: string }) 
 }
 
 export function AccountCard({ account, onClick }: AccountCardProps) {
-  const { t, i18n } = useTranslation()
-  const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
+  const { t } = useTranslation()
+  const money = useMoney()
   const isLoan = account.type === 'LOAN'
   const property = account.type === 'REAL_ESTATE' ? account.realEstate : undefined
   const propertyKind = property?.propertyKind ?? null
@@ -159,7 +158,7 @@ export function AccountCard({ account, onClick }: AccountCardProps) {
           </div>
           {isLoan && account.debt && (
             <p className="mt-1 text-xs text-muted-foreground">
-              {t('debt.borrowedAmount')}: {formatCurrency(account.debt.borrowedAmount, 'EUR', locale)}
+              {t('debt.borrowedAmount')}: {money.amount(account.debt.borrowedAmount)}
             </p>
           )}
           {freshness && (

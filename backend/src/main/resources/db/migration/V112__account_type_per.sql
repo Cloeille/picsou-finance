@@ -1,0 +1,12 @@
+-- An individual retirement plan (PER individuel, bancaire or assurantiel) gets its own account
+-- type. It is not EMPLOYEE_SAVINGS (V69), which is the employer-sponsored PEE/PERCO family
+-- synced by Amundi, and it is not ASSURANCE_VIE (V82): the money is locked until retirement
+-- rather than tax-favoured after eight years.
+--
+-- PER holds positions (unités de compte), so AccountType.isInvestment() accepts it and the
+-- euro fund lives in account.cash_balance, exactly like an assurance-vie.
+--
+-- Kept alone in its own migration on purpose, like V69 and V82: PostgreSQL refuses to use a
+-- new enum value in the transaction that added it, so nothing here may reference the label.
+-- Appended just before 'OTHER', which keeps that catch-all last.
+ALTER TYPE account_type ADD VALUE 'PER' BEFORE 'OTHER';

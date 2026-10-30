@@ -14,7 +14,7 @@ import { useAppStore } from '@/stores/app-store'
  */
 export function RequireSetup({ children }: { children: React.ReactNode }) {
   const demoMode = useAppStore(s => s.demoMode)
-  const { data, isLoading, error } = useSetupStatus()
+  const { data, isLoading, error } = useSetupStatus(!demoMode)
 
   if (demoMode) return <>{children}</>
   if (isLoading) return <LoadingSkeleton />
@@ -36,7 +36,7 @@ export function RequireSetup({ children }: { children: React.ReactNode }) {
  */
 export function SetupOnly({ children }: { children: React.ReactNode }) {
   const demoMode = useAppStore(s => s.demoMode)
-  const { data, isLoading } = useSetupStatus()
+  const { data, isLoading } = useSetupStatus(!demoMode)
 
   if (demoMode) return <Navigate to="/" replace />
   if (isLoading) return <LoadingSkeleton />

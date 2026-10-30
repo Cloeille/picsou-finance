@@ -20,6 +20,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -203,9 +204,12 @@ public class DegiroSyncService {
         return new SessionStatusResponse(active, s.getStatus(), s.getLastSyncedAt());
     }
 
-    public void clearSession(Long memberId) {
-        sessionRepository.findByMemberId(memberId).ifPresent(sessionRepository::delete);
+    /** Returns whether a stored session was there to delete. */
+    public boolean clearSession(Long memberId) {
+        var session = sessionRepository.findByMemberId(memberId);
+        session.ifPresent(sessionRepository::delete);
         log.info("DEGIRO session cleared for member {}", memberId);
+        return session.isPresent();
     }
 
     // ─── Upsert ───────────────────────────────────────────────────────────────
@@ -282,6 +286,30 @@ public class DegiroSyncService {
         accountService.upsertSnapshot(account, totalValueEur, LocalDate.now());
 
         return accountService.toResponse(account);
+    }
+
+    public SourceSyncResult userSyncReporting(Long memberId) {
+        try {
+            Optional<DegiroSession> sessionOpt = sessionRepository.findByMemberId(memberId);
+            if (sessionOpt.isEmpty()) {
+                return new SourceSyncResult("degiro", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No session");
+            }
+            DegiroSession s = sessionOpt.get();
+            if (s.getStatus() == DegiroSessionStatus.REAUTH_REQUIRED) {
+                return new SourceSyncResult("degiro", SourceSyncResult.Status.NEEDS_REAUTH, "Reauth required");
+            }
+            if (s.getStatus() != DegiroSessionStatus.ACTIVE) {
+                return new SourceSyncResult("degiro", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Session not active");
+            }
+            sync(memberId);
+            return new SourceSyncResult("degiro", SourceSyncResult.Status.SYNCED, "");
+        } catch (DegiroSessionExpiredException ex) {
+            log.warn("DEGIRO session expired during user sync for member {}", memberId, ex);
+            return new SourceSyncResult("degiro", SourceSyncResult.Status.NEEDS_REAUTH, "Reauthentication required");
+        } catch (Exception ex) {
+            log.error("DEGIRO user sync failed for member {}", memberId, ex);
+            return new SourceSyncResult("degiro", SourceSyncResult.Status.FAILED, "Unexpected sync error");
+        }
     }
 
     // ─── Response records ─────────────────────────────────────────────────────

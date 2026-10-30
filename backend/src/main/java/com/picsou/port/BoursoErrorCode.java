@@ -18,6 +18,12 @@ public enum BoursoErrorCode {
      * retry. Never auto-acknowledged: it is a legal notice.
      */
     FRAUD_ACK_REQUIRED,
+    /**
+     * The access holds several identities ({@code /connexion/lister-identites})
+     * and the sidecar could not single out the personal one, or found only
+     * business identities. Business identities are not synced.
+     */
+    IDENTITY_SELECTION_UNSUPPORTED,
     /** BoursoBank asked for an SMS or e-mail code, which this connector does not drive. */
     MFA_TYPE_UNSUPPORTED,
     APP_VALIDATION_TIMEOUT,

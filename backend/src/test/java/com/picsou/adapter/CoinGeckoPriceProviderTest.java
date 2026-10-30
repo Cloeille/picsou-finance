@@ -28,6 +28,7 @@ import java.util.concurrent.TimeoutException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
 
 /**
  * Covers the adapter's failure contract, which is the part of this class that repeatedly
@@ -299,6 +300,20 @@ class CoinGeckoPriceProviderTest {
         assertThat(eventsAt(Level.ERROR)).isEmpty();
     }
 
+    @Test
+    void errorBody_withLineBreaks_isLoggedOnOneLine_andTruncated() {
+        String forged = "<html>bad gateway</html>\r\nERROR fake entry " + "x".repeat(300);
+        var provider = providerWithStatus(HttpStatus.BAD_GATEWAY, forged);
+
+        provider.getPricesEur(Set.of("BTC"));
+
+        assertThat(eventsAt(Level.WARN)).singleElement()
+            .satisfies(e -> assertThat(e.getFormattedMessage())
+                .contains("<html>bad gateway</html>?ERROR fake entry")
+                .endsWith("... (truncated)")
+                .doesNotContain("\r", "\n"));
+    }
+
     // ── Genuine bugs propagate ────────────────────────────────────────────────
 
     @Test
@@ -308,6 +323,90 @@ class CoinGeckoPriceProviderTest {
         var provider = providerFailingWith(new IllegalStateException("a real bug"));
 
         assertThatThrownBy(() -> provider.getPricesEur(Set.of("BTC")))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("a real bug");
+    }
+
+    // ── Logos: same failure contract, and a null that must mean "show the ticker" ──
+
+    @Test
+    void getLogoUrls_parsesImages_andKeysThemUpperCase() {
+        // /coins/markets keys by coin id and answers with a list, so the response has to be
+        // re-keyed by ticker. A mapping slip here is silent: the portfolio renders tickers
+        // and nothing logs an error.
+        var provider = providerWithJson(
+            "[{\"id\":\"bitcoin\",\"image\":\"https://img/btc.png\"},"
+          + "{\"id\":\"ethereum\",\"image\":\"https://img/eth.png\"}]");
+
+        Map<String, String> logos = provider.getLogoUrls(Set.of("btc", "ETH"));
+
+        assertThat(logos).containsOnly(
+            entry("BTC", "https://img/btc.png"), entry("ETH", "https://img/eth.png"));
+        assertThat(eventsAt(Level.WARN)).isEmpty();
+    }
+
+    @Test
+    void getLogoUrls_returnsNothing_forAnEquityTicker_withoutAskingTheProvider() {
+        // The gate is the coin registry, not the account type. AAPL has no coin id, so the
+        // request must not be made at all -- an equity must never resolve to an unrelated coin
+        // that happens to share its symbol.
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        ExchangeFunction exchange = request -> {
+            requests.incrementAndGet();
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("[]").build());
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+
+        assertThat(provider.getLogoUrls(Set.of("AAPL"))).isEmpty();
+        assertThat(requests.get()).isZero();
+    }
+
+    @Test
+    void getLogoUrls_returnsNothing_andWarns_whenNoRequestedCoinHasAnImage() {
+        // A 200 with nothing in it is the shape a renamed or delisted coin takes. It is
+        // decoration, so it degrades to a warn -- never an ERROR, which the scheduler callers
+        // would read as a bug.
+        var provider = providerWithJson("[{\"id\":\"bitcoin\",\"image\":\"\"}]");
+
+        assertThat(provider.getLogoUrls(Set.of("BTC"))).isEmpty();
+        assertThat(eventsAt(Level.WARN)).singleElement()
+            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("no image"));
+        assertThat(eventsAt(Level.ERROR)).isEmpty();
+    }
+
+    @Test
+    void getLogoUrls_rateLimit_returnsNothing_andArmsTheCooldownThePricePathAlsoReads() {
+        // The cooldown is shared on purpose: a provider paused on the price path must not be
+        // asked for decoration, and a 429 on the logo path must not leave prices flowing.
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        ExchangeFunction exchange = request -> {
+            requests.incrementAndGet();
+            return Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("{\"status\":\"rate limited\"}").build());
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+
+        assertThat(provider.getLogoUrls(Set.of("BTC"))).isEmpty();
+        assertThat(provider.getPricesEur(Set.of("ETH"))).isEmpty();
+        assertThat(provider.getLogoUrls(Set.of("SOL"))).isEmpty();
+
+        // One request, then silence on every endpoint -- which is the whole point of sharing it.
+        assertThat(requests.get()).isEqualTo(1);
+        assertThat(eventsAt(Level.WARN)).singleElement()
+            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("429"));
+    }
+
+    @Test
+    void getLogoUrls_propagatesAGenuineBug_insteadOfSwallowingItAsNoLogo() {
+        // The contract getPricesEur already has, on a new code path. If the catch here ever
+        // widens to a bare Exception, a parse defect would become a 500 on GET /holdings --
+        // decoration would take the page down -- and nothing else would notice.
+        var provider = providerFailingWith(new IllegalStateException("a real bug"));
+
+        assertThatThrownBy(() -> provider.getLogoUrls(Set.of("BTC")))
             .isInstanceOf(IllegalStateException.class)
             .hasMessage("a real bug");
     }

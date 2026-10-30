@@ -250,7 +250,8 @@ public class SetupController {
         if (!consumeRateLimitToken(httpRequest)) return rateLimited();
         requireNotComplete();
 
-        if (!"traderepublic".equals(key) && !"finary".equals(key) && !"boursedirect".equals(key)) {
+        if (!"traderepublic".equals(key) && !"finary".equals(key) && !"boursedirect".equals(key)
+            && !"fortuneo".equals(key)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "This step only applies to integrations configured after signing in.");
         }

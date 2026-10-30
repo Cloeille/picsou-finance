@@ -1,0 +1,12 @@
+fastapi==0.141.1
+uvicorn==0.52.1
+# Camoufox (stealth Firefox) instead of vanilla Playwright Chromium: AMEX's Akamai Bot
+# Manager blocks the login POST outright from a plain Playwright Chromium fingerprint
+# (confirmed live: net::ERR_FAILED / Akamai 403 on every submit), matching the same
+# fix already proven in services/revolut-auth.
+# playwright is pinned to 1.55.0 because Camoufox 0.4.x's Firefox speaks an older
+# Juggler protocol; 1.60+ breaks it (Browser.setDefaultViewport / setContrast unsupported).
+camoufox[geoip]==0.4.11
+playwright==1.55.0
+pydantic==2.13.4
+httpx==0.28.1

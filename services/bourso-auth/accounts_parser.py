@@ -1,12 +1,15 @@
 """Turns BoursoBank's dashboard HTML and trading JSON into the sidecar contract.
 
-Two upstream shapes are parsed here:
+Three upstream shapes are parsed here:
 
 * the account summary at `/dashboard/liste-comptes`, which is HTML grouped into
   `data-summary-bank` / `-savings` / `-trading` / `-loan` / `-insurance` /
   `-assurance` sections;
 * the trading board's `accounts/summary/{id}` JSON, which carries the cash, the
-  portfolio valuation, the account total and every open position.
+  portfolio valuation, the account total and every open position;
+* the identity selector at `/connexion/lister-identites`, which BoursoBank puts
+  in front of the dashboard when one access holds a personal and a business
+  identity.
 
 Kept free of FastAPI and httpx, because these rules are the part that silently
 breaks when BoursoBank reskins a page, and a silent break here would overwrite a
@@ -17,7 +20,9 @@ parse fails the whole sync, so the last known-good data survives.
 
 import re
 import unicodedata
+from datetime import date
 from decimal import Decimal, InvalidOperation
+from html import unescape as html_unescape
 from typing import Any, Literal
 
 FORMAT_CHANGED = "UPSTREAM_FORMAT_CHANGED"
@@ -59,7 +64,9 @@ _ACCOUNT_RE = re.compile(
 
 # Used only to count the account cards a section *should* have yielded, so a card
 # that stopped matching the full pattern is a hard failure instead of a silent drop.
-_ACCOUNT_LINK_RE = re.compile(r"/compte/[^\"']*?(?P<id>[a-f0-9]{32})/")
+_ACCOUNT_LINK_RE = re.compile(
+    r"href=\"(?P<href>[^\"]*?/compte/[^\"]*?(?P<id>[a-f0-9]{32})/)\""
+)
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -124,7 +131,7 @@ def parse_amount(raw: str) -> Decimal | None:
 def text_value(value: Any, limit: int) -> str | None:
     if not isinstance(value, str):
         return None
-    cleaned = " ".join(_TAG_RE.sub(" ", value).split())
+    cleaned = " ".join(html_unescape(_TAG_RE.sub(" ", value)).split())
     if not cleaned:
         return None
     return cleaned[:limit]
@@ -256,6 +263,7 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
         # means the page moved or we were served something else entirely.
         raise AccountsFormatError(FORMAT_CHANGED, "Dashboard carried no account section")
 
+    linked = {match.group("id"): match.group("href") for match in _ACCOUNT_LINK_RE.finditer(html)}
     accounts: list[dict[str, Any]] = []
     accounted_ids: set[str] = set()
     third_party = 0
@@ -296,6 +304,7 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
                         "type": account_type(section, name),
                         "balanceEur": balance,
                         "section": section,
+                        "href": linked[account_id],
                     }
                 )
 
@@ -303,7 +312,7 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
     # section patterns stop at the first closing tag, so a card gaining a nested
     # list would truncate its section and silently drop everything after it.
     # Comparing against every account link on the page catches that too.
-    linked_ids = {match.group("id") for match in _ACCOUNT_LINK_RE.finditer(html)}
+    linked_ids = set(linked)
     missing = linked_ids - accounted_ids
     if missing:
         raise AccountsFormatError(
@@ -316,6 +325,201 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
     if len(accounts) > MAX_ACCOUNTS:
         raise AccountsFormatError(INCOMPLETE, "Dashboard held more accounts than supported")
     return accounts, third_party
+
+
+_MOVEMENT_ROW_RE = re.compile(r"<li\b(?P<attrs>[^>]*)>(?P<body>.*?)</li>", re.DOTALL | re.IGNORECASE)
+_MOVEMENT_CONTAINER_RE = re.compile(
+    r"<ul\b(?=[^>]*\bclass\s*=\s*(['\"])[^'\"]*\blist__movement\b[^'\"]*\1)[^>]*>",
+    re.IGNORECASE,
+)
+_ATTRIBUTE_RE = re.compile(r"\b(?P<name>data-id|data-custom-id|data-operations-next-pagination)\s*=\s*(['\"])(?P<value>.*?)\2", re.IGNORECASE)
+_AMOUNT_RE = re.compile(r"<[^>]*class=\"[^\"]*list-operation-item__amount[^\"]*\"[^>]*>(?P<value>.*?)</", re.DOTALL | re.IGNORECASE)
+_DESCRIPTION_RE = re.compile(
+    r"<(?:span|div)[^>]*class=\"[^\"]*(?:list__movement--label-(?:initial|user)|list-operation-item__label-name)[^\"]*\"[^>]*>(?P<value>.*?)</(?:span|div)>",
+    re.DOTALL | re.IGNORECASE,
+)
+_TAG_RE = re.compile(r"<[^>]+>")
+_FRENCH_MONTHS = {
+    "janvier": 1, "février": 2, "fevrier": 2, "mars": 3, "avril": 4,
+    "mai": 5, "juin": 6, "juillet": 7, "août": 8, "aout": 8,
+    "septembre": 9, "octobre": 10, "novembre": 11, "décembre": 12, "decembre": 12,
+}
+
+
+def _plain_text(value: str) -> str:
+    return " ".join(html_unescape(_TAG_RE.sub(" ", value)).split())
+
+
+def _movement_date(raw: str) -> date | None:
+    text = _plain_text(raw).casefold()
+    match = re.search(r"(?P<day>\d{1,2})\s+(?P<month>[a-zéû]+)\s+(?P<year>\d{4})", text)
+    if not match:
+        return None
+    month = _FRENCH_MONTHS.get(match.group("month"))
+    if not month:
+        return None
+    try:
+        return date(int(match.group("year")), month, int(match.group("day")))
+    except ValueError:
+        return None
+
+
+def _movement_kind(description: str) -> str:
+    upper = _deaccent(description).upper()
+    if re.match(r"^(?:VIR|VIREMENT)\b", upper):
+        # A salary or an external payment is also a virement. The label alone
+        # cannot establish an own-account movement excluded from Budget.
+        return "OTHER"
+    if "CARTE" in upper or upper.startswith(("CB ", "PAIEMENT ")):
+        return "CARD"
+    if upper.startswith(("PRLV", "PRELEVEMENT")):
+        return "DIRECT_DEBIT"
+    if upper.startswith(("CHQ", "CHEQUE")):
+        return "CHECK"
+    return "OTHER"
+
+
+def parse_operations(html: str, from_date: date, to_date: date) -> tuple[list[dict[str, Any]], str | None]:
+    """Parse a BoursoBank movements page, following woob's published selectors."""
+    if from_date > to_date:
+        raise ValueError("Invalid movements date range")
+    if not _MOVEMENT_CONTAINER_RE.search(html):
+        raise AccountsFormatError(FORMAT_CHANGED, "Movements page omitted the expected history container")
+    transactions: list[dict[str, Any]] = []
+    current_date: date | None = None
+    next_token: str | None = None
+    in_movements = True
+    for match in _MOVEMENT_ROW_RE.finditer(html):
+        attrs, body = match.group("attrs"), match.group("body")
+        if "list__movement" in attrs and "range-summary" in attrs:
+            in_movements = True
+        if "date-line" in attrs:
+            current_date = _movement_date(body)
+            continue
+        if not in_movements:
+            continue
+        attributes = {item.group("name").lower(): html_unescape(item.group("value"))
+                      for item in _ATTRIBUTE_RE.finditer(attrs)}
+        if "data-operations-next-pagination" in attributes:
+            next_token = attributes["data-operations-next-pagination"] or None
+            continue
+        if "list__movement__line--deffered" in attrs or "list__movement__line--block__split" in body:
+            continue
+        external_id = attributes.get("data-id") or attributes.get("data-custom-id")
+        if not external_id:
+            if "list__movement__line" in attrs or "list-operation-item__amount" in body:
+                raise ValueError("Movement row omitted its upstream identifier")
+            continue
+        amount_match = _AMOUNT_RE.search(body)
+        description_match = _DESCRIPTION_RE.search(body)
+        amount = parse_amount(_plain_text(amount_match.group("value"))) if amount_match else None
+        description = _plain_text(description_match.group("value")) if description_match else ""
+        if current_date is None or amount is None or not description:
+            raise ValueError("Movement row omitted required fields")
+        if not from_date <= current_date <= to_date:
+            continue
+        transactions.append({
+            "externalId": external_id,
+            "date": current_date.isoformat(),
+            "amount": amount,
+            "description": description,
+            # The verified woob selectors expose raw labels, not a separate
+            # counterparty field; keep it absent rather than infer one.
+            "counterparty": None,
+            "kind": _movement_kind(description),
+        })
+    return transactions, next_token
+
+
+_IBAN_RE = re.compile(
+    r"<div\b[^>]*>\s*<strong\b[^>]*>\s*IBAN\s*</strong>\s*"
+    r"<div\b[^>]*class=\"[^\"]*\bdefinition\b[^\"]*\"[^>]*>\s*"
+    r"<p\b[^>]*>(?P<iban>.*?)</p>",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def parse_iban_page(html: str) -> str | None:
+    """Read the RIB field exposed by woob's verified IbanPage selector."""
+    match = _IBAN_RE.search(html)
+    if not match:
+        return None
+    iban = re.sub(r"\s+", "", _plain_text(match.group("iban"))).upper()
+    return iban if re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}", iban) else None
+
+
+# ─── Identity selector ──────────────────────────────────────────────────────
+
+
+IDENTITY_UNSUPPORTED = "IDENTITY_SELECTION_UNSUPPORTED"
+IDENTITY_SWITCH_PATH = "/connexion/changer-identite/"
+
+# The switch token is per-session and acts as a credential for that session's
+# identity switch: it must never reach a log line or an error message.
+_IDENTITY_LINK_RE = re.compile(
+    r"<a\b[^>]*?href=\"(?:https://clients\.boursobank\.com)?"
+    + re.escape(IDENTITY_SWITCH_PATH)
+    + r"(?P<token>[^\"]*)\"[^>]*>(?P<body>.*?)</a>",
+    re.DOTALL | re.IGNORECASE,
+)
+# Every switch link on the page, however it is written, so an identity rendered
+# outside a plain `<a href>` cannot drop out of the choice unnoticed.
+_ANY_IDENTITY_LINK_RE = re.compile(
+    re.escape(IDENTITY_SWITCH_PATH) + r"(?P<token>[^\"'\s<>?#]+)", re.IGNORECASE
+)
+_IDENTITY_TOKEN_RE = re.compile(r"[A-Za-z0-9._~=-]+(?:/[A-Za-z0-9._~=-]+)*")
+
+# Matched against the identity's deaccented, uppercased label. Only the business
+# side is recognised: the one real selector reported (#153) showed a personal
+# identity carrying no marker of its own beside a sole-trader one. A marker
+# missing from this list fails safe: the business identity stays unmarked, so the
+# choice below sees two unmarked identities and refuses. A marker matching a
+# personal label does not: it can leave the business identity as the only
+# unmarked one and pick it. Every marker is therefore a whole word, so a name
+# such as "Liberali" or "Partisan" never reads as LIBERAL or ARTISAN.
+_BUSINESS_IDENTITY_RE = re.compile(
+    r"\b(?:PROS?|PROFESSIONNEL(?:LE)?S?|ENTREPRISES?|ENTREPRENEURS?|ENTREPRENEUSES?"
+    r"|INDEPENDANTE?S?|EIR?L?|SOCIETES?|SAS|SASU|SARL|EURL|SCI|SIRE[NT]"
+    r"|COMMERCANTE?S?|ARTISANE?S?|LIBERALE?S?|LIBERAUX|ASSOCIATIONS?)\b"
+    r"|\bE\.I\."
+)
+
+
+def choose_personal_identity(html: str) -> str:
+    """Return the switch path of the one personal identity on the selector page.
+
+    The page shape is inferred from the #153 report, not from a captured page:
+    each identity is assumed to be an `<a href="/connexion/changer-identite/…">`
+    whose text is its label. The personal identity is the only one whose label
+    carries no business marker, and the choice is refused rather than guessed
+    when that is not exactly one identity, or when no identity reads as
+    business at all: syncing a sole-trader's accounts as personal wealth is
+    worse than a clear error.
+    """
+    labels: dict[str, list[str]] = {}
+    for match in _IDENTITY_LINK_RE.finditer(html):
+        token = html_unescape(match.group("token"))
+        labels.setdefault(token, []).append(text_value(match.group("body"), 200) or "")
+
+    linked = {html_unescape(match.group("token")) for match in _ANY_IDENTITY_LINK_RE.finditer(html)}
+    if not labels or linked != set(labels):
+        raise AccountsFormatError(FORMAT_CHANGED, "Identity selector links did not parse")
+    if any(not _IDENTITY_TOKEN_RE.fullmatch(token) or ".." in token for token in labels):
+        raise AccountsFormatError(FORMAT_CHANGED, "Identity selector carried a malformed link")
+
+    business = {
+        token
+        for token, texts in labels.items()
+        if _BUSINESS_IDENTITY_RE.search(_deaccent(" ".join(texts)))
+    }
+    personal = [token for token in labels if token not in business]
+    if len(personal) != 1 or not business:
+        raise AccountsFormatError(
+            IDENTITY_UNSUPPORTED,
+            f"Identity selector listed {len(labels)} identities, "
+            f"{len(personal)} without a business marker",
+        )
+    return IDENTITY_SWITCH_PATH + personal[0]
 
 
 # ─── Trading board ──────────────────────────────────────────────────────────

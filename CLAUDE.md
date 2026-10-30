@@ -73,3 +73,18 @@ Before coding, check the relevant docs in `docs/`.
 - Branches: `feature/xxx`, `fix/xxx`, `refactor/xxx`
 - Conventional commits: `feat(scope):`, `fix(scope):`, `refactor(scope):`, `docs:`, `test:`
 - Always commit `docs/` updates alongside the related code
+
+## Design Context
+
+Authoritative design files: [`PRODUCT.md`](PRODUCT.md) (strategy: register, users, positioning, personality, anti-references, principles) and [`DESIGN.md`](DESIGN.md) (visual system: palette, typography, elevation, components, do's/don'ts). Sidecar with tonal ramps and component snippets lives at `.impeccable/design.json`.
+
+- **Register**: product (dashboard serves the product). **Platform**: web (iOS companion under evaluation).
+- **North Star**: "Le Coffre Lumineux" — a strongbox that doesn't need to look austere; credible without being cold, calm, private.
+- **Brand personality**: credible, warm, composed. Rejects generic fintech flash, cold technical dashboards, hollow marketing, and traditional banking apps.
+- **Palette**: restrained — **Coffre Blue** (oklch 0.488 0.243 264.376) is the only saturated color on interactive chrome, ≤10% of any screen. **Growth Green** family is reserved for charts/positive movement only.
+- **Critical figures** (amounts, balances, alerts) render in **Ledger Ink** (oklch 0.145 0 0), never Quiet Slate — this is how the system meets AAA on the content the user came to read. AA everywhere else.
+- **Elevation**: flat by default; hairline ring (`ring-1 ring-foreground/10`) separates cards from canvas, no shadows at rest. Shadows only on floating elements (dialogs, sheets, popovers).
+- **Typography**: single family (Geist Variable) — hierarchy from weight and size, never a second face. Card titles small-bold (0.875rem / 700).
+- **Motion**: feedback where it carries meaning (press-scale, sync), silent elsewhere. `prefers-reduced-motion` enforced globally.
+
+When building UI, read `DESIGN.md` first; for non-visual product questions, read `PRODUCT.md` first.

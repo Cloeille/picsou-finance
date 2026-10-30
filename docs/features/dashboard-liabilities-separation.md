@@ -1,6 +1,6 @@
 # Feature: Dashboard — Liabilities separated from portfolio performance
 
-> Last updated: 2026-07-08
+> Last updated: 2026-07-12
 
 ## Context
 
@@ -39,9 +39,13 @@ data-model change — but the dashboard now separates four readings: **assets**,
 - The chart tooltip's gain/loss row reads the backend `pnl` field of each
   `NetWorthPoint` instead of recomputing `total − invested` client-side. Intraday
   points carry no `pnl` → the row is omitted on the 24H range.
-- `LiabilitiesCard` renders `data.liabilities` (name, outstanding amount in
-  red, share of `totalLiabilities` computed client-side), below the charts row,
-  only when `totalLiabilities > 0`.
+- `LiabilitiesCard` renders `data.liabilities` — each loan's name, outstanding
+  amount in red, and its **repayment progress**: a `percentPaid` bar plus the
+  monthly payment when the loan's `Debt` row supplies them, or an "unconfigured"
+  hint otherwise. A credit card shows its amount due and payment date instead,
+  when known. The header sums `totalMonthlyPayment`. Rendered when
+  `data.liabilities.length > 0`. Full card spec:
+  [dashboard-liabilities-card.md](./dashboard-liabilities-card.md).
 
 ### Key files
 
@@ -49,13 +53,15 @@ data-model change — but the dashboard now separates four readings: **assets**,
   `buildHistory` (per-date `aggPnl` accumulator + live point `livePnl`),
   `buildPnl` (`liveNonLoanValue`, matched-holdings `rangePnl`)
 - `backend/src/main/java/com/picsou/service/DashboardService.java` —
-  `buildDistribution(accounts, divisor, …)` with per-side divisors
+  `buildDistribution(accounts, divisor, …)` with per-side divisors; loan rows
+  are then enriched into `LiabilityEntry(monthlyPayment, percentPaid)` via
+  `DebtRepository` + `LoanAmortizationService`, and `totalMonthlyPayment` is summed
 - `frontend/src/pages/dashboard/DashboardPage.tsx` — mode-dependent chart
   title, renders `LiabilitiesCard`
 - `frontend/src/components/shared/NetWorthChart.tsx` — tooltip reads row `pnl`
 - `frontend/src/components/shared/LiabilitiesCard.tsx` — liabilities list
-- `frontend/src/demo/data/dashboard.ts` — demo mock ships one loan so demo
-  mode exercises the card
+- `frontend/src/demo/data/dashboard.ts` — demo mock ships one loan and the demo
+  credit card so demo mode exercises both row kinds
 
 ### Flow
 
@@ -68,9 +74,10 @@ live balances ────► buildPnl ──► PnlResponse(total, pnl debt-neu
         │                                      │
 DashboardService ─► distribution %  = balance / totalAssets
                     liabilities %   = balance / totalLiabilities
+                    liabilities enriched → LiabilityEntry(monthlyPayment, percentPaid)
                                                │
 DashboardPage ─► chart (title per wealth mode, tooltip = point.pnl)
-              ─► LiabilitiesCard (when totalLiabilities > 0)
+              ─► LiabilitiesCard (when liabilities present)
 ```
 
 ## Technical choices
@@ -90,10 +97,12 @@ DashboardPage ─► chart (title per wealth mode, tooltip = point.pnl)
   invested); only `pnl` and `rangePnl` changed semantics.
 - Intraday points (`buildIntradayHistory`) carry no pnl field — deliberately
   untouched (its timezone bugs are a separate concern, audit BE-11).
-- If a future feature wants per-liability "progress" (debt paydown as a
-  positive metric), build it as its OWN series — do not re-mix it into pnl.
-- The demo `GET /history` handler is still missing (known bug FE-06), so the
-  demo dashboard chart relies on the dashboard mock, not history.
+- Per-liability repayment "progress" (`percentPaid`, monthly payment) IS shown
+  on the card — a display-only enrichment derived from each loan's `Debt` row.
+  It is never re-mixed into `pnl`; the debt-neutral invariant above still holds.
+- The demo `GET /history` handler ships per-account net-worth series
+  (`DEMO_NW_BALANCES`) plus `/history/pnl` and `/history/net-worth/intraday`, so
+  the demo dashboard chart is fully exercised (the old FE-06 gap is closed).
 
 ## Tests
 
@@ -107,6 +116,8 @@ DashboardPage ─► chart (title per wealth mode, tooltip = point.pnl)
 ## Links
 
 - Issue: https://github.com/Cloeille/picsou-finance/issues/18
-- Related: [loans.md](./loans.md) (loan balance sign convention),
+- Related: [dashboard-liabilities-card.md](./dashboard-liabilities-card.md) (the
+  liabilities card's full spec — repayment progress, monthly payment),
+  [loans.md](./loans.md) (loan balance sign convention),
   [accounts-overview.md](./accounts-overview.md) (PnL chart consumes the same
   history points)

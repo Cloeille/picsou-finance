@@ -3,9 +3,13 @@ package com.picsou.service;
 import com.picsou.adapter.CoinGeckoPriceProvider;
 import com.picsou.adapter.YahooFinancePriceProvider;
 import com.picsou.dto.EtfComposition;
+import com.picsou.dto.SecurityRef;
 import com.picsou.dto.SecurityInsightResponse;
 import com.picsou.dto.WeightedSlice;
 import com.picsou.port.EtfCompositionProvider;
+import com.picsou.dto.FundFacts;
+import com.picsou.model.DistributionPolicy;
+import com.picsou.model.Replication;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -34,8 +38,8 @@ class SecurityInsightServiceTest {
 
     private static EtfCompositionProvider fakeProvider(boolean supports, EtfComposition comp) {
         return new EtfCompositionProvider() {
-            @Override public boolean supports(String ticker, String name) { return supports; }
-            @Override public Optional<EtfComposition> fetch(String ticker, String name) {
+            @Override public boolean supports(SecurityRef ref) { return supports; }
+            @Override public Optional<EtfComposition> fetch(SecurityRef ref) {
                 return Optional.ofNullable(comp);
             }
         };
@@ -170,5 +174,45 @@ class SecurityInsightServiceTest {
         service.getInsight("MC.PA", "LVMH");
 
         verify(yahoo, times(1)).getInstrumentType("MC.PA");
+    }
+
+    @Test
+    void theFeeSurvivesEvenWhenAnotherProviderSuppliedTheBreakdown() {
+        when(coinGecko.supports("CW8.PA")).thenReturn(false);
+        when(yahoo.getInstrumentType("CW8.PA")).thenReturn(Optional.of("ETF"));
+
+        EtfCompositionProvider slicesOnly = fakeProvider(true, composition(
+            List.of(), List.of(new WeightedSlice("US", new BigDecimal("97.25"))), List.of()));
+        EtfCompositionProvider factsOnly = fakeProvider(true, new EtfComposition(
+            List.of(), List.of(), List.of(), "justETF", null,
+            new FundFacts(new BigDecimal("0.38"), DistributionPolicy.ACCUMULATING,
+                Replication.SYNTHETIC, "LU", "justETF")));
+
+        SecurityInsightResponse response =
+            serviceWith(slicesOnly, factsOnly).getInsight("CW8.PA", null, "LU1681043599");
+
+        // Boursorama has the deeper breakdown and no fee; justETF has the fee. First-wins would
+        // have thrown the fee away, which is the same trap resolveEquity already avoids.
+        assertThat(response.composition().countries()).extracting(WeightedSlice::label).containsExactly("US");
+        assertThat(response.composition().facts().terPercent()).isEqualByComparingTo("0.38");
+        assertThat(response.composition().source()).contains("Boursorama").contains("justETF");
+    }
+
+    @Test
+    void factsWithoutABreakdownAreStillWorthReturning() {
+        when(coinGecko.supports("ODD")).thenReturn(false);
+        when(yahoo.getInstrumentType("ODD")).thenReturn(Optional.of("ETF"));
+
+        EtfCompositionProvider factsOnly = fakeProvider(true, new EtfComposition(
+            List.of(), List.of(), List.of(), "justETF", null,
+            new FundFacts(new BigDecimal("0.07"), null, null, null, "justETF")));
+
+        SecurityInsightResponse response = serviceWith(factsOnly).getInsight("ODD", null, "IE00B4L5Y983");
+
+        // The fee scanner wants it; the fund simply reports as unclassified until a breakdown
+        // turns up.
+        assertThat(response.composition()).isNotNull();
+        assertThat(response.composition().facts().terPercent()).isEqualByComparingTo("0.07");
+        assertThat(response.composition().countries()).isEmpty();
     }
 }

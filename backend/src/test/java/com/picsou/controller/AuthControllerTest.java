@@ -76,11 +76,16 @@ class AuthControllerTest {
     }
 
     private AuthController newController(boolean adminRecoveryEnabled) {
+        return newController(adminRecoveryEnabled, true);
+    }
+
+    private AuthController newController(boolean adminRecoveryEnabled, boolean loginRateLimitEnabled) {
         return new AuthController(
             userRepository, passwordEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
             mfaService, persistentSessionService, auditService,
-            adminRecoveryEnabled
+            adminRecoveryEnabled,
+            loginRateLimitEnabled
         );
     }
 
@@ -98,6 +103,45 @@ class AuthControllerTest {
     }
 
     // ─── login ───────────────────────────────────────────────────────────
+
+    @Test
+    void login_skipsRateLimit_whenDisabledForDevelopment() {
+        loginBuckets.put("10.0.0.5", Bucket.builder()
+            .addLimit(io.github.bucket4j.Bandwidth.builder()
+                .capacity(1)
+                .refillIntervally(1, java.time.Duration.ofHours(1))
+                .build())
+            .build());
+        Bucket exhausted = loginBuckets.get("10.0.0.5");
+        exhausted.tryConsume(1);
+
+        when(passwordEncoder.encode("login-timing-equalizer")).thenReturn("dummy-hash");
+        AuthController devController = newController(false, false);
+        when(userRepository.findByUsernameWithMember("alice")).thenReturn(Optional.empty());
+        when(passwordEncoder.matches("pw", "dummy-hash")).thenReturn(false);
+
+        assertThatThrownBy(() -> devController.login(
+            new LoginRequest("alice", "pw", false), httpReq, httpRes))
+            .isInstanceOf(BadCredentialsException.class);
+        assertThat(exhausted.getAvailableTokens()).isZero();
+    }
+
+    @Test
+    void login_appliesProductionRateLimitByDefault() {
+        Bucket exhausted = Bucket.builder()
+            .addLimit(io.github.bucket4j.Bandwidth.builder()
+                .capacity(1)
+                .refillIntervally(1, java.time.Duration.ofHours(1))
+                .build())
+            .build();
+        exhausted.tryConsume(1);
+        loginBuckets.put("10.0.0.5", exhausted);
+
+        ResponseEntity<?> response = controller.login(
+            new LoginRequest("alice", "pw", false), httpReq, httpRes);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
 
     @Test
     void login_returns403_andSetsNoCookies_whenAccountNotActivated() {
@@ -225,7 +269,7 @@ class AuthControllerTest {
         AuthController timingController = new AuthController(
             userRepository, realEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, auditService, false);
+            mfaService, persistentSessionService, auditService, false, true);
 
         // Path A — the username does not exist: there is no stored hash to compare,
         // yet the request must still cost a full bcrypt round against the dummy hash.
@@ -276,7 +320,7 @@ class AuthControllerTest {
         AuthController timingController = new AuthController(
             userRepository, realEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, auditService, false);
+            mfaService, persistentSessionService, auditService, false, true);
 
         AppUser pending = AppUser.builder()
             .id(11L).username("bob")
@@ -322,7 +366,7 @@ class AuthControllerTest {
         AuthController spoofTestController = new AuthController(
             userRepository, passwordEncoder, jwtUtil,
             mockedLoginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, auditService, false);
+            mfaService, persistentSessionService, auditService, false, true);
 
         MockHttpServletRequest firstCall = new MockHttpServletRequest();
         firstCall.setRemoteAddr("172.18.0.2");

@@ -1,5 +1,8 @@
 package com.picsou.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.picsou.adapter.OpenFigiIsinConverter;
 import com.picsou.adapter.OpenFigiIsinConverter.TickerResult;
 import com.picsou.config.CryptoEncryption;
@@ -22,6 +25,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -49,10 +53,28 @@ class IbkrSyncServiceTest {
     @Mock FamilyMemberRepository familyMemberRepository;
     @Mock AccountService accountService;
     @Mock OpenFigiIsinConverter isinConverter;
+    @Mock SecurityIdentityService identityService;
     @Mock CryptoEncryption encryption;
     @Mock IbkrStatusWriter statusWriter;
 
     @InjectMocks IbkrSyncService service;
+
+    @Test
+    void deleteConnectionReportsTheConnectionItDeleted() {
+        IbkrConnection connection = IbkrConnection.builder().build();
+        when(connectionRepository.findByMemberId(7L)).thenReturn(Optional.of(connection));
+
+        assertThat(service.deleteConnection(7L)).isTrue();
+        verify(connectionRepository).delete(connection);
+    }
+
+    @Test
+    void deleteConnectionReportsNothingWhenNoConnectionIsStored() {
+        when(connectionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+
+        assertThat(service.deleteConnection(7L)).isFalse();
+        verify(connectionRepository, never()).delete(any());
+    }
 
     /**
      * IBKR reports cost basis in the security's native currency. The stored
@@ -125,6 +147,31 @@ class IbkrSyncServiceTest {
         assertThat(connection.getLastSyncedAt()).isNotNull();
         // Happy path never touches the error-status writer.
         verifyNoInteractions(statusWriter);
+    }
+
+    @Test
+    void resyncReporting_logsUnexpectedExceptionWithThrowable() {
+        IllegalStateException failure = new IllegalStateException("private SQL password=private-marker");
+        when(connectionRepository.findByMemberId(7L)).thenThrow(failure);
+        ch.qos.logback.classic.Logger logger =
+            (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(IbkrSyncService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            var result = service.resyncReporting(7L);
+            assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+            assertThat(result.message()).isEqualTo("Unexpected sync error").doesNotContain("private-marker");
+            assertThat(appender.list).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+                assertThat(event.getThrowableProxy()).isNotNull();
+                assertThat(event.getThrowableProxy().getMessage()).isEqualTo(failure.getMessage());
+            });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     /**

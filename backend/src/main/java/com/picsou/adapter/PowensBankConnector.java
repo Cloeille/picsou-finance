@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.picsou.exception.SyncException;
 import com.picsou.port.BankConnectorPort;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +18,7 @@ import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -163,10 +165,52 @@ public class PowensBankConnector implements BankConnectorPort {
             .toList();
     }
 
+    /** Fetches booked transactions for one account since {@code from}. */
+    @Override
+    public List<TransactionData> fetchTransactions(String accessToken, String externalAccountId, LocalDate from) {
+        TransactionsResponse response;
+        try {
+            response = webClient.get()
+                .uri(uriBuilder -> uriBuilder.path("/accounts/{id}/transactions")
+                    .queryParam("min_date", from.toString())
+                    .queryParam("limit", 500)
+                    .build(externalAccountId))
+                .header("Authorization", "Bearer " + accessToken)
+                .retrieve()
+                .bodyToMono(TransactionsResponse.class)
+                .timeout(TIMEOUT)
+                .block();
+        } catch (WebClientResponseException ex) {
+            log.warn("Powens transaction fetch failed for account {} ({}): {}",
+                externalAccountId, ex.getStatusCode(), LogSanitizer.safe(ex.getResponseBodyAsString()));
+            return List.of();
+        }
+
+        List<PowensTransaction> transactions = (response != null && response.transactions() != null)
+            ? response.transactions() : List.of();
+
+        return transactions.stream()
+            .filter(t -> t.value() != null && t.date() != null)
+            .map(t -> {
+                String counterparty = t.simplifiedWording() != null ? t.simplifiedWording() : t.wording();
+                String description = t.wording() != null ? t.wording()
+                    : t.originalWording() != null ? t.originalWording() : counterparty;
+                return new TransactionData(
+                    t.id() != null ? String.valueOf(t.id()) : null,
+                    LocalDate.parse(t.date()),
+                    description,
+                    BigDecimal.valueOf(t.value()), // Powens already signs the amount
+                    "EUR",
+                    counterparty // mapped to category slot
+                );
+            })
+            .toList();
+    }
+
     /** Searches Powens connectors (banks) by name and country. */
     @Override
     public List<InstitutionData> searchInstitutions(String query, String country) {
-        log.info("Searching Powens connectors: query='{}' country='{}'", query, country);
+        log.info("Searching Powens connectors: query='{}' country='{}'", LogSanitizer.safe(query), LogSanitizer.safe(country));
         ConnectorsResponse response = webClient.get()
             .uri(uriBuilder -> {
                 var b = uriBuilder.path("/connectors");
@@ -294,6 +338,19 @@ public class PowensBankConnector implements BankConnectorPort {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record PowensCurrency(String id) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record TransactionsResponse(List<PowensTransaction> transactions) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record PowensTransaction(
+        Long id,
+        String date,
+        Double value,
+        String wording,
+        @JsonProperty("simplified_wording") String simplifiedWording,
+        @JsonProperty("original_wording") String originalWording
+    ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ConnectorsResponse(List<PowensConnector> connectors) {}

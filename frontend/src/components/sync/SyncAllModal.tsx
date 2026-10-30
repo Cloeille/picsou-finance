@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
@@ -28,6 +28,7 @@ import {
   Wallet,
   Building2,
   LineChart,
+  CreditCard,
   Info,
   Smartphone,
   Lock,
@@ -40,34 +41,53 @@ import {
   useCryptoWallets,
   useTrSessionStatus,
   useBoursoSessionStatus,
+  useRevolutStatus,
+  useStartRevolutSync,
+  useSyncProgress,
+  useConfirmRevolutSync,
   useFinaryConnectionStatus,
   useRetryBankSync,
+  useReconnectBankSync,
   useSyncCryptoExchange,
   useSyncCryptoWallet,
   useSyncTradeRepublic,
   useInitiateTrAuth,
   useCompleteTrAuth,
   useSyncBourso,
-  useReconnectBankSync,
   useAmundiStatus,
   useSyncAmundi,
+  useFortuneoStatus,
+  useSyncFortuneo,
   useBourseDirectStatus,
   useSyncBourseDirect,
   useDegiroSessionStatus,
   useSyncDegiro,
   useIbkrStatus,
+  useAmexStatus,
+  useSyncAmex,
+  useCorumStatus,
+  useSyncCorum,
+  useSofidyStatus,
+  useSyncSofidy,
   useSyncIbkr,
+  useSimplefinStatus,
+  useSyncSimplefin,
 } from '@/features/sync/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
+import type { Account } from '@/types/api'
 import { formatApiError, formatTrAuthError, isTrSessionDeadError } from '@/lib/errors'
 import { syncKeys } from '@/features/sync/hooks'
+import { revolutErrorLabel } from '@/features/sync/revolut-phase'
 import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
+
+const REVOLUT_CONNECTION_ID = 'revolut'
 
 type SyncConnection = {
   id: string
-  providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso'
-    | 'amundi' | 'bourse-direct' | 'degiro' | 'ibkr'
+  providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
+    | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
+    | 'amex' | 'corum' | 'sofidy'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -84,20 +104,46 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   tr: Building2,
   finary: LineChart,
   bourso: Building2,
+  revolut: CreditCard,
   amundi: PiggyBank,
+  fortuneo: PiggyBank,
   'bourse-direct': LineChart,
   degiro: LineChart,
   ibkr: LineChart,
+  simplefin: Landmark,
+  amex: CreditCard,
+  corum: Building2,
+  sofidy: Building2,
 }
 
 /** Which Sync-page tab each provider re-authenticates on. */
 const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   amundi: 'amundi',
+  fortuneo: 'fortuneo',
   bourso: 'bourso',
   'bourse-direct': 'bourse-direct',
   degiro: 'degiro',
   ibkr: 'ibkr',
+  simplefin: 'simplefin',
+  amex: 'amex',
+  corum: 'corum',
+  sofidy: 'sofidy',
   finary: 'finary',
+}
+
+/**
+ * The Sync-page tab a row's button opens instead of syncing in place, or undefined when the
+ * row syncs inline. Single source of truth for both the row button (`handleSync`) and the
+ * batch filter (`isBatchSyncable`) so the two cannot disagree about who navigates:
+ * - Finary is a manual two-phase import;
+ * - an expired session re-authenticates through its own tab's form;
+ * - Revolut without remembered credentials needs the phone+passcode form (and a mobile approval).
+ */
+function ownTab(c: SyncConnection, revolutRemembered: boolean): string | undefined {
+  if (c.providerType === 'finary') return 'finary'
+  if (c.needsReauth && REAUTH_TAB[c.providerType]) return REAUTH_TAB[c.providerType]
+  if (c.providerType === 'revolut' && !revolutRemembered) return 'revolut'
+  return undefined
 }
 
 function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
@@ -135,15 +181,30 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: wallets, isLoading: walletsLoading } = useCryptoWallets()
   const { data: trStatus } = useTrSessionStatus()
   const { data: boursoStatus } = useBoursoSessionStatus()
+  const { data: revolutStatus } = useRevolutStatus()
   const { data: finaryStatus } = useFinaryConnectionStatus()
   const { data: amundiStatus } = useAmundiStatus()
+  const { data: fortuneoStatus } = useFortuneoStatus()
   const { data: bourseDirectStatus } = useBourseDirectStatus()
   const { data: degiroStatus } = useDegiroSessionStatus()
   const { data: ibkrStatus } = useIbkrStatus()
+  const { data: simplefinStatus } = useSimplefinStatus()
+  const { data: amexStatus } = useAmexStatus()
+  const { data: corumStatus } = useCorumStatus()
+  const { data: sofidyStatus } = useSofidyStatus()
   const { data: accounts } = useAccounts()
 
-  // Detect if user has a TR account
-  const hasTrAccount = accounts?.some(a => a.provider === 'Trade Republic') ?? false
+  // Show TR in modal if: there are active TR accounts, the session is active, or the session
+  // is expired but was previously created (expiresAt != null). This keeps TR visible even when
+  // accounts were soft-deleted — the session still exists and the user can reconnect from here.
+  // isActive=false + expiresAt=null means no session has ever been created → hide TR.
+  const hasTrSession = trStatus?.isActive === true || trStatus?.expiresAt != null
+  const hasTrAccount = (accounts?.some(a => a.provider === 'Trade Republic') ?? false) || hasTrSession
+  // Same "keep visible across soft-delete" rule as TR — see comment above.
+  // Remembered credentials play the role expiresAt played for TR: they mean
+  // a Revolut connection exists even if every synced account was soft-deleted.
+  const hasRevolutSession = revolutStatus?.connected === true || revolutStatus?.remembered === true
+  const hasRevolutAccount = (accounts?.some(a => a.provider === 'Revolut') ?? false) || hasRevolutSession
 
   // Mutations
   /**
@@ -151,13 +212,19 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
    * *or* the user still has accounts from it — a dead session must stay visible and
    * re-authenticatable rather than disappear from the list, the same rule Trade Republic
    * already followed. `provider` is the exact string the connector stamps on the accounts it
-   * creates (see each service's PROVIDER constant).
+   * creates (see each service's PROVIDER constant). CORUM and Sofidy also match an account
+   * through its SCPI fund code: a manual SCPI they adopted keeps the provider the user typed.
    */
   const sessionProviders = useMemo(() => [
     {
       type: 'amundi' as const, name: 'Amundi', provider: 'Amundi Épargne Salariale',
       active: amundiStatus?.isActive ?? false, lastSyncedAt: amundiStatus?.lastSyncCompletedAt ?? null,
       failed: amundiStatus?.syncStatus === 'FAILED',
+    },
+    {
+      type: 'fortuneo' as const, name: 'Fortuneo', provider: 'Fortuneo',
+      active: fortuneoStatus?.isActive ?? false, lastSyncedAt: fortuneoStatus?.lastSyncCompletedAt ?? null,
+      failed: fortuneoStatus?.syncStatus === 'FAILED',
     },
     {
       type: 'bourso' as const, name: 'BoursoBank', provider: 'BoursoBank',
@@ -183,20 +250,49 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       active: ibkrStatus?.connected ?? false, lastSyncedAt: ibkrStatus?.lastSyncedAt ?? null,
       failed: ibkrStatus?.status === 'ERROR',
     },
-  ], [amundiStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus])
+    {
+      type: 'simplefin' as const, name: 'SimpleFIN', provider: 'SimpleFIN',
+      active: simplefinStatus?.connected ?? false, lastSyncedAt: simplefinStatus?.lastSyncedAt ?? null,
+      failed: simplefinStatus?.status === 'ERROR',
+    },
+    {
+      type: 'amex' as const, name: 'American Express', provider: 'American Express',
+      active: amexStatus?.isActive ?? false, lastSyncedAt: amexStatus?.lastSyncCompletedAt ?? null,
+      failed: amexStatus?.syncStatus === 'FAILED',
+    },
+    {
+      type: 'corum' as const, name: 'CORUM', provider: 'CORUM',
+      ownsAccount: (a: Account) => a.scpi?.corumFundCode != null,
+      active: corumStatus?.isActive ?? false, lastSyncedAt: corumStatus?.lastSyncCompletedAt ?? null,
+      failed: corumStatus?.syncStatus === 'FAILED',
+    },
+    {
+      type: 'sofidy' as const, name: 'Sofidy', provider: 'Sofidy',
+      ownsAccount: (a: Account) => a.scpi?.sofidyFundCode != null,
+      active: sofidyStatus?.isActive ?? false, lastSyncedAt: sofidyStatus?.lastSyncCompletedAt ?? null,
+      failed: sofidyStatus?.syncStatus === 'FAILED',
+    },
+  ], [amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
 
-  const retryBankMutation    = useRetryBankSync()
+  const retryBankMutation     = useRetryBankSync()
+  const reconnectBankMutation = useReconnectBankSync()
   const syncExchangeMutation = useSyncCryptoExchange()
   const syncWalletMutation   = useSyncCryptoWallet()
   const syncTrMutation       = useSyncTradeRepublic()
   const initiateTrMutation   = useInitiateTrAuth()
   const completeTrMutation   = useCompleteTrAuth()
   const syncBoursoMutation   = useSyncBourso()
-  const reconnectBankMutation = useReconnectBankSync()
   const syncAmundiMutation       = useSyncAmundi()
+  const syncFortuneoMutation     = useSyncFortuneo()
   const syncBourseDirectMutation = useSyncBourseDirect()
   const syncDegiroMutation       = useSyncDegiro()
   const syncIbkrMutation         = useSyncIbkr()
+  const syncSimplefinMutation    = useSyncSimplefin()
+  const startRevolutMutation     = useStartRevolutSync()
+  const confirmRevolutMutation   = useConfirmRevolutSync()
+  const syncAmexMutation         = useSyncAmex()
+  const syncCorumMutation        = useSyncCorum()
+  const syncSofidyMutation       = useSyncSofidy()
 
   // Track syncing state per connection
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set())
@@ -211,6 +307,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
 
   // Per-connection sync/retry errors, keyed by connection id
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
+
+  // Remembered-Revolut in-place sync: a discovery job runs in the background (202 + progress),
+  // polled until it finishes, then everything found is confirmed. Mirrors RevolutTab's quick sync.
+  const [revolutPolling, setRevolutPolling] = useState(false)
+  const revolutProgress = useSyncProgress('revolut', revolutPolling)
+  const prevRevolutRunningRef = useRef<boolean | undefined>(undefined)
 
   const isLoading = banksLoading || exchangesLoading || walletsLoading
 
@@ -269,7 +371,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       })
     }
     for (const provider of sessionProviders) {
-      const hasAccount = accounts?.some(a => a.provider === provider.provider) ?? false
+      const hasAccount = accounts?.some(a =>
+        (provider.provider !== undefined && a.provider === provider.provider)
+        || ('ownsAccount' in provider && provider.ownsAccount?.(a) === true)) ?? false
       if (!provider.active && !hasAccount) continue
       list.push({
         id: provider.type,
@@ -286,6 +390,16 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         needsReauth: !provider.active || provider.reauth === true,
       })
     }
+    if (hasRevolutAccount) {
+      const revolutAccount = accounts?.find(a => a.provider === 'Revolut')
+      list.push({
+        id: REVOLUT_CONNECTION_ID,
+        providerType: 'revolut',
+        name: 'Revolut',
+        status: revolutStatus?.remembered ? 'active' : 'SESSION_EXPIRED',
+        lastSyncedAt: revolutAccount?.lastSyncedAt ?? revolutStatus?.lastSyncedAt ?? null,
+      })
+    }
     if (finaryStatus?.connected) {
       list.push({
         id: 'finary',
@@ -296,25 +410,14 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       })
     }
     return list
-  }, [banks, exchanges, wallets, hasTrAccount, accounts, trStatus?.isActive, finaryStatus, sessionProviders])
+  }, [banks, exchanges, wallets, hasTrAccount, accounts, trStatus?.isActive, hasRevolutAccount, revolutStatus?.remembered, revolutStatus?.lastSyncedAt, finaryStatus, sessionProviders])
 
-  const handleSync = useCallback((connection: SyncConnection) => {
-    // TR without active session: open inline auth instead of syncing
-    if (connection.providerType === 'tr' && !trStatus?.isActive) {
-      setTrAuthError(null)
-      setTrAuthStep('phone')
-      return
-    }
-    // The remaining session providers each re-authenticate through their own multi-step form
-    // (credentials, MFA, a Flex token). Rather than duplicate four flows in this modal, send
-    // the user to the tab that owns them -- firing the sync would only return a 401.
-    const reauthTab = connection.needsReauth ? REAUTH_TAB[connection.providerType] : undefined
-    if (reauthTab) {
-      navigate(`/sync?tab=${reauthTab}`)
-      onOpenChange(false)
-      return
-    }
-
+  /**
+   * Fires the in-place sync of one row. Never navigates and never closes the modal: callers
+   * must have routed rows that own a surface (`ownTab`) beforehand, which is why the batch
+   * path calls this directly instead of going through `handleSync`.
+   */
+  const syncInPlace = useCallback((connection: SyncConnection) => {
     setSyncingIds(prev => new Set(prev).add(connection.id))
 
     const clearSyncing = () => setSyncingIds(prev => {
@@ -367,6 +470,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'amundi':
         syncAmundiMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'fortuneo':
+        syncFortuneoMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'bourse-direct':
         syncBourseDirectMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -376,47 +482,142 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'ibkr':
         syncIbkrMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'simplefin':
+        syncSimplefinMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
+      case 'amex':
+        syncAmexMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
+      case 'corum':
+        syncCorumMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
+      case 'sofidy':
+        syncSofidyMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
+      case 'revolut':
+        // Remembered credentials: a blank body makes the backend fall back to them. The spinner
+        // stays on until the discover → confirm effect below finishes or fails.
+        clearRowError()
+        prevRevolutRunningRef.current = undefined
+        startRevolutMutation.mutate({}, {
+          onSuccess: () => {
+            // The hook caches the start response before this callback. Arm the transition
+            // explicitly so a discovery that already finished is handled on the next effect.
+            prevRevolutRunningRef.current = true
+            setRevolutPolling(true)
+          },
+          onError: (err: unknown) => {
+            setRowErrors(prev => ({ ...prev, [REVOLUT_CONNECTION_ID]: formatGeneric(err) }))
+            queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
+            prevRevolutRunningRef.current = undefined
+            setRevolutPolling(false)
+            clearSyncing()
+          },
+        })
+        break
       case 'finary':
-        navigate('/sync?tab=finary')
-        onOpenChange(false)
+        // Unreachable: Finary always owns its tab (see `ownTab`). Kept so the switch stays exhaustive.
         clearSyncing()
         break
     }
   }, [
-    trStatus?.isActive,
     retryBankMutation,
     syncExchangeMutation,
     syncWalletMutation,
     syncTrMutation,
     syncBoursoMutation,
     syncAmundiMutation,
+    syncFortuneoMutation,
     syncBourseDirectMutation,
     syncDegiroMutation,
     syncIbkrMutation,
-    navigate,
-    onOpenChange,
+    syncSimplefinMutation,
+    startRevolutMutation,
+    syncAmexMutation,
+    syncCorumMutation,
+    syncSofidyMutation,
     queryClient,
     t,
   ])
 
-  // "Sync all" only fires what a single click can actually complete: Finary is a manual
-  // two-phase import, and any session needing re-authentication would just fail. Those rows
-  // keep their own button, which opens the right form instead.
+  // Revolut discovery job finished: surface its error, or confirm everything
+  // it found. remember=true because confirmSync clears the stored credentials otherwise — this
+  // row only syncs in place *because* the session is remembered. voluntary=false keeps accounts
+  // the user deleted from coming back.
+  useEffect(() => {
+    const running = revolutProgress.data?.running
+    if (revolutPolling && prevRevolutRunningRef.current === true && running === false) {
+      setRevolutPolling(false)
+      const data = revolutProgress.data
+      const clearSyncing = () => setSyncingIds(prev => {
+        const next = new Set(prev)
+        next.delete(REVOLUT_CONNECTION_ID)
+        return next
+      })
+      const setError = (message: string) => setRowErrors(prev => ({ ...prev, [REVOLUT_CONNECTION_ID]: message }))
+      if (data?.error) {
+        setError(revolutErrorLabel(t, data))
+        queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
+        clearSyncing()
+      } else if (data && data.discovered.length > 0) {
+        confirmRevolutMutation.mutate(
+          { selectedExternalIds: data.discovered.map(d => d.externalId), remember: true, voluntary: false },
+          {
+            onSuccess: () => setRowErrors(prev => {
+              if (!(REVOLUT_CONNECTION_ID in prev)) return prev
+              const next = { ...prev }
+              delete next[REVOLUT_CONNECTION_ID]
+              return next
+            }),
+            onError: (err: unknown) => setError(formatApiError(err, t, 'common.errors.serverError')),
+            onSettled: clearSyncing,
+          },
+        )
+      } else {
+        clearSyncing()
+      }
+    }
+    prevRevolutRunningRef.current = running
+    // revolutProgress.data/confirmRevolutMutation/t are read through the running dep on purpose
+    // (same pattern as RevolutTab) — the mutation object is a fresh one every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revolutPolling, revolutProgress.data?.running])
+
+  const handleSync = useCallback((connection: SyncConnection) => {
+    // TR without active session: open inline auth instead of syncing
+    if (connection.providerType === 'tr' && !trStatus?.isActive) {
+      setTrAuthError(null)
+      setTrAuthStep('phone')
+      return
+    }
+    // Rows that own a surface (expired session, Finary, unremembered Revolut) go to their tab:
+    // those flows need multi-step forms or a mobile approval, and firing a sync would only 401.
+    const tab = ownTab(connection, revolutStatus?.remembered === true)
+    if (tab) {
+      navigate(`/sync?tab=${tab}`)
+      onOpenChange(false)
+      return
+    }
+    syncInPlace(connection)
+  }, [trStatus?.isActive, revolutStatus?.remembered, syncInPlace, navigate, onOpenChange])
+
+  // "Sync all" only fires what a single click can actually complete in place: every row that
+  // owns a surface (`ownTab`) is excluded, as is TR without a session (inline auth). Those rows
+  // keep their own button. The batch calls `syncInPlace` directly, so it can never navigate.
   const isBatchSyncable = useCallback((c: SyncConnection) =>
-    c.providerType !== 'finary' &&
-    !c.needsReauth &&
+    !ownTab(c, revolutStatus?.remembered === true) &&
     !(c.providerType === 'tr' && !trStatus?.isActive)
-  , [trStatus?.isActive])
+  , [trStatus?.isActive, revolutStatus?.remembered])
 
   const handleSyncAll = useCallback(() => {
     connections
       .filter(isBatchSyncable)
       .forEach(connection => {
         if (!syncingIds.has(connection.id)) {
-          handleSync(connection)
+          syncInPlace(connection)
         }
       })
-  }, [connections, syncingIds, handleSync, isBatchSyncable])
+  }, [connections, syncingIds, syncInPlace, isBatchSyncable])
 
   // With only Finary rows and expired sessions in the list there is nothing for "Sync all" to
   // do, and an enabled button that quietly does nothing reads as a broken one.
@@ -487,8 +688,8 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-lg">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{t('sync.all.title')}</DialogTitle>
           <DialogDescription>
             {connections.length > 0
@@ -498,7 +699,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         </DialogHeader>
 
         {isLoading ? (
-          <div className="space-y-3">
+          <div className="-mx-1 min-h-0 flex-1 space-y-3 overflow-y-auto px-1">
             {Array.from({ length: 3 }).map((_, i) => (
               <Card key={i} size="sm">
                 <CardContent className="flex items-center justify-between py-3">
@@ -517,15 +718,21 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
             icon={<RefreshCw className="size-12" />}
           />
         ) : (
-          <div className="space-y-2">
+          <div className="-mx-1 min-h-0 flex-1 space-y-2 overflow-y-auto px-1">
             {connections.map(connection => {
               const Icon = ProviderIcon[connection.providerType]
               const isSyncing = syncingIds.has(connection.id)
-              const isFinary = connection.providerType === 'finary'
               const isTr = connection.providerType === 'tr'
-              // Sends the user to the tab owning that provider's auth form rather than syncing.
-              const opensTab = connection.needsReauth && REAUTH_TAB[connection.providerType] !== undefined
-
+              const isRevolut = connection.providerType === 'revolut'
+              const revolutNeedsEnrolment = isRevolut && !revolutStatus?.remembered
+              const tab = ownTab(connection, revolutStatus?.remembered === true)
+              const actionTitle = tab
+                ? tab === 'finary'
+                  ? t('sync.all.openFinary')
+                  : tab === 'revolut'
+                    ? t('sync.all.openRevolut')
+                    : t('sync.all.reconnect')
+                : undefined
               return (
                 <Card key={connection.id} size="sm">
                   <CardContent className="flex flex-col gap-0 py-3">
@@ -539,7 +746,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                               {connection.status === 'SESSION_EXPIRED'
                                 ? isTr
                                   ? t('sync.tr.noSession')
-                                  : t('sync.all.sessionExpired')
+                                  : isRevolut
+                                    ? t('sync.revolut.notConnected')
+                                    : t('sync.all.sessionExpired')
                                 : connection.status}
                             </Badge>
                             {isTr && (
@@ -549,6 +758,16 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                                 </TooltipTrigger>
                                 <TooltipContent side="top" className="max-w-xs text-xs">
                                   {t('sync.all.trManualInfo')}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                            {revolutNeedsEnrolment && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="size-3.5 text-muted-foreground cursor-help" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs text-xs">
+                                  {t('sync.all.revolutManualInfo')}
                                 </TooltipContent>
                               </Tooltip>
                             )}
@@ -597,11 +816,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                           variant="ghost"
                           disabled={isSyncing}
                           onClick={() => handleSync(connection)}
-                          title={isFinary ? t('sync.all.openFinary') : opensTab ? t('sync.all.reconnect') : undefined}
+                          title={actionTitle}
                         >
                           {isSyncing ? (
                             <Loader2 className="size-4 animate-spin" />
-                          ) : isFinary || opensTab ? (
+                          ) : tab ? (
                             <ExternalLink className="size-4" />
                           ) : (
                             <RefreshCw className="size-4" />
@@ -693,6 +912,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                         )}
                       </div>
                     )}
+
                   </CardContent>
                 </Card>
               )
@@ -701,7 +921,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         )}
 
         {connections.length > 0 && (
-          <DialogFooter>
+          <DialogFooter className="shrink-0">
             <Button
               onClick={handleSyncAll}
               disabled={isSyncAll || isLoading || !hasBatchSyncable}

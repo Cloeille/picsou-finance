@@ -62,4 +62,11 @@ export const mockTransactions: Record<number, Transaction[]> = {
     t({ id: 73, date: '2024-12-15', description: 'Intérêts annuels', amount: 82.4, type: 'credit', category: 'income', nativeCurrency: 'EUR' }),
     t({ id: 74, date: '2024-06-01', description: 'Versement initial', amount: 4000.0, type: 'credit', category: 'transfer', nativeCurrency: 'EUR' }),
   ],
+  12: [
+    t({ id: 120, date: '2025-03-14', description: 'Air France', amount: -412.3, type: 'debit', category: 'travel', nativeCurrency: 'EUR' }),
+    t({ id: 121, date: '2025-03-12', description: 'Monoprix', amount: -58.2, type: 'debit', category: 'groceries', nativeCurrency: 'EUR' }),
+    t({ id: 122, date: '2025-03-09', description: 'SNCF Connect', amount: -96.0, type: 'debit', category: 'travel', nativeCurrency: 'EUR' }),
+    t({ id: 123, date: '2025-03-05', description: 'Prélèvement American Express', amount: 1030.5, type: 'credit', category: 'transfer', nativeCurrency: 'EUR' }),
+    t({ id: 124, date: '2025-03-02', description: 'Le Comptoir', amount: -74.1, type: 'debit', category: 'food', nativeCurrency: 'EUR' }),
+  ],
 }

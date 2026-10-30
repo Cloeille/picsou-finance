@@ -6,12 +6,17 @@ There is **no** `unit/` or `integration/` directory split. All tests live flat u
 
 ```
 src/test/java/com/picsou/
-├── service/      # 19 service test classes (GoalService, AccountService, FamilyService,
-│                 #   MfaService, SecurityInsightService, HoldingCompute, …)
-├── adapter/      # external-provider adapter tests
-├── controller/   # controller tests (pure Mockito -- no MockMvc, see below)
-├── config/       # security / config tests
-└── export/       # GDPR export tests
+├── service/         # service unit tests (GoalService, AccountService, FamilyService,
+│   │                #   MfaService, SecurityInsightService, HoldingCompute, …)
+│   └── budget/      # budget tests (Categorization, MerchantNormalizer, MerchantKnowledgeBase,
+│                    #   CashflowFlow, RecurringDetection, MerchantLogo, + the Postgres IT)
+├── controller/      # controller tests (mostly pure Mockito; MockMvc where HTTP-level behavior matters)
+├── config/          # security / config tests, incl. the OAuth2/MCP authorization-server suite
+├── adapter/         # external-provider adapter tests
+├── repository/      # custom-query tests (@DataJpaTest + H2)
+├── migration/       # data-mutating Flyway migrations (Testcontainers + real Postgres)
+├── validation/      # custom constraint tests
+└── export/          # GDPR export tests
 ```
 
 ## Unit tests
@@ -68,15 +73,44 @@ class GoalServiceTest {
 
 ## Integration tests
 
-When JPA is needed, use `@DataJpaTest` with **H2 in-memory** — the default, and enough
-for repository queries and entity mapping.
+The Mockito unit test above is the overwhelming default — no Spring context, no database. When a
+repository query needs real JPA (non-trivial JPQL, entity mapping), reach for `@DataJpaTest` with
+**H2 in-memory** — see `TransactionRepositoryTest`. Reach further, for a Testcontainers-backed real
+Postgres, **only when the behavior under test is a property of the database itself** that even H2
+would paper over.
 
-```bash
-# H2 auto-configures; no external database needed
-JAVA_HOME=$(/usr/libexec/java_home -v 21) mvn test -Dtest=SomeRepoTest
+For that case, stand up a **Testcontainers-backed `@SpringBootTest` against a real PostgreSQL 16**,
+as `BudgetSeedWriteOnReadPostgresTest` does:
+
+```java
+@SpringBootTest
+@Testcontainers(disabledWithoutDocker = true)   // self-skips when no Docker daemon is present
+class BudgetSeedWriteOnReadPostgresTest {
+
+    @Container
+    @ServiceConnection                            // auto-wires the datasource — no manual JDBC props
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    // ...
+}
 ```
 
-H2 is on the test classpath via `spring-boot-starter-test`.
+```bash
+mvn test -Dtest=BudgetSeedWriteOnReadPostgresTest   # needs a running Docker daemon
+```
+
+Testcontainers is on the test classpath (`spring-boot-testcontainers` + `testcontainers:postgresql`
+/ `junit-jupiter`), versions managed by the Spring Boot parent BOM. H2 is also on the classpath via
+`spring-boot-starter-test`, used for `@DataJpaTest` repository-query tests (see
+`TransactionRepositoryTest`) — but H2 **silently tolerates** Postgres-illegal operations, most
+notably an `INSERT` inside a read-only transaction, which real Postgres rejects with SQLSTATE
+`25006`. That is exactly the class of bug an integration test exists to catch, so prefer a real
+Postgres container whenever DB fidelity — not just JPA mapping — is the point.
+
+> **Docker API floor.** docker-java (bundled with Testcontainers) defaults to Docker Engine API
+> `1.32`, which Docker Engine 25+ rejects. Surefire pins a safe floor via the `api.version` system
+> property (`<docker.api.version>`, default `1.44`, override with `-Ddocker.api.version=…`) so the
+> container tests work under `mvn test` on a modern daemon. With no Docker, the tests self-skip and
+> the rest of the suite runs untouched.
 
 ### Testcontainers — only for real-PostgreSQL behaviour
 
@@ -85,8 +119,9 @@ H2 cannot run the Flyway chain: the migrations are PostgreSQL-flavoured
 migration** — one that rewrites existing rows rather than only adding structure — is
 verified against real PostgreSQL via Testcontainers.
 
-Reach for it *only* for that. Everything else stays on Mockito or H2; a container costs
-seconds of wall clock per class.
+Reach for it *only* for that. Everything else stays on Mockito, H2, or the
+`@SpringBootTest`+`@ServiceConnection` pattern above; a container costs seconds of wall clock per
+class.
 
 Pattern (see `WalletEvmMigrationTest`): no Spring context — drive Flyway and
 JDBC directly, migrating in two steps so the seeded data is what the migration under test
@@ -165,17 +200,28 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) mvn test -Dtest=GoalServiceTest#progre
 
 ## Current coverage
 
-The suite has **627 backend tests** (service, adapter, controller, config, export, migration). Service-layer unit tests dominate. When adding coverage, prioritize:
+The suite has **132 backend test classes** (service, controller, config, adapter, repository,
+migration, validation, export). Service-layer unit tests dominate — nearly 40% of the classes live
+under `service/` (14 of them under `service/budget/`). Eleven classes are Testcontainers-backed
+integration tests, which self-skip when no Docker daemon is present. When adding coverage,
+prioritize:
 
 1. **Service-layer unit tests** — mock dependencies, test business logic.
 2. **Repository custom queries** — `@DataJpaTest` for non-trivial JPQL.
-3. **Controller tests** — pure Mockito (`@Mock` + `@InjectMocks`), calling controller methods directly and asserting on the returned DTO. There is **no MockMvc anywhere in `src/test`**; controllers in this project are thin enough that a Spring context buys nothing. Assert that the member id comes from `UserContext`, which is the scoping contract at that layer.
-4. **Data-mutating migrations** — Testcontainers, per the section above.
+3. **Controller tests** — pure Mockito (`@Mock` + `@InjectMocks`), calling controller methods
+   directly and asserting on the returned DTO, for most controllers; reach for MockMvc only when
+   the behavior under test is HTTP-level (security headers, OAuth2/MCP routing and filters) rather
+   than business logic. Assert that the member id comes from `UserContext`, which is the scoping
+   contract at that layer.
+4. **DB-fidelity integration tests** — a Testcontainers `@SpringBootTest` *only* when the behavior
+   is a Postgres property a mock (or H2) can't reproduce (see above).
+5. **Data-mutating migrations** — Testcontainers, per the section above.
 
 ## Don'ts
 
-- **Never load Spring context in unit tests** — pure Mockito. Use `@DataJpaTest` only for JPA integration tests.
+- **Never load Spring context in unit tests** — pure Mockito. A Spring context (`@SpringBootTest` on
+  Testcontainers) is reserved for the rare DB-fidelity integration test.
 - **Never use `MockitoAnnotations.openMocks()`** — use `@ExtendWith(MockitoExtension.class)`.
 - **Never use JUnit `assertEquals`** — always AssertJ (`assertThat`).
-- **Never use `@Autowired` in tests** unless it's a `@DataJpaTest` integration test.
+- **Never use `@Autowired` in tests** unless it's a Testcontainers `@SpringBootTest` integration test.
 - **Never create test fixtures or "mother objects"** — use Lombok builders directly.

@@ -19,6 +19,8 @@ import java.time.LocalDate;
 public record ExchangePositionResponse(
     String product,
     String ticker,
+    // The coin's image, or null when CoinGecko has no mark for it. See HoldingResponse.logoUrl.
+    String logoUrl,
     BigDecimal quantity,
     BigDecimal principal,
     BigDecimal interest,

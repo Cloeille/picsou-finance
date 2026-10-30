@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Line, LineChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
-import { formatCurrency, localeFromLanguage } from '@/lib/utils'
+import { localeFromLanguage } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 import type { Account } from '@/types/api'
 
 interface AccountsStackedChartProps {
@@ -21,6 +22,7 @@ function PnlTooltip({ active, payload, accounts, labels }: {
   accounts: Account[]
   labels: { locale: string; currency: string }
 }) {
+  const money = useMoney()
   if (!active || !payload?.length) return null
 
   const dateStr = payload[0]?.payload?.date
@@ -50,7 +52,7 @@ function PnlTooltip({ active, payload, accounts, labels }: {
             />
             <span className="text-muted-foreground truncate">{account.name}</span>
             <span className={`ml-auto font-mono font-medium tabular-nums ${item.value >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-              {item.value >= 0 ? '+' : ''}{formatCurrency(item.value, labels.currency, labels.locale)}
+              {item.value >= 0 ? '+' : ''}{money.amount(item.value, labels.currency)}
             </span>
           </div>
         ))}
@@ -58,7 +60,7 @@ function PnlTooltip({ active, payload, accounts, labels }: {
       <div className="my-1.5 border-t border-border" />
       <div className="flex items-center justify-between py-0.5">
         <span className={`font-mono font-medium tabular-nums ${total >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-          {total >= 0 ? '+' : ''}{formatCurrency(total, labels.currency, labels.locale)}
+          {total >= 0 ? '+' : ''}{money.amount(total, labels.currency)}
         </span>
       </div>
     </div>
@@ -81,6 +83,7 @@ function filterByRange(data: AccountsStackedChartProps['data'], range: TimeRange
 }
 
 export function AccountsStackedChart({ accounts, data }: AccountsStackedChartProps) {
+  const money = useMoney()
   const { i18n } = useTranslation()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const [range, setRange] = useState<TimeRange>('1Y')
@@ -124,11 +127,11 @@ export function AccountsStackedChart({ accounts, data }: AccountsStackedChartPro
             tickLine={false}
             axisLine={false}
             tickMargin={8}
-            tickFormatter={(value) => {
+            tickFormatter={money.tick((value: number) => {
               const abs = Math.abs(value)
               const formatted = abs >= 1000 ? `${(abs / 1000).toFixed(abs >= 10000 ? 0 : 1)}k` : abs.toFixed(0)
               return `${value < 0 ? '-' : ''}${formatted}`
-            }}
+            })}
             width={45}
           />
           <ChartTooltip content={<PnlTooltip accounts={accounts} labels={labels} />} />

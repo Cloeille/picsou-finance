@@ -12,7 +12,7 @@ The export is **self-only**: a user exports their own data plus resources shared
 ## Goals
 
 - Each authenticated user can download an export of their own data from `Settings → Security & Privacy`.
-- Export is delivered as a single `picsou-export-YYYY-MM-DD.zip` containing both a hierarchical `data.json` and a flat `csv/` directory (one file per entity).
+- Export is delivered as a single `picsou-export-<username>-YYYYMMDD-HHmmss.zip` (UTC timestamp; any username character outside `[A-Za-z0-9._-]` becomes `_` so the quoted header value stays valid) containing both a hierarchical `data.json` and a flat `csv/` directory (one file per entity).
 - Export contains every domain field tied to the user, with explicit exclusion of secrets (passwords, MFA secrets, recovery codes, encrypted bank-session credentials, persistent-session tokens, requisition tokens).
 - A toggle lets the user opt in to including their `BalanceSnapshot` history (off by default — keeps the ZIP small for the common case).
 - The action is gated by re-authentication (TOTP if 2FA is enabled, otherwise password) and rate-limited to 5 exports/hour per user.
@@ -49,10 +49,11 @@ ExportDataDialog (frontend)
 MeExportController
    ├─ Bucket4j rate limit (5/h, keyed on userId)         → 429 if exceeded
    ├─ ReAuthService.verify(currentUser, body.reAuth)     → 401 if mismatch
-   ├─ logger.warn("data_export userId={} options={} ip={}")
+   ├─ log.warn("export.requested userId={} username={} ip={} includeBalanceSnapshots={}")
+   │    (username and ip through LogSanitizer.safe)
    └─ return ResponseEntity<StreamingResponseBody>
                  Content-Type: application/zip
-                 Content-Disposition: attachment; filename=picsou-export-YYYY-MM-DD.zip
+                 Content-Disposition: attachment; filename="picsou-export-<username>-YYYYMMDD-HHmmss.zip"
    │
    ▼
 DataExportService.streamExport(user, options, OutputStream out)

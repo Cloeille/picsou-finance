@@ -13,7 +13,7 @@ import httpx
 from fastapi import HTTPException
 
 from accounts_parser import AccountsFormatError
-from fixtures import DASHBOARD_HTML
+from fixtures import DASHBOARD_HTML, MOVEMENTS_HTML, RIB_HTML
 from main import (
     BASE_URL,
     AccountsRequest,
@@ -23,8 +23,16 @@ from main import (
     extract_brs_config,
     extract_form_token,
     is_fraud_education_page,
+    redirects_to_identity_selector,
     restore_cookies,
     serialize_cookies,
+)
+from test_accounts_parser import (
+    BUSINESS_TOKEN,
+    PERSONAL_AND_BUSINESS,
+    PERSONAL_TOKEN,
+    identity_card,
+    identity_selector_html,
 )
 
 API_URL = "https://api.boursobank.com/services/api/v1.7"
@@ -90,17 +98,28 @@ def build_client(handler) -> httpx.AsyncClient:
     )
 
 
-def default_handler(*, home=HOME_HTML, dashboard=DASHBOARD_HTML, trading=None, trading_status=200):
+def default_handler(
+    *, home=HOME_HTML, dashboard=DASHBOARD_HTML, trading=None, trading_status=200, movement_status=200
+):
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if request.url.host == "clients.boursobank.com" and path == "/":
             return httpx.Response(200, text=home)
         if path == "/dashboard/liste-comptes":
             return httpx.Response(200, text=dashboard)
+        if path.endswith("/rib"):
+            return httpx.Response(200, text=RIB_HTML)
         if "/trading/accounts/summary/" in path:
             if trading_status != 200:
                 return httpx.Response(trading_status, json={})
             return httpx.Response(200, json=trading if trading is not None else TRADING_SUMMARY)
+        if path.endswith("/mouvements"):
+            if movement_status != 200:
+                return httpx.Response(movement_status, text="temporary upstream error")
+            return httpx.Response(
+                200,
+                text=MOVEMENTS_HTML.replace(' data-operations-next-pagination="fixture-next"', ""),
+            )
         # No instrument-quote call: the trading board ships the ISIN itself, so
         # any extra upstream request here is a regression.
         raise AssertionError(f"unexpected request: {request.url}")
@@ -212,6 +231,9 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(checking.balanceEur, Decimal("20810.50"))
         self.assertIsNone(checking.cashBalance)
         self.assertEqual(checking.positions, [])
+        self.assertEqual(checking.iban, "FR7630006000011234567890189")
+        self.assertEqual([tx["externalId"] for tx in checking.transactions], ["fixture-op-1", "fixture-op-2"])
+        self.assertIsNone(checking.transactionWarning)
 
         # The fixture's passbook is a real LDDS, so it must arrive typed as one
         # rather than as the generic SAVINGS the sidecar used to send.
@@ -223,9 +245,83 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pea.balanceEur, Decimal("143088.89"))
         self.assertEqual(pea.cashBalance, Decimal("3088.89"))
         self.assertEqual(len(pea.positions), 1)
+        self.assertEqual(pea.transactions, [])
         self.assertEqual(pea.positions[0].isin, "IE00B4L5Y983")
         self.assertEqual(pea.positions[0].currentValueEur, Decimal("140000.00"))
         self.assertTrue(pea.snapshotComplete)
+
+    async def test_lep_transactions_are_harvested_but_holdings_are_not(self):
+        lep_dashboard = DASHBOARD_HTML.replace(
+            "LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE", "LIVRET D'ÉPARGNE POPULAIRE"
+        )
+        async with build_client(default_handler(dashboard=lep_dashboard)) as client:
+            accounts = await _collect_accounts(client)
+
+        lep = next(account for account in accounts if account.type == "LEP")
+        self.assertEqual(len(lep.transactions), 2)
+        self.assertEqual(lep.positions, [])
+
+    async def test_movement_outage_keeps_the_balance_and_emits_a_safe_warning(self):
+        with self.assertLogs("bourso-auth", level="WARNING") as captured:
+            async with build_client(default_handler(movement_status=503)) as client:
+                accounts = await _collect_accounts(client)
+
+        self.assertTrue(any("TRANSACTIONS_UNAVAILABLE" in line for line in captured.output))
+        self.assertFalse(any("20810.50" in line or "FR763" in line for line in captured.output))
+
+        checking = next(account for account in accounts if account.type == "CHECKING")
+        self.assertEqual(checking.balanceEur, Decimal("20810.50"))
+        self.assertEqual(checking.transactions, [])
+        self.assertEqual(checking.transactionWarning, "TRANSACTIONS_UNAVAILABLE")
+
+    async def test_repeated_movement_token_keeps_the_balance_and_warns_incomplete(self):
+        movement_requests = []
+        normal_handler = default_handler()
+
+        def handler(request):
+            if request.url.path.endswith("/mouvements"):
+                movement_requests.append(request)
+                return httpx.Response(
+                    200,
+                    text='<ul class="list__movement"><li class="list__movement__range-summary" '
+                    'data-operations-next-pagination="loop"></li></ul>',
+                )
+            return normal_handler(request)
+
+        with self.assertLogs("bourso-auth", level="WARNING") as captured:
+            async with httpx.AsyncClient(
+                base_url=BASE_URL, transport=httpx.MockTransport(handler), follow_redirects=True
+            ) as client:
+                accounts = await _collect_accounts(client)
+
+        self.assertTrue(any("TRANSACTIONS_INCOMPLETE" in line for line in captured.output))
+        self.assertFalse(any("loop" in line or "/mouvements" in line for line in captured.output))
+        checking = next(account for account in accounts if account.type == "CHECKING")
+        self.assertEqual(checking.balanceEur, Decimal("20810.50"))
+        self.assertEqual(checking.transactionWarning, "TRANSACTIONS_INCOMPLETE")
+        self.assertEqual(len(movement_requests), 2)
+
+    async def test_cross_origin_redirect_is_not_followed_and_warns_unavailable(self):
+        foreign_requests = []
+        normal_handler = default_handler()
+
+        def handler(request):
+            if request.url.path.endswith(("/rib", "/mouvements")):
+                return httpx.Response(302, headers={"Location": "https://evil.example/collect"})
+            if request.url.host == "evil.example":
+                foreign_requests.append(request)
+                return httpx.Response(200, text="unexpected")
+            return normal_handler(request)
+
+        async with httpx.AsyncClient(
+            base_url=BASE_URL, transport=httpx.MockTransport(handler), follow_redirects=True
+        ) as client:
+            accounts = await _collect_accounts(client)
+
+        checking = next(account for account in accounts if account.type == "CHECKING")
+        self.assertEqual(checking.balanceEur, Decimal("20810.50"))
+        self.assertEqual(checking.transactionWarning, "TRANSACTIONS_UNAVAILABLE")
+        self.assertEqual(foreign_requests, [])
 
     async def test_a_line_without_an_isin_still_syncs(self):
         stripped = json.loads(json.dumps(TRADING_SUMMARY))
@@ -298,6 +394,115 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(AccountsFormatError) as raised:
                 await _collect_accounts(client)
         self.assertEqual(raised.exception.code, "PORTFOLIO_INCOMPLETE")
+
+
+def multi_identity_handler(selector, requested, *, switch_sticks=True):
+    """The #153 flow: the dashboard 302s to the selector until the switch link,
+    which chains through /feature-redirect, has picked an identity."""
+    chosen = []
+    fallback = default_handler()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        requested.append(path)
+        if path == "/dashboard/liste-comptes" and not chosen:
+            return httpx.Response(302, headers={"Location": "/connexion/lister-identites"})
+        if path == "/connexion/lister-identites":
+            return httpx.Response(200, text=selector)
+        if path.startswith("/connexion/changer-identite/"):
+            if switch_sticks:
+                chosen.append(path)
+            return httpx.Response(
+                302, headers={"Location": "/feature-redirect?featureId=customer.dashboard_home"}
+            )
+        if path == "/feature-redirect":
+            return httpx.Response(302, headers={"Location": "/"})
+        return fallback(request)
+
+    return handler
+
+
+class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
+    async def test_switches_to_the_personal_identity_then_reads_the_dashboard(self):
+        requested = []
+        with self.assertLogs(level="INFO") as logs:
+            async with build_client(multi_identity_handler(PERSONAL_AND_BUSINESS, requested)) as client:
+                accounts = await _collect_accounts(client)
+
+        self.assertEqual(len(accounts), 3)
+        self.assertEqual(
+            requested[:7],
+            [
+                "/",
+                "/dashboard/liste-comptes",
+                "/connexion/lister-identites",
+                f"/connexion/changer-identite/{PERSONAL_TOKEN}",
+                "/feature-redirect",
+                "/",
+                "/dashboard/liste-comptes",
+            ],
+        )
+        self.assertNotIn(f"/connexion/changer-identite/{BUSINESS_TOKEN}", requested)
+        self.assertNotIn(PERSONAL_TOKEN, "\n".join(logs.output))
+
+    async def test_a_business_only_selector_is_refused_without_switching(self):
+        requested = []
+        selector = identity_selector_html(identity_card(BUSINESS_TOKEN, "Exemple SARL"))
+        async with build_client(multi_identity_handler(selector, requested)) as client:
+            with self.assertRaises(AccountsFormatError) as raised:
+                await _collect_accounts(client)
+
+        self.assertEqual(raised.exception.code, "IDENTITY_SELECTION_UNSUPPORTED")
+        self.assertFalse(any(path.startswith("/connexion/changer-identite/") for path in requested))
+
+    async def test_a_selector_that_comes_back_after_the_switch_is_not_retried(self):
+        requested = []
+        handler = multi_identity_handler(PERSONAL_AND_BUSINESS, requested, switch_sticks=False)
+        async with build_client(handler) as client:
+            with self.assertRaises(AccountsFormatError) as raised:
+                await _collect_accounts(client)
+
+        self.assertEqual(raised.exception.code, "UPSTREAM_FORMAT_CHANGED")
+        switches = [path for path in requested if path.startswith("/connexion/changer-identite/")]
+        self.assertEqual(switches, [f"/connexion/changer-identite/{PERSONAL_TOKEN}"])
+
+    async def test_a_single_identity_access_never_sees_the_selector(self):
+        requested = []
+        handler = default_handler()
+
+        def recording(request: httpx.Request) -> httpx.Response:
+            requested.append(request.url.path)
+            return handler(request)
+
+        async with build_client(recording) as client:
+            await _collect_accounts(client)
+
+        self.assertEqual(
+            requested,
+            [
+                "/",
+                "/dashboard/liste-comptes",
+                f"/compte/cav/{'e2f509c466f5294f15abd873dbbf8a62'}/rib",
+                f"/compte/cav/{'e2f509c466f5294f15abd873dbbf8a62'}/mouvements",
+                f"/services/api/v1.7/_user_/_{USER_HASH}_/trading/accounts/summary/{PEA_ID}",
+            ],
+        )
+
+    def test_only_a_redirect_to_the_selector_counts_as_one(self):
+        def redirect(location):
+            return httpx.Response(302, headers={"Location": location})
+
+        self.assertTrue(redirects_to_identity_selector(redirect("/connexion/lister-identites")))
+        self.assertTrue(
+            redirects_to_identity_selector(
+                redirect("https://clients.boursobank.com/connexion/lister-identites/")
+            )
+        )
+        self.assertFalse(redirects_to_identity_selector(redirect("/connexion/")))
+        self.assertFalse(
+            redirects_to_identity_selector(redirect("https://evil.example/connexion/lister-identites"))
+        )
+        self.assertFalse(redirects_to_identity_selector(httpx.Response(200, text="<html></html>")))
 
 
 class FraudEducationPageTest(unittest.TestCase):

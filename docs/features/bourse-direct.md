@@ -109,12 +109,14 @@ queue and completeness gates.
 
 ## Deployment
 
-Docker Compose builds `services/bourse-direct-auth/Dockerfile`. The image uses
-`python:3.12-slim-bookworm`, installs Chromium only and runs as a non-root user. The
+Docker Compose builds `services/bourse-direct-auth/Dockerfile` on the shared
+`chromium` sidecar base (Chromium only) and runs it as a non-root user. The
 service is reachable only from the internal Compose network. The backend URL
 defaults to `http://bourse-direct-auth:8001` and can be overridden with
 `BOURSE_DIRECT_AUTH_URL`; local development defaults to
-`http://127.0.0.1:8002`.
+`http://127.0.0.1:8002`. The sidecar requires the shared
+`APP_SIDECAR_API_KEY` at startup and on every route except `/health`; see
+[docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
 
 The sidecar needs outbound HTTPS access to `www.boursedirect.fr`. It does not
 need an ingress or any externally reachable port.

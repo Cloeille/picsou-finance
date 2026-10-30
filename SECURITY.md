@@ -79,7 +79,7 @@ multi-tenant in the SaaS sense.
 | Encryption at rest                 | AES-256-GCM for crypto-exchange API secrets, bank session tokens, and Finary credentials; key required at startup       |
 | SQL injection                      | JPA/Hibernate parameterized queries, no raw SQL                                                                         |
 | XSS                                | React's built-in escaping; CSP headers via Nginx in the Docker image                                                    |
-| CSRF                               | `SameSite=Lax` cookies + Spring's CSRF token on state-changing endpoints                                                |
+| CSRF                               | `SameSite=Lax` cookies + cross-site check on cookie-authenticated state-changing requests (`Sec-Fetch-Site`/`Origin`)   |
 | Secrets                            | All credentials via environment variables or the wizard's `AppSetting` store (encrypted); never in source code          |
 | Bank credentials                   | Enable Banking tokens session-scoped and never persisted in clear; PEM private key mounted read-only                    |
 | GDPR export                        | Step-up re-authentication required; download is read-only-transactional and rate-limited                                |

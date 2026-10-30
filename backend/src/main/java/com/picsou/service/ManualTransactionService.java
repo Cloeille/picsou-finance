@@ -5,9 +5,13 @@ import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.Account;
+import com.picsou.model.AccountType;
+import com.picsou.model.Category;
 import com.picsou.model.Transaction;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.CategoryRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.budget.CategorizationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +26,8 @@ public class ManualTransactionService {
     private final TransactionRepository transactionRepository;
     private final HoldingComputeService holdingComputeService;
     private final FinaryPersistenceHelper finaryPersistenceHelper;
+    private final CategoryRepository categoryRepository;
+    private final CategorizationService categorizationService;
     private final InstrumentFieldResolver instrumentFieldResolver;
 
     @Transactional
@@ -44,6 +50,15 @@ public class ManualTransactionService {
             .nativeCurrency(req.currency() != null ? req.currency() : "EUR")
             .build();
         applyInstrumentFields(tx, req);
+
+        // Explicit category wins; otherwise run the zero-config pipeline (clean label + brand
+        // link are stamped either way, and a rule or known brand may auto-assign the category).
+        if (req.categoryId() != null) {
+            tx.setCategoryRef(resolveCategory(req.categoryId(), memberId));
+            categorizationService.enrich(tx);
+        } else {
+            categorizationService.autoCategorize(tx, memberId);
+        }
 
         transactionRepository.save(tx);
 
@@ -75,6 +90,7 @@ public class ManualTransactionService {
         if (req.fees() != null) tx.setFees(req.fees());
         if (req.currency() != null) tx.setNativeCurrency(req.currency());
         applyInstrumentFields(tx, req);
+        if (req.categoryId() != null) tx.setCategoryRef(resolveCategory(req.categoryId(), memberId));
         transactionRepository.save(tx);
 
         recomputeDerivedState(account);
@@ -110,6 +126,11 @@ public class ManualTransactionService {
             recomputeCashBalance(account);
             finaryPersistenceHelper.reconstructSnapshotsFromDb(account);
         }
+    }
+
+    private Category resolveCategory(Long categoryId, Long memberId) {
+        return categoryRepository.findByIdAndMemberId(categoryId, memberId)
+            .orElseThrow(() -> ResourceNotFoundException.category(categoryId));
     }
 
     /**

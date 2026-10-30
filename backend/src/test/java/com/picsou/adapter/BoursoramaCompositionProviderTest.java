@@ -1,15 +1,27 @@
 package com.picsou.adapter;
 
 import com.picsou.dto.EtfComposition;
+import com.picsou.dto.SecurityRef;
 import com.picsou.dto.WeightedSlice;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class BoursoramaCompositionProviderTest {
+
+    @Mock BoursoramaClient client;
 
     private String fixture(String name) {
         try (var in = getClass().getResourceAsStream("/boursorama/" + name)) {
@@ -82,5 +94,43 @@ class BoursoramaCompositionProviderTest {
         assertThat(c.countries()).isEmpty();
         assertThat(c.sectors()).isEmpty();
         assertThat(c.asOf()).isNull();
+    }
+
+    /**
+     * The reason the ETF look-through found so little.
+     *
+     * <p>Boursorama's search resolves an ISIN to the same symbol as the ticker, while
+     * {@code OpenFigiIsinConverter.pickBest} prefers US OTC listings for non-US ISINs — so the
+     * ticker stored for a European fund is frequently one Boursorama has never heard of. Asking
+     * by ISIN when we have one is what makes those funds resolve at all.
+     */
+    @Test
+    void resolvesByIsinWhenOneIsKnown() {
+        BoursoramaCompositionProvider provider = new BoursoramaCompositionProvider(client);
+        when(client.resolveSymbol("LU1681043599")).thenReturn(Optional.of("1rTCW8"));
+        lenient().when(client.get(any(), any())).thenReturn(Optional.empty());
+
+        provider.fetch(new SecurityRef("MWRDF", "Amundi MSCI World", "LU1681043599"));
+
+        verify(client).resolveSymbol("LU1681043599");
+    }
+
+    @Test
+    void fallsBackToTheTickerWhenNoIsinIsKnown() {
+        BoursoramaCompositionProvider provider = new BoursoramaCompositionProvider(client);
+        when(client.resolveSymbol("PUST.PA")).thenReturn(Optional.of("1rTPUST"));
+        lenient().when(client.get(any(), any())).thenReturn(Optional.empty());
+
+        provider.fetch(SecurityRef.of("PUST.PA", "Amundi Nasdaq"));
+
+        verify(client).resolveSymbol("PUST.PA");
+    }
+
+    @Test
+    void aSecurityWithNeitherIdentifierIsNotAttempted() {
+        BoursoramaCompositionProvider provider = new BoursoramaCompositionProvider(client);
+
+        assertThat(provider.supports(new SecurityRef(null, "nameless", null))).isFalse();
+        assertThat(provider.fetch(new SecurityRef(null, "nameless", null))).isEmpty();
     }
 }

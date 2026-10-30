@@ -4,8 +4,12 @@ import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
 import { useAdminSettings } from '@/features/admin/hooks'
 import { SecuritySection } from './sections/SecuritySection'
 import { EnableBankingSection } from './sections/EnableBankingSection'
+import { AiCategorizationSection } from './sections/AiCategorizationSection'
 import { IntegrationsSection } from './sections/IntegrationsSection'
 import { MembersSection } from './sections/MembersSection'
+import { AiActivitySection } from './sections/AiActivitySection'
+import { TelemetrySection } from './sections/TelemetrySection'
+import { EnableBankingDebugSection } from './sections/EnableBankingDebugSection'
 
 export function AdminPage() {
   const { t } = useTranslation()
@@ -21,7 +25,11 @@ export function AdminPage() {
           <MembersSection />
           <SecuritySection settings={data.security} />
           <EnableBankingSection settings={data.enableBanking} />
+          <AiCategorizationSection settings={data.ai} />
+          <AiActivitySection />
+          <EnableBankingDebugSection />
           <IntegrationsSection integrations={data.integrations} />
+          <TelemetrySection settings={data.telemetry} />
         </>
       )}
     </div>

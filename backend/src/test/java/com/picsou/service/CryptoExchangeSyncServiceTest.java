@@ -20,6 +20,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -64,14 +65,19 @@ class CryptoExchangeSyncServiceTest {
     @Mock CryptoExchangeStatusWriter statusWriter;
     @Mock CryptoExchangePositionRepository positionRepository;
     @Mock AccountHoldingRepository holdingRepository;
+    @Mock CryptoLogoService cryptoLogoService;
+    @Mock PlatformTransactionManager transactionManager;
 
     private final CryptoExchangeSession[] saved = new CryptoExchangeSession[1];
 
     private CryptoExchangeSyncService serviceWith(CryptoExchangePort... adapters) {
+        // The logo lookup is decoration the tests do not assert on; a lenient empty map keeps
+        // every existing test from having to stub it, exactly like the adapter fixtures below.
+        lenient().when(cryptoLogoService.getLogoUrls(any())).thenReturn(Map.of());
         return new CryptoExchangeSyncService(
             List.of(adapters), sessionRepository, accountRepository,
             familyMemberRepository, accountService, priceService, encryption, statusWriter,
-            positionRepository, holdingRepository);
+            positionRepository, holdingRepository, cryptoLogoService, transactionManager);
     }
 
     // Both fixtures are lenient: which of the two traits a given test exercises depends on how far
@@ -94,6 +100,17 @@ class CryptoExchangeSyncServiceTest {
     }
 
     // ── Credential validation, before any network call ────────────────────────
+
+    @Test
+    void reportingLookupFailureDoesNotExposePrivateDatabaseDetails() {
+        when(sessionRepository.findAllByMemberId(MEMBER_ID)).thenThrow(
+            new org.springframework.dao.DataAccessResourceFailureException("private SQL password=private-marker"));
+
+        var result = serviceWith().resyncAllReporting(MEMBER_ID);
+
+        assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+        assertThat(result.message()).isEqualTo("Unexpected sync error").doesNotContain("private-marker");
+    }
 
     @Test
     void addExchange_rejectsABlankApiKey() {
@@ -421,7 +438,112 @@ class CryptoExchangeSyncServiceTest {
             .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void resyncAllReporting_continuesAfterOneExchangeFailsAndReportsItsName() {
+        CryptoExchangePort binance = adapter(ExchangeType.BINANCE);
+        CryptoExchangePort meria = adapter(ExchangeType.MERIA);
+        CryptoExchangeSession failed = session(ExchangeType.BINANCE, "enc:" + KEY, "enc:" + SECRET);
+        failed.setId(7L);
+        CryptoExchangeSession successful = session(ExchangeType.MERIA, "enc:" + KEY, null);
+        successful.setId(8L);
+        when(sessionRepository.findAllByMemberId(MEMBER_ID)).thenReturn(List.of(failed, successful));
+        stubReportingSession(failed);
+        when(binance.fetchPositions(KEY, SECRET)).thenThrow(new SyncException("private diagnostic"));
+        stubSuccessfulReportingSync(meria, successful);
+
+        var result = serviceWith(binance, meria).resyncAllReporting(MEMBER_ID);
+
+        assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+        assertThat(result.message()).contains("BINANCE").doesNotContain("private diagnostic");
+        verify(meria).fetchPositions(KEY, null);
+    }
+
+    @Test
+    void resyncAllReporting_reportsBothExchangeNamesWhenTwoFailAndContinues() {
+        CryptoExchangePort binance = adapter(ExchangeType.BINANCE);
+        CryptoExchangePort meria = adapter(ExchangeType.MERIA);
+        CryptoExchangeSession binanceSession = session(ExchangeType.BINANCE, "enc:" + KEY, "enc:" + SECRET);
+        binanceSession.setId(7L);
+        CryptoExchangeSession meriaSession = session(ExchangeType.MERIA, "enc:" + KEY, null);
+        meriaSession.setId(8L);
+        when(sessionRepository.findAllByMemberId(MEMBER_ID)).thenReturn(List.of(binanceSession, meriaSession));
+        stubReportingSession(binanceSession);
+        stubReportingSession(meriaSession);
+        when(binance.fetchPositions(KEY, SECRET)).thenThrow(new SyncException("one"));
+        when(meria.fetchPositions(KEY, null)).thenThrow(new SyncException("two"));
+
+        var result = serviceWith(binance, meria).resyncAllReporting(MEMBER_ID);
+
+        assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+        assertThat(result.message()).contains("BINANCE", "MERIA");
+        verify(binance).fetchPositions(KEY, SECRET);
+        verify(meria).fetchPositions(KEY, null);
+    }
+
+    @Test
+    void resyncAllReporting_returnsSyncedWhenEveryExchangeSucceeds() {
+        CryptoExchangePort meria = adapter(ExchangeType.MERIA);
+        CryptoExchangeSession meriaSession = session(ExchangeType.MERIA, "enc:" + KEY, null);
+        meriaSession.setId(8L);
+        when(sessionRepository.findAllByMemberId(MEMBER_ID)).thenReturn(List.of(meriaSession));
+        stubSuccessfulReportingSync(meria, meriaSession);
+
+        var result = serviceWith(meria).resyncAllReporting(MEMBER_ID);
+
+        assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.SYNCED);
+        assertThat(result.message()).isEmpty();
+        verify(meria).fetchPositions(KEY, null);
+    }
+
+    @Test
+    void resyncAllReporting_skipsWhenMemberHasNoExchangeSessions() {
+        when(sessionRepository.findAllByMemberId(MEMBER_ID)).thenReturn(List.of());
+
+        var result = serviceWith().resyncAllReporting(MEMBER_ID);
+
+        assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.SKIPPED_NOT_CONNECTED);
+        verify(sessionRepository).findAllByMemberId(MEMBER_ID);
+    }
+
+    @Test
+    void resyncAllReporting_onlyLoadsSessionsForRequestedMember() {
+        Long anotherMemberId = 2L;
+        CryptoExchangePort meria = adapter(ExchangeType.MERIA);
+        CryptoExchangeSession ownSession = session(ExchangeType.MERIA, "enc:" + KEY, null);
+        ownSession.setId(8L);
+        when(sessionRepository.findAllByMemberId(MEMBER_ID)).thenReturn(List.of(ownSession));
+        stubSuccessfulReportingSync(meria, ownSession);
+
+        serviceWith(meria).resyncAllReporting(MEMBER_ID);
+
+        verify(sessionRepository).findAllByMemberId(MEMBER_ID);
+        verify(sessionRepository, never()).findAllByMemberId(anotherMemberId);
+        verify(sessionRepository).findByIdAndMemberId(8L, MEMBER_ID);
+        verify(sessionRepository, never()).findByIdAndMemberId(8L, anotherMemberId);
+    }
+
     // ── Fixtures ──────────────────────────────────────────────────────────────
+
+    private CryptoExchangePort adapter(ExchangeType type) {
+        CryptoExchangePort adapter = mock(CryptoExchangePort.class);
+        lenient().when(adapter.exchangeName()).thenReturn(type.name());
+        return adapter;
+    }
+
+    private void stubSuccessfulReportingSync(CryptoExchangePort adapter, CryptoExchangeSession session) {
+        stubReportingSession(session);
+        when(adapter.fetchPositions(KEY, session.getApiSecret() == null ? null : SECRET)).thenReturn(List.of());
+        arrangeAccountResolution();
+    }
+
+    private void stubReportingSession(CryptoExchangeSession session) {
+        when(sessionRepository.findByIdAndMemberId(session.getId(), MEMBER_ID)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("enc:" + KEY)).thenReturn(KEY);
+        if (session.getApiSecret() != null) {
+            when(encryption.decrypt("enc:" + SECRET)).thenReturn(SECRET);
+        }
+        when(encryption.decrypt(null)).thenReturn(null);
+    }
 
     private static CryptoExchangeSession session(ExchangeType type, String apiKey, String apiSecret) {
         return CryptoExchangeSession.builder()

@@ -62,7 +62,7 @@ public class TransactionTools {
         @ToolParam(description = "Price per unit (for BUY/SELL)", required = false) BigDecimal pricePerUnit,
         @ToolParam(description = "ISO currency code, e.g. EUR", required = false) String currency) {
         TransactionRequest req = new TransactionRequest(
-            date, description, amount, txType, ticker, name, quantity, pricePerUnit, currency);
+            date, description, amount, txType, ticker, name, quantity, pricePerUnit, currency, null);
         return manualTransactionService.addTransaction(accountId, userContext.currentMemberId(), req);
     }
 
@@ -81,7 +81,7 @@ public class TransactionTools {
         @ToolParam(description = "Price per unit (for BUY/SELL)", required = false) BigDecimal pricePerUnit,
         @ToolParam(description = "ISO currency code, e.g. EUR", required = false) String currency) {
         TransactionRequest req = new TransactionRequest(
-            date, description, amount, txType, ticker, name, quantity, pricePerUnit, currency);
+            date, description, amount, txType, ticker, name, quantity, pricePerUnit, currency, null);
         return manualTransactionService.updateTransaction(accountId, transactionId, userContext.currentMemberId(), req);
     }
 

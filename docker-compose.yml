@@ -33,12 +33,24 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       BOURSO_AUTH_URL: http://bourso-auth:8001
+      CAISSE_EPARGNE_AUTH_URL: http://caisse-epargne-auth:8001
       BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001
       AMUNDI_AUTH_URL: http://amundi-auth:8001
+      FORTUNEO_AUTH_URL: http://fortuneo-auth:8001
+      AMEX_AUTH_URL: http://amex-auth:8001
+      DEGIRO_AUTH_URL: http://degiro-auth:8001
+      CORUM_AUTH_URL: http://corum-auth:8001
+      SOFIDY_AUTH_URL: http://sofidy-auth:8001
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      # Opt-in anonymous telemetry: empty DSN = feature fully inactive (docs/features/telemetry.md)
+      APP_TELEMETRY_DSN: ${APP_TELEMETRY_DSN:-}
+      APP_TELEMETRY_ENVIRONMENT: ${APP_TELEMETRY_ENVIRONMENT:-production}
     depends_on:
       db:
         condition: service_healthy
       bourso-auth:
+        condition: service_started
+      caisse-epargne-auth:
         condition: service_started
       bourse-direct-auth:
         condition: service_started
@@ -46,22 +58,73 @@ services:
         condition: service_started
       amundi-auth:
         condition: service_started
+      fortuneo-auth:
+        condition: service_started
+      amex-auth:
+        condition: service_started
+      corum-auth:
+        condition: service_started
+      sofidy-auth:
+        condition: service_started
     networks:
       - picsou-net
+      - fortuneo-auth-net
+
+  # Shared sidecar base images (services/base). Never started (`scale: 0`).
+  # `docker compose pull` fetches them by name; their layers are the ones the
+  # published sidecars are built from, so nothing is downloaded twice.
+  # `--build` builds them before the sidecars (Compose v2.33+).
+  sidecar-python:
+    image: ghcr.io/cloeille/picsou-finance/sidecar-python:latest
+    build:
+      context: ./services/base
+      target: python
+    scale: 0
+
+  sidecar-chromium:
+    image: ghcr.io/cloeille/picsou-finance/sidecar-chromium:latest
+    build:
+      context: ./services/base
+      target: chromium
+    scale: 0
 
   tr-auth:
     build:
       context: ./services/tr-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     networks:
       - picsou-net
+
+  revolut-auth:
+    build:
+      context: ./services/revolut-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    networks:
+      - picsou-net
+    volumes:
+      - revolut_profiles:/data/revolut-profiles
 
   bourse-direct-auth:
     build:
       context: ./services/bourse-direct-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
     networks:
@@ -71,7 +134,62 @@ services:
     build:
       context: ./services/amundi-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    expose:
+      - "8001"
+    networks:
+      - picsou-net
+
+  fortuneo-auth:
+    build:
+      context: ./services/fortuneo-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    expose:
+      - "8001"
+    networks:
+      - fortuneo-auth-net
+      - fortuneo-egress
+
+  corum-auth:
+    build:
+      context: ./services/corum-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    expose:
+      - "8001"
+    networks:
+      - picsou-net
+
+  sofidy-auth:
+    build:
+      context: ./services/sofidy-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
     networks:
@@ -81,9 +199,44 @@ services:
     build:
       context: ./services/bourso-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     expose:
       - "8001"
+    networks:
+      - picsou-net
+
+  caisse-epargne-auth:
+    build:
+      context: ./services/caisse-epargne-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    expose:
+      - "8001"
+    networks:
+      - picsou-net
+
+  amex-auth:
+    build:
+      context: ./services/amex-auth
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    expose:
+      - "8001"
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?APP_SIDECAR_API_KEY is required}
     networks:
       - picsou-net
 
@@ -91,7 +244,13 @@ services:
     build:
       context: ./services/degiro-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
     restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     networks:
       - picsou-net
 
@@ -107,9 +266,25 @@ services:
     networks:
       - picsou-net
 
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    profiles: ["ollama"]
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - picsou-net
+
 volumes:
   pgdata:
+  ollama_models:
+  revolut_profiles:
 
 networks:
   picsou-net:
+    driver: bridge
+  fortuneo-auth-net:
+    driver: bridge
+    internal: true
+  fortuneo-egress:
     driver: bridge

@@ -70,7 +70,7 @@ public class FamilyViewService {
             if (accountSettings != null && accountSettings.getSharingLevel() != SharingLevel.NONE) {
                 List<Account> accounts;
                 if (accountSettings.getSharingLevel() == SharingLevel.ALL) {
-                    accounts = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId());
+                    accounts = accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(member.getId());
                 } else {
                     // MANUAL — only specific shared resources
                     List<Long> sharedIds = sharedResourceRepository

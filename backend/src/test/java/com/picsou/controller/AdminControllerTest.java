@@ -1,13 +1,24 @@
 package com.picsou.controller;
 
+import com.picsou.config.AiConfigProvider;
 import com.picsou.config.EnableBankingConfigProvider;
+import com.picsou.dto.AdminAiRequest;
 import com.picsou.dto.AdminEnableBankingRequest;
 import com.picsou.dto.AdminSecurityRequest;
+import com.picsou.dto.AiCallLogPage;
+import com.picsou.dto.AiTestResponse;
 import com.picsou.dto.EnableBankingImportRequest;
 import com.picsou.dto.EnableBankingKeypairResponse;
+import com.picsou.dto.InstanceStatusResponse;
+import com.picsou.dto.ReleaseUpdate;
+import com.picsou.dto.SidecarIssue;
+import com.picsou.dto.SidecarIssueCode;
+import com.picsou.service.AiCallLogService;
 import com.picsou.service.EnableBankingKeyPairService;
+import com.picsou.service.InstanceStatusService;
 import com.picsou.service.IntegrationsService;
 import com.picsou.service.SetupService;
+import com.picsou.telemetry.TelemetryService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -30,6 +41,10 @@ class AdminControllerTest {
     @Mock IntegrationsService integrationsService;
     @Mock EnableBankingConfigProvider ebConfigProvider;
     @Mock EnableBankingKeyPairService keyPairService;
+    @Mock AiConfigProvider aiConfigProvider;
+    @Mock AiCallLogService aiCallLogService;
+    @Mock TelemetryService telemetryService;
+    @Mock InstanceStatusService instanceStatusService;
 
     @InjectMocks AdminController controller;
 
@@ -46,11 +61,16 @@ class AdminControllerTest {
             when(integrationsService.isEffectivelyEnabled(key)).thenReturn("enablebanking".equals(key));
         }
 
+        when(telemetryService.isAvailable()).thenReturn(true);
+        when(telemetryService.consent()).thenReturn(TelemetryService.Consent.ENABLED);
+
         var response = controller.getSettings();
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         var body = response.getBody();
         assertThat(body).isNotNull();
+        assertThat(body.telemetry().available()).isTrue();
+        assertThat(body.telemetry().consent()).isEqualTo("ENABLED");
         assertThat(body.security().allowedOrigins()).containsExactly("https://a.com", "https://b.com");
         assertThat(body.security().secureCookies()).isTrue();
         assertThat(body.enableBanking().applicationId()).isEqualTo("app-id");
@@ -67,6 +87,35 @@ class AdminControllerTest {
 
         assertThat(body).isNotNull();
         assertThat(body.enableBanking().privateKeyPresent()).isFalse();
+    }
+
+    @Test
+    void getSettings_telemetryUnsetAndUnavailable_byDefault() {
+        when(telemetryService.consent()).thenReturn(TelemetryService.Consent.UNSET);
+
+        var body = controller.getSettings().getBody();
+
+        assertThat(body).isNotNull();
+        assertThat(body.telemetry().available()).isFalse();
+        assertThat(body.telemetry().consent()).isEqualTo("UNSET");
+    }
+
+    @Test
+    void updateTelemetry_delegatesToService_andReturns204() {
+        var response = controller.updateTelemetry(new com.picsou.dto.AdminTelemetryRequest(true));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        verify(telemetryService).setEnabled(true);
+    }
+
+    @Test
+    void updateTelemetry_withoutDsn_returns409() {
+        doThrow(new IllegalStateException("Telemetry is not configured on this instance"))
+            .when(telemetryService).setEnabled(true);
+
+        var response = controller.updateTelemetry(new com.picsou.dto.AdminTelemetryRequest(true));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
 
     @Test
@@ -143,5 +192,78 @@ class AdminControllerTest {
         var response = controller.toggleIntegration("enablebanking", false);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         verify(integrationsService).disable("enablebanking");
+    }
+
+    // ─── AI provider endpoints ───────────────────────────────────────────────
+
+    @Test
+    void updateAi_delegatesToSave() {
+        var request = new AdminAiRequest("anthropic", "claude-haiku-4-5", "https://api.anthropic.com", "sk-ant", 4);
+        var response = controller.updateAi(request);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        verify(aiConfigProvider).save("anthropic", "claude-haiku-4-5", "https://api.anthropic.com", "sk-ant", 4);
+    }
+
+    @Test
+    void testAi_returnsProviderResult() {
+        when(aiConfigProvider.test(any(), any(), any(), any()))
+            .thenReturn(new AiTestResponse(true, "Connected."));
+        var response = controller.testAi(new AdminAiRequest("anthropic", "m", "u", null, null));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().ok()).isTrue();
+        assertThat(response.getBody().message()).isEqualTo("Connected.");
+    }
+
+    @Test
+    void getSettings_includesAiBlock() {
+        lenient().when(setupService.readSetting(KEY_CORS_ALLOWED_ORIGINS)).thenReturn(Optional.of(""));
+        lenient().when(setupService.readSetting(KEY_SECURE_COOKIES)).thenReturn(Optional.empty());
+        lenient().when(ebConfigProvider.applicationId()).thenReturn(Optional.empty());
+        lenient().when(ebConfigProvider.redirectUri()).thenReturn(Optional.empty());
+        lenient().when(ebConfigProvider.privateKeyPresent()).thenReturn(false);
+        for (String key : INTEGRATIONS) {
+            lenient().when(integrationsService.isEffectivelyEnabled(key)).thenReturn(false);
+        }
+        when(aiConfigProvider.storedProvider()).thenReturn("anthropic");
+        when(aiConfigProvider.storedModel()).thenReturn("m");
+        when(aiConfigProvider.storedBaseUrl()).thenReturn("u");
+        when(aiConfigProvider.apiKeyPresent()).thenReturn(true);
+        when(aiConfigProvider.maxConcurrency()).thenReturn(6);
+
+        var body = controller.getSettings().getBody();
+
+        assertThat(body).isNotNull();
+        assertThat(body.ai()).isNotNull();
+        assertThat(body.ai().provider()).isEqualTo("anthropic");
+        assertThat(body.ai().model()).isEqualTo("m");
+        assertThat(body.ai().baseUrl()).isEqualTo("u");
+        assertThat(body.ai().apiKeyPresent()).isTrue();
+        assertThat(body.ai().maxConcurrency()).isEqualTo(6);
+    }
+
+    @Test
+    void aiCalls_delegatesToService() {
+        var samplePage = new AiCallLogPage(List.of(), 0, 0);
+        when(aiCallLogService.list(50, 0)).thenReturn(samplePage);
+
+        var result = controller.aiCalls(50, 0);
+
+        assertThat(result).isEqualTo(samplePage);
+        verify(aiCallLogService).list(50, 0);
+    }
+
+    @Test
+    void instanceStatus_returnsServiceResult() {
+        var body = new InstanceStatusResponse(
+            "1.1.0",
+            new ReleaseUpdate("1.2.0", "https://github.com/Cloeille/picsou-finance/releases/tag/1.2.0"),
+            List.of(new SidecarIssue(SidecarIssueCode.SIDECAR_UNREACHABLE, "corum-auth", "sidecar-chromium")));
+        when(instanceStatusService.status()).thenReturn(body);
+
+        var response = controller.instanceStatus();
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(body);
     }
 }

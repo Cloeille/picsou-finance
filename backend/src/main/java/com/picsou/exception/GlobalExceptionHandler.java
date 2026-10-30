@@ -1,8 +1,12 @@
 package com.picsou.exception;
 
+import com.picsou.telemetry.TelemetryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -17,6 +21,21 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    private final TelemetryService telemetry;
+
+    public GlobalExceptionHandler() {
+        this.telemetry = null;
+    }
+
+    @Autowired
+    public GlobalExceptionHandler(ObjectProvider<TelemetryService> telemetryProvider) {
+        this(telemetryProvider.getIfAvailable());
+    }
+
+    GlobalExceptionHandler(TelemetryService telemetry) {
+        this.telemetry = telemetry;
+    }
 
     @ExceptionHandler(ResourceNotFoundException.class)
     ProblemDetail handleNotFound(ResourceNotFoundException ex) {
@@ -66,9 +85,20 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
+    @ExceptionHandler(ImportPreviewCapacityException.class)
+    ProblemDetail handleImportPreviewCapacity(ImportPreviewCapacityException ex) {
+        log.warn("Import preview store has no evictable slot left");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ImportPreviewCapacityException.MESSAGE);
+    }
+
     @ExceptionHandler(MfaException.class)
     ProblemDetail handleMfa(MfaException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    ProblemDetail handleAccessDenied(AccessDeniedException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
     }
 
     @ExceptionHandler(MissingScopeException.class)
@@ -106,6 +136,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail handleGeneric(Exception ex) {
         // Log full exception internally but never expose it to the client
         log.error("Unhandled exception", ex);
+        if (telemetry != null) {
+            telemetry.captureServerError(ex);
+        }
         return ProblemDetail.forStatusAndDetail(
             HttpStatus.INTERNAL_SERVER_ERROR,
             "An unexpected error occurred"

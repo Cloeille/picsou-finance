@@ -4,7 +4,8 @@
 -- back by Enable Banking on the redirect. Lets /sync/complete resolve the
 -- exact requisition the callback belongs to instead of guessing "most recent
 -- CREATED for the current member" (wrong-bank binding, no CSRF protection,
--- broken admin impersonation). Single-use: cleared once the session is linked.
+-- broken admin impersonation). Cleared after a successful code exchange; kept
+-- on exchange failure so a transient callback error can be retried.
 
 ALTER TABLE requisition ADD COLUMN oauth_state VARCHAR(64);
 

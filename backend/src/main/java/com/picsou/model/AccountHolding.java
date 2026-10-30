@@ -5,6 +5,7 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "account_holding")
@@ -45,6 +46,10 @@ public class AccountHolding extends AuditableEntity {
     /** Last complete broker-provided position valuation in EUR. */
     @Column(name = "provider_value_eur", precision = 20, scale = 8)
     private BigDecimal providerValueEur;
+
+    /** Bank valuation date for providerValueEur; distinct from when the account was synced. */
+    @Column(name = "provider_price_date")
+    private LocalDate providerPriceDate;
 
     /** Last complete broker-provided unrealized P&amp;L in EUR. */
     @Column(name = "provider_pnl_eur", precision = 20, scale = 8)

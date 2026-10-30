@@ -440,4 +440,134 @@ class YahooFinancePriceProviderTest {
         assertThat(providerWith(url -> null, calls).searchSymbols("  ")).isEmpty();
         assertThat(calls.get()).isZero();
     }
+
+    @Test
+    void fetchDividendHistory_readsTheDateFieldAsTheExDate_andDoesNotConvertTheAmount() {
+        List<String> urls = new ArrayList<>();
+        ExchangeFunction exchange = request -> {
+            urls.add(request.url().toString());
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("""
+                    {"chart":{"result":[{"meta":{"regularMarketPrice":60.0,"currency":"EUR"},
+                      "events":{"dividends":{"1788213600":{"amount":0.9,"date":1790751600}}}}]}}
+                    """)
+                .build());
+        };
+        var provider = new YahooFinancePriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+
+        var history = provider.fetchDividendHistory("TTE.PA");
+
+        assertThat(urls).singleElement().asString()
+            .contains("range=2y")
+            .contains("interval=1mo")
+            .contains("events=div")
+            .contains("TTE.PA");
+        assertThat(history.currency()).isEqualTo("EUR");
+        assertThat(history.events()).singleElement().satisfies(point -> {
+            assertThat(point.amount()).isEqualByComparingTo("0.9");
+            assertThat(point.exDate()).isEqualTo(
+                java.time.Instant.ofEpochSecond(1790751600L).atZone(java.time.ZoneOffset.UTC).toLocalDate());
+        });
+    }
+
+    @Test
+    void fetchDividendHistory_skipsAnEventMissingItsAmountOrDate() {
+        // A missing field must not default to 0: that stored a zero-amount event on 1970-01-01.
+        var provider = providerWith(url -> """
+            {"chart":{"result":[{"meta":{"currency":"EUR","regularMarketPrice":1},
+              "events":{"dividends":{
+                "1":{"date":1790751600},
+                "2":{"amount":0.9},
+                "3":{"amount":0,"date":1790751600},
+                "4":{"amount":0.5,"date":0},
+                "5":{"amount":0.5,"date":1790751600}}}}]}}
+            """, null);
+
+        var history = provider.fetchDividendHistory("TTE.PA");
+
+        assertThat(history.events()).singleElement().satisfies(point ->
+            assertThat(point.amount()).isEqualByComparingTo("0.5"));
+    }
+
+    @Test
+    void fetchDividendHistory_returnsEmpty_whenYahooPublishesNoDividends() {
+        var provider = providerWith(url -> """
+            {"chart":{"result":[{"meta":{"currency":"EUR","regularMarketPrice":1},"events":{"dividends":{}}}]}}
+            """, null);
+
+        var history = provider.fetchDividendHistory("TTE.PA");
+
+        assertThat(history.currency()).isEqualTo("EUR");
+        assertThat(history.events()).isEmpty();
+    }
+
+    @Test
+    void fetchDividendHistory_armsCooldownAndRethrows_on429() {
+        java.time.Clock clock = java.time.Clock.fixed(
+            java.time.Instant.parse("2026-10-20T08:00:00Z"), java.time.ZoneOffset.UTC);
+        YahooCooldown cooldown = new YahooCooldown(clock);
+        ExchangeFunction exchange = request -> Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS)
+            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+            .header("Retry-After", "120")
+            .body("{}")
+            .build());
+        var provider = new YahooFinancePriceProvider(
+            WebClient.builder().exchangeFunction(exchange).build(), cooldown);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> provider.fetchDividendHistory("TTE.PA"))
+            .isInstanceOf(RuntimeException.class);
+        assertThat(cooldown.active()).isTrue();
+        assertThat(cooldown.until()).isEqualTo(java.time.Instant.parse("2026-10-20T08:02:00Z"));
+    }
+
+    @Test
+    void fetchDividendHistory_skipsAZeroAmountAndAMissingDate() {
+    ExchangeFunction exchange = request -> Mono.just(ClientResponse.create(HttpStatus.OK)
+        .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+        .body("""
+            {"chart":{"result":[{"meta":{"currency":"EUR"},"events":{"dividends":{
+              "0":{"amount":0,"date":0},
+              "1":{"amount":-1,"date":1790751600},
+              "2":{"date":1790751600}
+            }}}]}}
+            """)
+        .build());
+    var provider = new YahooFinancePriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+
+    var history = provider.fetchDividendHistory("TTE.PA");
+
+    assertThat(history.events()).isEmpty();
+    }
+
+    @Test
+    void fetchDividendHistory_keepsOnlyTheMostRecentTwoHundredEvents() {
+    long oldest = 1_600_000_000L;
+        StringBuilder dividends = new StringBuilder();
+        for (int i = 0; i < 201; i++) {
+            if (i > 0) {
+                dividends.append(',');
+            }
+            long epoch = oldest + i * 86_400L;
+            dividends.append('"').append(epoch).append("\":{\"amount\":0.1,\"date\":").append(epoch).append('}');
+        }
+        String body = "{\"chart\":{\"result\":[{\"meta\":{\"currency\":\"EUR\"},\"events\":{\"dividends\":{"
+            + dividends + "}}}]}}";
+        ExchangeFunction exchange = request -> Mono.just(ClientResponse.create(HttpStatus.OK)
+            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+            .body(body)
+            .build());
+        var provider = new YahooFinancePriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+
+        var history = provider.fetchDividendHistory("TTE.PA");
+
+        java.time.LocalDate dropped = java.time.Instant.ofEpochSecond(oldest)
+            .atZone(java.time.ZoneOffset.UTC).toLocalDate();
+        java.time.LocalDate kept = java.time.Instant.ofEpochSecond(oldest + 200 * 86_400L)
+            .atZone(java.time.ZoneOffset.UTC).toLocalDate();
+        assertThat(history.events()).hasSize(200);
+        assertThat(history.events()).extracting(com.picsou.port.DividendHistory.Point::exDate)
+            .doesNotContain(dropped)
+            .contains(kept);
+    }
 }

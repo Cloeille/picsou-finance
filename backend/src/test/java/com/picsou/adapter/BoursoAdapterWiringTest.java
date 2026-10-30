@@ -13,7 +13,8 @@ class BoursoAdapterWiringTest {
         .withPropertyValues("app.bourso-auth.url=http://bourso-auth:8001",
             "app.sidecar.api-key=test-key")
         .withBean(ObjectMapper.class)
-        .withBean(SidecarWebClientFactory.class)
+        .withBean(com.picsou.adapter.sidecar.SidecarWebClientFactory.class,
+            () -> new com.picsou.adapter.sidecar.SidecarWebClientFactory("test-key"))
         .withBean(BoursoAdapter.class);
 
     @Test

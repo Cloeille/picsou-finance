@@ -176,6 +176,25 @@ public class LoanAmortizationService {
     }
 
     /**
+     * Returns the stored monthly payment or derives it from the standard
+     * amortization formula. Does NOT run the full schedule computation.
+     */
+    public BigDecimal resolveMonthlyPayment(Debt debt) {
+        if (debt.getMonthlyPayment() != null) {
+            return debt.getMonthlyPayment().setScale(2, RoundingMode.HALF_UP);
+        }
+        // Cannot compute without valid dates — treat as unconfigured
+        if (debt.getStartDate() == null || debt.getEndDate() == null
+                || !debt.getEndDate().isAfter(debt.getStartDate())) {
+            return null;
+        }
+        BigDecimal principal = nz(debt.getBorrowedAmount());
+        BigDecimal monthlyRate = nz(debt.getInterestRate()).divide(TWELVE, MC);
+        int n = computeTotalInstallments(debt.getStartDate(), debt.getEndDate());
+        return computeMonthlyPayment(principal, monthlyRate, n).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
      * Capital restant dû à la date donnée. Used by AccountService.liveBalanceEur for LOAN accounts.
      * Returns a positive value; the caller is expected to negate for net-worth purposes.
      */

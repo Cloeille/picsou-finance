@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Included by logback-spring.xml only when LOG_FILE is set. -->
+<included>
+    <include resource="org/springframework/boot/logging/logback/file-appender.xml"/>
+
+    <root>
+        <appender-ref ref="FILE"/>
+    </root>
+</included>

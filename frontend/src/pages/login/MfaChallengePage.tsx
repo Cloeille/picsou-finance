@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useVerifyMfa } from '@/features/mfa/hooks'
-import { safeRedirect } from '@/lib/utils'
+import { safeRedirect, isOAuthAuthorizeRedirect } from '@/lib/utils'
 import { formatApiError, getErrorStatus } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,7 +37,10 @@ export function MfaChallengePage() {
     setError(null)
     try {
       await verify.mutateAsync({ code, isRecoveryCode, trustDevice })
-      navigate(redirect, { replace: true })
+      // A /oauth2/ target (native app login) is server-handled — full-navigate to resume the
+      // OAuth flow; any other target is an in-app SPA route.
+      if (isOAuthAuthorizeRedirect(redirect)) window.location.assign(redirect)
+      else navigate(redirect, { replace: true })
     } catch (err: unknown) {
       const status = getErrorStatus(err)
       const ax = err as { response?: unknown; message?: string }

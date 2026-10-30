@@ -5,6 +5,7 @@ import com.picsou.validation.ValidCurrency;
 import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 public record AccountRequest(
     @NotBlank @Size(max = 100) String name,
@@ -25,5 +26,10 @@ public record AccountRequest(
     // up server-side, which is the only way a manual account gets one. An opaque id rather than
     // the logo URL itself, because nothing between a client-supplied URL and the Accounts page
     // <img src> would validate its scheme or host. Null falls back to matching on `provider`.
-    @Size(max = 200) String institutionId
+    @Size(max = 200) String institutionId,
+    // When the wrapper was opened, for the types whose tax treatment turns on its age (a PEA's
+    // fifth anniversary, an assurance-vie's eighth). Optional, and null means "leave it alone"
+    // rather than "clear it" -- the MCP tools have no such parameter and would otherwise erase
+    // the date on any unrelated update. See AccountService.update.
+    @PastOrPresent LocalDate openedAt
 ) {}

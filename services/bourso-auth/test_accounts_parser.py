@@ -17,6 +17,7 @@ from accounts_parser import (
     AccountsFormatError,
     _SAVINGS_PATTERNS,
     account_type,
+    choose_personal_identity,
     guard_symbol_collisions,
     describe_payload,
     is_own_account,
@@ -24,6 +25,7 @@ from accounts_parser import (
     parse_amount,
     parse_dashboard,
     parse_trading_summary,
+    text_value,
 )
 from fixtures import DASHBOARD_HTML
 
@@ -201,6 +203,23 @@ class DashboardTest(unittest.TestCase):
         )
         self.assertEqual(accounts[0]["balanceEur"], Decimal("20810.50"))
         self.assertEqual(accounts[2]["balanceEur"], Decimal("143088.89"))
+        self.assertEqual(
+            accounts[0]["href"],
+            "/compte/cav/e2f509c466f5294f15abd873dbbf8a62/",
+        )
+
+    def test_account_names_are_stored_with_their_entities_decoded(self):
+        # BoursoBank escapes apostrophes and ampersands in the card markup; the
+        # raw entity used to end up in account.name and on every screen.
+        escaped = DASHBOARD_HTML.replace(
+            "LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE\n",
+            "LIVRET D&#039;EPARGNE &amp; CO\n",
+        )
+        accounts, _ = parse_dashboard(escaped)
+        self.assertEqual(accounts[1]["name"], "LIVRET D'EPARGNE & CO")
+
+    def test_an_entity_escaping_a_tag_is_decoded_only_once(self):
+        self.assertEqual(text_value("A &amp;lt;b&amp;gt; <i>x</i>", 200), "A &lt;b&gt; x")
 
     def test_the_loan_is_excluded_without_failing_the_completeness_check(self):
         accounts, _ = parse_dashboard(DASHBOARD_HTML)
@@ -612,6 +631,133 @@ class ToleranceTest(unittest.TestCase):
     def test_relative_tolerance_scales_with_the_amount(self):
         self.assertTrue(money_close(Decimal("100050"), Decimal("100000")))
         self.assertFalse(money_close(Decimal("100200"), Decimal("100000")))
+
+
+PERSONAL_TOKEN = "c3ludGhldGljLXBlcnNvbmFs.v1"
+BUSINESS_TOKEN = "c3ludGhldGljLWJ1c2luZXNz.v1"
+
+
+def identity_card(token, name, kind=""):
+    return (
+        f'<a class="c-identity" href="/connexion/changer-identite/{token}">'
+        f'<span class="c-identity__name">{name}</span>'
+        f'<span class="c-identity__type">{kind}</span></a>'
+    )
+
+
+def identity_selector_html(*cards):
+    """Synthetic: modelled on the #153 description, not captured from BoursoBank."""
+    return (
+        "<html><body><h1>Choisissez votre espace</h1><ul>"
+        + "".join(f"<li>{card}</li>" for card in cards)
+        + '</ul><a href="/se-deconnecter">Se déconnecter</a></body></html>'
+    )
+
+
+PERSONAL_AND_BUSINESS = identity_selector_html(
+    identity_card(PERSONAL_TOKEN, "Camille Exemple"),
+    identity_card(BUSINESS_TOKEN, "Camille Exemple", "Entrepreneur individuel"),
+)
+
+
+class IdentitySelectorTest(unittest.TestCase):
+    def assert_refused(self, html, code):
+        with self.assertRaises(AccountsFormatError) as raised:
+            choose_personal_identity(html)
+        self.assertEqual(raised.exception.code, code)
+        self.assertNotIn(PERSONAL_TOKEN, str(raised.exception))
+        self.assertNotIn(BUSINESS_TOKEN, str(raised.exception))
+
+    def test_picks_the_only_identity_without_a_business_marker(self):
+        self.assertEqual(
+            choose_personal_identity(PERSONAL_AND_BUSINESS),
+            f"/connexion/changer-identite/{PERSONAL_TOKEN}",
+        )
+
+    def test_recognises_business_identities_however_they_are_labelled(self):
+        for kind in ("EI", "Espace Pro", "Professionnel", "SASU", "Auto-entrepreneur", "Société"):
+            with self.subTest(kind=kind):
+                html = identity_selector_html(
+                    identity_card(BUSINESS_TOKEN, "Camille Exemple", kind),
+                    identity_card(PERSONAL_TOKEN, "Camille Exemple"),
+                )
+                self.assertTrue(choose_personal_identity(html).endswith(PERSONAL_TOKEN))
+
+    def test_recognises_inflected_business_markers(self):
+        kinds = (
+            "Professionnelle", "Professionnels", "Professionnelles", "Entreprises",
+            "Entrepreneurs", "Entrepreneuse", "Société", "Sociétés", "Association",
+            "Associations", "Artisane", "Artisans", "Commerçante", "Commerçants",
+            "Indépendante", "Indépendants", "Libérale", "Libéraux", "Profession libérale",
+            "Micro-entrepreneur", "E.I.", "EIRL",
+        )
+        for kind in kinds:
+            with self.subTest(kind=kind):
+                html = identity_selector_html(
+                    identity_card(BUSINESS_TOKEN, "Camille Exemple", kind),
+                    identity_card(PERSONAL_TOKEN, "Camille Exemple"),
+                )
+                self.assertTrue(choose_personal_identity(html).endswith(PERSONAL_TOKEN))
+
+    def test_a_marker_inside_a_personal_name_does_not_mark_it_business(self):
+        for name in ("Dominique Liberali", "Camille Partisan", "Sasha Prost", "Eli Societano"):
+            with self.subTest(name=name):
+                self.assert_refused(
+                    identity_selector_html(
+                        identity_card(PERSONAL_TOKEN, name),
+                        identity_card(BUSINESS_TOKEN, "Atelier Bois Flotté"),
+                    ),
+                    "IDENTITY_SELECTION_UNSUPPORTED",
+                )
+
+    def test_an_absolute_link_and_a_repeated_link_count_as_one_identity(self):
+        html = identity_selector_html(
+            identity_card(PERSONAL_TOKEN, "Camille Exemple"),
+            f'<a href="https://clients.boursobank.com/connexion/changer-identite/{PERSONAL_TOKEN}">'
+            "Accéder</a>",
+            identity_card(BUSINESS_TOKEN, "Camille Exemple", "EI"),
+        )
+        self.assertTrue(choose_personal_identity(html).endswith(PERSONAL_TOKEN))
+
+    def test_a_business_only_selector_is_refused(self):
+        self.assert_refused(
+            identity_selector_html(identity_card(BUSINESS_TOKEN, "Exemple SARL")),
+            "IDENTITY_SELECTION_UNSUPPORTED",
+        )
+
+    def test_two_unmarked_identities_are_ambiguous(self):
+        self.assert_refused(
+            identity_selector_html(
+                identity_card(PERSONAL_TOKEN, "Camille Exemple"),
+                identity_card(BUSINESS_TOKEN, "Atelier Exemple"),
+            ),
+            "IDENTITY_SELECTION_UNSUPPORTED",
+        )
+
+    def test_a_lone_unmarked_identity_is_not_assumed_personal(self):
+        # Nothing on the page says what it is, so nothing says it is not a
+        # business whose label merely lacks a known marker.
+        self.assert_refused(
+            identity_selector_html(identity_card(PERSONAL_TOKEN, "Camille Exemple")),
+            "IDENTITY_SELECTION_UNSUPPORTED",
+        )
+
+    def test_a_switch_link_outside_an_anchor_fails_rather_than_shrinking_the_choice(self):
+        html = PERSONAL_AND_BUSINESS.replace(
+            "</ul>",
+            '<li data-href="/connexion/changer-identite/c3ludGhldGljLXRoaXJk">Atelier</li></ul>',
+        )
+        self.assert_refused(html, FORMAT_CHANGED)
+
+    def test_a_page_without_switch_links_is_a_format_change(self):
+        self.assert_refused("<html><body>Choisissez votre espace</body></html>", FORMAT_CHANGED)
+
+    def test_a_link_that_could_leave_the_switch_path_is_refused(self):
+        html = identity_selector_html(
+            identity_card("../../virement", "Camille Exemple"),
+            identity_card(BUSINESS_TOKEN, "Camille Exemple", "EI"),
+        )
+        self.assert_refused(html, FORMAT_CHANGED)
 
 
 if __name__ == "__main__":

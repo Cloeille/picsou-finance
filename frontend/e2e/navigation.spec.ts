@@ -18,8 +18,8 @@ test.describe('Sidebar navigation', () => {
     await expect(page.getByText('Objectifs', { exact: true })).toBeVisible()
   })
 
-  // Sync is no longer a sidebar entry (reached from the dashboard
-  // "Synchroniser" button or by URL) — check the direct route instead.
+  // Sync is not a sidebar nav item (it lives in the profile menu, covered by
+  // AppSidebar.test.tsx) — check the direct route instead.
   test('should reach Synchronisation via its route', async ({ page }) => {
     await page.goto('/sync')
     await page.waitForURL('**/sync')

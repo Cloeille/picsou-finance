@@ -158,6 +158,23 @@ describe('BoursoTab', () => {
     ).toBeInTheDocument()
   })
 
+  it('explains an unresolved identity selector instead of a format change', async () => {
+    apiGet.mockResolvedValue({
+      data: {
+        ...DISCONNECTED,
+        isActive: true,
+        syncStatus: 'FAILED',
+        lastSyncError: 'IDENTITY_SELECTION_UNSUPPORTED',
+      },
+    })
+
+    renderTab()
+
+    expect(
+      await screen.findByText('sync.bourso.errors.identitySelectionUnsupported'),
+    ).toBeInTheDocument()
+  })
+
   it('offers sync and disconnect once a session is active', async () => {
     apiGet.mockResolvedValue({ data: { ...DISCONNECTED, isActive: true } })
     apiDelete.mockResolvedValue({ data: null })

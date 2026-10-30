@@ -15,10 +15,14 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.TransactionRepository;
+import com.picsou.service.budget.CategorizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+
+import java.util.Map;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -53,8 +57,11 @@ class BoursoSyncServiceTest {
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
     @Mock FamilyMemberRepository memberRepository;
+    @Mock TransactionRepository transactionRepository;
+    @Mock CategorizationService categorizationService;
     @Mock AccountService accountService;
     @Mock OpenFigiIsinConverter isinConverter;
+    @Mock SecurityIdentityService identityService;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
@@ -67,6 +74,27 @@ class BoursoSyncServiceTest {
     void setUp() {
         executeTransactionsImmediately();
         service = serviceWith(Runnable::run);
+    }
+
+    @Test
+    void clearSessionReportsTheSessionItDeleted() {
+        BoursoSession session = activeSession(member());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+
+        assertThat(service.clearSession(7L)).isTrue();
+        verify(sessionRepository).delete(session);
+    }
+
+    /** A 2FA login still in flight never became a connection, so dropping it removes nothing. */
+    @Test
+    void clearSessionReportsNothingWhenOnlyAPendingLoginExists() {
+        when(port.initiateAuth("12345678", "123456"))
+            .thenReturn(new BoursoPort.InitiateResult("p1", true, "APP_PUSH", null));
+        service.initiateAuth("12345678", "123456", 7L);
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+
+        assertThat(service.clearSession(7L)).isFalse();
+        verify(sessionRepository, never()).delete(any());
     }
 
     @Test
@@ -88,6 +116,89 @@ class BoursoSyncServiceTest {
         });
         assertThat(saved.getFirst().getExternalAccountId()).isEqualTo(CHECKING_ID);
         assertThat(saved.getFirst().getCurrentBalance()).isEqualByComparingTo("20810.50");
+    }
+
+    @Test
+    void queueSync_reusesLegacyBoursoAccountByIbanWithoutNameOrTypeHeuristics() {
+        String iban = "FR7630006000011234567890189";
+        BoursoPort.AccountData refreshed = new BoursoPort.AccountData(CHECKING_ID, "New label",
+            AccountType.CHECKING, new BigDecimal("20810.50"), null, List.of(), true, iban, List.of());
+        arrangeCommittableSync(refreshed);
+        Account legacyBourso = Account.builder().id(88L).member(member()).name("Old label")
+            .type(AccountType.CHECKING).provider("BoursoBank").iban(iban).externalAccountId("old-bourso-id")
+            .isManual(false).build();
+        when(accountRepository.findFirstByIbanAndMemberIdAndProviderIn(
+            iban, 7L, List.of("BoursoBank", "Boursorama", "Boursorama Banque")))
+            .thenReturn(Optional.of(legacyBourso));
+
+        service.queueSync(7L);
+
+        verify(accountRepository).findFirstByIbanAndMemberIdAndProviderIn(
+            iban, 7L, List.of("BoursoBank", "Boursorama", "Boursorama Banque"));
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getId()).isEqualTo(88L);
+        assertThat(accountCaptor.getValue().getExternalAccountId()).isEqualTo(CHECKING_ID);
+        assertThat(accountCaptor.getValue().getProvider()).isEqualTo("BoursoBank");
+    }
+
+    @Test
+    void queueSync_reusesAnEnableBankingBoursoramaAccountByVerifiedIban() {
+        String iban = "FR7630006000011234567890189";
+        BoursoPort.AccountData refreshed = new BoursoPort.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
+            new BigDecimal("20810.50"), null, List.of(), true, iban, List.of());
+        arrangeCommittableSync(refreshed);
+        Account enableBanking = Account.builder().id(88L).member(member()).name("Boursorama Banque")
+            .type(AccountType.CHECKING).provider("Boursorama Banque").iban(iban)
+            .externalAccountId("eb-account-id").isManual(false).build();
+        List<String> providerFamily = List.of("BoursoBank", "Boursorama", "Boursorama Banque");
+        when(accountRepository.findFirstByIbanAndMemberIdAndProviderIn(iban, 7L, providerFamily))
+            .thenReturn(Optional.of(enableBanking));
+
+        service.queueSync(7L);
+
+        verify(accountRepository).findFirstByIbanAndMemberIdAndProviderIn(iban, 7L, providerFamily);
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getId()).isEqualTo(88L);
+        assertThat(accountCaptor.getValue().getExternalAccountId()).isEqualTo(CHECKING_ID);
+        assertThat(accountCaptor.getValue().getProvider()).isEqualTo("BoursoBank");
+    }
+
+    @Test
+    void queueSync_doesNotMatchBoursoramaAliasByInvalidIban() {
+        String invalidIban = "FR7630006000011234567890188";
+        BoursoPort.AccountData refreshed = new BoursoPort.AccountData(CHECKING_ID, "BoursoBank",
+            AccountType.CHECKING, new BigDecimal("20810.50"), null, List.of(), true, invalidIban, List.of());
+        arrangeCommittableSync(refreshed);
+
+        service.queueSync(7L);
+
+        verify(accountRepository, never()).findFirstByIbanAndMemberIdAndProviderIn(
+            any(), eq(7L), any());
+        verify(accountRepository, never()).existsSoftDeletedByIbanAndMemberIdAndProviderIn(
+            any(), eq(7L), any());
+    }
+
+    @Test
+    void queueSync_doesNotResurrectASoftDeletedBoursoramaAliasByIban() {
+        String iban = "FR7630006000011234567890189";
+        BoursoPort.AccountData deleted = new BoursoPort.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
+            new BigDecimal("20810.50"), null, List.of(), true, iban, List.of());
+        FamilyMember familyMember = member();
+        arrangeQueuedSession(activeSession(familyMember));
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(deleted));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(familyMember));
+        when(categorizationService.loadContext(7L)).thenReturn(
+            new CategorizationService.CategorizationContext(List.of(), Map.of()));
+        when(accountRepository.findByExternalAccountIdAndMemberId(CHECKING_ID, 7L)).thenReturn(Optional.empty());
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(CHECKING_ID, 7L)).thenReturn(false);
+        List<String> providerFamily = List.of("BoursoBank", "Boursorama", "Boursorama Banque");
+        when(accountRepository.existsSoftDeletedByIbanAndMemberIdAndProviderIn(iban, 7L, providerFamily))
+            .thenReturn(true);
+
+        service.queueSync(7L);
+
+        verify(accountRepository).existsSoftDeletedByIbanAndMemberIdAndProviderIn(iban, 7L, providerFamily);
+        verify(accountRepository, never()).save(any());
     }
 
     /**
@@ -123,6 +234,22 @@ class BoursoSyncServiceTest {
         assertThat(holding.getQuoteCurrency()).isEqualTo("EUR");
         assertThat(holding.getProviderValueEur()).isEqualByComparingTo("140000.00");
         assertThat(holding.getProviderPnlEur()).isEqualByComparingTo("12000.00");
+    }
+
+    @Test
+    void queueSync_remembersWhichIsinTheTickerCameFrom() {
+        arrangeCommittableSync(peaAccount());
+        when(isinConverter.resolve("IE00B4L5Y983"))
+            .thenReturn(new OpenFigiIsinConverter.TickerResult("IWDA.AS", "iShares Core MSCI World"));
+
+        service.queueSync(7L);
+
+        // The ISIN is what Boursorama's search actually resolves for a composition, and the only
+        // key a fund-facts lookup has. Converting it to a ticker and dropping it is what left the
+        // ETF look-through unable to find the funds it was asked about.
+        ArgumentCaptor<Map<String, String>> isins = ArgumentCaptor.captor();
+        verify(identityService).record(isins.capture());
+        assertThat(isins.getValue()).containsEntry("IWDA.AS", "IE00B4L5Y983");
     }
 
     /**
@@ -394,6 +521,83 @@ class BoursoSyncServiceTest {
     }
 
     @Test
+    void expiredSessionRelogsOncePersistsFreshStateAndRetriesAccounts() {
+        BoursoSession session = activeSession(member());
+        session.setEncryptedCredentials("credentials-encrypted");
+        arrangeQueuedSession(session);
+        when(encryption.decrypt("credentials-encrypted"))
+            .thenReturn("{\"customerId\":\"12345678\",\"password\":\"123456\"}");
+        when(encryption.encrypt(anyString())).thenReturn("state-encrypted");
+        when(port.fetchAccounts("plain-state")).thenThrow(
+            new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
+        when(port.initiateAuth("12345678", "123456"))
+            .thenReturn(new BoursoPort.InitiateResult(null, false, null, "fresh-state"));
+        when(port.fetchAccounts("fresh-state")).thenReturn(List.of(checkingAccount()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSessionState()).isEqualTo("state-encrypted");
+        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.SUCCESS);
+        verify(port).initiateAuth("12345678", "123456");
+        verify(port, org.mockito.Mockito.times(2)).fetchAccounts(anyString());
+    }
+
+    @Test
+    void expiredSessionWithoutCredentialsDoesNotAttemptRelogin() {
+        BoursoSession session = activeSession(member());
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenThrow(
+            new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.SESSION_EXPIRED);
+        verify(port, never()).initiateAuth(anyString(), anyString());
+    }
+
+    @Test
+    void expiredSessionWithMfaFailsWithoutRepeatedLogin() {
+        BoursoSession session = activeSession(member());
+        session.setEncryptedCredentials("credentials-encrypted");
+        arrangeQueuedSession(session);
+        when(encryption.decrypt("credentials-encrypted"))
+            .thenReturn("{\"customerId\":\"12345678\",\"password\":\"123456\"}");
+        when(port.fetchAccounts("plain-state")).thenThrow(
+            new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
+        when(port.initiateAuth("12345678", "123456"))
+            .thenReturn(new BoursoPort.InitiateResult("process", true, "APP_PUSH", null));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.SESSION_EXPIRED);
+        verify(port).initiateAuth("12345678", "123456");
+    }
+
+    @Test
+    void expiredSessionWithInvalidCredentialsClearsSavedCredentials() {
+        BoursoSession session = activeSession(member());
+        session.setEncryptedCredentials("credentials-encrypted");
+        arrangeQueuedSession(session);
+        when(encryption.decrypt("credentials-encrypted"))
+            .thenReturn("{\"customerId\":\"12345678\",\"password\":\"123456\"}");
+        when(port.fetchAccounts("plain-state")).thenThrow(
+            new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
+        when(port.initiateAuth("12345678", "123456")).thenThrow(
+            new SyncException("bad credentials", null, BoursoErrorCode.INVALID_CREDENTIALS.name()));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_CREDENTIALS);
+        assertThat(session.getEncryptedCredentials()).isNull();
+    }
+
+    @Test
     void initiateAuth_storesNothingWhileTheAppPushIsStillPending() {
         when(port.initiateAuth("12345678", "123456"))
             .thenReturn(new BoursoPort.InitiateResult("p1", true, "APP_PUSH", null));
@@ -403,6 +607,29 @@ class BoursoSyncServiceTest {
         assertThat(result.mfaRequired()).isTrue();
         assertThat(result.mfaType()).isEqualTo("APP_PUSH");
         verify(sessionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void completeAuthStoresCredentialsOnlyAfterSuccessfulPush() {
+        when(port.initiateAuth("12345678", "123456"))
+            .thenReturn(new BoursoPort.InitiateResult("p2", true, "APP_PUSH", null));
+        when(port.completeAuth("p2")).thenReturn("cookies");
+        FamilyMember member = member();
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        lenient().when(encryption.encrypt("cookies")).thenReturn("encrypted-state");
+        when(encryption.encrypt(anyString())).thenReturn("encrypted-credentials");
+        when(sessionRepository.saveAndFlush(any(BoursoSession.class))).thenAnswer(invocation -> {
+            BoursoSession stored = invocation.getArgument(0);
+            assertThat(stored.getEncryptedCredentials()).isEqualTo("encrypted-credentials");
+            return stored;
+        });
+        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(port.fetchAccounts("cookies")).thenThrow(new SyncException("transient", null, BoursoErrorCode.UPSTREAM_UNAVAILABLE.name()));
+
+        service.initiateAuth("12345678", "123456", 7L);
+        service.completeAuth("p2", 7L);
+
+        verify(port).completeAuth("p2");
     }
 
     @Test
@@ -444,6 +671,8 @@ class BoursoSyncServiceTest {
         arrangeQueuedSession(activeSession(member));
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(accounts));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        when(categorizationService.loadContext(7L)).thenReturn(
+            new CategorizationService.CategorizationContext(List.of(), java.util.Map.of()));
         when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(7L)))
             .thenReturn(Optional.empty());
         when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> {
@@ -473,7 +702,10 @@ class BoursoSyncServiceTest {
             holdingRepository,
             memberRepository,
             accountService,
+            categorizationService,
+            new SharedSidecarTransactionImportService(transactionRepository, categorizationService),
             isinConverter,
+            identityService,
             encryption,
             txTemplate,
             executor

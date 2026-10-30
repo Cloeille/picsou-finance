@@ -5,6 +5,7 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import org.springframework.web.reactive.function.client.WebClient;
 import com.picsou.port.TradeRepublicPort.TrTokens;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
