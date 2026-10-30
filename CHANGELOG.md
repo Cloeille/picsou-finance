@@ -209,6 +209,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Sidebar style prompt shows what each style looks like.** The two miniatures in the
+  first-launch "choose your sidebar style" window now match the real sidebars: logo on the left
+  beside the privacy toggle, two-line nav items, a full-height column with the member row and
+  settings gear at the bottom for the current style, and a shorter card ending on the member row,
+  with Settings among the items, for the classic one. The classic sidebar also stopped cutting
+  long nav subtitles ("Répartition & diversification"); they now wrap to a second line.
+
 - **Account edit and delete buttons on touch screens.** On the Accounts page these buttons
   only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
   the card's corner could still hit delete). They now stay visible on touch screens and when
