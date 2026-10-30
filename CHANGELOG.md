@@ -298,6 +298,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with Flyway off, newer migrations such as V103 never run and the application refuses to start.
   See the upgrade note in `docs/features/docker-deployment.md`.
   ([#174](https://github.com/Cloeille/picsou-finance/issues/174))
+- **A 1.0.11–1.0.18 database upgrades to 1.1.0 instead of failing with 13 checksum mismatches.**
+  The 1.1.0 merge moved migrations that the 1.0.x line had already applied: V38 became V94,
+  V54–V63 became V56–V65 and V64 became V96, and V51 and the old V55–V58 also had comments
+  edited. Before Flyway validates, those rows are moved to their new versions and given the new
+  file's checksum. Each row must match the 1.0.x version, description and checksum exactly. The
+  1.1.0 migrations that never ran on such a database (budget, OAuth2, hidden accounts, and others)
+  then run out of order. Instances held on 1.0.18 can upgrade directly.
+  ([#265](https://github.com/Cloeille/picsou-finance/issues/265))
 
 ### Security
 

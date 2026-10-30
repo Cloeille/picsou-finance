@@ -349,11 +349,27 @@ version is not in the history yet. On a fresh or already repaired database it do
 moves rows it logs them once at INFO:
 
 ```
-Renumbered 2 legacy Flyway schema-history row(s) (issue #174): V80 'backfill tr crypto transaction tickers' -> V94, V81 'backfill trade republic valuations' -> V96
+Renumbered 2 legacy Flyway schema-history row(s) (issues #174, #265): V80 'backfill tr crypto transaction tickers' -> V94, V81 'backfill trade republic valuations' -> V96
 ```
 
 Flyway then applies the migrations the database has not run yet (out-of-order is enabled), without
 re-running V93–V99.
+
+### Upgrading a 1.0.11–1.0.18 install to 1.1.0
+
+The 1.1.0 merge also moved migrations that the 1.0.x line had already applied
+([#265](https://github.com/Cloeille/picsou-finance/issues/265)). Old V38 became V94, V54–V63
+became V56–V65, and V64 became V96. V51 and the old V55–V58 also had only their comments edited,
+so their checksum changed. The 1.1.0 files now at V38, V54, V55 and other freed versions
+(`budget_categorization_foundation`, `oauth2_authorization_server`, `account_hidden`, …) never ran on
+such a database.
+
+The same callback handles this line. It moves each row, from the highest version down so every
+move frees the version the next one takes, and gives the five comment-edited rows the new file's
+checksum. Each row must match the 1.0.x version, description and checksum exactly. Flyway then runs
+the 1.1.0-only migrations out of order. Do not run `flyway repair` instead: it would mark those
+1.1.0 migrations as applied although they never ran. Only databases from 1.0.11 on are affected.
+1.0.10 and earlier carry the current numbering.
 
 **If you disabled Flyway as a workaround:**
 
@@ -442,7 +458,8 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - Build validation: `docker build -f docker/Dockerfile .`.
 - Backend unit tests run separately via `./mvnw test` (not in Docker build — skipped with `-DskipTests`).
 - `LegacyMigrationRenumberingTest` (Testcontainers) upgrades databases built under the old V80–V88
-  numbering and a fresh database to head, and checks that a second start changes nothing.
+  numbering, a 1.0.18 database, and a fresh database to head, and checks that a second start
+  changes nothing.
 
 ## Links
 

@@ -21,6 +21,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntPredicate;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,6 +33,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>The old numbering never existed as one tree that Flyway could run (V80 had three files), so
  * each legacy line is the set a deployed instance actually ran: V1-V79 plus that line's files.
+ *
+ * <p>Issue #265: the 1.1.0 merge did the same to files the 1.0.x line had applied (V38, V51,
+ * V54-V64). That line is rebuilt as release 1.0.18 shipped it.
  */
 @Testcontainers
 @EnabledIf("dockerAvailable")
@@ -72,6 +76,25 @@ class LegacyMigrationRenumberingTest {
     private static final Map<String, String> FORTUNEO_LINE = Map.of(
         "V93__fortuneo_session.sql", "V80__fortuneo_session.sql",
         "V95__fortuneo_integration.sql", "V81__fortuneo_integration.sql");
+
+    /**
+     * Release 1.0.18 (#265): the 1.0.x line before the 1.1.0 merge moved its files up. These
+     * files kept their content; V51 and old V55-V58 changed only in comments, so they come from
+     * the 1.0.18 copies under legacy-migrations/1.0.18.
+     */
+    private static final Map<String, String> RELEASE_1_0_18_RENAMED = Map.ofEntries(
+        Map.entry("V94__backfill_tr_crypto_transaction_tickers.sql", "V38__backfill_tr_crypto_transaction_tickers.sql"),
+        Map.entry("V56__wallet_ethereum_to_evm.sql", "V54__wallet_ethereum_to_evm.sql"),
+        Map.entry("V61__bourse_direct_session.sql", "V59__bourse_direct_session.sql"),
+        Map.entry("V62__bourse_direct_integration.sql", "V60__bourse_direct_integration.sql"),
+        Map.entry("V63__harden_bourse_direct_sync.sql", "V61__harden_bourse_direct_sync.sql"),
+        Map.entry("V64__backfill_bourse_direct_valuations.sql", "V62__backfill_bourse_direct_valuations.sql"),
+        Map.entry("V65__constrain_bourse_direct_sync_errors.sql", "V63__constrain_bourse_direct_sync_errors.sql"),
+        Map.entry("V96__backfill_trade_republic_valuations.sql", "V64__backfill_trade_republic_valuations.sql"));
+
+    /** Versions 1.0.18 shipped under the number and content they still have. */
+    private static final IntPredicate UNCHANGED_SINCE_1_0_18 = v -> v <= 32 || v == 36 || v == 37
+        || v == 50 || v == 52 || v == 53 || (v >= 66 && v <= 80 && v != 72) || v == 86 || v == 87;
 
     @Test
     void aFreshDatabaseMigratesToHeadUnderTheNewNumbers() throws Exception {
@@ -136,6 +159,30 @@ class LegacyMigrationRenumberingTest {
     }
 
     @Test
+    void aRelease1018DatabaseKeepsItsAppliedRowsAndRunsThe110OnlyMigrations() throws Exception {
+        String url = createDatabase("release_1_0_18");
+        int files = migrateLegacy(url, UNCHANGED_SINCE_1_0_18, RELEASE_1_0_18_RENAMED, "/legacy-migrations/1.0.18");
+        List<String> applied = query(url, "SELECT installed_rank || ' ' || description FROM flyway_schema_history "
+            + "WHERE version IN ('38', '51', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64') "
+            + "ORDER BY installed_rank");
+
+        upgrade(url).migrate();
+
+        assertThat(files).isEqualTo(65);
+        assertThat(applied).hasSize(13);
+        assertThat(upgrade(url).info().pending()).isEmpty();
+        assertThat(query(url, "SELECT installed_rank || ' ' || description FROM flyway_schema_history "
+            + "WHERE version IN ('94', '51', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '96') "
+            + "ORDER BY installed_rank")).isEqualTo(applied);
+        assertThat(query(url, "SELECT version || ' ' || description || ' ' || success FROM flyway_schema_history "
+            + "WHERE version IN ('38', '54', '55', '72') ORDER BY version::int")).containsExactly(
+            "38 budget categorization foundation true",
+            "54 oauth2 authorization server true",
+            "55 account hidden true",
+            "72 account external unique add provider true");
+    }
+
+    @Test
     void aSecondStartChangesNothing() throws Exception {
         String url = createDatabase("second_start");
         migrateLegacy(url, SECURITY_PROFILE_LINE);
@@ -162,15 +209,31 @@ class LegacyMigrationRenumberingTest {
 
     /** Applies V1-V79 and the line's files under the names they had before 2839c94. */
     private static void migrateLegacy(String url, Map<String, String> line) throws Exception {
-        Path current = Path.of(migrationDirectory());
+        migrateLegacy(url, version -> version <= 79, line, null);
+    }
+
+    /**
+     * Applies the current files whose version is {@code unchanged}, the {@code renamed} ones under
+     * their legacy names, and the files in the {@code legacyResources} directory as they are.
+     * Returns how many files the legacy tree holds.
+     */
+    private static int migrateLegacy(String url, IntPredicate unchanged, Map<String, String> renamed,
+                                     String legacyResources) throws Exception {
         Path legacy = Files.createTempDirectory("legacy-migrations");
-        try (Stream<Path> files = Files.list(current)) {
+        try (Stream<Path> files = Files.list(resourceDirectory("/db/migration"))) {
             for (Path file : files.toList()) {
                 String name = file.getFileName().toString();
-                if (version(name) <= 79) {
+                if (unchanged.test(version(name))) {
                     Files.copy(file, legacy.resolve(name));
-                } else if (line.containsKey(name)) {
-                    Files.copy(file, legacy.resolve(line.get(name)));
+                } else if (renamed.containsKey(name)) {
+                    Files.copy(file, legacy.resolve(renamed.get(name)));
+                }
+            }
+        }
+        if (legacyResources != null) {
+            try (Stream<Path> files = Files.list(resourceDirectory(legacyResources))) {
+                for (Path file : files.toList()) {
+                    Files.copy(file, legacy.resolve(file.getFileName()));
                 }
             }
         }
@@ -179,10 +242,13 @@ class LegacyMigrationRenumberingTest {
             .locations("filesystem:" + legacy)
             .load()
             .migrate();
+        try (Stream<Path> files = Files.list(legacy)) {
+            return (int) files.count();
+        }
     }
 
-    private static java.net.URI migrationDirectory() throws URISyntaxException {
-        return LegacyMigrationRenumberingTest.class.getResource("/db/migration").toURI();
+    private static Path resourceDirectory(String name) throws URISyntaxException {
+        return Path.of(LegacyMigrationRenumberingTest.class.getResource(name).toURI());
     }
 
     private static int version(String fileName) {
