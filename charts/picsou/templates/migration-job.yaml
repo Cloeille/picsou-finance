@@ -1,0 +1,71 @@
+{{- /*
+Runs the release migration CLI with the new image before `helm upgrade` replaces
+the app, as docker/deploy.sh does for Compose (ADR 2026-10-08): a migration or
+schema verification failure fails the upgrade and leaves the running app alone.
+Not run on install, where the database does not exist yet and the app migrates
+it on first boot.
+*/}}
+{{- if .Values.migrationJob.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "picsou.fullname" . }}-migrate
+  labels:
+    {{- include "picsou.componentLabels" (dict "ctx" $ "component" "migrate") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ .Values.migrationJob.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      {{- with $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ include "picsou.image" (dict "ctx" $ "image" .Values.app.image) }}
+          imagePullPolicy: {{ include "picsou.pullPolicy" (dict "ctx" $ "image" .Values.app.image) }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              for op in migrate verify; do
+                java -XX:MaxRAMPercentage=75.0 -Dloader.main=com.picsou.migration.ReleaseMigrationCli \
+                  -cp /app/app.jar org.springframework.boot.loader.launch.PropertiesLauncher "$op"
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: {{ include "picsou.database.jdbcUrl" . | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              value: {{ include "picsou.database.username" . | quote }}
+            # Read directly by the CLI: the image entrypoint, which maps
+            # POSTGRES_PASSWORD, does not run here.
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "picsou.database.passwordSecret" . }}
+                  key: {{ include "picsou.database.passwordKey" . }}
+          {{- with .Values.migrationJob.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.app.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

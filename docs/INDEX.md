@@ -141,6 +141,7 @@
 | Account visibility (hidden accounts, `/sync` Comptes tab) | 2026-07-15 | [account-visibility.md](./features/account-visibility.md) |
 | Docker deployment and migration-safe releases | 2026-10-08 | [docker-deployment.md](./features/docker-deployment.md) |
 | Production release backup, preflight, migration and rollback | 2026-10-08 | [release-deployment.md](./features/release-deployment.md) |
+| Kubernetes deployment (Helm chart) | 2026-10-31 | [helm-chart.md](./features/helm-chart.md) |
 | Navigation (sidebar + mobile bottom nav) | 2026-07-12 | [sidebar-navigation.md](./features/sidebar-navigation.md) |
 | UI control shape (shadcn theme radius) | 2026-08-10 | [ui-control-shape-system.md](./features/ui-control-shape-system.md) |
 | Privacy mode (hiding amounts for demos) | 2026-08-16 | [privacy-mode.md](./features/privacy-mode.md) |

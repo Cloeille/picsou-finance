@@ -403,6 +403,16 @@ openssl rsa -pubout -in docker/secrets/enablebanking.pem -out enablebanking_publ
 
 Upload `enablebanking_public.pem` to your Enable Banking dashboard.
 
+### Kubernetes (Helm)
+
+A Helm chart in [`charts/picsou`](charts/picsou/README.md) deploys the same images on Kubernetes:
+the app, the sidecars, an optional single-instance PostgreSQL, network policies, and a pre-upgrade
+migration Job. TLS terminates on your Ingress or Gateway.
+
+```bash
+helm install picsou ./charts/picsou -n picsou --create-namespace
+```
+
 ## Another machine
 
 Git has the **code** only. It does **not** contain your Postgres data, encryption keys, Finary session, or bank export zips (`data/` is untracked on purpose).

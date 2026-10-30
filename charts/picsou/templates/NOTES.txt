@@ -1,0 +1,35 @@
+Picsou {{ .Chart.AppVersion }} is deploying in namespace {{ .Release.Namespace }}.
+
+{{- if .Values.ingress.enabled }}
+{{- $h := index .Values.ingress.hosts 0 }}
+
+Open {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ $h.host }} to run the setup wizard.
+{{- else if .Values.httpRoute.enabled }}
+
+Open https://{{ index .Values.httpRoute.hostnames 0 }} to run the setup wizard.
+{{- else }}
+
+No Ingress or HTTPRoute is enabled. To reach the setup wizard locally:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "picsou.fullname" . }} 8080:{{ .Values.app.service.port }}
+  open http://localhost:8080
+{{- end }}
+
+Run the wizard on the final https:// address if you plan to sync bank accounts:
+it stores the Enable Banking callback URL, the allowed origins and the secure
+cookie flag derived from the address it is opened on.
+{{- if and (not .Values.ingress.tls) (not .Values.httpRoute.enabled) }}
+
+Enable Banking rejects plain-HTTP callback URLs: bank sync needs TLS in front.
+{{- end }}
+{{- if not .Values.secrets.existingSecret }}
+
+Secrets were generated in Secret/{{ include "picsou.fullname" . }} and are kept on
+uninstall. If you render this chart with `helm template` (Argo CD, Flux with
+post-rendering, …), set secrets.existingSecret instead: `lookup` is not
+available there and the values would change on every render.
+{{- end }}
+
+Back up the {{ include "picsou.fullname" . }}-data volume: unless you provided
+crypto-encryption-key, it holds the key that decrypts the stored API secrets
+and bank session tokens.
