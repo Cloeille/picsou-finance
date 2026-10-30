@@ -527,14 +527,13 @@ public class AmexSyncService {
      * <ul>
      *   <li>a row the response still reports is never a candidate, so identical purchases AMEX
      *       still lists stay separate rows;
-     *   <li>a pair is made only when it is the sole candidate row and the sole unstored charge for
-     *       its date and amount: two merchants charging the same amount on the same day leave
-     *       nothing to tell which row is which, and pairing them in iteration order would swap
-     *       their categories and series, so the group is left alone;
-     *   <li>that row's label must be the only one of its kind among stored posted rows of its date
-     *       and amount: identical purchases are told apart only by their order in the response,
-     *       so when AMEX relabels one, the one still reported takes the first copy's id whichever
-     *       it is, and the leftover row could be either purchase;
+     *   <li>a pair is made only when its date and amount hold exactly one stored posted row and
+     *       exactly one reported posted charge, counted before any row is set aside as still
+     *       reported: with two purchases in a group, a derived id says nothing about which is
+     *       which. Two merchants relabelled on the same day, identical purchases numbered by
+     *       response order, or a purchase relabelled to the label another one is stored under
+     *       would all pair the wrong row and swap categories and series, so the group is left
+     *       alone;
      *   <li>the row must be dated more than {@link #SETTLEMENT_WINDOW_DAYS} days after the oldest
      *       posted charge the response reports: the posted feed is one page cut on the posting
      *       date while rows carry the charge date, so a stored row near that edge may simply sit
@@ -563,11 +562,13 @@ public class AmexSyncService {
             .orElseThrow();
 
         record Charge(LocalDate date, BigDecimal amount) {}
-        record Purchase(Charge charge, String label) {}
-        Map<Purchase, Long> storedCopies = stored.stream()
+        Map<Charge, Long> storedPurchases = stored.stream()
             .filter(row -> row.getExternalId() != null && row.getExternalId().startsWith(POSTED_TX_ID_PREFIX))
-            .collect(Collectors.groupingBy(row -> new Purchase(
-                new Charge(row.getDate(), row.getAmount().stripTrailingZeros()), row.getDescription()),
+            .collect(Collectors.groupingBy(row -> new Charge(row.getDate(), row.getAmount().stripTrailingZeros()),
+                Collectors.counting()));
+        Map<Charge, Long> reportedPurchases = reported.stream()
+            .filter(tx -> tx.externalId().startsWith(POSTED_TX_ID_PREFIX))
+            .collect(Collectors.groupingBy(tx -> new Charge(tx.date(), tx.amountEur().stripTrailingZeros()),
                 Collectors.counting()));
         Map<Charge, List<Transaction>> candidates = stored.stream()
             .filter(row -> row.getExternalId() != null
@@ -581,9 +582,8 @@ public class AmexSyncService {
         List<Transaction> adopted = new ArrayList<>();
         charges.forEach((charge, txs) -> {
             List<Transaction> rows = candidates.getOrDefault(charge, List.of());
-            if (txs.size() != 1 || rows.size() != 1) return;
+            if (rows.isEmpty() || storedPurchases.get(charge) != 1 || reportedPurchases.get(charge) != 1) return;
             Transaction row = rows.getFirst();
-            if (storedCopies.get(new Purchase(charge, row.getDescription())) > 1) return;
             row.setExternalId(txs.getFirst().externalId());
             row.setDescription(txs.getFirst().label());
             adopted.add(row);

@@ -663,6 +663,41 @@ class AmexSyncServiceTest {
                 org.assertj.core.groups.Tuple.tuple("TICKETNET", 202L, 2L));
     }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void relabelOntoAnotherStoredPurchasesLabel_neverSwapsCategoryOrSeries(boolean history, boolean reversed) {
+        // The first purchase is relabelled to the second one's stored label, so it reports under
+        // the second one's id, and the second one under a label nobody stores.
+        AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
+        List<Transaction> stored = routineSync(List.of(), anchor,
+            charge(4, "TICKETNET", "-45.00"), charge(4, "TICKETNET SITE INTERNET NANTERRE", "-45.00")).upserts();
+        Transaction first = stored.get(1);
+        Transaction second = stored.get(2);
+        first.setId(1L);
+        categorise(first, Category.builder().id(1L).build());
+        first.setRecurringSeriesId(101L);
+        second.setId(2L);
+        categorise(second, Category.builder().id(2L).build());
+        second.setRecurringSeriesId(202L);
+
+        AmexPort.Transaction firstRelabelled = charge(4, "TICKETNET SITE INTERNET NANTERRE", "-45.00");
+        AmexPort.Transaction secondRelabelled = charge(4, "TICKETNET EVENEMENT 123 NANTERRE", "-45.00");
+        List<AmexPort.Transaction> response = reversed
+            ? List.of(anchor, secondRelabelled, firstRelabelled)
+            : List.of(anchor, firstRelabelled, secondRelabelled);
+        List<Transaction> saved = history
+            ? historySync(response, stored)
+            : routineSync(stored, response.toArray(AmexPort.Transaction[]::new)).upserts();
+
+        List<Transaction> rows = new java.util.ArrayList<>(stored);
+        saved.stream().filter(tx -> !stored.contains(tx)).forEach(rows::add);
+        assertThat(rows).filteredOn(tx -> tx.getRecurringSeriesId() != null)
+            .extracting(Transaction::getDescription, Transaction::getRecurringSeriesId, tx -> tx.getCategoryRef().getId())
+            .containsExactlyInAnyOrder(
+                org.assertj.core.groups.Tuple.tuple("TICKETNET", 101L, 1L),
+                org.assertj.core.groups.Tuple.tuple("TICKETNET SITE INTERNET NANTERRE", 202L, 2L));
+    }
+
     @Test
     void newPurchases_areNotMergedIntoARowThatDiffersByDateOrAmount() {
         AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");

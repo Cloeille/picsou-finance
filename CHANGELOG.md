@@ -185,9 +185,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
   `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its
   category, so budgets counted it twice. The stored row now takes the new label and keeps its
-  category; two identical purchases on the same day stay two rows. When several relabelled
-  charges share a date and amount, or AMEX relabels one of several identical purchases, none is
-  matched, so no charge takes another's category or recurring series. Copies stored before the
+  category; two identical purchases on the same day stay two rows. A relabelled charge is
+  matched only when it is the one purchase stored and the one reported for its date and amount,
+  so no charge takes another's category or recurring series. Copies stored before the
   fix are not removed automatically, since nothing tells them from a genuine second purchase;
   delete them by hand (#245).
 - **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
