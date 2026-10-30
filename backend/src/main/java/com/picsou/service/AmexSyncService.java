@@ -527,8 +527,10 @@ public class AmexSyncService {
      * <ul>
      *   <li>a row the response still reports is never a candidate, so identical purchases AMEX
      *       still lists stay separate rows;
-     *   <li>each stored row pairs with at most one charge, so two identical purchases of which
-     *       only one was relabelled stay two rows;
+     *   <li>a pair is made only when it is the sole candidate row and the sole unstored charge for
+     *       its date and amount: two merchants charging the same amount on the same day leave
+     *       nothing to tell which row is which, and pairing them in iteration order would swap
+     *       their categories and series, so the group is left alone;
      *   <li>the row must be dated more than {@link #SETTLEMENT_WINDOW_DAYS} days after the oldest
      *       posted charge the response reports: the posted feed is one page cut on the posting
      *       date while rows carry the charge date, so a stored row near that edge may simply sit
@@ -556,27 +558,25 @@ public class AmexSyncService {
             .min(Comparator.naturalOrder())
             .orElseThrow();
 
-        List<Transaction> candidates = stored.stream()
+        record Charge(LocalDate date, BigDecimal amount) {}
+        Map<Charge, List<Transaction>> candidates = stored.stream()
             .filter(row -> row.getExternalId() != null
                 && row.getExternalId().startsWith(POSTED_TX_ID_PREFIX)
                 && !returned.contains(row.getExternalId())
                 && row.getDate().isAfter(oldestReported.plusDays(SETTLEMENT_WINDOW_DAYS)))
-            .sorted(Comparator.comparing(Transaction::getDate)
-                .thenComparing(Transaction::getId, Comparator.nullsLast(Comparator.naturalOrder()))
-                .thenComparing(Transaction::getExternalId))
-            .collect(Collectors.toCollection(ArrayList::new));
+            .collect(Collectors.groupingBy(row -> new Charge(row.getDate(), row.getAmount().stripTrailingZeros())));
+        Map<Charge, List<PreparedTransaction>> charges = unstored.stream()
+            .collect(Collectors.groupingBy(tx -> new Charge(tx.date(), tx.amountEur().stripTrailingZeros()),
+                LinkedHashMap::new, Collectors.toList()));
         List<Transaction> adopted = new ArrayList<>();
-        for (PreparedTransaction tx : unstored) {
-            candidates.stream()
-                .filter(row -> row.getDate().equals(tx.date()) && row.getAmount().compareTo(tx.amountEur()) == 0)
-                .findFirst()
-                .ifPresent(row -> {
-                    candidates.remove(row);
-                    row.setExternalId(tx.externalId());
-                    row.setDescription(tx.label());
-                    adopted.add(row);
-                });
-        }
+        charges.forEach((charge, txs) -> {
+            List<Transaction> rows = candidates.getOrDefault(charge, List.of());
+            if (txs.size() != 1 || rows.size() != 1) return;
+            Transaction row = rows.getFirst();
+            row.setExternalId(txs.getFirst().externalId());
+            row.setDescription(txs.getFirst().label());
+            adopted.add(row);
+        });
         if (!adopted.isEmpty()) {
             log.info("American Express matched {} relabelled charge(s) to stored rows", adopted.size());
         }

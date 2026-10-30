@@ -613,6 +613,36 @@ class AmexSyncServiceTest {
             .containsExactlyInAnyOrder("COFFEE SHOP", "TICKETNET", "TICKETNET SITE INTERNET NANTERRE");
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void twoMerchantsRelabelledOnTheSameDayForTheSameAmount_neverSwapCategoryOrSeries(boolean reversed) {
+        AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
+        List<Transaction> stored = routineSync(List.of(), anchor,
+            charge(4, "ANTHROPIC PBC", "-20.00"), charge(4, "TICKETNET", "-20.00")).upserts();
+        Transaction anthropic = stored.stream().filter(tx -> tx.getDescription().equals("ANTHROPIC PBC")).findFirst().orElseThrow();
+        Transaction ticketnet = stored.stream().filter(tx -> tx.getDescription().equals("TICKETNET")).findFirst().orElseThrow();
+        anthropic.setId(1L);
+        categorise(anthropic, Category.builder().id(1L).build());
+        anthropic.setRecurringSeriesId(101L);
+        ticketnet.setId(2L);
+        categorise(ticketnet, Category.builder().id(2L).build());
+        ticketnet.setRecurringSeriesId(202L);
+
+        AmexPort.Transaction anthropicRelabelled = charge(4, "ANTHROPIC* CLAUDE SUB   SAN FRANCISCO", "-20.00");
+        AmexPort.Transaction ticketnetRelabelled = charge(4, "TICKETNET SITE INTERNET NANTERRE", "-20.00");
+        Reconciliation second = reversed
+            ? routineSync(stored, anchor, anthropicRelabelled, ticketnetRelabelled)
+            : routineSync(stored, anchor, ticketnetRelabelled, anthropicRelabelled);
+
+        List<Transaction> rows = new java.util.ArrayList<>(stored);
+        second.upserts().stream().filter(tx -> !stored.contains(tx)).forEach(rows::add);
+        assertThat(rows).filteredOn(tx -> tx.getRecurringSeriesId() != null)
+            .extracting(tx -> tx.getDescription().split("[ *]")[0], Transaction::getRecurringSeriesId, tx -> tx.getCategoryRef().getId())
+            .containsOnly(
+                org.assertj.core.groups.Tuple.tuple("ANTHROPIC", 101L, 1L),
+                org.assertj.core.groups.Tuple.tuple("TICKETNET", 202L, 2L));
+    }
+
     @Test
     void newPurchases_areNotMergedIntoARowThatDiffersByDateOrAmount() {
         AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
