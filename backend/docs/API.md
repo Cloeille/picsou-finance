@@ -2075,7 +2075,9 @@ never Yahoo or Nasdaq, and are scoped to the accounts the member can read. See
 ```
 
 `id` matches the forecast line it fulfils; with no known ex-date it is
-`HOLDING:accountId:ticker:tx<transactionId>` and `exDate`/`amountPerShare` are null. `accountId`
+`HOLDING:accountId:ticker:tx<transactionId>` and `exDate`/`amountPerShare` are null. A `DIVIDEND`
+row with no ticker is listed on the credited account with `ticker` null and the id
+`HOLDING:accountId::tx<transactionId>`. `accountId`
 is the account holding the line (a Trade Republic cash dividend reports the PEA); with no readable
 holder of that ticker, or several of the same provider, it stays the credited account. `amount` is
 the credit as booked, not weighted by the member's share.

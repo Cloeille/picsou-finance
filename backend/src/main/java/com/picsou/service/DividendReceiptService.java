@@ -130,7 +130,7 @@ public class DividendReceiptService {
         }
         List<Line> lines = holdings.findPositiveByAccountIdIn(ownedIds).stream()
             .filter(h -> h.getQuantity() != null && h.getQuantity().signum() > 0)
-            .filter(h -> h.getTicker() != null && !h.getTicker().isBlank())
+            .filter(h -> hasText(h.getTicker()))
             .map(h -> new Line(accountOf(h, owned), h))
             .filter(line -> line.account() != null && line.account().getType() != AccountType.CRYPTO)
             .toList();
@@ -179,7 +179,6 @@ public class DividendReceiptService {
                 List.copyOf(byId.keySet()), today.minusDays(clampDays(days)), today)
             .stream()
             .filter(tx -> tx.getTxType() == TransactionType.DIVIDEND)
-            .filter(tx -> tx.getTicker() != null && !tx.getTicker().isBlank())
             .filter(tx -> tx.getAmount() != null && tx.getAmount().signum() > 0)
             .toList();
         if (rows.isEmpty()) {
@@ -197,20 +196,23 @@ public class DividendReceiptService {
             if (credited == null) {
                 continue;
             }
-            Account account = holdingAccount(credited, tx.getTicker(), lines);
-            DividendSource source = byTicker.get(tx.getTicker().toUpperCase(Locale.ROOT));
-            DividendEvent event = source == null ? null : eventFor(source, tx.getDate());
+            // A manual DIVIDEND row may carry no ticker: listed on the credited account, no event.
+            String ticker = hasText(tx.getTicker()) ? tx.getTicker() : null;
+            Account account = holdingAccount(credited, ticker, lines);
+            DividendSource source = ticker == null ? null : byTicker.get(ticker.toUpperCase(Locale.ROOT));
+            DividendEvent event = source == null
+                ? null : eventsFor(source, tx.getDate()).stream().findFirst().orElse(null);
             LocalDate exDate = event == null ? null : event.getExDate();
             String id = exDate != null
-                ? DividendForecastService.id(DividendOrigin.HOLDING, account.getId(), tx.getTicker(), exDate)
-                : "HOLDING:" + account.getId() + ":" + tx.getTicker() + ":tx" + tx.getId();
+                ? DividendForecastService.id(DividendOrigin.HOLDING, account.getId(), ticker, exDate)
+                : "HOLDING:" + account.getId() + ":" + nullToEmpty(ticker) + ":tx" + tx.getId();
             out.add(new ReceivedDividendResponse(
                 id,
                 tx.getId(),
                 account.getId(),
                 account.getName(),
                 account.getType(),
-                tx.getTicker(),
+                ticker,
                 tx.getName(),
                 tx.getDate(),
                 tx.getAmount(),
@@ -226,9 +228,13 @@ public class DividendReceiptService {
     /**
      * The account that holds the line: the credited one when it holds the ticker, else a readable
      * account of the same provider that does (Trade Republic credits "TR Cash" for a PEA line).
-     * The forecast id and the budget flag come from that account.
+     * The forecast id and the budget flag come from that account. A row with no ticker keeps the
+     * credited account.
      */
     private static Account holdingAccount(Account credited, String ticker, List<Line> lines) {
+        if (ticker == null) {
+            return credited;
+        }
         List<Account> holders = lines.stream()
             .filter(line -> line.holding().getTicker().equalsIgnoreCase(ticker))
             .map(Line::account)
@@ -257,8 +263,12 @@ public class DividendReceiptService {
 
     private Map<String, DividendSource> sourcesByTicker(Collection<String> tickers) {
         Set<String> upper = tickers.stream()
+            .filter(DividendReceiptService::hasText)
             .map(t -> t.toUpperCase(Locale.ROOT))
             .collect(Collectors.toSet());
+        if (upper.isEmpty()) {
+            return Map.of();
+        }
         // Any status: a FAILED refresh keeps the last good events (see DividendHistoryService).
         return sources.findAllWithEventsByTickerIn(upper).stream()
             .collect(Collectors.toMap(s -> s.getTicker().toUpperCase(Locale.ROOT), s -> s, (a, b) -> a));
@@ -302,8 +312,7 @@ public class DividendReceiptService {
         List<Line> candidates = new ArrayList<>();
         for (Line line : lines) {
             String ticker = line.holding().getTicker();
-            if (credit.getTicker() != null && !credit.getTicker().isBlank()
-                && !credit.getTicker().equalsIgnoreCase(ticker)) {
+            if (hasText(credit.getTicker()) && !credit.getTicker().equalsIgnoreCase(ticker)) {
                 continue;
             }
             DividendSource source = byTicker.get(ticker.toUpperCase(Locale.ROOT));
@@ -323,17 +332,14 @@ public class DividendReceiptService {
         return null;
     }
 
-    /** Date window, payment date, currency and amount band. Evidence is checked by the caller. */
+    /** Some candidate event of the source fits: currency and amount band. Evidence is checked by the caller. */
     private static boolean fits(Transaction credit, AccountHolding holding, DividendSource source) {
-        DividendEvent event = eventFor(source, credit.getDate());
-        if (event == null) {
-            return false;
-        }
-        if (event.getPaymentDate() != null
-            && Math.abs(ChronoUnit.DAYS.between(credit.getDate(), event.getPaymentDate()))
-                > PAYMENT_DATE_TOLERANCE_DAYS) {
-            return false;
-        }
+        return eventsFor(source, credit.getDate()).stream()
+            .anyMatch(event -> fitsAmount(credit, holding, event, source));
+    }
+
+    private static boolean fitsAmount(Transaction credit, AccountHolding holding, DividendEvent event,
+                                      DividendSource source) {
         BigDecimal perShare = perShare(credit, event, source);
         if (perShare == null) {
             return false;
@@ -357,21 +363,30 @@ public class DividendReceiptService {
         return null;
     }
 
-    /** Latest ex-date in {@code [date - 60 days, date]}: an older one is a different payment. */
-    private static DividendEvent eventFor(DividendSource source, LocalDate date) {
+    /**
+     * The events the credit may be the payment of, newest ex-date first: ex-date in
+     * {@code [date - 60 days, date]} (an older one is a different payment) and, when the event
+     * has a payment date, within {@value #PAYMENT_DATE_TOLERANCE_DAYS} days of the credit.
+     */
+    private static List<DividendEvent> eventsFor(DividendSource source, LocalDate date) {
         if (source.getEvents() == null || date == null) {
-            return null;
+            return List.of();
         }
         LocalDate earliest = date.minusDays(EX_TO_PAYMENT_MAX_DAYS);
         return source.getEvents().stream()
             .filter(e -> e.getExDate() != null && !e.getExDate().isBefore(earliest) && !e.getExDate().isAfter(date))
-            .max(Comparator.comparing(DividendEvent::getExDate))
-            .orElse(null);
+            .filter(e -> e.getPaymentDate() == null
+                || Math.abs(ChronoUnit.DAYS.between(date, e.getPaymentDate())) <= PAYMENT_DATE_TOLERANCE_DAYS)
+            .sorted(Comparator.comparing(DividendEvent::getExDate, Comparator.reverseOrder()))
+            .toList();
     }
 
     /**
      * A ticker root of {@value #MIN_ROOT_LENGTH} letters ({@code AIR}, {@code VIE}, {@code SAN})
-     * is a common word, so it names the instrument only next to other dividend evidence.
+     * is a common word, so it names the instrument only next to other dividend evidence. The
+     * distinctive words of the holding name (long enough, not a shared issuer or fund word) work
+     * the same way: next to evidence one of them is enough, alone all of them must be in the
+     * label, so a generic word such as {@code bank} cannot name an instrument by itself.
      */
     private static boolean namesInstrument(Set<String> labelWords, AccountHolding holding, boolean evidence) {
         String ticker = holding.getTicker().toLowerCase(Locale.ROOT);
@@ -384,10 +399,13 @@ public class DividendReceiptService {
         if (holding.getName() == null) {
             return false;
         }
-        return wordsOf(normalize(holding.getName())).stream()
-            .anyMatch(word -> word.length() >= MIN_NAME_TOKEN_LENGTH
-                && !NAME_STOP_WORDS.contains(word)
-                && labelWords.contains(word));
+        List<String> nameWords = wordsOf(normalize(holding.getName())).stream()
+            .filter(word -> word.length() >= MIN_NAME_TOKEN_LENGTH && !NAME_STOP_WORDS.contains(word))
+            .toList();
+        if (nameWords.isEmpty()) {
+            return false;
+        }
+        return evidence ? nameWords.stream().anyMatch(labelWords::contains) : labelWords.containsAll(nameWords);
     }
 
     private static String labelOf(Transaction tx) {
@@ -414,6 +432,10 @@ public class DividendReceiptService {
         return value == null ? "" : value;
     }
 
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
     /** Writes only what differs, so an unchanged row is not counted and not saved again. */
     private static boolean apply(Transaction tx, AccountHolding holding, Category target) {
         boolean changed = false;
@@ -421,7 +443,7 @@ public class DividendReceiptService {
             tx.setTxType(TransactionType.DIVIDEND);
             changed = true;
         }
-        if (tx.getTicker() == null || tx.getTicker().isBlank()) {
+        if (!hasText(tx.getTicker())) {
             tx.setTicker(holding.getTicker());
             changed = true;
         }

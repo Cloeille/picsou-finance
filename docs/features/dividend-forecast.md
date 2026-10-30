@@ -84,16 +84,19 @@ failure is logged and never changes the sync result.
 3. Candidate lines: the positive holdings of the credited account. With none, the owned
    accounts of the same provider (Trade Republic pays into "TR Cash" while the lines sit on the PEA).
    Crypto lines are skipped.
-4. The event is the one with the latest ex-date in the 60 days before the credit. When it has a
-   payment date, the credit must fall within 7 days of it.
+4. The event is the newest one with an ex-date in the 60 days before the credit, whose payment
+   date, when known, is within 7 days of the credit, and whose amount fits (step 5). A newer
+   event with a far-off payment date does not hide an older one that fits.
 5. Expected amount = quantity x per-share amount (`amountEur` for a EUR credit, `amount` when the
    credit currency is the source currency, otherwise skipped). Kept when received / expected
    is within 0.40 to 1.10, which absorbs withholding tax and FX drift.
 6. **Evidence is required, an amount alone is not enough** (a 100 EUR deposit must not become a
    dividend): the row is already typed `DIVIDEND`, or a label word starts with `divid`, `coupon`,
    `dvd` or `distribution` (a word prefix, so `INDIVIDUEL` is not evidence), or it names the
-   instrument (a distinctive word of the holding name, or the ticker root: 4 letters or more alone,
-   a 3-letter root such as `AIR` or `SAN` only next to a keyword or a `DIVIDEND` type).
+   instrument (the ticker root: 4 letters or more alone, a 3-letter root such as `AIR` or `SAN`
+   only next to a keyword or a `DIVIDEND` type; or the distinctive words of the holding name,
+   those of 4 letters or more that are not shared issuer or fund words: one of them next to a
+   keyword or a `DIVIDEND` type, all of them when alone, so `bank` does not name Bank of America).
    A candidate naming the instrument wins; else a keyword or `DIVIDEND` type with exactly one
    candidate; otherwise the row stays untouched.
 7. The row gets `txType = DIVIDEND`, its ticker and name when empty, and the member's
@@ -102,7 +105,9 @@ failure is logged and never changes the sync result.
 `GET /api/dividends/received?days=30` (clamped to 1..366) lists the `DIVIDEND` rows of every
 readable account. Each line has the same `id` as the forecast line it fulfils
 (`HOLDING:accountId:ticker:exDate`), or `HOLDING:accountId:ticker:tx<id>` when no ex-date is
-known, so a push notifier can say "you received the TotalEnergies dividend". `accountId`,
+known, so a push notifier can say "you received the TotalEnergies dividend". A `DIVIDEND` row
+with no ticker is listed too, on the credited account, with a null ticker, no ex-date and the
+id `HOLDING:accountId::tx<id>`. `accountId`,
 `accountType` and `countsInBudget` are those of the account holding the line: a Trade Republic
 dividend credited to "TR Cash" for a PEA line reports the PEA, like the forecast does. With no
 readable holder of that ticker, or several of the same provider, the credited account is kept.
@@ -157,8 +162,12 @@ notifier (iOS, 2.0) can use to tell "already sent" from "new".
 - `amount` in `/received` is the credit as booked, not weighted by the member's share.
 - `/received` lists every readable `DIVIDEND` row, including a broker-typed one that no stored
   event fits (then `exDate` and `amountPerShare` are null, and the row may stay uncategorised).
-- In `/received`, `exDate` and `amountPerShare` come from the latest event in the 60 days before
-  the credit, with no amount-fit check: they describe the likely payment, not a proven one.
+- In `/received`, `exDate` and `amountPerShare` come from the newest event in the 60 days before
+  the credit whose payment date, when known, is within 7 days of it, with no amount-fit check:
+  they describe the likely payment, not a proven one.
+- `/received` picks the holding account from the current holdings, not the holdings at the
+  ex-date: if a same-provider account sold the line and another bought it since, the credit is
+  reported on the current holder.
 
 ## Links
 
