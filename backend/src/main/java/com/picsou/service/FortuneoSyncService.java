@@ -32,9 +32,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -748,6 +746,8 @@ public class FortuneoSyncService {
                 obsolete.add(row);
             }
         }
+        // An obsolete row is often the same payment re-sent with an id it lacked before.
+        DividendReceiptService.Recognitions recognised = DividendReceiptService.Recognitions.of(obsolete);
 
         List<Transaction> upserts = new ArrayList<>(reported.size());
         for (Map.Entry<String, FortuneoPort.Transaction> entry : reported.entrySet()) {
@@ -771,6 +771,7 @@ public class FortuneoSyncService {
                     .fees(tx.fees())
                     .nativeCurrency("EUR")
                     .build();
+                recognised.restoreOn(row);
             } else {
                 DividendReceiptService.Recognition recognition = DividendReceiptService.Recognition.of(row);
                 row.setDate(tx.date());
@@ -815,8 +816,10 @@ public class FortuneoSyncService {
         // window, and inserting it all while deleting only inside the window appends a
         // fresh copy of every older row on each sync, as reproduced by the
         // regression test below.
-        Map<WindowRowKey, ArrayDeque<DividendReceiptService.Recognition>> recognised =
-            recognisedSince(account.getId(), cutoff);
+        DividendReceiptService.Recognitions recognised = DividendReceiptService.Recognitions.of(
+            transactionRepository.findByAccountIdAndIsManualFalse(account.getId()).stream()
+                .filter(stored -> stored.getDate() != null && !stored.getDate().isBefore(cutoff))
+                .toList());
         List<Transaction> toInsert = new ArrayList<>();
         for (FortuneoPort.Transaction tx : transactions) {
             if (tx.date().isBefore(cutoff)) {
@@ -837,31 +840,10 @@ public class FortuneoSyncService {
                 .fees(tx.fees())
                 .nativeCurrency("EUR")
                 .build();
-            ArrayDeque<DividendReceiptService.Recognition> previous = recognised.get(WindowRowKey.of(row));
-            if (previous != null && !previous.isEmpty()) {
-                previous.poll().restoreOn(row);
-            }
+            recognised.restoreOn(row);
             toInsert.add(row);
         }
         transactionWriter.replaceRecentTransactions(account.getId(), cutoff, toInsert);
-    }
-
-    /**
-     * Dividends recognised on the rows the window replacement is about to delete. Without an id,
-     * a re-sent row is found again by date, amount and label; identical rows pair up in order.
-     */
-    private Map<WindowRowKey, ArrayDeque<DividendReceiptService.Recognition>> recognisedSince(
-        Long accountId,
-        LocalDate cutoff
-    ) {
-        Map<WindowRowKey, ArrayDeque<DividendReceiptService.Recognition>> recognised = new HashMap<>();
-        for (Transaction stored : transactionRepository.findByAccountIdAndIsManualFalse(accountId)) {
-            DividendReceiptService.Recognition recognition = DividendReceiptService.Recognition.of(stored);
-            if (recognition != null && stored.getDate() != null && !stored.getDate().isBefore(cutoff)) {
-                recognised.computeIfAbsent(WindowRowKey.of(stored), key -> new ArrayDeque<>()).add(recognition);
-            }
-        }
-        return recognised;
     }
 
     /**
@@ -1105,13 +1087,6 @@ public class FortuneoSyncService {
     ) {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, null, FortuneoSyncStatus.IDLE, null, null, null);
-        }
-    }
-
-    private record WindowRowKey(LocalDate date, BigDecimal amount, String description) {
-        static WindowRowKey of(Transaction row) {
-            BigDecimal amount = row.getAmount() == null ? null : row.getAmount().stripTrailingZeros();
-            return new WindowRowKey(row.getDate(), amount, row.getDescription());
         }
     }
 

@@ -78,12 +78,16 @@ once an import has committed: after the sources of every member sync (`MemberSyn
 BoursoBank job. Those two only queue their job during a member sync, so their rows land after
 it returns. It is best effort: a failure is logged and never changes the sync result.
 
-A Fortuneo import rewrites up to 90 days of rows, past the 45-day classification window, and
-the holding the classifier matched may be gone by then. `FortuneoSyncService` therefore carries
-a recognition over (`DividendReceiptService.Recognition`: type `DIVIDEND`, ticker, name,
-category): onto the row updated in place when Fortuneo sends ids, and onto the recreated row of
-the same date, amount and label in the window import. The provider still wins when it types the
-row as something other than a credit or names another instrument.
+A Fortuneo import rewrites up to 90 days of rows, and a Finary import recreates every imported
+row of the account. Both reach past the 45-day classification window, and the holding the
+classifier matched may be gone by then. The import therefore carries a recognition over
+(`DividendReceiptService.Recognition`: type `DIVIDEND`, ticker, name, category). A row Fortuneo
+updates in place, matched on its id, keeps its own. A row the import deletes hands it to one
+recreated row of the same date, amount and label (`DividendReceiptService.Recognitions`). That
+covers the Fortuneo window import, the switch from window rows to identified rows, and every
+Finary sync (`FinaryPersistenceHelper.importTransactions`). The provider still wins when it types
+the row as something other than a credit or names another instrument. The automatic
+`revenus-capital` category then goes too, while a manual category stays.
 
 1. Owned accounts only. Categories are member-scoped, so a co-owned row is classified by its owner.
 2. Credits of the last 45 days: amount > 0, category not set manually (`categoryManual`, which

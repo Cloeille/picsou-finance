@@ -24,9 +24,11 @@ import java.math.RoundingMode;
 import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -490,13 +492,20 @@ public class DividendReceiptService {
             return new Recognition(tx.getTicker(), tx.getName(), tx.getCategoryRef(), tx.isCategoryManual());
         }
 
-        /** Restores it on the provider's version of the row, unless the provider types or names it otherwise. */
+        /**
+         * Restores it on the provider's version of the row, unless the provider types or names it
+         * otherwise. In that case it drops the automatic dividend category a row updated in place still carries.
+         */
         void restoreOn(Transaction tx) {
             boolean providerTyped = tx.getTxType() != null && tx.getTxType() != TransactionType.DEPOSIT
                 && tx.getTxType() != TransactionType.DIVIDEND;
             boolean providerNamed = tx.getTicker() != null && !tx.getTicker().isBlank()
                 && !tx.getTicker().equalsIgnoreCase(ticker);
             if (providerTyped || providerNamed) {
+                if (!tx.isCategoryManual() && tx.getCategoryRef() != null
+                    && CATEGORY_SLUG.equals(tx.getCategoryRef().getSlug())) {
+                    tx.setCategoryRef(null);
+                }
                 return;
             }
             tx.setTxType(TransactionType.DIVIDEND);
@@ -510,6 +519,40 @@ public class DividendReceiptService {
                 tx.setCategoryRef(category);
                 tx.setCategoryManual(categoryManual);
             }
+        }
+    }
+
+    /**
+     * Recognitions carried by rows an import is about to delete. A re-imported copy has no id
+     * to match on, so it is found again by date, amount and label; each one restores once.
+     */
+    public static final class Recognitions {
+
+        private final Map<RowKey, ArrayDeque<Recognition>> byRow = new HashMap<>();
+
+        public static Recognitions of(Collection<Transaction> deleted) {
+            Recognitions recognitions = new Recognitions();
+            for (Transaction row : deleted) {
+                Recognition recognition = Recognition.of(row);
+                if (recognition != null) {
+                    recognitions.byRow.computeIfAbsent(RowKey.of(row), key -> new ArrayDeque<>()).add(recognition);
+                }
+            }
+            return recognitions;
+        }
+
+        public void restoreOn(Transaction copy) {
+            ArrayDeque<Recognition> previous = byRow.get(RowKey.of(copy));
+            if (previous != null && !previous.isEmpty()) {
+                previous.poll().restoreOn(copy);
+            }
+        }
+    }
+
+    private record RowKey(LocalDate date, BigDecimal amount, String description) {
+        static RowKey of(Transaction row) {
+            BigDecimal amount = row.getAmount() == null ? null : row.getAmount().stripTrailingZeros();
+            return new RowKey(row.getDate(), amount, row.getDescription());
         }
     }
 }

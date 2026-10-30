@@ -494,6 +494,110 @@ class FortuneoSyncServiceTest {
     }
 
     @Test
+    void anIdentifiedImportKeepsADividendRecognisedOnTheWindowRowItReplaces() {
+        // A window import stores rows without ids. Once Fortuneo returns ids, those rows are
+        // replaced by identified copies, past the 45 days classification would revisit.
+        LocalDate paid = LocalDate.now().minusDays(50);
+        Account checking = Account.builder()
+            .id(20L).name("Compte Courant").type(AccountType.CHECKING).provider("Fortuneo").currency("EUR").build();
+        Category revenusCapital = Category.builder()
+            .id(100L).slug("revenus-capital").name("Revenus du capital").kind(CategoryKind.INCOME).build();
+        Transaction windowRow = Transaction.builder()
+            .id(5L).account(checking).date(paid).description("DIVIDENDE TOTALENERGIES")
+            .amount(new BigDecimal("59.5000")).nativeCurrency("EUR").build();
+        AtomicReference<List<Transaction>> ledger = new AtomicReference<>(List.of(windowRow));
+        DividendReceiptService receipts = realReceipts(checking, revenusCapital, ledger, paid.minusDays(9));
+        assertThat(receipts.classifyRecent(7L, paid.plusDays(1))).isEqualTo(1);
+
+        FamilyMember member = member();
+        arrangeQueuedSession(activeSession(member));
+        FortuneoPort.Transaction identified = new FortuneoPort.Transaction(
+            paid, "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, null, null, null, null, null
+        );
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
+            "cc-1", AccountType.CHECKING, new BigDecimal("500"), List.of(identified)
+        )));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(List.of(windowRow));
+        arrangeNewAccountPersistence(20L);
+
+        service.queueSync(7L);
+
+        verify(transactionWriter).reconcileHistory(obsoleteCaptor.capture(), transactionsCaptor.capture());
+        assertThat(obsoleteCaptor.getValue()).containsExactly(windowRow);
+        assertThat(transactionsCaptor.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getExternalId()).isEqualTo("tx-1");
+            assertThat(row.getTxType()).isEqualTo(TransactionType.DIVIDEND);
+            assertThat(row.getTicker()).isEqualTo("TTE.PA");
+            assertThat(row.getCategoryRef()).isSameAs(revenusCapital);
+        });
+        ledger.set(transactionsCaptor.getValue());
+        assertThat(receipts.received(7L, LocalDate.now(), 90)).singleElement().satisfies(line -> {
+            assertThat(line.ticker()).isEqualTo("TTE.PA");
+            assertThat(line.receivedDate()).isEqualTo(paid);
+        });
+    }
+
+    @Test
+    void aProviderTypeOtherThanACreditDropsTheAutomaticDividendCategory() {
+        FamilyMember member = member();
+        arrangeQueuedSession(activeSession(member));
+        Category revenusCapital = Category.builder()
+            .id(100L).slug("revenus-capital").name("Revenus du capital").kind(CategoryKind.INCOME).build();
+        Transaction stored = Transaction.builder()
+            .id(99L).externalId("tx-1").date(LocalDate.now().minusDays(50))
+            .description("DIVIDENDE TOTALENERGIES").amount(new BigDecimal("59.50"))
+            .txType(TransactionType.DIVIDEND).ticker("TTE.PA").categoryRef(revenusCapital).build();
+        FortuneoPort.Transaction retyped = new FortuneoPort.Transaction(
+            stored.getDate(), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, "SELL", null, null, null, null
+        );
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
+            "cc-1", AccountType.CHECKING, new BigDecimal("500"), List.of(retyped)
+        )));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(List.of(stored));
+        arrangeNewAccountPersistence(20L);
+
+        service.queueSync(7L);
+
+        verify(transactionWriter).reconcileHistory(any(), transactionsCaptor.capture());
+        assertThat(transactionsCaptor.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getTxType()).isEqualTo(TransactionType.SELL);
+            assertThat(row.getCategoryRef()).isNull();
+        });
+    }
+
+    @Test
+    void aProviderTypeOtherThanACreditKeepsAManualCategory() {
+        FamilyMember member = member();
+        arrangeQueuedSession(activeSession(member));
+        Category revenusCapital = Category.builder()
+            .id(100L).slug("revenus-capital").name("Revenus du capital").kind(CategoryKind.INCOME).build();
+        Transaction stored = Transaction.builder()
+            .id(99L).externalId("tx-1").date(LocalDate.now().minusDays(50))
+            .description("DIVIDENDE TOTALENERGIES").amount(new BigDecimal("59.50"))
+            .txType(TransactionType.DIVIDEND).ticker("TTE.PA").categoryRef(revenusCapital).categoryManual(true).build();
+        FortuneoPort.Transaction retyped = new FortuneoPort.Transaction(
+            stored.getDate(), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, "SELL", null, null, null, null
+        );
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
+            "cc-1", AccountType.CHECKING, new BigDecimal("500"), List.of(retyped)
+        )));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(List.of(stored));
+        arrangeNewAccountPersistence(20L);
+
+        service.queueSync(7L);
+
+        verify(transactionWriter).reconcileHistory(any(), transactionsCaptor.capture());
+        assertThat(transactionsCaptor.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getTxType()).isEqualTo(TransactionType.SELL);
+            assertThat(row.getCategoryRef()).isSameAs(revenusCapital);
+            assertThat(row.isCategoryManual()).isTrue();
+        });
+    }
+
+    @Test
     void aProviderTypeOtherThanACreditOverridesAnEarlierRecognition() {
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
