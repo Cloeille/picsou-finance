@@ -274,6 +274,28 @@ class DashboardTest(unittest.TestCase):
         )
         self.assertEqual(third_party, 2)
 
+    def test_children_accounts_are_skipped_without_failing_the_sync(self):
+        # A holder who manages a minor's accounts gets a "Comptes de mes
+        # enfants" panel. Its cards are BoursoBank accounts, so before this
+        # section was known they read as parse failures and failed the whole
+        # sync, the holder's own PEA included.
+        html = DASHBOARD_HTML + insurance_panel(
+            "data-summary-child",
+            "dddddddddddddddddddddddddddddddd",
+            "LIVRET A (M. DOE Junior)",
+            "2 476,41",
+        )
+        accounts, third_party = parse_dashboard(html)
+        self.assertEqual(
+            [(account["type"], account["name"]) for account in accounts],
+            [
+                ("CHECKING", "BoursoBank"),
+                ("LDDS", "LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE"),
+                ("PEA", "PEA DOE"),
+            ],
+        )
+        self.assertEqual(third_party, 2)
+
     def test_a_section_with_an_unknown_marker_still_fails_the_sync(self):
         html = DASHBOARD_HTML + insurance_panel(
             "data-summary-foobar",

@@ -209,6 +209,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **BoursoBank sync no longer fails when the dashboard lists children's accounts.** A holder
+  who manages a minor's accounts gets a "Comptes de mes enfants" panel, which the connector
+  did not know: its cards failed the completeness check and the whole sync stopped with
+  `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
+  like loans and insurance, since they belong to the child.
 - **Sidebar style prompt shows what each style looks like.** The two miniatures in the
   first-launch "choose your sidebar style" window now match the real sidebars: logo on the left
   beside the privacy toggle, two-line nav items, a full-height column with the member row and
