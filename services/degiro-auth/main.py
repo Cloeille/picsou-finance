@@ -412,4 +412,5 @@ async def portfolio(req: PortfolioRequest):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    base = os.environ.get("PICSOU_SIDECAR_BASE")
+    return {"status": "ok", "base": base} if base else {"status": "ok"}

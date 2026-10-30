@@ -27,6 +27,7 @@ import java.util.regex.Pattern;
 @Service
 public class SharedSidecarTransactionImportService {
     private static final String TRANSFER_CATEGORY = "virement-interne";
+    private static final String EUR = "EUR";
     private static final int KEY_LIMIT = 128;
     private static final int TEXT_LIMIT = 255;
     private static final int AMOUNT_SCALE = 8;
@@ -49,7 +50,7 @@ public class SharedSidecarTransactionImportService {
     public int importFor(Account account, List<SidecarTransaction> transactions,
                          CategorizationService.CategorizationContext context, String providerKeyPrefix) {
         if (transactions == null || transactions.isEmpty()) return 0;
-        if (account.getCurrency() != null && !"EUR".equalsIgnoreCase(account.getCurrency())) return 0;
+        if (!EUR.equals(currencyOf(null, account))) return 0;
 
         Set<String> snapshotIds = new HashSet<>();
         for (SidecarTransaction data : transactions) {
@@ -83,6 +84,10 @@ public class SharedSidecarTransactionImportService {
         for (int index = 0; index < transactions.size(); index++) {
             SidecarTransaction data = transactions.get(index);
             if (data == null || data.date() == null || data.amount() == null) continue;
+            // The Budget ledger is EUR-only. A Revolut exchange lists its foreign leg on the EUR
+            // pocket; booking it as EUR inflated every flow view by up to 10^8 (#251).
+            String currency = currencyOf(data, account);
+            if (!EUR.equals(currency)) continue;
             String sourceId = cleanId(data.externalId());
             String sourceKey = sourceId != null ? sourceId : syntheticKey(data, transactions, index);
             String externalId = boundedExternalId(sourceId == null ? sourceKey : sourceId);
@@ -106,7 +111,7 @@ public class SharedSidecarTransactionImportService {
                 .counterparty(boundedText(data.counterparty()))
                 .externalId(externalId)
                 .externalTransactionId(storedKey)
-                .nativeCurrency(account.getCurrency() == null ? "EUR" : account.getCurrency())
+                .nativeCurrency(currency)
                 .isManual(false)
                 .build();
             categorizationService.autoCategorize(transaction, context);
@@ -136,6 +141,13 @@ public class SharedSidecarTransactionImportService {
                 && normalizeDescription(old.getDescription()).equals(description)) return i;
         }
         return -1;
+    }
+
+    /** The leg's own currency when the sidecar reports one, else the account's, else EUR. */
+    private static String currencyOf(SidecarTransaction data, Account account) {
+        String currency = data == null || data.currency() == null || data.currency().isBlank()
+            ? account.getCurrency() : data.currency();
+        return currency == null || currency.isBlank() ? EUR : currency.trim().toUpperCase(Locale.ROOT);
     }
 
     private static boolean isSidecarKey(String key) {

@@ -307,6 +307,80 @@ async def test_invalid_transaction_amounts_fail_closed(invalid_amount):
     assert exc_info.value.detail == "INVALID_DATA"
 
 
+async def test_exchange_legs_keep_their_own_currency_and_scale():
+    # Synthetic legs shaped after the community client's EXCHANGE sample (tducret/revolut-python):
+    # each leg carries its own `currency`, and crypto amounts are 1e-8 units, not cents.
+    now_ms = int(time.time() * 1000) - 1000
+    crypto_leg = {**_tx("exchange-id", now_ms, -5_000_000, "EXCHANGE"),
+                  "description": "Exchanged to EUR", "currency": "BTC"}
+    fiat_leg = {**_tx("card", now_ms, -1250), "currency": "EUR"}
+    untagged = _tx("untagged", now_ms, -300)
+
+    calls = []
+
+    async def api_call(_page, _path, _device_id, params=None):
+        calls.append(params)
+        return {"status": 200, "data": [crypto_leg, fiat_leg, untagged] if len(calls) == 1 else []}
+
+    with patch.object(main, "api_call", api_call):
+        rows = {tx["externalId"]: tx for tx in
+                await main._fetch_transactions(object(), "device", "pocket", {"EUR", "USD"})}
+
+    assert rows["exchange-id"]["amount"] == -0.05
+    assert rows["exchange-id"]["currency"] == "BTC"
+    assert rows["card"]["amount"] == -12.5
+    assert rows["card"]["currency"] == "EUR"
+    assert rows["untagged"]["amount"] == -3.0
+    assert rows["untagged"]["currency"] is None
+
+
+async def test_both_exchange_legs_in_one_feed_are_kept_when_the_foreign_one_comes_first():
+    now_ms = int(time.time() * 1000) - 1000
+    foreign = {**_tx("exchange-id", now_ms, -5_000_000, "EXCHANGE"),
+               "description": "Exchanged to EUR", "currency": "BTC"}
+    eur = {**_tx("exchange-id", now_ms, 300_000, "EXCHANGE"),
+           "description": "Exchanged from BTC", "currency": "EUR"}
+    duplicate = dict(eur)
+    calls = []
+
+    async def api_call(_page, _path, _device_id, params=None):
+        calls.append(params)
+        return {"status": 200, "data": [foreign, eur, duplicate] if len(calls) == 1 else []}
+
+    with patch.object(main, "api_call", api_call):
+        rows = await main._fetch_transactions(object(), "device", "pocket", {"EUR"})
+
+    assert [(row["currency"], row["amount"]) for row in rows] == [("BTC", -0.05), ("EUR", 3000.0)]
+
+
+@pytest.mark.parametrize("payload, expected", [
+    ([{"code": "eur"}, {"code": "usd"}], {"EUR", "USD"}),
+    ([{"id": "3f1c-uuid", "name": "Euro"}], main.FIAT_FALLBACK),
+    (["USD", "GBP"], main.FIAT_FALLBACK),
+    ([], main.FIAT_FALLBACK),
+])
+async def test_fiat_list_is_normalized_and_falls_back_without_eur(payload, expected):
+    async def api_call(_page, _path, _device_id, params=None):
+        return {"status": 200, "data": payload}
+
+    with patch.object(main, "api_call", api_call):
+        assert await main._fetch_fiat_currencies(object(), "device") == set(expected)
+
+
+@pytest.mark.parametrize("invalid_currency", [42, "", "EURO-LONG-CODE", ["EUR"]])
+async def test_invalid_transaction_currency_fails_closed(invalid_currency):
+    async def api_call(_page, _path, _device_id, params=None):
+        return {"status": 200, "data": [{**_tx("bad-ccy", int(time.time() * 1000), -100),
+                                         "currency": invalid_currency}]}
+
+    with patch.object(main, "api_call", api_call):
+        with pytest.raises(HTTPException) as exc_info:
+            await main._fetch_transactions(object(), "device", "pocket")
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "INVALID_DATA"
+
+
 async def test_empty_transaction_list_is_successful():
     async def api_call(_page, _path, _device_id, params=None):
         return {"status": 200, "data": []}

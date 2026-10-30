@@ -11,9 +11,11 @@ import com.picsou.dto.AiCallLogPage;
 import com.picsou.dto.AiTestResponse;
 import com.picsou.dto.EnableBankingImportRequest;
 import com.picsou.dto.EnableBankingKeypairResponse;
+import com.picsou.dto.InstanceStatusResponse;
 import com.picsou.service.AiCallLogService;
 import com.picsou.service.EnableBankingCallLogger;
 import com.picsou.service.EnableBankingKeyPairService;
+import com.picsou.service.InstanceStatusService;
 import com.picsou.service.IntegrationsService;
 import com.picsou.service.SetupService;
 import com.picsou.telemetry.TelemetryService;
@@ -43,6 +45,7 @@ public class AdminController {
     private final AiCallLogService aiCallLogService;
     private final EnableBankingCallLogger ebCallLogger;
     private final TelemetryService telemetryService;
+    private final InstanceStatusService instanceStatusService;
     private final String envAllowedOrigins;
 
     public AdminController(SetupService setupService,
@@ -53,6 +56,7 @@ public class AdminController {
                            AiCallLogService aiCallLogService,
                            EnableBankingCallLogger ebCallLogger,
                            TelemetryService telemetryService,
+                           InstanceStatusService instanceStatusService,
                            @Value("${app.cors.allowed-origins:}") String envAllowedOrigins) {
         this.setupService = setupService;
         this.integrationsService = integrationsService;
@@ -62,6 +66,7 @@ public class AdminController {
         this.aiCallLogService = aiCallLogService;
         this.ebCallLogger = ebCallLogger;
         this.telemetryService = telemetryService;
+        this.instanceStatusService = instanceStatusService;
         this.envAllowedOrigins = envAllowedOrigins;
     }
 
@@ -206,5 +211,10 @@ public class AdminController {
     public ResponseEntity<Void> clearEbCallLog() {
         ebCallLogger.clear();
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/instance-status")
+    public ResponseEntity<InstanceStatusResponse> instanceStatus() {
+        return ResponseEntity.ok(instanceStatusService.status());
     }
 }

@@ -232,6 +232,24 @@ class SharedSidecarTransactionImportServiceTest {
     }
 
     @Test
+    void storesTheLegsOwnCurrencyAndSkipsAForeignLegOnAnEurAccount() {
+        Account account = account(1L);
+        SidecarTransaction exchangedIn = new SidecarTransaction("exchange-1", DATE, "Exchanged from BTC",
+            new BigDecimal("4.80"), null, null, "eur");
+        // A distinct id, so only the currency check (not batch dedup) can keep it out.
+        SidecarTransaction foreignLeg = new SidecarTransaction("exchange-2", DATE, "Exchanged to EUR",
+            new BigDecimal("-0.00005"), null, null, "BTC");
+        SidecarTransaction untagged = transaction("card-1", DATE, "Coffee", "-3.50", CategoryKind.EXPENSE);
+
+        assertThat(service.importFor(account, List.of(exchangedIn, foreignLeg, untagged), context(), "revolut"))
+            .isEqualTo(2);
+
+        assertThat(stored).extracting(Transaction::getDescription)
+            .containsExactly("Exchanged from BTC", "Coffee");
+        assertThat(stored).extracting(Transaction::getNativeCurrency).containsOnly("EUR");
+    }
+
+    @Test
     void identicalFingerprintOnAnotherAccountIsNotAOverlapMatch() {
         Account first = account(1L);
         Account second = account(2L);

@@ -258,6 +258,14 @@ public class SetupService {
         return settingRepository.findByKey(key).map(AppSetting::getValue);
     }
 
+    /** Non-blank setup override, otherwise the property URL (possibly blank). */
+    @Transactional(readOnly = true)
+    public String boursoAuthUrl(String propertyUrl) {
+        return readSetting(KEY_BOURSO_AUTH_URL)
+            .filter(value -> !value.isBlank())
+            .orElse(propertyUrl);
+    }
+
     void upsert(String key, String value) {
         AppSetting setting = settingRepository.findByKey(key)
             .orElseGet(() -> AppSetting.builder().key(key).build());

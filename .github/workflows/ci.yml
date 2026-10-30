@@ -33,13 +33,27 @@ jobs:
           PICSOU_RELEASE_TEST_IMAGE: picsou-release-smoke:test
         run: python3 -m pytest docker/tests/test_deploy_integration.py -v -s
 
+  docker-entrypoint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Check entrypoint syntax
+        run: bash -n docker/entrypoint.sh
+      - name: Test secrets passed to the backend process
+        run: python -m unittest discover -s docker/tests -p 'test_entrypoint.py' -v
+
   backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '21'

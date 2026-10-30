@@ -75,7 +75,45 @@ This rejects the whole sync, including balance updates for other accounts, if a
 very active pocket exhausts the page limit inside the window. Per-account partial
 success is not implemented. Until FX conversion is available, non-EUR accounts
 keep their balances but their transactions are not imported into EUR Budget and
-Cashflow totals; previously stored non-EUR transactions are not rewritten.
+Cashflow totals. The same rule applies per transaction: a leg whose own
+`currency` is not EUR is skipped even on an EUR pocket, and a stored row's
+`native_currency` is the leg's currency when it has one, else the pocket's. A foreign leg
+that arrives without a currency (a debit `Exchanged to EUR` or a credit `Exchanged from
+EUR`) is dropped by `RevolutSyncService`, because the pocket fallback would book it as EUR
+at the wrong scale. In one pocket's feed, two rows with the same id and different
+currencies are both kept: they are the two legs of one exchange.
+
+Before #251 the foreign leg of an exchange was stored as EUR at the wrong scale
+(units x 10^6, so 10x to 20x its euro value for BTC, 10^7x for a 0.10 EUR coin).
+`V118__revolut_exchange_leg_repair.sql` deletes it, row by row, from the wording and
+the sign. `Exchanged to EUR` means EUR was received, so the EUR leg is the credit and a
+debit with that description is the foreign leg. `Exchanged from EUR` means EUR was spent,
+so the EUR leg is the debit and a credit with that description is the foreign leg. The
+row goes when its account is a Revolut account (soft-deleted ones included), it is not
+manual, it has an `external_id`, it matches one of those two cases (case and spacing
+ignored), and either it is stamped `EUR` or another Revolut account of the same member
+holds a row with the same `external_id` and the opposite sign. It works whether Revolut
+gives each leg its own description or both legs the same one.
+
+An EUR-stamped row needs no partner. The old sidecar never read crypto pockets, so both legs
+came from the EUR pocket's feed under one id, and the per-pocket dedup kept only the first.
+When the foreign leg came first, it is the only row of that exchange. The EUR leg of the same
+wording has the opposite sign, so it never matches. A row stamped in another currency (a USD
+pocket's real leg) still needs a partner.
+
+The rule ignores amounts, because the gap depends on the asset's price. It ignores
+`external_transaction_id` and the number of rows per exchange, because legacy rows have no
+`external_transaction_id` and an exchange can span duplicate Revolut accounts, so it can
+hold more than two rows. A pair between two non-EUR currencies is left alone. The wording is
+English only; a row in another language is not repaired.
+
+The deleted rows are first copied to `transaction_v118_backup`, so a manual category stays
+recoverable. To undo, run `INSERT INTO transaction SELECT * FROM transaction_v118_backup;`,
+then drop the table once the result is checked. The undo works while `transaction` has not
+lost a column, and it does not restore `ai_call_log.transaction_id` (set to NULL by the
+delete). Recurring series are only refreshed by the
+next detection run (any sync, or `POST /api/recurring/detect`). `docker/deploy.sh` takes a
+`pg_dump` before migrating; any other deployment should take one first.
 
 The source's generic `TRANSFER` type alone does not prove an own-account move.
 Both legs are classified as `TRANSFER` only when exactly two distinct harvested
@@ -175,6 +213,14 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   Measure the true TTL after a ~24 h cool-down before deciding if unattended daily sync (keep-alive
   loop) is viable. On-demand sync works regardless.
 - **Balances are integer MINOR units** (cents): `12345` == `123.45` → `_minor_to_major` divides by 100.
+- **Transaction amounts use their own currency's scale.** A transaction carries its own
+  `currency`, which can differ from its pocket's: the source leg of an `Exchanged to EUR` is in
+  the source asset. `_fetch_transactions` emits that `currency` and divides a fiat leg by 100
+  and any other (crypto) leg by 10^8. The 10^8 scale comes from a community client
+  (tducret/revolut-python), not from a captured payload. A malformed `currency` fails closed
+  with `502 INVALID_DATA` for the whole sync, like a malformed amount; an absent one means the
+  pocket's (#251). Every fiat leg is read as cents, which is wrong for 0-decimal (JPY) and
+  3-decimal (KWD, BHD) currencies. It does not matter while only EUR legs are booked.
 - **`/api/retail/wallets` is a dict keyed by account type** (`{PERSONAL:[...], PERSONAL_JOINT:[...],
   YOUTH:[], ...}`), NOT a list, and NOT under a `wallets` key. Each wallet has a `pockets` list.
 - **Money-box balance is nested**: `{"amount": <cents>, "currency": "EUR"}` (not a flat number).
