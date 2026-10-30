@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { useInstanceStatus } from '@/features/admin/hooks'
 import type { InstanceStatusIssue } from '@/features/admin/api'
-import { useTelemetryConfig } from '@/features/telemetry/hooks'
+import { useTelemetryConsentPrompt } from '@/features/telemetry/hooks'
 import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { instanceStatusFingerprint } from './instance-status'
@@ -25,7 +25,7 @@ function explanationKey(issue: InstanceStatusIssue): string {
 /**
  * Admin-only alert when a sidecar the household uses is unreachable or still on a pre-base image,
  * or when a newer Picsou release exists. Dismiss persists a fingerprint; the dialog returns only
- * when that fingerprint changes. A clean status clears it, so the same problem coming back alerts again. Stays closed while the telemetry consent dialog would be open.
+ * when that fingerprint changes. A clean status clears it, so the same problem coming back alerts again. Stays closed while the telemetry consent dialog is on screen.
  */
 export function InstanceStatusDialog() {
   const { t } = useTranslation()
@@ -36,16 +36,15 @@ export function InstanceStatusDialog() {
   const dismiss = useAppStore((s) => s.setDismissedInstanceStatusFingerprint)
   const enabled = isAdmin && !demoMode
   const { data: status } = useInstanceStatus(enabled)
-  const telemetry = useTelemetryConfig(enabled)
+  const telemetryConsent = useTelemetryConsentPrompt()
 
   const fingerprint = status ? instanceStatusFingerprint(status) : null
-  const telemetryConsentOpen = telemetry.data?.available === true && telemetry.data.consent === 'UNSET'
   const hasAlert = (status?.issues.length ?? 0) > 0 || status?.update != null
   const open =
     enabled &&
     sidebarPromptSeen &&
-    !telemetry.isLoading &&
-    !telemetryConsentOpen &&
+    !telemetryConsent.isLoading &&
+    !telemetryConsent.open &&
     hasAlert &&
     fingerprint != null &&
     fingerprint !== dismissedFingerprint
