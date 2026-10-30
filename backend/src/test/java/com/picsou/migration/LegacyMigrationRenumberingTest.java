@@ -183,6 +183,38 @@ class LegacyMigrationRenumberingTest {
     }
 
     @Test
+    void aRelease1018DatabaseKeepsItsAccountsAndMergesOnlyGenuineDuplicates() throws Exception {
+        String url = createDatabase("release_1_0_18_accounts");
+        migrateLegacy(url, UNCHANGED_SINCE_1_0_18, RELEASE_1_0_18_RENAMED, "/legacy-migrations/1.0.18");
+        execute(url,
+            "INSERT INTO family_member (id, display_name) VALUES (900, 'Owner')",
+            "INSERT INTO account (id, name, provider, external_account_id, is_manual, member_id) VALUES "
+                + "(10, 'Bank A current', 'Bank A', '12345', false, 900), "
+                + "(11, 'Bank B current', 'Bank B', '12345', false, 900), "
+                + "(12, 'Manual', 'Bank B', '12345', true, 900), "
+                + "(13, 'Bank C duplicate', 'Bank C', '67890', false, 900), "
+                + "(14, 'Bank C', 'Bank C', '67890', false, 900)",
+            "INSERT INTO transaction (account_id, date, description, amount) VALUES "
+                + "(10, '2026-01-01', 'a', 1), (11, '2026-01-01', 'b', 2), (12, '2026-01-01', 'c', 3), "
+                + "(13, '2026-01-01', 'd', 4), (14, '2026-01-02', 'e', 5)",
+            "INSERT INTO balance_snapshot (account_id, date, balance, invested_amount) VALUES "
+                + "(10, '2026-01-01', 10, 0), (11, '2026-01-01', 11, 0), (12, '2026-01-01', 12, 0), "
+                + "(13, '2026-01-01', 13, 0), (13, '2026-01-02', 13, 0), (14, '2026-01-01', 14, 0)");
+
+        upgrade(url).migrate();
+
+        assertThat(upgrade(url).info().pending()).isEmpty();
+        assertThat(query(url, "SELECT id FROM account WHERE member_id = 900 ORDER BY id"))
+            .containsExactly("10", "11", "12", "14");
+        assertThat(query(url, "SELECT account_id || ' ' || description FROM transaction ORDER BY description"))
+            .containsExactly("10 a", "11 b", "12 c", "14 d", "14 e");
+        assertThat(query(url, "SELECT account_id || ' ' || date || ' ' || balance::int FROM balance_snapshot "
+            + "ORDER BY account_id, date")).containsExactly(
+            "10 2026-01-01 10", "11 2026-01-01 11", "12 2026-01-01 12",
+            "14 2026-01-01 14", "14 2026-01-02 13");
+    }
+
+    @Test
     void aSecondStartChangesNothing() throws Exception {
         String url = createDatabase("second_start");
         migrateLegacy(url, SECURITY_PROFILE_LINE);
@@ -207,9 +239,12 @@ class LegacyMigrationRenumberingTest {
             .load();
     }
 
-    /** Applies V1-V79 and the line's files under the names they had before 2839c94. */
+    /**
+     * Applies V1-V79, with V47 as 1.1.0 shipped it, and the line's files under the names they had
+     * before 2839c94.
+     */
     private static void migrateLegacy(String url, Map<String, String> line) throws Exception {
-        migrateLegacy(url, version -> version <= 79, line, null);
+        migrateLegacy(url, version -> version <= 79 && version != 47, line, "/legacy-migrations/1.1.0");
     }
 
     /**
@@ -262,6 +297,15 @@ class LegacyMigrationRenumberingTest {
             st.execute("CREATE DATABASE " + name);
         }
         return "jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432) + "/" + name;
+    }
+
+    private static void execute(String url, String... statements) throws SQLException {
+        try (Connection c = DriverManager.getConnection(url, POSTGRES.getUsername(), POSTGRES.getPassword());
+             Statement st = c.createStatement()) {
+            for (String sql : statements) {
+                st.execute(sql);
+            }
+        }
     }
 
     private static List<String> query(String url, String sql) throws SQLException {

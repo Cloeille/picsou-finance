@@ -86,6 +86,12 @@ description and checksum together; see
 `LegacyMigrationRenumberingCallback` and
 [the upgrade note](../features/docker-deployment.md#upgrading-a-110-install-that-applied-the-old-v80v88-numbering).
 
+Out-of-order is enabled, so a migration below the highest applied version can still run on a
+database that skipped it, on top of that database's data. A 1.0.x database runs 1.1.0's V33–V49 this
+way. Write data fixes so they are safe on populated tables, never delete rows a narrower key would
+keep (V47 now merges like V77 instead of deleting), and cover the path with a populated upgrade test
+in `LegacyMigrationRenumberingTest`.
+
 Example:
 
 ```sql

@@ -304,7 +304,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   edited. Before Flyway validates, those rows are moved to their new versions and given the new
   file's checksum. Each row must match the 1.0.x version, description and checksum exactly. The
   1.1.0 migrations that never ran on such a database (budget, OAuth2, hidden accounts, and others)
-  then run out of order. Instances held on 1.0.18 can upgrade directly.
+  then run out of order. Instances held on 1.0.18 can upgrade directly. V47, one of them, no longer
+  deletes accounts on such a database: two accounts from different banks, or a manual account,
+  sharing an external id are both kept, and genuine duplicates of one synced account are merged
+  with their transactions and balance history.
   ([#265](https://github.com/Cloeille/picsou-finance/issues/265))
 
 ### Security

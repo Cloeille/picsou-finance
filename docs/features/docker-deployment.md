@@ -371,6 +371,13 @@ the 1.1.0-only migrations out of order. Do not run `flyway repair` instead: it w
 1.1.0 migrations as applied although they never ran. Only databases from 1.0.11 on are affected.
 1.0.10 and earlier carry the current numbering.
 
+One of those out-of-order migrations, V47, adds the unique index on synced accounts. On a 1.0.x
+database it keeps every account that differs in provider or is manual. It merges only active synced
+accounts that share member, external id and provider, into the highest id, moving their
+transactions, snapshots, holdings and other dependent rows the way V77 does. A 1.1.0 database
+already ran an earlier V47 that deleted duplicates without merging them, and the callback gives
+that row the current checksum.
+
 **If you disabled Flyway as a workaround:**
 
 1. **Remove `SPRING_FLYWAY_ENABLED=false`** from your environment. With

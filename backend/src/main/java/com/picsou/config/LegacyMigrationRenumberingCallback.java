@@ -20,7 +20,8 @@ import java.util.List;
  * Moves the schema-history rows written under an old numbering to the versions their files carry
  * now, before Flyway validates the history: the 1.1.0 branch's V80, V81, V86-V88, which commit
  * 2839c94 moved to V93-V99, and the 1.0.x line's V38 and V54-V64, which the 1.1.0 merge moved to
- * V56-V65, V94 and V96.
+ * V56-V65, V94 and V96. It also restamps the files edited after release (V51, V47) with their
+ * current checksum.
  *
  * <p>Without it, a database that applied the old files fails validation (the old versions no
  * longer match the files now at those versions, or have no file) and would then re-run the moved
@@ -76,7 +77,13 @@ public class LegacyMigrationRenumberingCallback implements Callback {
         new Renumbering("55", "57", "wallet evm account name", -1244807568, -1770899403),
         new Renumbering("54", "56", "wallet ethereum to evm", 903440536),
         new Renumbering("51", "51", "requisition oauth state", 1952390840, 960451194),
-        new Renumbering("38", "94", "backfill tr crypto transaction tickers", 2050086936)
+        new Renumbering("38", "94", "backfill tr crypto transaction tickers", 2050086936),
+
+        // V47 used to delete every active account sharing an external id with a newer one, whatever
+        // its provider or is_manual. A 1.0.x database runs it out of order, so it now merges only
+        // genuine duplicates and creates V72's index. A 1.1.0 database already ran the old file;
+        // V72 replaced that index, so the new checksum describes its schema too.
+        new Renumbering("47", "47", "account external unique", -1024222822, 80293229)
     );
 
     @Override
