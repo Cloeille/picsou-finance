@@ -25,6 +25,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -538,6 +540,101 @@ class DividendReceiptServiceTest {
     }
 
     @Test
+    void aGenericNameWordAloneIsNotEvidence() {
+        Account cto = account(12L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction tx = credit(1L, cto, "2026-10-10", "50.00", "VIREMENT BANK DUPONT");
+        tx.setTxType(TransactionType.DEPOSIT);
+        stage(List.of(cto), List.of(tx), List.of(line(cto, "BAC", "Bank of America", "100")),
+            source("BAC", "EUR", event("2026-10-01", "0.85", "0.85", null)));
+
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isZero();
+
+        assertThat(tx.getTxType()).isEqualTo(TransactionType.DEPOSIT);
+        assertThat(tx.getTicker()).isNull();
+        assertThat(tx.getCategoryRef()).isNull();
+    }
+
+    @Test
+    void everyDistinctiveNameWordInTheLabelIsEvidence() {
+        Account cto = account(12L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction tx = credit(1L, cto, "2026-10-10", "50.00", "VIREMENT BANK OF AMERICA");
+        stage(List.of(cto), List.of(tx), List.of(line(cto, "BAC", "Bank of America", "100")),
+            source("BAC", "EUR", event("2026-10-01", "0.85", "0.85", null)));
+
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isEqualTo(1);
+
+        assertThat(tx.getTicker()).isEqualTo("BAC");
+    }
+
+    @Test
+    void anEarlierEventThatFitsIsUsedWhenTheLatestPaymentDateIsFarFromTheCredit() {
+        Account cto = account(12L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction tx = credit(1L, cto, "2026-10-10", "59.50", "DIVIDENDE TOTALENERGIES");
+        stage(List.of(cto), List.of(tx), List.of(line(cto, "TTE.PA", "TotalEnergies", "100")),
+            source("TTE.PA", "EUR",
+                event("2026-09-20", "0.85", "0.85", "2026-10-10"),
+                event("2026-10-01", "0.90", "0.90", "2026-11-10")));
+
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isEqualTo(1);
+
+        assertThat(tx.getTxType()).isEqualTo(TransactionType.DIVIDEND);
+    }
+
+    @Test
+    void receivedTakesTheNewestEventWhosePaymentDateFitsTheCredit() {
+        Account cto = account(13L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction tx = dividend(1L, cto, "2026-10-10", "59.50");
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(cto));
+        when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(anyCollection(), any(), any()))
+            .thenReturn(List.of(tx));
+        when(sources.findAllWithEventsByTickerIn(anyCollection())).thenReturn(List.of(
+            source("TTE.PA", "EUR",
+                event("2026-08-20", "0.80", "0.80", "2026-10-08"),
+                event("2026-09-20", "0.85", "0.85", "2026-10-10"),
+                event("2026-10-01", "0.90", "0.90", "2026-11-10"))));
+
+        assertThat(service.received(MEMBER, TODAY, 30)).singleElement().satisfies(line -> {
+            assertThat(line.id()).isEqualTo("HOLDING:13:TTE.PA:2026-09-20");
+            assertThat(line.exDate()).isEqualTo(LocalDate.of(2026, 9, 20));
+            assertThat(line.amountPerShare()).isEqualByComparingTo("0.85");
+        });
+    }
+
+    @Test
+    void receivedListsAManualDividendWithoutATickerOnTheCreditedAccount() {
+        Account cto = account(13L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction tx = credit(9L, cto, "2026-10-10", "20.00", "Dividende");
+        tx.setManual(true);
+        tx.setTxType(TransactionType.DIVIDEND);
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(cto));
+        when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(anyCollection(), any(), any()))
+            .thenReturn(List.of(tx));
+
+        assertThat(service.received(MEMBER, TODAY, 30)).singleElement().satisfies(line -> {
+            assertThat(line.id()).isEqualTo("HOLDING:13::tx9");
+            assertThat(line.transactionId()).isEqualTo(9L);
+            assertThat(line.accountId()).isEqualTo(13L);
+            assertThat(line.ticker()).isNull();
+            assertThat(line.amount()).isEqualByComparingTo("20.00");
+            assertThat(line.exDate()).isNull();
+            assertThat(line.amountPerShare()).isNull();
+            assertThat(line.countsInBudget()).isTrue();
+        });
+    }
+
+    @Test
+    void aMixedCaseHoldingTickerIsLookedUpInUppercase() {
+        Account cto = account(12L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction tx = credit(1L, cto, "2026-10-10", "59.50", "DIVIDENDE TOTALENERGIES");
+        stage(List.of(cto), List.of(tx), List.of(line(cto, "tte.pa", "TotalEnergies", "100")),
+            source("TTE.PA", "EUR", event("2026-10-01", "0.85", "0.85", null)));
+
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isEqualTo(1);
+
+        assertThat(tx.getTicker()).isEqualTo("tte.pa");
+    }
+
+    @Test
     void daysAreClampedToOneThrough366() {
         assertThat(DividendReceiptService.clampDays(0)).isEqualTo(1);
         assertThat(DividendReceiptService.clampDays(999)).isEqualTo(366);
@@ -552,7 +649,11 @@ class DividendReceiptServiceTest {
         when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(
             anyCollection(), eq(TODAY.minusDays(45)), eq(TODAY))).thenReturn(credits);
         lenient().when(holdings.findPositiveByAccountIdIn(anyCollection())).thenReturn(lines);
-        lenient().when(sources.findAllWithEventsByTickerIn(anyCollection())).thenReturn(List.of(stored));
+        // Matches stored uppercase tickers only, like the repository's IN clause.
+        lenient().when(sources.findAllWithEventsByTickerIn(anyCollection())).thenAnswer(invocation -> {
+            Collection<String> tickers = invocation.getArgument(0);
+            return Arrays.stream(stored).filter(s -> tickers.contains(s.getTicker())).toList();
+        });
     }
 
     private static Account account(long id, String name, AccountType type, String provider) {
