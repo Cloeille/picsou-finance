@@ -209,6 +209,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **American Express no longer stores a second copy of a charge AMEX re-describes.** A
+  charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
+  `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its
+  category, so budgets counted it twice. The stored row now takes the new label and keeps its
+  category; two identical purchases on the same day stay two rows. A relabelled charge is
+  matched only when it is the one purchase stored and the one reported for its date and amount,
+  so no charge takes another's category or recurring series. Copies stored before the
+  fix are not removed automatically, since nothing tells them from a genuine second purchase;
+  delete them by hand (#245).
 - **BoursoBank sync no longer fails when the dashboard lists children's accounts.** A holder
   who manages a minor's accounts gets a "Comptes de mes enfants" panel, which the connector
   did not know: its cards failed the completeness check and the whole sync stopped with

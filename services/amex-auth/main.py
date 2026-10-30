@@ -1917,6 +1917,27 @@ def _self_check() -> None:
     assert issue_196_balance["balanceEur"] == Decimal("-135.00")
     assert issue_196_balance["amountDue"] == Decimal("0.00")
 
+    # Issue #245: the balance a card showed was statement + 2 x (posted purchases since the
+    # statement), to the cent on two syncs. `statement + debits - credits` (the formula
+    # before #196) produces exactly that when total_payments_credits_amount carries the
+    # same purchases as a NEGATIVE figure: they are counted once as debits and once more
+    # by subtracting the negative credits. The raw payload was never captured, so this
+    # shape is inferred from those numbers, not observed. Invented figures: a 1000.00
+    # statement paid in full, 40.00 of purchases since. The old formula gave -1080.00;
+    # the remaining-based formula must give the 40.00 actually spent.
+    credits_carry_the_purchases = _parse_balance(
+        [{
+            "account_token": "tok-issue245",
+            "statement_balance_amount": 1000.0,
+            "remaining_statement_balance_amount": 0.0,
+            "total_debits_balance_amount": 40.0,
+            "total_payments_credits_amount": -40.0,
+        }],
+        account_token="tok-issue245",
+    )
+    assert credits_carry_the_purchases["balanceEur"] == Decimal("-40.00")
+    assert credits_carry_the_purchases["amountDue"] == Decimal("0.00")
+
     # Statement balance absent (only remaining + debits): nothing is proven
     # applied, so the amount owed stays whole: 500 + 20 = -520.00, and
     # credits (30) still reduce the debt: 500 + 20 - 30 = -490.00.
