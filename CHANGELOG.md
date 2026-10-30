@@ -209,6 +209,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **BoursoBank sync no longer fails when the dashboard lists children's accounts.** A holder
+  who manages a minor's accounts gets a "Comptes de mes enfants" panel, which the connector
+  did not know: its cards failed the completeness check and the whole sync stopped with
+  `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
+  like loans and insurance, since they belong to the child.
 - **Account edit and delete buttons on touch screens.** On the Accounts page these buttons
   only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
   the card's corner could still hit delete). They now stay visible on touch screens and when
