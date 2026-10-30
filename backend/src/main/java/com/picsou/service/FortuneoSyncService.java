@@ -32,7 +32,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -213,7 +215,7 @@ public class FortuneoSyncService {
             backfillPrices(prepared);
             if (commitPortfolio(job, prepared)) {
                 log.info("Fortuneo sync completed (member={})", job.memberId());
-                // The window import recreates its rows untyped, so each job classifies again.
+                // New rows arrive untyped, so each job classifies again.
                 dividendClassifier.afterImport(job.memberId());
             } else {
                 log.info("Discarded stale Fortuneo sync result (member={})", job.memberId());
@@ -770,6 +772,7 @@ public class FortuneoSyncService {
                     .nativeCurrency("EUR")
                     .build();
             } else {
+                DividendReceiptService.Recognition recognition = DividendReceiptService.Recognition.of(row);
                 row.setDate(tx.date());
                 row.setDescription(description);
                 row.setAmount(tx.amount());
@@ -781,6 +784,9 @@ public class FortuneoSyncService {
                 row.setQuantity(tx.quantity());
                 row.setPricePerUnit(tx.unitPrice());
                 row.setFees(tx.fees());
+                if (recognition != null) {
+                    recognition.restoreOn(row);
+                }
             }
             upserts.add(row);
         }
@@ -809,9 +815,14 @@ public class FortuneoSyncService {
         // window, and inserting it all while deleting only inside the window appends a
         // fresh copy of every older row on each sync, as reproduced by the
         // regression test below.
-        List<Transaction> toInsert = transactions.stream()
-            .filter(tx -> !tx.date().isBefore(cutoff))
-            .map(tx -> Transaction.builder()
+        Map<WindowRowKey, ArrayDeque<DividendReceiptService.Recognition>> recognised =
+            recognisedSince(account.getId(), cutoff);
+        List<Transaction> toInsert = new ArrayList<>();
+        for (FortuneoPort.Transaction tx : transactions) {
+            if (tx.date().isBefore(cutoff)) {
+                continue;
+            }
+            Transaction row = Transaction.builder()
                 .account(account)
                 .date(tx.date())
                 .description(limit(tx.label(), 255, "Fortuneo transaction"))
@@ -825,9 +836,32 @@ public class FortuneoSyncService {
                 .pricePerUnit(tx.unitPrice())
                 .fees(tx.fees())
                 .nativeCurrency("EUR")
-                .build())
-            .toList();
+                .build();
+            ArrayDeque<DividendReceiptService.Recognition> previous = recognised.get(WindowRowKey.of(row));
+            if (previous != null && !previous.isEmpty()) {
+                previous.poll().restoreOn(row);
+            }
+            toInsert.add(row);
+        }
         transactionWriter.replaceRecentTransactions(account.getId(), cutoff, toInsert);
+    }
+
+    /**
+     * Dividends recognised on the rows the window replacement is about to delete. Without an id,
+     * a re-sent row is found again by date, amount and label; identical rows pair up in order.
+     */
+    private Map<WindowRowKey, ArrayDeque<DividendReceiptService.Recognition>> recognisedSince(
+        Long accountId,
+        LocalDate cutoff
+    ) {
+        Map<WindowRowKey, ArrayDeque<DividendReceiptService.Recognition>> recognised = new HashMap<>();
+        for (Transaction stored : transactionRepository.findByAccountIdAndIsManualFalse(accountId)) {
+            DividendReceiptService.Recognition recognition = DividendReceiptService.Recognition.of(stored);
+            if (recognition != null && stored.getDate() != null && !stored.getDate().isBefore(cutoff)) {
+                recognised.computeIfAbsent(WindowRowKey.of(stored), key -> new ArrayDeque<>()).add(recognition);
+            }
+        }
+        return recognised;
     }
 
     /**
@@ -1071,6 +1105,13 @@ public class FortuneoSyncService {
     ) {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, null, FortuneoSyncStatus.IDLE, null, null, null);
+        }
+    }
+
+    private record WindowRowKey(LocalDate date, BigDecimal amount, String description) {
+        static WindowRowKey of(Transaction row) {
+            BigDecimal amount = row.getAmount() == null ? null : row.getAmount().stripTrailingZeros();
+            return new WindowRowKey(row.getDate(), amount, row.getDescription());
         }
     }
 

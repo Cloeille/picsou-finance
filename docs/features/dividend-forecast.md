@@ -76,8 +76,14 @@ A cash credit is recognised as a dividend from the stored history, with no netwo
 once an import has committed: after the sources of every member sync (`MemberSyncService`, in
 `resyncScheduled` and both `resyncForUser`), and at the end of each successful Fortuneo and
 BoursoBank job. Those two only queue their job during a member sync, so their rows land after
-it returns. A Fortuneo window import also recreates its rows untyped, so each job classifies
-them again. It is best effort: a failure is logged and never changes the sync result.
+it returns. It is best effort: a failure is logged and never changes the sync result.
+
+A Fortuneo import rewrites up to 90 days of rows, past the 45-day classification window, and
+the holding the classifier matched may be gone by then. `FortuneoSyncService` therefore carries
+a recognition over (`DividendReceiptService.Recognition`: type `DIVIDEND`, ticker, name,
+category): onto the row updated in place when Fortuneo sends ids, and onto the recreated row of
+the same date, amount and label in the window import. The provider still wins when it types the
+row as something other than a credit or names another instrument.
 
 1. Owned accounts only. Categories are member-scoped, so a co-owned row is classified by its owner.
 2. Credits of the last 45 days: amount > 0, category not set manually (`categoryManual`, which

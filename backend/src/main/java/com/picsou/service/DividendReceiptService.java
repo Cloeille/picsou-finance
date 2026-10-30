@@ -474,4 +474,42 @@ public class DividendReceiptService {
     }
 
     private record Line(Account account, AccountHolding holding) {}
+
+    /**
+     * What a recognised dividend row carries beyond the provider's fields. A provider import
+     * that rewrites the row must restore it: {@link #classifyRecent} only revisits the last
+     * {@value #LOOKBACK_DAYS} days, and the holding it matched may be gone by then.
+     */
+    record Recognition(String ticker, String name, Category category, boolean categoryManual) {
+
+        /** The recognition a stored row carries, or null when it is not a dividend. */
+        static Recognition of(Transaction tx) {
+            if (tx.getTxType() != TransactionType.DIVIDEND || tx.getTicker() == null || tx.getTicker().isBlank()) {
+                return null;
+            }
+            return new Recognition(tx.getTicker(), tx.getName(), tx.getCategoryRef(), tx.isCategoryManual());
+        }
+
+        /** Restores it on the provider's version of the row, unless the provider types or names it otherwise. */
+        void restoreOn(Transaction tx) {
+            boolean providerTyped = tx.getTxType() != null && tx.getTxType() != TransactionType.DEPOSIT
+                && tx.getTxType() != TransactionType.DIVIDEND;
+            boolean providerNamed = tx.getTicker() != null && !tx.getTicker().isBlank()
+                && !tx.getTicker().equalsIgnoreCase(ticker);
+            if (providerTyped || providerNamed) {
+                return;
+            }
+            tx.setTxType(TransactionType.DIVIDEND);
+            if (tx.getTicker() == null || tx.getTicker().isBlank()) {
+                tx.setTicker(ticker);
+            }
+            if (tx.getName() == null || tx.getName().isBlank()) {
+                tx.setName(name);
+            }
+            if (tx.getCategoryRef() == null) {
+                tx.setCategoryRef(category);
+                tx.setCategoryManual(categoryManual);
+            }
+        }
+    }
 }

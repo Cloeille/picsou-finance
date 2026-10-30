@@ -6,6 +6,11 @@ import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
+import com.picsou.model.Category;
+import com.picsou.model.CategoryKind;
+import com.picsou.model.DividendEvent;
+import com.picsou.model.DividendSource;
+import com.picsou.model.DividendSourceStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.FortuneoSession;
 import com.picsou.model.FortuneoSyncStatus;
@@ -15,9 +20,11 @@ import com.picsou.port.FortuneoErrorCode;
 import com.picsou.port.FortuneoPort;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.DividendSourceRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.FortuneoSessionRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.budget.CategorizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,6 +42,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
@@ -46,10 +54,12 @@ import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -404,6 +414,110 @@ class FortuneoSyncServiceTest {
         order.verify(dividendReceiptService).classifyRecent(7L, LocalDate.now());
         assertThat(statusSeenByClassification)
             .containsExactly(FortuneoSyncStatus.SUCCESS, FortuneoSyncStatus.SUCCESS);
+    }
+
+    @Test
+    void aWindowImportKeepsADividendRecognisedBeforeTheClassificationWindow() {
+        // Classification revisits 45 days, the window import rewrites 90: a dividend recognised
+        // 50 days ago is imported again untyped, and nothing would recognise it a second time.
+        LocalDate paid = LocalDate.now().minusDays(50);
+        Account checking = Account.builder()
+            .id(20L).name("Compte Courant").type(AccountType.CHECKING).provider("Fortuneo").currency("EUR").build();
+        Category revenusCapital = Category.builder()
+            .id(100L).slug("revenus-capital").name("Revenus du capital").kind(CategoryKind.INCOME).build();
+        Transaction stored = Transaction.builder()
+            .id(5L).account(checking).date(paid).description("DIVIDENDE TOTALENERGIES")
+            .amount(new BigDecimal("59.5000")).nativeCurrency("EUR").build();
+        AtomicReference<List<Transaction>> ledger = new AtomicReference<>(List.of(stored));
+        DividendReceiptService receipts = realReceipts(checking, revenusCapital, ledger, paid.minusDays(9));
+        assertThat(receipts.classifyRecent(7L, paid.plusDays(1))).isEqualTo(1);
+
+        FamilyMember member = member();
+        arrangeQueuedSession(activeSession(member));
+        FortuneoPort.Transaction again = new FortuneoPort.Transaction(
+            paid, "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, null, null, null, null, null, null, null
+        );
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
+            "cc-1", AccountType.CHECKING, new BigDecimal("500"), List.of(again)
+        )));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(List.of(stored));
+        arrangeNewAccountPersistence(20L);
+
+        service.queueSync(7L);
+
+        verify(transactionWriter).replaceRecentTransactions(
+            eq(20L), any(LocalDate.class), transactionsCaptor.capture());
+        assertThat(transactionsCaptor.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getTxType()).isEqualTo(TransactionType.DIVIDEND);
+            assertThat(row.getTicker()).isEqualTo("TTE.PA");
+            assertThat(row.getCategoryRef()).isSameAs(revenusCapital);
+        });
+        ledger.set(transactionsCaptor.getValue());
+        assertThat(receipts.received(7L, LocalDate.now(), 90)).singleElement().satisfies(line -> {
+            assertThat(line.ticker()).isEqualTo("TTE.PA");
+            assertThat(line.amount()).isEqualByComparingTo("59.50");
+            assertThat(line.receivedDate()).isEqualTo(paid);
+        });
+    }
+
+    @Test
+    void anIdentifiedImportKeepsTheDividendRecognisedOnTheRowItUpdates() {
+        FamilyMember member = member();
+        arrangeQueuedSession(activeSession(member));
+        Category revenusCapital = Category.builder()
+            .id(100L).slug("revenus-capital").name("Revenus du capital").kind(CategoryKind.INCOME).build();
+        Transaction stored = Transaction.builder()
+            .id(99L).externalId("tx-1").date(LocalDate.now().minusDays(50))
+            .description("DIVIDENDE TOTALENERGIES").amount(new BigDecimal("59.50"))
+            .txType(TransactionType.DIVIDEND).ticker("TTE.PA").name("TotalEnergies")
+            .categoryRef(revenusCapital).build();
+        FortuneoPort.Transaction again = new FortuneoPort.Transaction(
+            stored.getDate(), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, null, null, null, null, null
+        );
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
+            "cc-1", AccountType.CHECKING, new BigDecimal("500"), List.of(again)
+        )));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(List.of(stored));
+        arrangeNewAccountPersistence(20L);
+
+        service.queueSync(7L);
+
+        verify(transactionWriter).reconcileHistory(any(), transactionsCaptor.capture());
+        assertThat(transactionsCaptor.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getTxType()).isEqualTo(TransactionType.DIVIDEND);
+            assertThat(row.getTicker()).isEqualTo("TTE.PA");
+            assertThat(row.getName()).isEqualTo("TotalEnergies");
+            assertThat(row.getCategoryRef()).isSameAs(revenusCapital);
+        });
+    }
+
+    @Test
+    void aProviderTypeOtherThanACreditOverridesAnEarlierRecognition() {
+        FamilyMember member = member();
+        arrangeQueuedSession(activeSession(member));
+        Transaction stored = Transaction.builder()
+            .id(99L).externalId("tx-1").date(LocalDate.now().minusDays(50))
+            .description("DIVIDENDE TOTALENERGIES").amount(new BigDecimal("59.50"))
+            .txType(TransactionType.DIVIDEND).ticker("TTE.PA").build();
+        FortuneoPort.Transaction retyped = new FortuneoPort.Transaction(
+            stored.getDate(), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, "SELL", null, null, null, null
+        );
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
+            "cc-1", AccountType.CHECKING, new BigDecimal("500"), List.of(retyped)
+        )));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(List.of(stored));
+        arrangeNewAccountPersistence(20L);
+
+        service.queueSync(7L);
+
+        verify(transactionWriter).reconcileHistory(any(), transactionsCaptor.capture());
+        assertThat(transactionsCaptor.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getTxType()).isEqualTo(TransactionType.SELL);
+            assertThat(row.getTicker()).isNull();
+        });
     }
 
     @Test
@@ -1261,6 +1375,34 @@ class FortuneoSyncServiceTest {
             account.setId(nextId.getAndIncrement());
             return account;
         });
+    }
+
+    /** The real classifier over one account holding 100 TTE.PA, reading the rows {@code ledger} holds. */
+    private static DividendReceiptService realReceipts(
+        Account account,
+        Category revenusCapital,
+        AtomicReference<List<Transaction>> ledger,
+        LocalDate exDate
+    ) {
+        AccountRepository accounts = mock(AccountRepository.class);
+        AccountAccessResolver access = mock(AccountAccessResolver.class);
+        AccountHoldingRepository holdings = mock(AccountHoldingRepository.class);
+        DividendSourceRepository sources = mock(DividendSourceRepository.class);
+        TransactionRepository transactions = mock(TransactionRepository.class);
+        CategorizationService categorization = mock(CategorizationService.class);
+        DividendSource source = DividendSource.builder()
+            .ticker("TTE.PA").currency("EUR").status(DividendSourceStatus.OK).events(new ArrayList<>()).build();
+        source.getEvents().add(DividendEvent.builder()
+            .source(source).exDate(exDate).amount(new BigDecimal("0.85")).amountEur(new BigDecimal("0.85")).build());
+        lenient().when(accounts.findAllByMemberIdOrderByCreatedAtAsc(7L)).thenReturn(List.of(account));
+        lenient().when(access.readableAccounts(7L)).thenReturn(List.of(account));
+        lenient().when(holdings.findPositiveByAccountIdIn(anyCollection())).thenReturn(List.of(AccountHolding.builder()
+            .account(account).ticker("TTE.PA").name("TotalEnergies").quantity(new BigDecimal("100")).build()));
+        lenient().when(sources.findAllWithEventsByTickerIn(anyCollection())).thenReturn(List.of(source));
+        lenient().when(categorization.categoriesBySlug(7L)).thenReturn(Map.of("revenus-capital", revenusCapital));
+        lenient().when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(anyCollection(), any(), any()))
+            .thenAnswer(invocation -> ledger.get());
+        return new DividendReceiptService(accounts, access, holdings, sources, transactions, categorization);
     }
 
     private FortuneoSyncService serviceWith(Executor executor) {

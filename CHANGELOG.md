@@ -14,8 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it under capital income. `GET /api/dividends/received` lists them, with the same id as the
   forecast line they fulfil. A deposit that merely has a similar amount is left alone, and so is
   a category you picked yourself, including one chosen when adding or editing a transaction by
-  hand. Fortuneo and BoursoBank dividends are recognised as soon as their sync finishes, and
-  London lines quoted in pence are matched in pounds.
+  hand. Fortuneo and BoursoBank dividends are recognised as soon as their sync finishes, a
+  later Fortuneo sync keeps the dividends it already recognised, and London lines quoted in
+  pence are matched in pounds.
 
 - **Instance-status alert for admins.** An admin sees a pop-up when a sidecar the household
   uses does not answer, or still runs an image from before the shared base images (typically
