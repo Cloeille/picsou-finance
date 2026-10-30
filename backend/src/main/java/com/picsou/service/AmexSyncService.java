@@ -522,7 +522,7 @@ public class AmexSyncService {
      *
      * <p>A stored posted row the response no longer reports, with the same date and amount as a
      * reported posted charge nobody stores, is that charge: it takes the reported identity and
-     * label and keeps its category and series. Three things keep this from merging genuine
+     * label and keeps its category and series. Four things keep this from merging genuine
      * purchases:
      * <ul>
      *   <li>a row the response still reports is never a candidate, so identical purchases AMEX
@@ -531,6 +531,10 @@ public class AmexSyncService {
      *       its date and amount: two merchants charging the same amount on the same day leave
      *       nothing to tell which row is which, and pairing them in iteration order would swap
      *       their categories and series, so the group is left alone;
+     *   <li>that row's label must be the only one of its kind among stored posted rows of its date
+     *       and amount: identical purchases are told apart only by their order in the response,
+     *       so when AMEX relabels one, the one still reported takes the first copy's id whichever
+     *       it is, and the leftover row could be either purchase;
      *   <li>the row must be dated more than {@link #SETTLEMENT_WINDOW_DAYS} days after the oldest
      *       posted charge the response reports: the posted feed is one page cut on the posting
      *       date while rows carry the charge date, so a stored row near that edge may simply sit
@@ -559,6 +563,12 @@ public class AmexSyncService {
             .orElseThrow();
 
         record Charge(LocalDate date, BigDecimal amount) {}
+        record Purchase(Charge charge, String label) {}
+        Map<Purchase, Long> storedCopies = stored.stream()
+            .filter(row -> row.getExternalId() != null && row.getExternalId().startsWith(POSTED_TX_ID_PREFIX))
+            .collect(Collectors.groupingBy(row -> new Purchase(
+                new Charge(row.getDate(), row.getAmount().stripTrailingZeros()), row.getDescription()),
+                Collectors.counting()));
         Map<Charge, List<Transaction>> candidates = stored.stream()
             .filter(row -> row.getExternalId() != null
                 && row.getExternalId().startsWith(POSTED_TX_ID_PREFIX)
@@ -573,6 +583,7 @@ public class AmexSyncService {
             List<Transaction> rows = candidates.getOrDefault(charge, List.of());
             if (txs.size() != 1 || rows.size() != 1) return;
             Transaction row = rows.getFirst();
+            if (storedCopies.get(new Purchase(charge, row.getDescription())) > 1) return;
             row.setExternalId(txs.getFirst().externalId());
             row.setDescription(txs.getFirst().label());
             adopted.add(row);
