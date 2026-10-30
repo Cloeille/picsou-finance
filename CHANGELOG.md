@@ -209,6 +209,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Account edit and delete buttons on touch screens.** On the Accounts page these buttons
+  only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
+  the card's corner could still hit delete). They now stay visible on touch screens and when
+  keyboard focus is inside the card.
+
 - **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
