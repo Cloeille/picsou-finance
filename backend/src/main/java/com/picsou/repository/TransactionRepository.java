@@ -345,4 +345,41 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @Query("SELECT DISTINCT t.account.id FROM Transaction t "
         + "WHERE t.isManual = true AND t.account.isManual = true AND t.ticker IN :tickers")
     List<Long> findManualAccountIdsByTickerIn(@Param("tickers") Collection<String> tickers);
+
+    /**
+     * A past DIVIDEND cash date: account, ticker, and the day the cash was booked.
+     * Enough to learn a payment lag; the amount is irrelevant.
+     */
+    interface DividendCashDate {
+        Long getAccountId();
+
+        String getTicker();
+
+        LocalDate getDate();
+    }
+
+    /**
+     * DIVIDEND rows of accounts the caller already proved readable, booked on or after
+     * {@code since}. Empty ids return nothing: an empty {@code IN} is not a query the
+     * database accepts. Ticker case and the 60-day pairing are the caller's job.
+     */
+    default List<DividendCashDate> findDividendCashDates(Collection<Long> accountIds, LocalDate since) {
+        if (accountIds == null || accountIds.isEmpty() || since == null) {
+            return List.of();
+        }
+        return findDividendCashDatesByType(accountIds, TransactionType.DIVIDEND, since);
+    }
+
+    @Query("""
+        SELECT t.account.id AS accountId, t.ticker AS ticker, t.date AS date
+        FROM Transaction t
+        WHERE t.account.id IN :accountIds
+          AND t.txType = :txType
+          AND t.ticker IS NOT NULL
+          AND t.date >= :since
+        """)
+    List<DividendCashDate> findDividendCashDatesByType(
+        @Param("accountIds") Collection<Long> accountIds,
+        @Param("txType") TransactionType txType,
+        @Param("since") LocalDate since);
 }

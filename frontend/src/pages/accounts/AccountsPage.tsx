@@ -73,6 +73,11 @@ const TYPE_TO_GROUP: Record<AccountType, string> = {
 }
 
 
+// The edit / delete buttons over each card show on hover; a touch screen has no
+// hover, so they stay visible there, and when keyboard focus is inside the card.
+const CARD_ACTIONS_CLASS =
+  'absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100 transition-opacity'
+
 type AccountFormData = {
   name: string
   type: AccountType
@@ -559,11 +564,12 @@ export function AccountsPage() {
                   account={wallet}
                   onClick={() => navigate(`/accounts/${wallet.id}`)}
                 />
-                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className={CARD_ACTIONS_CLASS}>
                   <Button
                     variant="ghost"
                     size="icon"
                     className="size-7"
+                    aria-label={t('common.edit')}
                     onClick={(e) => {
                       e.stopPropagation()
                       handleOpenEdit(wallet)
@@ -575,6 +581,7 @@ export function AccountsPage() {
                     variant="ghost"
                     size="icon"
                     className="size-7 text-destructive hover:text-destructive"
+                    aria-label={t('common.delete')}
                     onClick={(e) => {
                       e.stopPropagation()
                       setDeleteId(wallet.id)
@@ -597,11 +604,12 @@ export function AccountsPage() {
                         account={pocket}
                         onClick={() => navigate(`/accounts/${pocket.id}`)}
                       />
-                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className={CARD_ACTIONS_CLASS}>
                         <Button
                           variant="ghost"
                           size="icon"
                           className="size-7"
+                          aria-label={t('common.edit')}
                           onClick={(e) => {
                             e.stopPropagation()
                             handleOpenEdit(pocket)
@@ -626,11 +634,12 @@ export function AccountsPage() {
                     account={account}
                     onClick={() => navigate(`/accounts/${account.id}`)}
                   />
-                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className={CARD_ACTIONS_CLASS}>
                     <Button
                       variant="ghost"
                       size="icon"
                       className="size-7"
+                      aria-label={t('common.edit')}
                       onClick={(e) => {
                         e.stopPropagation()
                         handleOpenEdit(account)
@@ -642,6 +651,7 @@ export function AccountsPage() {
                       variant="ghost"
                       size="icon"
                       className="size-7 text-destructive hover:text-destructive"
+                      aria-label={t('common.delete')}
                       onClick={(e) => {
                         e.stopPropagation()
                         setDeleteId(account.id)

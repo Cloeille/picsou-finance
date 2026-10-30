@@ -47,6 +47,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from camoufox.async_api import AsyncCamoufox
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from playwright.async_api import TimeoutError as PlaywrightTimeout
 from pydantic import BaseModel
 
 # C0/C1 controls (CR, LF, ESC, NEL...) and the Unicode line/paragraph separators.
@@ -118,6 +119,8 @@ PROFILES_ROOT = os.environ.get("REVOLUT_PROFILES_DIR", "/data/revolut-profiles")
 
 ENROLMENT_APPROVE_WAIT_S = 300
 POLL_MS = 3000
+LOGIN_SCREEN_WAIT_S = 30
+LOGIN_SCREEN_POLL_MS = 300
 MAX_TRANSACTION_PAGES = 20
 TRANSACTION_WINDOW_DAYS = 90
 CAMOUFOX_LAUNCH_TIMEOUT_S = float(os.environ.get("CAMOUFOX_LAUNCH_TIMEOUT_S", "60"))
@@ -301,6 +304,24 @@ def session_expired() -> JSONResponse:
 def browser_launch_failed() -> JSONResponse:
     """Flat 503 the backend parses when the browser runtime/profile cannot launch."""
     return JSONResponse(status_code=503, content={"error": "BROWSER_LAUNCH_FAILED"})
+
+
+def login_screen_timeout() -> JSONResponse:
+    """Flat 504 when neither the phone nor the passcode screen showed up after the SSO redirect.
+    No dedicated Java mapping: the backend logs the body and shows its generic sync failure."""
+    return JSONResponse(status_code=504, content={"error": "LOGIN_SCREEN_TIMEOUT"})
+
+
+def human_verification_required() -> JSONResponse:
+    """Flat 403 when Revolut serves an hCaptcha challenge the sidecar cannot solve: no passcode
+    screen follows, so no mobile push is ever sent."""
+    return JSONResponse(status_code=403, content={"error": "HUMAN_VERIFICATION_REQUIRED"})
+
+
+def upstream_format_changed() -> JSONResponse:
+    """Flat 424 when the login flow ends in a state the sidecar does not recognise. Not 502: the
+    harvest already uses it for UPSTREAM_UNAVAILABLE/INVALID_DATA, which Java treats as generic."""
+    return JSONResponse(status_code=424, content={"error": "UPSTREAM_FORMAT_CHANGED"})
 
 
 # ─── In-page authenticated fetch (below the app's JS, per docs §3.4) ────────────
@@ -681,6 +702,13 @@ async def _logged_in(page) -> bool:
         return False
 
 
+_PHONE_INPUT = "input[name='phoneNumber'], input[inputmode='tel'], input[type='tel']"
+# Single-field fallbacks when the passcode is not rendered as 6 separate boxes.
+_PASSCODE_FIELD_INPUTS = ("input[type='password']", "input[inputmode='numeric']")
+# :visible, because hCaptcha also parks hidden iframes on pages where no challenge is shown.
+_HCAPTCHA_FRAME = "iframe[src*='hcaptcha.com']:visible"
+
+
 async def _click_continue(page) -> None:
     for name in ("Continuer", "Continue"):
         btn = page.get_by_role("button", name=name)
@@ -696,6 +724,40 @@ async def _click_continue(page) -> None:
     await page.keyboard.press("Enter")
 
 
+async def _passcode_inputs_present(page) -> bool:
+    if await page.get_by_role("textbox").count() >= 6:
+        return True
+    for sel in _PASSCODE_FIELD_INPUTS:
+        if await page.locator(sel).count():
+            return True
+    return False
+
+
+async def _wait_for_login_screen(page, *, phone: bool = True) -> Optional[str]:
+    """Wait (bounded) for the first login screen Revolut's SSO renders: "passcode", "phone", or
+    "captcha" when an hCaptcha challenge stands in the way.
+
+    app.revolut.com redirects to sso.revolut.com/signin, and the SPA only then decides which
+    screen to show -- a known device lands on /passcode after a delay. A screen counts only once
+    its inputs are rendered: the SPA switches the route (`/passcode`) before the passcode boxes
+    exist, so the URL is never trusted and polling simply continues until the inputs show up.
+    Returns None if nothing appeared in time.
+    `phone=False` waits for the passcode screen only (the step after submitting the phone):
+    the phone field stays on screen under a captcha, so the captcha is what ends that wait.
+    A visible captcha is checked before the phone input for the same reason on the first screen:
+    a profile challenged last time shows the phone field with the challenge on top.
+    """
+    for _ in range(LOGIN_SCREEN_WAIT_S * 1000 // LOGIN_SCREEN_POLL_MS):
+        if await _passcode_inputs_present(page):
+            return "passcode"
+        if await page.locator(_HCAPTCHA_FRAME).count():
+            return "captcha"
+        if phone and await page.locator(_PHONE_INPUT).count():
+            return "phone"
+        await page.wait_for_timeout(LOGIN_SCREEN_POLL_MS)
+    return None
+
+
 async def _fill_phone(page, phone: str) -> None:
     num = phone.strip().replace(" ", "")
     for pfx in ("+33", "0033"):
@@ -703,26 +765,27 @@ async def _fill_phone(page, phone: str) -> None:
             num = num[len(pfx):]
     if num.startswith("0"):
         num = num[1:]
-    tel = page.locator("input[name='phoneNumber'], input[inputmode='tel'], input[type='tel']").first
+    tel = page.locator(_PHONE_INPUT).first
     await tel.click()
     await tel.fill("")
     await tel.type(num, delay=70)
     await _click_continue(page)
-    await page.wait_for_timeout(5000)
 
 
-async def _fill_passcode(page, passcode: str) -> None:
+async def _fill_passcode(page, passcode: str) -> bool:
+    """Type the passcode; False when no passcode input is on the page (nothing was submitted)."""
     boxes = page.get_by_role("textbox")
     if await boxes.count() >= 6:
         await boxes.first.click()
         await page.keyboard.type(passcode, delay=120)  # 6-digit passcode auto-submits; no click
-        return
-    for sel in ("input[type='password']", "input[inputmode='numeric']"):
+        return True
+    for sel in _PASSCODE_FIELD_INPUTS:
         loc = page.locator(sel)
         if await loc.count():
             await loc.first.fill(passcode)
             await page.keyboard.press("Enter")
-            return
+            return True
+    return False
 
 
 # ─── Per-member serialization ───────────────────────────────────────────────
@@ -842,12 +905,29 @@ async def sync(req: SyncRequest):
         try:
             async with _open_camoufox(req.memberId, headless=False, recover_profile=True) as ctx:
                 page = await ctx.new_page()
-                await page.goto(APP_URL, wait_until="domcontentloaded", timeout=45000)
-                await page.wait_for_timeout(3000)
-                if "passcode" not in page.url:
-                    await _fill_phone(page, req.phoneNumber)
-                if "passcode" in page.url or await page.get_by_role("textbox").count() >= 6:
-                    await _fill_passcode(page, req.passcode)
+                try:
+                    await page.goto(APP_URL, wait_until="domcontentloaded", timeout=45000)
+                    screen = await _wait_for_login_screen(page)
+                    if screen is None:
+                        log.warning("member %s: no login screen after %ss (url=%s)",
+                                    safe(req.memberId), LOGIN_SCREEN_WAIT_S, safe(page.url.split("?")[0]))
+                        return login_screen_timeout()
+                    if screen == "phone":
+                        await _fill_phone(page, req.phoneNumber)
+                        screen = await _wait_for_login_screen(page, phone=False)
+                    submitted = screen == "passcode" and await _fill_passcode(page, req.passcode)
+                except PlaywrightTimeout as exc:
+                    log.warning("member %s: login step timed out (url=%s): %s", safe(req.memberId),
+                                safe(page.url.split("?")[0]), safe(exc))
+                    return upstream_format_changed()
+                if screen == "captcha":
+                    log.warning("member %s: Revolut served an hCaptcha challenge, no mobile "
+                                "approval will be sent", safe(req.memberId))
+                    return human_verification_required()
+                if not submitted:
+                    log.warning("member %s: login did not reach a submitted passcode (screen=%s, url=%s)",
+                                safe(req.memberId), screen, safe(page.url.split("?")[0]))
+                    return upstream_format_changed()
 
                 log.info("member %s: login form submitted in %.1fs, waiting up to %ss for mobile approval",
                           req.memberId, time.monotonic() - t0, ENROLMENT_APPROVE_WAIT_S)

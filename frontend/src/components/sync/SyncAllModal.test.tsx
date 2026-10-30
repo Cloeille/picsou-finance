@@ -102,7 +102,7 @@ const REVOLUT_NOT_REMEMBERED = { connected: false, remembered: false, lastSynced
 const REVOLUT_REMEMBERED = { connected: false, remembered: true, lastSyncedAt: '2026-08-10T08:00:00Z' }
 const REVOLUT_RUNNING = {
   running: true, phase: 'LOGIN', elapsedSeconds: 1, remainingSeconds: null,
-  accountsFound: null, done: false, error: null, discovered: [],
+  accountsFound: null, done: false, error: null, errorCode: null, discovered: [],
 }
 const discoveredAccount = (externalId: string) => ({
   externalId, name: externalId, type: 'CHECKING', currency: 'EUR', balance: 10,
@@ -664,6 +664,23 @@ describe('SyncAllModal Revolut and "Sync all"', () => {
     fireEvent.click(button)
 
     await waitFor(() => expect(button).toBeEnabled())
+    expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync/confirm', expect.anything())
+  })
+
+  it('shows a translated captcha message on the Revolut row, never the approval countdown', async () => {
+    revolutStatus = REVOLUT_REMEMBERED
+    revolutProgress = {
+      ...REVOLUT_DONE, phase: 'LOGGING_IN', discovered: [],
+      error: 'English sentence', errorCode: 'HUMAN_VERIFICATION_REQUIRED',
+    }
+    renderModal()
+
+    const row = (await screen.findByText('Revolut')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    expect(await within(row).findByText('sync.revolut.errors.humanVerificationRequired')).toBeInTheDocument()
+    expect(within(row).queryByText('English sentence')).not.toBeInTheDocument()
+    expect(within(row).queryByText(/awaitingApproval/)).not.toBeInTheDocument()
     expect(apiPost).not.toHaveBeenCalledWith('/revolut/sync/confirm', expect.anything())
   })
 

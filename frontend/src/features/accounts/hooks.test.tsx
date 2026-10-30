@@ -608,7 +608,7 @@ describe('useUpdateScpiPosition', () => {
     const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
     const keys = [
       ['accounts'], ['accounts', 42], ['real-estate', 'summary'],
-      ['dashboard'], ['analysis', 'wealth-pyramid'],
+      ['dashboard'], ['analysis', 'wealth-pyramid'], ['dividends', 'upcoming', 60],
     ]
     keys.forEach(key => client.setQueryData(key, { previous: true }))
     const wrapper = ({ children }: { children: ReactNode }) => (

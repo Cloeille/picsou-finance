@@ -1,5 +1,6 @@
 """Shared-key authentication for every non-health HTTP path."""
 
+import os
 import unittest
 from unittest.mock import patch
 
@@ -49,8 +50,16 @@ class SidecarAuthenticationTest(unittest.TestCase):
                 self.assert_unauthorized(self.client.get(path))
 
     def test_only_exact_health_path_is_public(self):
-        self.assertEqual(self.client.get("/health").json(), {"status": "ok"})
+        with patch.dict(os.environ):
+            os.environ.pop("PICSOU_SIDECAR_BASE", None)
+            body = self.client.get("/health").json()
+        self.assertEqual(body, {"status": "ok"})
         self.assert_unauthorized(self.client.get("/health/"))
+
+    def test_health_reports_the_shared_base_when_set(self):
+        with patch.dict(os.environ, {"PICSOU_SIDECAR_BASE": "sidecar-python"}):
+            body = self.client.get("/health").json()
+        self.assertEqual(body, {"status": "ok", "base": "sidecar-python"})
 
     def test_configured_non_ascii_key_authenticates_as_utf8(self):
         service.SIDECAR_API_KEY = "clé"

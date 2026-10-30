@@ -977,7 +977,8 @@ def _portfolio_http_exception(status: int) -> HTTPException:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    base = os.environ.get("PICSOU_SIDECAR_BASE")
+    return {"status": "ok", "base": base} if base else {"status": "ok"}
 
 
 @app.post("/initiate", response_model=InitiateResponse)

@@ -23,3 +23,17 @@ export function revolutPhaseLabel(t: TFunction, progress: SyncProgress | undefin
       return t('sync.revolut.syncing')
   }
 }
+
+const ERROR_KEYS: Record<string, string> = {
+  HUMAN_VERIFICATION_REQUIRED: 'sync.revolut.errors.humanVerificationRequired',
+  UPSTREAM_FORMAT_CHANGED: 'sync.revolut.errors.upstreamFormatChanged',
+}
+
+/**
+ * Message for a failed Revolut discovery: the translation of the backend's stable `errorCode`
+ * when it has one, otherwise the backend's own sentence. Shared like `revolutPhaseLabel`.
+ */
+export function revolutErrorLabel(t: TFunction, progress: SyncProgress): string {
+  const key = progress.errorCode ? ERROR_KEYS[progress.errorCode] : undefined
+  return key ? t(key) : (progress.error ?? t('common.error'))
+}

@@ -29,6 +29,7 @@ import {
   mockSpendingByCategory,
   mockUncategorized,
 } from './data/budget'
+import { mockUpcomingDividends } from './data/dividends'
 import type { CashflowPeriod } from '@/types/api'
 
 function randomDelay(): number {
@@ -224,6 +225,14 @@ for (const account of mockAccounts.filter(account => account.type === 'SCPI')) {
       withdrawalValueEur: withdrawalValue,
       dividendPolicy: data.dividendPolicy ?? 'CASH',
       jouissanceDate: data.jouissanceDate ?? null,
+      // Fund-code rule: a missing field leaves the stored value.
+      // Null clears, because a number has no blank string the way a fund code does.
+      annualDistributionPerShareEur: data.annualDistributionPerShareEur === undefined
+        ? current.scpi?.annualDistributionPerShareEur ?? null
+        : data.annualDistributionPerShareEur,
+      distributionFrequency: data.distributionFrequency === undefined
+        ? current.scpi?.distributionFrequency ?? null
+        : data.distributionFrequency,
       valuationStatus: withdrawalValue == null ? 'PRICE_INCOMPLETE' : 'OK',
     }
     _demoAccounts = _demoAccounts.map(a => a.id === account.id ? {
@@ -1381,6 +1390,14 @@ for (const c of mockCategories) {
 handlers.set(key('GET', '/recurring'), () => mockRecurring)
 handlers.set(key('GET', '/recurring/calendar'), (config) =>
   mockCalendar(Number(config.params?.horizonDays ?? 60)))
+handlers.set(key('GET', '/dividends/upcoming'), (config) => {
+  const rawAccount = config.params?.accountId
+  const accountId = rawAccount == null || rawAccount === '' ? undefined : Number(rawAccount)
+  return mockUpcomingDividends(
+    Number(config.params?.horizonDays ?? 60),
+    accountId != null && Number.isFinite(accountId) ? accountId : undefined,
+  )
+})
 handlers.set(key('POST', '/recurring'), (config) => {
   const body = JSON.parse(config.data || '{}')
   const cat = mockCategories.find((c) => c.id === body.categoryId)

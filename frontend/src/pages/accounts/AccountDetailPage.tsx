@@ -29,6 +29,7 @@ import { SavingsConfigSection } from '@/features/savings/SavingsConfigSection'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
 import { PropertyDetailSection } from '@/components/property/PropertyDetailSection'
 import { ScpiDetailSection } from '@/components/scpi/ScpiDetailSection'
+import { AccountDividendsSection } from '@/components/dividends/AccountDividendsSection'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -339,6 +340,18 @@ export function AccountDetailPage() {
       {isRealEstate && account && <PropertyDetailSection account={account} />}
 
       {isScpi && account && <ScpiDetailSection account={account} />}
+
+      {/* Upcoming dividends for a libre securities account or a PEA only. Other wrappers
+          (assurance vie, PER, employee savings) and a checking account stay off this view.
+          Keyed on the account id: this route reuses the page across :id, and the carousel
+          scroll must not carry from one compte to the next. */}
+      {account && (account.type === 'COMPTE_TITRES' || account.type === 'PEA') && (
+        <AccountDividendsSection
+          key={`dividends-${account.id}`}
+          accountId={account.id}
+          holdings={holdings}
+        />
+      )}
 
       {/* Holdings — grouped by product when the connector reports one (crypto exchanges),
           otherwise the flat table.
