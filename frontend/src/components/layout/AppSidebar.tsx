@@ -7,7 +7,6 @@ import {
   EyeOff,
   RefreshCw,
   Settings,
-  Users,
   LogOut,
   Shield,
 } from 'lucide-react'
@@ -33,7 +32,7 @@ import { useLogout } from '@/features/auth/hooks'
 import { useProfileStore } from '@/stores/profile-store'
 import { cn } from '@/lib/utils'
 import picsouLogo from '@/assets/horizontal-white-picsou.svg'
-import { NAV_ITEMS, CLASSIC_SETTINGS_NAV_ITEM } from './sidebar-nav-items'
+import { NAV_ITEMS, CLASSIC_SETTINGS_NAV_ITEM, FAMILY_NAV_ITEM } from './sidebar-nav-items'
 
 function AccountMenuFooterItems({
   isAdmin,
@@ -206,10 +205,10 @@ export function AppSidebar() {
 
         {/* Family view */}
         <NavItem
-          to="/family"
-          icon={Users}
-          title={t('nav.family')}
-          description={t('nav.family.desc')}
+          to={FAMILY_NAV_ITEM.path}
+          icon={FAMILY_NAV_ITEM.icon}
+          title={t(FAMILY_NAV_ITEM.labelKey)}
+          description={t(FAMILY_NAV_ITEM.descKey)}
         />
       </div>
 
