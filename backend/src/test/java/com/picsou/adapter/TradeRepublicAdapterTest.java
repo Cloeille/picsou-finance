@@ -1,9 +1,11 @@
 package com.picsou.adapter;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import org.springframework.web.reactive.function.client.WebClient;
+import com.picsou.port.TradeRepublicPort.TrAccountData;
 import com.picsou.port.TradeRepublicPort.TrTokens;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.junit.jupiter.api.AfterEach;
@@ -18,8 +20,13 @@ import reactor.netty.http.server.HttpServer;
 import reactor.test.StepVerifier;
 
 import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -151,8 +158,116 @@ class TradeRepublicAdapterTest {
         return new TradeRepublicAdapter(
             new ObjectMapper(),
             WebClient.builder().baseUrl(baseUrl).build(),
-            timeout
+            timeout,
+            URI.create("ws://127.0.0.1:" + server.port() + "/")
         );
+    }
+
+    // ─── fetchAccounts: which venue a position is priced on ────────────────────────────────
+
+    private static final String BTC = "XF000BTC0017";
+
+    /**
+     * Issue #268: TR answered FORBIDDEN for the guessed {@code XF000BTC0017.TRD0}, and the
+     * position was valued at its buy-in. The venue now comes from TR's instrument answer.
+     */
+    @Test
+    void fetchAccounts_pricesAPositionOnTheExchangeItsInstrumentAnswerLists() {
+        TradeRepublicAdapter adapter = adapterAgainstTr(
+            BTC, "{\"exchangeIds\":[\"BHS\"]}", Map.of(BTC + ".BHS", "60000"));
+
+        List<TrAccountData> accounts = adapter.fetchAccounts(sessionToken());
+
+        TrAccountData securities = securities(accounts);
+        assertThat(securities.positions()).singleElement().satisfies(position -> {
+            assertThat(position.currentPrice()).isEqualByComparingTo("60000");
+            assertThat(position.averageBuyIn()).isEqualByComparingTo("30000");
+        });
+        assertThat(securities.balanceEur()).isEqualByComparingTo("30000.00");
+    }
+
+    @Test
+    void fetchAccounts_aTickerTrRefuses_leavesThePriceUnavailable_notTheBuyInDisguisedAsMarket() {
+        TradeRepublicAdapter adapter = adapterAgainstTr(BTC, "{\"exchangeIds\":[\"BHS\"]}", Map.of());
+
+        List<TrAccountData> accounts = adapter.fetchAccounts(sessionToken());
+
+        TrAccountData securities = securities(accounts);
+        assertThat(securities.positions()).singleElement().satisfies(position -> {
+            assertThat(position.currentPrice()).isNull();
+            assertThat(position.averageBuyIn()).isEqualByComparingTo("30000");
+        });
+        // The account total still carries the position at cost rather than dropping it.
+        assertThat(securities.balanceEur()).isEqualByComparingTo("15000.00");
+    }
+
+    @Test
+    void fetchAccounts_anInstrumentAnswerWithoutExchange_fallsBackToLsx() {
+        String apple = "US0378331005";
+        TradeRepublicAdapter adapter = adapterAgainstTr(
+            apple, "{\"errors\":[{\"errorCode\":\"NOT_FOUND\"}]}", Map.of(apple + ".LSX", "200"));
+
+        List<TrAccountData> accounts = adapter.fetchAccounts(sessionToken());
+
+        assertThat(securities(accounts).positions()).singleElement()
+            .satisfies(position -> assertThat(position.currentPrice()).isEqualByComparingTo("200"));
+    }
+
+    /**
+     * A TR WebSocket holding one position of 0.5 units bought at 30 000. It answers the
+     * instrument subscription with {@code instrumentAnswer} and prices only the ticker ids in
+     * {@code pricedTickers}; any other ticker id gets the FORBIDDEN error TR sends for a venue
+     * that does not list the instrument.
+     */
+    private TradeRepublicAdapter adapterAgainstTr(
+            String isin, String instrumentAnswer, Map<String, String> pricedTickers) {
+        ObjectMapper mapper = new ObjectMapper();
+        Function<String, String> answer = message -> {
+            if (message.startsWith("connect ")) return "connected";
+            String[] parts = message.split(" ", 3);
+            String id = parts[1];
+            JsonNode sub;
+            try {
+                sub = mapper.readTree(parts[2]);
+            } catch (IOException ex) {
+                throw new IllegalStateException(ex);
+            }
+            return switch (sub.path("type").asText()) {
+                case "availableCash" -> id + " A [{\"accountNumber\":\"CASH1\",\"currencyId\":\"EUR\",\"amount\":100}]";
+                case "compactPortfolioByType" -> id + " A {\"categories\":[{\"positions\":[{\"isin\":\"" + isin
+                    + "\",\"netSize\":\"0.5\",\"averageBuyIn\":\"30000\"}]}]}";
+                case "instrument" -> (instrumentAnswer.contains("errors") ? id + " E " : id + " A ") + instrumentAnswer;
+                case "ticker" -> {
+                    String price = pricedTickers.get(sub.path("id").asText());
+                    yield price != null
+                        ? id + " A {\"last\":{\"price\":\"" + price + "\"}}"
+                        : id + " E {\"errors\":[{\"errorCode\":\"FORBIDDEN\",\"errorMessage\":\"Forbidden\"}]}";
+                }
+                default -> null;
+            };
+        };
+        server = HttpServer.create()
+            .host("127.0.0.1")
+            .port(0)
+            .route(routes -> routes.ws("/", (in, out) ->
+                out.sendString(in.receive().asString().mapNotNull(answer))))
+            .bindNow();
+        return adapterFor(server, RESPONSE_TIMEOUT);
+    }
+
+    /** A session token whose JWT claims carry one securities account, as TR issues them. */
+    private static String sessionToken() {
+        String claims = "{\"act\":{\"acc\":{\"owner\":{\"default\":{\"sec\":[\"SEC1\"],\"cash\":[\"CASH1\"]}}}}}";
+        Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
+        return encoder.encodeToString("{}".getBytes(StandardCharsets.UTF_8)) + "."
+            + encoder.encodeToString(claims.getBytes(StandardCharsets.UTF_8)) + ".signature";
+    }
+
+    private static TrAccountData securities(List<TrAccountData> accounts) {
+        return accounts.stream()
+            .filter(account -> "tr_securities".equals(account.externalId()))
+            .findFirst()
+            .orElseThrow();
     }
 
     // ─── shouldPersist: what an answer must be before it replaces the previous holdings ────

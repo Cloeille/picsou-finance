@@ -47,7 +47,8 @@ import java.util.function.Predicate;
  * WebSocket subscriptions used:
  *   - availableCash      → cash balance
  *   - compactPortfolioByType → list of positions (isin, netSize, averageBuyIn), grouped by category
- *   - ticker             → current price per instrument (subscribed dynamically)
+ *   - instrument         → the venues (exchangeIds) an ISIN is priced on
+ *   - ticker             → current price per instrument, as ISIN.venue (subscribed dynamically)
  *
  * Portfolio value = sum(ticker.last.price × position.netSize) for each position.
  */
@@ -58,6 +59,8 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
 
     private static final String WS_URL     = "wss://api.traderepublic.com/";
     private static final int    WS_VERSION = 31;
+    // Lang & Schwarz Exchange, TR's home venue for equities and ETFs (GH #23).
+    private static final String DEFAULT_EXCHANGE = "LSX";
     private static final Duration DEFAULT_REFRESH_TIMEOUT = Duration.ofSeconds(15);
     // Total time the WebSocket read may take before the sync goes on with what it has.
     // Kept under WS_HARD_TIMEOUT around the whole exchange, which fails the sync.
@@ -76,6 +79,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
     private final WebClient    sidecarClient;
     private final ObjectMapper objectMapper;
     private final Duration     refreshTimeout;
+    private final URI          wsUri;
 
     @Autowired
     public TradeRepublicAdapter(
@@ -83,13 +87,14 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         ObjectMapper objectMapper,
         @Value("${app.tr-auth.url:http://tr-auth:8001}") String trAuthUrl
     ) {
-        this(objectMapper, clients.create("Trade Republic", trAuthUrl), DEFAULT_REFRESH_TIMEOUT);
+        this(objectMapper, clients.create("Trade Republic", trAuthUrl), DEFAULT_REFRESH_TIMEOUT, URI.create(WS_URL));
     }
 
-    TradeRepublicAdapter(ObjectMapper objectMapper, WebClient sidecarClient, Duration refreshTimeout) {
+    TradeRepublicAdapter(ObjectMapper objectMapper, WebClient sidecarClient, Duration refreshTimeout, URI wsUri) {
         this.objectMapper   = objectMapper;
         this.sidecarClient  = sidecarClient;
         this.refreshTimeout = refreshTimeout;
+        this.wsUri          = wsUri;
     }
 
     // ─── Auth (delegated to Python sidecar) ───────────────────────────────────
@@ -217,6 +222,8 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         ConcurrentHashMap<String, ConcurrentHashMap<String, JsonNode>> positionsByAccount = new ConcurrentHashMap<>();
         ConcurrentHashMap<String, BigDecimal> tickerPrices = new ConcurrentHashMap<>();
         ConcurrentHashMap<Integer, String> tickerSubToIsin = new ConcurrentHashMap<>();
+        ConcurrentHashMap<Integer, String> instrumentSubToIsin = new ConcurrentHashMap<>();
+        Set<String> resolvingIsins = ConcurrentHashMap.newKeySet();
         ConcurrentHashMap<Integer, SecAccount> portfolioSubIds = new ConcurrentHashMap<>();
         ConcurrentHashMap<Integer, SecAccount> scopedCashSubIds = new ConcurrentHashMap<>();
         Set<String> receivedPortfolioIds = ConcurrentHashMap.newKeySet();
@@ -247,7 +254,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         String connectMsg = buildConnectMessage();
 
         new ReactorNettyWebSocketClient()
-            .execute(URI.create(WS_URL), headers, session ->
+            .execute(wsUri, headers, session ->
                 session.send(Mono.just(session.textMessage(connectMsg)))
                     .thenMany(
                         session.receive()
@@ -346,7 +353,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                         }
 
                                         if (!positions.isEmpty()) {
-                                            List<String> tickerMsgs = new ArrayList<>();
+                                            List<String> instrumentMsgs = new ArrayList<>();
                                             for (JsonNode pos : positions) {
                                                 // new API: "isin"; legacy: "instrumentId"
                                                 String isin = pos.path("isin").asText(
@@ -363,35 +370,28 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                                     String instrumentType = pos.path("instrumentType").asText("");
                                                     if ("privateFund".equals(instrumentType)) {
                                                         log.info("TR compactPortfolioByType [{}]: skipping ticker subscription for privateFund {}", account.name(), isin);
-                                                    } else {
-                                                        int tid = subIdCounter.incrementAndGet();
-                                                        tickerSubToIsin.put(tid, isin);
-                                                        // compactPortfolioByType positions carry no exchangeId
-                                                        // (unlike the legacy compactPortfolio payload), so this
-                                                        // almost always falls through to the default. LSX (Lang &
-                                                        // Schwarz Exchange) is TR's home exchange for equities/ETFs
-                                                        // — see GH issue #23 (all ticker subs were FORBIDDEN with TRX).
-                                                        // TR-native crypto (see OpenFigiIsinConverter.isTrCryptoIsin,
-                                                        // e.g. XF000BTC0017) is priced on TRD0 instead — LSX doesn't
-                                                        // list it, so using LSX here would still leave every crypto
-                                                        // position FORBIDDEN and silently falling back to averageBuyIn.
-                                                        String exchangeId = pos.path("exchangeId").asText("");
-                                                        String defaultExchange =
-                                                                OpenFigiIsinConverter.isTrCryptoIsin(isin) ? "TRD0" : "LSX";
-                                                        String tickerId = isin + "." + (exchangeId.isEmpty() ? defaultExchange : exchangeId);
-                                                        tickerMsgs.add(subWithId(tid, "ticker",
-                                                                tickerId, sessionToken));
+                                                    } else if (resolvingIsins.add(isin)) {
+                                                        // A ticker id is ISIN.<venue>, and compactPortfolioByType
+                                                        // names no venue. Guessing one (LSX, TRD0 for crypto) drew
+                                                        // FORBIDDEN whenever TR priced the instrument elsewhere
+                                                        // (GH #23, #268), so the instrument answer names it; its
+                                                        // ticker is subscribed once that answer arrives. Once per
+                                                        // ISIN: tickerPrices is keyed by ISIN for every account.
+                                                        int iid = subIdCounter.incrementAndGet();
+                                                        instrumentSubToIsin.put(iid, isin);
+                                                        instrumentMsgs.add(subWithId(iid, "instrument", isin, sessionToken));
                                                     }
                                                 }
                                             }
+                                            // Each instrument subscription leads to exactly one ticker subscription.
                                             int prev = expectedTickers.get();
-                                            expectedTickers.set((prev < 0 ? 0 : prev) + tickerMsgs.size());
-                                            log.info("TR compactPortfolioByType [{}]: {} positions, subscribing to {} tickers",
-                                                     account.name(), positions.size(), tickerMsgs.size());
+                                            expectedTickers.set((prev < 0 ? 0 : prev) + instrumentMsgs.size());
+                                            log.info("TR compactPortfolioByType [{}]: {} positions, resolving {} instruments",
+                                                     account.name(), positions.size(), instrumentMsgs.size());
 
-                                            if (!tickerMsgs.isEmpty()) {
+                                            if (!instrumentMsgs.isEmpty()) {
                                                 return session.send(
-                                                    Flux.fromIterable(tickerMsgs)
+                                                    Flux.fromIterable(instrumentMsgs)
                                                         .map(session::textMessage)
                                                 ).thenReturn(text);
                                             }
@@ -405,6 +405,16 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                         erroredPortfolioIds.add(account.externalId());
                                         expectedTickers.compareAndSet(-1, 0);
                                     }
+
+                                } else if (instrumentSubToIsin.containsKey(wsId)) {
+                                    // Removed on the first frame so a later one cannot subscribe a second ticker.
+                                    String isin = instrumentSubToIsin.remove(wsId);
+                                    String tickerId = isin + "." + tickerExchange(payload);
+                                    int tid = subIdCounter.incrementAndGet();
+                                    tickerSubToIsin.put(tid, isin);
+                                    log.info("TR WS --> sub {} ticker {}", tid, tickerId);
+                                    return session.send(Mono.just(session.textMessage(
+                                        subWithId(tid, "ticker", tickerId, sessionToken)))).thenReturn(text);
 
                                 } else if (tickerSubToIsin.containsKey(wsId)) {
                                     String isin = tickerSubToIsin.get(wsId);
@@ -485,7 +495,8 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                     if (avgBuyIn.compareTo(BigDecimal.ZERO) > 0) {
                         totalPortfolioValue = totalPortfolioValue.add(
                                 avgBuyIn.multiply(size).setScale(2, RoundingMode.HALF_UP));
-                        log.warn("TR ticker price missing for {}, using averageBuyIn as fallback", isin);
+                        log.warn("TR price unavailable for {}: counted at averageBuyIn in the account total, "
+                            + "its current price left empty", isin);
                     }
                 }
             }
@@ -502,7 +513,9 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                 if (size.compareTo(BigDecimal.ZERO) <= 0) continue;
 
                 BigDecimal averageBuyIn = new BigDecimal(pos.path("averageBuyIn").asText("0"));
-                BigDecimal currentPrice = tickerPrices.getOrDefault(isin, averageBuyIn);
+                // Null when TR sent no price: the buy-in stored as the current price read as a
+                // market value with zero gain.
+                BigDecimal currentPrice = tickerPrices.get(isin);
 
                 positions.add(new TradeRepublicPort.TrPosition(isin, size, averageBuyIn, currentPrice));
             }
@@ -587,6 +600,27 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         if (first < 0) return "";
         int second = text.indexOf(' ', first + 1);
         return second < 0 ? text.substring(first + 1) : text.substring(first + 1, second);
+    }
+
+    /**
+     * The venue to price an instrument on, read from TR's {@code instrument} answer.
+     *
+     * <p>LSX wins whenever TR lists it: equities and ETFs are priced there today and their
+     * {@code exchangeIds} order is not documented. Otherwise the first listed venue (TR-native
+     * crypto is not on LSX), and LSX again when the answer names none or is an error frame.
+     */
+    private String tickerExchange(String instrumentPayload) {
+        String first = null;
+        try {
+            for (JsonNode id : objectMapper.readTree(instrumentPayload).path("exchangeIds")) {
+                String exchange = id.asText("");
+                if (DEFAULT_EXCHANGE.equals(exchange)) return exchange;
+                if (first == null && !exchange.isBlank()) first = exchange;
+            }
+        } catch (Exception ex) {
+            log.warn("Unparsable TR instrument answer, pricing on {}", DEFAULT_EXCHANGE);
+        }
+        return first != null ? first : DEFAULT_EXCHANGE;
     }
 
     /**
