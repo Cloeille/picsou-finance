@@ -134,6 +134,42 @@ class TradeRepublicAdapterTest {
         assertThat(tokens.refreshToken()).isEqualTo("rotated");
     }
 
+    @Test
+    void initiateAuth_wafBlockIsReportedAsTemporaryNotAsWrongCredentials() {
+        TradeRepublicAdapter adapter = adapterReturning(503, "{\"detail\":\"TR_WAF_BLOCKED\"}");
+
+        Throwable thrown = catchThrowable(() -> adapter.initiateAuth("+33600000000", "1234"));
+
+        assertThat(thrown)
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("Trade Republic blocked the request")
+            .hasMessageNotContaining("credentials");
+    }
+
+    @Test
+    void completeAuth_wafBlockIsReportedAsTemporaryNotAsAnInvalidCode() {
+        TradeRepublicAdapter adapter = adapterReturning(503, "{\"detail\":\"TR_WAF_BLOCKED\"}");
+
+        Throwable thrown = catchThrowable(() -> adapter.completeAuth("process-id", "1234"));
+
+        assertThat(thrown)
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("Trade Republic blocked the request")
+            .hasMessageNotContaining("verification code");
+    }
+
+    @Test
+    void initiateAuth_trPinRejectionStillReportsTheCredentialError() {
+        TradeRepublicAdapter adapter = adapterReturning(
+            400, "{\"detail\":\"TR rejected request: {\\\"errors\\\":[{\\\"errorCode\\\":\\\"PIN_INVALID\\\"}]}\"}");
+
+        Throwable thrown = catchThrowable(() -> adapter.initiateAuth("+33600000000", "1234"));
+
+        assertThat(thrown)
+            .isInstanceOf(SyncException.class)
+            .hasMessage("PIN_INVALID");
+    }
+
     private TradeRepublicAdapter adapterReturning(int status, String body) {
         server = HttpServer.create()
             .host("127.0.0.1")

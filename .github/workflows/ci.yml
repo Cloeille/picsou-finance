@@ -349,6 +349,7 @@ jobs:
           --volume "${{ github.workspace }}/services/tr-auth/test_mask_phone.py:/tests/test_mask_phone.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_refresh_method.py:/tests/test_refresh_method.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --volume "${{ github.workspace }}/services/tr-auth/test_waf_rejection.py:/tests/test_waf_rejection.py:ro"
           --workdir /tests
           picsou-tr-auth:test
           -m unittest discover -v

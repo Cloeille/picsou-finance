@@ -543,6 +543,10 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
 
     private SyncException mapAuthError(String responseBody, String fallback) {
         if (responseBody != null) {
+            // tr-auth could not get past AWS WAF; TR never saw the credentials.
+            if (responseBody.contains("TR_WAF_BLOCKED")) {
+                return new SyncException("Trade Republic blocked the request. Please retry in a minute.");
+            }
             if (responseBody.contains("VALIDATION_CODE_INVALID")) {
                 return new SyncException("VALIDATION_CODE_INVALID");
             }

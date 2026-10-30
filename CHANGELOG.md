@@ -209,6 +209,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **First Trade Republic login after a fresh start.** On a cold `tr-auth` container the first
+  login often failed with "please check your credentials" although the phone number and PIN
+  were right: the headless browser had not yet received the AWS WAF token, so Trade Republic's
+  firewall rejected the request. `tr-auth` now waits for the token and retries with a second
+  browser before contacting Trade Republic. A firewall rejection now reads "Trade Republic
+  blocked the request. Retry in a minute." (#266)
+
 - **Account edit and delete buttons on touch screens.** On the Accounts page these buttons
   only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
   the card's corner could still hit delete). They now stay visible on touch screens and when

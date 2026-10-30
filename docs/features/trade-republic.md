@@ -18,6 +18,8 @@ The `TradeRepublicAdapter` delegates auth to the `tr-auth` Python microservice (
 
 Credentials (phone/PIN) are never stored -- they are used only for the `/initiate` call and discarded.
 
+`/initiate` and `/complete` both need an AWS WAF token, which the sidecar reads from a headless Chromium load of app.traderepublic.com. On a cold container the page often settles before the WAF challenge sets its token, so each browser attempt polls for it for up to 8 s, and a second browser attempt runs if the first gets none. The two attempts fit inside the backend's 60 s wait. Without a token the sidecar never calls TR. It answers `503 {"detail": "TR_WAF_BLOCKED"}`, and does the same when TR's endpoint answers 403/405 with an empty body (an AWS WAF rejection; TR's own errors carry a JSON body). The backend maps `TR_WAF_BLOCKED` to "Trade Republic blocked the request. Please retry in a minute." instead of the wrong-credentials or invalid-code message, and the frontend shows `sync.tr.errors.temporarilyBlocked`.
+
 Frontend auth state deliberately separates initiation failures from verification
 failures:
 

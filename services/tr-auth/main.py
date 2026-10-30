@@ -104,8 +104,29 @@ def generate_device_info() -> str:
     return base64.b64encode(json.dumps({"stableDeviceId": device_id}).encode()).decode()
 
 
+# A cold container often settles the page before the WAF challenge has set its
+# token. Two attempts stay inside the backend's 60 s wait and nginx's 60 s proxy.
+WAF_TOKEN_ATTEMPTS = 2
+WAF_PAGE_LOAD_TIMEOUT_MS = 15000
+WAF_CHALLENGE_WAIT_MS = 8000
+WAF_POLL_INTERVAL_MS = 500
+
+# Detail sent to the backend when AWS WAF, not TR, refused the login.
+WAF_BLOCKED = "TR_WAF_BLOCKED"
+
+
 async def get_waf_token() -> Optional[str]:
-    """Loads app.traderepublic.com in headless Chromium and retrieves the AWS WAF token."""
+    """Retrieves the AWS WAF token, with a fresh browser when an attempt gets none."""
+    for attempt in range(1, WAF_TOKEN_ATTEMPTS + 1):
+        waf_token = await load_waf_token()
+        if waf_token:
+            return waf_token
+        log.warning("No AWS WAF token on attempt %d/%d", attempt, WAF_TOKEN_ATTEMPTS)
+    return None
+
+
+async def load_waf_token() -> Optional[str]:
+    """Loads app.traderepublic.com in headless Chromium and waits for the AWS WAF token."""
     log.info("Launching headless browser to obtain AWS WAF token...")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
@@ -119,35 +140,48 @@ async def get_waf_token() -> Optional[str]:
         )
 
         try:
-            await page.goto(TR_APP, wait_until="networkidle", timeout=20000)
-        except Exception:
-            await page.wait_for_timeout(5000)
-
-        # Try JS API first
-        waf_token = None
-        try:
-            waf_token = await page.evaluate(
-                "window.AWSWafIntegration ? window.AWSWafIntegration.getToken() : null"
-            )
-            if waf_token:
-                log.info("Got WAF token via AWSWafIntegration.getToken()")
+            await page.goto(TR_APP, wait_until="networkidle", timeout=WAF_PAGE_LOAD_TIMEOUT_MS)
         except Exception:
             pass
 
-        # Fallback: cookies
-        if not waf_token:
-            cookies = await context.cookies()
-            for cookie in cookies:
-                if "aws-waf-token" in cookie.get("name", "").lower():
-                    waf_token = cookie["value"]
-                    log.info("Got WAF token from cookie")
-                    break
+        waf_token = await read_waf_token(page, context)
+        for _ in range(WAF_CHALLENGE_WAIT_MS // WAF_POLL_INTERVAL_MS):
+            if waf_token:
+                break
+            await page.wait_for_timeout(WAF_POLL_INTERVAL_MS)
+            waf_token = await read_waf_token(page, context)
 
         await browser.close()
-
-        if not waf_token:
-            log.warning("Could not obtain AWS WAF token — request may fail with 403")
         return waf_token
+
+
+async def read_waf_token(page, context) -> Optional[str]:
+    # Try JS API first
+    try:
+        waf_token = await page.evaluate(
+            "window.AWSWafIntegration ? window.AWSWafIntegration.getToken() : null"
+        )
+        if waf_token:
+            log.info("Got WAF token via AWSWafIntegration.getToken()")
+            return waf_token
+    except Exception:
+        pass
+
+    # Fallback: cookies
+    for cookie in await context.cookies():
+        if "aws-waf-token" in cookie.get("name", "").lower():
+            log.info("Got WAF token from cookie")
+            return cookie["value"]
+    return None
+
+
+def is_waf_rejection(resp: httpx.Response) -> bool:
+    # TR's own errors carry a JSON body; AWS WAF answers with an empty one.
+    return resp.status_code in (403, 405) and not resp.text.strip()
+
+
+def waf_blocked() -> HTTPException:
+    return HTTPException(status_code=503, detail=WAF_BLOCKED)
 
 
 def tr_headers(waf_token: Optional[str]) -> dict:
@@ -227,6 +261,8 @@ def login_complete_url(process_id: str, tan: str) -> str:
 @app.post("/initiate")
 async def initiate(req: InitiateRequest):
     waf_token = await get_waf_token()
+    if not waf_token:
+        raise waf_blocked()
     phone = normalise_phone(req.phoneNumber)
     log.info("Initiating TR auth for %s", safe(mask_phone(phone)))
 
@@ -240,6 +276,8 @@ async def initiate(req: InitiateRequest):
             log.info("TR /login → %d", resp.status_code)
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
+            if is_waf_rejection(e.response):
+                raise waf_blocked()
             raise HTTPException(status_code=e.response.status_code,
                                 detail=f"TR rejected request: {e.response.text[:200]}")
 
@@ -257,6 +295,8 @@ async def complete(req: CompleteRequest):
     # Always fetch a fresh WAF token — the one from /initiate may have expired
     # by the time the user reads and types the 2FA code.
     waf_token = await get_waf_token()
+    if not waf_token:
+        raise waf_blocked()
     pending_sessions.pop(req.processId, None)  # clean up
 
     async with httpx.AsyncClient(timeout=15) as client:
@@ -269,6 +309,8 @@ async def complete(req: CompleteRequest):
                      resp.status_code, cookie_names(resp.headers))
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
+            if is_waf_rejection(e.response):
+                raise waf_blocked()
             raise HTTPException(status_code=e.response.status_code,
                                 detail=f"TR rejected 2FA: {e.response.text[:200]}")
 
