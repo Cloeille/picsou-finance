@@ -67,6 +67,7 @@ public class FortuneoSyncService {
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
+    private final ReceivedDividendClassifier dividendClassifier;
 
     public FortuneoSyncService(
         FortuneoPort port,
@@ -82,7 +83,8 @@ public class FortuneoSyncService {
         OpenFigiIsinConverter isinConverter,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
-        @Qualifier("fortuneoSyncExecutor") Executor syncExecutor
+        @Qualifier("fortuneoSyncExecutor") Executor syncExecutor,
+        ReceivedDividendClassifier dividendClassifier
     ) {
         this.port = port;
         this.sessionRepository = sessionRepository;
@@ -98,6 +100,7 @@ public class FortuneoSyncService {
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
+        this.dividendClassifier = dividendClassifier;
     }
 
     public AuthInitResponse initiateAuth(String login, String password, Long memberId) {
@@ -210,6 +213,8 @@ public class FortuneoSyncService {
             backfillPrices(prepared);
             if (commitPortfolio(job, prepared)) {
                 log.info("Fortuneo sync completed (member={})", job.memberId());
+                // The window import recreates its rows untyped, so each job classifies again.
+                dividendClassifier.afterImport(job.memberId());
             } else {
                 log.info("Discarded stale Fortuneo sync result (member={})", job.memberId());
             }

@@ -51,7 +51,7 @@ class MemberSyncServiceTest {
             revolutSyncService, syncService, trSyncService, boursoSyncService,
             bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService,
             ibkrSyncService, simplefinSyncService, cryptoExchangeSyncService, walletSyncService,
-            finaryApiSyncService, degiroSyncService, dividendReceiptService
+            finaryApiSyncService, degiroSyncService, new ReceivedDividendClassifier(dividendReceiptService)
         );
     }
 

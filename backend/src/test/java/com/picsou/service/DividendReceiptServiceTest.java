@@ -293,6 +293,50 @@ class DividendReceiptServiceTest {
     }
 
     @Test
+    void aGbpCreditMatchesAPenceSourceInPounds() {
+        Account isa = account(31L, "ISA", AccountType.COMPTE_TITRES, null);
+        Transaction tx = credit(1L, isa, "2026-10-10", "1.75", "DIVIDEND LLOYDS");
+        tx.setNativeCurrency("GBP");
+        stage(List.of(isa), List.of(tx), List.of(line(isa, "LLOY.L", "Lloyds Banking Group", "100")),
+            source("LLOY.L", "GBp", event("2026-10-01", "2.5", "0.029", null)));
+
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isEqualTo(1);
+
+        assertThat(tx.getTicker()).isEqualTo("LLOY.L");
+    }
+
+    @Test
+    void receivedInGbpReportsAPenceSourcePerShareInPounds() {
+        Account isa = account(31L, "ISA", AccountType.COMPTE_TITRES, null);
+        Transaction tx = dividend(1L, isa, "2026-10-10", "1.75");
+        tx.setTicker("LLOY.L");
+        tx.setNativeCurrency("GBP");
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(isa));
+        when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(anyCollection(), any(), any()))
+            .thenReturn(List.of(tx));
+        when(sources.findAllWithEventsByTickerIn(anyCollection())).thenReturn(List.of(
+            source("LLOY.L", "GBX", event("2026-10-01", "2.5", "0.029", null))));
+
+        assertThat(service.received(MEMBER, TODAY, 30)).singleElement()
+            .satisfies(line -> assertThat(line.amountPerShare()).isEqualByComparingTo("0.025"));
+    }
+
+    @Test
+    void aManualEntryWithACategoryKeepsIt() {
+        Account cto = account(12L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction tx = credit(1L, cto, "2026-10-10", "59.50", "DIVIDENDE TOTALENERGIES");
+        tx.setManual(true);
+        tx.setCategoryRef(autresRevenus);
+        stage(List.of(cto), List.of(tx), List.of(line(cto, "TTE.PA", "TotalEnergies", "100")),
+            source("TTE.PA", "EUR", event("2026-10-01", "0.85", "0.85", null)));
+
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isZero();
+
+        assertThat(tx.getCategoryRef()).isSameAs(autresRevenus);
+        verify(transactions, never()).saveAll(any());
+    }
+
+    @Test
     void receivedExposesTheForecastIdAndTheBudgetFlag() {
         Account pea = account(12L, "PEA", AccountType.PEA, null);
         Account cto = account(13L, "CTO", AccountType.COMPTE_TITRES, null);

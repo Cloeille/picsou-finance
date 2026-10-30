@@ -33,6 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -71,6 +72,7 @@ class FortuneoSyncServiceTest {
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
+    @Mock DividendReceiptService dividendReceiptService;
     @Captor ArgumentCaptor<Account> accountCaptor;
     @Captor ArgumentCaptor<FortuneoSession> sessionCaptor;
     @Captor ArgumentCaptor<List<AccountHolding>> holdingsCaptor;
@@ -368,6 +370,68 @@ class FortuneoSyncServiceTest {
             assertThat(tx.getDescription()).isEqualTo("Virement recu");
             assertThat(tx.getAmount()).isEqualByComparingTo("100");
         });
+    }
+
+    @Test
+    void everyCommittedJobClassifiesDividendsOnTheRowsItJustReplaced() {
+        // A member sync returns QUEUED before the job imports anything, and each window job
+        // recreates its rows untyped: only the job itself can classify what it wrote.
+        FamilyMember member = member();
+        FortuneoSession session = activeSession(member);
+        arrangeQueuedSession(session);
+        FortuneoPort.Transaction dividend = new FortuneoPort.Transaction(
+            LocalDate.now().minusDays(1), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"),
+            null, null, null, null, null, null, null, null
+        );
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
+            "cc-1", AccountType.CHECKING, new BigDecimal("500"), List.of(dividend)
+        )));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        arrangeNewAccountPersistence(20L);
+        List<FortuneoSyncStatus> statusSeenByClassification = new ArrayList<>();
+        when(dividendReceiptService.classifyRecent(eq(7L), eq(LocalDate.now()))).thenAnswer(invocation -> {
+            statusSeenByClassification.add(session.getSyncStatus());
+            return 1;
+        });
+
+        service.queueSync(7L);
+        service.queueSync(7L);
+
+        InOrder order = inOrder(transactionWriter, dividendReceiptService);
+        order.verify(transactionWriter).replaceRecentTransactions(eq(20L), any(LocalDate.class), any());
+        order.verify(dividendReceiptService).classifyRecent(7L, LocalDate.now());
+        order.verify(transactionWriter).replaceRecentTransactions(eq(20L), any(LocalDate.class), any());
+        order.verify(dividendReceiptService).classifyRecent(7L, LocalDate.now());
+        assertThat(statusSeenByClassification)
+            .containsExactly(FortuneoSyncStatus.SUCCESS, FortuneoSyncStatus.SUCCESS);
+    }
+
+    @Test
+    void aRejectedJobClassifiesNothing() {
+        FortuneoSession session = activeSession(member());
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of());
+
+        service.queueSync(7L);
+
+        verify(dividendReceiptService, never()).classifyRecent(any(), any());
+    }
+
+    @Test
+    void aDividendClassificationFailureLeavesTheSyncSuccessful() {
+        FamilyMember member = member();
+        FortuneoSession session = activeSession(member);
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(completeAccount()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
+        arrangeNewAccountPersistence(30L);
+        when(dividendReceiptService.classifyRecent(eq(7L), any(LocalDate.class)))
+            .thenThrow(new IllegalStateException("db down"));
+
+        FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.SUCCESS);
+        assertThat(result.lastSyncError()).isNull();
     }
 
     @Test
@@ -1214,7 +1278,8 @@ class FortuneoSyncServiceTest {
             isinConverter,
             encryption,
             txTemplate,
-            executor
+            executor,
+            new ReceivedDividendClassifier(dividendReceiptService)
         );
     }
 

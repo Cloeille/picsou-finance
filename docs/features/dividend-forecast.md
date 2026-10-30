@@ -72,12 +72,17 @@ and a rate exists, the Nasdaq amount replaces the Yahoo one.
 ### Received dividends
 
 A cash credit is recognised as a dividend from the stored history, with no network call.
-`DividendReceiptService.classifyRecent(memberId, today)` runs after every member sync
-(`MemberSyncService`, in `resyncScheduled` and both `resyncForUser`). It is best effort: a
-failure is logged and never changes the sync result.
+`DividendReceiptService.classifyRecent(memberId, today)` runs through `ReceivedDividendClassifier`
+once an import has committed: after the sources of every member sync (`MemberSyncService`, in
+`resyncScheduled` and both `resyncForUser`), and at the end of each successful Fortuneo and
+BoursoBank job. Those two only queue their job during a member sync, so their rows land after
+it returns. A Fortuneo window import also recreates its rows untyped, so each job classifies
+them again. It is best effort: a failure is logged and never changes the sync result.
 
 1. Owned accounts only. Categories are member-scoped, so a co-owned row is classified by its owner.
-2. Credits of the last 45 days: amount > 0, category not set manually, type empty, `DEPOSIT` or `DIVIDEND`,
+2. Credits of the last 45 days: amount > 0, category not set manually (`categoryManual`, which
+   an explicit category on a manual transaction now sets, or any hand-entered row that already
+   has a category), type empty, `DEPOSIT` or `DIVIDEND`,
    category empty or of kind INCOME, and not a Trade Republic `TRADING` row. A TRANSFER or EXPENSE
    auto category marks a trade leg (TR books the BUY investment leg and the SELL cash leg as
    positive `DEPOSIT`s), so such a row is never retyped.
@@ -87,7 +92,9 @@ failure is logged and never changes the sync result.
 4. The event is the one with the latest ex-date in the 60 days before the credit. When it has a
    payment date, the credit must fall within 7 days of it.
 5. Expected amount = quantity x per-share amount (`amountEur` for a EUR credit, `amount` when the
-   credit currency is the source currency, otherwise skipped). Kept when received / expected
+   credit currency is the source currency, otherwise skipped). A London line quoted in pence
+   (`GBp` or `GBX`) is divided by 100 for a `GBP` credit; the `/received` per-share amount uses
+   the same conversion. Kept when received / expected
    is within 0.40 to 1.10, which absorbs withholding tax and FX drift.
 6. **Evidence is required, an amount alone is not enough** (a 100 EUR deposit must not become a
    dividend): the row is already typed `DIVIDEND`, or a label word starts with `divid`, `coupon`,

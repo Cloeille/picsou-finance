@@ -247,8 +247,11 @@ public class DividendReceiptService {
     private static boolean isClassifiable(Transaction tx) {
         // A TRANSFER or EXPENSE auto category marks a trade leg (Trade Republic books a BUY
         // investment leg and a SELL cash leg as positive DEPOSITs): never a dividend.
+        // A hand-entered row saved with a category before categoryManual was set on it carries
+        // the user's choice all the same.
         return tx.getAmount() != null && tx.getAmount().signum() > 0
             && !tx.isCategoryManual()
+            && !(tx.isManual() && tx.getCategoryRef() != null)
             && replaceable(tx.getCategoryRef())
             && !TRADING.equalsIgnoreCase(tx.getCategory())
             && (tx.getTxType() == null || tx.getTxType() == TransactionType.DEPOSIT
@@ -346,15 +349,36 @@ public class DividendReceiptService {
         return ratio.compareTo(MIN_RATIO) >= 0 && ratio.compareTo(MAX_RATIO) <= 0;
     }
 
+    /** Per-share amount in the credit's currency, or null when no stored amount is in it. */
     private static BigDecimal perShare(Transaction credit, DividendEvent event, DividendSource source) {
         String currency = credit.getNativeCurrency();
         if (currency == null || "EUR".equalsIgnoreCase(currency)) {
             return event.getAmountEur();
         }
-        if (currency.equalsIgnoreCase(source.getCurrency())) {
-            return event.getAmount();
+        String sourceCurrency = source.getCurrency();
+        if (sourceCurrency == null || event.getAmount() == null) {
+            return null;
         }
-        return null;
+        if (!poundsCode(currency).equalsIgnoreCase(poundsCode(sourceCurrency))) {
+            return null;
+        }
+        return event.getAmount().movePointRight(pencePlaces(currency) - pencePlaces(sourceCurrency));
+    }
+
+    /**
+     * Yahoo quotes London lines in pence as the case-sensitive {@code GBp}; {@code GBX} is the
+     * other spelling. Same rule as {@code YahooFinancePriceProvider}.
+     */
+    private static boolean isPence(String currency) {
+        return "GBp".equals(currency) || "GBX".equalsIgnoreCase(currency);
+    }
+
+    private static String poundsCode(String currency) {
+        return isPence(currency) ? "GBP" : currency;
+    }
+
+    private static int pencePlaces(String currency) {
+        return isPence(currency) ? 2 : 0;
     }
 
     /** Latest ex-date in {@code [date - 60 days, date]}: an older one is a different payment. */
