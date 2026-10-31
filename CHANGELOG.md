@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands that fix it. The same pop-up announces a newer Picsou release, read from GitHub at
   most once every 6 hours; `APP_UPDATE_CHECK_ENABLED=false` turns that call off. See
   [feature note](docs/features/admin-instance-status.md).
+- **BoursoBank assurance vie.** Contracts listed on the dashboard are now synced as
+  `ASSURANCE_VIE` accounts: unit-linked supports as holdings (ISIN, units, buying price, latent
+  gain), the euro fund in the cash balance, reconciled against the contract valuation. They were
+  silently skipped before: their links have no trailing slash. A row is read as the euro fund only
+  without units, ISIN, quote link or price; an unreadable cell or quote link stops the sync
+  instead. A support's ticker comes from its quote link's path, never from its query or
+  fragment.
 - **Caisse d'Epargne in *Sync all*.** The dashboard's *Sync all* modal lists Caisse d'Epargne
   like the other session connectors: a live session syncs in place, an expired one opens the
   Caisse d'Epargne tab, where the keypad and Sécur'Pass login run, and *Sync all* skips it.
