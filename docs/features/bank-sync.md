@@ -50,6 +50,8 @@ Picsou now handles this with a two-pronged strategy:
    currency, and member key alongside the exact uid check. Deleting one currency subaccount
    does not block another currency sharing its IBAN. Each account keeps its native balance;
    its snapshot is converted to EUR using that account's currency.
+   When the guard skips a deleted account, the INFO log contains only the IBAN's
+   `LogSanitizer.fingerprint` value so logs can be correlated without exposing the IBAN.
    Updates reconcile the stored currency with the incoming balance currency before saving
    and converting the snapshot. This repairs legacy accounts found by uid whose currency
    was misparsed before IBANs were imported. Their original rows remain separate on later
@@ -88,8 +90,8 @@ through the usual upsert path, including currency-aware IBAN matching after a ui
 
 Some ASPSPs, including the Qonto response shape reported in issue #317, return the
 organization's balances for every account uid. The adapter fetches each session account's
-details once before selecting balances. It trims descriptions and counts them without
-case sensitivity. When a balance name matches an account's unique `details` description,
+details and balances once before selecting balances. It trims descriptions and counts them
+without case sensitivity. When a balance name matches an account's unique `details` description,
 the adapter restricts selection to those entries first. A description shared by several
 session accounts cannot establish ownership, even when their IBANs differ. Holder and
 product names are not matching keys because several accounts can share them.
@@ -107,12 +109,22 @@ Other or missing types have lower priority. When the description is missing, sha
 matches no balance, fallback first excludes entries claimed by any session description.
 This includes entries with a shared description and claims from accounts whose balance
 request fails. If no entry remains, that account fails with a `SyncException`.
+Before selecting any fallback, the adapter counts every account that could use each
+remaining label. An account with a unique description match does not compete for fallback.
+Two or more fallback contenders for the same label all fail, regardless of session order,
+amount, currency, or balance type. Candidates still count when their account later fails
+because its labels, preferred types, or amounts are ambiguous or invalid.
+Fallback also requires complete session ownership information. If any account's details
+are unavailable, or its balance response is missing or structurally invalid, other accounts can
+only use positive description matches. A failed sibling request cannot make its balances
+available to an unlabelled account.
 Type-based selection then requires a single entry or remaining labels that are all the
 same after trimming and case normalization. Null and blank labels form one unnamed group.
 This preserves generic-label fallback, such as repeated `Booked balance` labels, and
-wholly unnamed responses. Distinct labels require a positive account-description match
-before type ranking. This also rejects differently labeled generic balances when the
-response cannot be distinguished from a shared list. A unique best type does not prove
+wholly unnamed responses when only one account can claim that group. Distinct labels require
+a positive account-description match before type ranking. This also rejects differently
+labeled generic balances when the response cannot be distinguished from a shared list.
+A unique best type does not prove
 that the balance belongs to the requested account.
 With only one linked uid, no sibling descriptions are available to identify another
 account's entries in an organization-wide list.
@@ -131,7 +143,8 @@ the account-details currency, then `EUR`.
 balance lists, flat details, type priorities, ordinary single-account responses,
 unmatched lists with different balance types, missing or unmatched descriptions with only
 sibling-claimed balances, unclaimed fallback, duplicate session descriptions with different
-balance types, oversized display names, full-description matching before truncation,
+balance types, competing fallback assignments, incomplete ownership after a details failure,
+oversized display names, full-description matching before truncation,
 ambiguous or missing data, and per-account failure isolation for details and balance requests.
 
 `SyncServiceCurrencyMatchTest` persists accounts and snapshots through real repositories

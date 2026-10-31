@@ -29,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -195,6 +196,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         RuntimeException firstFailure = null;
         Map<String, AccountDetailsResponse> detailsByAccount = new LinkedHashMap<>();
         Map<String, Integer> labelClaims = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Map<String, AccountBalanceCandidates> candidatesByAccount = new LinkedHashMap<>();
+        Map<String, Integer> fallbackClaims = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         // A uid's balances may include its siblings. Collect every description before selection.
         for (String accountId : accounts) {
             try {
@@ -211,7 +214,26 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         for (var entry : detailsByAccount.entrySet()) {
             String accountId = entry.getKey();
             try {
-                fetched.add(fetchAccountData(accountId, entry.getValue(), labelClaims));
+                var candidates = fetchAccountCandidates(accountId, entry.getValue(), labelClaims);
+                candidatesByAccount.put(accountId, candidates);
+                if (!candidates.matchedDescription()) {
+                    var labels = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+                    for (var item : candidates.balances()) labels.add(nullToEmpty(item.name()).trim());
+                    for (String label : labels) fallbackClaims.merge(label, 1, Integer::sum);
+                }
+            } catch (SyncException ex) {
+                log.warn("Failed to fetch account balances {} from Enable Banking; skipping it for this sync",
+                    LogSanitizer.fingerprint(accountId), ex);
+                if (firstFailure == null) firstFailure = ex;
+            }
+        }
+        // Record every contender before ranking or parsing amounts: a later failure cannot grant ownership.
+        var ownership = new BalanceOwnership(fallbackClaims, candidatesByAccount.size() == accounts.size()
+            && detailsByAccount.values().stream().allMatch(details -> details != null));
+        for (var entry : candidatesByAccount.entrySet()) {
+            String accountId = entry.getKey();
+            try {
+                fetched.add(fetchAccountData(accountId, entry.getValue(), ownership));
             } catch (SyncException | NumberFormatException ex) {
                 // An account uid can rotate independently after a successful session link,
                 // and one ASPSP may send a malformed balance amount. Keep the remaining accounts
@@ -650,7 +672,13 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             .block();
     }
 
-    AccountData fetchAccountData(String accountId, AccountDetailsResponse details, Map<String, Integer> labelClaims) {
+    record AccountBalanceCandidates(AccountDetailsResponse details, List<BalancesResponse.BalanceItem> balances,
+                                    boolean matchedDescription) {}
+
+    record BalanceOwnership(Map<String, Integer> fallbackClaims, boolean complete) {}
+
+    AccountBalanceCandidates fetchAccountCandidates(String accountId, AccountDetailsResponse details,
+                                                    Map<String, Integer> labelClaims) {
         BalancesResponse balances = mapToSyncException(
             webClient.get()
                 .uri("/accounts/{id}/balances", accountId)
@@ -666,7 +694,30 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         // balances object, which carries the account's amounts (financial PII).
         log.info("Fetched {} balances for account {}",
             balances != null && balances.balances() != null ? balances.balances().size() : 0, accountId);
-        var selected = selectBalance(balances, details != null ? details.details() : null, labelClaims);
+
+        if (balances == null || balances.balances() == null || balances.balances().isEmpty()) {
+            throw new SyncException("Enable Banking returned no account balances");
+        }
+        List<BalancesResponse.BalanceItem> candidates = balances.balances();
+        if (candidates.stream().anyMatch(item -> item == null)) {
+            throw new SyncException("Enable Banking returned an invalid account balance");
+        }
+        String accountLabel = details != null ? firstNonBlank(details.details()) : null;
+        var matching = candidates.stream()
+            .filter(item -> accountLabel != null && item.name() != null
+                && accountLabel.equalsIgnoreCase(item.name().trim()))
+            .toList();
+        boolean matchedDescription = accountLabel != null && labelClaims.getOrDefault(accountLabel, 0) == 1
+            && !matching.isEmpty();
+        candidates = matchedDescription ? matching : candidates.stream()
+            .filter(item -> !labelClaims.containsKey(nullToEmpty(item.name()).trim()))
+            .toList();
+        return new AccountBalanceCandidates(details, candidates, matchedDescription);
+    }
+
+    AccountData fetchAccountData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
+        var selected = selectBalance(response, ownership);
+        AccountDetailsResponse details = response.details();
         BigDecimal balance = new BigDecimal(selected.balanceAmount().amount().trim());
         String currency = firstNonBlank(selected.balanceAmount().currency(),
             details != null ? details.currency() : null, "EUR");
@@ -678,32 +729,19 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         return new AccountData(accountId, truncate(name, MAX_ACCOUNT_NAME_LENGTH), iban, currency, balance);
     }
 
-    private static BalancesResponse.BalanceItem selectBalance(BalancesResponse response, String accountLabel,
-                                                             Map<String, Integer> labelClaims) {
-        if (response == null || response.balances() == null || response.balances().isEmpty()) {
-            throw new SyncException("Enable Banking returned no account balances");
-        }
+    private static BalancesResponse.BalanceItem selectBalance(AccountBalanceCandidates response,
+                                                             BalanceOwnership ownership) {
         List<BalancesResponse.BalanceItem> candidates = response.balances();
-        if (candidates.stream().anyMatch(item -> item == null)) {
-            throw new SyncException("Enable Banking returned an invalid account balance");
-        }
-        var matching = candidates.stream()
-            .filter(item -> accountLabel != null && item.name() != null
-                && accountLabel.trim().equalsIgnoreCase(item.name().trim()))
-            .toList();
-        if (accountLabel != null && labelClaims.getOrDefault(accountLabel.trim(), 0) == 1 && !matching.isEmpty()) {
-            candidates = matching;
-        } else {
-            candidates = candidates.stream()
-                .filter(item -> !labelClaims.containsKey(nullToEmpty(item.name()).trim()))
-                .toList();
-        }
         if (candidates.isEmpty()) {
             throw new SyncException("Enable Banking returned no unclaimed account balances");
         }
         String balanceLabel = nullToEmpty(candidates.getFirst().name()).trim();
         if (candidates.stream().anyMatch(item -> !balanceLabel.equalsIgnoreCase(nullToEmpty(item.name()).trim()))) {
             throw new SyncException("Enable Banking returned ambiguous account balances; cannot establish account scope");
+        }
+        if (!response.matchedDescription()
+            && (!ownership.complete() || ownership.fallbackClaims().getOrDefault(balanceLabel, 0) != 1)) {
+            throw new SyncException("Enable Banking returned ambiguous account balances; cannot establish fallback ownership");
         }
 
         var selected = candidates.stream().min(Comparator.comparingInt(EnableBankingBankConnector::balancePriority))

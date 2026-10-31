@@ -1,5 +1,8 @@
 package com.picsou.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.picsou.dto.AccountResponse;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
@@ -13,6 +16,7 @@ import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.RecurringDetectionService;
+import com.picsou.util.LogSanitizer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +24,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -153,6 +158,39 @@ class SyncServiceIbanMatchTest {
 
         // No account saved — resurrection blocked
         verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void resyncAll_softDeletedByIban_logsOnlyIbanFingerprint() {
+        String syntheticIban = "FR00SYNTHETICDELETED";
+        var data = new BankConnectorPort.AccountData(
+            NEW_EB_UID, "Synthetic account", syntheticIban, "EUR", BigDecimal.valueOf(100));
+        when(requisitionRepository.findByStatusAndMemberIdOrderByCreatedAtDesc(
+            RequisitionStatus.LINKED, MEMBER_ID)).thenReturn(List.of(linkedReq));
+        when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data));
+        when(accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(syntheticIban, "EUR", MEMBER_ID))
+            .thenReturn(true);
+
+        Logger logger = (Logger) LoggerFactory.getLogger(SyncService.class);
+        var logs = new ListAppender<ILoggingEvent>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            syncService.resyncAll(MEMBER_ID);
+
+            assertThat(linkedReq.getStatus()).isEqualTo(RequisitionStatus.LINKED);
+            verify(accountRepository, never()).save(any());
+            assertThat(logs.list).extracting(ILoggingEvent::getFormattedMessage)
+                .anySatisfy(message -> assertThat(message)
+                    .contains("Skipping resurrection", LogSanitizer.fingerprint(syntheticIban)))
+                .allSatisfy(message -> assertThat(message).doesNotContain(syntheticIban));
+            assertThat(logs.list).flatExtracting(event -> event.getArgumentArray() == null
+                ? List.of() : java.util.Arrays.asList(event.getArgumentArray()))
+                .doesNotContain(syntheticIban);
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+        }
     }
 
     /**

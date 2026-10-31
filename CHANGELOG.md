@@ -270,7 +270,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   even when one balance type has higher priority. Missing or unmatched descriptions
   cannot use entries claimed by another session account, and accounts sharing a
   description cannot select its balances. Other accounts keep syncing. Generic-label
-  fallback requires a single unclaimed entry or consistent unclaimed labels.
+  fallback requires a single unclaimed entry or consistent unclaimed labels, with only
+  one account claiming that fallback across the session. Competing fallback accounts
+  all fail safely, and unavailable sibling details or invalid balance responses prevent fallback
+  without blocking positive description matches. Skipping a soft-deleted account logs
+  an IBAN fingerprint instead of the full IBAN.
   Flat account details supply the IBAN and the description, product, or holder name
   for new accounts, bounded to 100 characters after matching the full description.
   Ambiguous or missing balances fail explicitly

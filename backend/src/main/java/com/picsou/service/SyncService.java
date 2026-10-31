@@ -12,6 +12,7 @@ import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.RecurringDetectionService;
 import com.picsou.service.sync.SourceSyncResult;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -498,7 +499,7 @@ public class SyncService {
                 || accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), member.getId());
             if (softDeleted) {
                 log.info("Skipping resurrection of soft-deleted account externalId={} iban={} member={}",
-                    data.externalId(), data.iban(), member.getId());
+                    data.externalId(), LogSanitizer.fingerprint(data.iban()), member.getId());
                 return Optional.empty();
             }
         }

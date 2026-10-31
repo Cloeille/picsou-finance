@@ -31,6 +31,7 @@ class EnableBankingAccountDataTest {
     @Mock EnableBankingConfigProvider configProvider;
 
     private final Map<String, String> responses = new ConcurrentHashMap<>();
+    private final Map<String, Integer> responseStatuses = new ConcurrentHashMap<>();
     private HttpServer server;
     private EnableBankingBankConnector connector;
 
@@ -41,7 +42,8 @@ class EnableBankingAccountDataTest {
             String response = responses.get(exchange.getRequestURI().getPath());
             byte[] body = (response != null ? response : "{}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(response != null ? 200 : 404, body.length);
+            exchange.sendResponseHeaders(responseStatuses.getOrDefault(exchange.getRequestURI().getPath(),
+                response != null ? 200 : 404), body.length);
             try (var output = exchange.getResponseBody()) {
                 output.write(body);
             }
@@ -371,6 +373,128 @@ class EnableBankingAccountDataTest {
             assertThat(account.externalId()).isEqualTo("uid-reserve");
             assertThat(account.iban()).isEqualTo("FR00SYNTHETICRESERVE");
             assertThat(account.balance()).isEqualByComparingTo("41.75");
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "[\"uid-shared-a\",\"uid-unlabelled\",\"uid-shared-b\"]",
+        "[\"uid-unlabelled\",\"uid-shared-b\",\"uid-shared-a\"]"
+    })
+    void fetchBalances_competingFallbacks_rejectsEveryContenderRegardlessOfSessionOrder(String accounts) {
+        responses.put("/sessions/session", "{\"accounts\":" + accounts + "}");
+        responses.put("/accounts/uid-shared-a/details", "{\"details\":\"Shared wallet\"}");
+        responses.put("/accounts/uid-shared-b/details", "{\"details\":\" SHARED WALLET \"}");
+        responses.put("/accounts/uid-unlabelled/details", "{}");
+        String balances = """
+            {"balances": [
+              {"name":"Shared wallet", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"100"}},
+              {"name":"Shared wallet", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"200"}},
+              {"name":"Reserve wallet", "balance_type":"XPCD",
+               "balance_amount":{"currency":"EUR", "amount":"300"}}
+            ]}
+            """;
+        responses.put("/accounts/uid-shared-a/balances", balances);
+        responses.put("/accounts/uid-shared-b/balances", balances);
+        responses.put("/accounts/uid-unlabelled/balances", balances);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "{\"name\":\" RESERVE WALLET \",\"balance_type\":\"CLBD\",\"balance_amount\":{\"amount\":\"unreadable\"}}",
+        "{\"name\":\" RESERVE WALLET \",\"balance_type\":\"CLBD\"}",
+        "{\"name\":\" RESERVE WALLET \",\"balance_type\":\"CLBD\",\"balance_amount\":{\"amount\":\"200\"}},"
+            + "{\"name\":\"Another wallet\",\"balance_type\":\"ITAV\",\"balance_amount\":{\"amount\":\"90\"}}"
+    })
+    void fetchBalances_invalidFallbackContender_doesNotGrantOwnershipToSibling(String invalidCandidates) {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-invalid\",\"uid-reserve\"]}");
+        responses.put("/accounts/uid-invalid/details", "{}");
+        responses.put("/accounts/uid-reserve/details", "{}");
+        responses.put("/accounts/uid-invalid/balances", "{\"balances\":[" + invalidCandidates + "]}");
+        responses.put("/accounts/uid-reserve/balances", """
+            {"balances": [{"name":"Reserve wallet", "balance_type":"XPCD",
+              "balance_amount":{"currency":"EUR", "amount":"300"}}]}
+            """);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
+    }
+
+    @Test
+    void fetchBalances_distinctFallbackScopes_keepsBothAccountsSyncable() {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-operations\",\"uid-reserve\"]}");
+        responses.put("/accounts/uid-operations/details", "{}");
+        responses.put("/accounts/uid-reserve/details", "{}");
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name":"Booked balance", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"90"}},
+              {"name":" BOOKED BALANCE ", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"100"}}
+            ]}
+            """);
+        responses.put("/accounts/uid-reserve/balances", """
+            {"balances": [{"balance_type":"CLBD",
+              "balance_amount":{"currency":"EUR", "amount":"300"}}]}
+            """);
+
+        var accounts = connector.fetchBalances("session");
+
+        assertThat(accounts).extracting(AccountData::externalId).containsExactly("uid-operations", "uid-reserve");
+        assertThat(accounts.get(0).balance()).isEqualByComparingTo("100");
+        assertThat(accounts.get(1).balance()).isEqualByComparingTo("300");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "[\"uid-missing\",\"uid-unlabelled\"]",
+        "[\"uid-unlabelled\",\"uid-missing\"]"
+    })
+    void fetchBalances_siblingDetailsUnavailable_rejectsUnprovenFallbackAndRethrowsFailure(String accounts) {
+        responses.put("/sessions/session", "{\"accounts\":" + accounts + "}");
+        responseStatuses.put("/accounts/uid-missing/details", 503);
+        responses.put("/accounts/uid-unlabelled/details", "{}");
+        responses.put("/accounts/uid-unlabelled/balances", """
+            {"balances": [
+              {"name":"Operations", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"100"}},
+              {"name":"Operations", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"90"}}
+            ]}
+            """);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("Failed to fetch account details");
+    }
+
+    @Test
+    void fetchBalances_siblingDetailsUnavailable_keepsOnlyIndependentlyMatchedAccount() {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-missing\",\"uid-unlabelled\",\"uid-reserve\"]}");
+        responseStatuses.put("/accounts/uid-missing/details", 503);
+        responses.put("/accounts/uid-unlabelled/details", "{}");
+        responses.put("/accounts/uid-reserve/details", "{\"details\":\"Reserve wallet\"}");
+        String balances = """
+            {"balances": [
+              {"name":"Operations", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"100"}},
+              {"name":"Reserve wallet", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"300"}}
+            ]}
+            """;
+        responses.put("/accounts/uid-unlabelled/balances", balances);
+        responses.put("/accounts/uid-reserve/balances", balances);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.externalId()).isEqualTo("uid-reserve");
+            assertThat(account.balance()).isEqualByComparingTo("300");
         });
     }
 
