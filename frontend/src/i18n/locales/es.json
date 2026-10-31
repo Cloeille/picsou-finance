@@ -15,7 +15,8 @@
       "unauthorized": "Tu sesión ha caducado. Inicia sesión de nuevo.",
       "forbidden": "No tienes permiso para hacer eso.",
       "tooManyRequests": "Demasiados intentos. Espera un momento e inténtalo de nuevo.",
-      "serverError": "Algo ha salido mal por nuestra parte. Inténtalo de nuevo."
+      "serverError": "Algo ha salido mal por nuestra parte. Inténtalo de nuevo.",
+      "network": "No se puede acceder al servidor Picsou. Comprueba tu conexión e inténtalo de nuevo."
     },
     "dateHint": "dd/mm/aaaa",
     "search": "Buscar",
@@ -2097,60 +2098,75 @@
         "psd2Body": "La PSD2 es la normativa europea que permite a los agregadores autorizados leer tu cuenta bancaria con tu consentimiento. Tus credenciales nunca salen de tu banco.",
         "prodWarningTitle": "Crea una aplicación en modo PRODUCTION",
         "prodWarningBody": "En tu panel de Enable Banking, asegúrate de elegir \"Production\" al crear la aplicación — la SANDBOX solo da acceso a bancos de prueba ficticios, no a los tuyos reales.",
-        "psd2ScopeNote": "Enable Banking solo sincroniza cuentas corrientes (limitación PSD2). Para PEA, seguros de vida, cuentas de ahorro, etc.: usa las integraciones dedicadas (Trade Republic, Boursobank, Finary) o añádelas manualmente."
+        "psd2ScopeNote": "Enable Banking solo sincroniza cuentas corrientes (limitación PSD2). Para PEA, seguros de vida, cuentas de ahorro, etc.: usa las integraciones dedicadas (Trade Republic, Boursobank, Finary) o añádelas manualmente.",
+        "magicLinkHint": "Introduce tu correo en la página de inicio de sesión. Enable Banking crea tu cuenta al iniciar sesión por primera vez y te envía un enlace de acceso de un solo uso."
       },
       "creds": {
         "title": "Pega tu Application ID",
-        "body": "En tu panel de Enable Banking, crea una aplicación llamada \"Picsou\" y copia aquí su Application ID.",
+        "body": "Copia el Application ID de la aplicación que acabas de registrar en el Control Panel de Enable Banking.",
         "applicationId": "Application ID",
-        "applicationIdHint": "Es el UUID de tu aplicación Enable Banking — también se usa como Key ID al firmar las peticiones.",
+        "applicationIdHint": "El Application ID también es el nombre del archivo .pem descargado sin la extensión .pem. También se usa como Key ID.",
         "prodAcknowledge": "Confirmo que mi aplicación de Enable Banking está en modo PRODUCTION (no SANDBOX)."
       },
       "keypair": {
-        "modeGenerate": "Generar un par de claves",
-        "modeImport": "Ya tengo un .pem de EB",
-        "title": "Generamos tu par de claves",
-        "body": "Picsou genera un par de claves RSA-2048 en el servidor. La mitad privada nunca sale de tu máquina; tú subes la mitad pública a Enable Banking.",
+        "modeGenerate": "Avanzado: usar un par de claves del servidor",
+        "modeImport": "Importar el .pem de Enable Banking (recomendado)",
+        "title": "Usar un par de claves del servidor Picsou",
+        "body": "Usa esta opción solo si gestionas tú la clave registrada para tu aplicación. Si Enable Banking descargó un archivo .pem, importa ese archivo.",
         "generating": "Generando tu par de claves...",
         "copy": "Copiar clave pública",
         "copied": "¡Copiado!",
         "download": "Descargar public.pem",
-        "uploadInstruction": "Ahora, en tu panel de EB → tu app → Public key → pega este bloque.",
-        "uploadedCta": "Ya la he subido — continuar",
+        "uploadInstruction": "Tu aplicación Enable Banking debe estar registrada con esta clave pública exacta. Es una clave pública, no un certificado. Si el formulario pide un certificado, mantén la generación en el navegador e importa el .pem descargado.",
+        "uploadedCta": "Esta clave está registrada, continuar",
         "error": "No pudimos generar el par de claves. Inténtalo de nuevo.",
         "importTitle": "Importa tu clave privada de Enable Banking",
-        "importBody": "Enable Banking te dio un archivo .pem al crear tu aplicación. Súbelo aquí — Picsou deriva la clave pública a partir de él para la verificación.",
+        "importBody": "Elige el archivo <application-id>.pem que Enable Banking descargó al registrar esta aplicación, o pega su contenido. Picsou guarda la clave privada en tu servidor.",
         "chooseFile": "Elegir archivo .pem",
         "orPaste": "o pega el contenido directamente",
         "importCta": "Importar clave",
         "importing": "Importando...",
-        "importSuccess": "Clave importada. Clave pública derivada:",
-        "importError": "No se pudo leer la clave. Asegúrate de que es un archivo .pem PKCS#8 de Enable Banking."
+        "importSuccess": "Clave importada. No hace falta subir una clave pública. Clave pública derivada:",
+        "importError": "No se pudo leer la clave. Asegúrate de que es un archivo .pem PKCS#8 de Enable Banking.",
+        "generateCta": "Obtener la clave pública del servidor",
+        "privateKeyLabel": "Clave privada (PEM)"
       },
       "redirect": {
-        "title": "Añade esta redirect URI a Enable Banking",
-        "body": "Abre tu panel de Enable Banking, crea tu aplicación (llámala \"Picsou\") y pega esta URL exacta en la lista \"Allowed redirect URIs\". Hazlo antes de generar tu Application ID y tu Key ID — Enable Banking solo acepta la redirect URI que incluyas aquí en la lista.",
+        "title": "Registra tu aplicación Enable Banking",
+        "body": "Abre \"Add a new application\" en el Control Panel de Enable Banking. Añade esta URL exacta a las URL de redirección y rellena los campos siguientes.",
         "copy": "Copiar URL",
         "copied": "¡Copiado!",
-        "addedCta": "Añadida — continuar"
+        "addedCta": "Aplicación registrada y activada, continuar",
+        "uriLabel": "URL de redirección",
+        "checklistTitle": "Lista de campos de la aplicación",
+        "environment": "Entorno: Production. Sandbox solo ofrece bancos de prueba ficticios.",
+        "name": "Nombre: Picsou o un nombre que reconozcas.",
+        "description": "Descripción, por ejemplo: \"Uso personal, agregación de mis propias cuentas en una instancia de Picsou autoalojada\".",
+        "email": "Correo para asuntos de protección de datos: tu propio correo de contacto.",
+        "policyUrls": "Privacy URL y Terms URL son obligatorias. Para una instancia personal, revisa los enlaces del repositorio que aparecen debajo como posibles valores. Usa URL que describan tu propio uso.",
+        "keyMethod": "Mantén \"Generate in the browser (using SubtleCrypto) and export private key\". Registra la aplicación y guarda el archivo <application-id>.pem descargado para importarlo después.",
+        "activationTitle": "Activa la aplicación antes de continuar",
+        "activationBody": "Una nueva aplicación Production está Inactive. Elige \"Activate by linking accounts\" y autoriza tus propias cuentas bancarias. No elijas \"Request activation\", que es la vía comercial.",
+        "restrictedMode": "En modo restringido, solo se puede acceder a las cuentas vinculadas a esta aplicación en el Control Panel de Enable Banking. Antes de añadir otro banco en Picsou más adelante, vincula primero sus cuentas allí."
       },
       "test": {
         "title": "Prueba tu conexión",
         "body": "Haremos una llamada rápida autenticada a Enable Banking para comprobar que todo encaja.",
         "run": "Ejecutar prueba",
         "running": "Probando...",
-        "success": "¡Enable Banking está listo!",
+        "success": "Enable Banking está configurado",
         "retry": "Repetir prueba",
         "backToPrevious": "Volver al paso anterior",
-        "activationNotice": "Ojo: Enable Banking solo activa tu aplicación cuando has conectado al menos una cuenta bancaria real desde su panel. Si te saltas ese paso, esta prueba indicará que tu clave no es válida aunque lo sea. Abre tu panel de Enable Banking, vincula una cuenta bancaria a tu aplicación y vuelve a ejecutar la prueba.",
+        "activationNotice": "Antes de la prueba, usa \"Activate by linking accounts\" en el Control Panel de Enable Banking y autoriza tus propias cuentas. El modo restringido solo permite esas cuentas vinculadas. \"Request activation\" es la vía comercial.",
         "hints": {
           "invalid_application_id": "El Application ID no coincide con el que tiene registrado Enable Banking. Revísalo en el paso de credenciales.",
-          "invalid_key_id": "Enable Banking ha rechazado el JWT. Dos causas habituales: (1) el Application ID o el Key ID no coinciden con los de tu panel de EB, o (2) tu aplicación aún no está activada — Enable Banking solo la activa cuando conectas al menos una cuenta bancaria real desde su panel.",
-          "public_key_not_uploaded": "Tu clave pública aún no está subida — vuelve al paso del par de claves, súbela a tu aplicación de EB y reintenta.",
+          "invalid_key_id": "Enable Banking ha rechazado la firma. Comprueba que el Application ID y el .pem importado pertenecen a la misma aplicación y que la has activado con \"Activate by linking accounts\".",
+          "public_key_not_uploaded": "La clave de la aplicación no coincide. Importa el .pem descargado para este Application ID. Si gestionas un par de claves del servidor, comprueba que la aplicación esté registrada con esa clave pública exacta.",
           "redirect_uri_mismatch": "La redirect URI no está en la lista permitida de Enable Banking. Revisa el paso de la redirección.",
           "network": "No pudimos contactar con Enable Banking. Comprueba tu red e inténtalo de nuevo.",
           "unknown": "Algo ha salido mal. Consulta los logs del servidor si necesitas más detalles."
-        }
+        },
+        "successBody": "Esta prueba comprueba la configuración de la aplicación. Conecta tus cuentas bancarias en Picsou después de la configuración inicial. Continúa con la siguiente integración."
       }
     },
     "bourso": {
