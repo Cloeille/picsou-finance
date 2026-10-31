@@ -159,6 +159,11 @@ same `ScpiPositionService.save` and never sends a CORUM or Sofidy fund code. See
 
 ## Gotchas / Pitfalls
 
+- A transaction on a SCPI account (a dividend noted by hand) is recorded but never moves the
+  balance: `AccountType.isLedger()` is false for `SCPI`, so `ManualTransactionService` skips its
+  cash-ledger recomputation and snapshot rebuild, and the Actual Budget and HomeBank imports
+  refuse it as a target. Summing the transactions would replace the withdrawal value with the
+  dividends.
 - `CORUM_AUTH_URL` and `SOFIDY_AUTH_URL` are bound in both backend configurations.
   Development defaults use loopback ports 8006 and 8007, avoiding BoursoBank's
   8004 and Fortuneo's 8005. Compose uses the internal service names on port 8001;
@@ -197,6 +202,8 @@ same `ScpiPositionService.save` and never sends a CORUM or Sofidy fund code. See
 - `ScpiPositionServiceTest` — fractional shares, withdrawal value, missing price, wrong type
 - `AccountToolsTest#setScpiPosition_*` — the MCP tool delegates to the form service, never
   sends a fund code, keeps omitted distribution fields and rejects what `@Valid` rejects
+- `ManualTransactionServiceTest#*_valuedAccount_*` — adding, editing or deleting a transaction
+  on a SCPI, a property or an employee-savings plan keeps its value and its snapshot history
 - `ScpiFundReconcilerTest` — first sync creates, second updates without a duplicate,
   same-name manual account linked, two matches ambiguous, ignored fund not recreated,
   vanished fund reported and kept, missing price reported

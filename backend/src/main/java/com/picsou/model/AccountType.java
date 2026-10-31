@@ -54,6 +54,19 @@ public enum AccountType {
     }
 
     /**
+     * Whether this account's balance is the sum of its own transactions: a cash ledger.
+     *
+     * <p>An investment account derives its balance from its positions. A SCPI, a property and an
+     * employee-savings plan are valued instead (withdrawal price, estimate or statement), so a
+     * transaction recorded on one of them is history and must never replace that value with a
+     * sum. This is the one definition the manual-transaction recomputation and both ledger
+     * importers share.
+     */
+    public boolean isLedger() {
+        return !isInvestment() && this != EMPLOYEE_SAVINGS && this != REAL_ESTATE && this != SCPI;
+    }
+
+    /**
      * Whether this account is money owed rather than wealth: the same set the accounts page
      * groups under Debts, so the dashboard and the pyramid never count one as a negative asset.
      */
