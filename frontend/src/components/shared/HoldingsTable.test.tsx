@@ -57,12 +57,16 @@ const MC_LOGO = '/api/instrument-logos/MC.PA?v=1759400000'
 // An equity whose mark the backend stored: the URL is Picsou's own endpoint, never Yahoo's.
 const MC: HoldingResponse = { ...BTC, ticker: 'MC.PA', name: 'LVMH', logoUrl: MC_LOGO }
 
-/** The tickers in render order — the first cell of every body row. */
+/** The tickers in render order — the first cell of every body row, without the logo's initials. */
 function renderedTickers(): string[] {
   return screen
     .getAllByRole('row')
     .slice(1)
-    .map(row => row.querySelector('td')!.textContent!.trim())
+    .map(row => {
+      const cell = row.querySelector('td')!.cloneNode(true) as HTMLElement
+      cell.querySelectorAll('[aria-hidden="true"]').forEach(n => n.remove())
+      return cell.textContent!.trim()
+    })
 }
 
 /** Exact match, not a regex: `holdings.pnl` is a prefix of `holdings.pnlPercent`. */
