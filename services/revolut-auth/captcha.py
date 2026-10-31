@@ -51,13 +51,31 @@ frame => {
                 resolve(null);
                 return;
             }
-            const bounds = content.getBounds();
-            const box = entry.boundingClientRect;
+            // Clip the content quad to the observer's rectangle; their axis-aligned bounds can overlap
+            // where the rotated quad itself does not.
             const clip = entry.intersectionRect;
-            const left = Math.max(clip.left, bounds.left);
-            const top = Math.max(clip.top, bounds.top);
-            const right = Math.min(clip.right, bounds.right);
-            const bottom = Math.min(clip.bottom, bounds.bottom);
+            let polygon = [content.p1, content.p2, content.p3, content.p4].map(point => [point.x, point.y]);
+            for (const [axis, bound, sign] of [
+                    [0, clip.left, 1], [0, clip.right, -1], [1, clip.top, 1], [1, clip.bottom, -1]]) {
+                const kept = [];
+                polygon.forEach((from, index) => {
+                    const to = polygon[(index + 1) % polygon.length];
+                    const fromInside = sign * (from[axis] - bound);
+                    const toInside = sign * (to[axis] - bound);
+                    if (fromInside >= 0) kept.push(from);
+                    if ((fromInside >= 0) !== (toInside >= 0)) {
+                        const t = fromInside / (fromInside - toInside);
+                        kept.push([from[0] + t * (to[0] - from[0]), from[1] + t * (to[1] - from[1])]);
+                    }
+                });
+                polygon = kept;
+            }
+            // An empty polygon gives left = Infinity and right = -Infinity, so the size check rejects it.
+            const left = Math.min(...polygon.map(point => point[0]));
+            const top = Math.min(...polygon.map(point => point[1]));
+            const right = Math.max(...polygon.map(point => point[0]));
+            const bottom = Math.max(...polygon.map(point => point[1]));
+            const box = entry.boundingClientRect;
             if (box.width <= 1 || box.height <= 1 ||
                 right - left <= 1 || bottom - top <= 1) {
                 resolve(null);

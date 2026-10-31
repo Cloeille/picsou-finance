@@ -157,6 +157,20 @@ async def test_scaled_subpixel_frame_is_visible(page, dimension, transform):
     assert await captcha.visible(page)
 
 
+@pytest.mark.parametrize(("clip", "expected"), [
+    (40, False),
+    (100, True),
+])
+async def test_rotated_frame_clip_must_overlap_content_quad(page, clip, expected):
+    # A 200px square rotated by 45 degrees has a 283px axis-aligned box. The wrapper starts at that
+    # box's top-left corner, where the quad only begins past x + y = 141px.
+    await page.set_content(
+        f'<div style="width:{clip}px;height:{clip}px;overflow:hidden;margin:100px">'
+        '<iframe src="https://hcaptcha.com/challenge" style="display:block;border:0;'
+        'width:200px;height:200px;margin:41.4px 0 0 41.4px;transform:rotate(45deg)"></iframe></div>')
+    assert await captcha.visible(page) is expected
+
+
 @pytest.mark.parametrize("element", ["html", "body"])
 async def test_viewport_overflow_does_not_clip_at_empty_element_box(page, element):
     await page.set_content(
