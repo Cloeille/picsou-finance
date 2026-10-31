@@ -608,6 +608,10 @@ information architecture.
   envelope, a drop that never happened. The cash pocket now counts in the hourly
   value and in the invested amount, as the daily chart's today point already did,
   so the gain is unchanged and the two charts agree.
+- **The 24H chart costs a Finary line the way the daily chart does.** A security Finary
+  reports with a value and a gain but no buying value has no average buy-in, and the
+  hourly points charged it nothing, so its whole value read as a gain. They now take the
+  provider's cost (value minus gain) first, as the daily valuation already did.
 - **Trade Republic and DEGIRO daily snapshots now cost today's positions, not
   yesterday's.** Both syncs took the day's snapshot before replacing the holdings,
   and the snapshot derives its invested amount from the holdings in the table, so

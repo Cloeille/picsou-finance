@@ -868,6 +868,30 @@ class HistoryServiceTest {
     }
 
     @Test
+    void buildIntradayHistory_providerCostWithoutBuyIn_countsAsInvested() {
+        Account account = brokerage(1L, "CTO");
+        account.setCurrentBalance(new BigDecimal("90"));
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(account));
+        lenient().when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        // A Finary security without display_buying_value: value and P&L only, no average buy-in.
+        AccountHolding security = AccountHolding.builder()
+            .account(account)
+            .ticker("FR0000120271")
+            .quantity(BigDecimal.ONE)
+            .providerValueEur(new BigDecimal("90"))
+            .providerPnlEur(new BigDecimal("9"))
+            .build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(security));
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("90");
+            assertThat(p.invested()).isEqualByComparingTo("81");
+        });
+    }
+
+    @Test
     void buildIntradayHistory_creditCardSigned_excludedFromInvested() {
         Account card = creditCard(1L, "-800");
         Account cashAcc = checking(2L, "2000");

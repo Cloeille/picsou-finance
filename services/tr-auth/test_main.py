@@ -1,5 +1,6 @@
 """Trade Republic sidecar: helpers and the endpoint contract the backend relies on, network mocked."""
 
+import os
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -56,7 +57,9 @@ class EndpointTest(unittest.TestCase):
         self.client = TestClient(main.app, headers=AUTH)
 
     def test_health(self):
-        self.assertEqual(self.client.get("/health").json(), {"status": "ok"})
+        with patch.dict(os.environ):
+            os.environ.pop("PICSOU_SIDECAR_BASE", None)
+            self.assertEqual(self.client.get("/health").json(), {"status": "ok"})
 
     def test_initiate_returns_the_process_id(self):
         self.post.return_value = tr_response(200, json={"processId": "p-1"})

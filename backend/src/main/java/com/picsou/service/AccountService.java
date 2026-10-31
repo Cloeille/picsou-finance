@@ -1136,7 +1136,7 @@ public class AccountService {
         );
     }
 
-    private BigDecimal providerCostBasisEur(AccountHolding holding) {
+    static BigDecimal providerCostBasisEur(AccountHolding holding) {
         if (holding.getProviderValueEur() == null || holding.getProviderPnlEur() == null) {
             return null;
         }

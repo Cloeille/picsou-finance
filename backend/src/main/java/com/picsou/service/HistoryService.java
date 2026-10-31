@@ -365,7 +365,11 @@ public class HistoryService {
                     BigDecimal avgBuyEur = priceService.toEur(avgBuy, account.getCurrency(), null);
                     String ticker = h.getTicker() != null ? h.getTicker().toUpperCase() : null;
                     holdingDataList.add(new HoldingData(ticker, qty, avgBuyEur, h.getProviderValueEur()));
-                    invested = invested.add(qty.multiply(avgBuyEur));
+                    // The provider's own EUR cost first, as valuation() takes it for the daily
+                    // chart: a Finary line without a buying value has no average buy-in, and
+                    // charging it zero printed its whole value as an intraday gain.
+                    BigDecimal providerCost = AccountService.providerCostBasisEur(h);
+                    invested = invested.add(providerCost != null ? providerCost : qty.multiply(avgBuyEur));
                     if (ticker != null) allTickers.add(ticker);
                 }
 
