@@ -741,13 +741,18 @@ handlers.set(key('GET', '/geocode'), () => ([
   },
 ]))
 
+/** The `accountIds=2,3,6` query parameter, or `fallback` when the request names none. */
+function requestedAccountIds(config: InternalAxiosRequestConfig, fallback: number[]): number[] {
+  const ids = String(config.params?.accountIds ?? '').split(',').map(Number).filter(n => n > 0)
+  return ids.length ? ids : fallback
+}
+
 // Aggregate net worth history (dashboard chart; the Accounts page asks for split=true to get
 // the per-account breakdown its PnL reads).
 handlers.set(key('GET', '/history'), (config) => {
   const params = (config.params ?? {}) as Record<string, string>
-  const ids = String(params.accountIds ?? '').split(',').map(Number).filter(n => n > 0)
   return netWorthHistory(
-    ids.length ? ids : mockAccounts.map(a => a.id),
+    requestedAccountIds(config, mockAccounts.map(a => a.id)),
     Number(params.months ?? 12),
     String(params.split) === 'true',
   )
@@ -757,24 +762,20 @@ handlers.set(key('GET', '/history'), (config) => {
 // Live figures from the history the chart draws. The range is the holdings' own price move,
 // which the demo has no price snapshots for: a fixed 8.3% on their live value.
 const demoTopLevelIds = mockAccounts.filter(a => a.parentAccountId == null).map(a => a.id)
-handlers.set(key('GET', '/history/pnl'), () => {
-  const { total, invested, pnl } = netWorthHistory(demoTopLevelIds, 1, false)[0]
-  const holdingsValue = Object.values(mockHoldings).flat().reduce((sum, h) => sum + (h.currentValueEur ?? 0), 0)
+handlers.set(key('GET', '/history/pnl'), (config) => {
+  const ids = requestedAccountIds(config, demoTopLevelIds)
+  const { total, invested, pnl } = netWorthHistory(ids, 1, false)[0]
+  const live = { total, invested, pnl, pnlPercent: invested > 0 ? Math.round((pnl / invested) * 1000) / 10 : null }
+  const holdingsValue = ids.flatMap(id => mockHoldings[id] ?? []).reduce((sum, h) => sum + (h.currentValueEur ?? 0), 0)
+  // HistoryService returns the live figures alone when no holding can be priced over the range.
+  if (holdingsValue === 0) return { ...live, valueAtFrom: null, rangePnl: null, rangePnlPercent: null }
   const valueAtFrom = r2(holdingsValue / 1.083)
-  return {
-    total,
-    invested,
-    pnl,
-    pnlPercent: Math.round((pnl / invested) * 1000) / 10,
-    valueAtFrom,
-    rangePnl: r2(holdingsValue - valueAtFrom),
-    rangePnlPercent: 8.3,
-  }
+  return { ...live, valueAtFrom, rangePnl: r2(holdingsValue - valueAtFrom), rangePnlPercent: 8.3 }
 })
 
 // Intraday net worth (24H dashboard range): one point per hour, mild noise, ending on today's.
-handlers.set(key('GET', '/history/net-worth/intraday'), () => {
-  const { total, invested } = netWorthHistory(demoTopLevelIds, 1, false)[0]
+handlers.set(key('GET', '/history/net-worth/intraday'), (config) => {
+  const { total, invested } = netWorthHistory(requestedAccountIds(config, demoTopLevelIds), 1, false)[0]
   return Array.from({ length: 24 }, (_, i) => {
     const back = 23 - i
     return { timestamp: hoursAgo(back), total: r2(total - back * 25 + Math.sin(back / 2.5) * 180), invested }

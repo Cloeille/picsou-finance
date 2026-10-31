@@ -29,11 +29,18 @@ import { isoDate } from './dates'
 const NOW = new Date()
 const CYCLE_START = new Date(NOW.getFullYear(), NOW.getMonth(), 1)
 const CYCLE_END = new Date(NOW.getFullYear(), NOW.getMonth() + 1, 0)
+const CYCLE_FROM = isoDate(CYCLE_START)
 
 function daysFromNow(n: number): string {
   const d = new Date(NOW)
   d.setDate(d.getDate() + n)
   return isoDate(d)
+}
+
+/** `days` before today, but never before `from`: on a cycle's first day every row lands on it. */
+function daysAgoWithin(days: number, from: string): string {
+  const date = daysFromNow(-days)
+  return date < from ? from : date
 }
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -75,24 +82,24 @@ export const mockRules: CategorizationRule[] = [
 
 export const mockUncategorized: UncategorizedTransaction[] = [
   {
-    id: 9001, date: daysFromNow(-2), description: 'AMAZON EU SARL', amount: -42.9, type: null,
-    category: null, nativeCurrency: 'EUR', createdAt: daysFromNow(-2), isManual: false,
+    id: 9001, date: daysAgoWithin(2, CYCLE_FROM), description: 'AMAZON EU SARL', amount: -42.9, type: null,
+    category: null, nativeCurrency: 'EUR', createdAt: daysAgoWithin(2, CYCLE_FROM), isManual: false,
     txType: 'WITHDRAWAL', ticker: null, quantity: null, pricePerUnit: null,
     categoryId: null, categoryName: null, counterparty: 'AMAZON EU SARL',
     merchantLabel: 'Amazon', merchantBrandId: null,
     aiSuggestedCategoryId: null, aiConfidence: null,
   },
   {
-    id: 9002, date: daysFromNow(-3), description: 'SNCF VOYAGEURS', amount: -68.0, type: null,
-    category: null, nativeCurrency: 'EUR', createdAt: daysFromNow(-3), isManual: false,
+    id: 9002, date: daysAgoWithin(3, CYCLE_FROM), description: 'SNCF VOYAGEURS', amount: -68.0, type: null,
+    category: null, nativeCurrency: 'EUR', createdAt: daysAgoWithin(3, CYCLE_FROM), isManual: false,
     txType: 'WITHDRAWAL', ticker: null, quantity: null, pricePerUnit: null,
     categoryId: null, categoryName: null, counterparty: 'SNCF VOYAGEURS',
     merchantLabel: 'SNCF', merchantBrandId: null,
     aiSuggestedCategoryId: 4, aiConfidence: 92,
   },
   {
-    id: 9003, date: daysFromNow(-5), description: 'BOULANGERIE DU COIN', amount: -8.4, type: null,
-    category: null, nativeCurrency: 'EUR', createdAt: daysFromNow(-5), isManual: false,
+    id: 9003, date: daysAgoWithin(5, CYCLE_FROM), description: 'BOULANGERIE DU COIN', amount: -8.4, type: null,
+    category: null, nativeCurrency: 'EUR', createdAt: daysAgoWithin(5, CYCLE_FROM), isManual: false,
     txType: 'WITHDRAWAL', ticker: null, quantity: null, pricePerUnit: null,
     categoryId: null, categoryName: null, counterparty: 'BOULANGERIE DU COIN',
     merchantLabel: 'Boulangerie du Coin', merchantBrandId: null,
@@ -295,7 +302,8 @@ const SPEND_BASE: { cat: Category; amount: number }[] = [
   { cat: mockCategories[6], amount: 134.2 }, // Restaurants
   { cat: mockCategories[5], amount: 53.97 }, // Abonnements
 ]
-const UNCATEGORIZED_BASE = 60
+// The uncategorized spend is the review inbox, so the breakdown counts the rows the ledger lists.
+const UNCATEGORIZED_BASE = r2(mockUncategorized.reduce((acc, tx) => acc - tx.amount, 0))
 
 /** A couple of believable merchants per category, for the drill transaction list. */
 const MERCHANTS_BY_CATEGORY: Record<number, string[]> = {
@@ -426,7 +434,7 @@ export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCatego
       color: null,
       icon: null,
       amount: r2(UNCATEGORIZED_BASE * factor),
-      count: 2,
+      count: mockUncategorized.length,
       parentId: null,
       parentName: null,
       parentColor: null,
@@ -447,7 +455,7 @@ export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCatego
  * total exactly. Transaction ids are namespaced by category id (`id*100 + i`) so a parent drill
  * can concatenate several leaves' lists without colliding.
  */
-function leafTransactions(cat: Category, factor: number): Transaction[] {
+function leafTransactions(cat: Category, factor: number, from: string): Transaction[] {
   const base = SPEND_BASE.find((s) => s.cat.id === cat.id)?.amount ?? 80
   const merchants = MERCHANTS_BY_CATEGORY[cat.id] ?? ['Achat']
   const isIncome = cat.kind === 'INCOME'
@@ -468,7 +476,7 @@ function leafTransactions(cat: Category, factor: number): Transaction[] {
     const merchant = merchants[i % merchants.length]
     return {
       id: cat.id * 100 + i,
-      date: daysFromNow(-(i * 3 + 2)),
+      date: daysAgoWithin(i * 3 + 2, from),
       description: merchant.toUpperCase(),
       amount: isIncome ? abs : -abs,
       type: null,
@@ -501,7 +509,7 @@ export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): 
   let children: ChildSpend[]
   if (childCats.length > 0) {
     children = childCats.map((child) => {
-      const txns = leafTransactions(child, factor)
+      const txns = leafTransactions(child, factor, from)
       return {
         categoryId: child.id,
         name: child.name,
@@ -512,10 +520,10 @@ export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): 
       }
     })
     transactions = childCats
-      .flatMap((child) => leafTransactions(child, factor))
+      .flatMap((child) => leafTransactions(child, factor, from))
       .sort((a, b) => b.date.localeCompare(a.date)) // newest first across the whole subtree
   } else {
-    transactions = cat ? leafTransactions(cat, factor) : []
+    transactions = cat ? leafTransactions(cat, factor, from) : []
     children = []
   }
 
