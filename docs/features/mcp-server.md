@@ -213,6 +213,14 @@ sessions/credentials as the documented side effect of deleting a connection's la
 
 ## Gotchas / Pitfalls
 
+- **Streamable responses need authentication on async dispatch.** `AccessKeyAuthFilter` saves
+  the access-key or MCP-JWT principal in `RequestAttributeSecurityContextRepository`, which the
+  stateless security chain reads when the servlet resumes. A thread-local context alone disappears
+  after the initial dispatch. Spring Security then denies completion of an already-written SSE
+  response, and clients see `chunked transfer encoding, state: READING_LENGTH` during `tools/list`.
+  Request attributes preserve the principal and scopes only for that HTTP request. Redispatch
+  does not validate the credential again or consume another rate-limit token, and no HTTP session
+  is created. Reactor tool execution still needs the separate context propagation described below.
 - **Scope enforcement needs the security context across a thread hop.** `AccessKeyAuthFilter`
   authenticates on the Tomcat servlet thread, but Spring AI (WebMvc+SSE) executes `@Tool` methods on a
   Reactor scheduler thread. Because `SecurityContextHolder` is a plain `ThreadLocal`, that tool thread
@@ -347,6 +355,9 @@ Backend (H2, `mvn test`):
 - `mcp/SyncToolsSseTest` — real SSE transport: `GET /mcp`, then `tools/call trigger_full_sync` with a `sync:trigger` key, and the per-source summary comes back. The sync itself is stubbed so the test does not call a bank.
 - `service/AccountConnectionServiceTest` — last-account cleanup, connection preservation, and deletion results with labels captured before the connection is removed.
 - `config/AccessKeyAuthFilterTest` — Property A (key on `/api/**` ⇒ not authenticated; on `/mcp` ⇒ authenticated), Property C (scope authorities only), throttle 429.
+  Access-key and MCP-JWT authentication survives async dispatch without repeat validation, extra
+  rate-limit consumption, or HTTP sessions. A subsequent request and an unauthenticated async
+  dispatch remain denied.
 - `service/UserContextTest` — Property B (`AccessKeyAuthentication` ⇒ override returns `null`, even for an admin-owned key).
 - `controller/AccessKeyControllerTest` — create/list/revoke, one-time secret, unknown-scope 400, member isolation, create throttle.
 - `model/AccessKeyTest` — `isUsable` (revoked / expired / live).

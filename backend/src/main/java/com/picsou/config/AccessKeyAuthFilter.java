@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -50,6 +51,8 @@ public class AccessKeyAuthFilter extends OncePerRequestFilter {
     private final Map<Long, Bucket> keyBuckets;
     private final JwtTokenAuthenticator jwtTokenAuthenticator;
     private final AppUserRepository appUserRepository;
+    private final RequestAttributeSecurityContextRepository securityContextRepository =
+        new RequestAttributeSecurityContextRepository();
 
     public AccessKeyAuthFilter(
         AccessKeyService accessKeyService,
@@ -90,7 +93,7 @@ public class AccessKeyAuthFilter extends OncePerRequestFilter {
 
         // Not a psk_ key: try it as an MCP JWT. No throttle bucket on this path (short-lived,
         // rotating tokens); an invalid/expired/forged token just leaves the request unauthenticated.
-        authenticateMcpJwt(bearer);
+        authenticateMcpJwt(bearer, request, response);
         chain.doFilter(request, response);
     }
 
@@ -118,12 +121,12 @@ public class AccessKeyAuthFilter extends OncePerRequestFilter {
             .map(SimpleGrantedAuthority::new)
             .toList();
         var authentication = new AccessKeyAuthentication(key.owner(), authorities, key.keyId());
-        SecurityContextHolder.getContext().setAuthentication(authentication);
+        saveAuthentication(authentication, request, response);
 
         chain.doFilter(request, response);
     }
 
-    private void authenticateMcpJwt(String token) {
+    private void authenticateMcpJwt(String token, HttpServletRequest request, HttpServletResponse response) {
         jwtTokenAuthenticator.authenticateMcpToken(token).ifPresent(principal -> {
             Optional<AppUser> owner = appUserRepository.findByIdWithMember(principal.uid());
             if (owner.isEmpty()) {
@@ -134,8 +137,21 @@ public class AccessKeyAuthFilter extends OncePerRequestFilter {
                 .toList();
             // No key id for an OAuth-issued token — this authentication was never a psk_ AccessKey row.
             var authentication = new AccessKeyAuthentication(owner.get(), authorities, null);
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+            saveAuthentication(authentication, request, response);
         });
+    }
+
+    private void saveAuthentication(
+        AccessKeyAuthentication authentication,
+        HttpServletRequest request,
+        HttpServletResponse response
+    ) {
+        var context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+        SecurityContextHolder.setContext(context);
+        // The stateless chain reloads request attributes on async dispatch, after it clears the
+        // thread-local context. Without this save, completing an MCP stream fails authorization.
+        securityContextRepository.saveContext(context, request, response);
     }
 
     /** Pull the raw Bearer credential (key or JWT) out of the header, or {@code null} if absent. */
