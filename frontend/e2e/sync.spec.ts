@@ -25,6 +25,7 @@ test.describe('Sync page tabs', () => {
       'SimpleFIN',
       'Amundi',
       'Crédit Mutuel / CIC Épargne Salariale',
+      'CIC (livrets)',
       'Fortuneo',
       'American Express',
       'CORUM',
