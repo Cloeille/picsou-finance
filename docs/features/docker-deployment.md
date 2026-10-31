@@ -542,7 +542,8 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
   the packaged JAR, the normal application entrypoint, and its Nginx API route. The build goes
   through Buildx with the GitHub Actions layer cache (its own `release-smoke` scope, plus the
   release build's `app` scope from `docker.yml`), so Maven Central and the npm registry are only
-  contacted when `backend/pom.xml` or `frontend/bun.lock` changes. Cold builds from shared runners
+  contacted when `backend/pom.xml`, `frontend/package.json` or `frontend/bun.lock` changes, or
+  when the cached layers are missing (evicted or cache unavailable). Cold builds from shared runners
   were rejected by Maven Central with `429 Too Many Requests`.
 - Build validation: `docker build -f docker/Dockerfile .`.
 - Backend unit tests run separately via `./mvnw test` (not in Docker build — skipped with `-DskipTests`).
