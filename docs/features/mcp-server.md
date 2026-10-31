@@ -52,7 +52,7 @@ Three security properties are guaranteed structurally (not by per-call checks):
 - `backend/src/main/java/com/picsou/mcp/RequiresScope.java` + `backend/src/main/java/com/picsou/mcp/ScopeEnforcementAspect.java` + `backend/src/main/java/com/picsou/exception/MissingScopeException.java` — scope enforcement (AOP) and its clean error.
 - `backend/src/main/java/com/picsou/controller/AccessKeyController.java` + `dto/AccessKey{CreateRequest,Response,CreatedResponse}.java` — self-service management REST API under `/api/access-keys`.
 - `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — `mcpKeyBuckets`, `accessKeyCreateBuckets`, and the bucket factories.
-- `backend/src/main/resources/application.yml` — `spring.ai.mcp.server.*` (HTTP+SSE, `SYNC`, `/mcp` + `/mcp/message`, `MCP_ENABLED` gate, instructions string).
+- `backend/src/main/resources/application.yml` — `spring.ai.mcp.server.*` (HTTP+SSE pinned with `protocol: SSE`, `SYNC`, `/mcp` + `/mcp/message`, `keep-alive-interval` (`MCP_KEEP_ALIVE_INTERVAL`, 60 s), `MCP_ENABLED` gate, instructions string).
 
 **Frontend**
 - `frontend/src/features/accessKeys/{api,hooks,scopes,status}.ts` — TanStack Query layer + scope/status helpers.
@@ -169,7 +169,8 @@ sessions/credentials as the documented side effect of deleting a connection's la
 | MCP server **embedded** in the backend | Tools call existing member-scoped services in-process; one deployable; smallest new attack surface | Standalone MCP sidecar proxying the REST API (extra hop, duplicated auth, more to secure) |
 | **Access-key** principal, separate from the JWT cookie | A distinct `Authentication` type is the seam for Properties B/C; keys are revocable and scope-limited without touching the login | Reuse cookie/JWT for MCP (no scoping, full surface, no per-app revoke) |
 | **SHA-256 + constant-time compare** for key hashes | The secret is high-entropy (~190 bits), so a fast hash is safe; enables O(1) prefix lookup then `MessageDigest.isEqual` | bcrypt (needed for low-entropy passwords; here it only adds latency to the hot auth path) |
-| **HTTP+SSE** transport (`/mcp` stream + `/mcp/message`) | The only transport Spring AI 1.0.3 / MCP SDK 0.10.0 ship; clients reach it via `mcp-remote` | Streamable HTTP (not available on the pinned version — see the ADR) |
+| **HTTP+SSE** transport (`/mcp` stream + `/mcp/message`) | Existing clients (Claude Code, `mcp-remote`) are configured for it; `protocol: SSE` pins it | Streamable HTTP (available since Spring AI 1.1, evaluated but not switched — see the 2026-10-27 ADR) |
+| **Server keep-alive** on the SSE stream (`keep-alive-interval: 60s`) | The SDK pings every open session, so an idle stream is never silent long enough for a client to drop it | No keep-alive (Bun's fetch drops the stream after ~6 min, the Python client after 300 s, and the next call times out) |
 | **Reactor automatic context propagation** to carry the security context to the tool thread | Spring AI runs tools off the servlet thread; this restores the `SecurityContext` there so the existing thread-local check works unchanged | `MODE_INHERITABLETHREADLOCAL` (misses pooled scheduler threads) · making the aspect read auth some other way (leaks the thread concern into every tool) |
 | **Curated** write surface (record maintenance, manual account creation, resync, and account deletion with idle-connection cleanup) | No credential submission/retrieval or new authentication flow; deleting the last synced account can remove its stored session/credentials | Expose the full REST surface as tools (uncontrolled blast radius) |
 | Scopes as one **space-delimited column** via `@Convert` | Read in full on every auth, never queried individually; no join table | Join table (a query per auth for data that's always read whole) |
@@ -238,13 +239,26 @@ sessions/credentials as the documented side effect of deleting a connection's la
   cooldown without receiving the original summary. A background run with a member-scoped run id
   and readable progress is a separate follow-up; this transport does not provide it yet.
 - **`SyncTools` must be named `@Component("picsouSyncTools")`.** Spring AI's
-  `McpServerAutoConfiguration` already defines a bean named `syncTools` (the SYNC server's tool-spec
+  `ToolCallbackConverterAutoConfiguration` already defines a bean named `syncTools` (the SYNC server's tool-spec
   list). A `@Component` defaulting to `syncTools` collides with it and aborts the context
   (bean-definition overriding is disabled). The other tool components use unreserved default names.
 - **Transport is HTTP+SSE, not Streamable HTTP.** The endpoints are `GET /mcp` (SSE stream) and
   `POST /mcp/message` (messages). Both are under `/mcp/**` so Property A's prefix check covers them.
-  Do not "upgrade" to Streamable HTTP without bumping Spring AI past 1.0.x (which conflicts with the
-  Boot 3.4.9 / Spring 6.2 pins — see `pom.xml`).
+  Spring AI 1.1 offers Streamable HTTP (`protocol: STREAMABLE`), but switching changes the endpoint
+  every deployed client points at, so it stays a separate, deliberate change.
+- **Nginx must proxy `/mcp`, not only `/api`.** The all-in-one image and the split-stack frontend
+  both serve the SPA via `try_files` for unmatched paths. Without an explicit `location /mcp`
+  block, clients receive `index.html` (HTTP 200 HTML) instead of the MCP transport. Both
+  `docker/nginx.conf` and `frontend/nginx.conf` proxy `/mcp` to the backend with SSE-friendly
+  settings (`proxy_buffering off`, long `proxy_read_timeout`).
+- **The SSE stream needs the server keep-alive.** Between two replies the stream carries nothing, and
+  clients abort a response body that stays silent: Bun's `fetch` (Claude Code) after ~6 min, the
+  Python MCP SDK's SSE client after 300 s. The server keeps accepting `POST /mcp/message` for the
+  dropped session and writes the reply on a stream nobody reads, so the client sees a timeout, not an
+  error. `keep-alive-interval` (default 60 s, `MCP_KEEP_ALIVE_INTERVAL`) makes the SDK send a JSON-RPC
+  `ping` to every open session; the client answers it on `/mcp/message` with its access key. Keep the
+  interval well under 300 s. The proxies were ruled out: curl holds the stream for 7 min through a
+  reverse proxy and directly against the backend.
 - **Property B lives in `UserContext`, not the filter.** The guard is the first statement in
   `getMemberIdOverride()`: if the current `Authentication` is an `AccessKeyAuthentication`, return
   `null` *before* `isAdmin()` can open the `?memberId=` override. Removing it would let an
@@ -289,6 +303,7 @@ Backend (H2, `mvn test`):
 - `service/TradeRepublicSyncServiceTest`, `service/sync/MemberSyncServiceTest` — session lookup,
   Finary failures and transaction-proxy exit errors retain their throwable and do not stop later sources.
 - `service/SyncStatusServiceTest` — last sync, status and reauth flag per connection; a secret never appears in the text.
+- `mcp/McpSseKeepAliveTest` — real SSE transport with a 1 s keep-alive: after `initialize`, a server `ping` arrives on the idle stream with no client traffic.
 - `mcp/SyncToolsSseTest` — real SSE transport: `GET /mcp`, then `tools/call trigger_full_sync` with a `sync:trigger` key, and the per-source summary comes back. The sync itself is stubbed so the test does not call a bank.
 - `service/AccountConnectionServiceTest` — last-account cleanup, connection preservation, and deletion results with labels captured before the connection is removed.
 - `config/AccessKeyAuthFilterTest` — Property A (key on `/api/**` ⇒ not authenticated; on `/mcp` ⇒ authenticated), Property C (scope authorities only), throttle 429.

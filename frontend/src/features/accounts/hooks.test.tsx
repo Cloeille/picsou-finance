@@ -55,6 +55,40 @@ describe('useHoldingsWithLivePrices', () => {
   beforeEach(() => {
     holdings.mockReset()
     prices.mockReset()
+    get.mockReset()
+    get.mockResolvedValue({ id: 42, name: 'CTO', type: 'COMPTE_TITRES' })
+  })
+
+  it('keeps the backend crypto-only valuation of a token sharing a stock symbol', async () => {
+    get.mockResolvedValue({ id: 42, name: 'Finary wallet', type: 'CRYPTO' })
+    holdings.mockResolvedValue([{
+      ticker: 'REG',
+      name: 'RealToken',
+      quantity: 10,
+      averageBuyIn: 1,
+      currentPrice: 1,
+      quoteCurrency: 'EUR',
+      currentValueEur: 10,
+      costBasisEur: 10,
+      pnlEur: 0,
+      pnlPercent: 0,
+      priceUpdatedAt: '2026-10-31T08:00:00Z',
+      priceAsOf: null,
+      priceStale: false,
+    }])
+    prices.mockResolvedValue({ REG: 60 })
+
+    const { result } = renderHook(() => useHoldingsWithLivePrices(42), {
+      wrapper: makeWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data?.[0]).toMatchObject({
+      currentPrice: 1,
+      currentValueEur: 10,
+      costBasisEur: 10,
+      pnlEur: 0,
+    })
   })
 
   it('uses the backend EUR cost basis when enriching a foreign quote', async () => {
@@ -285,6 +319,35 @@ describe('usePortfolio', () => {
     color: '#000',
     currentBalanceEur: 1000,
   }
+
+  it('quotes a stock live but keeps the crypto-only value of a token with the same symbol', async () => {
+    const wallet = { id: 2, name: 'Finary wallet', type: 'CRYPTO', color: '#000', currentBalanceEur: 10 }
+    list.mockResolvedValue([brokerage, wallet])
+    const line = (name: string, price: number, quantity: number) => ({
+      ticker: 'REG',
+      name,
+      quantity,
+      averageBuyIn: price,
+      currentPrice: price,
+      quoteCurrency: 'EUR',
+      currentValueEur: price * quantity,
+      costBasisEur: price * quantity,
+      pnlEur: 0,
+      pnlPercent: 0,
+      priceUpdatedAt: '2026-10-31T08:00:00Z',
+    })
+    holdings.mockImplementation(async (id: number) => id === wallet.id
+      ? [line('RealToken', 1, 10)]
+      : [line('Regency Centers', 55, 2)])
+    prices.mockResolvedValue({ REG: 60 })
+
+    const { result } = renderHook(() => usePortfolio(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const byAccount = (id: number) => result.current.data?.find(l => l.accountId === id)
+    expect(byAccount(brokerage.id)).toMatchObject({ valueEur: 120, pnlEur: 10 })
+    expect(byAccount(wallet.id)).toMatchObject({ valueEur: 10, costBasisEur: 10, pnlEur: 0 })
+  })
 
   it('fails the query when an account\'s holdings cannot be loaded', async () => {
     list.mockResolvedValue([brokerage])

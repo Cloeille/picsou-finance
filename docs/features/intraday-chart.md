@@ -1,6 +1,6 @@
 # Feature: 24H Intraday Net Worth Chart
 
-> Last updated: 2026-09-05
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -25,11 +25,13 @@ HistoryService.buildIntradayHistory()
         |
         +-- Investment accounts (PEA, CT, Crypto):
         |     For each holding with a ticker:
-        |       PriceService.getIntradayPricesEur(ticker, from, to)
-        |         -> CoinGecko.getIntradayPricesEur() for crypto
-        |         -> YahooFinance.getIntradayPricesEur() for stocks
+        |       CRYPTO account: PriceService.getCryptoIntradayPricesEur(ticker, from, to)
+        |         -> CoinGecko only; a coin it does not map gets no series
+        |       Other accounts: PriceService.getIntradayPricesEur(ticker, from, to)
+        |         -> CoinGecko for a mapped coin, YahooFinance for everything else
         |       Portfolio value at hour H = qty × price_at_H (forward-filled) + cash pocket
-        |       Invested = qty × average buy-in + cash pocket (same perimeter as the value)
+        |       A holding with no price at H counts at its providerValueEur, if any
+        |       Invested = provider cost, else qty × average buy-in (stored in EUR), + cash pocket
         |
         v
 List<NetWorthIntradayPoint> — ~24 hourly points
@@ -56,7 +58,7 @@ DashboardPage renders NetWorthChart with intraday prop
 **Backend:**
 - `backend/src/main/java/com/picsou/adapter/CoinGeckoPriceProvider.java` — `getIntradayPricesEur()`: fetches hourly crypto prices via `market_chart/range`
 - `backend/src/main/java/com/picsou/adapter/YahooFinancePriceProvider.java` — `getIntradayPricesEur()`: fetches hourly stock prices via `interval=1h`
-- `backend/src/main/java/com/picsou/service/PriceService.java` — `getIntradayPricesEur()`: routes to CoinGecko or Yahoo based on ticker
+- `backend/src/main/java/com/picsou/service/PriceService.java` — `getIntradayPricesEur()`: routes to CoinGecko or Yahoo based on ticker; `getCryptoIntradayPricesEur()`: CoinGecko only
 - `backend/src/main/java/com/picsou/service/HistoryService.java` — `buildIntradayHistory()`: assembles hourly net worth points
 - `backend/src/main/java/com/picsou/controller/HistoryController.java` — `GET /api/history/net-worth/intraday`
 - `backend/src/main/java/com/picsou/dto/DashboardResponse.java` — `NetWorthIntradayPoint(timestamp, total, invested)`
@@ -83,6 +85,9 @@ DashboardPage renders NetWorthChart with intraday prop
 - **No new scheduled jobs or DB tables**: Intraday data is fetched live from external APIs on each request. This means the 24H chart triggers external API calls every time it's loaded.
 - **External API rate limits**: CoinGecko free tier has rate limits. If a user has many tickers, the 24H view could trigger many API calls. The `PriceService` 15-min cache helps for repeated views.
 - **Forward-fill behavior**: If a ticker has no price at a given hour (e.g., stock market closed), `floorEntry()` uses the last known price. Crypto prices are available 24/7; stock prices stop after market close.
+- **Provider-valued holdings are flat intraday**: A holding no price provider can quote (a Finary fonds euros or SCPI line, a synthetic `FINARY_*` ticker) counts at the `providerValueEur` its connector stored at the last sync, the same fallback `AccountService.valuation` uses. Without it, importing holdings into an account made its value drop to zero on the 24H chart. A holding with neither an intraday price nor a provider value still adds nothing. The account's `cashBalance` is added on top, as in the daily valuation.
+- **A crypto account's ticker is never a stock**: hourly series are keyed by ticker and crypto-ness, and a `CRYPTO` account's are fetched crypto-only, as `AccountService.quotesFor` does for the daily chart. Through the generic route, a Finary `REG` token (10 EUR) took Regency Centers' hourly closes and read as 600 EUR.
+- **The average buy-in is already EUR**: `AccountHolding.averageBuyIn` is EUR whatever the account currency, and both charts read it as is. Converting it with the account currency cut a Finary wallet's 80 EUR cost to 72 EUR once a later sync put the wallet back in USD.
 - **Bank account balances are constant intraday**: Only the daily `BalanceSnapshot` is used for non-investment accounts. Real-time bank balance changes won't appear until the next sync.
 - **Loans are negated**: Same logic as the daily history — loan balances are subtracted from total net worth.
 - **The cash pocket is on both sides**: for an investment account with holdings, the cash held inside the envelope (`Account.cashBalance`, set by the Bourse Direct, BoursoBank and DEGIRO connectors) is added to the hourly value *and* to the invested amount, as `AccountService.valuation()` does for the daily chart's today point. It is worth what it cost, so it never moves the gain. Leaving it out of both (the case until 2026-09-05) kept the gain right but made the 24H total lower than the daily one by the whole pocket, so switching ranges read as a drop that never happened.
@@ -95,7 +100,7 @@ DashboardPage renders NetWorthChart with intraday prop
 - Manual: select "7D" → chart shows "dd MMM" labels with dots on data points
 - Manual: select "1M"+ → chart shows month abbreviations (unchanged behavior)
 - `GoalServiceTest` — existing backend test still passes
-- `HistoryServiceTest`: `buildIntradayHistory_loanNegated_cashConstant` (loans negated, bank balance constant), `buildIntradayHistory_cashPocketCountsOnBothSides` (cash pocket in both the value and the invested amount)
+- `HistoryServiceTest`: `buildIntradayHistory_loanNegated_cashConstant` (loans negated, bank balance constant), `buildIntradayHistory_cashPocketCountsOnBothSides` (cash pocket in both the value and the invested amount), `buildIntradayHistory_anImportedTokenSharingAStockSymbol_keepsItsProviderValue` (real composite provider, Yahoo stubbed), `buildIntradayHistory_accountBackInItsNativeCurrency_keepsTheEurBuyIn`
 
 ## Links
 

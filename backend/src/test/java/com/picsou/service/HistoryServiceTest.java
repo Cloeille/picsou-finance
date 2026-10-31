@@ -1,5 +1,9 @@
 package com.picsou.service;
 
+import com.picsou.adapter.CoinGeckoPriceProvider;
+import com.picsou.adapter.CompositePriceProvider;
+import com.picsou.adapter.YahooFinancePriceProvider;
+import com.picsou.adapter.YahooFinanceStubs;
 import com.picsou.dto.DashboardResponse.NetWorthIntradayPoint;
 import com.picsou.dto.DashboardResponse.NetWorthPoint;
 import com.picsou.dto.PnlResponse;
@@ -832,6 +836,143 @@ class HistoryServiceTest {
     }
 
     @Test
+    void buildIntradayHistory_importingUnlistedHoldings_keepsTheAccountValue() {
+        Account account = brokerage(1L, "Assurance vie");
+        account.setCurrentBalance(new BigDecimal("21376.93"));
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(account));
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any(LocalDate.class))).thenReturn(Optional.empty());
+        stubValuationLenient(account, "21376.93", "21376.93");
+
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        List<NetWorthIntradayPoint> beforeImport = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        // What the Finary import leaves behind: the cash split out, and a fonds euros line whose
+        // synthetic ticker no price provider accepts, valued by Finary itself.
+        account.setCashBalance(new BigDecimal("500"));
+        AccountHolding fondsEuros = AccountHolding.builder()
+            .account(account)
+            .ticker("FINARY_FDS_EUROS_SURAVENIR_RENDEMENT")
+            .quantity(BigDecimal.ONE)
+            .averageBuyIn(new BigDecimal("20876.93"))
+            .providerValueEur(new BigDecimal("20876.93"))
+            .build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(fondsEuros));
+        List<NetWorthIntradayPoint> afterImport = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        // The split-out cash is worth what it cost, so capital invested holds still too.
+        assertThat(beforeImport).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("21376.93");
+            assertThat(p.invested()).isEqualByComparingTo("21376.93");
+        });
+        assertThat(afterImport).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("21376.93");
+            assertThat(p.invested()).isEqualByComparingTo("21376.93");
+        });
+    }
+
+    @Test
+    void buildIntradayHistory_providerCostWithoutBuyIn_countsAsInvested() {
+        Account account = brokerage(1L, "CTO");
+        account.setCurrentBalance(new BigDecimal("90"));
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(account));
+        // A Finary security without display_buying_value: value and P&L only, no average buy-in.
+        AccountHolding security = AccountHolding.builder()
+            .account(account)
+            .ticker("FR0000120271")
+            .quantity(BigDecimal.ONE)
+            .providerValueEur(new BigDecimal("90"))
+            .providerPnlEur(new BigDecimal("9"))
+            .build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(security));
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("90");
+            assertThat(p.invested()).isEqualByComparingTo("81");
+        });
+    }
+
+    @Test
+    void buildIntradayHistory_entirelyUnknownCost_takesTheDailyNeutralBaseline() {
+        Account account = brokerage(1L, "CTO");
+        account.setCurrentBalance(new BigDecimal("200"));
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(account));
+        // What FinaryHoldingsImporterTest's merged-cost fixture stores: two AXA lines, one without
+        // a buying value, so neither an average buy-in nor a provider P&L survives the merge.
+        AccountHolding axa = AccountHolding.builder()
+            .account(account)
+            .ticker("CS.PA")
+            .quantity(new BigDecimal("2"))
+            .providerValueEur(new BigDecimal("200"))
+            .build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(axa));
+        // valuation() pairs an unknown cost with the balance itself, the daily chart's baseline.
+        stubValuation(account, "200", "200");
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("200");
+            assertThat(p.invested()).isEqualByComparingTo("200");
+        });
+    }
+
+    @Test
+    void buildIntradayHistory_anImportedTokenSharingAStockSymbol_keepsItsProviderValue() {
+        // REG is RealToken's governance token and Regency Centers on Nasdaq. CoinGecko's catalogue
+        // does not map it, and Yahoo's hourly series quotes the company at 60 EUR a share.
+        long twoHoursAgo = java.time.Instant.now().minusSeconds(7200).getEpochSecond();
+        YahooFinancePriceProvider yahoo = YahooFinanceStubs.provider(url -> url.contains("/chart/REG")
+            ? """
+              {"chart":{"result":[{"meta":{"currency":"EUR"},"timestamp":[%d],
+              "indicators":{"quote":[{"close":[60.0]}]}}]}}""".formatted(twoHoursAgo)
+            : null);
+        PriceService realPrices = new PriceService(
+            new CompositePriceProvider(new CoinGeckoPriceProvider(), yahoo), priceSnapshotRepository);
+        HistoryService service = new HistoryService(accountRepository, snapshotRepository, holdingRepository,
+            realPrices, priceSnapshotRepository, accountService, accessResolver);
+        // What a verified-EUR Finary crypto snapshot stores: 10 REG that Finary values at 10 EUR.
+        Account wallet = Account.builder().id(9L).name("Finary wallet").type(AccountType.CRYPTO)
+            .currency("EUR").currentBalance(BigDecimal.TEN).member(MEMBER).build();
+        AccountHolding reg = AccountHolding.builder()
+            .account(wallet).ticker("REG").quantity(BigDecimal.TEN)
+            .averageBuyIn(BigDecimal.ONE).providerValueEur(BigDecimal.TEN).build();
+        when(accountRepository.findAllById(List.of(9L))).thenReturn(List.of(wallet));
+        when(holdingRepository.findByAccount_Id(9L)).thenReturn(List.of(reg));
+
+        List<NetWorthIntradayPoint> result = service.buildIntradayHistory(List.of(9L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty().allSatisfy(p -> assertThat(p.total()).isEqualByComparingTo("10"));
+    }
+
+    @Test
+    void buildIntradayHistory_accountBackInItsNativeCurrency_keepsTheEurBuyIn() {
+        // A Finary wallet first imported in EUR stored the token's EUR average, 80. A later sync
+        // without a large enough EUR witness put the wallet back in USD and kept that holding.
+        Account wallet = Account.builder().id(1L).name("Finary wallet").type(AccountType.CRYPTO)
+            .currency("USD").currentBalance(new BigDecimal("111.11")).member(MEMBER).build();
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(wallet));
+        lenient().when(priceService.toEur(any(), eq("USD"), any()))
+            .thenAnswer(inv -> inv.<BigDecimal>getArgument(0).multiply(new BigDecimal("0.9")));
+        AccountHolding token = AccountHolding.builder()
+            .account(wallet)
+            .ticker("FINARY_UNLISTED_TOKEN")
+            .quantity(BigDecimal.ONE)
+            .averageBuyIn(new BigDecimal("80"))
+            .providerValueEur(new BigDecimal("100"))
+            .build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(token));
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("100");
+            assertThat(p.invested()).isEqualByComparingTo("80");
+        });
+    }
+
+    @Test
     void buildIntradayHistory_creditCardSigned_excludedFromInvested() {
         Account card = creditCard(1L, "-800");
         Account cashAcc = checking(2L, "2000");
@@ -862,7 +1003,6 @@ class HistoryServiceTest {
 
         when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(pea));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(aapl));
-        when(priceService.toEur(new BigDecimal("100"), "EUR", null)).thenReturn(new BigDecimal("100"));
         // An hourly series inside the requested window, the shape the providers return: from
         // 23 hours ago up to now, on the hour, so only the very first bucket (24 hours ago)
         // predates the first quote.
@@ -913,7 +1053,6 @@ class HistoryServiceTest {
         lenient().when(snapshotRepository.findByAccountIdOrderByDateAsc(1L))
             .thenReturn(List.of(yesterdaySnapshot, todaySnapshot));
         stubValuationLenient(per, "1200", "1200");
-        lenient().when(priceService.toEur(BigDecimal.ZERO, "EUR", null)).thenReturn(BigDecimal.ZERO);
 
         List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
 
@@ -997,7 +1136,6 @@ class HistoryServiceTest {
 
         when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(per));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(holding));
-        when(priceService.toEur(new BigDecimal("100"), "EUR", null)).thenReturn(new BigDecimal("100"));
         when(priceService.getIntradayPricesEur(eq("FUND"), any(), any())).thenReturn(quotes);
 
         List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
@@ -1007,5 +1145,4 @@ class HistoryServiceTest {
             assertThat(point.invested()).isEqualByComparingTo("500");
         });
     }
-
 }
