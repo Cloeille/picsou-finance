@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
-import { cn } from '@/lib/utils'
+import { cn, formatDecimal, formatPercent } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import type { WealthAlert, WealthPyramid, WealthTier, WealthTierLine } from '@/types/api'
 
@@ -48,9 +48,9 @@ function TierRow({ line }: { line: WealthTierLine }) {
           </span>
         </div>
         <div className="flex shrink-0 items-baseline gap-2 text-sm">
-          <span className="text-foreground">{line.actualPercent.toFixed(1)}%</span>
+          <span className="text-foreground">{formatPercent(line.actualPercent)}</span>
           <span className="text-muted-foreground">
-            {t('analysis.targetShort', { value: line.targetPercent.toFixed(0) })}
+            {t('analysis.targetShort', { value: formatPercent(line.targetPercent, { fractionDigits: 0 }) })}
           </span>
         </div>
       </div>
@@ -88,7 +88,7 @@ function TierRow({ line }: { line: WealthTierLine }) {
               )}
             >
               ({line.gapPercent > 0 ? '+' : ''}
-              {line.gapPercent.toFixed(1)} {t('analysis.points')})
+              {formatDecimal(line.gapPercent, 1)} {t('analysis.points')})
             </span>
           )}
         </div>
@@ -123,7 +123,7 @@ function Alerts({ alerts }: { alerts: WealthAlert[] }) {
               label: alert.label
                 ? t(`analysis.tiers.${alert.label}`, alert.label)
                 : '',
-              percent: alert.percent.toFixed(0),
+              percent: formatPercent(alert.percent, { fractionDigits: 0 }),
               // The amount sits mid-sentence in the translation, so the mask has to be applied
               // to the interpolated value -- there is no element to intercept.
               value: money.amount(alert.valueEur),
@@ -165,7 +165,7 @@ export function PyramidSection({ pyramid }: { pyramid: WealthPyramid }) {
 
           {score.allocation != null && (
             <p className="mt-3 text-sm text-muted-foreground">
-              {t('analysis.score.misplaced', { value: score.misplacedPercent.toFixed(1) })}
+              {t('analysis.score.misplaced', { value: formatPercent(score.misplacedPercent) })}
             </p>
           )}
 
@@ -190,7 +190,7 @@ export function PyramidSection({ pyramid }: { pyramid: WealthPyramid }) {
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">{t('analysis.score.cryptoPenalty')}</dt>
                 <dd className="text-amber-600 dark:text-amber-500">
-                  −{score.cryptoPenalty.toFixed(1)}
+                  −{formatDecimal(score.cryptoPenalty, 1)}
                 </dd>
               </div>
             )}
@@ -198,7 +198,7 @@ export function PyramidSection({ pyramid }: { pyramid: WealthPyramid }) {
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">{t('analysis.score.leverageBonus')}</dt>
                 <dd className="text-green-600 dark:text-green-500">
-                  +{score.leverageBonus.toFixed(1)}
+                  +{formatDecimal(score.leverageBonus, 1)}
                 </dd>
               </div>
             )}
@@ -234,7 +234,7 @@ export function PyramidSection({ pyramid }: { pyramid: WealthPyramid }) {
                 {safetyNet.coverage != null && safetyNet.coverage < 1 && (
                   <Badge variant="destructive">
                     {t('analysis.safetyNet.short', {
-                      value: Math.round(safetyNet.coverage * 100),
+                      value: formatPercent(safetyNet.coverage * 100, { fractionDigits: 0 }),
                     })}
                   </Badge>
                 )}

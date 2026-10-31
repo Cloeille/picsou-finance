@@ -4,6 +4,7 @@ import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } f
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { localeFromLanguage } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
+import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import { usePropertyValuations } from '@/features/accounts/hooks'
 
 interface PropertyValuationChartProps {
@@ -67,8 +68,8 @@ export function PropertyValuationChart({ accountId, costBasis }: PropertyValuati
               tickMargin={8}
               // Compact on the axis: full currency labels collide at this width, and the
               // tooltip already gives the exact figure.
-              tickFormatter={money.tick((value: number) => `${(value / 1000).toFixed(0)}k`)}
-              width={50}
+              tickFormatter={money.tick}
+              width={MONEY_AXIS_WIDTH}
             />
             <ChartTooltip
               content={<ChartTooltipContent formatter={(value) => money.amount(value as number)} />}

@@ -10,6 +10,7 @@ import { PropertyValuationChart } from './PropertyValuationChart'
 import { PropertyFinancingCard } from './PropertyFinancingCard'
 import { OwnershipEditor } from './OwnershipEditor'
 import { useRealEstateSummary } from '@/features/accounts/hooks'
+import { formatPercent } from '@/lib/utils'
 import type { Account } from '@/types/api'
 
 interface PropertyDetailSectionProps {
@@ -128,7 +129,7 @@ export function PropertyDetailSection({ account }: PropertyDetailSectionProps) {
               value={
                 <span className={gain >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}>
                   <CurrencyDisplay value={gain} showSign />
-                  {gainPct != null && <span className="ml-1 text-xs">({gainPct.toFixed(1)} %)</span>}
+                  {gainPct != null && <span className="ml-1 text-xs">({formatPercent(gainPct)})</span>}
                 </span>
               }
             />
@@ -136,7 +137,7 @@ export function PropertyDetailSection({ account }: PropertyDetailSectionProps) {
 
           {isCoOwned && (
             <p className="text-xs text-muted-foreground">
-              {t('property.details.coOwnedNote', { percent: Number(account.sharePercent).toFixed(1) })}
+              {t('property.details.coOwnedNote', { percent: formatPercent(Number(account.sharePercent)) })}
             </p>
           )}
         </CardContent>

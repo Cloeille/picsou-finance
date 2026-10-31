@@ -4,6 +4,7 @@ import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { FRENCH_HOUSEHOLD_SAVINGS_RATE } from '@/lib/constants'
+import { formatPercent } from '@/lib/utils'
 import { monthlyContributions } from './plan-math'
 import type { GoalProgress } from '@/types/api'
 
@@ -87,13 +88,13 @@ export function SavingsRateCard({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">
-                  {t('goals.savingsRate.benchmark', { rate: FRENCH_HOUSEHOLD_SAVINGS_RATE })}
+                  {t('goals.savingsRate.benchmark', { rate: formatPercent(FRENCH_HOUSEHOLD_SAVINGS_RATE) })}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
           {/* A ratio, so it stays legible in privacy mode -- the amounts beside it do not. */}
-          <p className="text-2xl font-semibold tabular-nums">{rate.toFixed(1)} %</p>
+          <p className="text-2xl font-semibold tabular-nums">{formatPercent(rate)}</p>
           <p className="mt-0.5 text-sm text-muted-foreground">
             <CurrencyDisplay value={contributions} />
             {' / '}

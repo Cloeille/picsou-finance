@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Progress } from '@/components/ui/progress'
+import { formatPercent } from '@/lib/utils'
 import type { GoalProgress } from '@/types/api'
 
 interface GoalProgressBarProps {
@@ -19,7 +20,7 @@ export function GoalProgressBar({ goal }: GoalProgressBarProps) {
     <div className="space-y-2">
       <div className="flex items-center justify-between text-sm">
         <span className="font-medium">{goal.name}</span>
-        <span className="text-muted-foreground">{Math.round(percentComplete)}%</span>
+        <span className="text-muted-foreground">{formatPercent(percentComplete, { fractionDigits: 0 })}</span>
       </div>
       <Progress value={percentComplete} className="h-2" />
       <div className="flex items-center justify-between text-xs text-muted-foreground">

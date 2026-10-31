@@ -2,8 +2,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   ageAt,
   cn,
+  deriveMonogram,
   formatDate,
+  formatDecimal,
+  formatLocalDate,
+  formatNumber,
   formatPercent,
+  formatQuantity,
   freshnessLevel,
   isOAuthAuthorizeRedirect,
   localeFromLanguage,
@@ -57,9 +62,51 @@ describe('formatDate', () => {
 })
 
 describe('formatPercent', () => {
-  it('formats percentage', () => {
-    const result = formatPercent(0.5)
-    expect(result).toContain('50')
+  it.each([
+    ['fr-FR', '+8,3\u00a0%'],
+    ['de-DE', '+8,3\u00a0%'],
+    ['es-ES', '+8,3\u00a0%'],
+    ['en-US', '+8.3%'],
+  ])('lets %s place the decimal separator and the space', (locale, expected) => {
+    expect(formatPercent(8.3, { signed: true }, locale)).toBe(expected)
+  })
+
+  it('takes points, not a fraction', () => {
+    expect(formatPercent(50, {}, 'en-US')).toBe('50.0%')
+  })
+
+  it('signs only when asked, and never signs zero', () => {
+    expect(formatPercent(8.3, {}, 'en-US')).toBe('8.3%')
+    expect(formatPercent(-88.9, {}, 'en-US')).toBe('-88.9%')
+    expect(formatPercent(0, { signed: true }, 'en-US')).toBe('0.0%')
+  })
+
+  it('honours the precision it is given', () => {
+    expect(formatPercent(13.46, { fractionDigits: 0 }, 'fr-FR')).toBe('13\u00a0%')
+  })
+})
+
+describe('formatDecimal', () => {
+  it('uses the locale decimal separator', () => {
+    expect(formatDecimal(4.7, 1, 'fr-FR')).toBe('4,7')
+    expect(formatDecimal(4.7, 1, 'en-US')).toBe('4.7')
+    expect(formatDecimal(12_345.6, 1, 'fr-FR')).toBe('12\u00a0345,6')
+  })
+})
+
+describe('formatNumber', () => {
+  it('groups and separates by the locale, with a space the bundled font can draw', () => {
+    expect(formatNumber(12_345, 'fr-FR')).toBe('12\u00a0345')
+    expect(formatNumber(1_234.5, 'fr-FR')).toBe('1\u00a0234,5')
+    expect(formatNumber(1_234.5, 'de-DE')).toBe('1.234,5')
+    expect(formatNumber(1_234.5, 'en-US')).toBe('1,234.5')
+  })
+})
+
+describe('formatQuantity', () => {
+  it('keeps a small holding quantity precise instead of rounding it to 0', () => {
+    expect(formatQuantity(0.0001, 'fr-FR')).toBe('0,0001')
+    expect(formatQuantity(1_234.5, 'en-US')).toBe('1,234.5')
   })
 })
 
@@ -78,6 +125,20 @@ describe('localeFromLanguage', () => {
     // so unresolvable tags map to fr-FR — not en-US.
     expect(localeFromLanguage(undefined)).toBe('fr-FR')
     expect(localeFromLanguage('it')).toBe('fr-FR')
+  })
+})
+
+describe('formatLocalDate', () => {
+  it('writes the first of the month as an ordinal in French', () => {
+    expect(formatLocalDate('2026-10-01', 'fr-FR')).toBe('1er octobre 2026')
+  })
+
+  it('drops the leading zero on other days', () => {
+    expect(formatLocalDate('2026-09-05', 'fr-FR')).toBe('5 septembre 2026')
+  })
+
+  it('keeps other languages on their own convention', () => {
+    expect(formatLocalDate('2026-10-01', 'en-US')).toBe('October 1, 2026')
   })
 })
 
@@ -251,5 +312,66 @@ describe('ageAt', () => {
     // than four is -5.
     expect(ageAt('2030-01-01', '2026-01-01')).toBe(-4)
     expect(ageAt('2030-06-01', '2026-01-01')).toBe(-5)
+  })
+})
+
+describe('deriveMonogram', () => {
+  const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+
+  it('uses the first letter of the first two words, uppercased', () => {
+    expect(deriveMonogram('credit agricole')).toBe('CA')
+  })
+
+  it('uses the first two characters of a single word, uppercased', () => {
+    expect(deriveMonogram('Carrefour')).toBe('CA')
+  })
+
+  it.each([null, undefined, '', '   '])('falls back to a neutral glyph for %j', (label) => {
+    expect(deriveMonogram(label)).toBe('•')
+  })
+
+  it('keeps a leading emoji whole in a multi-word label', () => {
+    expect(deriveMonogram('🚀 Rocket')).toBe('🚀R')
+  })
+
+  it('keeps a leading emoji whole in a single-word label', () => {
+    expect(deriveMonogram('🚀Rocket')).toBe('🚀R')
+  })
+
+  it('keeps a ZWJ emoji sequence as one character', () => {
+    expect(deriveMonogram('👩\u200D👩\u200D👧 Fund')).toBe('👩\u200D👩\u200D👧F')
+  })
+
+  it('keeps both regional indicators of a flag together', () => {
+    expect(deriveMonogram('🇫🇷 Bourse')).toBe('🇫🇷B')
+  })
+
+  it('keeps a combining accent attached to its base letter', () => {
+    expect(deriveMonogram('e\u0301cole')).toBe('E\u0301C')
+  })
+
+  it.each(['🚀 Rocket', '🚀Rocket', '🍕🍔🍟', '👩\u200D👩\u200D👧 Fund', '🇫🇷 Bourse'])(
+    'never emits a lone surrogate for %s',
+    (label) => {
+      expect(deriveMonogram(label)).not.toMatch(LONE_SURROGATE)
+    },
+  )
+
+  it('stays at two characters when uppercasing expands one', () => {
+    expect(deriveMonogram('ß Bank')).toBe('SB')
+    expect(deriveMonogram('ßx')).toBe('SS')
+  })
+
+  it('never splits a surrogate pair even when Intl.Segmenter is missing', async () => {
+    const savedSegmenter = Intl.Segmenter
+    try {
+      Object.defineProperty(Intl, 'Segmenter', { value: undefined, configurable: true })
+      vi.resetModules()
+      const { firstGraphemes } = await import('./utils')
+      expect(firstGraphemes('🚀Rocket', 2)).toBe('🚀R')
+    } finally {
+      Object.defineProperty(Intl, 'Segmenter', { value: savedSegmenter, configurable: true })
+      vi.resetModules()
+    }
   })
 })

@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { it, expect, vi } from 'vitest'
+import { afterEach, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { RecurringTab } from './RecurringTab'
 
@@ -19,12 +19,14 @@ vi.mock('@/components/shared/CurrencyDisplay', () => ({ CurrencyDisplay: () => <
 vi.mock('./ActivityFeed', () => ({ ActivityFeed: () => null }))
 vi.mock('./SubscriptionCard', () => ({ SubscriptionCard: () => null }))
 
+afterEach(() => { document.documentElement.lang = '' })
+
 it('exposes the complete AMEX reward label despite visual truncation', () => {
+  // Points follow the interface language, not the browser's, with a space Geist can draw.
+  document.documentElement.lang = 'fr'
   render(<RecurringTab />)
   const label = screen.getByTitle(/American Express/)
-  // Points use the runtime's number grouping, so derive them the same way instead of
-  // hard-coding a locale-specific separator (fr: narrow no-break space, en: comma).
-  const expected = `American Express · ${(1365).toLocaleString()} Miles gagnés ce cycle`
+  const expected = 'American Express · 1 365 Miles gagnés ce cycle'
   expect(label).toHaveAttribute('title', expected)
   expect(label).toHaveAttribute('aria-label', expected)
 })

@@ -96,7 +96,7 @@ describe('DiversificationSection', () => {
     )
 
     // A bar computed over 60% of the portfolio must not read as one computed over all of it.
-    expect(screen.getByText('analysis.diversification.coverage:60')).toBeInTheDocument()
+    expect(screen.getByText('analysis.diversification.coverage:60%')).toBeInTheDocument()
     // Naming the line is the point: a bare total says the score is wrong without saying why.
     expect(screen.getByText('LVMH')).toBeInTheDocument()
     expect(screen.getByText('MC.PA')).toBeInTheDocument()

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AMOUNT_MASK, AXIS_MASK, formatCurrencyUnmasked, makeMoneyFormatter } from './money'
+import { AMOUNT_MASK, AXIS_MASK, MONEY_AXIS_WIDTH, formatCurrencyUnmasked, makeMoneyFormatter } from './money'
 
 const visible = makeMoneyFormatter({ hidden: false, locale: 'fr-FR' })
 const masked = makeMoneyFormatter({ hidden: true, locale: 'fr-FR' })
@@ -53,6 +53,13 @@ describe('unmasked formatting', () => {
     expect(result).toContain('234')
   })
 
+  it('groups French digits with a space the bundled font can draw', () => {
+    // Geist has no U+202F glyph, so ICU's narrow no-break space fell back to a system sliver and
+    // "51 646,95 €" read as "51646,95 €" (#274).
+    expect(visible.amount(51_646.95)).toBe('51\u00a0646,95\u00a0€')
+    expect(visible.tick(60_000)).toBe('60\u00a0k\u00a0€')
+  })
+
   it('formats zero', () => {
     expect(visible.amount(0, 'EUR')).toContain('0')
   })
@@ -74,6 +81,17 @@ describe('unmasked formatting', () => {
     const result = odd.amount(100, 'AMAT')
     expect(result).toContain('AMAT')
     expect(result).toContain('100')
+  })
+
+  it('rounds to whole units when asked, without switching to a compact unit', () => {
+    expect(visible.amount(1373.33, 'EUR', { maximumFractionDigits: 0 })).toMatch(/^1\s373\s€$/)
+    expect(visible.amount(984.72, 'EUR', { maximumFractionDigits: 0 })).toMatch(/^985\s€$/)
+    expect(masked.amount(1373.33, 'EUR', { maximumFractionDigits: 0 })).toBe(masked.amount(1373.33))
+  })
+
+  it('keeps the requested precision when the currency code is invalid', () => {
+    expect(visible.amount(1373.33, 'AMAT', { maximumFractionDigits: 0 })).toMatch(/^1\s373 AMAT$/)
+    expect(visible.amount(1373.33, 'AMAT')).toMatch(/^1\s373,33 AMAT$/)
   })
 
   it('still masks when the currency is invalid, rather than falling back to the digits', () => {
@@ -98,10 +116,40 @@ describe('compact', () => {
 })
 
 describe('tick', () => {
-  it('replaces an axis ladder wholesale so no scale can be read off the grid', () => {
-    const ladder = (v: number) => `${(v / 1000).toFixed(0)}k`
-    expect(visible.tick(ladder)(350_000)).toBe('350k')
-    expect(masked.tick(ladder)(350_000)).toBe(AXIS_MASK)
+  // One formatter for every amount axis, so the locale (not a hand-rolled `toFixed` ladder) decides
+  // the separator, the suffix and the symbol. Spaces are flattened for legibility; which no-break
+  // space is emitted is pinned in 'unmasked formatting'.
+  const tick = (locale: string, value: number) =>
+    makeMoneyFormatter({ hidden: false, locale }).tick(value).replace(/[\u202f\u00a0]/g, ' ')
+
+  it.each([
+    ['fr-FR', ['60 k €', '2,5 k €', '-250 k €', '1,25 M €']],
+    ['en-US', ['€60K', '€2.5K', '-€250K', '€1.25M']],
+    ['de-DE', ['60.000 €', '2500 €', '-250.000 €', '1,25 Mio. €']],
+    ['es-ES', ['60 mil €', '2,5 mil €', '-250 mil €', '1,25 M €']],
+  ])('formats a compact amount in %s', (locale, expected) => {
+    expect([60_000, 2_500, -250_000, 1_250_000].map((v) => tick(locale, v))).toEqual(expected)
+  })
+
+  it('never pads a round tick with a trailing zero', () => {
+    expect(tick('fr-FR', 0)).toBe('0 €')
+    expect(tick('fr-FR', 45_000)).toBe('45 k €')
+  })
+
+  it('is masked wholesale so no scale can be read off the grid', () => {
+    expect(masked.tick(350_000)).toBe(AXIS_MASK)
+  })
+
+  it('fits the widest label, German "-250.000 €", inside the axis gutter', () => {
+    // jsdom cannot measure text, so the label widths are the ones measured in Chromium with Geist
+    // Variable at 12px (#286 review): "-250.000 €" is 66px, "-1,25 Mio. €" is 65px. Recharts anchors
+    // the label at width − tickMargin − tickSize, and keeps the 6px tick size even with
+    // tickLine={false}: 76px put the minus sign at x = −4.
+    const GERMAN_LABEL_PX = 66, GERMAN_MILLION_LABEL_PX = 65, TICK_MARGIN = 8, TICK_SIZE = 6
+    expect(tick('de-DE', -250_000)).toBe('-250.000 €')
+    expect(tick('de-DE', -1_250_000)).toBe('-1,25 Mio. €')
+    expect(MONEY_AXIS_WIDTH - TICK_MARGIN - TICK_SIZE - GERMAN_LABEL_PX).toBeGreaterThanOrEqual(4)
+    expect(MONEY_AXIS_WIDTH - TICK_MARGIN - TICK_SIZE - GERMAN_MILLION_LABEL_PX).toBeGreaterThanOrEqual(4)
   })
 })
 

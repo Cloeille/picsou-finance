@@ -252,6 +252,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Accounts you created yourself, and accounts created for another Actual budget, only ever
   gain new transactions. Loan accounts can't receive an Actual import.
 
+### Changed
+
+- **Pull requests go green sooner.** CI runs only the jobs a pull request's changed paths can
+  affect, a new push cancels the stale run, and the demo Playwright suite runs once instead of
+  twice. Pushes to `main` and tags still run every job, and a new `ci-ok` check fails when a
+  selected job did not pass. The app image builds its frontend and backend once, natively,
+  instead of once per platform, and a new `APP_VERSION` build argument no longer reinstalls the
+  dependencies (an edit to `frontend/package.json`, version field included, still does).
+  Building `docker/Dockerfile` yourself now needs BuildKit (`docker buildx`).
+
 ### Fixed
 
 - **Trade Republic crypto is valued at its market price again.** The connector guessed the
@@ -260,6 +270,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the net worth. The connector now asks Trade Republic which venue prices each
   instrument. When a price still does not come back, the holding shows no current price
   instead of its buy-in, and the sync log names it (#268).
+- **Numbers and labels follow the interface language.** Percentages are formatted by the
+  locale everywhere ("8,3 %" in French, "8.3%" in English) instead of a dot and a hand-placed
+  sign. Every amount axis uses one compact format ("60 k €", "1,25 M €") instead of "60.0k",
+  in a gutter wide enough for the widest negative tick, German "-250.000 €". The cashflow
+  chart's axis and tooltip, and the allocation donut's tooltip, are now hidden in privacy mode
+  like every other amount. French thousands separators are visible again
+  in large amounts: the bundled font has no narrow no-break space, so "51 646,95 €" used to
+  read as "51646,95 €". Holding quantities, the average buy-in, card reward points and the
+  valuation sample size follow the interface language rather than the browser's.
+  In French, English leftovers are translated ("/mo", "Browser",
+  "Timeline", "YTD", "Exchanges", "Wallets", "pockets", the raw `LINKED` connection status),
+  "1 autre objectif" takes the singular, labels take a space before the colon, and the
+  settings and Revolut texts that said "tu" now say "vous". German and Spanish translate the
+  auto-confirmed subscription badge, the AI suggestion and the savings rate labels. The
+  profile form shows its amounts in the member's notation with their unit (#274).
+- **Pages no longer jump while they load, and error pages keep the app around them.**
+  A page that loads quickly now appears directly. A slower one shows a page title and
+  one block in its place, not a dashboard-shaped placeholder that the real page then
+  replaces. The 404, 403 and 500 pages appear inside the sidebar and navigation when
+  you are signed in, including after a browser restart with "Remember Me". A server
+  error inside that sidebar no longer reloads the error page in a loop. Each error page
+  offers "Back to dashboard" and "Back". Session checks and opening the setup wizard
+  show a centred spinner rather than a full-screen dashboard placeholder or an empty
+  screen. Moving between setup steps keeps the wizard frame on screen; only the step
+  area stays empty until the next step loads.
+- **Demo budget dates are no longer one day early east of UTC.** In Paris the demo showed the
+  current cycle as 30/09 to 30/10 on 31 October, opened the budget pages on September, and
+  listed every upcoming recurring charge a day before its series' next date. The demo now
+  writes local calendar dates, so the cycle is 01/10 to 31/10 and both recurring cards agree
+  in every timezone (#280). The demo's upcoming-charges calendar also no longer skips a
+  month after a charge due on the 31st: it moves to the last day of a shorter month, as the
+  backend does.
+- **The cashflow diagram labels every destination again.** With a dozen destinations the
+  Sankey squeezed each node to a few pixels and hid all their labels; it now grows taller
+  instead and shows each name with its amount. A card too narrow for those labels (a phone, or a
+  small window with the sidebar open) lists the flows as bars instead of folding the diagram's
+  columns over each other. The list under the flow is titled
+  "Répartition du revenu", so "Sorties" only ever means spending. A transaction card with
+  nothing to show (an account without transactions, a search with no match, an empty
+  period on `/budget/transactions`) now says so instead of staying blank, the demo serves
+  `/budget/transactions`, and the "Sans catégorie" row lines up with the rows above it.
+- **The goal calendar shows every month without a hidden scroller.** The year grid now wraps
+  (six months per row on a desktop, three on a phone) and opens on the current month, where it
+  used to cut off at May or June and hide the recent months behind a horizontal scroll. The goal
+  name is the page title, with "Calendrier" above it, instead of "Calendrier de Apport
+  immobilier". Ring amounts and objectives are written in whole euros at 11px or larger, so a
+  row no longer mixes "984,72 €" with "1 k €", and the objective reads 1 373 € like the header.
+  A legend tells the share of the objective reached (94%) from the overshoot (+8%), and the
+  overshoot arc is now drawn at the ring's width (#282).
+- **Alignment and control consistency pass (budget, account detail, charts).** Chart Y axes
+  are now wide enough for every tick they draw, so labels such as "10.00k", "-3.5k" and
+  "-250k" are no longer clipped. The investment account chart is titled "Valeur et capital investi", the
+  name of what it plots. A holding or dividend without a logo shows its name's initials
+  instead of an empty grey circle, unless that name is only its ticker. A dividend with no
+  payment date says "Date inconnue" and stays on one line. Income on an account's
+  transactions carries its "+", and a zero amount carries no sign. Monthly
+  statements line up with their title and read "1er octobre 2026". In Budget, "OK" in "Ce
+  qui a changé" has a check mark rather than the undo arrow, and the dates and amounts of
+  the recurring lists stay in fixed columns. Envelopes say "87,70 € restants · 82 %" or
+  "37,90 € de dépassement", in German and Spanish too. Category pickers, rule buttons and
+  filters share one 40px height, the transaction filters show dates in your date format,
+  and screen readers announce the account and category filters by name. The confidence slider
+  and the switches follow the dark theme, category names are no longer cut short on mobile,
+  and the "À catégoriser" count sits next to its label.
+  ([#283](https://github.com/Cloeille/picsou-finance/issues/283))
 - **Every BoursoBank livret now syncs its transactions, not only the LEP.** A Livret A, LDDS,
   Livret Jeune, PEL, CEL or Livret Bourso+ used to sync its balance with no operations, so
   money moving in and out of it never reached Budget. The BoursoBank sync now reads the last
