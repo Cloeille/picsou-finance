@@ -112,7 +112,7 @@ function NavItem({
         </ItemMedia>
         <ItemContent>
           <ItemTitle className="text-sm font-semibold">{title}</ItemTitle>
-          <ItemDescription className="line-clamp-1 text-[11px] leading-4">{description}</ItemDescription>
+          <ItemDescription className="line-clamp-2 text-[11px] leading-4">{description}</ItemDescription>
         </ItemContent>
       </NavLink>
     </Item>
@@ -229,7 +229,7 @@ export function AppSidebar() {
                   <AvatarFallback
                     className={cn(
                       'text-sm font-bold',
-                      activeMember ? 'text-primary-foreground' : 'bg-muted text-muted-foreground',
+                      activeMember ? 'text-white' : 'bg-muted text-muted-foreground',
                     )}
                     style={activeMember ? { backgroundColor: activeMember.avatarColor } : undefined}
                   >
@@ -305,7 +305,7 @@ export function AppSidebar() {
                     <AvatarFallback
                       className={cn(
                         'text-sm font-bold',
-                        activeMember ? 'text-primary-foreground' : 'bg-muted text-muted-foreground',
+                        activeMember ? 'text-white' : 'bg-muted text-muted-foreground',
                       )}
                       style={activeMember ? { backgroundColor: activeMember.avatarColor } : undefined}
                     >
