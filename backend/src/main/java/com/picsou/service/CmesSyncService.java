@@ -128,8 +128,11 @@ public class CmesSyncService {
             storeSessionAndQueue(result.sessionState(), memberId, login, password, generation);
         } else if (result.processId() != null) {
             evictExpiredPendingCredentials();
-            pendingCredentials.put(result.processId(), new PendingCredentials(
-                login, password, Instant.now().plusSeconds(PENDING_CREDENTIALS_SECONDS), memberId, generation));
+            synchronized (sessionWriteLock) {
+                requireGeneration(memberId, generation);
+                pendingCredentials.put(result.processId(), new PendingCredentials(
+                    login, password, Instant.now().plusSeconds(PENDING_CREDENTIALS_SECONDS), memberId, generation));
+            }
         }
         return new AuthInitResponse(result.processId(), result.mfaRequired(), result.mfaType());
     }
@@ -222,13 +225,18 @@ public class CmesSyncService {
         return authGenerations.getOrDefault(memberId, 0L);
     }
 
+    /** Must be called under {@link #sessionWriteLock}, in the same block as the write it guards. */
+    private void requireGeneration(Long memberId, long generation) {
+        if (authGeneration(memberId) != generation) {
+            throw error(CmesErrorCode.AUTH_ATTEMPT_EXPIRED, "The CMES connection was removed during the login", null);
+        }
+    }
+
     private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId, String login, String password,
                                                        long generation) {
         SyncJob job;
         synchronized (sessionWriteLock) {
-            if (authGeneration(memberId) != generation) {
-                throw error(CmesErrorCode.AUTH_ATTEMPT_EXPIRED, "The CMES connection was removed during the login", null);
-            }
+            requireGeneration(memberId, generation);
             job = insertSession(plainState, memberId, login, password);
         }
         submit(job);

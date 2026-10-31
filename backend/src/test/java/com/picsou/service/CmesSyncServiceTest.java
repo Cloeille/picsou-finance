@@ -334,6 +334,24 @@ class CmesSyncServiceTest {
     }
 
     @Test
+    void aSecondFactorLoginThatLandsAfterTheConnectionWasRemovedKeepsNoCredentials() {
+        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(port.initiateAuth("12345678", "secret", null)).thenAnswer(invocation -> {
+            service.clearSession(7L);
+            return new CmesPort.InitiateResult("p7", true, "APP_PUSH", null);
+        });
+
+        assertThatThrownBy(() -> service.initiateAuth("12345678", "secret", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        // No pending credentials were kept: the attempt cannot be completed.
+        assertThatThrownBy(() -> service.completeAuth("p7", null, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(port, never()).completeAuth(anyString(), any());
+    }
+
+    @Test
     void aLoginStartedAfterTheConnectionWasRemovedIsStored() {
         service.clearSession(7L);
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
