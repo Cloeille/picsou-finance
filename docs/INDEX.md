@@ -72,7 +72,8 @@
 | 2026-08-13 | [Persist security profiles and warm them on a schedule](./decisions/2026-08-13-persisted-security-profiles.md) | Active |
 | 2026-08-15 | [Key security lookups on the ISIN, and read fund facts from justETF](./decisions/2026-08-15-isin-keyed-lookups-and-justetf.md) | Active |
 | 2026-08-18 | [Client-supplied labels for the xlsx account export](./decisions/2026-08-18-client-supplied-labels-for-xlsx-export.md) | Active |
-| 2026-09-17 | [Defer the MCP protocol upgrade until the Spring Boot 4 migration](./decisions/2026-09-17-defer-mcp-protocol-upgrade.md) | Active |
+| 2026-09-17 | [Defer the MCP protocol upgrade until the Spring Boot 4 migration](./decisions/2026-09-17-defer-mcp-protocol-upgrade.md) | Superseded by opt-in Streamable HTTP |
+| 2026-10-31 | [Opt-in Streamable HTTP for modern MCP clients](./decisions/2026-10-31-opt-in-streamable-mcp.md) | Active |
 | 2026-09-23 | [A SCPI share is not a property](./decisions/2026-09-23-scpi-not-a-property.md) | Active |
 | 2026-09-26 | [CORUM client space fills existing SCPI accounts through a browser sidecar](./decisions/2026-09-26-corum-scpi-sidecar.md) | Active (point 5 superseded) |
 | 2026-09-27 | [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](./decisions/2026-09-27-sofidy-scpi-sidecar.md) | Active (point 5 superseded) |
