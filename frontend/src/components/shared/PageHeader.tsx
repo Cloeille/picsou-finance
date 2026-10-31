@@ -23,7 +23,7 @@ export function PageHeader({ surtitle, title, actions }: PageHeaderProps) {
             {resolvedSurtitle}
           </p>
         )}
-        <h1 className="truncate text-[28px] text-foreground" style={{ fontWeight: 700, lineHeight: 1.2 }}>
+        <h1 className="line-clamp-2 break-words text-balance text-[28px] text-foreground" style={{ fontWeight: 700, lineHeight: 1.2 }}>
           {title}
         </h1>
       </div>

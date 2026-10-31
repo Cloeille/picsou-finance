@@ -32,6 +32,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
@@ -123,7 +124,7 @@ class BoursoSyncServiceTest {
     void queueSync_reusesLegacyBoursoAccountByIbanWithoutNameOrTypeHeuristics() {
         String iban = "FR7630006000011234567890189";
         BoursoPort.AccountData refreshed = new BoursoPort.AccountData(CHECKING_ID, "New label",
-            AccountType.CHECKING, new BigDecimal("20810.50"), null, List.of(), true, iban, List.of());
+            AccountType.CHECKING, new BigDecimal("20810.50"), null, List.of(), true, iban, List.of(), null);
         arrangeCommittableSync(refreshed);
         Account legacyBourso = Account.builder().id(88L).member(member()).name("Old label")
             .type(AccountType.CHECKING).provider("BoursoBank").iban(iban).externalAccountId("old-bourso-id")
@@ -146,7 +147,7 @@ class BoursoSyncServiceTest {
     void queueSync_reusesAnEnableBankingBoursoramaAccountByVerifiedIban() {
         String iban = "FR7630006000011234567890189";
         BoursoPort.AccountData refreshed = new BoursoPort.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
-            new BigDecimal("20810.50"), null, List.of(), true, iban, List.of());
+            new BigDecimal("20810.50"), null, List.of(), true, iban, List.of(), null);
         arrangeCommittableSync(refreshed);
         Account enableBanking = Account.builder().id(88L).member(member()).name("Boursorama Banque")
             .type(AccountType.CHECKING).provider("Boursorama Banque").iban(iban)
@@ -168,7 +169,7 @@ class BoursoSyncServiceTest {
     void queueSync_doesNotMatchBoursoramaAliasByInvalidIban() {
         String invalidIban = "FR7630006000011234567890188";
         BoursoPort.AccountData refreshed = new BoursoPort.AccountData(CHECKING_ID, "BoursoBank",
-            AccountType.CHECKING, new BigDecimal("20810.50"), null, List.of(), true, invalidIban, List.of());
+            AccountType.CHECKING, new BigDecimal("20810.50"), null, List.of(), true, invalidIban, List.of(), null);
         arrangeCommittableSync(refreshed);
 
         service.queueSync(7L);
@@ -183,7 +184,7 @@ class BoursoSyncServiceTest {
     void queueSync_doesNotResurrectASoftDeletedBoursoramaAliasByIban() {
         String iban = "FR7630006000011234567890189";
         BoursoPort.AccountData deleted = new BoursoPort.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
-            new BigDecimal("20810.50"), null, List.of(), true, iban, List.of());
+            new BigDecimal("20810.50"), null, List.of(), true, iban, List.of(), null);
         FamilyMember familyMember = member();
         arrangeQueuedSession(activeSession(familyMember));
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(deleted));
@@ -200,6 +201,26 @@ class BoursoSyncServiceTest {
 
         verify(accountRepository).existsSoftDeletedByIbanAndMemberIdAndProviderIn(iban, 7L, providerFamily);
         verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void queueSync_importsAnAssuranceVieWithItsSupportsAndEuroFund() {
+        arrangeCommittableSync(lifeInsurance("3300.00", "1100.00", 3,
+            position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
+                "100", "10.00", "12.00", "1200.00", "200.00"),
+            position("LU0123456789", "0P0000ABCD", "Fonds Actions Europe A",
+                "40", "26.00", "25.00", "1000.00", "-40.00")));
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        Account saved = accountCaptor.getValue();
+        assertThat(saved.getType()).isEqualTo(AccountType.ASSURANCE_VIE);
+        assertThat(saved.getCurrentBalance()).isEqualByComparingTo("3300.00");
+        // The euro fund rides in the cash leg, like the cash inside a PEA.
+        assertThat(saved.getCashBalance()).isEqualByComparingTo("1100.00");
+        verify(holdingRepository).saveAll(holdingsCaptor.capture());
+        assertThat(holdingsCaptor.getValue()).hasSize(2);
     }
 
     /**
@@ -325,6 +346,77 @@ class BoursoSyncServiceTest {
         assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).deleteByAccountId(any());
+    }
+
+    /**
+     * A support missing from a large contract is a few tenths of a percent at
+     * most, which the relative tolerance of the other envelopes would let through.
+     */
+    @Test
+    void queueSync_refusesAnAssuranceVieWhoseSupportsFallShortOfALargeBalance() {
+        BoursoSession session = activeSession(member());
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(
+            lifeInsurance("100000.00", "1000.00", 2,
+                position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
+                    "100", "10.00", "12.00", "98910.00", "200.00"))
+        ));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE);
+        verify(accountRepository, never()).save(any());
+        verify(holdingRepository, never()).saveAll(any());
+    }
+
+    /**
+     * Rows of one fund merge into a single holding, but each row was rounded to
+     * the cent on its own: the allowance must count the rows the sidecar
+     * reconciled, not the holdings left after the merge.
+     */
+    @Test
+    void queueSync_acceptsTheRoundingOfAssuranceVieRowsThatMergeIntoOneHolding() {
+        BoursoPort.Position[] rows = new BoursoPort.Position[12];
+        // 1 unit at a 1000.005 NAV, shown as 1000.01: 12 rows overshoot by 0.06.
+        Arrays.fill(rows, position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
+            "1", "1000.00", "1000.005", "1000.01", "0.01"));
+        arrangeCommittableSync(lifeInsurance("12000.06", "0.00", 12, rows));
+
+        service.queueSync(7L);
+
+        verify(holdingRepository).saveAll(holdingsCaptor.capture());
+        assertThat(holdingsCaptor.getValue()).singleElement()
+            .satisfies(holding -> assertThat(holding.getQuantity()).isEqualByComparingTo("12"));
+    }
+
+    /**
+     * Euro-fund rows are summed into the cash leg before they reach the backend:
+     * the allowance must count every one of them, as the sidecar did, not one.
+     */
+    @Test
+    void queueSync_acceptsTheRoundingOfSeveralEuroFundRowsSummedIntoCash() {
+        // 12 euro-fund rows of 1000.01 against a 12000.06 valuation: 0.06 over.
+        arrangeCommittableSync(lifeInsurance("12000.06", "12000.12", 12));
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getCashBalance()).isEqualByComparingTo("12000.12");
+    }
+
+    @Test
+    void queueSync_refusesAnAssuranceVieWithoutItsValuationLineCount() {
+        BoursoSession session = activeSession(member());
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(lifeInsurance("3300.00", "1100.00", null,
+            position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
+                "100", "10.00", "12.00", "2200.00", "200.00"))));
+
+        service.queueSync(7L);
+
+        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_DATA);
+        verify(accountRepository, never()).save(any());
     }
 
     @Test
@@ -776,6 +868,23 @@ class BoursoSyncServiceTest {
             cashBalance == null ? null : new BigDecimal(cashBalance),
             List.of(positions),
             true
+        );
+    }
+
+    private BoursoPort.AccountData lifeInsurance(
+        String balanceEur, String cashBalance, Integer valuationLineCount, BoursoPort.Position... positions
+    ) {
+        return new BoursoPort.AccountData(
+            "bourso_0a1b2c3d4e5f60718293a4b5c6d7e8f9",
+            "Contrat N° 12345678",
+            AccountType.ASSURANCE_VIE,
+            new BigDecimal(balanceEur),
+            new BigDecimal(cashBalance),
+            List.of(positions),
+            true,
+            null,
+            List.of(),
+            valuationLineCount
         );
     }
 

@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands that fix it. The same pop-up announces a newer Picsou release, read from GitHub at
   most once every 6 hours; `APP_UPDATE_CHECK_ENABLED=false` turns that call off. See
   [feature note](docs/features/admin-instance-status.md).
+- **BoursoBank assurance vie.** Contracts listed on the dashboard are now synced as
+  `ASSURANCE_VIE` accounts: unit-linked supports as holdings (ISIN, units, buying price, latent
+  gain), the euro fund in the cash balance, reconciled against the contract valuation. They were
+  silently skipped before: their links have no trailing slash. A row is read as the euro fund only
+  without units, ISIN, quote link or price; an unreadable cell or quote link stops the sync
+  instead. A support's ticker comes from its quote link's path, never from its query or
+  fragment.
 - **Caisse d'Epargne in *Sync all*.** The dashboard's *Sync all* modal lists Caisse d'Epargne
   like the other session connectors: a live session syncs in place, an expired one opens the
   Caisse d'Epargne tab, where the keypad and Sécur'Pass login run, and *Sync all* skips it.
@@ -254,6 +261,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   importer and duplicate checks as the current account. A livret whose history page cannot
   be read, or is too slow (the history reads only use what is left of a 60 s budget counted
   from the start of the accounts read, after balances and holdings), still syncs its balance. ([#167](https://github.com/Cloeille/picsou-finance/issues/167))
+- **Controls no longer spill out of their card on phones** (#273). At 360–390px the Settings
+  theme and language switches (Spanish was hidden), the family sharing choices, the Analysis
+  card toggles and the account Transactions buttons were cut at the card edge. Settings and
+  sharing choices now stretch across the card, and card toggles move under the title. The
+  Accounts filters and Sync providers sit on one row you can swipe instead of up to eight
+  ragged rows; that row, like the Budget sections, fades at the edge that hides more, opens
+  on the current section and brings a newly picked tab fully into view, without cutting the
+  keyboard focus ring or undoing a swipe when a count loads late. Goal names and page titles wrap to a second line instead of being
+  cut with an ellipsis.
 - **Phone layout: page margins, the end of each page, and Family.** On a phone, pages ran 4 px
   from the screen edge while the bottom bar sat 16 px in, and the last card of every page
   touched the bar. Pages now keep the bar's 16 px margin on every side and end 16 px above it.

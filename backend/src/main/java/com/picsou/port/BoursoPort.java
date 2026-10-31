@@ -32,9 +32,11 @@ public interface BoursoPort {
     String completeAuth(String processId);
 
     /**
-     * Reads every in-scope account: current accounts, livrets and the securities
-     * accounts with their positions. Aggregated third-party accounts and loans
-     * are filtered out by the sidecar.
+     * Reads every in-scope account: current accounts, livrets, the securities
+     * accounts with their positions and the assurance-vie contracts with their
+     * unit-linked supports (euro fund in {@code cashBalance}). Aggregated
+     * third-party accounts, loans and children's accounts are filtered out by
+     * the sidecar.
      */
     List<AccountData> fetchAccounts(String sessionState);
 
@@ -73,11 +75,17 @@ public interface BoursoPort {
         List<Position> positions,
         boolean snapshotComplete,
         String iban,
-        List<SidecarTransaction> transactions
+        List<SidecarTransaction> transactions,
+        /**
+         * Assurance vie only: the rows the sidecar reconciled against the valuation,
+         * euro-fund rows included. Those are summed into {@code cashBalance}, so
+         * {@code positions} alone cannot tell how many rounded amounts there were.
+         */
+        Integer valuationLineCount
     ) {
         public AccountData(String externalId, String name, AccountType type, BigDecimal balanceEur,
                            BigDecimal cashBalance, List<Position> positions, boolean snapshotComplete) {
-            this(externalId, name, type, balanceEur, cashBalance, positions, snapshotComplete, null, List.of());
+            this(externalId, name, type, balanceEur, cashBalance, positions, snapshotComplete, null, List.of(), null);
         }
     }
 }

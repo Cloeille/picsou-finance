@@ -14,7 +14,7 @@ Auth flow:
   POST /complete {processId}
     → holds open while the user approves in the BoursoBank app → {sessionState}
   POST /accounts {sessionState}
-    → [{externalId, name, type, balanceEur, cashBalance, positions[], snapshotComplete}]
+    → [{externalId, name, type, balanceEur, cashBalance, positions[], valuationLineCount, snapshotComplete}]
 
 Only the session cookies are returned to Java, which encrypts them before
 storage. Credentials are held in memory for the length of one request and are
@@ -54,6 +54,7 @@ from accounts_parser import (
     guard_symbol_collisions,
     parse_iban_page,
     parse_dashboard,
+    parse_life_insurance,
     parse_operations,
     parse_trading_summary,
 )
@@ -248,6 +249,9 @@ class AccountPayload(BaseModel):
     balanceEur: Decimal
     cashBalance: Decimal | None = None
     positions: list[PositionPayload]
+    # Assurance vie only: the supports-table rows the valuation was reconciled
+    # against, euro-fund rows included, which the backend needs to redo the check.
+    valuationLineCount: int | None = Field(default=None, ge=0)
     iban: str | None = None
     transactions: list[dict[str, Any]] = Field(default_factory=list)
     transactionWarning: Literal["TRANSACTIONS_UNAVAILABLE", "TRANSACTIONS_INCOMPLETE"] | None = None
@@ -615,6 +619,27 @@ async def _fetch_trading_account(
     return parse_trading_summary(payload, account_id)
 
 
+async def _fetch_life_insurance(client: httpx.AsyncClient, account_href: str) -> dict[str, Any]:
+    """Read an assurance-vie contract's supports from its positions page.
+
+    Unlike a PEA, a contract has no trading-board summary; its positions page
+    is server-rendered and carries the valuation and every support.
+    """
+    account_url = _same_origin_url(account_href, BASE_URL)
+    positions_url = _same_origin_url(urljoin(account_url.rstrip("/") + "/", "positions"), account_url)
+    response = await client.get(positions_url, follow_redirects=False)
+    if response.status_code in (401, 403) or (
+        response.is_redirect and LOGIN_PATH in response.headers.get("location", "")
+    ):
+        raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+    if response.status_code != 200:
+        log.warning("BoursoBank assurance-vie page failed (HTTP %s)", response.status_code)
+        if response.status_code == 429 or response.status_code >= 500:
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+    return parse_life_insurance(response.text)
+
+
 def redirects_to_identity_selector(response: httpx.Response) -> bool:
     if not response.is_redirect:
         return False
@@ -760,7 +785,14 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
             "transactionWarning": None,
             "snapshotComplete": True,
         }
-        if account["section"] == "trading":
+        if account["type"] == "ASSURANCE_VIE":
+            contract = await _fetch_life_insurance(client, account["href"])
+            entry["balanceEur"] = contract["totalEur"]
+            entry["cashBalance"] = contract["cashEur"]
+            entry["positions"] = contract["positions"]
+            entry["valuationLineCount"] = contract["valuationLineCount"]
+            guard_symbol_collisions(entry["positions"])
+        elif account["section"] == "trading":
             summary = await _fetch_trading_account(client, api_url, user_hash, account["id"])
             # The trading board is authoritative over the dashboard tile: it is
             # the figure the two reconciliations above were run against.
