@@ -348,6 +348,19 @@ class FlowTest(unittest.TestCase):
         # A kind held by one plan keeps the id it always had.
         self.assertEqual(ids[2], "cmes_12345_PEE")
 
+    def test_two_plans_whose_names_give_one_id_are_refused(self):
+        # Distinct labels, so the parser keeps both; only the accent differs, and
+        # the id slug drops accented letters, so both would be cmes_12345_PEG-plan-d-pargne-groupe-acme.
+        self.site.situation = situation_page(
+            plan_table("Plan d&#39;&#233;pargne groupe ACME", "0,00", "")
+            + plan_table("Plan d&#39;&#232;pargne groupe ACME", "0,00", "")
+        )
+        session = self.confirm()
+
+        response = self.client.post("/positions", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual(response.json(), {"detail": "UPSTREAM_FORMAT_CHANGED"})
+
     def test_an_entity_encoded_skip_link_is_found(self):
         page = '<a href="/skip.html">Passer cette &eacute;tape</a>'
 
