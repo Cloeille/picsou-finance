@@ -8,7 +8,7 @@ login form, mobile confirmation or SMS code, remembered-device cookie,
 import json
 import unittest
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs
 
 import httpx
@@ -73,7 +73,10 @@ class FakeBank:
             page = {"mobile": MOBILE_CONFIRMATION_PAGE, "sms": SMS_CONFIRMATION_PAGE}[self.second_factor]
             return httpx.Response(200, text=page)
         if path == main.DEFAULT_STATE_PATH:
-            return httpx.Response(200, text=transaction_state(self.states.pop(0)))
+            state = self.states.pop(0)
+            if state == "UNREACHABLE":
+                raise httpx.ConnectError("polling endpoint unreachable", request=request)
+            return httpx.Response(200, text=transaction_state(state))
         if path == main.DEFAULT_CANCEL_PATH:
             self.cancelled = True
             return httpx.Response(200, text="")
@@ -176,6 +179,45 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(wrong.json(), {"detail": "INVALID_OTP"})
         self.assertEqual(right.status_code, 200, right.text)
         self.assertEqual(self.bank.final_fields["_FID_CheckOrDeliverBackup"], ["Valider"])
+
+    def test_a_wrong_code_the_full_pool_cannot_keep_is_disposed_of(self):
+        self.bank.second_factor = "sms"
+        process = self.initiate().json()["processId"]
+        dispose = AsyncMock(wraps=main._dispose_pending_state)
+
+        with (
+            patch.object(main, "_store_pending", AsyncMock(side_effect=main.HTTPException(503, "UPSTREAM_UNAVAILABLE"))),
+            patch.object(main, "_dispose_pending_state", dispose),
+        ):
+            wrong = self.client.post("/complete", json={"processId": process, "code": "000000"}, headers=HEADERS)
+
+        self.assertEqual(wrong.status_code, 503)
+        dispose.assert_awaited_once()
+
+    def test_a_polling_failure_withdraws_the_confirmation_from_the_phone(self):
+        self.bank.states = ["PENDING", "UNREACHABLE"]
+        started = self.initiate()
+
+        response = self.client.post("/complete", json={"processId": started.json()["processId"]}, headers=HEADERS)
+
+        self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_UNAVAILABLE"}))
+        self.assertTrue(self.bank.cancelled)
+
+    def test_an_entity_encoded_skip_link_is_found(self):
+        page = '<a href="/skip.html">Passer cette &eacute;tape</a>'
+
+        self.assertEqual(main._link_with(page, "passer cette étape"), "/skip.html")
+
+    def test_only_checked_boxes_are_sent(self):
+        [form] = main.parse_forms(
+            '<form action="/a">'
+            '<input type="checkbox" name="consent" value="unchecked" />'
+            '<input type="checkbox" name="remember" checked />'
+            '<input type="radio" name="channel" value="sms" checked="checked" />'
+            "</form>"
+        )
+
+        self.assertEqual(form.fields, {"remember": "on", "channel": "sms"})
 
     def test_the_authority_management_notice_is_postponed_like_woob_does(self):
         self.bank.second_factor = None

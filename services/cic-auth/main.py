@@ -52,7 +52,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from forms import Form, field_names, find_form, parse_forms
-from accounts_parser import AccountKind, AccountsFormatError, parse_accounts
+from accounts_parser import AccountKind, AccountsFormatError, _text, parse_accounts
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -113,7 +113,6 @@ _CANCEL_URL_RE = re.compile(r"""['"](?P<url>[^'"\s]*SOSD_OTP_CancelTransaction[^
 _TRANSACTION_STATE_RE = re.compile(r"<transactionState>\s*(?P<state>\w+)\s*</transactionState>", re.IGNORECASE)
 _LINK_RE = re.compile(r"<a\b(?P<attrs>[^>]*)>(?P<text>.*?)</a>", re.DOTALL | re.IGNORECASE)
 _HREF_RE = re.compile(r'href="(?P<href>[^"]+)"')
-_TAG_RE = re.compile(r"<[^>]+>")
 
 _pending: dict[str, dict[str, Any]] = {}
 _pending_lock = asyncio.Lock()
@@ -395,10 +394,6 @@ async def _follow(client: httpx.AsyncClient, response: httpx.Response) -> httpx.
     raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "Too many redirects")
 
 
-def _text(fragment: str) -> str:
-    return " ".join(_TAG_RE.sub(" ", fragment).replace("&nbsp;", " ").split())
-
-
 def _link_with(page: str, *phrases: str) -> str | None:
     """The href of the first link whose text holds one of `phrases`."""
     for match in _LINK_RE.finditer(page):
@@ -633,7 +628,7 @@ async def _withdraw_confirmation(client: httpx.AsyncClient, state: dict[str, Any
         return
     try:
         await client.post(state["cancelUrl"], data={"transactionId": state["transactionId"]})
-        log.info("CIC: withdrew the confirmation request of an unattended re-login")
+        log.info("CIC: withdrew the confirmation request")
     except httpx.HTTPError:
         log.info("CIC could not withdraw the confirmation request")
 
@@ -642,7 +637,13 @@ async def _await_confirmation(client: httpx.AsyncClient, state: dict[str, Any]) 
     deadline = time.monotonic() + APP_VALIDATION_TIMEOUT_SECONDS
     data = {"transactionId": state["transactionId"]}
     while time.monotonic() < deadline:
-        response = await client.post(state["stateUrl"], data=data)
+        try:
+            response = await client.post(state["stateUrl"], data=data)
+        except httpx.HTTPError:
+            # The request may still be live on the phone: withdraw it before
+            # reporting the failure.
+            await _withdraw_confirmation(client, state)
+            raise
         match = _TRANSACTION_STATE_RE.search(response.text) if response.status_code == 200 else None
         if match is None:
             # Sent elsewhere (typically the login page): the request is gone.
@@ -657,12 +658,8 @@ async def _await_confirmation(client: httpx.AsyncClient, state: dict[str, Any]) 
             log.warning("CIC confirmation polling returned an unknown state")
             raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "Unknown confirmation state")
         await asyncio.sleep(APP_VALIDATION_POLL_SECONDS)
-    if state.get("cancelUrl"):
-        try:
-            # Withdraw the request from the phone rather than leave it pending.
-            await client.post(state["cancelUrl"], data=data)
-        except httpx.HTTPError:
-            log.info("CIC could not cancel the expired confirmation request")
+    # Withdraw the request from the phone rather than leave it pending.
+    await _withdraw_confirmation(client, state)
     raise UpstreamError("APP_VALIDATION_TIMEOUT", "Confirmation not approved in time")
 
 
@@ -845,7 +842,6 @@ async def complete(req: CompleteRequest) -> dict:
         if state["kind"] == "SMS":
             if req.code is None:
                 # Not a failure of the attempt: the code can still be sent.
-                keep_state = True
                 raise UpstreamError("INVALID_OTP", "An SMS code is required")
             landing = await _submit_sms_code(client, state, req.code)
         else:
@@ -858,9 +854,10 @@ async def complete(req: CompleteRequest) -> dict:
     except UpstreamError as exc:
         if exc.code == "INVALID_OTP" and state["kind"] == "SMS":
             # A mistyped code leaves the request open on the site: keep it so
-            # the customer can type the code again.
-            keep_state = True
+            # the customer can type the code again. Only a stored attempt is kept:
+            # if the pool refuses it, `finally` still closes its client.
             await _store_pending(req.processId, state)
+            keep_state = True
         log.warning("CIC second factor rejected (code=%s): %s", exc.code, exc)
         raise _http_error(exc) from exc
     except HTTPException:
