@@ -84,6 +84,32 @@ class LifeInsurancePageTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, FORMAT_CHANGED)
 
+    def test_a_unitless_fund_whose_label_starts_with_europe_is_not_the_euro_fund(self):
+        rows = life_insurance_row("Fonds Europe Actions", None, None, "", "", "", "3 300,00 €", "")
+
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_life_insurance(life_insurance_page(rows))
+
+        self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_an_empty_valuation_is_a_format_change(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_life_insurance(life_insurance_page(LIFE_INSURANCE_ROWS, valuation="&nbsp;"))
+
+        self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_support_without_isin_or_quote_link_gets_a_ticker_the_backend_accepts(self):
+        label = "Support en unités de compte sans code ISIN publié par l'assureur"
+        rows = (
+            life_insurance_row(label, None, None, "10,0000", "300,00 €", "330,00 €", "3 300,00 €", "300,00 €")
+        )
+
+        position, = parse_life_insurance(life_insurance_page(rows))["positions"]
+
+        self.assertEqual(position["symbol"], label[:30].rstrip())
+        self.assertLessEqual(len(position["symbol"]), 30)
+        self.assertEqual(position["label"], label)
+
     def test_a_page_without_the_supports_table_is_a_format_change(self):
         with self.assertRaises(AccountsFormatError) as raised:
             parse_life_insurance("<html><body>Bienvenue</body></html>")

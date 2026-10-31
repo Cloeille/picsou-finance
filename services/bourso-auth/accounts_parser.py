@@ -838,8 +838,11 @@ _LI_LABEL_RE = re.compile(r'class="c-link__label[^"]*">(?P<label>.*?)</span>', r
 _LI_MENTION_RE = re.compile(r'class="c-table__mention[^"]*">(?P<mention>.*?)</span>', re.DOTALL)
 _LI_SYMBOL_RE = re.compile(r'href="[^"]*/cours/(?P<symbol>[^/"?]+)/?"')
 _LI_ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}\d$")
-# The euro fund carries no unit and no ISIN; its label is what names it.
-_LI_EURO_FUND_RE = re.compile(r"\bEUROS?\b|FONDS? EURO", re.IGNORECASE)
+# The euro fund carries no unit and no ISIN; its label is what names it. "Euro"
+# must be a whole word: "Fonds Europe Actions" is a unit-linked fund, not cash.
+_LI_EURO_FUND_RE = re.compile(r"\bEUROS?\b", re.IGNORECASE)
+# The backend refuses an unresolved ticker longer than this (BoursoSyncService.MAX_TICKER_LENGTH).
+_LI_MAX_FALLBACK_SYMBOL = 30
 
 
 def _li_amount(cell: str, field: str, *, required: bool = True) -> Decimal | None:
@@ -865,7 +868,8 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
     table = _LI_TABLE_RE.search(html)
     if valuation is None or table is None:
         raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie page has no valuation or no supports table")
-    total = parse_amount(text_value(valuation.group("amount"), 100).replace("€", ""))
+    total_text = text_value(valuation.group("amount"), 100)
+    total = parse_amount(total_text.replace("€", "")) if total_text else None
     if total is None:
         raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie valuation is unreadable")
     body = _LI_TBODY_RE.search(table.group("body"))
@@ -898,7 +902,10 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
                 raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no units and is not a euro fund")
         positions.append({
             "isin": isin,
-            "symbol": (symbol.group("symbol") if symbol else None) or isin or label[:100],
+            # Two supports whose labels share these first characters are refused by
+            # guard_symbol_collisions, never merged.
+            "symbol": (symbol.group("symbol") if symbol else None) or isin
+            or label[:_LI_MAX_FALLBACK_SYMBOL].rstrip(),
             "label": label,
             "quantity": quantity,
             "buyingPriceEur": _li_amount(cells[3], "buying price", required=False),

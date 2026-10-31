@@ -31,10 +31,11 @@ why.
 
 | Imported | Not imported |
 |---|---|
-| Current accounts → `CHECKING` | Loans (`data-summary-loan`), assurance-vie and insurance, `Bourso Protect` (`data-summary-insurance` / `data-summary-assurance`), accounts held for a minor (`data-summary-child`, "Comptes de mes enfants") |
+| Current accounts → `CHECKING` | Loans (`data-summary-loan`), insurance, `Bourso Protect` (`data-summary-insurance` / `data-summary-assurance`), accounts held for a minor (`data-summary-child`, "Comptes de mes enfants") |
 | Livrets → `LIVRET_A`, `LDDS`, `LEP`, `LIVRET_JEUNE`, `PEL`, `CEL`, else `SAVINGS` | Accounts BoursoBank aggregates from **other banks** |
 | PEA, PEA-PME → `PEA` | Securities-account transactions |
 | Compte-titres → `COMPTE_TITRES`, with positions | Orders, statements |
+| Assurance-vie → `ASSURANCE_VIE`, unit-linked supports as positions, euro fund as cash | |
 
 **PEA-PME folds into `PEA`**: Picsou has no separate envelope for it, and the
 two share a tax regime and a reporting shape.
