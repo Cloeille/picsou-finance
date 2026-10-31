@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
-import { Inbox, Sparkles } from 'lucide-react'
+import { Inbox, RefreshCw, Sparkles } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -18,6 +18,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { MerchantAvatar } from '@/components/shared/MerchantAvatar'
@@ -147,22 +148,23 @@ function InboxRow({ tx, categories }: {
         )}
 
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <select
+          <NativeSelect
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus:border-ring sm:max-w-56"
+            className="sm:max-w-56"
           >
             <option value="">{t('budget.categorize.selectCategory')}</option>
             {categories.filter((c) => !c.archived).map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
-          </select>
+          </NativeSelect>
 
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               size="sm"
               variant="outline"
+              className="w-full sm:w-auto"
               onClick={() => setRulePickerOpen(true)}
             >
               {rulePayload != null
@@ -249,10 +251,11 @@ export function CategorizeTab() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">{t('budget.categorize.subtitle')}</p>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           {aiEnabled && (
             <Button
               size="sm"
+              className="flex-1 sm:flex-none"
               onClick={() => { setDoneInfo(null); startAi.mutate() }}
               disabled={aiStatus.data?.running || startAi.isPending}
             >
@@ -273,9 +276,9 @@ export function CategorizeTab() {
               })}
             </span>
           )}
-          <Button size="sm" variant="outline" onClick={() => recategorize.mutate()}
+          <Button size="sm" variant="outline" className="flex-1 sm:flex-none" onClick={() => recategorize.mutate()}
             disabled={recategorize.isPending}>
-            <Sparkles className="size-4" /> {t('budget.categorize.recategorize')}
+            <RefreshCw className="size-4" /> {t('budget.categorize.recategorize')}
           </Button>
         </div>
       </div>

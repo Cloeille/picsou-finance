@@ -100,6 +100,8 @@
 }
 
 .dark {
+    /* Native controls (range track, select popup, date picker) follow the theme. */
+    color-scheme: dark;
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
@@ -176,6 +178,52 @@
   }
   h1, h2, h3, h4, h5, h6 {
     color: inherit;
+  }
+}
+
+/* Themed range input. WebKit has no progress pseudo-element, so the filled part is a gradient
+   stopping at `--range-fill`, which the caller sets to the value's percentage. */
+@layer components {
+  .range-input {
+    appearance: none;
+    height: 1rem;
+    background: transparent;
+    cursor: pointer;
+  }
+  .range-input:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  .range-input::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: linear-gradient(to right, var(--primary) var(--range-fill, 0%), var(--input) var(--range-fill, 0%));
+  }
+  .range-input::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--input);
+  }
+  .range-input::-moz-range-progress {
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--primary);
+  }
+  .range-input::-webkit-slider-thumb {
+    appearance: none;
+    margin-top: -6px;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: var(--background);
+    border: 2px solid var(--primary);
+  }
+  .range-input::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 9999px;
+    background: var(--background);
+    border: 2px solid var(--primary);
   }
 }
 

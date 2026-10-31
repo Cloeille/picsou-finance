@@ -253,6 +253,12 @@ Use icons from `lucide-react` as direct JSX components (e.g., `<Pencil className
 
 Recharts v3 for all data visualizations. Chart color tokens (`--chart-1` through `--chart-5`) are defined in the Tailwind theme.
 
+Size a money Y axis with `yAxisWidth(values, tick)` (`lib/chart-axis.ts`), passing the same `money.tick(...)` formatter the axis uses, rather than a fixed `width`. A fixed width clips the longer labels, such as "10.00k" or "-250k".
+
+## Form controls
+
+A native `<select>` goes through `NativeSelect` (`components/shared/NativeSelect.tsx`), which shares `Input`'s 40px height, border and fill. A date field goes through `DateInput`, which displays the user's date format. A range input takes the `range-input` class and sets `--range-fill` to its value's percentage.
+
 ## Scripts
 
 ```bash

@@ -145,9 +145,25 @@ export function todayLabel(locale = getLocale(), date = new Date()): string {
   return capitalizeFirstCharacter(label, safeLocale)
 }
 
+/** First letters of up to two words, else the first two characters. Always uppercase. */
+export function deriveMonogram(label: string | null | undefined): string {
+  const clean = (label ?? '').trim()
+  if (!clean) return '•'
+  const words = clean.split(/\s+/).filter(Boolean)
+  const letters =
+    words.length >= 2
+      ? words[0]!.charAt(0) + words[1]!.charAt(0)
+      : clean.slice(0, 2)
+  return letters.toUpperCase()
+}
+
 export function formatLocalDate(dateStr: string | null | undefined, locale = getLocale()): string {
   if (!dateStr) return '—'
-  return new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'long', year: 'numeric' }).format(toDate(dateStr))
+  const d = toDate(dateStr)
+  const parts = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' }).formatToParts(d)
+  // French writes the first of the month as an ordinal ("1er octobre"); Intl has no option for it.
+  const firstOrdinal = d.getDate() === 1 && locale.toLowerCase().startsWith('fr')
+  return parts.map((p) => (p.type === 'day' && firstOrdinal ? '1er' : p.value)).join('')
 }
 
 /**

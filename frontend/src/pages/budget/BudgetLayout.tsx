@@ -45,7 +45,7 @@ export function BudgetLayout() {
               <Icon className="size-4" />
               <span>{t(labelKey)}</span>
               {badge && toReview > 0 && (
-                <Badge variant="secondary" className="ml-1">{toReview}</Badge>
+                <Badge variant="outline" className="tabular-nums">{toReview}</Badge>
               )}
             </NavLink>
           ))}

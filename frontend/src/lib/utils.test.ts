@@ -3,6 +3,7 @@ import {
   ageAt,
   cn,
   formatDate,
+  formatLocalDate,
   formatPercent,
   freshnessLevel,
   isOAuthAuthorizeRedirect,
@@ -78,6 +79,20 @@ describe('localeFromLanguage', () => {
     // so unresolvable tags map to fr-FR — not en-US.
     expect(localeFromLanguage(undefined)).toBe('fr-FR')
     expect(localeFromLanguage('it')).toBe('fr-FR')
+  })
+})
+
+describe('formatLocalDate', () => {
+  it('writes the first of the month as an ordinal in French', () => {
+    expect(formatLocalDate('2026-10-01', 'fr-FR')).toBe('1er octobre 2026')
+  })
+
+  it('drops the leading zero on other days', () => {
+    expect(formatLocalDate('2026-09-05', 'fr-FR')).toBe('5 septembre 2026')
+  })
+
+  it('keeps other languages on their own convention', () => {
+    expect(formatLocalDate('2026-10-01', 'en-US')).toBe('October 1, 2026')
   })
 })
 
