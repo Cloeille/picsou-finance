@@ -410,8 +410,11 @@ the app, the sidecars, an optional single-instance PostgreSQL, network policies,
 migration Job. TLS terminates on your Ingress or Gateway.
 
 ```bash
-helm install picsou ./charts/picsou -n picsou --create-namespace
+helm install picsou oci://ghcr.io/cloeille/charts/picsou -n picsou --create-namespace -f values.yaml
 ```
+
+Each release publishes the chart under its version; every push to `main` publishes a pre-release
+(`--devel`) pinned to that commit's images.
 
 ## Another machine
 

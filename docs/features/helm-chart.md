@@ -16,8 +16,7 @@ One release creates:
 - **app** — a `Recreate` Deployment of `ghcr.io/cloeille/picsou-finance` (nginx + Spring Boot
   under supervisord), a `/data` PVC and a `ClusterIP` Service on 8080.
 - **sidecars** — one Deployment and Service per entry of `sidecars` (the `*-auth` services of
-  the Compose file), each toggled by `enabled`. Sidecars added after the release the chart's
-  `appVersion` points to ship disabled, since their images do not exist under that tag yet. The app receives the matching
+  the Compose file), each toggled by `enabled`. The app receives the matching
   `*_AUTH_URL` for every enabled sidecar. `revolut-auth` gets a PVC for its browser profiles.
 - **postgresql** — optional single-replica StatefulSet of `postgres:16-alpine`, or
   `externalDatabase` for an operator-managed cluster.
@@ -30,6 +29,22 @@ One release creates:
   migration Job for PostgreSQL), optional restriction of the app's own ingress.
 - **Ingress or HTTPRoute** — optional, TLS terminated by the controller.
 
+### Publishing
+
+The `chart` job of `.github/workflows/docker.yml` runs after every image of the commit is pushed
+and publishes to `oci://ghcr.io/<owner>/charts/picsou`:
+
+- a version tag publishes the chart under that version, `appVersion` = the release;
+- a push to `main` publishes `<latest release + 1 patch>-main.<UTC timestamp>.g<short sha>`, a
+  pre-release that sorts above the latest release and that Helm only installs with `--devel`, with
+  `appVersion` = `sha-<short sha>`, the image tag `docker/metadata-action` gives every image of the
+  commit.
+
+Before packaging, `sync-sidecars.sh --apply` adds to the packaged copy the standard sidecars that
+`values.yaml` does not list yet (nothing is committed back). The `helm-chart` job of `ci.yml`
+lints and renders the chart and runs `sync-sidecars.sh --check` on pull requests that touch the
+chart, the Compose file or the workflows; differences are warnings, a broken chart fails.
+
 ### Key files
 
 - `charts/picsou/values.yaml` — every option, commented
@@ -38,6 +53,10 @@ One release creates:
 - `charts/picsou/templates/secret.yaml` — generated Secret
 - `charts/picsou/templates/migration-job.yaml` — pre-upgrade migration and verification
 - `charts/picsou/templates/networkpolicy.yaml` — isolation of sidecars and database
+- `charts/picsou/sync-sidecars.sh` — compares the Compose sidecars with `values.yaml`, adds the
+  standard ones on `--apply`
+- `.github/workflows/docker.yml` (`chart` job) — packages and publishes the chart
+- `.github/workflows/ci.yml` (`helm-chart` job) — lint, render, sidecar comparison
 - `charts/picsou/README.md` — operator documentation
 
 ### Flow
@@ -57,6 +76,9 @@ helm upgrade
 | Sidecar Services named `<release>-<sidecar>`, URLs without a domain | `SidecarBaseUrl` accepts plain HTTP only on a single-label host; the fullname is capped at 40 characters so the longest name stays a valid DNS label | Cluster FQDNs (`*.svc.cluster.local`), which would require HTTPS between pods |
 | JWT and encryption keys left to the entrypoint by default | Matches Compose and keeps the encryption key off any value the chart could regenerate | Generating them in the chart Secret, which a `helm template` renderer would rotate on every sync and make stored secrets unreadable |
 | `lookup` + `helm.sh/resource-policy: keep` for the generated Secret | Values survive upgrades and uninstall | Regenerating on each upgrade |
+| Chart version and `appVersion` stamped at publish time | One chart per release and per commit of main, each pinned to its own images, without a manual bump | A version kept in `Chart.yaml` and bumped by hand |
+| Main channel pinned to `sha-<short>` images | A chart version always deploys the same code | `nightly`, which moves under an installed chart |
+| Standard sidecars added at publish time, never committed | New sidecars reach the main channel without a chart PR, and CI never writes to the repository | Failing pull requests that add a sidecar; a bot committing to main |
 | Pre-upgrade migration Job with the release CLI | Applies the [migration ADR](../decisions/2026-10-08-rehearse-release-migrations.md): migrate and verify before replacing the API | Relying on startup Flyway only, which fails after the old pod is gone |
 | Bundled `postgres:16-alpine` StatefulSet | Same image as Compose, no dependency on a third-party chart | Bitnami PostgreSQL subchart |
 | Liveness on TCP, readiness on `/actuator/health` | Health includes the database; a database outage must not restart the app in a loop. supervisord restarts a dead JVM | Liveness on `/actuator/health`; `/actuator/health/liveness` is not permitted by `SecurityConfig`/`SetupFilter` |
@@ -80,12 +102,19 @@ helm upgrade
   PostgreSQL and the sidecars (non-numeric users).
 - **Annotation values are quoted** in pod templates: `--set app.podAnnotations.x=1` would
   otherwise send a number, which the API server rejects.
-- **Renaming a sidecar** in `docker/docker-compose.yml` needs the same change in
-  `charts/picsou/values.yaml` (`sidecars` key, `urlEnv`, `port`).
+- **A sidecar that is not standard** (volumes, networks, `init`, extra variables) is left out of
+  the published chart until `values.yaml` and the templates support it; `sync-sidecars.sh --check`
+  lists it.
+- **A checkout of the repository describes main** (`appVersion: nightly`, `version: 0.0.0-main`);
+  only published charts carry a release version.
 
 ## Tests
 
-- `helm lint --strict charts/picsou`
+- `helm lint --strict charts/picsou` and two `helm template` renders (`helm-chart` CI job)
+- `sync-sidecars.sh` on modified Compose files: new standard sidecar (added by `--apply`, values
+  otherwise unchanged byte for byte), sidecar with a volume and extra variable (reported, not
+  added), sidecar without an app URL, removed sidecar, changed port; idempotent second `--apply`
+- `.github/tests` workflow tests, extended with the `helm-chart` selection cases
 - `helm template` of the default values and of a values set with external database, existing
   secrets, Ingress, HTTPRoute and disabled sidecars, validated with `kubeconform -strict`
 - `helm test` — `test-health` pod calls `/actuator/health` through the app Service

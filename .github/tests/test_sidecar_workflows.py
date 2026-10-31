@@ -225,7 +225,7 @@ class CiJobSelectionTest(unittest.TestCase):
             "backend/src/main/java/com/picsou/App.java": {"backend", "release-deployment"},
             "docker/entrypoint.sh": {"backend", "docker-entrypoint", "release-deployment"},
             "docker/Dockerfile": {"docker-entrypoint", "release-deployment", "workflow-inventory"},
-            "docker/docker-compose.yml": {"docker-entrypoint", "release-deployment"} | services,
+            "docker/docker-compose.yml": {"docker-entrypoint", "release-deployment", "helm-chart"} | services,
             "docker-compose.yml": {"docker-entrypoint", "workflow-inventory"},
             "frontend/Dockerfile": {
                 "docker-entrypoint", "e2e", "frontend", "release-deployment",
@@ -236,6 +236,8 @@ class CiJobSelectionTest(unittest.TestCase):
             "frontend/picsou-realip.conf": {
                 "docker-entrypoint", "e2e", "frontend", "release-deployment",
             },
+            "charts/picsou/values.yaml": {"helm-chart"},
+            "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
             "services/sofidy-auth/main.py": {"sofidy-sidecar", "backend"} | services,
             "services/tr-auth/main.py": {"tr-auth-sidecar"} | services,
             "services/base/requirements.txt": sidecars | {"backend"} | services,

@@ -271,3 +271,82 @@ jobs:
             ${{ matrix.base && format('SIDECAR_BASE={0}', needs.base.outputs[matrix.base]) || '' }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  # Publishes the Helm chart once every image of this commit is pushed, next to them
+  # on GHCR (oci://ghcr.io/<owner>/charts/picsou):
+  #   - version tag    -> the same version, pinned to that release's images
+  #   - push on main   -> a pre-release (helm install --devel) pinned to this
+  #                       commit's sha-<short> images
+  # Standard sidecars missing from values.yaml are added to the packaged copy only;
+  # the others are reported and left out until the chart supports them.
+  chart:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+
+      - name: Compute chart version
+        id: version
+        shell: bash
+        run: |
+          semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            app_version="$version"
+          elif [[ "$GITHUB_REF_NAME" == "main" ]]; then
+            # Next patch after the latest release, so it sorts above that release.
+            # The short sha gets a letter prefix: a numeric pre-release identifier
+            # cannot start with 0.
+            latest=$(git ls-remote --tags --refs origin \
+              | sed -n 's|.*refs/tags/v\{0,1\}\([0-9]*\.[0-9]*\.[0-9]*\)$|\1|p' | sort -V | tail -1)
+            IFS=. read -r major minor patch <<< "${latest:-0.0.0}"
+            version="${major}.${minor}.$((patch + 1))-main.$(date -u +%Y%m%d%H%M%S).g${GITHUB_SHA::7}"
+            app_version="sha-${GITHUB_SHA::7}"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ ! "$version" =~ $semver ]]; then
+            echo "::notice title=Helm chart::'$version' is not a semantic version, chart not published"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "publish=true"
+            echo "version=$version"
+            echo "app-version=$app_version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Add the standard sidecars the chart does not list yet
+        if: steps.version.outputs.publish == 'true'
+        run: charts/picsou/sync-sidecars.sh --apply --github
+
+      - name: Package
+        if: steps.version.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          APP_VERSION: ${{ steps.version.outputs.app-version }}
+        run: |
+          helm lint --strict charts/picsou
+          helm package charts/picsou --version "$VERSION" --app-version "$APP_VERSION" --destination dist
+
+      - name: Push to GHCR
+        if: steps.version.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          printf '%s' "$TOKEN" | helm registry login "$REGISTRY" --username "$GITHUB_ACTOR" --password-stdin
+          helm push "dist/picsou-${VERSION}.tgz" "oci://${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/charts"

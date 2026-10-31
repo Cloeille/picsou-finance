@@ -10,6 +10,50 @@ Kubernetes counterpart of `docker/docker-compose.yml` and uses the same images.
 
 ## Install
 
+The chart is published on GHCR next to the images, in two channels:
+
+| Channel | Published on | Version | Images |
+|---|---|---|---|
+| Releases | every version tag | the release, e.g. `1.2.0` | that release |
+| main | every push to `main` | a pre-release, e.g. `1.1.1-main.20261031194505.g0f499ca` | that commit (`sha-0f499ca`) |
+
+```bash
+# Latest release
+helm install picsou oci://ghcr.io/cloeille/charts/picsou -n picsou --create-namespace -f values.yaml
+# A given release
+helm install picsou oci://ghcr.io/cloeille/charts/picsou --version 1.2.0 -n picsou --create-namespace -f values.yaml
+# Latest build of main
+helm install picsou oci://ghcr.io/cloeille/charts/picsou --devel -n picsou --create-namespace -f values.yaml
+```
+
+Pre-releases are ignored unless asked for (`--devel`, or a version constraint
+that allows them), so the main channel never replaces a release by accident.
+With Argo CD, `targetRevision: "1.*"` follows releases and `">=0.0.0-0"` follows
+main. A chart published from main pins the images of its own commit rather than
+`nightly`, so a given chart version always deploys the same code.
+
+A typical `values.yaml`:
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: internal-ca
+  hosts:
+    - host: picsou.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: picsou-tls
+      hosts:
+        - picsou.example.com
+```
+
+From a checkout of the repository, the chart describes `main` and runs the
+`nightly` images:
+
 ```bash
 helm install picsou ./charts/picsou -n picsou --create-namespace \
   --set ingress.enabled=true \
@@ -24,8 +68,8 @@ Then open `https://picsou.example.com` and run the setup wizard. Without an
 Ingress, `kubectl port-forward svc/picsou 8080:8080` and http://localhost:8080
 work for a trial, but not for bank sync (see below).
 
-Image tags follow the chart's `appVersion`. Set `global.imageTag=nightly` to
-follow `main`.
+Every image tag defaults to the chart's `appVersion`; `global.imageTag`
+overrides them all.
 
 ## HTTPS
 
@@ -111,11 +155,8 @@ for the first sync, then enable it.
 
 ## Sidecars
 
-Every sidecar of the release the chart targets is deployed by default.
-`cmes-auth` (Crédit Mutuel Épargne Salariale) and `cic-auth` are newer than
-1.1.0 and stay disabled until a release ships their images; enable them with
-`global.imageTag=nightly`. Disable the ones you do not use, the browser-based
-ones take the most memory:
+Every sidecar is deployed by default. Disable the ones you do not use, the
+browser-based ones take the most memory:
 
 ```yaml
 sidecars:
@@ -129,6 +170,26 @@ Sidecar Service names stay single-label (`<release>-bourso-auth`) and the app
 reaches them in its own namespace: the backend accepts plain HTTP to a sidecar
 only on such a name, everything else must be HTTPS. Per-sidecar `resources`,
 `securityContext` and `podSecurityContext` are merged over `sidecarDefaults`.
+
+### Keeping up with the Compose file
+
+`sync-sidecars.sh` compares the `*-auth` services of `docker/docker-compose.yml`
+with the `sidecars` map (requires [yq](https://github.com/mikefarah/yq) v4):
+
+```bash
+charts/picsou/sync-sidecars.sh --check   # report, exit 2 on differences
+charts/picsou/sync-sidecars.sh --apply   # also add the missing standard sidecars
+```
+
+A sidecar is standard when its Compose service has only an image, a build, a
+restart policy and `APP_SIDECAR_API_KEY`: the generic template covers it. One
+with volumes, networks, `init` or more variables needs a chart change by hand.
+
+CI runs it in both directions. On a pull request, the `helm-chart` job reports
+differences as warnings and never fails because of them. When publishing, the
+missing standard sidecars are added to the packaged chart, so a new sidecar of
+that kind is available without a chart change; the others are left out of the
+published chart until it supports them.
 
 ## Network policies
 

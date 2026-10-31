@@ -2,8 +2,12 @@ apiVersion: v2
 name: picsou
 description: Self-hosted personal finance dashboard — app, bank sidecars and PostgreSQL
 type: application
-version: 0.1.0
-appVersion: "1.1.0"
+# Both are stamped by CI when the chart is published (.github/workflows/docker.yml):
+# a release tag publishes the chart under the same version, every push to main a
+# pre-release pinned to that commit's images. These values describe a checkout of
+# main, which runs the nightly images.
+version: 0.0.0-main
+appVersion: "nightly"
 home: https://github.com/Cloeille/picsou-finance
 sources:
   - https://github.com/Cloeille/picsou-finance

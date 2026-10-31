@@ -9,8 +9,8 @@ fullnameOverride: ""
 
 global:
   # Tag applied to every Picsou image (app and sidecars) unless an image sets its
-  # own. Empty means the chart's appVersion, so a chart release pins a matching app
-  # release. Use "nightly" to follow main.
+  # own. Empty means the chart's appVersion: a published chart pins the images it
+  # was built with (a release, or one commit of main).
   imageTag: ""
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
@@ -281,14 +281,12 @@ sidecars:
     enabled: true
     urlEnv: DEGIRO_AUTH_URL
     port: 8001
-  # Not in the 1.1.0 release yet: enable with an image tag that ships them
-  # (global.imageTag=nightly, or the next release).
   cmes-auth:
-    enabled: false
+    enabled: true
     urlEnv: CMES_AUTH_URL
     port: 8001
   cic-auth:
-    enabled: false
+    enabled: true
     urlEnv: CIC_AUTH_URL
     port: 8001
 

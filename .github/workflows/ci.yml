@@ -42,6 +42,7 @@ jobs:
       cic-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.cic-auth-sidecar == 'true' }}
       compose-sidecar-build: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.compose-sidecar-build == 'true' }}
       workflow-inventory: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.workflow-inventory == 'true' }}
+      helm-chart: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.helm-chart == 'true' }}
       e2e: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.e2e == 'true' }}
     steps:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -137,6 +138,10 @@ jobs:
               - 'docker-compose.yml'
               - 'docker/docker-compose.yml'
               - 'docker/Dockerfile'
+            helm-chart:
+              - *workflows
+              - 'charts/**'
+              - 'docker/docker-compose.yml'
             e2e:
               - *workflows
               - 'frontend/**'
@@ -659,6 +664,38 @@ jobs:
       - name: Check sidecar workflow inventory
         run: python -m unittest discover -s .github/tests -v
 
+  # A sidecar missing from the chart is a warning, never a failure: publishing adds
+  # the standard ones (docker.yml, chart job) and the chart maintainer follows up
+  # on the others. A chart that does not lint or render fails.
+  helm-chart:
+    needs: changes
+    if: needs.changes.outputs.helm-chart == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+      - name: Lint the chart
+        run: helm lint --strict charts/picsou
+      - name: Render the default and the optional resources
+        run: |
+          helm template picsou charts/picsou > /dev/null
+          helm template picsou charts/picsou \
+            --set ingress.enabled=true \
+            --set httpRoute.enabled=true --set 'httpRoute.parentRefs[0].name=gateway' \
+            --set postgresql.enabled=false --set externalDatabase.host=db \
+            --set secrets.existingSecret=picsou --set app.enableBanking.existingSecret=eb \
+            --set 'networkPolicy.appIngressFrom[0].podSelector.matchLabels.app=ingress' > /dev/null
+      - name: Compare the chart's sidecars with the Compose file
+        run: |
+          status=0
+          charts/picsou/sync-sidecars.sh --check --github || status=$?
+          # 2 means differences, already reported as warnings.
+          [ "$status" -eq 0 ] || [ "$status" -eq 2 ]
+
   e2e:
     needs: changes
     if: needs.changes.outputs.e2e == 'true'
@@ -723,6 +760,7 @@ jobs:
       - cic-auth-sidecar
       - compose-sidecar-build
       - workflow-inventory
+      - helm-chart
     runs-on: ubuntu-latest
     steps:
       - name: Every selected job succeeded
@@ -762,6 +800,7 @@ jobs:
       - cic-auth-sidecar
       - compose-sidecar-build
       - workflow-inventory
+      - helm-chart
     if: github.event_name == 'push'
     uses: ./.github/workflows/docker.yml
     secrets: inherit
