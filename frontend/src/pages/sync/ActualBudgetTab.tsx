@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CheckCircle2, Loader2, Upload, X } from 'lucide-react'
 import { useMoney } from '@/hooks/use-money'
-import { ACCOUNT_COLORS, ACCOUNT_TYPES, SUPPORTED_CURRENCIES } from '@/lib/constants'
+import { ACCOUNT_COLORS, ACCOUNT_TYPES, NON_LEDGER_ACCOUNT_TYPES, SUPPORTED_CURRENCIES } from '@/lib/constants'
 import { extractErrorMessage } from '@/lib/errors'
 import { formatDate } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -25,10 +25,10 @@ import type {
 import type { AccountType } from '@/types/api'
 
 /**
- * Actual holds cash ledgers; these types derive their value from positions instead. A loan is
- * stored as the positive amount owed, so Actual's negative ledger would count as wealth.
+ * Actual holds cash ledgers, so it cannot target a non-ledger account. A loan is refused too: it
+ * is stored as the positive amount owed, so Actual's negative ledger would count as wealth.
  */
-const NON_LEDGER_TYPES: AccountType[] = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI', 'LOAN']
+const NON_LEDGER_TYPES: AccountType[] = [...NON_LEDGER_ACCOUNT_TYPES, 'LOAN']
 const LEDGER_ACCOUNT_TYPES = ACCOUNT_TYPES.filter(({ value }) => !NON_LEDGER_TYPES.includes(value))
 const RESULT_KEYS = ['accountsCreated', 'accountsMapped', 'accountsSkipped', 'categoriesCreated', 'transactionsImported', 'transactionsSkipped', 'transactionsDeleted', 'transactionsMoved'] as const
 const SELECT_CLASS = 'h-10 w-full rounded-md border border-input bg-background px-4 text-sm text-foreground outline-none [color-scheme:light] dark:[color-scheme:dark]'

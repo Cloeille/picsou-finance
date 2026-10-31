@@ -144,9 +144,10 @@ served by `GET /api/admin/ai-calls` (admin-only).
   exposure.
 - **Anthropic requires `max_tokens`.** `AnthropicChatModel.builder()` carries `maxTokens=500` in
   its default options, but `AiChatModelFactory` passes its own `defaultOptions` (for the model id),
-  which *replaces* them — so the factory sets `maxTokens` (4096) itself. Without it every Anthropic
-  call fails with `400 max_tokens: Field required`. The cap covers thinking + answer; tokens are
-  billed as generated, so the headroom costs nothing.
+  which *replaces* them — so the factory sets `ANTHROPIC_MAX_TOKENS` (4096) itself. Property-based
+  defaults do not reach this manually built model because auto-configuration is disabled.
+  Without it every Anthropic call fails with `400 max_tokens: Field required`. The cap covers
+  thinking + answer; tokens are billed as generated, so the headroom costs nothing.
 - **No sampling parameters for Anthropic.** The builder defaults also carried `temperature=0.8`;
   current Claude models reject non-default sampling values with a 400, so the factory sets none.
 - **Thinking models put a thinking generation first.** Claude Haiku 5.5 (and the other Claude 5.x
@@ -182,7 +183,9 @@ served by `GET /api/admin/ai-calls` (admin-only).
   the text block; the JSON format instructions are sent and audited; a fenced answer parses and
   token usage is recorded; no text at all is an `ERROR`; `unknown` yields no suggestion.
 - `AiConfigProviderTest` — `test_thinking*`: thinking then `OK` passes, thinking only fails.
-- `AiChatModelFactoryTest` — the Anthropic model carries `maxTokens=4096` for thinking + answer and leaves temperature unset.
+- `AiChatModelFactoryTest` — both the default and explicit Anthropic model configurations carry
+  the required token limit; the explicit-model case pins `maxTokens=4096` for thinking + answer,
+  preserves the model ID, and leaves temperature unset.
 - `CategorizeTab.test.tsx` — suggestion pre-selects the dropdown + renders the chip; the
   "Categorize with AI" button is gated on the setting; progress indicator renders while status is
   `RUNNING`.

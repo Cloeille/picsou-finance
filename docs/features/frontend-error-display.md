@@ -1,6 +1,6 @@
 # Feature: Frontend Error Display (`formatApiError` / `safeBackendMessage`)
 
-> Last updated: 2026-05-31
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -51,6 +51,11 @@ is in scope.
 
 The preferred helper for components. Status-first, then safe-message, then key:
 
+Axios transport errors without an HTTP status use `common.errors.network` when their code
+is `ERR_NETWORK`, `ECONNABORTED`, or `ETIMEDOUT`. The translated message says that Picsou's
+server is unreachable and asks the user to check the connection and retry. An HTTP response
+keeps the status handling below, even if the error also carries a transport code.
+
 1. **401 → `common.errors.unauthorized`, 429 → `common.errors.tooManyRequests`,
    ≥500 → `common.errors.serverError`** — always translated (the backend body here
    is absent or the vague "An unexpected error occurred").
@@ -82,6 +87,10 @@ down the Accounts page.
   4xx safe-message passthrough, 403 fallback, fallback key, no-leak-on-400).
 
 Used by:
+
+- Enable Banking setup credentials, key generation/import, and connection-test requests.
+  These forms use the shared formatter instead of rendering raw Axios strings or response
+  details. A structured failure returned by the configuration test retains its provider hint.
 
 - `frontend/src/pages/sync/BankSyncTab.tsx` — replaces hand-written extraction in
   `completeMutation.onError` and `initiateMutation.onError`.

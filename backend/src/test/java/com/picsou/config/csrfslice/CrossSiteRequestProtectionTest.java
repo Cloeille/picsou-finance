@@ -58,8 +58,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Cross-site request protection on the API chain, through the real {@link SecurityConfig}.
  * MockMvc requests default to {@code http://localhost:80}, which is the "own origin" below.
- * {@link ForwardedHeaderFilter} runs ahead of security, as under {@code forward-headers-strategy:
- * framework}.
+ * MockMvc has no Tomcat valve, so {@link ForwardedHeaderFilter} simulates the resolved public
+ * origin ahead of security. The native valve and its proxy trust are exercised separately by
+ * {@code TrustedProxyClientIpTest}.
  */
 @WebMvcTest(controllers = CrossSiteRequestProtectionTest.ProbeController.class)
 @Import({SecurityConfig.class, CrossSiteRequestProtectionTest.ProbeController.class,

@@ -81,7 +81,7 @@ public class LoanAmortizationService {
         BigDecimal remaining = principal;
         BigDecimal totalInterest = BigDecimal.ZERO;
         BigDecimal totalInsurance = BigDecimal.ZERO;
-        int paidInstallments = computePaidInstallments(startDate, asOf, totalInstallments);
+        int paidInstallments = computePaidInstallments(startDate, endDate, asOf, totalInstallments);
         BigDecimal capitalRepaid = BigDecimal.ZERO;
         BigDecimal interestRepaid = BigDecimal.ZERO;
         BigDecimal insuranceRepaid = BigDecimal.ZERO;
@@ -237,11 +237,19 @@ public class LoanAmortizationService {
         return month.atDay(Math.min(dueDay, month.lengthOfMonth()));
     }
 
-    private static int computePaidInstallments(LocalDate startDate, LocalDate asOf, int totalInstallments) {
+    /** An installment is paid from its due date, the one the schedule shows, not from the 1st of its month. */
+    private static int computePaidInstallments(
+        LocalDate startDate, LocalDate endDate, LocalDate asOf, int totalInstallments
+    ) {
         if (startDate == null || asOf == null || totalInstallments == 0) return 0;
-        if (!asOf.isAfter(startDate)) return 0;
-        long months = ChronoUnit.MONTHS.between(YearMonth.from(startDate), YearMonth.from(asOf));
-        return (int) Math.min(Math.max(months, 0), totalInstallments);
+        // From the end date on, the loan is repaid, even when the end date falls before the due
+        // day of the last month (a 15 January start ending on 1 April).
+        if (endDate != null && !asOf.isBefore(endDate)) return totalInstallments;
+        int paid = 0;
+        while (paid < totalInstallments && !installmentDate(startDate, endDate, paid + 1).isAfter(asOf)) {
+            paid++;
+        }
+        return paid;
     }
 
     /**

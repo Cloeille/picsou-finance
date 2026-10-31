@@ -1,6 +1,6 @@
 # Feature: Bank Sync
 
-> Last updated: 2026-08-10 (sync-flow hardening: OAuth `state` correlation, reconnect path, visible errors — merged with the bank search country picker: `listCountries`, `GET /api/sync/countries`, `DEFAULT_COUNTRY`; on top of PSU types, 2026-08-01)
+> Last updated: 2026-10-31 (merged account attribution, provider scope, and currency-aware matching)
 
 > **Status (1.0.0).** Enable Banking is the only enabled provider. The Powens
 > adapter ships in the codebase but is **experimental and untested** —
@@ -41,11 +41,34 @@ account number alone, breaking the uid-based match used by the previous upsert l
 
 Picsou now handles this with a two-pronged strategy:
 
-1. **IBAN-first account matching.** `SyncService.upsertAccount()` matches an incoming account against
-   stored accounts by **IBAN** first (stable, bank-issued identifier), falling back to the Enable
-   Banking `uid` only when the IBAN is absent. On a successful IBAN match the stored `uid` is
-   refreshed in place, so the next sync uses the new uid without user intervention. The soft-delete
-   guard (which prevents re-creating an account the user removed) also checks IBAN alongside uid.
+1. **Uid-first account matching.** `SyncService.upsertAccount()` matches an incoming account against
+   stored accounts by **uid and member** first, falling back to **IBAN, currency, and member**
+   only when the current uid has no active match and the member has not deleted that uid.
+   A deleted uid wins over an active IBAN match. Deleting a legacy Enable Banking row without
+   an IBAN stops its balance updates and transaction imports even when another connector's
+   row has the incoming IBAN and currency. A rotated uid without a deletion record can still
+   recover through the IBAN fallback. This preserves a legacy Enable Banking row
+   without an IBAN when a Revolut sidecar row already has the incoming IBAN and currency.
+   Updates write the incoming IBAN only if no other active or soft-deleted account for that
+   member has the same IBAN and currency. A deleted sidecar still reserves that key because
+   an explicit Revolut reconnect restores its original row. Both rows keep their identities
+   and history; the sidecar's IBAN lookup remains unambiguous after reconnect and on later syncs.
+   Different currency subaccounts can share an IBAN, so IBAN alone does not identify an account.
+   On a successful IBAN and currency match, the stored `uid` is refreshed in place.
+   A missing currency defaults to `EUR` before matching, account creation, and updates.
+   The soft-delete guard uses the same IBAN, currency, and member key alongside the exact uid check.
+   Deleting one currency subaccount
+   does not block another currency sharing its IBAN. Each account keeps its native balance;
+   its snapshot is converted to EUR using that account's currency.
+   When the guard skips a deleted account, the INFO log contains only the IBAN's
+   `LogSanitizer.fingerprint` value so logs can be correlated without exposing the IBAN.
+   Updates reconcile the stored currency with the incoming balance currency before saving
+   and converting the snapshot. This repairs legacy accounts found by uid whose currency
+   was misparsed before IBANs were imported. Their original rows remain separate on later
+   syncs, and the current day's snapshot is corrected using the reconciled currency.
+   Historical snapshots remain unchanged because the provider supplies only the current balance.
+   Revolut discovery, persistence, and IBAN-based deletion checks use the same currency-aware
+   identity when matching accounts previously imported by Enable Banking.
    - New column: `account.iban VARCHAR(34)`, added by `V46__account_iban.sql`.
 
 2. **Per-account failure isolation in `fetchBalances()`.** Previously, a single failing account
@@ -60,6 +83,165 @@ Picsou now handles this with a two-pronged strategy:
 
 3. **Missing currency tolerance.** Some ASPSPs omit the per-account currency field. The adapter now
    defaults to `EUR` rather than throwing, matching the most common case for French current accounts.
+
+### Enable Banking account details and balance selection
+
+`GET /accounts/{uid}/details` returns a flat `AccountResource`, as described in the
+[Enable Banking API reference](https://enablebanking.com/docs/api/reference/#accountresource).
+The adapter reads the IBAN from `account_id.iban`. The display name is the first
+nonblank value in `details`, `product`, and `name`, with `Account` as the fallback.
+`name` identifies the holder, so it is less useful than the account description.
+After balance selection, the adapter truncates the display name to 100 characters
+to fit `account.name`. Balance matching always uses the full account description,
+so descriptions that share the first 100 characters remain distinct matching keys.
+Existing-account names remain unchanged on sync to preserve user edits. An existing
+generic `Account` label can be renamed in the account form. Balances and IBANs refresh
+through the usual upsert path, including currency-aware IBAN matching after a uid rotation.
+
+Some ASPSPs, including the Qonto response shape reported in issue #317, return the
+organization's balances for every account uid. The adapter fetches each session account's
+details before collecting balance candidates, then selects balances after all requests finish.
+Each endpoint is called at most once per uid to respect Enable Banking's daily call limits.
+Successfully fetched details retain their label claims even if the balance request fails.
+The same session response supplies
+the ASPSP name. Enable Banking documents the balance endpoint as account-scoped and
+uses `Booked balance` as an example generic label. A named ASPSP other than Qonto follows
+that contract unless its response names a sibling with a different account description.
+Accounts can share their own description, such as two `LIVRET A` accounts. That shared label
+alone does not override established account scope; each endpoint keeps its own balance.
+Balance labels can describe types,
+such as `Solde comptable` for `CLBD` and `Solde instantane` for `ITAV`; they need not match
+each other or the account description. Those responses rank balances independently, so
+generic labels can overlap across accounts, including independent zero balances.
+Qonto is treated as shared regardless of country. Missing or blank ASPSP metadata leaves
+scope unproven. Without a unique description match, a distinct sibling's description keeps
+the shared-response safeguards, even for another named ASPSP.
+
+For shared or unproven responses, the adapter trims descriptions and counts them without
+case sensitivity. A matching `details` description establishes ownership only when every
+session account's details were fetched successfully and the description is unique.
+Unavailable or null sibling details cannot make a shared description appear unique.
+A description shared by several session accounts cannot establish ownership, even when
+their IBANs differ. Holder and product names are not matching keys because several
+accounts can share them.
+
+For shared or unproven responses, attribution follows these rules:
+
+- **Own label.** When an account's `details` label is unique in the session and some
+  entries carry that name, only those entries are candidates.
+- **No own label.** When the label is blank or matches no entry, entries named after
+  another session account's label are dropped. An unlabelled account can only take an
+  entry that no sibling can claim. If none remains, the account is skipped.
+- **Shared label.** When two accounts have the same label, neither can tell which entries
+  are its own, so entries with that name and those named after other siblings are
+  dropped. Both accounts are skipped unless an unattributed entry remains.
+
+Within the candidates, the adapter prefers the following
+[ISO balance types](https://enablebanking.com/docs/api/reference/#balancestatus) in order:
+
+1. `CLBD`, closing booked.
+2. `XPCD`, expected.
+3. `ITBD`, interim booked.
+4. `ITAV`, interim available.
+5. `CLAV`, closing available.
+
+Other or missing types have lower priority. For shared or unproven responses, when the
+description is missing, shared, or matches no balance, fallback first excludes entries
+claimed by any session description.
+This includes entries with a shared description and claims from accounts whose balance
+request fails. If no entry remains, that account fails with a `SyncException`.
+Before selecting any fallback, the adapter compares its remaining labels with every other
+account that also needs fallback. Overlapping labels make every contender ambiguous,
+regardless of response size, balance types, currencies, or amounts. A shared list can contain
+only one normalized label, so that shape alone cannot establish account ownership. The provider's
+[`HalBalances`](https://enablebanking.com/docs/api/reference/#halbalances) and
+[`BalanceResource`](https://enablebanking.com/docs/api/reference/#balanceresource) schemas supply
+no account identifier to resolve the overlap.
+Generic responses with overlapping labels therefore fail closed for Qonto or an unknown
+ASPSP. A description match with complete sibling details still syncs, including genuine
+zeros, and does not compete for fallback. Established account-scoped responses also do
+not compete for fallback.
+Every response retains its label claims until selection finishes. A later failure caused by
+inconsistent labels, tied preferred types, or an invalid amount cannot grant ownership to
+a sibling. Selection is independent of session order and changes in amounts between requests.
+Shared fallback also requires complete session ownership information. Unavailable or null
+sibling details prevent both description matching and fallback for shared or unproven
+responses. A missing or structurally invalid sibling balance response prevents fallback,
+but its successfully fetched description still claims its entries. Such a balance failure
+does not block another account's unique description match. Established account-scoped
+responses can still sync after a sibling request fails.
+Shared or unproven fallback then requires a single entry or remaining labels that are all
+the same after trimming and case normalization. Null and blank labels form one unnamed group.
+This preserves generic-label fallback, such as repeated `Booked balance` labels, and
+wholly unnamed responses when their candidates do not compete across scopes. Distinct labels
+require established account scope or a positive account-description match before type ranking.
+A unique best type cannot establish account ownership for shared or unknown responses.
+With only one linked uid, no sibling descriptions are available to identify another
+account's entries in an organization-wide list. A previously unknown ASPSP that violates
+the account endpoint contract with a shared response cannot be distinguished
+from an ordinary account-scoped response using labels or amounts alone.
+Without an account identifier on balance entries, non-overlapping fallback labels also cannot
+prove ownership of balances belonging to accounts outside the linked session.
+Several entries at the best priority are ambiguous and cause a `SyncException`, even
+when their names match. The adapter never adds balances together or chooses an arbitrary
+entry from a tie. An absent balance, null entry, or missing selected amount also fails
+explicitly. A malformed numeric amount follows the existing per-account failure path.
+These failures leave that account unchanged, allow other accounts to sync, and propagate
+when every account fails. A genuine zero remains a valid balance.
+The `BalanceResource` schema has no flag indicating whether an individual balance includes
+a credit limit. The account-level `credit_limit` cannot identify which tied entry excludes it,
+so it does not provide a safe tie-break. Unlisted types such as `OPBD` and `PRCD` retain equal
+priority and also fail closed when tied.
+
+Residual limit: sibling labels only exist for accounts linked in the same session.
+For Qonto or an unknown ASPSP, a single linked uid still rejects distinct unclaimed
+labels, but cannot detect a shared list whose entries all have the same generic label.
+A named account-scoped provider ranks its response by type unless a distinct sibling
+claim contradicts that scope.
+
+The selected amount supplies the currency. If it omits the currency, the adapter uses
+the account-details currency, then `EUR`.
+
+`EnableBankingAccountDataTest` serves synthetic responses over loopback HTTP and calls
+`fetchBalances` through the production WebClient and JSON decoder. It covers shared
+balance lists, flat details, type priorities, ordinary single-account and multi-account
+responses with distinct balance-type labels, named-bank accounts sharing their own description,
+named-bank responses containing distinct sibling claims,
+unmatched lists with different balance types, missing or unmatched descriptions with only
+sibling-claimed balances, unclaimed fallback, duplicate session descriptions with different
+balance types, competing fallback assignments with changing amounts, shared lists with one
+generic label, overlapping generic nonzero and zero balances for account-scoped providers,
+conservative handling of missing ASPSP metadata, independent empty accounts with unique
+description matches, failed sibling details with a shared description,
+oversized display names, full-description matching before truncation,
+ambiguous or missing data, and per-account failure isolation for details and balance requests.
+It also checks that a three-account shared-list sync makes exactly one details request
+and one balance request per uid. `EnableBankingBankConnectorTest` verifies that an earlier
+request failure remains the reported error after a later amount-conversion failure,
+and that unexpected exceptions propagate from either stage.
+
+`SyncServiceCurrencyMatchTest` persists accounts and snapshots through real repositories
+against an isolated H2 database. Synthetic EUR and GBP accounts sharing one IBAN stay
+separate across repeated syncs and uid rotation. Snapshot conversion uses a fixed synthetic
+FX rate. Currency-specific soft deletion and the missing-currency EUR default are also covered.
+The legacy-upgrade regression starts with two EUR accounts without IBANs and same-day EUR 100
+snapshots. Two successive syncs preserve their ids, reconcile the GBP account's currency and
+shared IBAN, and replace its snapshot with EUR 240 for a GBP 200 balance at a fixed 1.20 rate.
+Another upgrade regression starts with a legacy Enable Banking row without an IBAN alongside
+a Revolut sidecar row with that IBAN and currency. Repeated Enable Banking syncs preserve both
+uids and update only the legacy row, for both matching and differing provider names. A following
+Revolut discovery and sync still finds and updates only the sidecar row.
+A deleted sidecar row with the same member, IBAN, and currency blocks IBAN backfill onto
+the active legacy row. Regressions exercise both a direct Revolut reconnect with explicit
+credentials and voluntary discovery confirmation after repeated Enable Banking syncs.
+Each reconnect restores the sidecar's original row and updates its balance and snapshot;
+the legacy row keeps its uid, balance, and snapshot on the following Enable Banking sync.
+A deleted row in another currency or belonging to another member does not block backfill.
+Deleting the legacy Enable Banking row instead leaves the surviving Revolut or Boursorama
+row's uid, connection, balance, sync timestamp, and snapshots unchanged on repeated syncs,
+and prevents Enable Banking transaction imports. A deleted uid belonging to another member
+does not block IBAN recovery for the current member.
+Live bank behavior remains unverified.
 
 ### Country selection
 
@@ -196,6 +378,17 @@ SchedulerService.dailyBankSync() --> SyncService.resyncAll()   (LINKED only)
 
 ## Enable Banking onboarding caveats
 
+The setup wizard follows Enable Banking's browser-generated PEM path. Registration guidance
+covers all required application fields, Production mode, and **Activate by linking accounts**
+before the credentials form. **Request activation** is the commercial path. The Application ID
+is the downloaded PEM filename without `.pem`. Import that application's private key instead
+of generating an unrelated server key. See [setup-wizard.md](./setup-wizard.md).
+
+In restricted mode, the application can access only accounts linked to it in the Enable
+Banking Control Panel. Link another bank's accounts there before adding that bank in Picsou.
+The setup test checks application credentials and connectivity. It does not create a bank
+connection or import accounts into Picsou.
+
 Two pitfalls cost real users a lot of time during 1.0.0 testing — both are surfaced in the wizard now (`EBStep1Explain`, `EBStep2Credentials`):
 
 - **PRODUCTION vs SANDBOX**: The Enable Banking developer dashboard defaults to SANDBOX, which only exposes fictitious test banks. A user who creates a SANDBOX application will reach the bank picker, see a list of unfamiliar test banks, and never find their real one. The wizard now shows a warning encart on step 1 and forces the user to tick a "my application is in PRODUCTION mode" checkbox before submitting credentials on step 3.
@@ -235,14 +428,16 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 - **Type upgrade on resync**: If the user has not customized an account's type, `upsertAccount()` will upgrade it from CHECKING to the detected type on the next sync. Manual user changes are preserved (only CHECKING is auto-upgraded).
 - **Both providers are optional**: The app starts fine without either. No `BankConnectorPort` bean is required at startup.
 - **Enable Banking uid instability.** EB 0.16.4 changed the account uid derivation for ASPSPs that
-  don't expose per-account currency. Picsou resolves this via IBAN-first matching and uid refresh on
-  match; if an account has no IBAN it will fall back to uid matching and may be treated as a new
+  don't expose per-account currency. Picsou first matches the current uid, then uses currency-aware
+  IBAN matching and uid refresh after a rotation; if neither key matches, it may be treated as a new
   account after an EB provider upgrade. This is tracked by `V46__account_iban.sql`.
 - **A business bank in the list can still fail at authorization**: Enable Banking
   lets an ASPSP declare `required_psu_headers` that must accompany `/auth`.
   Picsou does not send them, so a business bank may now be *findable* yet fail
   when connecting. That is a different failure from "the bank isn't listed" —
   don't re-diagnose the search path for it.
+  This caveat does not exclude all business banks. Restricted-mode account linking also
+  applies to business accounts.
 - **`IntegrationsHealthService` queries `/aspsps` unfiltered too**, deliberately:
   it is a JWT/connectivity probe (`toBodilessEntity()`), and leaving a lone
   `psu_type=personal` there would read as an oversight.

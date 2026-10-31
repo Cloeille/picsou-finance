@@ -43,8 +43,9 @@ public class AiChatModelFactory {
                 case ANTHROPIC -> {
                     AnthropicApi api = AnthropicApi.builder()
                         .baseUrl(cfg.effectiveBaseUrl()).apiKey(key).build();
-                    // Anthropic rejects a request without max_tokens. Passing our own defaultOptions
-                    // replaces the builder's (which carried DEFAULT_MAX_TOKENS), so set it here.
+                    // Auto-config is disabled, so property-based defaults do not reach this model.
+                    // Our defaultOptions replace the builder's token limit; set max_tokens explicitly
+                    // because the Messages API requires it. Leave sampling parameters unset.
                     yield Optional.of(AnthropicChatModel.builder().anthropicApi(api)
                         .defaultOptions(AnthropicChatOptions.builder().model(cfg.effectiveModel())
                             .maxTokens(ANTHROPIC_MAX_TOKENS).build())

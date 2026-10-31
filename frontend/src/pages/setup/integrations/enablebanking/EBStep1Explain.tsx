@@ -100,6 +100,9 @@ export function EBStep1Explain({ onNext }: Props) {
             <p className="text-sm text-muted-foreground">
               {t('setup.enablebanking.explain.signupOpened')}
             </p>
+            <p className="text-sm text-muted-foreground">
+              {t('setup.enablebanking.explain.magicLinkHint')}
+            </p>
             <Button
               onClick={onNext}
               className="w-full rounded-full"
