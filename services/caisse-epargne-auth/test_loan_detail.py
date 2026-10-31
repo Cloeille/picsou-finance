@@ -119,6 +119,13 @@ class LoanDetailTest(unittest.TestCase):
                 with self.assertRaises(ParseError):
                     parse_loan_detail(d)
 
+    def test_an_amount_beyond_decimal_precision_is_refused(self):
+        d = detail()
+        view(d)["offer"]["proposedAmount"]["value"] = 10**30
+        with self.assertRaises(ParseError) as e:
+            parse_loan_detail(d)
+        self.assertEqual(e.exception.code, "INVALID_LOAN_DETAIL")
+
     def test_wrong_envelope_raises(self):
         for payload in [None, [], "x", {}, {"personalLoanPrdSynthesisView": []}]:
             with self.subTest(payload=payload):

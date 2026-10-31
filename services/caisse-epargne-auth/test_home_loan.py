@@ -139,6 +139,14 @@ class HomeLoanDetailTest(unittest.TestCase):
                     parse_home_loan_detail(d)
                 self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
+    def test_an_amount_beyond_decimal_precision_is_refused(self):
+        d = detail()
+        d["loan"]["financialInformation"]["amountBorrowed"]["value"] = 10**30
+
+        with self.assertRaises(ParseError) as caught:
+            parse_home_loan_detail(d)
+        self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
+
     def test_a_duration_reaching_before_year_one_is_refused(self):
         d = detail()
         d["loan"]["financialInformation"]["duration"] = 30000

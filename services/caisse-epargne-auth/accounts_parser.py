@@ -39,7 +39,7 @@ import calendar
 import math
 import re
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Iterable, Optional, Union
 
 INVALID_SYNTHESIS = "INVALID_SYNTHESIS"
@@ -522,9 +522,14 @@ def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decim
     amortisation schedule takes the insurance back out of the installment, so it is
     sent apart. A home loan's insurance is often taken elsewhere: the installment then
     matches the annuity to the cent and 0.00 is sent. Below the annuity: no figure.
+    An amount of 10^26 or more cannot be rounded to the cent within the 28-digit
+    decimal context: it refuses this loan's detail instead of failing the import.
     """
-    annuity = _annuity(borrowed, rate, months).quantize(_CENT, rounding=ROUND_HALF_UP)
-    insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
+    try:
+        annuity = _annuity(borrowed, rate, months).quantize(_CENT, rounding=ROUND_HALF_UP)
+        insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        raise ParseError(INVALID_LOAN_DETAIL, "loan: amounts too large to round to the cent") from None
     return insurance if insurance >= 0 else None
 
 

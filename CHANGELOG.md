@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Caisse d'Epargne home loans.** A home loan listed in the synthesis was reported as
   unsupported. The sidecar now reads its detail from the bank's home-loan app (amount borrowed,
   rate, installment, insurance, first and last due dates) and imports it like a personal loan.
+  A property you linked the mortgage to stays linked when the loan syncs again.
 
 - **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
   Picsou matches it to the dividend history it already holds, marks it as a dividend and files

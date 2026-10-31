@@ -78,7 +78,9 @@ The detail fills `loan` on the LOAN account. Dates come as `DD/MM/YYYY`, the
 nominal rate `folder.tNC` in percent. `participants` (names) and
 `linkedAccount.label` are never read. `insuranceMonthly` is derived, not read:
 installment minus the annuity at the nominal rate, rounded to the cent, null
-when negative (the bank's installment includes the borrower insurance).
+when negative (the bank's installment includes the borrower insurance). An
+amount of 10^26 or more cannot be rounded to the cent and refuses the detail
+(`INVALID_LOAN_DETAIL`).
 A detail that cannot be read (loan OAuth refused, 5xx, format change) leaves the
 LOAN out of `accounts` and lists it in `unavailable`; only its error code is
 logged, and the rest of the import goes on. Without a loan token provider,
@@ -96,9 +98,11 @@ only them, are added to the allow-list. The detail is
 (`accounts_parser.parse_home_loan_detail`): ISO dates, the rate in percent in
 `nextDuedateRate`, `duration` in installments. The first due date is not given:
 it is the last one minus `duration - 1` months. The debit account comes without
-its IBAN, so `linkedIban` is null. As for a personal loan, the insurance is the
-installment minus the annuity, both to the cent: `0.00` when they match (e.g. the
-insurance is taken elsewhere), nothing when the installment is below the annuity.
+its IBAN, so `linkedIban` is null and the backend keeps whatever account the
+user linked the loan's Debt to (often the financed property). As for a personal
+loan, the insurance is the installment minus the annuity, both to the cent:
+`0.00` when they match (e.g. the insurance is taken elsewhere), nothing when the
+installment is below the annuity.
 Amounts must be in EUR. The schedule assumes level installments, like the personal
 loan: a deferred or stepped home loan is not detected. A refusal (401) from the
 BPCE hosts, token or detail, leaves only the home loan in `unavailable`

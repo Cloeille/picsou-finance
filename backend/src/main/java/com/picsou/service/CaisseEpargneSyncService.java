@@ -650,7 +650,8 @@ public class CaisseEpargneSyncService {
      * sends are written: file fees, or anything else the user typed, stay. {@code startDate} is
      * one month before the first due date because the schedule dates installment i at
      * {@code startDate + i months}. The debited account is the member's account with that IBAN:
-     * one of this import (its IBAN is never stored), else one already stored, else none.
+     * one of this import (its IBAN is never stored), else one already stored, else none. With no
+     * debit IBAN the linked account is left as it was.
      */
     private void upsertLoanDebts(
         PreparedSnapshot prepared, Map<String, Account> savedById, FamilyMember member, Long memberId
@@ -663,7 +664,12 @@ public class CaisseEpargneSyncService {
             }
             Debt debt = debtRepository.findByAccountId(loanAccount.getId())
                 .orElseGet(() -> Debt.builder().account(loanAccount).member(member).build());
-            debt.setLinkedAccount(debitedAccount(clean(loan.linkedIban()), prepared, savedById, memberId));
+            String iban = clean(loan.linkedIban());
+            // A home loan has no debit IBAN: the user's own link, often the financed property,
+            // must survive a resync.
+            if (iban != null) {
+                debt.setLinkedAccount(debitedAccount(iban, prepared, savedById, memberId));
+            }
             debt.setBorrowedAmount(loan.borrowedAmount());
             debt.setInterestRate(loan.interestRate());
             debt.setMonthlyPayment(loan.monthlyPayment());
@@ -678,9 +684,6 @@ public class CaisseEpargneSyncService {
     private Account debitedAccount(
         String iban, PreparedSnapshot prepared, Map<String, Account> savedById, Long memberId
     ) {
-        if (iban == null) {
-            return null;
-        }
         List<PreparedAccount> inImport = prepared.accounts().stream()
             .filter(a -> iban.equals(a.iban()))
             .toList();

@@ -1173,6 +1173,21 @@ class CaisseEpargneSyncServiceTest {
     }
 
     @Test
+    void queueSync_keepsThePropertyTheUserLinkedWhenTheBankSendsNoDebitIban() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.withLoan(f.loan(), f.loanDetails(null)));
+        Account property = Account.builder().id(600L).type(AccountType.REAL_ESTATE).build();
+        Debt existing = Debt.builder().id(99L).linkedAccount(property).build();
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.of(existing));
+
+        service.queueSync(7L);
+
+        verify(debtRepository).save(debtCaptor.capture());
+        assertThat(debtCaptor.getValue().getLinkedAccount()).isSameAs(property);
+        assertThat(debtCaptor.getValue().getBorrowedAmount()).isEqualByComparingTo("10000.00");
+    }
+
+    @Test
     void queueSync_leavesTheDebtUntouchedWhenTheLoanDetailsAreMissing() {
         arrangeCommittableSync(new Fixture().loan());
 
