@@ -319,6 +319,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bank login compatibility remains unverified. Dependabot now covers Maven,
   bun, shared pip requirements, all Dockerfile directories and Compose images weekly.
 
+- **Caisse d'Epargne sync after Sécur'Pass approval.** If the login completion response is
+  lost or returns 502 or 504, the approval card stays open while Picsou checks the session
+  every three seconds for up to 180 seconds. An active session queues the first sync once.
+  Status requests taking longer than three seconds are allowed to finish.
+  If no session appears, the panel reports the approval timeout. Login requests are never
+  replayed (#350).
+
 - **A transaction no longer overwrites a valued account.** Adding, editing or deleting a
   transaction by hand on a SCPI, a property or an employee-savings plan, a dividend for
   instance, replaced its value with the sum of its transactions, and deleting the last one left
