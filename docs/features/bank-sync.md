@@ -196,6 +196,17 @@ SchedulerService.dailyBankSync() --> SyncService.resyncAll()   (LINKED only)
 
 ## Enable Banking onboarding caveats
 
+The setup wizard follows Enable Banking's browser-generated PEM path. Registration guidance
+covers all required application fields, Production mode, and **Activate by linking accounts**
+before the credentials form. **Request activation** is the commercial path. The Application ID
+is the downloaded PEM filename without `.pem`. Import that application's private key instead
+of generating an unrelated server key. See [setup-wizard.md](./setup-wizard.md).
+
+In restricted mode, the application can access only accounts linked to it in the Enable
+Banking Control Panel. Link another bank's accounts there before adding that bank in Picsou.
+The setup test checks application credentials and connectivity. It does not create a bank
+connection or import accounts into Picsou.
+
 Two pitfalls cost real users a lot of time during 1.0.0 testing — both are surfaced in the wizard now (`EBStep1Explain`, `EBStep2Credentials`):
 
 - **PRODUCTION vs SANDBOX**: The Enable Banking developer dashboard defaults to SANDBOX, which only exposes fictitious test banks. A user who creates a SANDBOX application will reach the bank picker, see a list of unfamiliar test banks, and never find their real one. The wizard now shows a warning encart on step 1 and forces the user to tick a "my application is in PRODUCTION mode" checkbox before submitting credentials on step 3.
@@ -243,6 +254,8 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
   Picsou does not send them, so a business bank may now be *findable* yet fail
   when connecting. That is a different failure from "the bank isn't listed" —
   don't re-diagnose the search path for it.
+  This caveat does not exclude all business banks. Restricted-mode account linking also
+  applies to business accounts.
 - **`IntegrationsHealthService` queries `/aspsps` unfiltered too**, deliberately:
   it is a JWT/connectivity probe (`toBodilessEntity()`), and leaving a lone
   `psu_type=personal` there would read as an oversight.

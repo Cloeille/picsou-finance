@@ -1,6 +1,6 @@
 # Feature: SCPI shares
 
-> Last updated: 2026-10-16
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -134,11 +134,15 @@ See the [ADR](../decisions/2026-10-16-scpi-sync-creates-accounts.md).
 ### Flow
 
 ```
-PUT /api/accounts/{id}/scpi
+PUT /api/accounts/{id}/scpi   (or the MCP tool set_scpi_position)
   └─ withdrawal price present?
        ├─ yes → balance = withdrawal price × share count, status OK
        └─ no  → previous balance kept, status PRICE_INCOMPLETE
 ```
+
+An MCP client records a position with `set_scpi_position` (`accounts:write`), which calls the
+same `ScpiPositionService.save` and never sends a CORUM or Sofidy fund code. See
+[mcp-server.md](./mcp-server.md).
 
 ## Technical choices
 
@@ -186,6 +190,8 @@ PUT /api/accounts/{id}/scpi
 ## Tests
 
 - `ScpiPositionServiceTest` — fractional shares, withdrawal value, missing price, wrong type
+- `AccountToolsTest#setScpiPosition_*` — the MCP tool delegates to the form service, never
+  sends a fund code, keeps omitted distribution fields and rejects what `@Valid` rejects
 - `ScpiFundReconcilerTest` — first sync creates, second updates without a duplicate,
   same-name manual account linked, two matches ambiguous, ignored fund not recreated,
   vanished fund reported and kept, missing price reported
