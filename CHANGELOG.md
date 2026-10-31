@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SCPI positions over MCP.** An MCP client can now record a SCPI account's share count,
+  subscription and withdrawal prices and distribution with the new `set_scpi_position` tool
+  (`accounts:write`). It goes through the same service as the account form, so the balance is
+  still the withdrawal price times the share count, and a call never detaches a CORUM or Sofidy
+  fund. `get_account` already returned the position, so reading needs no new tool.
+
 - **Caisse d'Epargne home loans.** A home loan listed in the synthesis was reported as
   unsupported. The sidecar now reads its detail from the bank's home-loan app (amount borrowed,
   rate, installment, insurance, first and last due dates) and imports it like a personal loan.
