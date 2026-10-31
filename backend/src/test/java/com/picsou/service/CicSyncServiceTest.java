@@ -608,12 +608,15 @@ class CicSyncServiceTest {
             .build();
         when(accountRepository.findAllByMemberIdAndProvider(7L, CicSyncService.PROVIDER))
             .thenReturn(List.of(closedLivret, listedLivret));
+        when(accountRepository.findByExternalAccountIdAndMemberId(LIVRET_ID, 7L))
+            .thenReturn(Optional.of(listedLivret));
 
         service.queueSync(7L);
 
         assertThat(closedLivret.getCurrentBalance()).isEqualByComparingTo("0");
         assertThat(closedLivret.getDeletedAt()).isNull();
         verify(accountService).upsertSnapshot(closedLivret, BigDecimal.ZERO, LocalDate.now());
+        verify(accountService).upsertSnapshot(listedLivret, new BigDecimal("5000.00"), LocalDate.now());
         verify(accountService, never()).upsertSnapshot(eq(listedLivret), eq(BigDecimal.ZERO), any(LocalDate.class));
     }
 

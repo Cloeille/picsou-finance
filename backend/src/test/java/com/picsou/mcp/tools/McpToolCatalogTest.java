@@ -26,6 +26,7 @@ import com.picsou.service.RealEstateSummaryService;
 import com.picsou.service.RealizedPnlService;
 import com.picsou.service.SavingsService;
 import com.picsou.service.SecurityInsightService;
+import com.picsou.service.ScpiPositionService;
 import com.picsou.service.SyncStatusService;
 import com.picsou.service.UserContext;
 import com.picsou.service.WealthPyramidService;
@@ -70,7 +71,7 @@ class McpToolCatalogTest {
         // accounts:read / accounts:write
         "list_accounts", "get_account", "get_account_holdings", "get_account_balance_history", "get_account_deletion_impact",
         "create_manual_account", "update_account", "delete_account", "add_balance_snapshot",
-        "upsert_holding", "delete_holding",
+        "upsert_holding", "delete_holding", "set_scpi_position",
         // transactions:read / transactions:write
         "list_account_transactions", "add_transaction", "update_transaction", "delete_transaction",
         // goals:read / goals:write
@@ -118,7 +119,8 @@ class McpToolCatalogTest {
 
     /** Build the provider exactly as production does, with mocked services (never invoked during catalog build). */
     private ToolCallbackProvider buildProvider() {
-        AccountTools account = new AccountTools(mock(AccountService.class), mock(UserContext.class), mock(AccountConnectionService.class));
+        AccountTools account = new AccountTools(mock(AccountService.class), mock(UserContext.class), mock(AccountConnectionService.class),
+            mock(ScpiPositionService.class), mock(Validator.class));
         TransactionTools tx = new TransactionTools(
             mock(AccountService.class), mock(ManualTransactionService.class), mock(UserContext.class));
         GoalTools goal = new GoalTools(mock(GoalService.class), mock(UserContext.class));
