@@ -23,7 +23,8 @@ class AiChatModelFactoryTest {
         var m = (AnthropicChatModel) factory.build(
             new AiProviderConfig(AiProvider.ANTHROPIC, "sk-ant", "claude-haiku-4-5", "")).get();
         var opts = (AnthropicChatOptions) m.getDefaultOptions();
-        assertThat(opts.getMaxTokens()).isEqualTo(AiChatModelFactory.ANTHROPIC_MAX_TOKENS);
+        // Pin the budget so lowering the constant cannot silently starve the answer after thinking.
+        assertThat(opts.getMaxTokens()).isEqualTo(4096);
         assertThat(opts.getModel()).isEqualTo("claude-haiku-4-5");
         // Current Claude models reject non-default sampling values (the builder default was 0.8).
         assertThat(opts.getTemperature()).isNull();

@@ -286,6 +286,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Anthropic AI categorization and connection Test.** Picsou now sends the required
+  token limit with room for thinking and the answer. Categorization and the admin Test
+  read the text answer after the model's thinking, including when thinking contains a
+  summary. Test reports a failure when the model returns no text answer.
+
 - **Trade Republic crypto is valued at its market price again.** The connector guessed the
   venue of each price subscription (`TRD0` for crypto). Trade Republic refused that guess, and
   every crypto position was valued at its average buy-in, which hid its whole gain or loss

@@ -1,6 +1,6 @@
 # Feature: Optional AI transaction categorization
 
-> Last updated: 2026-06-27
+> Last updated: 2026-11-01
 
 ## Context
 
@@ -48,7 +48,7 @@ inbox can render "AI: Transport · 92%" and pre-select that category — accepti
 ### Key files
 
 - `backend/.../port/TransactionCategorizerPort.java` — the provider-agnostic port; `categorize()` returns `CategorizationResult` (slug + confidence + prompt + token usage)
-- `backend/.../adapter/SpringAiCategorizer.java` — Spring AI `ChatClient` implementation; parses the first non-blank generation with a `BeanOutputConverter` and reads `ChatResponse` usage
+- `backend/.../adapter/SpringAiCategorizer.java` — Spring AI `ChatClient` implementation; parses the first non-thinking generation with text using a `BeanOutputConverter` and reads `ChatResponse` usage
 - `backend/.../adapter/NoopCategorizer.java` — default when no provider is configured
 - `backend/.../adapter/DynamicTransactionCategorizer.java` — `TransactionCategorizerPort` bean; delegates to cached categorizer from `AiConfigProvider`
 - `backend/.../config/AiCategorizationConfig.java` — wires the `TransactionCategorizerPort` as a `DynamicTransactionCategorizer` (resolves the provider at call time via `AiConfigProvider`)
@@ -182,7 +182,7 @@ served by `GET /api/admin/ai-calls` (admin-only).
   the text block; the JSON format instructions are sent and audited; a fenced answer parses and
   token usage is recorded; no text at all is an `ERROR`; `unknown` yields no suggestion.
 - `AiConfigProviderTest` — `test_thinking*`: thinking then `OK` passes, thinking only fails.
-- `AiChatModelFactoryTest` — the Anthropic model carries `maxTokens`.
+- `AiChatModelFactoryTest` — the Anthropic model carries `maxTokens=4096` for thinking + answer and leaves temperature unset.
 - `CategorizeTab.test.tsx` — suggestion pre-selects the dropdown + renders the chip; the
   "Categorize with AI" button is gated on the setting; progress indicator renders while status is
   `RUNNING`.
