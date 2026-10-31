@@ -105,7 +105,7 @@ def generate_device_info() -> str:
 
 
 # A cold container often settles the page before the WAF challenge has set its
-# token, so a second browser attempt runs when the first gets none.
+# token, so a second browser attempt runs when the first gets none or fails.
 WAF_TOKEN_ATTEMPTS = 2
 WAF_PAGE_LOAD_TIMEOUT_MS = 15000
 WAF_CHALLENGE_WAIT_MS = 8000
@@ -123,12 +123,20 @@ WAF_BLOCKED = "TR_WAF_BLOCKED"
 
 
 async def get_waf_token() -> Optional[str]:
-    """Retrieves the AWS WAF token, with a fresh browser when an attempt gets none,
-    and gives up once WAF_TOKEN_BUDGET_S has passed."""
+    """Retrieves the AWS WAF token, with a fresh browser when an attempt gets none
+    or fails, and gives up once WAF_TOKEN_BUDGET_S has passed. A failure on the
+    last attempt is raised unchanged."""
     try:
         async with asyncio.timeout(WAF_TOKEN_BUDGET_S):
             for attempt in range(1, WAF_TOKEN_ATTEMPTS + 1):
-                waf_token = await load_waf_token()
+                try:
+                    waf_token = await load_waf_token()
+                except Exception:
+                    if attempt == WAF_TOKEN_ATTEMPTS:
+                        raise
+                    log.warning("AWS WAF token attempt %d/%d failed",
+                                attempt, WAF_TOKEN_ATTEMPTS, exc_info=True)
+                    continue
                 if waf_token:
                     return waf_token
                 log.warning("No AWS WAF token on attempt %d/%d", attempt, WAF_TOKEN_ATTEMPTS)

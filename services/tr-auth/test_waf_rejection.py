@@ -120,6 +120,22 @@ class WafTokenRetryTest(unittest.TestCase):
         self.assertEqual(token, "token")
         self.assertEqual(load.await_count, 2)
 
+    def test_a_second_browser_attempt_runs_when_the_first_fails(self):
+        load = AsyncMock(side_effect=[RuntimeError("browser launch failed"), "token"])
+        with patch.object(main, "load_waf_token", load):
+            token = asyncio.run(main.get_waf_token())
+
+        self.assertEqual(token, "token")
+        self.assertEqual(load.await_count, 2)
+
+    def test_a_failure_on_the_last_attempt_is_raised(self):
+        load = AsyncMock(side_effect=RuntimeError("browser launch failed"))
+        with patch.object(main, "load_waf_token", load), \
+                self.assertRaises(RuntimeError):
+            asyncio.run(main.get_waf_token())
+
+        self.assertEqual(load.await_count, main.WAF_TOKEN_ATTEMPTS)
+
     def test_gives_up_after_the_last_attempt(self):
         load = AsyncMock(return_value=None)
         with patch.object(main, "load_waf_token", load):
