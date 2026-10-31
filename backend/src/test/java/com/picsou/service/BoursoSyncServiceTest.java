@@ -446,6 +446,24 @@ class BoursoSyncServiceTest {
         verify(holdingRepository, never()).saveAll(any());
     }
 
+    /** Two ISIN-less lines on one symbol cannot be proven to be one instrument (the sidecar refuses them too). */
+    @Test
+    void queueSync_refusesTwoIsinLessLinesSharingASymbol() {
+        BoursoSession session = activeSession(member());
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(
+            account(PEA_ID, "PEA DOE", AccountType.PEA, "20000.00", "0",
+                position(null, "1rTXYZ", "Fund A", "100", "100.00", "150.00", "15000.00", "5000.00"),
+                position(null, "1rTXYZ", "Fund B", "50", "80.00", "100.00", "5000.00", "1000.00"))
+        ));
+
+        service.queueSync(7L);
+
+        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_DATA);
+        verify(identityService, never()).record(any());
+        verify(holdingRepository, never()).saveAll(any());
+    }
+
     @Test
     void queueSync_doesNotResurrectAnAccountTheUserDeleted() {
         FamilyMember member = member();

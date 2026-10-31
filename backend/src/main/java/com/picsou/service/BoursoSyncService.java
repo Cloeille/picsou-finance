@@ -450,11 +450,12 @@ public class BoursoSyncService {
             }
             String isin = normalizeIsin(position.isin());
             String ticker = resolveTicker(position, isin);
-            // Only lines of one instrument may merge. Two ISINs on one ticker (OpenFIGI
-            // giving two share classes the same symbol, or an ISIN-less symbol equal to
-            // another line's ticker) would become one holding filed under a single ISIN,
-            // and fund facts and composition would then be looked up for the wrong fund.
-            if (positions.containsKey(ticker) && !Objects.equals(isinByTicker.get(ticker), isin)) {
+            // Only lines carrying the same ISIN may merge. A line without an ISIN cannot be
+            // proven to be the same instrument, so it never merges. Two ISINs on one ticker
+            // (OpenFIGI giving two share classes the same symbol) would otherwise become one
+            // holding filed under a single ISIN, and fund facts and composition would then
+            // be looked up for the wrong fund.
+            if (positions.containsKey(ticker) && (isin == null || !isin.equals(isinByTicker.get(ticker)))) {
                 throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned two instruments under one ticker", null);
             }
             if (isin != null) {
