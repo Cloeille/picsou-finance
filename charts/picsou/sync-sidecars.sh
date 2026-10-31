@@ -7,10 +7,17 @@
 # template covers it. Anything else (volumes, networks, init, extra variables, …)
 # needs a chart change by hand, so it is reported and never guessed.
 #
+# A sidecar the chart already lists is compared with its own chart entry, not
+# with the generic template: Compose volumes need persistence.enabled, `init:
+# true` needs shareProcessNamespace, and every other variable needs an env or
+# extraEnv entry, otherwise it is reported as drift. Compose networks are not
+# compared: the chart's NetworkPolicies isolate every sidecar the same way.
+#
 #   --check   report differences; exit 2 when there are any (default)
 #   --apply   add the missing standard sidecars to values.yaml, report the rest;
 #             exit 0 unless the files cannot be read
-#   --github  also emit GitHub Actions ::warning annotations
+#   --github  also emit GitHub Actions ::warning annotations (text output only,
+#             so that --json stays a parseable array)
 #   --json    print the findings as a JSON array instead of text
 #
 # Requires yq v4 (mikefarah). Exit 1 on usage or read errors.
@@ -31,7 +38,7 @@ while [ $# -gt 0 ]; do
     --json) json=true ;;
     --compose) compose=$2; shift ;;
     --values) values=$2; shift ;;
-    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
   shift
@@ -67,10 +74,10 @@ add_finding() { findings="${findings}$1|$2|$3
 "; }
 
 # "<VAR> <host> <port>" for every app variable that points at a sidecar URL,
-# whether written as http://host:port or ${VAR:-http://host:port}.
+# whether written as http(s)://host:port or ${VAR:-http(s)://host:port}.
 urls=$(yq -r '.services.app.environment | to_entries | .[]
   | select(.key | test("_AUTH_URL$")) | .key + " " + (.value | tostring)' "$compose" \
-  | sed -n 's|^\([A-Z0-9_]*\) .*http://\([a-z0-9-]*\):\([0-9]*\).*|\1 \2 \3|p')
+  | sed -n 's|^\([A-Z0-9_]*\) .*https\{0,1\}://\([a-z0-9-]*\):\([0-9]*\).*|\1 \2 \3|p')
 
 compose_sidecars=$(yq -r '.services | keys | .[] | select(test("-auth$"))' "$compose")
 chart_sidecars=$(yq -r '.sidecars | keys | .[]' "$values")
@@ -89,9 +96,29 @@ for name in $compose_sidecars; do
   if printf '%s\n' "$chart_sidecars" | grep -qx "$name"; then
     chart_port=$(yq -r ".sidecars[\"$name\"].port" "$values")
     chart_env=$(yq -r ".sidecars[\"$name\"].urlEnv" "$values")
-    if [ -n "$wiring" ] && { [ "$chart_port" != "$port" ] || [ "$chart_env" != "$url_env" ]; }; then
+    if [ -z "$wiring" ]; then
+      add_finding "$name" unwired "in the chart but no *_AUTH_URL of the app service points at it"
+    elif [ "$chart_port" != "$port" ] || [ "$chart_env" != "$url_env" ]; then
       add_finding "$name" mismatch "Compose: $url_env on port $port, chart: $chart_env on port $chart_port"
     fi
+
+    # What the chart entry itself must carry for the Compose settings.
+    gaps=""
+    if [ "$(yq -r ".services[\"$name\"].volumes // [] | length" "$compose")" -gt 0 ] \
+      && [ "$(yq -r ".sidecars[\"$name\"].persistence.enabled // false" "$values")" != true ]; then
+      gaps="volumes without persistence.enabled"
+    fi
+    if [ "$(yq -r ".services[\"$name\"].init // false" "$compose")" = true ] \
+      && [ "$(yq -r ".sidecars[\"$name\"].shareProcessNamespace // false" "$values")" != true ]; then
+      gaps="${gaps:+$gaps; }init: true without shareProcessNamespace"
+    fi
+    chart_vars=$(yq -r ".sidecars[\"$name\"] | ((.env // {} | keys) + (.extraEnv // [] | map(.name))) | .[]" "$values")
+    missing=""
+    for var in $extra_env; do
+      printf '%s\n' "$chart_vars" | grep -qx "$var" || missing="$missing $var"
+    done
+    [ -z "$missing" ] || gaps="${gaps:+$gaps; }variables${missing} in neither env nor extraEnv"
+    [ -z "$gaps" ] || add_finding "$name" drift "$gaps"
     continue
   fi
 
@@ -129,7 +156,7 @@ else
   printf '%s\n' "$findings" | awk -F'|' '{ printf "%-22s %-9s %s\n", $1, $2, $3 }'
 fi
 
-if [ "$github" = true ] && [ -n "$findings" ]; then
+if [ "$github" = true ] && [ "$json" = false ] && [ -n "$findings" ]; then
   printf '%s\n' "$findings" | awk -F'|' '$2 != "added" { printf "::warning title=Helm chart: %s::%s\n", $1, $3 }'
 fi
 
