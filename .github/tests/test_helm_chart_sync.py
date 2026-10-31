@@ -111,7 +111,7 @@ class SyncSidecarsTest(unittest.TestCase):
             ("old-auth", "stale"),
         })
 
-    def test_apply_adds_only_standard_sidecars_and_keeps_the_rest_of_the_file(self):
+    def test_apply_adds_standard_disables_stale_and_keeps_other_values(self):
         code, found = self.findings("--apply")
         self.assertEqual(code, 0)
         self.assertIn(("std-auth", "added"), found)
@@ -120,9 +120,10 @@ class SyncSidecarsTest(unittest.TestCase):
         self.assertIn("  std-auth:\n    enabled: true\n    urlEnv: STD_AUTH_URL\n    port: 8001\n", text)
         self.assertNotIn("vol-auth", text)
         self.assertNotIn("lost-auth", text)
-        # Everything that was there is still there, byte for byte.
+        # Only the new entry and the stale entry's enabled flag change.
         self.assertEqual(text.replace("  std-auth:\n    enabled: true\n    urlEnv: STD_AUTH_URL\n    port: 8001\n", ""),
-                         CHART_VALUES)
+                         CHART_VALUES.replace("  old-auth:\n    enabled: true",
+                                              "  old-auth:\n    enabled: false"))
 
     def test_apply_twice_changes_nothing_the_second_time(self):
         self.run_script("--apply")
@@ -134,6 +135,32 @@ class SyncSidecarsTest(unittest.TestCase):
         self.compose.write_text(COMPOSE.replace("http://known-auth:8001", "http://known-auth:9000"), encoding="utf-8")
         _, found = self.findings("--check")
         self.assertIn(("known-auth", "mismatch"), found)
+
+    def test_apply_disables_stale_sidecar_without_an_enabled_field(self):
+        self.values.write_text(CHART_VALUES.replace(
+            "  old-auth:\n    enabled: true", "  old-auth:"), encoding="utf-8")
+        result = self.run_script("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("  old-auth:\n    enabled: false", self.values.read_text())
+        # The following top-level section must remain enabled.
+        self.assertIn("postgresql:\n  enabled: true", self.values.read_text())
+
+    def test_apply_rejects_port_and_url_variable_mismatches(self):
+        for old, new in (("known-auth:8001", "known-auth:9000"),
+                         ("KNOWN_AUTH_URL:", "RENAMED_AUTH_URL:")):
+            with self.subTest(change=new):
+                self.compose.write_text(COMPOSE.replace(old, new), encoding="utf-8")
+                result = self.run_script("--apply", "--json")
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertTrue(any(f["kind"] == "mismatch" for f in json.loads(result.stdout)))
+
+    def test_apply_rejects_mismatches_on_custom_sidecars(self):
+        self.compose.write_text(COMPOSE.replace(
+            "  known-auth:\n    image: known", "  known-auth:\n    image: known\n    init: true"
+        ).replace("known-auth:8001", "known-auth:9000"), encoding="utf-8")
+        result = self.run_script("--apply")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("mismatch", result.stdout)
 
     def test_check_github_warns_about_missing_standard_sidecars_without_editing_values(self):
         result = self.run_script("--check", "--github")

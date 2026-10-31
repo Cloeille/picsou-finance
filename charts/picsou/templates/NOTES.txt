@@ -1,12 +1,22 @@
 Picsou {{ .Chart.AppVersion }} is deploying in namespace {{ .Release.Namespace }}.
 
 {{- if .Values.ingress.enabled }}
-{{- $h := index .Values.ingress.hosts 0 }}
+{{- with .Values.ingress.hosts }}
+{{- $h := index . 0 }}
 
-Open {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ $h.host }} to run the setup wizard.
+Open {{ if $.Values.ingress.tls }}https{{ else }}http{{ end }}://{{ $h.host }} to run the setup wizard.
+{{- else }}
+
+Open the address configured by your Ingress controller to run the setup wizard.
+{{- end }}
 {{- else if .Values.httpRoute.enabled }}
+{{- with .Values.httpRoute.hostnames }}
 
-Open https://{{ index .Values.httpRoute.hostnames 0 }} to run the setup wizard.
+Open https://{{ index . 0 }} to run the setup wizard.
+{{- else }}
+
+Open the address configured by your Gateway listener to run the setup wizard.
+{{- end }}
 {{- else }}
 
 No Ingress or HTTPRoute is enabled. To reach the setup wizard locally:

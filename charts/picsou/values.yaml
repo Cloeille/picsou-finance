@@ -32,11 +32,15 @@ global:
 #
 # Losing crypto-encryption-key makes every stored API secret and bank session
 # token unreadable: back up the /data volume, or provide the key yourself.
+# On an existing install, preserve /data/.secrets/crypto_key and jwt_secret:
+# environment values override these files. Copy their exact contents to the
+# Secret, or omit both keys while keeping persistent /data; never generate replacements.
 secrets:
   # Name of an existing Secret holding the keys above (External Secrets, Sealed
   # Secrets, …). Required with GitOps tools that render the chart with
   # `helm template` (Argo CD): there `lookup` returns nothing, so a generated
   # Secret would get new random values on every sync.
+  # Without app persistence this Secret MUST contain jwt-secret and crypto-encryption-key.
   existingSecret: ""
   # Used only when existingSecret is empty. Blank values are generated once and
   # kept across `helm upgrade` (the Secret is looked up and never deleted).
@@ -83,6 +87,8 @@ app:
     key: enablebanking.pem
 
   persistence:
+    # Disabling requires both secrets.jwtSecret and secrets.cryptoEncryptionKey,
+    # or secrets.existingSecret containing both keys, to survive pod replacement.
     enabled: true
     # Holds the generated secrets, the Enable Banking keys and the wizard's state.
     existingClaim: ""
@@ -142,7 +148,10 @@ app:
 #
 # A pre-upgrade hook Job that migrates and verifies the schema with the new image
 # before the app is replaced. It does not back up the database: take a backup
-# (pg_dump, CloudNativePG backup, volume snapshot) before every upgrade.
+# (pg_dump via kubectl exec into the PostgreSQL pod, operator backup, snapshot)
+# before every upgrade. See README for a NetworkPolicy-compatible pg_dump command.
+# Use helm upgrade --timeout 35m for the default 1800s deadline. If increased,
+# set --timeout longer than activeDeadlineSeconds, allowing time for pod startup.
 #
 # Argo CD maps Helm pre-upgrade hooks to PreSync, which also runs on the first
 # sync, before the bundled PostgreSQL exists. Disable it for the first sync, or

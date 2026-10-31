@@ -118,6 +118,8 @@ By default the chart creates the Secret, keeps its values across upgrades
 renders the chart with `helm template`, set `secrets.existingSecret`**: `lookup`
 returns nothing there and the generated values would change on every sync.
 
+**New installs only:** generate the keys once and keep a secure copy.
+
 ```bash
 kubectl -n picsou create secret generic picsou-secrets \
   --from-literal=sidecar-api-key="$(openssl rand -base64 32)" \
@@ -125,6 +127,20 @@ kubectl -n picsou create secret generic picsou-secrets \
   --from-literal=jwt-secret="$(openssl rand -base64 48)" \
   --from-literal=crypto-encryption-key="$(openssl rand -base64 32)"
 ```
+
+**Existing installs moving to `secrets.existingSecret` (including Argo CD):**
+do not run the random-key command above. The entrypoint gives environment values
+priority over `/data/.secrets/crypto_key` and `/data/.secrets/jwt_secret`. Copy the
+exact contents of those files into `crypto-encryption-key` and `jwt-secret`, or
+leave both keys out of the new Secret and keep the persistent `/data` volume.
+Also copy `sidecar-api-key` and `postgres-password` from the current chart Secret;
+a new random database password will not change the password in an existing database.
+
+With `app.persistence.enabled=false`, provide both `secrets.jwtSecret` and
+`secrets.cryptoEncryptionKey`, or an existing Secret containing both keys. The
+chart rejects missing inline keys, and the pod requires both keys in an existing
+Secret. This prevents pod replacement from losing the encryption key and sessions.
+Other files under `/data`, including Enable Banking keys, remain ephemeral.
 
 `crypto-encryption-key` decrypts the stored API secrets and bank session tokens.
 Losing it makes them unreadable: either provide it and keep a copy, or back up
@@ -154,8 +170,31 @@ verifies the schema (`ReleaseMigrationCli`, the tool `docker/deploy.sh` uses).
 If either step fails the upgrade stops and the running app is left untouched.
 The app also migrates on startup, as defence in depth.
 
+Allow the hook to finish before Helm times out (Helm defaults to only five minutes):
+
+```bash
+helm upgrade picsou oci://ghcr.io/cloeille/charts/picsou -n picsou -f values.yaml --timeout 35m
+```
+
+The default `migrationJob.activeDeadlineSeconds` is 1800 (30 minutes). If you
+increase it, set `--timeout` longer than that deadline, with extra time for pod
+startup. If Helm times out, inspect the migration Job and wait for it to finish
+before retrying: the next upgrade deletes the previous hook Job.
+
 The Job does not back up or rehearse the migration on a copy the way
 `docker/deploy.sh` does: **back up the database before every upgrade.**
+For the bundled PostgreSQL, run `pg_dump` inside its pod so the backup needs
+no ingress permission for a separate pod. With the default release,
+database and username (`picsou`):
+
+```bash
+kubectl -n picsou exec picsou-postgresql-0 -- sh -c \
+  'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > picsou.dump
+```
+
+Check that the command succeeds and store the dump securely together with the
+app's `/data` backup. Adjust the namespace and pod name for your release. For an
+external database, use its operator's backup procedure.
 
 With Argo CD, the hook becomes a PreSync hook, which also runs on the very first
 sync, before the bundled PostgreSQL exists. Set `migrationJob.enabled=false`
@@ -193,7 +232,7 @@ with the `sidecars` map (requires [yq](https://github.com/mikefarah/yq) v4):
 
 ```bash
 charts/picsou/sync-sidecars.sh --check   # report, exit 2 on differences
-charts/picsou/sync-sidecars.sh --apply   # also add the missing standard sidecars
+charts/picsou/sync-sidecars.sh --apply   # add standard sidecars, disable stale ones; fail on wiring mismatches
 ```
 
 A sidecar is standard when its Compose service has only an image, a build, a
@@ -203,7 +242,10 @@ with volumes, networks, `init` or more variables needs a chart change by hand.
 CI runs it in both directions. On a pull request, the `helm-chart` job reports
 differences as warnings and never fails because of them. The repository inventory
 test accepts exit codes 0 (in sync) and 2 (drift), while script errors still fail CI.
-When publishing, the missing standard sidecars are added to the packaged chart,
+When publishing, stale entries are disabled in the packaged values so removed images
+are never deployed. Port or URL-variable mismatches fail publishing and must be
+corrected in the chart before retrying, including for custom sidecars.
+The missing standard sidecars are added to the packaged chart,
 so a new sidecar of that kind is available without a chart change; the others
 are left out of the published chart until it supports them.
 
@@ -213,7 +255,8 @@ Enabled by default, they mirror the Compose isolation: only the app pod may reac
 the sidecars, and only the app and the migration Job may reach the bundled
 PostgreSQL. Sidecars keep unrestricted egress to their providers. To also
 restrict who reaches the app, list the ingress controller in
-`networkPolicy.appIngressFrom`.
+`networkPolicy.appIngressFrom`. For database backups, use `kubectl exec` into
+the PostgreSQL pod as shown under Upgrades; separate backup pods are blocked.
 
 They only take effect with a CNI that enforces NetworkPolicies (Cilium, Calico,
 …). Flannel, the Talos default, accepts them and enforces nothing.

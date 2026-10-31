@@ -27,11 +27,14 @@ One release creates:
 - **Secret** — `sidecar-api-key` and `postgres-password`, generated once and preserved through
   `lookup`, or an `existingSecret`. `jwt-secret` and `crypto-encryption-key` are optional keys;
   when absent the image entrypoint generates them under `/data/.secrets` as on Compose.
+  Disabling app persistence requires both inline keys or an existing Secret; in the latter
+  case both key references become mandatory at pod startup so a missing key cannot be regenerated.
 - **migration Job** — `pre-upgrade` hook running `ReleaseMigrationCli migrate` then `verify`
   with the new image.
 - **NetworkPolicies** — ingress to each sidecar and to PostgreSQL only from the app (and the
   migration Job for PostgreSQL), optional restriction of the app's own ingress.
-- **Ingress or HTTPRoute** — optional, TLS terminated by the controller.
+- **Ingress or HTTPRoute** — optional, TLS terminated by the controller. NOTES accept empty or
+  null hostname lists and direct operators to their controller or Gateway listener address.
 
 ### Publishing
 
@@ -45,14 +48,18 @@ and publishes to `oci://ghcr.io/<owner>/charts/picsou`:
   commit.
 
 Before packaging, `sync-sidecars.sh --apply` adds to the packaged copy the standard sidecars that
-`values.yaml` does not list yet, and `global.imageRepository` is set to `ghcr.io/<repository>`, where
+`values.yaml` does not list yet and disables entries removed from Compose, preserving their other
+settings. A port or URL-variable mismatch fails publishing (including for custom sidecars), so
+known-broken wiring requires an explicit chart correction. `--check` remains warning-only in CI.
+`global.imageRepository` is set to `ghcr.io/<repository>`, where
 this run pushed the images, so a chart published from a fork runs that fork's images (nothing is
 committed back). The `helm-chart` job of `ci.yml`
 lints and renders the chart and runs `sync-sidecars.sh --check` on pull requests that touch the
 chart, the Compose file or the workflows; differences are warnings, a broken chart fails.
 The repository inventory test accepts exit codes 0 (in sync) and 2 (drift), but still fails
 on script errors. Synthetic fixtures test comparison and warning behavior. Rendered chart
-tests in `charts/picsou/tests` verify Revolut's volume permissions and existing-claim overrides.
+tests in `charts/picsou/tests` verify Revolut's volume permissions, existing-claim overrides,
+mandatory keys for ephemeral app storage and hostname-less exposure.
 
 ### Key files
 
@@ -63,7 +70,7 @@ tests in `charts/picsou/tests` verify Revolut's volume permissions and existing-
 - `charts/picsou/templates/migration-job.yaml` — pre-upgrade migration and verification
 - `charts/picsou/templates/networkpolicy.yaml` — isolation of sidecars and database
 - `charts/picsou/sync-sidecars.sh` — compares the Compose sidecars with `values.yaml`, adds the
-  standard ones on `--apply`
+  standard ones and disables stale entries on `--apply`; rejects wiring mismatches
 - `.github/workflows/docker.yml` (`chart` job) — packages and publishes the chart
 - `.github/workflows/ci.yml` (`helm-chart` job) — lint, render, sidecar comparison
 - `charts/picsou/README.md` — operator documentation
@@ -98,9 +105,18 @@ helm upgrade
 - **GitOps renderers** (Argo CD) have no `lookup`: the generated Secret changes on every render.
   `secrets.existingSecret` is required there. Argo CD also maps `pre-upgrade` to PreSync, which
   runs on the first sync before the bundled PostgreSQL exists: disable `migrationJob` for that
-  sync.
+  sync. When moving an existing installation to an external Secret, preserve the current
+  sidecar API key and database password. Copy `/data/.secrets/crypto_key` and `jwt_secret`
+  into the corresponding Secret keys, or leave those keys absent with persistent `/data`.
+  Never generate replacement keys: environment values override the files and lose access to
+  existing encrypted credentials.
 - **The migration Job does not back up or rehearse.** `docker/deploy.sh` restores a backup into a
-  clone first; on Kubernetes, backups belong to the storage or database operator.
+  clone first; on Kubernetes, backups belong to the storage or database operator. For bundled
+  PostgreSQL, use `kubectl exec` into its pod to run `pg_dump` (command in the chart README);
+  separate backup pods are blocked by the default NetworkPolicy.
+- **Use `helm upgrade --timeout 35m`** for the default 1800-second migration deadline. If that
+  deadline increases, increase Helm's timeout beyond it with startup margin. After a timeout,
+  inspect the hook and let it finish before retrying: the next upgrade deletes the old Job.
 - **Wizard values win over `app.env`.** `ENABLEBANKING_REDIRECT_URI`, `ALLOWED_ORIGINS` and
   `SECURE_COOKIES` are database-first once setup completed.
 - **Sidecar images run as named, non-numeric users**, so `runAsNonRoot` cannot be verified by the
@@ -127,8 +143,9 @@ helm upgrade
 - `helm lint --strict charts/picsou` and two `helm template` renders (`helm-chart` CI job)
 - `.github/tests/test_helm_chart_sync.py` (run by the `helm-chart` job): the repository chart lists
   every Compose sidecar; `--check` reports each kind of difference; `--apply` adds only standard
-  sidecars and keeps the rest of `values.yaml` byte for byte; a second `--apply` is a no-op; a port
-  change is a mismatch; `--github` warns about everything but added sidecars
+  sidecars, disables stale ones and keeps unrelated values byte for byte; a second `--apply`
+  is a no-op; port and URL-variable mismatches fail `--apply`, including for custom sidecars;
+  `--github` warns about everything but added sidecars
 - `sync-sidecars.sh` on modified Compose files: new standard sidecar (added by `--apply`, values
   otherwise unchanged byte for byte), sidecar with a volume and extra variable (reported, not
   added), sidecar without an app URL, removed sidecar, changed port; idempotent second `--apply`

@@ -8,12 +8,12 @@
 # needs a chart change by hand, so it is reported and never guessed.
 #
 #   --check   report differences; exit 2 when there are any (default)
-#   --apply   add the missing standard sidecars to values.yaml, report the rest;
-#             exit 0 unless the files cannot be read
+#   --apply   add missing standard sidecars and disable stale ones;
+#             exit 1 on wiring mismatches or usage/read errors
 #   --github  also emit GitHub Actions ::warning annotations
 #   --json    print the findings as a JSON array instead of text
 #
-# Requires yq v4 (mikefarah). Exit 1 on usage or read errors.
+# Requires yq v4 (mikefarah). Exit 1 on errors or --apply wiring mismatches.
 set -eu
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -62,6 +62,28 @@ add_to_values() {
   cat "$tmp" > "$values" && rm -f "$tmp"
 }
 
+# Disable removed images without rewriting unrelated values or comments. Keep
+# their configuration so operators can inspect it, but never deploy an unbuilt tag.
+disable_in_values() {
+  tmp=$(mktemp)
+  awk -v name="$1" '
+    /^sidecars:[[:space:]]*$/ { inside = 1 }
+    inside && /^[^[:space:]#]/ && !/^sidecars:/ { inside = 0; target = 0 }
+    inside && /^  [^[:space:]#]/ {
+      entry = $0; sub(/[[:space:]]+#.*/, "", entry); sub(/[[:space:]]+$/, "", entry)
+      target = (entry == "  " name ":")
+      if (target) { print; print "    enabled: false"; next }
+    }
+    target && /^    enabled:/ { next }
+    { print }
+  ' "$values" > "$tmp"
+  [ "$(yq -r ".sidecars[\"$1\"].enabled" "$tmp")" = false ] || {
+    rm -f "$tmp"; echo "could not disable $1 in $values" >&2; exit 1;
+  }
+  cat "$tmp" > "$values" && rm -f "$tmp"
+}
+
+publish_error=false
 findings=""   # one "sidecar|kind|detail" line per finding
 add_finding() { findings="${findings}$1|$2|$3
 "; }
@@ -90,6 +112,7 @@ for name in $compose_sidecars; do
     chart_port=$(yq -r ".sidecars[\"$name\"].port" "$values")
     chart_env=$(yq -r ".sidecars[\"$name\"].urlEnv" "$values")
     if [ -n "$wiring" ] && { [ "$chart_port" != "$port" ] || [ "$chart_env" != "$url_env" ]; }; then
+      publish_error=true
       add_finding "$name" mismatch "Compose: $url_env on port $port, chart: $chart_env on port $chart_port"
     fi
     continue
@@ -111,8 +134,10 @@ for name in $compose_sidecars; do
 done
 
 for name in $chart_sidecars; do
-  printf '%s\n' "$compose_sidecars" | grep -qx "$name" \
-    || add_finding "$name" stale "in the chart but no longer in docker/docker-compose.yml"
+  if ! printf '%s\n' "$compose_sidecars" | grep -qx "$name"; then
+    [ "$mode" != apply ] || disable_in_values "$name"
+    add_finding "$name" stale "no longer in docker/docker-compose.yml; disabled by --apply"
+  fi
 done
 
 findings=$(printf '%s' "$findings" | sed '/^$/d')
@@ -133,7 +158,11 @@ if [ "$github" = true ] && [ -n "$findings" ]; then
   printf '%s\n' "$findings" | awk -F'|' '$2 != "added" { printf "::warning title=Helm chart: %s::%s\n", $1, $3 }'
 fi
 
-# Only --check signals findings through the exit code; added sidecars are not a problem.
+# Publishing must not deploy known-broken wiring, including custom sidecars.
+if [ "$mode" = apply ] && [ "$publish_error" = true ]; then
+  exit 1
+fi
+# --check reports all drift without changing the files.
 if [ "$mode" = check ] && [ -n "$findings" ]; then
   exit 2
 fi
