@@ -132,8 +132,8 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         commands = _run_commands(_load(CI_WORKFLOW)["jobs"]["amex-auth-sidecar"])
 
         self.assertIn("--env PYTHONPATH=/opt/sidecar-base", commands)
-        self.assertIn("services/base:/tests:ro", commands)
-        self.assertIn("-m unittest discover -s /tests -p 'test_*.py' -v", commands)
+        self.assertIn("services:/services:ro", commands)
+        self.assertIn("-m unittest discover -s /services/base -p 'test_*.py' -v", commands)
 
     def test_publish_workflow_keeps_both_platforms_and_branch_tagging(self):
         job_text = DOCKER_WORKFLOW.read_text(encoding="utf-8")
@@ -263,6 +263,8 @@ class CiJobSelectionTest(unittest.TestCase):
             "services/amex-auth/main.py": {"amex-auth-sidecar", "camoufox-arm64-smoke"}
             | services,
             "services/revolut-auth/main.py": {"revolut-auth-sidecar", "camoufox-arm64-smoke"}
+            | services,
+            "services/revolut-auth/Dockerfile": {"revolut-auth-sidecar", "amex-auth-sidecar", "camoufox-arm64-smoke"}
             | services,
             "services/base/requirements.txt": sidecars
             | {"backend", "camoufox-arm64-smoke"}

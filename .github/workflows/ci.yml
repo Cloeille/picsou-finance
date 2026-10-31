@@ -104,6 +104,8 @@ jobs:
               - *workflows
               - 'services/base/**'
               - 'services/amex-auth/**'
+              # The shared base tests in this job check the Revolut runtime parameters too.
+              - 'services/revolut-auth/Dockerfile'
             degiro-auth-sidecar:
               - *workflows
               - 'services/base/**'
@@ -476,10 +478,10 @@ jobs:
           docker run --rm
           --entrypoint python
           --env PYTHONPATH=/opt/sidecar-base
-          --volume "${{ github.workspace }}/services/base:/tests:ro"
-          --workdir /tests
+          --volume "${{ github.workspace }}/services:/services:ro"
+          --workdir /services/base
           picsou-sidecar-camoufox
-          -m unittest discover -s /tests -p 'test_*.py' -v
+          -m unittest discover -s /services/base -p 'test_*.py' -v
       - name: Build the AMEX sidecar image
         run: docker build --tag picsou-amex-auth:test services/amex-auth
       - name: Run sidecar authentication tests in the image

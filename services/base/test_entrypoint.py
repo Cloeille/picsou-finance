@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import socket
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -20,6 +22,22 @@ import unittest
 
 ENTRYPOINT = Path(__file__).with_name("entrypoint.sh")
 X11_SOCKET_DIR = Path("/tmp/.X11-unix")
+SERVICES = Path(__file__).resolve().parents[1]
+RUNTIME_PARAMETERS = {
+    "amex-auth": {"SIDECAR_PORT": "8001", "XVFB_DISPLAY": ":98", "XVFB_SCREEN": "1366x768x24"},
+    "revolut-auth": {"SIDECAR_PORT": "8002", "XVFB_DISPLAY": ":99", "XVFB_SCREEN": "1280x1024x24"},
+}
+
+
+def dockerfile_env(service: str) -> dict[str, str]:
+    """Return the ENV values a sidecar image hands to the shared entrypoint."""
+    dockerfile = (SERVICES / service / "Dockerfile").read_text()
+    environment: dict[str, str] = {}
+    for instruction in re.findall(r"^ENV\s+((?:.*\\\n)*.*)$", dockerfile, re.MULTILINE):
+        for assignment in shlex.split(instruction.replace("\\\n", " ")):
+            name, _, value = assignment.partition("=")
+            environment[name] = value
+    return environment
 
 
 FAKE_XVFB = r"""
@@ -156,12 +174,13 @@ class CamoufoxEntrypointTest(unittest.TestCase):
         socket_path.unlink(missing_ok=True)
 
     def test_default_server_preserves_each_sidecars_runtime_parameters(self) -> None:
-        configurations = (
-            ("amex", ":98", "1366x768x24", "8001"),
-            ("revolut", ":99", "1280x1024x24", "8002"),
-        )
-        for service, display, screen, port in configurations:
+        for service, expected in RUNTIME_PARAMETERS.items():
             with self.subTest(service=service):
+                declared = dockerfile_env(service)
+                self.assertEqual({name: declared.get(name) for name in expected}, expected)
+                display = declared["XVFB_DISPLAY"]
+                screen = declared["XVFB_SCREEN"]
+                port = declared["SIDECAR_PORT"]
                 self._assert_display_available(display)
                 result = self._run(display=display, screen=screen, port=port)
                 self._wait_for_fake_xvfb_cleanup(display)
