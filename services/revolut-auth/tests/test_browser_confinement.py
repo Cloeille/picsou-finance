@@ -31,7 +31,7 @@ except Exception:  # noqa: BLE001 - FileNotFoundError / UnsupportedVersion: no u
 pytestmark = pytest.mark.skipif(not _BROWSER or shutil.which("Xvfb") is None,
                                 reason="needs the Camoufox browser and Xvfb")
 
-SECRET = "member-2-session-cookie"
+MEMBER_2_MARKER = "member-2-session-cookie"
 
 
 @pytest.fixture
@@ -60,7 +60,7 @@ def _windows_on(screen):
 @pytest.fixture
 async def member_1_browser(screen):
     with open(os.path.join(main._profile_dir("2"), "cookies.sqlite"), "w") as f:
-        f.write(SECRET)
+        f.write(MEMBER_2_MARKER)
     async with AsyncCamoufox(headless=False, os="linux", humanize=False,
                              persistent_context=True, user_data_dir=main._profile_dir("1")) as ctx:
         yield ctx
@@ -78,7 +78,7 @@ async def test_another_members_profile_cannot_be_opened_by_url(member_1_browser,
     with pytest.raises(PlaywrightError, match="NS_ERROR_BLOCKED_BY_POLICY"):
         await page.goto(url.format(root=main.PROFILES_ROOT))
     await page.wait_for_timeout(500)
-    assert SECRET not in await page.evaluate("() => document.documentElement.outerHTML")
+    assert MEMBER_2_MARKER not in await page.evaluate("() => document.documentElement.outerHTML")
 
 
 async def test_an_upload_form_opens_no_file_picker(member_1_browser, screen):
