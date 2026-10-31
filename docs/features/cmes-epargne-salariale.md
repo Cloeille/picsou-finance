@@ -137,7 +137,8 @@ modal lists no CMES row there.
   generation, which `initiateAuth` read before calling the sidecar, and the session is stored
   only if the generation is unchanged. The check and the insert share one lock with
   `clearSession`, so a phone approval or a remembered-device login that lands after the removal
-  stores nothing and answers `AUTH_ATTEMPT_EXPIRED`.
+  stores nothing and answers `AUTH_ATTEMPT_EXPIRED`. A login that lands after the removal asking
+  for a second factor is refused the same way before its password is put in `pendingCredentials`.
 - **MCP**: `get_sync_status` reports a `cmes` line, with `INVALID_CREDENTIALS` read as
   `NEEDS_REAUTH` like `SESSION_EXPIRED` (the rejected password was cleared, only the saver can
   give it again). `trigger_broker_sync` includes `cmes`.

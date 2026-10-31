@@ -39,8 +39,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Issue #174: commit 2839c94 renumbered migrations that 1.1.0 databases had already applied
  * (V80, V81, V86-V88 became V93-V99). Issue #265: merging main into 1.1.0 renumbered migrations
  * that the 1.0.11-1.0.18 releases had applied (V38, V54-V64) and edited comments in V51 and
- * V55-V58. These tests build those databases from the real files under their old names, then
- * start them on the current files the way the application does.
+ * V55-V58; release 1.0.6 had applied today's V36 as V33. These tests build those databases from
+ * the real files under their old names, then start them on the current files the way the
+ * application does.
  *
  * <p>The old numbering never existed as one tree that Flyway could run (V80 had three files), so
  * each legacy line is the set a deployed instance actually ran: V1-V79 plus that line's files.
@@ -90,6 +91,11 @@ class LegacyMigrationRenumberingTest {
         1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
         28, 29, 30, 31, 32, 36, 37, 50, 52, 53, 66, 67, 68, 69, 70, 71, 73, 74, 75, 76, 77, 78, 79, 80,
         86, 87);
+
+    /** Versions 1.0.6 shipped under the same file as today (its V33 is today's V36). */
+    private static final Set<Integer> RELEASE_1_0_6_UNCHANGED = Set.of(
+        1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+        28, 29, 30, 31, 32);
 
     /** Versions 1.0.11 shipped under the same file as today (its V38 is the moved backfill). */
     private static final Set<Integer> RELEASE_1_0_11_UNCHANGED = Set.of(
@@ -231,6 +237,22 @@ class LegacyMigrationRenumberingTest {
     }
 
     @Test
+    void aRelease106DatabaseMovesItsSecurityNameAndMigratesToTheFreshSchema() throws Exception {
+        String url = createDatabase("release_1_0_6");
+        migrateRelease(url, RELEASE_1_0_6_UNCHANGED,
+            Map.of("V36__transaction_security_name.sql", "V33__transaction_security_name.sql"), List.of());
+
+        upgrade(url).migrate();
+
+        assertThat(upgrade(url).info().pending()).isEmpty();
+        assertThat(query(url, "SELECT version || ' ' || description FROM flyway_schema_history "
+            + "WHERE version IN ('33', '36') ORDER BY version::int")).containsExactly(
+            "33 budget foundation",
+            "36 transaction security name");
+        assertThat(schema(url)).isEqualTo(schema(freshDatabase("release_1_0_6_reference")));
+    }
+
+    @Test
     void aRelease1015DatabaseWithoutV51AndV64MigratesToTheFreshSchema() throws Exception {
         String url = createDatabase("release_1_0_15");
         Map<String, String> moved = new HashMap<>(RELEASE_1_0_18_MOVED);
@@ -286,6 +308,53 @@ class LegacyMigrationRenumberingTest {
         upgrade(url).migrate();
 
         assertThat(upgrade(url).info().pending()).isEmpty();
+        assertThat(query(url, "SELECT name FROM account ORDER BY id")).containsExactly("Manual", "Synced");
+    }
+
+    @Test
+    void aTargetBelowV47SkipsTheDuplicateCheck() throws Exception {
+        String url = createDatabase("release_duplicates_target");
+        migrateRelease(url, RELEASE_1_0_18_UNCHANGED, RELEASE_1_0_18_MOVED, RELEASE_1_0_18_EDITED);
+        execute(url, "INSERT INTO family_member (display_name) VALUES ('Test')");
+        execute(url, "INSERT INTO account (name, provider, external_account_id, is_manual, member_id) VALUES "
+            + "('Manual', NULL, 'ext-1', true, (SELECT min(id) FROM family_member)), "
+            + "('Synced', 'TRADE_REPUBLIC', 'ext-1', false, (SELECT min(id) FROM family_member))");
+
+        // V47 is above the target, so it cannot delete anything and the check has nothing to guard.
+        Flyway.configure()
+            .configuration(upgrade(url).getConfiguration())
+            .target("46")
+            .load()
+            .migrate();
+
+        assertThat(query(url, "SELECT count(*) FROM flyway_schema_history WHERE version = '47'"))
+            .containsExactly("0");
+        assertThat(query(url, "SELECT name FROM account ORDER BY id")).containsExactly("Manual", "Synced");
+    }
+
+    @Test
+    void aBaselineWrittenAs47Point0SkipsTheDuplicateCheck() throws Exception {
+        String url = createDatabase("baseline_47_0");
+        Flyway.configure().configuration(upgrade(url).getConfiguration()).target("46").load().migrate();
+        execute(url, "DROP TABLE flyway_schema_history");
+        execute(url, "INSERT INTO family_member (display_name) VALUES ('Test')");
+        execute(url, "INSERT INTO account (name, provider, external_account_id, is_manual, member_id) VALUES "
+            + "('Manual', NULL, 'ext-1', true, (SELECT min(id) FROM family_member)), "
+            + "('Synced', 'TRADE_REPUBLIC', 'ext-1', false, (SELECT min(id) FROM family_member))");
+
+        // Flyway reads 47.0 as V47, so V47 is below the baseline and never runs. V72 rebuilds V47's
+        // index, which this database never got, so the run stops just before it.
+        Flyway.configure()
+            .configuration(upgrade(url).getConfiguration())
+            .baselineOnMigrate(true)
+            .baselineVersion("47.0")
+            .target("71")
+            .load()
+            .migrate();
+
+        assertThat(query(url, "SELECT version || ' ' || type FROM flyway_schema_history "
+            + "WHERE version IN ('47', '47.0', '71') ORDER BY installed_rank")).containsExactly(
+            "47.0 BASELINE", "71 SQL");
         assertThat(query(url, "SELECT name FROM account ORDER BY id")).containsExactly("Manual", "Synced");
     }
 

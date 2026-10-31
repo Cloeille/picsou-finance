@@ -218,7 +218,7 @@ jobs:
             backend/target/surefire-reports/com.picsou.service.HomeBankQifPersistenceTest.txt
       - name: Require the legacy migration renumbering tests
         run: >-
-          grep -q 'Tests run: 12, Failures: 0, Errors: 0, Skipped: 0'
+          grep -q 'Tests run: 15, Failures: 0, Errors: 0, Skipped: 0'
           backend/target/surefire-reports/com.picsou.migration.LegacyMigrationRenumberingTest.txt
       - name: Require the sidecar Budget PostgreSQL tests
         run: >-
@@ -321,6 +321,7 @@ jobs:
           --volume "${{ github.workspace }}/services/bourso-auth/fixtures.py:/tests/fixtures.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_virtual_pad.py:/tests/test_virtual_pad.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_accounts_parser.py:/tests/test_accounts_parser.py:ro"
+          --volume "${{ github.workspace }}/services/bourso-auth/test_life_insurance.py:/tests/test_life_insurance.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"

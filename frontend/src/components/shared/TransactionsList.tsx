@@ -60,9 +60,9 @@ export function TransactionsList({
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <CardTitle className="text-base">{t('accounts.transactions')}</CardTitle>
-          {actions && <div className="flex items-center gap-2">{actions}</div>}
+          {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </CardHeader>
         <CardContent className="space-y-0">
           {transactions.length > 0 && <Input

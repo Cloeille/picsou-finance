@@ -54,6 +54,8 @@ import {
   useInitiateTrAuth,
   useCompleteTrAuth,
   useSyncBourso,
+  useCaisseEpargneSessionStatus,
+  useSyncCaisseEpargne,
   useCmesStatus,
   useSyncCmes,
   useAmundiStatus,
@@ -89,7 +91,7 @@ type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
-    | 'amex' | 'corum' | 'sofidy' | 'cmes'
+    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'cmes'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -116,6 +118,7 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   amex: CreditCard,
   corum: Building2,
   sofidy: Building2,
+  'caisse-epargne': Landmark,
   cmes: PiggyBank,
 }
 
@@ -131,6 +134,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   amex: 'amex',
   corum: 'corum',
   sofidy: 'sofidy',
+  'caisse-epargne': 'caisse-epargne',
   cmes: 'cmes',
   finary: 'finary',
 }
@@ -185,6 +189,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: wallets, isLoading: walletsLoading } = useCryptoWallets()
   const { data: trStatus } = useTrSessionStatus()
   const { data: boursoStatus } = useBoursoSessionStatus()
+  const { data: caisseEpargneStatus } = useCaisseEpargneSessionStatus()
   const { data: revolutStatus } = useRevolutStatus()
   const { data: finaryStatus } = useFinaryConnectionStatus()
   const { data: amundiStatus } = useAmundiStatus()
@@ -237,6 +242,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       failed: boursoStatus?.syncStatus === 'FAILED',
     },
     {
+      type: 'caisse-epargne' as const, name: "Caisse d'Epargne", provider: "Caisse d'Epargne",
+      active: caisseEpargneStatus?.isActive ?? false, lastSyncedAt: caisseEpargneStatus?.lastSyncCompletedAt ?? null,
+      failed: caisseEpargneStatus?.syncStatus === 'FAILED',
+    },
+    {
       type: 'bourse-direct' as const, name: 'Bourse Direct', provider: 'Bourse Direct',
       active: bourseDirectStatus?.isActive ?? false, lastSyncedAt: bourseDirectStatus?.lastSyncCompletedAt ?? null,
       failed: bourseDirectStatus?.syncStatus === 'FAILED',
@@ -285,7 +295,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       hasSession: cmesStatus != null && cmesStatus.syncStatus !== 'IDLE',
       failed: cmesStatus?.syncStatus === 'FAILED',
     },
-  ], [cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
+  ], [cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -295,6 +305,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const initiateTrMutation   = useInitiateTrAuth()
   const completeTrMutation   = useCompleteTrAuth()
   const syncBoursoMutation   = useSyncBourso()
+  const syncCaisseEpargneMutation = useSyncCaisseEpargne()
   const syncAmundiMutation       = useSyncAmundi()
   const syncFortuneoMutation     = useSyncFortuneo()
   const syncBourseDirectMutation = useSyncBourseDirect()
@@ -482,6 +493,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'bourso':
         syncBoursoMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'caisse-epargne':
+        syncCaisseEpargneMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'amundi':
         syncAmundiMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -544,6 +558,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncWalletMutation,
     syncTrMutation,
     syncBoursoMutation,
+    syncCaisseEpargneMutation,
     syncAmundiMutation,
     syncFortuneoMutation,
     syncBourseDirectMutation,
