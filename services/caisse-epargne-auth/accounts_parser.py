@@ -39,7 +39,8 @@ import calendar
 import math
 import re
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal, localcontext
+from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal, localcontext
+from fractions import Fraction
 from typing import Any, Iterable, Optional, Union
 
 INVALID_SYNTHESIS = "INVALID_SYNTHESIS"
@@ -507,26 +508,53 @@ def _positive_amount(value: Any, where: str) -> Decimal:
 
 
 def _annuity(borrowed: Decimal, rate: Decimal, months: int) -> Decimal:
-    """Constant monthly installment of a `months`-long loan at the yearly `rate`."""
-    if rate == 0:
-        return borrowed / months
+    """Constant monthly installment at the yearly `rate`, certified to the cent."""
+    bounds = []
     with localcontext() as ctx:
         ctx.prec = 60 + max(0, -rate.adjusted())
-        # P / sum(discount**k, k=1..months) avoids subtractive cancellation.
-        # Doubling discounted blocks keeps the sum logarithmic in the duration.
-        discount = 1 / (1 + rate / 12)
-        block_discount = discount
-        block_sum = discount
-        offset = Decimal(1)
-        present_value = Decimal(0)
-        while months:
-            if months & 1:
-                present_value += offset * block_sum
-                offset *= block_discount
-            block_sum *= 1 + block_discount
-            block_discount *= block_discount
-            months >>= 1
-        return borrowed / present_value
+        for rounding, reciprocal_rounding in (
+            (ROUND_FLOOR, ROUND_CEILING),
+            (ROUND_CEILING, ROUND_FLOOR),
+        ):
+            ctx.rounding = rounding
+            if rate == 0:
+                bounds.append(borrowed / months)
+                continue
+            monthly_factor = 1 + rate / 12
+            # Reciprocals reverse the bounds. All sum terms are positive.
+            ctx.rounding = reciprocal_rounding
+            discount = 1 / monthly_factor
+            block_discount = discount
+            block_sum = discount
+            offset = Decimal(1)
+            present_value = Decimal(0)
+            remaining = months
+            # Binary doubling sums discounted payments without cancellation.
+            while remaining:
+                if remaining & 1:
+                    present_value += offset * block_sum
+                    offset *= block_discount
+                block_sum *= 1 + block_discount
+                block_discount *= block_discount
+                remaining >>= 1
+            ctx.rounding = rounding
+            bounds.append(borrowed / present_value)
+
+    lower, upper = (bound.quantize(_CENT, rounding=ROUND_HALF_UP) for bound in bounds)
+    if lower == upper:
+        return lower
+
+    # Decimal bounds can straddle an exact tie at any precision.
+    annuity = Fraction(borrowed)
+    if rate == 0:
+        annuity /= months
+    else:
+        monthly_rate = Fraction(rate) / 12
+        annuity *= monthly_rate / (1 - (1 + monthly_rate) ** -months)
+    cents, remainder = divmod(annuity.numerator * 100, annuity.denominator)
+    if remainder * 2 >= annuity.denominator:
+        cents += 1
+    return (Decimal(cents) * _CENT).quantize(_CENT)
 
 
 def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decimal) -> Optional[Decimal]:
@@ -537,13 +565,13 @@ def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decim
     amortisation schedule takes the insurance back out of the installment, so it is
     sent apart. A home loan's insurance is often taken elsewhere: the installment then
     matches the annuity to the cent and 0.00 is sent. Below the annuity: no figure.
-    The annuity sums discounted payments without subtractive cancellation and
-    keeps extra precision for tiny nonzero rates. An amount of 10^26 or more still
+    The annuity uses directed Decimal bounds and exact rational rounding when
+    those bounds disagree at the cent. An amount of 10^26 or more still
     cannot be rounded to the cent in the default 28-digit context: it refuses
     this loan's detail instead of failing the import.
     """
     try:
-        annuity = _annuity(borrowed, rate, months).quantize(_CENT, rounding=ROUND_HALF_UP)
+        annuity = _annuity(borrowed, rate, months)
         insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
     except ArithmeticError:
         # Every decimal signal (InvalidOperation, DivisionByZero, ...) is an ArithmeticError.

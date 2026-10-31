@@ -203,6 +203,23 @@ class HomeLoanDetailTest(unittest.TestCase):
 
                     self.assertEqual(parse_home_loan_detail(d)["insuranceMonthly"], Decimal(expected))
 
+    def test_annuity_rounding_at_an_exact_half_cent(self):
+        # At 12 % over two months, 100.50 gives an exact annuity of 10201/200 = 51.005.
+        for borrowed, expected in (
+            (100.49999999999999, "29.00"),
+            (100.50, "28.99"),
+            (100.50000000000001, "28.99"),
+        ):
+            with self.subTest(borrowed=borrowed):
+                d = detail()
+                money = d["loan"]["financialInformation"]
+                money["amountBorrowed"]["value"] = borrowed
+                money["duration"] = 2
+                money["nextDuedateRate"] = 12
+                money["nextDuedateAmount"]["value"] = 80
+
+                self.assertEqual(parse_home_loan_detail(d)["insuranceMonthly"], Decimal(expected))
+
     def test_a_first_due_date_before_the_subscription_is_refused(self):
         d = detail()
         d["loan"]["contractCharacteristic"]["subscriptionDate"] = "2023-01-02"

@@ -244,11 +244,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Caisse d'Epargne loan insurance at tiny rates.** Personal and home loans now
-  retain the correct cent-rounded insurance even at extremely small positive
-  nominal rates, including half-cent annuity boundaries. A cancellation-free sum
-  of discounted payments prevents an extra cent of insurance from reducing the
-  capital repaid in the amortization schedule.
+- **Caisse d'Epargne loan insurance rounding.** Personal and home loans now
+  retain the correct cent-rounded insurance at exact half-cent annuity boundaries
+  and extremely small positive nominal rates. Directed Decimal bounds certify
+  the rounded annuity, with an exact rational fallback when the bounds disagree.
+  This prevents an extra cent of insurance from reducing the capital repaid in
+  the amortization schedule.
 
 - **First Trade Republic login after a fresh start.** On a cold `tr-auth` container the first
   login often failed with "please check your credentials" although the phone number and PIN

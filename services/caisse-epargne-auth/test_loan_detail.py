@@ -162,6 +162,22 @@ class LoanDetailTest(unittest.TestCase):
 
                     self.assertEqual(parse_loan_detail(d)["insuranceMonthly"], Decimal(expected))
 
+    def test_annuity_rounding_at_an_exact_half_cent(self):
+        # At 12 % over two months, 100.50 gives an exact annuity of 10201/200 = 51.005.
+        for borrowed, expected in (
+            (100.49999999999999, "29.00"),
+            (100.50, "28.99"),
+            (100.50000000000001, "28.99"),
+        ):
+            with self.subTest(borrowed=borrowed):
+                d = detail()
+                view(d)["offer"]["proposedAmount"]["value"] = borrowed
+                view(d)["offer"]["duration"] = 2
+                view(d)["folder"]["tNC"] = 12
+                view(d)["folder"]["nextMonthlyPaymentAmount"]["value"] = 80
+
+                self.assertEqual(parse_loan_detail(d)["insuranceMonthly"], Decimal(expected))
+
     def test_wrong_envelope_raises(self):
         for payload in [None, [], "x", {}, {"personalLoanPrdSynthesisView": []}]:
             with self.subTest(payload=payload):
