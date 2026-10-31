@@ -56,12 +56,12 @@ _AMOUNT_RE = re.compile(r'class="[^"]*\bei_sdsf_montant\b[^"]*"[^>]*>(?P<amount>
 _ACCOUNT_MARKER_RE = re.compile(r'class="[^"]*\b(?:ei_sdsf_title|doux|ei_sdsf_montant)\b')
 _TAG_RE = re.compile(r"<[^>]+>")
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s.]*(?:,\d+)?)\s*(?P<currency>[A-Z]{3}|€)$")
-# Money in text: a number then a currency code or symbol, or a symbol then a number with
-# cents. No code before the number: a title such as "PEL 2024" would match. The codes are
-# the currencies themselves, not any three capitals, so "Contrat 2024 PEL" is no amount.
+# Money in text: a number then a three-letter code or a currency symbol, or a symbol then
+# a number with cents. No code before the number: a title such as "PEL 2024" would match.
 # A symbol-first number needs cents so script text such as "$1" does not match.
-_CURRENCY_CODES = "EUR|USD|GBP|CHF|JPY|CAD|AUD|SEK|NOK|DKK|PLN|CZK|HUF|RON|BGN|CNY|HKD|SGD|NZD|XPF|MAD|TND"
-_BALANCE_RE = re.compile(rf"\d[\d\s.,]*\s*(?:(?:{_CURRENCY_CODES})\b|[€$£])|[€$£]\s*\d[\d\s.,]*[.,]\d{{2}}\b")
+_BALANCE_RE = re.compile(r"\d[\d\s.,]*\s*(?:[A-Z]{3}\b|[€$£])|[€$£]\s*\d[\d\s.,]*[.,]\d{2}\b")
+# A whole product-title span: a title is a name ("Contrat 2024 PEL"), never an amount.
+_TITLE_SPAN_RE = re.compile(r'<span\b[^>]*class="[^"]*\bei_sdsf_title\b[^"]*"[^>]*>.*?</span>', re.DOTALL)
 
 # Ordered: the first match wins, so the specific products come before the
 # generic "livret".
@@ -125,8 +125,8 @@ def _category(table: str) -> str:
 
 
 def _has_balance(fragment: str) -> bool:
-    """An amount in the row: a balance span, or money in its text."""
-    return bool(_AMOUNT_RE.search(fragment) or _BALANCE_RE.search(_text(fragment)))
+    """An amount in the row: a balance span, or money in its text outside the product title."""
+    return bool(_AMOUNT_RE.search(fragment) or _BALANCE_RE.search(_text(_TITLE_SPAN_RE.sub(" ", fragment))))
 
 
 def _has_account_data(fragment: str) -> bool:
