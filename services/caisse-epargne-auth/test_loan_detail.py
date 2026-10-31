@@ -132,13 +132,51 @@ class LoanDetailTest(unittest.TestCase):
             parse_loan_detail(d)
         self.assertEqual(e.exception.code, "INVALID_LOAN_DETAIL")
 
-    def test_a_rate_too_small_for_the_annuity_is_refused(self):
-        # 1 + 1e-30 / 12 rounds to 1 in the 28-digit context: the annuity divides by zero.
-        d = detail()
-        view(d)["folder"]["tNC"] = 1e-30
-        with self.assertRaises(ParseError) as e:
-            parse_loan_detail(d)
-        self.assertEqual(e.exception.code, "INVALID_LOAN_DETAIL")
+    def test_a_tiny_rate_keeps_the_zero_rate_insurance(self):
+        # 12 000 / 48 = 250.00; interest at these rates cannot change a cent.
+        for rate in (0, 1e-24, 1e-30, 1e-56, 1e-100, 5e-324):
+            with self.subTest(rate=rate):
+                tiny = detail()
+                view(tiny)["folder"]["tNC"] = rate
+                self.assertEqual(
+                    parse_loan_detail(tiny)["insuranceMonthly"],
+                    Decimal("30.00"),
+                )
+
+    def test_tiny_rates_round_the_annuity_at_half_cent_boundaries(self):
+        for borrowed, duration, expected in (
+            (250.005, 1, "29.99"),
+            (750.015, 3, "29.99"),
+            (12000.23, 48, "30.00"),
+            (12000.24, 48, "29.99"),
+            (12000.25, 48, "29.99"),
+            (12250.245, 49, "29.99"),
+        ):
+            for rate in (0, 1e-24, 1e-30, 1e-56, 2e-100, 5e-324):
+                with self.subTest(borrowed=borrowed, duration=duration, rate=rate):
+                    d = detail()
+                    view(d)["offer"]["proposedAmount"]["value"] = borrowed
+                    view(d)["offer"]["duration"] = duration
+                    view(d)["folder"]["tNC"] = rate
+                    view(d)["folder"]["nextMonthlyPaymentAmount"]["value"] = 280
+
+                    self.assertEqual(parse_loan_detail(d)["insuranceMonthly"], Decimal(expected))
+
+    def test_annuity_rounding_at_an_exact_half_cent(self):
+        # At 12 % over two months, 100.50 gives an exact annuity of 10201/200 = 51.005.
+        for borrowed, expected in (
+            (100.49999999999999, "29.00"),
+            (100.50, "28.99"),
+            (100.50000000000001, "28.99"),
+        ):
+            with self.subTest(borrowed=borrowed):
+                d = detail()
+                view(d)["offer"]["proposedAmount"]["value"] = borrowed
+                view(d)["offer"]["duration"] = 2
+                view(d)["folder"]["tNC"] = 12
+                view(d)["folder"]["nextMonthlyPaymentAmount"]["value"] = 80
+
+                self.assertEqual(parse_loan_detail(d)["insuranceMonthly"], Decimal(expected))
 
     def test_wrong_envelope_raises(self):
         for payload in [None, [], "x", {}, {"personalLoanPrdSynthesisView": []}]:

@@ -293,6 +293,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   supply the IBAN and the description, product, or holder name for new accounts. Ambiguous or missing
   balances fail explicitly instead of selecting another account's balance or storing
   zero. Existing account names stay unchanged and can be edited in the account form.
+- **Caisse d'Epargne loan insurance rounding.** Personal and home loans now
+  retain the correct cent-rounded insurance at exact half-cent annuity boundaries
+  and extremely small positive nominal rates. Directed Decimal bounds certify
+  the rounded annuity, with an exact rational fallback when the bounds disagree.
+  This prevents an extra cent of insurance from reducing the capital repaid in
+  the amortization schedule.
 - **Trade Republic crypto is valued at its market price again.** The connector guessed the
   venue of each price subscription (`TRD0` for crypto). Trade Republic refused that guess, and
   every crypto position was valued at its average buy-in, which hid its whole gain or loss
