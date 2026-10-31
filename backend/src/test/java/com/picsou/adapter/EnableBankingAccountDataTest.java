@@ -17,11 +17,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
 
@@ -31,6 +34,7 @@ class EnableBankingAccountDataTest {
     @Mock EnableBankingConfigProvider configProvider;
 
     private final Map<String, String> responses = new ConcurrentHashMap<>();
+    private final List<String> requestedPaths = new CopyOnWriteArrayList<>();
     private HttpServer server;
     private EnableBankingBankConnector connector;
 
@@ -38,6 +42,7 @@ class EnableBankingAccountDataTest {
     void startProvider() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
+            requestedPaths.add(exchange.getRequestURI().getPath());
             String response = responses.get(exchange.getRequestURI().getPath());
             byte[] body = (response != null ? response : "{}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
@@ -265,10 +270,13 @@ class EnableBankingAccountDataTest {
         responses.put("/sessions/session", "{\"accounts\":[\"uid-ambiguous\",\"uid-operations\"]}");
         responses.put("/accounts/uid-ambiguous/details", "{}");
         responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations wallet\"}");
+        // Two entries remain unattributed for the unlabelled account and tie at the best type.
         String balances = """
             {"balances": [
               {"name": "Reserve wallet", "balance_type": "CLBD",
                "balance_amount": {"currency": "EUR", "amount": "41.75"}},
+              {"name": "Savings wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "12.00"}},
               {"name": "Operations wallet", "balance_type": "CLBD",
                "balance_amount": {"currency": "EUR", "amount": "903.20"}}
             ]}
@@ -280,5 +288,136 @@ class EnableBankingAccountDataTest {
             assertThat(account.externalId()).isEqualTo("uid-operations");
             assertThat(account.balance()).isEqualByComparingTo("903.20");
         });
+    }
+
+    // ─── Organization-wide balance lists: attribution through sibling labels ───
+
+    private void putOrganizationWideSession(String sharedBalances, String... uidsAndDetails) {
+        StringBuilder uids = new StringBuilder();
+        for (int i = 0; i < uidsAndDetails.length; i += 2) {
+            if (i > 0) uids.append(',');
+            uids.append('"').append(uidsAndDetails[i]).append('"');
+            responses.put("/accounts/" + uidsAndDetails[i] + "/details", uidsAndDetails[i + 1]);
+            responses.put("/accounts/" + uidsAndDetails[i] + "/balances", sharedBalances);
+        }
+        responses.put("/sessions/session", "{\"accounts\":[" + uids + "]}");
+    }
+
+    @Test
+    void fetchBalances_unlabelledAccountInOrganizationWideList_takesOnlyTheUnattributedEntry() {
+        putOrganizationWideSession("""
+            {"balances": [
+              {"name": "Operations wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "903.20"}},
+              {"name": "Reserve wallet", "balance_type": "XPCD",
+               "balance_amount": {"currency": "EUR", "amount": "41.75"}},
+              {"name": "Petty cash", "balance_type": "ITAV",
+               "balance_amount": {"currency": "EUR", "amount": "7.50"}}
+            ]}
+            """,
+            "uid-operations", "{\"details\":\"Operations wallet\"}",
+            "uid-reserve", "{\"details\":\"Reserve wallet\"}",
+            "uid-unlabelled", "{}");
+
+        var accounts = connector.fetchBalances("session");
+
+        assertThat(accounts).extracting(AccountData::externalId, a -> a.balance().toPlainString())
+            .containsExactly(
+                tuple("uid-operations", "903.20"),
+                tuple("uid-reserve", "41.75"),
+                tuple("uid-unlabelled", "7.50"));
+        assertThat(requestedPaths).containsExactlyInAnyOrder(
+            "/sessions/session",
+            "/accounts/uid-operations/balances", "/accounts/uid-operations/details",
+            "/accounts/uid-reserve/balances", "/accounts/uid-reserve/details",
+            "/accounts/uid-unlabelled/balances", "/accounts/uid-unlabelled/details");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"details\":\"Unmatched wallet\"}"})
+    void fetchBalances_noUnattributedEntryInOrganizationWideList_skipsOnlyThatAccount(String details) {
+        putOrganizationWideSession("""
+            {"balances": [
+              {"name": "Operations wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "903.20"}},
+              {"name": "Reserve wallet", "balance_type": "ITAV",
+               "balance_amount": {"currency": "EUR", "amount": "41.75"}}
+            ]}
+            """,
+            "uid-operations", "{\"details\":\"Operations wallet\"}",
+            "uid-reserve", "{\"details\":\"Reserve wallet\"}",
+            "uid-unattributed", details);
+
+        assertThat(connector.fetchBalances("session")).extracting(AccountData::externalId)
+            .containsExactly("uid-operations", "uid-reserve");
+    }
+
+    @Test
+    void fetchBalances_accountsSharingALabelInOrganizationWideList_failClosedWithoutBlockingOthers() {
+        putOrganizationWideSession("""
+            {"balances": [
+              {"name": "Joint wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "11.11"}},
+              {"name": " JOINT wallet ", "balance_type": "XPCD",
+               "balance_amount": {"currency": "EUR", "amount": "22.22"}},
+              {"name": "Operations wallet", "balance_type": "ITAV",
+               "balance_amount": {"currency": "EUR", "amount": "903.20"}}
+            ]}
+            """,
+            "uid-joint-a", "{\"details\":\"Joint wallet\"}",
+            "uid-joint-b", "{\"details\":\" joint WALLET\"}",
+            "uid-operations", "{\"details\":\"Operations wallet\"}");
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.externalId()).isEqualTo("uid-operations");
+            assertThat(account.balance()).isEqualByComparingTo("903.20");
+        });
+    }
+
+    @Test
+    void fetchBalances_onlyAccountsSharingALabelAndNothingElseToUse_rethrowsTheAttributionFailure() {
+        putOrganizationWideSession("""
+            {"balances": [
+              {"name": "Joint wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "11.11"}},
+              {"name": "Joint wallet", "balance_type": "XPCD",
+               "balance_amount": {"currency": "EUR", "amount": "22.22"}}
+            ]}
+            """,
+            "uid-joint-a", "{\"details\":\"Joint wallet\"}",
+            "uid-joint-b", "{\"details\":\"Joint wallet\"}");
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
+    }
+
+    @Test
+    void fetchBalances_multipleAccountsWithBalancesLabelledByKind_keepsEachAccountsOwnBalance() {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-current\",\"uid-savings\"]}");
+        responses.put("/accounts/uid-current/details", "{\"details\":\"Everyday account\"}");
+        responses.put("/accounts/uid-savings/details", "{\"details\":\"Rainy day savings\"}");
+        responses.put("/accounts/uid-current/balances", """
+            {"balances": [
+              {"name": "Booked balance", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "120.00"}},
+              {"name": "Available balance", "balance_type": "ITAV",
+               "balance_amount": {"currency": "EUR", "amount": "150.00"}}
+            ]}
+            """);
+        responses.put("/accounts/uid-savings/balances", """
+            {"balances": [
+              {"name": "Booked balance", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "5000.00"}},
+              {"name": "Available balance", "balance_type": "ITAV",
+               "balance_amount": {"currency": "EUR", "amount": "5000.00"}}
+            ]}
+            """);
+
+        assertThat(connector.fetchBalances("session"))
+            .extracting(AccountData::externalId, a -> a.balance().toPlainString())
+            .containsExactly(
+                tuple("uid-current", "120.00"),
+                tuple("uid-savings", "5000.00"));
     }
 }

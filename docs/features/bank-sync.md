@@ -1,6 +1,6 @@
 # Feature: Bank Sync
 
-> Last updated: 2026-10-31 (Enable Banking flat account details and account-specific balance selection)
+> Last updated: 2026-10-31 (Enable Banking flat account details and sibling-aware balance selection)
 
 > **Status (1.0.0).** Enable Banking is the only enabled provider. The Powens
 > adapter ships in the codebase but is **experimental and untested** —
@@ -73,12 +73,21 @@ generic `Account` label can be renamed in the account form. Balances and IBANs r
 through the usual upsert path, including IBAN-first matching after a uid rotation.
 
 Some ASPSPs, including the Qonto response shape reported in issue #317, return the
-organization's balances for every account uid. When balance names match the account's
-`details` field, the adapter restricts selection to those entries first. It trims
-whitespace and compares names without case sensitivity. Holder and product names are
-not matching keys because several accounts can share them.
+organization's balances for every account uid. The adapter fetches each uid's balances
+and details once, then attributes entries by name using the labels of all accounts in the
+session. It trims whitespace and compares names without case sensitivity. Holder and
+product names are not matching keys because several accounts can share them.
 
-Within that set, the adapter prefers the following
+- **Own label.** When an account's `details` label is unique in the session and some
+  entries carry that name, only those entries are candidates.
+- **No own label.** When the label is blank or matches no entry, entries named after
+  another session account's label are dropped. An unlabelled account can only take an
+  entry that no sibling can claim. If none remains, the account is skipped.
+- **Shared label.** When two accounts have the same label, neither can tell which entries
+  are its own, so entries with that name and those named after other siblings are
+  dropped. Both accounts are skipped unless an unattributed entry remains.
+
+Within the candidates, the adapter prefers the following
 [ISO balance types](https://enablebanking.com/docs/api/reference/#balancestatus) in order:
 
 1. `CLBD`, closing booked.
@@ -87,15 +96,18 @@ Within that set, the adapter prefers the following
 4. `ITAV`, interim available.
 5. `CLAV`, closing available.
 
-Other or missing types have lower priority. When no balance name matches, the adapter
-uses the same type ordering across the response. This preserves single-account banks
-that label balances by kind, such as `Booked balance`, rather than by account.
+Other or missing types have lower priority. A single-account bank that labels balances
+by kind, such as `Booked balance`, keeps every entry, because no sibling claims them.
 Several entries at the best priority are ambiguous and cause a `SyncException`, even
 when their names match. The adapter never adds balances together or chooses an arbitrary
 entry from a tie. An absent balance, null entry, or missing selected amount also fails
 explicitly. A malformed numeric amount follows the existing per-account failure path.
 These failures leave that account unchanged, allow other accounts to sync, and propagate
 when every account fails. A genuine zero remains a valid balance.
+
+Residual limit: sibling labels only exist for accounts linked in the same session. A
+session with a single linked uid cannot detect an organization-wide list, so an
+unlabelled or unmatched account there still ranks the whole list by type.
 
 The selected amount supplies the currency. If it omits the currency, the adapter uses
 the account-details currency, then `EUR`.
