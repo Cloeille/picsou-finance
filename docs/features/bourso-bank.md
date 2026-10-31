@@ -566,7 +566,9 @@ fund) becomes `cashBalance`. Any other row shape is refused.
 
 The lines must reconcile with the valuation within a cent per line (floor 0.05 €), in the sidecar
 (`lines_close`) and again in `BoursoSyncService` (`linesClose`, counting the euro fund as a line).
-Each support amount is rounded to the cent, so that is all the rounding can add up to. The 0.1 %
+Each support amount is rounded to the cent, so that is all the rounding can add up to. The backend
+counts the positions it received, before rows of one fund merge into a single holding and zero-unit
+rows are dropped, so its allowance matches the sidecar's row count. The 0.1 %
 tolerance of the other envelopes is deliberately not used: it scales with the valuation, so a
 support missing from a large contract would pass inside it. A position's ticker is, in order: the
 quote-link symbol (dropped if over 30 characters, the backend's ticker limit), the ISIN, the label

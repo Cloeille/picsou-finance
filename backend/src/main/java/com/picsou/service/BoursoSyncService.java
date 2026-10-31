@@ -405,9 +405,11 @@ public class BoursoSyncService {
                     .map(PreparedPosition::currentValueEur)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
                 BigDecimal expectedValue = account.balanceEur().subtract(cashBalance);
-                // The euro fund line feeds the cash leg, so it counts as one more line.
+                // Count the rows as the sidecar did, before merging and dropping: each
+                // one was rounded to the cent on its own. The euro fund line feeds the
+                // cash leg, so it counts as one more line.
                 boolean reconciled = account.type() == AccountType.ASSURANCE_VIE
-                    ? linesClose(positionValue, expectedValue, positions.size() + 1)
+                    ? linesClose(positionValue, expectedValue, account.positions().size() + 1)
                     : moneyClose(positionValue, expectedValue);
                 if (!reconciled) {
                     throw error(

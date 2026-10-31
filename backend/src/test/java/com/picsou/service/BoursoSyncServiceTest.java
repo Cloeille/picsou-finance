@@ -32,6 +32,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
@@ -369,6 +370,27 @@ class BoursoSyncServiceTest {
         assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).saveAll(any());
+    }
+
+    /**
+     * Rows of one fund merge into a single holding, but each row was rounded to
+     * the cent on its own: the allowance must count the rows the sidecar
+     * reconciled, not the holdings left after the merge.
+     */
+    @Test
+    void queueSync_acceptsTheRoundingOfAssuranceVieRowsThatMergeIntoOneHolding() {
+        BoursoPort.Position[] rows = new BoursoPort.Position[12];
+        // 1 unit at a 1000.005 NAV, shown as 1000.01: 12 rows overshoot by 0.06.
+        Arrays.fill(rows, position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
+            "1", "1000.00", "1000.005", "1000.01", "0.01"));
+        arrangeCommittableSync(account("bourso_0a1b2c3d4e5f60718293a4b5c6d7e8f9", "Contrat N° 12345678",
+            AccountType.ASSURANCE_VIE, "12000.06", "0.00", rows));
+
+        service.queueSync(7L);
+
+        verify(holdingRepository).saveAll(holdingsCaptor.capture());
+        assertThat(holdingsCaptor.getValue()).singleElement()
+            .satisfies(holding -> assertThat(holding.getQuantity()).isEqualByComparingTo("12"));
     }
 
     @Test
