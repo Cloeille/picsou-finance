@@ -758,6 +758,12 @@ async def _collect_plans(client: httpx.AsyncClient) -> list[PlanPayload]:
             "positions": positions,
             "snapshotComplete": True,
         })
+    # Two names that differ only by accents or punctuation, or past the 100-character
+    # cut, still give one id. Say which plans collide rather than leave the backend
+    # refusing every sync with "duplicate plans".
+    duplicates = sorted(i for i, n in Counter(p["externalId"] for p in payloads).items() if n > 1)
+    if duplicates:
+        raise UpstreamError("UPSTREAM_FORMAT_CHANGED", f"Several plans share the id {duplicates[0]}")
     return [PlanPayload.model_validate(payload) for payload in payloads]
 
 
