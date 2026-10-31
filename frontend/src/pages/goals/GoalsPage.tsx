@@ -592,8 +592,8 @@ function GoalCard({ goal, onEdit, onDelete, onCalendar, onOpenDetail }: GoalCard
       <CardContent className="p-4">
         {/* Header: name + status + actions */}
         <div className="flex items-start justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="cn-font-heading truncate text-sm font-semibold text-foreground">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="cn-font-heading line-clamp-2 break-words text-sm font-semibold text-foreground">
               {goal.name}
             </span>
             {statusBadge}

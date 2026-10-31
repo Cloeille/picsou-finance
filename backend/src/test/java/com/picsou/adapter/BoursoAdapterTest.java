@@ -90,6 +90,27 @@ class BoursoAdapterTest {
     }
 
     @Test
+    void fetchAccounts_mapsTheValuationLineCountOfAnAssuranceVie() {
+        BoursoAdapter adapter = adapterReturning(HttpStatus.OK, """
+            [{
+              "externalId":"bourso_0a1b2c3d4e5f60718293a4b5c6d7e8f9",
+              "name":"Contrat N° 12345678",
+              "type":"ASSURANCE_VIE",
+              "balanceEur":12000.06,
+              "cashBalance":12000.12,
+              "positions":[],
+              "valuationLineCount":12,
+              "snapshotComplete":true
+            }]
+            """);
+
+        var accounts = adapter.fetchAccounts("encrypted-cookies");
+
+        assertThat(accounts).singleElement()
+            .satisfies(account -> assertThat(account.valuationLineCount()).isEqualTo(12));
+    }
+
+    @Test
     void fetchAccounts_preservesAStableSidecarErrorCode() {
         BoursoAdapter adapter = adapterReturning(
             HttpStatus.BAD_GATEWAY,
