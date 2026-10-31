@@ -1,6 +1,6 @@
 # Feature: Add Account Modal
 
-> Last updated: 2026-08-13
+> Last updated: 2026-10-07
 
 ## Context
 
@@ -10,15 +10,17 @@ Creating a new account or connecting a sync provider required two separate entry
 
 The `AddAccountModal` is a state-machine dialog with two levels:
 
-1. **Selector screen** — 6 buttons in a grid (Banks, Exchanges, Wallets, Trade Republic, Finary, Manual). Each sync button enters its wizard; the Manual button opens the existing `AccountForm` in a separate dialog.
+1. **Selector screen** — buttons in a grid (Banks, Exchanges, Wallets, Trade Republic, BoursoBank, Bourse Direct, DEGIRO, Interactive Brokers, SimpleFIN, Amundi, Finary, Property, Manual). Each sync button enters its wizard or panel; the Manual button opens the existing `AccountForm` in a separate dialog.
 2. **Wizard screens** — Each sync type has its own compact wizard with a back button. Each wizard manages its own loading and error state inline.
 
 ### Key files
 
-- `frontend/src/components/shared/AddAccountModal.tsx` — main component (contains all sub-wizards)
+- `frontend/src/components/shared/AddAccountModal.tsx` — main component (contains all sub-wizards; `SOURCES` array drives the selector grid)
 - `frontend/src/pages/accounts/AccountsPage.tsx` — wires `AddAccountModal` for create, keeps `AccountForm` for edit
 - `frontend/src/features/sync/hooks.ts` — all sync mutation hooks reused by the wizards
 - `frontend/src/components/ui/input-otp.tsx` — shadcn InputOTP component (installed for TR PIN and verification code)
+- `frontend/src/components/sync/IbkrPanel.tsx` — extracted IBKR connection panel (source of truth shared with `IbkrTab`)
+- `frontend/src/components/sync/SimplefinPanel.tsx` — SimpleFIN connection panel, shared with `SimplefinTab` the same way
 
 ### Flow
 
@@ -31,6 +33,14 @@ AccountsPage → "Add account" button
        │    └─ pick type → API key + secret → add → success
        ├─ Wallets → WalletWizard
        │    └─ pick chain → address + label → add → success
+       ├─ DEGIRO → DegiroPanel (onConnected → handleDone)
+       ├─ Interactive Brokers → IbkrPanel (onConnected → handleDone)
+       ├─ SimpleFIN → SimplefinPanel (onConnected → handleDone)
+       ├─ Amundi → AmundiPanel (onConnected → handleDone)
+       ├─ Fortuneo → FortuneoPanel (onConnected → handleDone)
+       ├─ American Express → AmexPanel (onConnected → handleDone)
+       ├─ CORUM → CorumPanel (onConnected → handleDone)
+       ├─ Sofidy → SofidyPanel (onConnected → handleDone)
        ├─ Trade Republic → TradeRepublicWizard
        │    └─ phone + PIN (InputOTP 4-digit) → verification code (InputOTP 4-digit) → success
        ├─ Finary → FinaryWizard (3-step)
@@ -113,6 +123,19 @@ four locales, and the partial maps are gone.
 | Per-wizard error state (no global overlay) | Global `isPending` unmounts the wizard, losing error state (React no-op on unmounted setter) | Global `onPending` callback |
 | `mutation.isPending` on buttons for loading | Keeps the wizard mounted throughout; spinner is inline on the submit button | Parent-level overlay |
 
+## Account types
+
+`ASSURANCE_VIE` and `SCPI` joined the picker on 2026-08-13 for the investment pyramid
+(see [wealth-pyramid.md](./wealth-pyramid.md)). Both need an entry in `ACCOUNT_TYPES`,
+in `AccountForm`'s zod enum, in `AccountsPage`'s `ASSET_FILTER_MAP`/`TYPE_TO_GROUP`, and
+an `accountTypes.*` label in all four locales — `src/lib/constants.test.ts` fails if
+`ACCOUNT_TYPES` misses one, and the locale parity test fails if a label does.
+
+`PER` (individual retirement plan, V112) followed the same path. It is neither
+`EMPLOYEE_SAVINGS`, the employer-sponsored family the Amundi sync fills, nor
+`ASSURANCE_VIE`: the money is locked until retirement. It holds positions like an
+assurance-vie and carries an opening date.
+
 ## Gotchas / Pitfalls
 
 - **Never replace wizard content with a parent-level overlay during mutations.** When the wizard unmounts and remounts after an error, any `setError(...)` called on the old instance is silently ignored by React 18. Each wizard must stay mounted while its mutation is in flight.
@@ -131,7 +154,7 @@ four locales, and the partial maps are gone.
 
 - `frontend/src/lib/utils.test.ts` — `formatCurrency` regression case: an invalid code does not throw
   and the raw code appears in the output (issue #9).
-- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases for initiation failure staying on credentials and TAN completion failure staying on the code step.
+- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases; Bourse Direct, Amundi, IBKR, SimpleFIN, Amex, CORUM, and Sofidy wizard flow tests (mock panel → `onOpenChange(false)`).
 - `backend/src/test/java/com/picsou/validation/CurrencyValidatorTest.java` — accepts valid ISO 4217
   codes, rejects unknown ones, leaves null/blank to `@NotBlank`.
 
@@ -139,3 +162,7 @@ four locales, and the partial maps are gone.
 
 - i18n keys: `addAccount.*`, sync keys reused from `sync.*` namespace in `en.json` / `fr.json`
 - Related: [Finary import](./finary-import.md), [Trade Republic](./trade-republic.md), [Bank sync](./bank-sync.md), [Crypto tracking](./crypto-tracking.md)
+
+### Sync all modal parity
+
+`SyncAllModal` lists the same sidecar connectors as the selector, including Amex, CORUM and Sofidy. A session-based row is shown when its session is live or the member still has accounts whose `provider` matches. CORUM and Sofidy match the `provider` the SCPI reconciler stamps on the accounts it creates (`CORUM`, `Sofidy`), and also any SCPI account carrying their fund code (`scpi.corumFundCode` / `scpi.sofidyFundCode`), because an adopted manual SCPI keeps the provider the user typed. An expired session therefore stays listed; an inactive one routes to its Sync-page tab (`amex`/`corum`/`sofidy`) for re-authentication.

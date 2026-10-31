@@ -64,7 +64,7 @@ public class TransactionRowMapper {
         }
 
         InstrumentFieldResolver.ResolvedInstrument instrument =
-            instrumentFieldResolver.resolve(cell(row, mapping.tickerOrIsin()), cell(row, mapping.name()), side);
+            instrumentFieldResolver.resolve(cell(row, mapping.tickerOrIsin()), cell(row, mapping.name()));
         if (instrument == null) {
             throw new IllegalArgumentException("Missing ticker/ISIN");
         }

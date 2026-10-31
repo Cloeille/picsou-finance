@@ -28,6 +28,10 @@ public class BoursoSession extends AuditableEntity {
     @Column(name = "session_state", nullable = false, columnDefinition = "TEXT")
     private String sessionState;
 
+    @Column(name = "encrypted_credentials", columnDefinition = "TEXT")
+    @ToString.Exclude
+    private String encryptedCredentials;
+
     @Column(name = "last_validated_at")
     private Instant lastValidatedAt;
 
@@ -62,6 +66,16 @@ public class BoursoSession extends AuditableEntity {
             .active(true)
             .syncStatus(BoursoSyncStatus.IDLE)
             .build();
+    }
+
+    public void setEncryptedCredentials(String encryptedCredentials) {
+        this.encryptedCredentials = encryptedCredentials;
+    }
+
+    public void updateSessionState(String encryptedState, Instant validatedAt) {
+        this.sessionState = Objects.requireNonNull(encryptedState, "encryptedState");
+        this.lastValidatedAt = Objects.requireNonNull(validatedAt, "validatedAt");
+        this.active = true;
     }
 
     public void markQueued() {

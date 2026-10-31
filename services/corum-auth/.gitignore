@@ -1,0 +1,7 @@
+# One-off manual probe against the live CORUM client space. It drives the real
+# login and prints the real portfolio, so it does not belong in the repository
+# and must never be committed.
+e2e_probe.py
+# Local virtualenv for running the sidecar's tests/probe outside Docker.
+.venv/
+__pycache__/

@@ -68,9 +68,13 @@ public class LoanAmortizationService {
         int totalInstallments = computeTotalInstallments(startDate, endDate);
         BigDecimal monthlyRate = annualRate.divide(TWELVE, MC);
 
+        // monthlyPayment is the whole installment, insurance included: the schedule below takes
+        // the insurance back out of it. A user-entered payment already includes it; a computed
+        // annuity does not, so it is added here, or every installment under-amortised the capital
+        // by the insurance and the last one absorbed the shortfall.
         BigDecimal monthlyPayment = debt.getMonthlyPayment() != null
             ? debt.getMonthlyPayment()
-            : computeMonthlyPayment(principal, monthlyRate, totalInstallments);
+            : computeMonthlyPayment(principal, monthlyRate, totalInstallments).add(insurance);
 
         // Build full schedule from start
         List<LoanInstallment> schedule = new ArrayList<>(Math.max(totalInstallments, 0));
@@ -172,11 +176,40 @@ public class LoanAmortizationService {
     }
 
     /**
+     * Returns the stored monthly payment or derives it from the standard
+     * amortization formula. Does NOT run the full schedule computation.
+     */
+    public BigDecimal resolveMonthlyPayment(Debt debt) {
+        if (debt.getMonthlyPayment() != null) {
+            return debt.getMonthlyPayment().setScale(2, RoundingMode.HALF_UP);
+        }
+        // Cannot compute without valid dates — treat as unconfigured
+        if (debt.getStartDate() == null || debt.getEndDate() == null
+                || !debt.getEndDate().isAfter(debt.getStartDate())) {
+            return null;
+        }
+        BigDecimal principal = nz(debt.getBorrowedAmount());
+        BigDecimal monthlyRate = nz(debt.getInterestRate()).divide(TWELVE, MC);
+        int n = computeTotalInstallments(debt.getStartDate(), debt.getEndDate());
+        return computeMonthlyPayment(principal, monthlyRate, n).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
      * Capital restant dû à la date donnée. Used by AccountService.liveBalanceEur for LOAN accounts.
      * Returns a positive value; the caller is expected to negate for net-worth purposes.
      */
     public BigDecimal computeRemainingBalance(Debt debt, LocalDate asOf) {
         return compute(debt, asOf).summary().remainingBalance();
+    }
+
+    /**
+     * Whether the debt carries enough to amortise: a start and an end date, in that order.
+     * Without them the schedule is empty and {@link #computeRemainingBalance} can only answer
+     * the borrowed amount, which is not what the user owes; callers fall back to the balance
+     * stored on the account instead.
+     */
+    public static boolean hasSchedule(Debt debt) {
+        return computeTotalInstallments(debt.getStartDate(), debt.getEndDate()) > 0;
     }
 
     private static BigDecimal nz(BigDecimal value) {

@@ -2,22 +2,22 @@ import { api } from '@/lib/api-client'
 
 export interface AccountPoint {
   total: number
-  invested: number
-  pnl: number
+  invested: number | null
+  pnl: number | null
 }
 
 export interface NetWorthPoint {
   date: string
   total: number
-  invested: number
-  pnl: number
+  invested: number | null
+  pnl: number | null
   accounts?: Record<string, AccountPoint>
 }
 
 export interface PnlData {
   total: number
-  invested: number
-  pnl: number
+  invested: number | null
+  pnl: number | null
   pnlPercent: number | null
 }
 

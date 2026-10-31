@@ -1,6 +1,6 @@
 # Feature: BoursoBank sync
 
-> Last updated: 2026-08-13
+> Last updated: 2026-10-04
 > Status: ✅ **Validated end-to-end against a live BoursoBank account**
 > (2026-08-11) — login, dashboard, PEA with 9 positions, reconciled exactly.
 > See "Verification boundaries" for what that run did and did not exercise.
@@ -31,9 +31,9 @@ why.
 
 | Imported | Not imported |
 |---|---|
-| Current accounts → `CHECKING` | Loans (`data-summary-loan`) |
+| Current accounts → `CHECKING` | Loans (`data-summary-loan`), assurance-vie and insurance, `Bourso Protect` (`data-summary-insurance` / `data-summary-assurance`), accounts held for a minor (`data-summary-child`, "Comptes de mes enfants") |
 | Livrets → `LIVRET_A`, `LDDS`, `LEP`, `LIVRET_JEUNE`, `PEL`, `CEL`, else `SAVINGS` | Accounts BoursoBank aggregates from **other banks** |
-| PEA, PEA-PME → `PEA` | Transactions |
+| PEA, PEA-PME → `PEA` | Securities-account transactions |
 | Compte-titres → `COMPTE_TITRES`, with positions | Orders, statements |
 
 **PEA-PME folds into `PEA`**: Picsou has no separate envelope for it, and the
@@ -53,18 +53,59 @@ connection with worse freshness, so anything whose sub-label is not BoursoBank i
 skipped — and *counted*, then logged, because a connector that quietly drops
 accounts is indistinguishable from one that is broken.
 
-**Transactions are out of scope**, the same exclusion Bourse Direct, Amundi and
-DEGIRO make. BoursoBank's CSV export moved behind a CSRF-protected POST in July
-2026 and its columns shift depending on whether anything in the range is tagged;
-it is a connector of its own, not a free extra. The generic CSV importer
-([csv-transaction-import.md](./csv-transaction-import.md)) still accepts
-BoursoBank's own export.
+**Current-account and LEP transactions** are fetched from each dashboard card's
+own `/mouvements` page, for the last 90 days. The sidecar preserves the card's
+exact URL and follows continuation tokens, capped at 20 pages. Booked rows carry
+their provider ID, date, signed amount and label; securities accounts remain
+holdings-only. The HTML selectors and `/rib` IBAN route follow the public Woob
+Boursorama connector. New operation fixtures are explicitly synthetic, not a
+live BoursoBank capture. The CSV importer still accepts BoursoBank's own export.
 
-⚠️ **Overlap with Enable Banking.** A user who also syncs BoursoBank through
-Enable Banking will see their current accounts twice, as two distinct `Account`
-rows with different `provider` and `external_account_id`. Picsou does not merge
-accounts across providers — `V77__merge_duplicate_sync_accounts.sql` only merges
-within Enable Banking — so the user soft-deletes one side.
+A failed operation read does not discard balances or holdings: the response
+carries `TRANSACTIONS_UNAVAILABLE`; hitting the page cap carries
+`TRANSACTIONS_INCOMPLETE`. These fields are sidecar diagnostics only: the backend
+currently ignores them and does not display a warning in the sync result. The
+sidecar also logs a fixed warning code without bank URLs or account data.
+Missing optional IBAN metadata must not be treated as
+proof that a legacy aggregator account can be merged by its name.
+
+**Overlap with Enable Banking.** The sidecar passes an optional verified IBAN.
+The backend first matches the sidecar external ID, then the IBAN on an active
+account in the explicit BoursoBank/Boursorama/Boursorama Banque provider family
+owned by the same member. It never matches account names or unrelated providers,
+and respects soft-deletion guards. Without a matching IBAN or
+external ID, existing separate account rows are not automatically merged.
+
+`SharedSidecarTransactionImportService` is reused by Bourso and Revolut. It
+checks the existing transaction IDs and the bounded provider-prefixed V88 key.
+Legacy overlap is a strict multiset comparison of date, signed amount and
+case/whitespace-normalized description. Each old row can match only one incoming
+row; fresh rows with distinct provider IDs remain distinct. Historical IDs and
+manual categories are preserved. Different labels cannot safely be inferred as
+the same transaction, so live legacy reconciliation still needs verification.
+Comparisons use the persisted 255-codepoint description and PostgreSQL's
+eight-decimal amount precision (`HALF_UP`), so database round-trips do not create
+new operations. Enable Banking references may be reused: identical rows retain
+their snapshot multiplicity and consume stored rows one-for-one on replay.
+Without a distinct source identifier, identical page overlap cannot be
+distinguished from two real identical purchases; the importer preserves the
+provider's multiplicity rather than silently dropping an operation.
+The label `VIR` alone does not classify an own-account transfer: salaries and
+external payments remain available to ordinary Budget categorization rules.
+
+`SidecarBudgetPostgresTest` exercises the real PostgreSQL repositories and
+Flyway migrations with explicitly synthetic payloads. It verifies strict
+multiset overlap, stable historical IDs/manual categories, duplicate-free
+re-syncs, member/provider-scoped IBAN matching, soft-delete guards, and the
+persisted transactions read by Budget and Cashflow in a frozen pay cycle.
+This proves the storage path, not the live Bourso HTML or equivalence of
+labels from two providers.
+
+Before declaring the live acceptance complete, a maintainer with an active
+Bourso current account and LEP must compare recent operations with the bank,
+sync twice, check the current Budget cycle, and inspect any overlap with
+legacy aggregator transactions. Different provider labels remain an explicit
+reconciliation risk; do not infer equality from date and amount alone.
 
 ## How it works
 
@@ -130,8 +171,70 @@ than falling back to DOM order, which is shuffled.
 
 `GET /dashboard/liste-comptes?rumroute=dashboard.new_accounts&_hinclude=1`
 returns HTML grouped into `data-summary-bank` / `-savings` / `-trading` /
-`-loan`. Balances come out of each card's `aria-label` (`Solde : 11 010,00 €`),
-negatives use U+2212 rather than an ASCII hyphen.
+`-loan` / `-insurance` / `-assurance` / `-child`. Balances come out of each card's `aria-label` (`Solde : 11 010,00 €`),
+negatives use U+2212 rather than an ASCII hyphen. Insurance sections and the
+children's section ("Comptes de mes enfants", accounts the holder manages for a
+minor, which belong to the child rather than to the holder's net worth) are
+recognized so their cards can be skipped explicitly, the same way loans are:
+an unparsed card inside a known section still fails the sync, while a card in
+an unknown section keeps failing it too.
+
+Every text field goes through `text_value()`, which strips tags, then decodes
+HTML entities once, then collapses whitespace. BoursoBank escapes apostrophes
+(`&#039;`) and ampersands in card labels; without the decode, `LIVRET D'EPARGNE`
+was stored and displayed as `LIVRET D&#039;EPARGNE`. Existing rows need no
+migration: `upsertAccount` rewrites `account.name` on every sync, so the next
+sync cleans them.
+
+#### Several identities on one access
+
+An access that holds a personal and a business identity (a sole trader, for
+instance) does not get the dashboard straight away
+([#153](https://github.com/Cloeille/picsou-finance/issues/153)). The dashboard
+request answers `302 → /connexion/lister-identites`, a page linking each identity
+to `/connexion/changer-identite/{token}`. Following the personal link chains
+through `/feature-redirect?featureId=customer.dashboard_home` back to the normal
+dashboard.
+
+The sidecar does exactly that, once per `/accounts` call:
+
+1. read the selector and pick the personal identity (`choose_personal_identity`);
+2. follow its switch link, redirects included;
+3. request the dashboard again, then re-read `BRS_CONFIG` from the home page, in
+   case `USER_HASH` differs per identity.
+
+A selector served a second time after the switch fails with
+`UPSTREAM_FORMAT_CHANGED` instead of switching again. The switched identity is not
+written back to the stored session, so every sync switches anew.
+
+**How the personal identity is recognised is an assumption.** The page has only
+been described in the issue, never captured. Each identity is assumed to be an
+`<a href="/connexion/changer-identite/…">` whose text is its label. A label
+carrying a business marker (`EI`, `Pro`, `Professionnel`, `Entreprise`,
+`Entrepreneur`, `SARL`, `SAS`, `SIRET`…) is business; the personal identity is
+the only one without. Markers match whole words only, inflected forms included
+(`Professionnelle`, `Sociétés`, `Libéraux`…), so a personal name such as
+"Dominique Liberali" or "Camille Partisan" is not read as `Libéral` or `Artisan`. The reporter's page showed exactly that shape: one
+unmarked personal identity beside one sole-trader identity.
+
+Everything else is refused rather than guessed, with
+`IDENTITY_SELECTION_UNSUPPORTED`: a selector holding only business identities,
+two or more unmarked identities, or a lone unmarked one with no business identity
+beside it. A business marker missing from the list therefore fails safe: the
+business identity stays unmarked beside the personal one, and the choice is
+refused. The opposite mistake is not safe. A marker matching a personal label
+can leave the business identity as the only unmarked one and pick it, which is
+why markers are whole words. A switch link written outside a plain
+`<a href>`, a selector with no link at all, or a token that could leave the
+switch path fails with `UPSTREAM_FORMAT_CHANGED`, so an identity cannot drop out
+of the choice unnoticed.
+
+The token is per-session and never logged, persisted or put in an error message.
+That is also why the `httpx` logger is held at `WARNING`: at `INFO` it prints
+every request URL, token included.
+
+Business identities are not synced. Supporting them means letting the user pick an
+identity, which is a follow-up.
 
 Securities accounts then get:
 
@@ -160,6 +263,43 @@ the broker's own `valuation` to the cent.
 every sync rather than persisted, so a session blob can never go stale against
 them.
 
+#### Single-fund contracts
+
+Some investment contracts are invested in exactly one fund and have no cash
+pocket. Their trading summary has neither `cash`/`valuation`/`total` nor a
+`positions` list ([#154](https://github.com/Cloeille/picsou-finance/issues/154)):
+
+```text
+[ {account:{name, currency, balance, gainLoss, …}},
+  {fund:{isin, label, quantity, priceDate, price, …}} ]
+```
+
+A `fund` section is what identifies this shape. `balance` does not, because PEA
+and CTO accounts carry one too (at zero). The contract is read as fully invested:
+
+- `totalEur = balance`, `cashEur = 0`, so the backend's
+  `Σ lines ≈ total − cash` check still runs and holds;
+- the fund becomes one position valued at `balance`, with its ISIN as the
+  symbol, because a fund has no BoursoBank symbol to fall back on, and
+  `account.gainLoss` as its P&L;
+- `quantity × price` is **not** reconciled against the balance: the price is
+  dated `priceDate`, and a lagging NAV would refuse a correct contract.
+
+Refusals:
+
+- `UPSTREAM_FORMAT_CHANGED`: a payload mixing both shapes, zero or several `fund`
+  nodes, or a fund with a missing or malformed ISIN, label or quantity. Mixing
+  means a `cash`, `valuation` or `total` key beside the fund, even a null one, or
+  a non-empty `positions` list. An empty `positions` section is tolerated, as it
+  is for PEA and CTO accounts.
+- `INVALID_DATA`: a negative quantity or balance, or a `balance`, account or
+  `gainLoss` currency other than EUR. A foreign gain would corrupt the cost basis
+  the backend derives as `value − gain`. A node without a currency is read as EUR.
+- `PORTFOLIO_INCOMPLETE`: a balance left with zero units, or units with a zero
+  balance. The line is valued at the balance, so the backend's reconciliation
+  cannot catch either. An emptied contract (zero balance, zero units) syncs with
+  no line.
+
 ### Fail-closed rules
 
 A partial read must never overwrite a correct portfolio. In order of how likely
@@ -179,6 +319,11 @@ each is to bite:
   currency is carried through as `quoteCurrency`, but a cost basis in a foreign
   currency is dropped to null rather than recorded as EUR: it would report a gain
   the size of the FX spread.
+- A position whose `gainLoss` is in anything but EUR → `INVALID_DATA`. It is not
+  dropped like a foreign cost basis: the backend derives a line's cost basis as
+  `amount − gainLoss` first (`AccountService`), and as a fallback when
+  `buyingPrice` is missing (`BoursoSyncService`), where a null gain would fall the
+  whole account's invested amount back to its balance. A gain with no currency is read as EUR.
 - Positions on a cash account, a missing cash balance on a securities account,
   duplicate accounts, an unsupported type → `INVALID_DATA`.
 
@@ -226,7 +371,11 @@ short transaction then replaces every account's holdings and writes the daily
 snapshot. The 08:00 scheduler calls `resyncIfSessionActive` through the same gates.
 
 Only `SESSION_EXPIRED` deactivates the session — a transient failure leaves a
-usable one so the scheduler simply retries.
+usable one so the scheduler simply retries. If encrypted customer credentials
+were saved after a successful login, an expired session triggers one unattended
+re-login; it is accepted only when the bank does not require MFA. Invalid
+credentials are erased to avoid repeatedly submitting a changed password, and
+disconnect removes saved credentials with the session.
 
 ## Key files
 
@@ -271,6 +420,10 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Gotchas / Pitfalls
 
+- **The sidecar requires `APP_SIDECAR_API_KEY`.** It refuses to start without
+  it and answers every route except `/health` with a 401 `Picsou-Sidecar-Key`
+  challenge unless the backend presents it. That 401 is not a bank rejection;
+  see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
 - **The pad digit is an image, not text.** `<button data-matrix-key="XYZ">` wraps
   an `<img src="data:image/svg+xml;base64,…">`. Do not "simplify" the digest
   lookup back into reading the button's text — there is no text.
@@ -302,6 +455,16 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
   shipped enabled. The migration header says so.
 - **The error-code CHECK constraint must track `BoursoErrorCode`.** A code
   missing from it turns a diagnosable failure into a 500 at write time.
+- **A fraud-education interstitial is not a wrong password.** After a 302 login
+  POST, BoursoBank can park the session on
+  `/infos-profil/pedagogie-fraude/…` until the holder ticks the notice on the
+  real website. The sidecar reports `FRAUD_ACK_REQUIRED`, never auto-ticks the
+  notice, and the frontend tells the user to validate it and retry.
+- **A multi-identity access is redirected away from the dashboard.** The 302 to
+  `/connexion/lister-identites` is not the dashboard and not an expired session;
+  see "Several identities on one access". Never follow a business identity's
+  switch link to "get past" the selector: that would sync a business's accounts
+  as personal wealth.
 - **`AccountPayload.type` is `accounts_parser.AccountKind`, not its own list.**
   A kind the parser emits but the contract omits is not a type quibble: pydantic
   rejects that account and `_collect_accounts` fails the *entire* sync, so one
@@ -313,15 +476,19 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Verification boundaries
 
-`services/bourso-auth` — 80 tests, run inside the built image in CI: pad decoding
+`services/bourso-auth` — 130 tests, run inside the built image in CI: pad decoding
 against the real SVGs (and its refusal on an unknown one), password encoding, the
 dashboard parsed from a real captured page including the third-party filter and
 the loan exclusion, a card that stops parsing failing the sync, reconciliation
 accepted and refused either side of the tolerance, the ISIN read off the position and its
 absent/malformed fallbacks, the account and positions found in either section,
-cookie round-tripping with per-cookie domains, pending TTL, and the HTTP contract.
+the single-fund contract and each of its refusals, the identity selector (personal
+identity chosen, inflected business markers recognised, a marker inside a
+personal name ignored, business-only and ambiguous selectors refused, a selector that
+comes back after the switch refused, the token kept out of the logs), cookie
+round-tripping with per-cookie domains, pending TTL, and the HTTP contract.
 
-Backend — `BoursoAdapterTest` (16), `BoursoSyncServiceTest` (23),
+Backend — `BoursoAdapterTest` (18), `BoursoSyncServiceTest` (29),
 `BoursoControllerTest` (11), `BoursoAdapterWiringTest`, `BoursoSyncRecoveryTest`,
 plus the BoursoBank cases added to `AccountServiceTest`,
 `AccountConnectionServiceTest` and `IntegrationsServiceTest`.
@@ -357,6 +524,15 @@ two-section payload shape, and the existence of a separate ISIN feed.
   reference implementation rather than captured from the validated account;
 - a **foreign-currency line**, which is why the EUR guard is written to refuse
   rather than convert.
+- a **single-fund contract** — its shape comes from the anonymised payload in
+  [#154](https://github.com/Cloeille/picsou-finance/issues/154), whose reporter
+  synced one successfully with an equivalent normalisation. Whether `quantity`
+  always arrives as a bare value rather than a `{value, decimals}` node is taken
+  from that report; a node fails closed with `UPSTREAM_FORMAT_CHANGED`.
+- the **identity selector** — modelled on the
+  [#153](https://github.com/Cloeille/picsou-finance/issues/153) description with
+  synthetic HTML. The anchor shape, the label text and the business markers are
+  inferred, and the switch has not been run against a real multi-identity access.
 
 ⚠️ **One limit worth stating.** The completeness check proves every account link
 *of the expected shape* (`/compte/…/{32-hex}/`) was accounted for. It cannot prove

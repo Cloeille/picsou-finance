@@ -9,6 +9,9 @@ from fastapi.testclient import TestClient
 import main
 
 TR_REQUEST = httpx.Request("POST", "https://api.traderepublic.com/")
+TEST_KEY = "tr-sidecar-test-key"
+AUTH = {"X-Picsou-Sidecar-Key": TEST_KEY}
+PROCESS_ID = "3f2b8c1e-9d4a-4b7e-8f60-2a1c5d9e7b03"
 
 
 def tr_response(status, json=None, cookies=()):
@@ -23,11 +26,11 @@ class HelperTest(unittest.TestCase):
     def test_international_number_is_kept(self):
         self.assertEqual(main.normalise_phone("+4915123456789"), "+4915123456789")
 
-    def test_mask_phone_hides_the_middle(self):
-        self.assertEqual(main.mask_phone("+33612345678"), "+33****78")
+    def test_mask_phone_keeps_only_the_last_two_digits(self):
+        self.assertEqual(main.mask_phone("+33612345678"), "****78")
 
     def test_mask_phone_hides_short_values_entirely(self):
-        self.assertEqual(main.mask_phone("+3361"), "****")
+        self.assertEqual(main.mask_phone("+3"), "****")
 
     def test_cookie_names_never_include_values(self):
         headers = httpx.Headers([("set-cookie", "tr_session=secret; Path=/"), ("set-cookie", "tr_refresh=other")])
@@ -41,13 +44,16 @@ class HelperTest(unittest.TestCase):
 class EndpointTest(unittest.TestCase):
     def setUp(self):
         self.post = AsyncMock()
+        self.get = AsyncMock()
         for p in (
+            patch.object(main, "SIDECAR_API_KEY", TEST_KEY),
             patch.object(main, "get_waf_token", AsyncMock(return_value="waf")),
             patch.object(httpx.AsyncClient, "post", self.post),
+            patch.object(httpx.AsyncClient, "get", self.get),
         ):
             p.start()
             self.addCleanup(p.stop)
-        self.client = TestClient(main.app)
+        self.client = TestClient(main.app, headers=AUTH)
 
     def test_health(self):
         self.assertEqual(self.client.get("/health").json(), {"status": "ok"})
@@ -70,19 +76,19 @@ class EndpointTest(unittest.TestCase):
     def test_complete_returns_session_and_refresh_tokens(self):
         self.post.return_value = tr_response(200, cookies=[("tr_session", "s-1"), ("tr_refresh", "r-1")])
 
-        resp = self.client.post("/complete", json={"processId": "p-1", "tan": "1234"})
+        resp = self.client.post("/complete", json={"processId": PROCESS_ID, "tan": "1234"})
 
         self.assertEqual(resp.json(), {"sessionToken": "s-1", "refreshToken": "r-1"})
 
     def test_complete_without_a_session_cookie_is_a_bad_gateway(self):
         self.post.return_value = tr_response(200)
 
-        resp = self.client.post("/complete", json={"processId": "p-1", "tan": "1234"})
+        resp = self.client.post("/complete", json={"processId": PROCESS_ID, "tan": "1234"})
 
         self.assertEqual(resp.status_code, 502)
 
     def test_refresh_keeps_the_old_refresh_token_when_tr_sends_none(self):
-        self.post.return_value = tr_response(200, cookies=[("tr_session", "s-2")])
+        self.get.return_value = tr_response(200, cookies=[("tr_session", "s-2")])
 
         resp = self.client.post("/refresh", json={"refreshToken": "r-1"})
 

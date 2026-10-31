@@ -1,7 +1,5 @@
 package com.picsou.service;
 
-import com.picsou.dto.FinaryAutoSyncResponse;
-import com.picsou.finary.FinaryApiSyncService;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
@@ -10,18 +8,26 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.SecurityProfileRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.Executor;
 
 @Service
 public class SchedulerService {
@@ -33,17 +39,29 @@ public class SchedulerService {
     private final BalanceSnapshotRepository snapshotRepository;
     private final FamilyMemberRepository familyMemberRepository;
     private final AccountService accountService;
-    private final SyncService syncService;
-    private final TradeRepublicSyncService trSyncService;
-    private final BoursoSyncService boursoSyncService;
-    private final BourseDirectSyncService bourseDirectSyncService;
-    private final AmundiSyncService amundiSyncService;
+    private final MemberSyncService memberSyncService;
+    /**
+     * How many profiles one weekly pass will resolve. Each one is up to three requests against
+     * an unofficial page and a rate-limited free tier, so the pass is bounded rather than
+     * proportional to the portfolio; a household's tickers are covered in a week or two, and
+     * everything unresolved simply reports as unclassified meanwhile.
+     */
+    private static final int SECURITY_PROFILE_BATCH = 40;
+
+    /** Same cap as the profile pass: one chart call per ticker, and Yahoo answers bursts with 429s. */
+    private static final int DIVIDEND_HISTORY_BATCH = 40;
+
     private final PriceService priceService;
-    private final CryptoExchangeSyncService cryptoExchangeSyncService;
-    private final WalletSyncService walletSyncService;
-    private final FinaryApiSyncService finaryApiSyncService;
-    private final IbkrSyncService ibkrSyncService;
+    private final SecurityProfileService securityProfileService;
     private final PropertyValuationService propertyValuationService;
+    private final InstrumentLogoService instrumentLogoService;
+    private final DividendHistoryService dividendHistoryService;
+    private final SecurityProfileRepository securityProfileRepository;
+    /**
+     * The Sunday pass must not occupy Spring's single scheduler thread. Unit tests leave this
+     * as a direct runner; production replaces it with {@code dividendRefreshExecutor}.
+     */
+    private Executor dividendRefreshExecutor = Runnable::run;
 
     public SchedulerService(
         AccountRepository accountRepository,
@@ -51,34 +69,30 @@ public class SchedulerService {
         BalanceSnapshotRepository snapshotRepository,
         FamilyMemberRepository familyMemberRepository,
         AccountService accountService,
-        SyncService syncService,
-        TradeRepublicSyncService trSyncService,
-        BoursoSyncService boursoSyncService,
-        BourseDirectSyncService bourseDirectSyncService,
-        AmundiSyncService amundiSyncService,
+        MemberSyncService memberSyncService,
         PriceService priceService,
-        CryptoExchangeSyncService cryptoExchangeSyncService,
-        WalletSyncService walletSyncService,
-        FinaryApiSyncService finaryApiSyncService,
-        IbkrSyncService ibkrSyncService,
-        PropertyValuationService propertyValuationService
-    ) {
+        SecurityProfileService securityProfileService,
+        PropertyValuationService propertyValuationService,
+        InstrumentLogoService instrumentLogoService,
+        DividendHistoryService dividendHistoryService,
+        SecurityProfileRepository securityProfileRepository) {
         this.accountRepository = accountRepository;
         this.holdingRepository = holdingRepository;
         this.snapshotRepository = snapshotRepository;
         this.familyMemberRepository = familyMemberRepository;
         this.accountService = accountService;
-        this.syncService = syncService;
-        this.trSyncService = trSyncService;
-        this.boursoSyncService = boursoSyncService;
-        this.bourseDirectSyncService = bourseDirectSyncService;
-        this.amundiSyncService = amundiSyncService;
+        this.memberSyncService = memberSyncService;
         this.priceService = priceService;
-        this.cryptoExchangeSyncService = cryptoExchangeSyncService;
-        this.walletSyncService = walletSyncService;
-        this.finaryApiSyncService = finaryApiSyncService;
-        this.ibkrSyncService = ibkrSyncService;
+        this.securityProfileService = securityProfileService;
         this.propertyValuationService = propertyValuationService;
+        this.instrumentLogoService = instrumentLogoService;
+        this.dividendHistoryService = dividendHistoryService;
+        this.securityProfileRepository = securityProfileRepository;
+    }
+
+    @Autowired
+    void setDividendRefreshExecutor(@Qualifier("dividendRefreshExecutor") Executor dividendRefreshExecutor) {
+        this.dividendRefreshExecutor = dividendRefreshExecutor;
     }
 
     /**
@@ -109,8 +123,7 @@ public class SchedulerService {
     }
 
     /**
-     * Daily at 08:00: Re-sync all linked bank accounts for every family member
-     * (Enable Banking + Trade Republic + Crypto Exchanges + Wallets).
+     * Daily at 08:00: delegate to single owner MemberSyncService.
      */
     @Scheduled(cron = "0 0 8 * * *")
     public void dailyBankSync() {
@@ -122,61 +135,15 @@ public class SchedulerService {
             log.info("Syncing member {}", memberId);
 
             try {
-                syncService.resyncAll(memberId);
-            } catch (Exception ex) {
-                log.error("Daily Enable Banking sync failed for member {}", memberId, ex);
-            }
-
-            try {
-                syncService.retryAllFailed(memberId);
-            } catch (Exception ex) {
-                log.error("Daily retry of FAILED Enable Banking sessions failed for member {}", memberId, ex);
-            }
-
-            trSyncService.resyncIfSessionActive(memberId);
-            boursoSyncService.resyncIfSessionActive(memberId);
-            bourseDirectSyncService.resyncIfSessionActive(memberId);
-            amundiSyncService.resyncIfSessionActive(memberId);
-
-            try {
-                ibkrSyncService.resyncIfConnected(memberId);
-            } catch (Exception ex) {
-                // resyncIfConnected swallows sync failures itself, but Spring can still
-                // throw UnexpectedRollbackException AT THE PROXY EXIT: a repository call
-                // failing inside the sync marks the shared transaction rollback-only
-                // through the repository's own proxy, and the commit attempt happens
-                // after the method's internal catch. Without this wrapper that breaks
-                // the loop for every remaining member.
-                log.error("Daily IBKR auto-sync failed for member {}", memberId, ex);
-            }
-
-            try {
-                cryptoExchangeSyncService.resyncAll(memberId);
-            } catch (Exception ex) {
-                log.error("Daily crypto exchange sync failed for member {}", memberId, ex);
-            }
-
-            try {
-                WalletSyncService.ResyncSummary walletSummary = walletSyncService.resyncAll(memberId);
-                if (!walletSummary.failed().isEmpty()) {
-                    log.warn("Daily wallet sync for member {}: {}/{} succeeded, failed chains: {}",
-                        memberId, walletSummary.succeeded(), walletSummary.total(), walletSummary.failed());
+                List<SourceSyncResult> results = memberSyncService.resyncScheduled(memberId);
+                for (SourceSyncResult r : results) {
+                    if (r.status() == SourceSyncResult.Status.FAILED
+                            || r.status() == SourceSyncResult.Status.NEEDS_REAUTH) {
+                        log.warn("Daily sync {} for member {}: {}", r.source(), memberId, r.message());
+                    }
                 }
             } catch (Exception ex) {
-                log.error("Daily wallet sync failed for member {}", memberId, ex);
-            }
-
-            try {
-                FinaryAutoSyncResponse finaryResult = finaryApiSyncService.autoSync(memberId);
-                if ("NEEDS_MAPPING".equals(finaryResult.status())) {
-                    log.info("Finary auto-sync for member {} found new accounts, manual mapping required", memberId);
-                } else if ("OK".equals(finaryResult.status())) {
-                    log.info("Finary auto-sync completed for member {}: {} accounts synced", memberId, finaryResult.accountsSynced());
-                } else if ("TOTP_REQUIRED".equals(finaryResult.status())) {
-                    log.warn("Finary auto-sync for member {} requires TOTP — user must re-authenticate", memberId);
-                }
-            } catch (Exception ex) {
-                log.error("Daily Finary auto-sync failed for member {}", memberId, ex);
+                log.error("Daily sync failed for member {} -- skipping it", memberId, ex);
             }
         }
     }
@@ -202,11 +169,14 @@ public class SchedulerService {
                 // losing the whole day's is not.
                 try {
                     Optional<BalanceSnapshot> existing = snapshotRepository.findByAccountIdAndDate(account.getId(), today);
-                    if (existing.isEmpty()) {
+                    boolean refreshCaisseEpargnePer = isCaisseEpargnePer(account) && existing.isPresent();
+                    if (existing.isEmpty() || refreshCaisseEpargnePer) {
                         // One valuation, not two: liveBalanceEur and calculateInvestedAmount each
                         // run the whole pass, and two passes can straddle a price-cache change --
                         // the value excluding an asset the cost basis then includes is exactly
                         // the disagreement that reported an untouched account as an 85% loss.
+                        // Refresh same-day Caisse d'Epargne PER rows: their provider-supplied NAV
+                        // can change after the morning snapshot was first written.
                         AccountService.Valuation valuation = accountService.valuation(account);
                         if (!valuation.anyPriced()) {
                             // Not a small balance -- a blank one. Writing it stamps a permanent
@@ -218,12 +188,13 @@ public class SchedulerService {
                                 account.getId(), member.getId());
                             continue;
                         }
-                        snapshotRepository.save(BalanceSnapshot.builder()
+                        BalanceSnapshot snapshot = existing.orElseGet(() -> BalanceSnapshot.builder()
                             .account(account)
                             .date(today)
-                            .balance(valuation.liveEur())
-                            .investedAmount(valuation.investedEur())
                             .build());
+                        snapshot.setBalance(valuation.liveEur());
+                        snapshot.setInvestedAmount(valuation.investedEur());
+                        snapshotRepository.save(snapshot);
                     }
                 } catch (Exception ex) {
                     // ERROR, not WARN: the price adapters swallow expected upstream failures
@@ -238,6 +209,11 @@ public class SchedulerService {
         }
 
         log.debug("Snapshots taken for all members");
+    }
+
+    private boolean isCaisseEpargnePer(Account account) {
+        return account.getType() == AccountType.PER
+            && CaisseEpargneSyncService.PROVIDER.equals(account.getProvider());
     }
 
     /**
@@ -288,5 +264,97 @@ public class SchedulerService {
             // reach here, so this is a bug worth surfacing.
             log.error("Price refresh failed -- skipping this cycle", ex);
         }
+        // After the prices, never before: a ticker becomes a logo candidate only once this pass
+        // has recorded a price for it, and the lookup runs on its own thread so it cannot delay
+        // the next price cycle.
+        instrumentLogoService.requestResolution();
+    }
+
+    /**
+     * Every Sunday night: keep the security profiles the diversification breakdown reads from
+     * warm, so nothing is ever scraped while a page is rendering.
+     *
+     * <p>Shaped like {@link #refreshPrices} and for the same reason — a profile is global, so one
+     * pass over the distinct tickers beats one pass per member. It differs in cadence and in
+     * caution: a sector does not change, the sources are unofficial HTML and a rate-limited free
+     * tier, so the batch is capped and one bad ticker only loses itself.
+     *
+     * <p>A ticker nobody has warmed yet is not an error. It reports as unclassified in the
+     * breakdown, with the uncovered share stated, until the next pass picks it up.
+     */
+    @Scheduled(cron = "0 45 3 * * SUN")
+    public void refreshSecurityProfiles() {
+        Set<String> tickers = new TreeSet<>(holdingRepository.findDistinctTickers());
+        if (tickers.isEmpty()) return;
+
+        try {
+            int refreshed = securityProfileService.refreshStale(tickers, SECURITY_PROFILE_BATCH);
+            log.info("Security profiles: refreshed {} of {} known tickers", refreshed, tickers.size());
+        } catch (Exception ex) {
+            log.error("Security profile refresh failed -- skipping this cycle", ex);
+        }
+    }
+
+    /**
+     * Every Sunday at 04:15, after the security-profile pass: keep dividend history warm so the
+     * forecast never calls Yahoo while a page is rendering.
+     *
+     * <p>A ticker is refreshed when {@code security_profile} has a non-null ISIN for it (a
+     * crypto coin never has one) or when at least one live holding sits in a non-crypto
+     * account. It is skipped only when no ISIN is known and every holding of it is crypto.
+     * One member's crypto ATOM must not hide another member's ATOM stock, and an ISIN on a
+     * crypto-only ticker is a listed security that happens to share the symbol.
+     *
+     * <p>The pass itself runs on {@code dividendRefreshExecutor}, not on Spring's single
+     * scheduler thread. The batch is capped for the same reason as {@link #refreshSecurityProfiles}.
+     */
+    @Scheduled(cron = "0 15 4 * * SUN")
+    public void refreshDividendHistory() {
+        dividendRefreshExecutor.execute(this::refreshDividendHistoryPass);
+    }
+
+    void refreshDividendHistoryPass() {
+        Set<String> held = holdingRepository.findDistinctTickers();
+        if (held == null || held.isEmpty()) {
+            return;
+        }
+        Set<String> outsideCrypto = upper(holdingRepository.findDistinctTickersHeldOutside(AccountType.CRYPTO));
+        Set<String> wanted = upper(held);
+        Set<String> withIsin = wanted.isEmpty()
+            ? Set.of()
+            : upper(securityProfileRepository.findTickersWithNonNullIsin(wanted));
+        Set<String> tickers = new TreeSet<>();
+        for (String ticker : held) {
+            if (ticker == null || ticker.isBlank()) {
+                continue;
+            }
+            String key = ticker.toUpperCase(Locale.ROOT);
+            if (outsideCrypto.contains(key) || withIsin.contains(key)) {
+                tickers.add(ticker);
+            }
+        }
+        if (tickers.isEmpty()) {
+            return;
+        }
+
+        try {
+            int refreshed = dividendHistoryService.refreshStale(tickers, DIVIDEND_HISTORY_BATCH);
+            log.info("Dividend history: refreshed {} of {} known tickers", refreshed, tickers.size());
+        } catch (Exception ex) {
+            log.error("Dividend history refresh failed -- skipping this cycle", ex);
+        }
+    }
+
+    private static Set<String> upper(Collection<String> values) {
+        if (values == null || values.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> upper = new HashSet<>();
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                upper.add(value.toUpperCase(Locale.ROOT));
+            }
+        }
+        return upper;
     }
 }

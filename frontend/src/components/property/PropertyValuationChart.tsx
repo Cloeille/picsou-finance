@@ -2,7 +2,8 @@ import { Area, AreaChart, CartesianGrid, ReferenceLine, XAxis, YAxis } from 'rec
 import { useTranslation } from 'react-i18next'
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { formatCurrency, localeFromLanguage } from '@/lib/utils'
+import { localeFromLanguage } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 import { usePropertyValuations } from '@/features/accounts/hooks'
 
 interface PropertyValuationChartProps {
@@ -25,6 +26,7 @@ const chartConfig = {
  * only a dot, so the chart stays hidden until the monthly job has run more than once.
  */
 export function PropertyValuationChart({ accountId, costBasis }: PropertyValuationChartProps) {
+  const money = useMoney()
   const { t, i18n } = useTranslation()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const { data = [] } = usePropertyValuations(accountId)
@@ -65,11 +67,11 @@ export function PropertyValuationChart({ accountId, costBasis }: PropertyValuati
               tickMargin={8}
               // Compact on the axis: full currency labels collide at this width, and the
               // tooltip already gives the exact figure.
-              tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+              tickFormatter={money.tick((value: number) => `${(value / 1000).toFixed(0)}k`)}
               width={50}
             />
             <ChartTooltip
-              content={<ChartTooltipContent formatter={(value) => formatCurrency(value as number, 'EUR', locale)} />}
+              content={<ChartTooltipContent formatter={(value) => money.amount(value as number)} />}
             />
             <Area
               dataKey="value"

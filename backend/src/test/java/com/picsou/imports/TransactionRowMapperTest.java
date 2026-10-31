@@ -37,7 +37,7 @@ class TransactionRowMapperTest {
     }
 
     private void stubResolver() {
-        lenient().when(instrumentFieldResolver.resolve(any(), any(), any()))
+        lenient().when(instrumentFieldResolver.resolve(any(), any()))
             .thenReturn(new InstrumentFieldResolver.ResolvedInstrument("AAPL", "Apple", "Apple"));
     }
 
@@ -156,7 +156,7 @@ class TransactionRowMapperTest {
 
     @Test
     void blankTicker_throws() {
-        when(instrumentFieldResolver.resolve(any(), any(), any())).thenReturn(null);
+        when(instrumentFieldResolver.resolve(any(), any())).thenReturn(null);
         List<String> row = List.of("2024-01-15", "BUY", "", "10", "85.20", "1.00");
 
         assertThatThrownBy(() -> mapper.map(row, mappingWithPrice(), dialect, null, false, account))

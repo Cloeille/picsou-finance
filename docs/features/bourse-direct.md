@@ -109,12 +109,14 @@ queue and completeness gates.
 
 ## Deployment
 
-Docker Compose builds `services/bourse-direct-auth/Dockerfile`. The image uses
-`python:3.12-slim-bookworm`, installs Chromium only and runs as a non-root user. The
+Docker Compose builds `services/bourse-direct-auth/Dockerfile` on the shared
+`chromium` sidecar base (Chromium only) and runs it as a non-root user. The
 service is reachable only from the internal Compose network. The backend URL
 defaults to `http://bourse-direct-auth:8001` and can be overridden with
 `BOURSE_DIRECT_AUTH_URL`; local development defaults to
-`http://127.0.0.1:8002`.
+`http://127.0.0.1:8002`. The sidecar requires the shared
+`APP_SIDECAR_API_KEY` at startup and on every route except `/health`; see
+[docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
 
 The sidecar needs outbound HTTPS access to `www.boursedirect.fr`. It does not
 need an ingress or any externally reachable port.
@@ -124,6 +126,18 @@ a single replica unless request affinity or a shared pending-state mechanism is
 added. Synchronization jobs are fenced by their persisted session IDs, so a
 session cleared or replaced while work is running cannot be overwritten by the
 older job.
+
+## Frontend
+
+`frontend/src/components/sync/BourseDirectPanel.tsx` is a thin wrapper over
+`SidecarSessionPanel`, the generic login / OTP / sync / disconnect panel shared
+with Amundi: it supplies the `sync.bourseDirect.*` i18n prefix, the icon and the
+`useBourseDirect*` hooks. Bourse Direct does not set `appPush`, so its second
+factor is always the six-digit code form.
+
+The reconciliation tolerance the collector uses upstream is also the one the
+backend applies (`SyncValues.moneyClose`), shared with Amundi so the same
+rounding drift cannot be accepted by one integration and rejected by the other.
 
 ## Verification boundaries
 

@@ -1,4 +1,4 @@
-import { useContext, useState, useRef } from 'react'
+import { useContext, useState, useRef, useEffect } from 'react'
 import { OTPInputContext } from 'input-otp'
 import { useTranslation } from 'react-i18next'
 import {
@@ -19,8 +19,15 @@ import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/Ban
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { BourseDirectPanel } from '@/components/sync/BourseDirectPanel'
 import { BoursoPanel } from '@/components/sync/BoursoPanel'
+import { CaisseEpargnePanel } from '@/components/sync/CaisseEpargnePanel'
 import { DegiroPanel } from '@/components/sync/DegiroPanel'
 import { AmundiPanel } from '@/components/sync/AmundiPanel'
+import { FortuneoPanel } from '@/components/sync/FortuneoPanel'
+import { AmexPanel } from '@/components/sync/AmexPanel'
+import { CorumPanel } from '@/components/sync/CorumPanel'
+import { SofidyPanel } from '@/components/sync/SofidyPanel'
+import { IbkrPanel } from '@/components/sync/IbkrPanel'
+import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
 import {
   ACCOUNT_COLORS,
   ACCOUNT_TYPES,
@@ -35,6 +42,10 @@ import {
   useInitiateBankSync,
   useInitiateTrAuth,
   useCompleteTrAuth,
+  useRevolutStatus,
+  useStartRevolutSync,
+  useSyncProgress,
+  useConfirmRevolutSync,
   useAddCryptoExchange,
   useAddCryptoWallet,
   useFinaryConnectionStatus,
@@ -46,12 +57,16 @@ import {
   useCheckFinaryTotp,
 } from '@/features/sync/hooks'
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
+import { RevolutSelectionCard } from '@/components/sync/RevolutSelectionCard'
+import { revolutErrorLabel, revolutPhaseLabel } from '@/features/sync/revolut-phase'
 import {
   Landmark,
   HousePlus,
   ArrowLeftRight,
   Wallet,
   Smartphone,
+  CreditCard,
+  Building2,
   FileSpreadsheet,
   PenLine,
   ArrowRight,
@@ -64,10 +79,14 @@ import {
   Upload,
   ShieldCheck,
   RefreshCw,
+  Lock,
+  AlertTriangle,
   BriefcaseBusiness,
   TrendingUp,
   PiggyBank,
 } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
+import { formatApiError } from '@/lib/errors'
 import type { ExchangeType, ChainType, AccountRequest, FinaryPreviewResponse, FinaryAccountMapping, FinaryMappingAction, FinaryImportResultResponse, AccountType } from '@/types/api'
 import { availableTargets, initialFinaryMappings } from '@/features/sync/finary-mappings'
 import { SUPPORTED_CHAINS, SUPPORTED_EXCHANGES, exchangeRequiresApiSecret } from '@/types/api'
@@ -82,8 +101,9 @@ interface AddAccountModalProps {
 }
 
 type WizardStep =
-  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'bourso'
-  | 'bourseDirect' | 'degiro' | 'amundi' | 'finary' | 'property' | 'manual'
+  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso' | 'caisseEpargne'
+  | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'amundi' | 'fortuneo' | 'amex' | 'corum' | 'sofidy'
+  | 'finary' | 'property' | 'manual'
 
 /**
  * Masked variant of InputOTPSlot — replaces the typed character with a bullet
@@ -120,10 +140,18 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'exchanges', icon: ArrowLeftRight, labelKey: 'sync.exchanges.title', descKey: 'addAccount.desc.exchanges' },
   { key: 'wallets', icon: Wallet, labelKey: 'sync.wallets.title', descKey: 'addAccount.desc.wallets' },
   { key: 'tr', icon: Smartphone, labelKey: 'sync.tr.title', descKey: 'addAccount.desc.tr' },
+  { key: 'revolut', icon: CreditCard, labelKey: 'sync.revolut.title', descKey: 'addAccount.desc.revolut' },
   { key: 'bourso', icon: Landmark, labelKey: 'sync.bourso.title', descKey: 'addAccount.desc.bourso' },
+  { key: 'caisseEpargne', icon: Landmark, labelKey: 'sync.caisseEpargne.title', descKey: 'addAccount.desc.caisseEpargne' },
   { key: 'bourseDirect', icon: BriefcaseBusiness, labelKey: 'sync.bourseDirect.title', descKey: 'addAccount.desc.bourseDirect' },
   { key: 'degiro', icon: TrendingUp, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
+  { key: 'ibkr', icon: BriefcaseBusiness, labelKey: 'sync.ibkr.title', descKey: 'addAccount.desc.ibkr' },
+  { key: 'simplefin', icon: Landmark, labelKey: 'sync.simplefin.title', descKey: 'addAccount.desc.simplefin' },
   { key: 'amundi', icon: PiggyBank, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
+  { key: 'fortuneo', icon: PiggyBank, labelKey: 'sync.fortuneo.title', descKey: 'addAccount.desc.fortuneo' },
+  { key: 'amex', icon: CreditCard, labelKey: 'sync.amex.title', descKey: 'addAccount.desc.amex' },
+  { key: 'corum', icon: Building2, labelKey: 'sync.corum.title', descKey: 'addAccount.desc.corum' },
+  { key: 'sofidy', icon: Building2, labelKey: 'sync.sofidy.title', descKey: 'addAccount.desc.sofidy' },
   { key: 'finary', icon: FileSpreadsheet, labelKey: 'sync.finary.title', descKey: 'addAccount.desc.finary' },
   { key: 'property', icon: HousePlus, labelKey: 'property.add.source', descKey: 'addAccount.desc.property' },
   { key: 'manual', icon: PenLine, labelKey: 'addAccount.manual', descKey: 'addAccount.desc.manual' },
@@ -186,6 +214,7 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
     fileFees?: number
     startDate?: string
     endDate?: string
+    openedAt?: string
   }) {
     const request: AccountRequest = {
       name: data.name,
@@ -198,6 +227,7 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
       ticker: data.ticker || undefined,
       // Set only when a bank was picked from the catalog; the backend resolves its logo from it.
       institutionId: data.institutionId,
+      openedAt: data.openedAt || undefined,
     }
     const created = await createAccount.mutateAsync(request)
 
@@ -226,7 +256,7 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
         {/* sm:max-w-xl, not just max-w-xl: DialogContent's own `sm:max-w-sm` is a different
             Tailwind variant, so tailwind-merge keeps it and an unprefixed max-w-xl silently has
             no effect above 640px — which is what squeezed this wizard into 24rem. */}
-        <DialogContent className="max-w-xl sm:max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-xl overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>
               {step === 'selector' ? t('addAccount.title') : t(`sync.${step === 'tr' ? 'tr' : step}.title`)}
@@ -259,10 +289,17 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
               {step === 'exchanges' && <ExchangeWizard onDone={handleDone} onBack={() => setStep('selector')} />}
               {step === 'wallets' && <WalletWizard onDone={handleDone} onBack={() => setStep('selector')} />}
               {step === 'tr' && <TradeRepublicWizard onDone={handleDone} onBack={() => setStep('selector')} />}
+              {step === 'revolut' && <RevolutWizard onDone={handleDone} onBack={() => setStep('selector')} />}
               {step === 'bourso' && (
                 <>
                   <BackButton onClick={() => setStep('selector')} />
                   <BoursoPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'caisseEpargne' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <CaisseEpargnePanel onConnected={handleDone} />
                 </>
               )}
               {step === 'bourseDirect' && (
@@ -277,10 +314,46 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
                   <DegiroPanel onConnected={handleDone} />
                 </>
               )}
+              {step === 'ibkr' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <IbkrPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'simplefin' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <SimplefinPanel onConnected={handleDone} />
+                </>
+              )}
               {step === 'amundi' && (
                 <>
                   <BackButton onClick={() => setStep('selector')} />
                   <AmundiPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'fortuneo' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <FortuneoPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'amex' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <AmexPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'corum' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <CorumPanel onConnected={handleDone} />
+                </>
+              )}
+              {step === 'sofidy' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <SofidyPanel onConnected={handleDone} />
                 </>
               )}
               {step === 'finary' && <FinaryWizard onDone={handleDone} onBack={() => setStep('selector')} />}
@@ -836,6 +909,178 @@ function TradeRepublicWizard({ onBack }: { onDone: () => void; onBack: () => voi
 }
 
 // ---------------------------------------------------------------------------
+// Wizard: Revolut (on-demand phone+passcode sync — mirrors TradeRepublicWizard)
+// ---------------------------------------------------------------------------
+
+function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
+  const { t } = useTranslation()
+  const [phoneNumber, setPhoneNumber] = useState('')
+  const [passcode, setPasscode] = useState('')
+  const [remember, setRemember] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  // Whether a discovery job is currently running — gates both the poll and the UI (mirrors RevolutTab).
+  const [isSyncing, setIsSyncing] = useState(false)
+  // Set once a discovery completes successfully; distinguishes a fresh mount (no result yet,
+  // possibly stale cached progress from an earlier discovery elsewhere) from an actual result.
+  const [resultReady, setResultReady] = useState(false)
+
+  const { data: status } = useRevolutStatus()
+  const startSync = useStartRevolutSync()
+  const progress = useSyncProgress('revolut', isSyncing)
+  const confirmSync = useConfirmRevolutSync()
+
+  const remembered = status?.remembered ?? false
+  const busy = isSyncing || startSync.isPending
+
+  // Detect the running → done transition (mirrors RevolutTab) to stop polling and reveal
+  // the selection step once discovery is over.
+  const prevRunningRef = useRef<boolean | undefined>(undefined)
+  useEffect(() => {
+    const running = progress.data?.running
+    if (prevRunningRef.current === true && running === false) {
+      setIsSyncing(false)
+      if (progress.data?.error) {
+        // Reacting to the running → done transition detected above, not deriving render state.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setErrorMsg(revolutErrorLabel(t, progress.data))
+      } else {
+        setResultReady(true)
+      }
+    }
+    prevRunningRef.current = running
+    // progress.data is read through the running dep on purpose (see RevolutTab).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress.data?.running])
+
+  function startDiscovery(body: { phoneNumber?: string; passcode?: string }) {
+    setErrorMsg(null)
+    setResultReady(false)
+    startSync.mutate(body, {
+      onSuccess: () => setIsSyncing(true),
+      onError: (err: unknown) => setErrorMsg(formatApiError(err, t)),
+    })
+  }
+
+  function handleQuickSync() {
+    startDiscovery({})
+  }
+
+  function handleFormSync(e: React.FormEvent) {
+    e.preventDefault()
+    if (!phoneNumber || passcode.length !== 6) return
+    startDiscovery({ phoneNumber, passcode })
+  }
+
+  function handleConfirm(selectedExternalIds: string[]) {
+    confirmSync.mutate(
+      { selectedExternalIds, remember, voluntary: true },
+      {
+        onSuccess: onDone,
+        onError: (err: unknown) => setErrorMsg(formatApiError(err, t)),
+      },
+    )
+  }
+
+  // Add-account is purely additive: only offer accounts not already imported.
+  const newAccounts = (progress.data?.discovered ?? []).filter((d) => !d.alreadyImported)
+
+  if (resultReady && newAccounts.length === 0) {
+    return (
+      <>
+        <BackButton onClick={onBack} />
+        <SuccessState message={t('sync.revolut.selection.allImported')} />
+      </>
+    )
+  }
+
+  return (
+    <>
+      <BackButton onClick={onBack} />
+      <div className="space-y-4">
+        {errorMsg && (
+          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <AlertTriangle className="size-4 shrink-0" />
+            <span className="flex-1">{errorMsg}</span>
+            <Button variant="ghost" size="sm" onClick={() => setErrorMsg(null)}>x</Button>
+          </div>
+        )}
+
+        {isSyncing && (
+          <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin shrink-0" />
+            {revolutPhaseLabel(t, progress.data)}
+          </div>
+        )}
+
+        {resultReady && newAccounts.length > 0 && (
+          <RevolutSelectionCard
+            discovered={newAccounts}
+            confirming={confirmSync.isPending}
+            onConfirm={handleConfirm}
+          />
+        )}
+
+        {!resultReady && (
+          remembered ? (
+            <Button onClick={handleQuickSync} disabled={busy} className="w-full">
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              {busy ? t('sync.revolut.syncing') : t('sync.revolut.sync')}
+            </Button>
+          ) : (
+            <form onSubmit={handleFormSync} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="revolut-phone">
+                  <Smartphone className="size-4 inline-block mr-1" />
+                  {t('sync.revolut.phone')}
+                </Label>
+                <Input
+                  id="revolut-phone"
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  required
+                  disabled={busy}
+                  placeholder="+33..."
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="revolut-passcode">
+                  <Lock className="size-4 inline-block mr-1" />
+                  {t('sync.revolut.passcode')}
+                </Label>
+                <InputOTP maxLength={6} value={passcode} onChange={setPasscode} disabled={busy}>
+                  <InputOTPGroup>
+                    {[0, 1, 2, 3, 4, 5].map((i) => (
+                      <MaskedOTPSlot key={i} index={i} />
+                    ))}
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={remember}
+                  onCheckedChange={(checked) => setRemember(checked === true)}
+                  disabled={busy}
+                />
+                <span className="text-sm text-muted-foreground">{t('sync.revolut.remember')}</span>
+              </label>
+
+              <Button type="submit" disabled={busy} className="w-full">
+                {busy && <Loader2 className="size-4 animate-spin" />}
+                {busy ? t('sync.revolut.syncing') : t('sync.revolut.sync')}
+              </Button>
+            </form>
+          )
+        )}
+      </div>
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Wizard: Finary (3-step: Login/Upload → Mapping → Results)
 // ---------------------------------------------------------------------------
 
@@ -1232,7 +1477,7 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
 
                 {mappings[index]?.action === 'MAP_EXISTING' && (
                   <select
-                    className="h-10 w-full rounded-xl border border-input bg-input/20 px-4 text-sm outline-none dark:bg-input/30"
+                    className="h-10 w-full rounded-xl border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]"
                     value={mappings[index].targetAccountId ?? ''}
                     onChange={(e) => {
                       const val = e.target.value
@@ -1260,7 +1505,7 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
                     <div className="space-y-1">
                       <Label>{t('sync.exchanges.type')}</Label>
                       <select
-                        className="h-10 w-full rounded-xl border border-input bg-input/20 px-4 text-sm outline-none dark:bg-input/30"
+                        className="h-10 w-full rounded-xl border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]"
                         value={mappings[index].newAccount!.type}
                         onChange={(e) => updateNewAccountField(index, 'type', e.target.value)}
                       >

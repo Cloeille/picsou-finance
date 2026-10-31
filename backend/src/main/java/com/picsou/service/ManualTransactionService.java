@@ -5,9 +5,13 @@ import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.Account;
+import com.picsou.model.AccountType;
+import com.picsou.model.Category;
 import com.picsou.model.Transaction;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.CategoryRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.budget.CategorizationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +26,8 @@ public class ManualTransactionService {
     private final TransactionRepository transactionRepository;
     private final HoldingComputeService holdingComputeService;
     private final FinaryPersistenceHelper finaryPersistenceHelper;
+    private final CategoryRepository categoryRepository;
+    private final CategorizationService categorizationService;
     private final InstrumentFieldResolver instrumentFieldResolver;
 
     @Transactional
@@ -44,6 +50,16 @@ public class ManualTransactionService {
             .nativeCurrency(req.currency() != null ? req.currency() : "EUR")
             .build();
         applyInstrumentFields(tx, req);
+
+        // Explicit category wins; otherwise run the zero-config pipeline (clean label + brand
+        // link are stamped either way, and a rule or known brand may auto-assign the category).
+        if (req.categoryId() != null) {
+            tx.setCategoryRef(resolveCategory(req.categoryId(), memberId));
+            tx.setCategoryManual(true);
+            categorizationService.enrich(tx);
+        } else {
+            categorizationService.autoCategorize(tx, memberId);
+        }
 
         transactionRepository.save(tx);
 
@@ -75,6 +91,10 @@ public class ManualTransactionService {
         if (req.fees() != null) tx.setFees(req.fees());
         if (req.currency() != null) tx.setNativeCurrency(req.currency());
         applyInstrumentFields(tx, req);
+        if (req.categoryId() != null) {
+            tx.setCategoryRef(resolveCategory(req.categoryId(), memberId));
+            tx.setCategoryManual(true);
+        }
         transactionRepository.save(tx);
 
         recomputeDerivedState(account);
@@ -99,31 +119,33 @@ public class ManualTransactionService {
         recomputeDerivedState(account);
     }
 
-    /**
-     * Recomputes derived state after a manual transaction is added, edited, or deleted.
-     * Investment accounts always recompute holdings. For other account types, the cash
-     * balance and snapshot history are only rebuilt for manual accounts — synced accounts
-     * (bank/TR/wallet/exchange) own their balance & snapshot history via provider sync,
-     * and rebuilding from manual transactions would overwrite the balance and delete the
-     * provider-written snapshots.
-     */
     private void recomputeDerivedState(Account account) {
+        if (!account.isManual()) {
+            return;
+        }
+
         if (account.getType().isInvestment()) {
             holdingComputeService.recomputeHoldings(account);
-        } else if (account.isManual()) {
+        } else {
             recomputeCashBalance(account);
             finaryPersistenceHelper.reconstructSnapshotsFromDb(account);
         }
     }
 
+    private Category resolveCategory(Long categoryId, Long memberId) {
+        return categoryRepository.findByIdAndMemberId(categoryId, memberId)
+            .orElseThrow(() -> ResourceNotFoundException.category(categoryId));
+    }
+
     /**
-     * Normalizes the instrument fields of a BUY/SELL transaction by delegating to
-     * {@link InstrumentFieldResolver}. No-op for cash transactions (they carry no ticker),
-     * preserving the caller's description.
+     * Normalizes the instrument fields of a transaction carrying a ticker or ISIN by
+     * delegating to {@link InstrumentFieldResolver}. No-op for cash transactions with no
+     * ticker, preserving the caller's description. Instrument descriptions stay language-neutral;
+     * {@code txType} in the API response lets the frontend render a localized fallback label.
      */
     private void applyInstrumentFields(Transaction tx, TransactionRequest req) {
         InstrumentFieldResolver.ResolvedInstrument resolved =
-            instrumentFieldResolver.resolve(req.ticker(), req.name(), tx.getTxType());
+            instrumentFieldResolver.resolve(req.ticker(), req.name());
         if (resolved == null) {
             return; // cash transaction — leave description/ticker/name as-is
         }

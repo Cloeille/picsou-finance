@@ -126,6 +126,21 @@ describe('BoursoTab', () => {
     expect(screen.queryByText('raw upstream detail')).not.toBeInTheDocument()
   })
 
+  it('tells the user to acknowledge the fraud notice instead of blaming the password', async () => {
+    apiPost.mockRejectedValueOnce({
+      response: {
+        status: 422,
+        data: { code: 'FRAUD_ACK_REQUIRED', detail: 'raw upstream detail' },
+      },
+    })
+
+    renderTab()
+    await signIn()
+
+    expect(await screen.findByText('sync.bourso.errors.fraudAckRequired')).toBeInTheDocument()
+    expect(screen.queryByText('raw upstream detail')).not.toBeInTheDocument()
+  })
+
   it('reports a failed background sync from the polled status alone', async () => {
     apiGet.mockResolvedValue({
       data: {
@@ -140,6 +155,23 @@ describe('BoursoTab', () => {
 
     expect(
       await screen.findByText('sync.bourso.errors.portfolioIncomplete'),
+    ).toBeInTheDocument()
+  })
+
+  it('explains an unresolved identity selector instead of a format change', async () => {
+    apiGet.mockResolvedValue({
+      data: {
+        ...DISCONNECTED,
+        isActive: true,
+        syncStatus: 'FAILED',
+        lastSyncError: 'IDENTITY_SELECTION_UNSUPPORTED',
+      },
+    })
+
+    renderTab()
+
+    expect(
+      await screen.findByText('sync.bourso.errors.identitySelectionUnsupported'),
     ).toBeInTheDocument()
   })
 

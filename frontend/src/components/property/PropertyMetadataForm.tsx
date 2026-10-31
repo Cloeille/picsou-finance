@@ -55,7 +55,7 @@ const propertySchema = z.object({
 type PropertyFormData = z.infer<typeof propertySchema>
 
 const selectControlClassName =
-  'flex h-10 w-full rounded-md border border-input bg-input/20 px-4 text-sm outline-none dark:bg-input/30'
+  'flex h-10 w-full rounded-md border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]'
 
 const PROPERTY_KINDS = ['HOUSE', 'APARTMENT', 'BUILDING', 'LAND', 'PARKING', 'COMMERCIAL'] as const
 const CATEGORIES = ['PRIMARY_RESIDENCE', 'SECONDARY_RESIDENCE', 'RENTAL', 'LAND', 'OTHER'] as const

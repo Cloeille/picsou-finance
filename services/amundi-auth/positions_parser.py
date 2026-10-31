@@ -130,6 +130,10 @@ def _parse_position(raw: Any) -> dict[str, Any] | None:
     isin = text_value(raw.get("codeIsin"), 12)
     return {
         "isin": isin.upper() if isin else None,
+        # Amundi's own identifier for the fund. Carried because `codeIsin` is not
+        # always an ISIN -- on employer funds it can hold the AMF code instead --
+        # and the backend then has nothing left but the label to key a holding on.
+        "fundCode": text_value(raw.get("codeFonds"), 20),
         "label": label,
         "quantity": quantity,
         "unitValue": decimal_value(raw.get("vl")),

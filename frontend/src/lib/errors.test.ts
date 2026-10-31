@@ -3,7 +3,9 @@ import {
   extractErrorMessage,
   safeBackendMessage,
   formatApiError,
+  formatFortuneoError,
   formatTrAuthError,
+  fortuneoErrorMessage,
   getErrorCode,
 } from './errors'
 
@@ -65,6 +67,27 @@ describe('getErrorCode', () => {
 
   it('ignores non-string codes', () => {
     expect(getErrorCode({ response: { data: { code: 42 } } })).toBeUndefined()
+  })
+})
+
+describe('fortuneoErrorMessage', () => {
+  it('explains how to unblock an investor-profile gate', () => {
+    expect(fortuneoErrorMessage(t, 'INVESTOR_PROFILE_REQUIRED')).toBe(
+      'sync.fortuneo.errors.investorProfileRequired'
+    )
+  })
+
+  it('returns null for an unknown code so callers can fall back', () => {
+    expect(fortuneoErrorMessage(t, 'SOMETHING_NEW')).toBeNull()
+    expect(fortuneoErrorMessage(t, null)).toBeNull()
+  })
+})
+
+describe('formatFortuneoError', () => {
+  it('maps rate limiting to the dedicated message', () => {
+    expect(formatFortuneoError({ response: { status: 429 } }, t)).toBe(
+      'sync.fortuneo.errors.tooManyAttempts'
+    )
   })
 })
 

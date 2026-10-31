@@ -42,6 +42,10 @@ browser-automation one.
    `GET /pa/secure/client` to resolve `intAccount`. Returns an opaque
    `{sessionId, intAccount}` blob, which Java encrypts via `CryptoEncryption`
    into `DegiroSession.sessionBlob` — Java never parses this blob's contents.
+   The sidecar does: both values end up in the portfolio URL path, so
+   `/portfolio` coerces `intAccount` to an `int` and only accepts a `sessionId`
+   made of characters that stay inside a path segment (no `/ ? # % ; @`);
+   anything else is a 400.
 
 ### Session lifetime — the one thing genuinely different from other integrations
 
@@ -119,9 +123,11 @@ position. Holdings that resolve to the same ticker are merged with
 | No scheduled background resync | Session lifetime (~30 min) makes a daily job pointless without a stored secret | Wiring into `SchedulerService` like every other integration |
 | Single fixed-ID account per member | DEGIRO's unofficial API exposes one portfolio per login | Per-sub-account modeling (not exposed by the API used here) |
 | Sidecar resolves ISIN before Java sees positions | Reuses the sidecar-owns-provider-quirks pattern; Java stays a typed contract | Passing raw `productId` to Java and resolving there |
+| Shared `APP_SIDECAR_API_KEY` on every route except `/health`, checked before routing; missing key refuses startup | Same contract as every `*-auth` sidecar, see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key) | Trusting the Compose network alone |
 
 ## Known limitations
 
+- **The daily snapshot is taken after the holdings are replaced.** The 3-arg `AccountService.upsertSnapshot` derives the day's `investedAmount` from the holdings in the table; taken before `deleteByAccountId` + re-insert it costed today's snapshot with the previous sync's positions. Same rule in `TradeRepublicSyncService`.
 This integration has had a first live smoke test (login, TOTP, portfolio
 fetch, account/holding upsert all completed successfully), which confirmed the
 overall design but surfaced real DEGIRO API quirks the original

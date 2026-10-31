@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, CartesianGrid, ReferenceLine, XAxis, YAxis } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
-import { formatCurrency, localeFromLanguage } from '@/lib/utils'
+import { localeFromLanguage } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 import type { LoanInstallment } from '@/types/api'
 
 interface LoanAmortizationChartProps {
@@ -36,6 +37,7 @@ function AmortizationTooltip({ active, payload, labels }: {
   payload?: Array<{ value: number; payload: ChartPoint }>
   labels: { remaining: string; locale: string; currency: string }
 }) {
+  const money = useMoney()
   if (!active || !payload?.length) return null
   const item = payload[0]
   const dateStr = new Date(item.payload.date).toLocaleDateString(labels.locale, {
@@ -48,7 +50,7 @@ function AmortizationTooltip({ active, payload, labels }: {
         <div className="h-0.5 w-4 shrink-0 rounded-full" style={{ backgroundColor: 'var(--color-remaining)' }} />
         <span className="text-muted-foreground">{labels.remaining}</span>
         <span className="ml-auto font-mono font-medium tabular-nums">
-          {formatCurrency(item.value, labels.currency, labels.locale)}
+          {money.amount(item.value, labels.currency)}
         </span>
       </div>
     </div>
@@ -56,6 +58,7 @@ function AmortizationTooltip({ active, payload, labels }: {
 }
 
 export function LoanAmortizationChart({ schedule }: LoanAmortizationChartProps) {
+  const money = useMoney()
   const { t, i18n } = useTranslation()
 
   const points = useMemo(() => buildPoints(schedule), [schedule])
@@ -121,7 +124,7 @@ export function LoanAmortizationChart({ schedule }: LoanAmortizationChartProps) 
               tickLine={false}
               axisLine={false}
               tickMargin={8}
-              tickFormatter={yTickFormatter}
+              tickFormatter={money.tick(yTickFormatter)}
               width={45}
               tickCount={5}
             />

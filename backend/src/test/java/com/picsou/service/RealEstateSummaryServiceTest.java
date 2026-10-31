@@ -5,6 +5,7 @@ import com.picsou.model.*;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
+import com.picsou.repository.ScpiPositionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,6 +45,7 @@ class RealEstateSummaryServiceTest {
     @Mock DebtRepository debtRepository;
     @Mock LoanAmortizationService loanAmortizationService;
     @Mock AccountService accountService;
+    @Mock ScpiPositionRepository scpiPositionRepository;
 
     @InjectMocks RealEstateSummaryService service;
 
@@ -80,7 +82,7 @@ class RealEstateSummaryServiceTest {
     void summarize_wholeOwnership_grossMinusDebtIsNet() {
         Account house = property(10L, "400000");
         Account loan = loanAccount(20L, ALICE);
-        Debt debt = Debt.builder().account(loan).linkedAccount(house).member(ALICE)
+        Debt debt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(loan).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("200000")).lenderName("BNP").build();
 
         when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, loan));
@@ -129,7 +131,7 @@ class RealEstateSummaryServiceTest {
     void summarize_propertyAndLoanSplitDifferently_weightsEachOnItsOwnShare() {
         Account house = property(10L, "400000");
         Account loan = loanAccount(20L, ALICE);
-        Debt debt = Debt.builder().account(loan).linkedAccount(house).member(ALICE)
+        Debt debt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(loan).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("200000")).build();
 
         // Alice owns 70% of the house but only half the mortgage. Assuming the two shares
@@ -155,9 +157,9 @@ class RealEstateSummaryServiceTest {
         Account house = property(10L, "400000");
         Account main = loanAccount(20L, ALICE);
         Account works = loanAccount(21L, ALICE);
-        Debt mainDebt = Debt.builder().account(main).linkedAccount(house).member(ALICE)
+        Debt mainDebt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(main).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("200000")).build();
-        Debt worksDebt = Debt.builder().account(works).linkedAccount(house).member(ALICE)
+        Debt worksDebt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(works).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("30000")).build();
 
         when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, main, works));
@@ -182,7 +184,7 @@ class RealEstateSummaryServiceTest {
     void summarize_loanTheViewerHoldsNoShareOf_isExcluded() {
         Account house = property(10L, "400000");
         Account bobsLoan = loanAccount(20L, BOB);
-        Debt debt = Debt.builder().account(bobsLoan).linkedAccount(house).member(BOB)
+        Debt debt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(bobsLoan).linkedAccount(house).member(BOB)
             .borrowedAmount(new BigDecimal("200000")).build();
 
         when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house));
@@ -205,7 +207,7 @@ class RealEstateSummaryServiceTest {
     void summarize_underwaterProperty_reportsNegativeEquity() {
         Account house = property(10L, "150000");
         Account loan = loanAccount(20L, ALICE);
-        Debt debt = Debt.builder().account(loan).linkedAccount(house).member(ALICE)
+        Debt debt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(loan).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("200000")).build();
 
         when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, loan));
@@ -258,9 +260,9 @@ class RealEstateSummaryServiceTest {
         Account house = property(10L, "400000");
         Account main = loanAccount(20L, ALICE);
         Account works = loanAccount(21L, ALICE);
-        Debt mainDebt = Debt.builder().account(main).linkedAccount(house).member(ALICE)
+        Debt mainDebt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(main).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("200000")).build();
-        Debt worksDebt = Debt.builder().account(works).linkedAccount(house).member(ALICE)
+        Debt worksDebt = Debt.builder().startDate(java.time.LocalDate.of(2024, 1, 1)).endDate(java.time.LocalDate.of(2044, 1, 1)).account(works).linkedAccount(house).member(ALICE)
             .borrowedAmount(new BigDecimal("30000")).build();
 
         when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, main, works));
@@ -277,5 +279,45 @@ class RealEstateSummaryServiceTest {
         // One for the readable accounts, one for this property's loans -- not one per loan.
         verify(accessResolver, times(2)).sharesFor(any(), eq(1L));
         verify(accessResolver, never()).shareFor(any(), any());
+    }
+
+    @Test
+    void summarize_scpiShare_staysOutOfTheOpenDataGross() {
+        Account house = property(10L, "400000");
+        Account scpi = Account.builder()
+            .id(11L).name("Pierre-papier").type(AccountType.SCPI).currency("EUR")
+            .currentBalance(new BigDecimal("12351.85")).color("#7c3aed").member(ALICE)
+            .build();
+        ScpiPosition position = ScpiPosition.builder()
+            .account(scpi).member(ALICE)
+            .managementCompany("Example manager")
+            .shareCount(new BigDecimal("12.345678"))
+            .subscriptionPriceEur(new BigDecimal("1135"))
+            .withdrawalPriceEur(new BigDecimal("1000.50"))
+            .dividendPolicy(DividendPolicy.REINVEST)
+            .valuationStatus(ScpiValuationStatus.OK)
+            .build();
+
+        when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, scpi));
+        when(accessResolver.sharesFor(any(), eq(1L))).thenReturn(Map.of(10L, FULL, 11L, FULL));
+        when(accountService.liveBalanceEur(house)).thenReturn(new BigDecimal("400000"));
+        when(accountService.liveBalanceEur(scpi)).thenReturn(new BigDecimal("12351.85"));
+        when(metadataRepository.findByAccountId(10L)).thenReturn(Optional.empty());
+        when(debtRepository.findByLinkedAccountId(10L)).thenReturn(List.of());
+        when(debtRepository.findByLinkedAccountId(11L)).thenReturn(List.of());
+        when(scpiPositionRepository.findByAccountIdAndMemberId(11L, 1L)).thenReturn(Optional.of(position));
+
+        RealEstateSummaryResponse result = service.summarize(1L);
+
+        assertThat(result.grossValue()).isEqualByComparingTo("400000");
+        assertThat(result.paperGross()).isEqualByComparingTo("12351.85");
+        assertThat(result.paperNet()).isEqualByComparingTo("12351.85");
+        assertThat(result.properties()).extracting(RealEstateSummaryResponse.PropertyLine::accountId)
+            .containsExactly(10L);
+        assertThat(result.paper()).singleElement().satisfies(line -> {
+            assertThat(line.shareCount()).isEqualByComparingTo("12.345678");
+            assertThat(line.subscriptionPriceEur()).isEqualByComparingTo("1135");
+            assertThat(line.grossValue()).isEqualByComparingTo("12351.85");
+        });
     }
 }

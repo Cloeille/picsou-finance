@@ -27,7 +27,7 @@ public interface AmundiPort {
      * salariale funds are French-domiciled and quoted in euros, and Amundi
      * reports the valuation itself rather than leaving it to be recomputed.
      */
-    record Position(String isin, String label, BigDecimal quantity,
+    record Position(String isin, String fundCode, String label, BigDecimal quantity,
                     BigDecimal unitValue, BigDecimal valueEur, BigDecimal pnlEur) {}
 
     /** One dispositif -- a PEG, PERCO, PER... -- and the lines held inside it. */

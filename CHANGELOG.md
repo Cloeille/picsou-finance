@@ -9,6 +9,415 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
+  Picsou matches it to the dividend history it already holds, marks it as a dividend and files
+  it under capital income. `GET /api/dividends/received` lists them, with the same id as the
+  forecast line they fulfil, including a dividend you entered by hand without a ticker. A
+  deposit that merely has a similar amount, or shares one word with a holding's name, is left
+  alone, and so is a category you picked yourself, including one chosen when adding or editing
+  a transaction by hand. Fortuneo and BoursoBank dividends are recognised as soon as their sync
+  finishes, a later Fortuneo or Finary sync keeps the dividends it already recognised, and
+  London lines quoted in pence are matched in pounds. When Fortuneo later reports the row as
+  something other than a dividend, it leaves capital income.
+
+- **Instance-status alert for admins.** An admin sees a pop-up when a sidecar the household
+  uses does not answer, or still runs an image from before the shared base images (typically
+  a build that failed because `sidecar-python` or `sidecar-chromium` was missing), with the
+  commands that fix it. The same pop-up announces a newer Picsou release, read from GitHub at
+  most once every 6 hours; `APP_UPDATE_CHECK_ENABLED=false` turns that call off. See
+  [feature note](docs/features/admin-instance-status.md).
+- **Shared sidecar base images.** Nine sidecars now build on two shared images,
+  `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
+  install downloads and stores Chromium and the Python packages once instead of once per
+  sidecar. Amex and Revolut keep their own image (Camoufox). See
+  [ADR](docs/decisions/2026-10-21-shared-sidecar-base-image.md).
+- **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
+  the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
+  and SCPI distributions, from the annual distribution per share and the frequency you enter
+  on the SCPI position. Amounts are gross estimates, weighted by your ownership share; a
+  dividend paid inside a PEA, an assurance vie, a PER or an employee savings plan, or a
+  reinvested SCPI distribution, is listed but left out of the total, since it stays in the
+  envelope. Dividend histories are refreshed once a week, on a six-day cutoff so the Sunday
+  pass actually hits, from Yahoo Finance, completed by Nasdaq for Nasdaq-listed stocks (real payment dates and dividends
+  already declared), and never while prices are rate-limited, so opening Budget sends no
+  request. A failed refresh keeps the last forecast. The 60-day window is the payment date
+  when one is known, otherwise the ex-date. A new default income category, *Revenus du capital*, is added for every member.
+  The page of a compte-titres or a PEA lists its dividends for the next 12 months, with the
+  ex-date and the payment date of each; the payment date is learned from your past dividend
+  transactions on that line and shown as unknown when there are none.
+  `GET /api/dividends/upcoming` exposes the forecast. See
+  [ADR](docs/decisions/2026-10-20-dividend-forecast-weekly-yahoo-history.md) and
+  [feature note](docs/features/dividend-forecast.md) (#244).
+- **SimpleFIN bank sync.** A member can paste a one-time setup token from SimpleFIN
+  Bridge. Picsou claims it, stores the access URL encrypted, and imports account
+  balances and posted transactions alongside Enable Banking, by hand, from Sync All
+  and on the daily job. Only `beta-bridge.simplefin.org` is contacted. Accounts
+  arrive as checking accounts, like Enable Banking's; set a savings account or a
+  credit card in the account form and later syncs keep that type. Pending
+  transactions and non-ISO currencies are skipped. There is no institution search:
+  banks are linked on SimpleFIN Bridge, then one token is brought back. See
+  [ADR](docs/decisions/2026-10-04-simplefin-beside-enable-banking.md) and
+  [feature note](docs/features/simplefin-sync.md).
+- **You can connect a Caisse d'Epargne account and sync it on request.** From the Sync page or
+  the add-account window, you enter your identifier, click your own digits on the bank's
+  keypad shown in a pop-up, then approve in Sécur'Pass. Picsou never sees your password and
+  never stores it: it keeps only the encrypted bank session. A new internal
+  `caisse-epargne-auth` container imports the current account, the Livret A and the LDDS (each
+  its own account) with their transactions. A PER can import its owned unit-linked positions
+  and its separate euro-fund balance. Available EUR market quotes update the unit-linked value
+  without a bank sync; an unquoted line retains its last bank valuation. The euro fund stays
+  fixed until the next sync. Unknown acquisition costs are not reported as investment gains,
+  and current quantities are not projected into past ownership. The PER detail is read from the
+  insurer with its own short-lived token; if it cannot be read, only the PER keeps its last
+  values and every other account still syncs. Mixed euro-fund classification still requires
+  live verification. A personal loan comes in as a debt, with its amount, rate, monthly
+  payment and repayment schedule filled from the bank. On the current account, the loan payout
+  is marked as an internal transfer and each installment as a "Crédit" expense. A
+  deferred-debit card shows as a credit card account holding the amount still to be debited,
+  and its monthly settlement is marked as an internal transfer so it is not counted twice. Home
+  insurance and other contracts are listed as not supported and are not imported. Nothing
+  syncs automatically. Disconnecting deletes the stored session in Picsou but does not end the
+  session at the bank, which stays open until it expires. Enable Banking is unchanged for
+  Caisse d'Epargne accounts.
+- **An individual retirement plan (PER) has its own account type.** It used to be entered as
+  an assurance-vie or as employee savings, which misdescribed it. A PER holds unit-linked
+  lines and a euro fund like an assurance-vie, counts as equity in the wealth pyramid, sits
+  under Stocks on the accounts page, and records its opening date.
+- **A CORUM or Sofidy sync now creates your SCPI accounts.** You no longer create one
+  account per fund and type the provider's fund code first. A fund without an account gets
+  one, named after the fund, with its shares and withdrawal value. A manual SCPI account
+  with the same name is linked instead of duplicated. The sync panel says what each fund
+  became ("3 funds found — 2 accounts created, 1 updated"), and a sync that found funds but
+  updated nothing is no longer shown as a success. "Ignore this fund" on a SCPI unlinks it
+  and keeps later syncs away; deleting the account does the same, so it is not recreated.
+- **Release upgrades rehearse database migrations before replacing the running API.**
+  `docker/deploy.sh` retains a PostgreSQL backup, restores it into a temporary database,
+  and runs the candidate image's complete Flyway chain there before touching the live schema.
+  The same pinned image migrates and verifies the live database before cutover. Readiness
+  requires a real unauthenticated `/api/auth/me` response, not a static frontend HTTP 200.
+  Missing lower-numbered migrations, checksum mismatches, untracked manual DDL, and a missing
+  label in any mapped PostgreSQL enum fail closed, with a redacted diagnosis naming the migration,
+  table or enum. The script refuses a Compose project without existing `db` and `app` containers
+  (`--fresh` for a first install), records the previous app image, and checks free disk space.
+  Rollback and incident reconciliation remain explicit operator actions.
+- **You can choose to send anonymous crash reports and usage counts to the Picsou developers.**
+  It is off by default and only exists when the instance sets `APP_TELEMETRY_DSN`; without it
+  nothing changes. An admin is asked once, with the exact list of what is shared and what never is,
+  and can switch it off at any time in Administration — sending stops immediately. Reports carry
+  no amounts, account names, IBANs, emails or identifiers, are scrubbed in the browser and again on
+  your server, and reach the collector through your own server so your IP address is never seen.
+  See `docs/features/telemetry.md`.
+  Error messages are discarded rather than regex-scrubbed. The browser SDK closes on logout,
+  and the server tunnel forwards asynchronously with bounded concurrency and per-user limits.
+
+- **An MCP client can refresh every existing connector and read whether one needs a new login.**
+  `trigger_full_sync` runs the same per-member sync as the 08:00 job and returns one line per
+  source, so a failed bank or a broker that needs reauthentication is named instead of hidden
+  behind a success sentence. The older trigger tools are filters over that same list. A second
+  trigger for the same member within 15 minutes, or a fifth in a day, answers with how many
+  minutes to wait and does not call the banks. `get_sync_status` (`sync:read`) reports the last
+  sync time and the reauthentication flag without starting a sync.
+
+- **An AI app connected over MCP can triage your recurring payments.** It could list the
+  subscriptions the detector found but not act on them. It can now confirm or ignore a
+  suggestion, undo a silent auto-confirm or acknowledge a price change, declare a series
+  the detector missed, correct or delete one, and re-run detection, under a new
+  `budget:recurring-write` permission you grant explicitly. Ignoring keeps the series, so
+  detection never suggests it again. The same app can also read the recurring activity
+  feed and calendar, spending by category and per category, and cashflow and its money
+  flow for the current pay cycle or the year to date. It can dry-run a categorization rule
+  before creating it; the preview writes nothing. Both the per-category spending detail and
+  the rule preview require the budgeted-transactions permission, because both reveal your
+  transactions. The calendar includes credit-card payments only for an app that may also
+  read your accounts.
+
+- **An AI app connected over MCP can read your wealth analysis.** It could list accounts
+  and balances, but had to recompute allocation, diversification or a loan schedule from
+  raw data, and could get them wrong. Fourteen read-only tools now return what the
+  analysis pages show: allocation, wealth pyramid, diversification, projection,
+  allocation targets, essential-expense estimate, savings suggestions and interest,
+  real-estate summary and valuations, loan summary, realized P&L, crypto exchange
+  positions and ETF composition. Whole-wealth views need the new **Wealth analysis**
+  (`analysis:read`) permission on the access key; views of a single account use the
+  existing accounts permission, and ETF composition the prices one. Nothing can be
+  changed through these tools
+  ([#177](https://github.com/Cloeille/picsou-finance/issues/177)).
+
+- **The sync page is reachable from the profile menu.** `/sync` had no entry in the
+  desktop sidebar; it was only reachable from the dashboard sync dialog or by typing the
+  address. The profile menu now lists it beside Administration and Sign out, in both
+  sidebar styles, and highlights it while you are on that page. In the classic style the
+  menu now opens below the profile button when the window is tall enough, and flips
+  above it otherwise; the default style keeps it opening upwards because its profile
+  sits at the bottom of the screen.
+
+- **Import HomeBank iOS and desktop history from `.hbk`, `.hbexport` or `.qif`.**
+  Review the source accounts, transactions, payees and notes, then map accounts and
+  budget categories before confirming. Amounts, currencies and calendar dates are
+  kept as exported. The import is atomic, repeated source IDs are skipped, and
+  internal transfers and opening balances do not inflate spending or income.
+  Desktop QIF requires an explicit currency, preserves category splits and
+  transfer legs, and derives new balances from the exported history. Native iOS
+  exports retain password-protected import. Desktop `.xhb` XML is not supported.
+  Importing again into an existing manual account refreshes its balance and
+  history. QIF dates may be year-, day- or month-first, and a transfer to an
+  account missing from the file is imported as a plain row.
+
+- **Crypto holdings show the coin's logo next to their ticker.** A position is easier to
+  recognise at a glance than by reading its ticker. The mark comes from CoinGecko, which
+  already prices the same coins, and a whole page resolves in a single request — nothing
+  is stored and no account is required. A coin with no logo, a provider that is down, or
+  an image that fails to load all leave the ticker exactly as it was, so nothing
+  disappears when a mark cannot be fetched.
+- **Stocks and ETFs show their company or fund logo next to their ticker too**
+  ([#162](https://github.com/Cloeille/picsou-finance/issues/162)). Each mark is read once per
+  ticker from its Yahoo Finance quote page, in the background after the hourly price refresh,
+  and stored in the database, so the browser only ever loads it from Picsou and a rebuild
+  loses nothing. It never runs while a page renders and never gets ahead of the prices: if
+  Yahoo answers with a rate limit, the logo pass stops and waits. A share with no logo shows
+  its ticker exactly as before, and a logo is kept when a position is sold, since another
+  account or member may hold the same share. Set `INSTRUMENT_LOGOS_ENABLED=false` to stop new
+  lookups; logos already stored keep showing.
+
+- **SCPI positions can be synced from a CORUM real-estate contract.** A CORUM
+  contract now fills the SCPI accounts you created by hand, through a Chromium
+  sidecar like the other brokers — the login is a client id and a password, with
+  no captcha and no second factor. Each fund in the contract becomes one
+  position, matched on the fund code you enter in the SCPI form, so a two-fund
+  contract is not flattened into a single account. The quantity and the value
+  come from the **withdrawal** price, not the figure CORUM displays: CORUM shows
+  the subscription-side price, which carries the entry fee — about 12% of the
+  position. The sync never creates an account, and the sidecar is read-only: no
+  order, no subscription, no redemption. A client space holding more than one
+  real-estate contract is refused rather than guessed at; CORUM Life and PER are
+  insurance, not shares, and are not read.
+- **A Sofidy client-space connection keeps your SCPI shares up to date.** The
+  Espace Associé connection fills the share count and the withdrawal price of the
+  accounts you linked to a Sofidy fund, at the withdrawal value — the same rule the
+  manual form uses, so a share is never worth more than it could be sold for. The
+  login takes two steps: Sofidy emails a six-digit code and the session opens once you
+  type it. Neither the password nor the code is ever stored, only the encrypted
+  session. A fund with no linked account is skipped, and a fund whose price Sofidy has
+  not published yet updates its quantity while leaving its balance alone. A fund
+  Sofidy no longer lists has been sold, so its account is closed instead of keeping
+  a balance you no longer hold — which is also what makes a full exit syncable. A
+  figure Sofidy does not quote no longer overwrites what you entered by hand, and
+  a sold position is written at a zero balance even when no withdrawal price is
+  published for it.
+
+- **Bring your history over from Actual Budget.** Upload the budget `.zip` exported
+  from Actual (or its `db.sqlite`) on the sync page, review its accounts, categories and
+  latest transactions, choose where each account and category goes, then confirm.
+  Amounts, dates, payees and notes come across as Actual shows them; split
+  transactions arrive as their parts, deleted rows stay out, and transfers between
+  your accounts and starting balances never count as income or spending. Importing the
+  same file again adds nothing, and a file that fails any check writes nothing. Importing
+  a newer export keeps the accounts the import created in step with Actual: transactions
+  you deleted, split or moved there follow, and the confirmation says how many will be
+  added, deleted and moved first. A large deletion has to be confirmed by typing its count.
+  Accounts you created yourself, and accounts created for another Actual budget, only ever
+  gain new transactions. Loan accounts can't receive an Actual import.
+
+### Fixed
+
+- **American Express no longer stores a second copy of a charge AMEX re-describes.** A
+  charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
+  `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its
+  category, so budgets counted it twice. The stored row now takes the new label and keeps its
+  category; two identical purchases on the same day stay two rows. A relabelled charge is
+  matched only when it is the one purchase stored and the one reported for its date and amount,
+  so no charge takes another's category or recurring series. Copies stored before the
+  fix are not removed automatically, since nothing tells them from a genuine second purchase;
+  delete them by hand (#245).
+- **BoursoBank sync no longer fails when the dashboard lists children's accounts.** A holder
+  who manages a minor's accounts gets a "Comptes de mes enfants" panel, which the connector
+  did not know: its cards failed the completeness check and the whole sync stopped with
+  `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
+  like loans and insurance, since they belong to the child.
+- **Account edit and delete buttons on touch screens.** On the Accounts page these buttons
+  only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
+  the card's corner could still hit delete). They now stay visible on touch screens and when
+  keyboard focus is inside the card.
+
+- **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
+  Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
+  Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
+  of disappearing.
+- **Revolut tells you when it asks for a captcha instead of counting down for a push that never
+  comes.** Revolut can answer the phone number with an image challenge; the sidecar used to type
+  nothing further, then show "Approve the connection in your Revolut app… (300s left)" until it
+  timed out. It now stops at once and every Revolut sync screen says Revolut is asking for a human
+  verification and that no approval was sent. A sign-in page the sidecar does not recognise, or a
+  step of it that times out (previously an unexplained server error), is reported the same way.
+  Solving the challenge from Picsou is not available yet. See
+  [feature note](docs/features/revolut-sidecar.md).
+- **BoursoBank account names show apostrophes and ampersands as typed.** A name such as
+  `LIVRET D'EPARGNE` was stored as `LIVRET D&#039;EPARGNE` and shown that way in the
+  dashboard, legend and accounts list. The next BoursoBank sync rewrites existing names.
+- **Long account names stay inside their tile in the Allocation treemap.** They end with an
+  ellipsis instead of spilling over neighbouring tiles; hovering the tile shows the full name.
+- **An investment account's detail page shows its positions once.** The Positions card and the
+  realized gains on closed positions were each rendered twice, one under the other, on any
+  account with holdings (PEA, CTO, PER, crypto…). Values were right; only the display repeated.
+- **HomeBank iOS imports retain the opening amount when mapped to an existing manual account.**
+  The non-zero opening is added once as a stable transfer ledger row before rebuilding
+  the balance and snapshots. Repeat imports do not duplicate it; synced balances stay untouched.
+- **Revolut pockets/vaults and Bourso current-account/LEP activity feed Budget.**
+  Real Revolut pockets use their internal pocket ID for the bounded 90-day
+  harvest, without changing persisted vault IDs. Bourso reads booked movements
+  and reuses the shared sidecar importer, preserving legacy IDs and categories
+  during strict overlap matching. Only verified mirrored Revolut legs are
+  classified as internal transfers; a generic virement label alone is not.
+  ([#213](https://github.com/Cloeille/picsou-finance/issues/213))
+- **The budget money-flow chart no longer calls unspent money "savings".** Income left on the
+  current account is now shown as "Unspent", and spending above income as "Taken from balance".
+  Only money actually transferred to a savings or investment account appears as savings, with one
+  band per account labelled "Savings · Livret A" or "Investment · PEA", taken out of the unspent
+  part. Savings are counted net per account, so money moved out and back is not savings;
+  withdrawals from a savings account and transfers to or from accounts not linked in Picsou are
+  shown as such. Trade Republic purchases and sales with matching cash and investment legs are
+  counted once, without a fictitious incoming or outgoing transfer.
+
+- **AMEX and DEGIRO deployments can use CI-built images instead of local builds.**
+  Both authentication sidecars are included in GHCR publishing and image-based
+  CI tests, and the deployment Compose file offers the same image/build choice
+  as the other providers. AMEX selects the pinned browser archive for AMD64 or ARM64.
+  New packages require public visibility before anonymous pulls.
+
+- **AMEX login works again after AMEX changed the page where you choose SMS or e-mail for the security code.**
+  The page now lists your masked phone number and e-mail address as radio choices instead of
+  buttons, so Picsou could not pick one and the login failed with an upstream format error. It
+  now selects the channel you asked for and continues to the code entry.
+
+- **An AMEX card no longer shows a statement you already paid by direct debit as debt.**
+  The card used to count the paid statement again on top of your new purchases. It now shows
+  only what is still owed on the statement plus the purchases made since. A refund or an
+  overpayment larger than the statement now shows as a credit on the card.
+
+- **Dashboard "Sync all" stays in place, including remembered Revolut sessions.** Revolut
+  discovery is auto-confirmed with remembered credentials preserved and deleted accounts
+  excluded. A discovery that completes or fails before the start response arrives no longer
+  leaves the row spinning forever; errors refresh session status and reauthentication routing.
+  Navigating away from the dashboard before discovery finishes still drops client-side confirm
+  ([#207](https://github.com/Cloeille/picsou-finance/issues/207)).
+
+- **MCP sync no longer hides an expired browser session or loses the status report after a database error.**
+  BoursoBank, Bourse Direct, Amundi and Fortuneo distinguish an inactive session requiring a new login
+  from another recorded failure and from no connection. Exceptions retain server-side diagnostics
+  without exposing database details. Status reads isolate each reader's transaction, and every
+  sync trigger explains that its cooldown is shared with the other trigger tools.
+
+- **A credit card on the dashboard's liabilities card no longer shows `NaN% · NaN €/mo`.**
+  The API leaves out empty fields, and the card mistook a missing repayment percentage for a
+  configured loan. A loan without parameters still shows the "Parameters not configured"
+  hint. A credit card now shows its amount due and payment date when its provider reports
+  them, and nothing extra otherwise. An AI call without token usage shows a dash again in
+  the AI activity table.
+  ([#197](https://github.com/Cloeille/picsou-finance/issues/197))
+- **Deleting an account through the MCP assistant now also disconnects the bank, wallet or broker when it was the last account on that connection, and says which one.** ([#176](https://github.com/Cloeille/picsou-finance/issues/176))
+- **A BoursoBank access with a personal and a business identity now syncs the personal one.** BoursoBank shows such an access an identity selector before the dashboard, which the connector used to report as a site format change. It now switches to the personal identity on each sync, and says so plainly when it cannot tell which identity is personal. Business identities are not synced. ([#153](https://github.com/Cloeille/picsou-finance/issues/153))
+- **A 1.1.0 database that applied migrations before they were renumbered starts again.**
+  The old V80, V81 and V86–V88 rows are moved to V93–V99 before Flyway validates, matched on
+  version, description and checksum, so the boot no longer fails and those migrations do not run
+  twice. **If you set `SPRING_FLYWAY_ENABLED=false` to work around it, remove it after upgrading**:
+  with Flyway off, newer migrations such as V103 never run and the application refuses to start.
+  See the upgrade note in `docs/features/docker-deployment.md`.
+  ([#174](https://github.com/Cloeille/picsou-finance/issues/174))
+
+### Security
+
+- **Sidecars share one dependency pin set.** Bourse Direct, Fortuneo, Trade Republic and
+  DEGIRO move from fastapi 0.111 (and the Starlette range with published DoS advisories it
+  pulled in) to fastapi 0.141, uvicorn 0.52 and pydantic 2.13, DEGIRO and Trade Republic
+  from httpx 0.27 to 0.28, and Trade Republic from Playwright 1.44 to 1.52. These four no
+  longer get uvicorn's `[standard]` extras (uvloop, httptools, websockets) that fastapi 0.111
+  pulled in: they run on the default asyncio loop and h11, like the other sidecars already did. A future
+  bump is one line in `services/base/requirements*.txt` for all nine sidecars.
+
+- **Every connector sidecar now checks the shared `APP_SIDECAR_API_KEY`.** The
+  Trade Republic, Revolut, BoursoBank, Bourse Direct, Amundi, Fortuneo and DEGIRO
+  sidecars carry bank logins and one-time codes, yet any container on the Compose
+  network could drive them. They now refuse to start without the key and answer
+  every route except `/health` with a 401 unless the backend presents it, as
+  CORUM and Sofidy already did. The Fortuneo and Revolut adapters now send it
+  too. **Upgrade note:** both Compose files forward the key to every sidecar they define, so
+  a `docker/.env` that already sets it needs no change; recreate the app and all
+  sidecars together. ([#169](https://github.com/Cloeille/picsou-finance/issues/169))
+- **Another site can no longer act on your Picsou account through your browser.** The login
+  cookies are `SameSite=Lax`, which still lets a page on a sibling subdomain (another app on
+  the same home domain) submit forms to Picsou with your session, and several actions accept
+  such a form. The API now rejects a cookie-authenticated change (`POST`, `PUT`, `PATCH`,
+  `DELETE`) sent from another origin, using the browser's `Sec-Fetch-Site` header, or
+  `Origin`/`Referer` when it is missing. Origins on the CORS allow-list, the iOS app and MCP
+  clients are unaffected. The bank connection callback now completes with a `POST` instead
+  of a `GET`.
+- **A crafted value can no longer forge lines in the backend log.** A search term, a ticker,
+  an uploaded file name or CSV line, or an error page from a price provider could carry line
+  breaks or terminal escape codes into the log, and so fake an entry or garble the terminal.
+  The backend log now replaces line breaks and control characters with `?` in every message
+  and in exception messages, and the values an outsider controls are also cleaned where they
+  are logged. The log layout is unchanged; the backend logs to the console only, as before.
+  The Trade Republic, DEGIRO and Revolut sidecars escape line breaks and control characters
+  in each log record too, so a multi-line browser error or traceback now prints on one line
+  with `\n` markers.
+- **The Trade Republic and DEGIRO sidecars only put well-formed values in their upstream
+  URLs.** The Trade Republic process id and code, and the DEGIRO account number and session
+  id, were pasted into the request path as received, so a crafted value could point the
+  sidecar at another path on the broker's API. They are now checked against their real
+  shape first and refused otherwise.
+- **The Trade Republic sidecar log shows only the last two digits of your phone number.** It
+  kept the first three characters too, which for a number typed without `+33` or a leading
+  `0` was five of its nine digits.
+- **CI and image builds run fixed versions of their GitHub Actions.** Every third-party action
+  is pinned to a commit instead of a movable tag, so a retagged or compromised action can no
+  longer run in the job that pushes the Docker images. Dependabot proposes the updates weekly.
+
+
+## [1.1.0] — 2026-06-09
+
+Minor release: a complete **Budget & Cashflow** module — zero-config and "Apple-like". Fed by
+Enable Banking transaction sync with a full manual fallback (it works with no synced bank at all),
+it categorizes every transaction automatically by *brand* against an embedded, offline knowledge
+base — before the user tags a single thing — and presents spending through a clean nested-route
+information architecture.
+
+### Added
+
+- **Zero-config brand categorization.** An embedded, **offline** merchant knowledge base (137
+  common FR/EU brands) categorizes synced transactions automatically, from the very first sync,
+  with no setup and no ML or external service. It slots in as a pure fallback behind the existing
+  rule engine, so the precedence **manual choice > learned rule > brand KB > uncategorized** is
+  never inverted and no per-member rows are written. A KB version bump (`kb_version`) re-categorizes
+  in place without ever overriding a user's choice.
+- **Clean merchant names everywhere.** A pure `MerchantNormalizer` strips payment-processor wrappers
+  (`PAYPAL *…`, `SUMUP *…`), card/reference digits, and date noise into a canonical `merchant_label`,
+  stamped on every transaction whether or not it ends up categorized.
+- **Merchant avatars.** `MerchantAvatar` renders an initial-monogram with a deterministic, offline
+  colour in every transaction list — no network by default.
+- **Cashflow flow diagram.** Income sources → a central hub → spending categories, drawn as a
+  **Sankey diagram** on ≥ `md` viewports and as compact **Flow Bars** on phones, internal transfers
+  excluded. A per-category **drill** lists the transactions (and, for a parent, a per-child rollup).
+- **Sub-categories.** Categories now form a one-level **tree** (`parent_id` + a stable `slug`).
+  Aggregation stays leaf-only so a euro is never counted under both a parent and a child; a parent
+  envelope rolls up its whole subtree, guarded against parent/child double-budgeting.
+- **Recurring v2 with silent auto-confirm.** Detection keys on the canonical merchant identity (not
+  the drifting raw counterparty), scores a confidence, and **silently auto-confirms** high-confidence
+  series (≥ 3 regular occurrences, fixed amount, confidence ≥ 0.80). The safety net: a **price-change
+  alert**, an **activity feed** of "what changed", and **per-item undo** — silent is never
+  unexplained. `transaction.recurring_series_id` is now populated, linking each charge to its series.
+- **New information architecture (`/budget/*`).** The single tabbed page became a `BudgetLayout` with
+  nested routes — Overview, Spending (+ drill), Subscriptions, Envelopes, Settings — a segmented
+  sub-nav on desktop and a bottom bar on mobile. **Review is contextual**: a banner on the Overview
+  when there are items to correct, not a permanent tab.
+- **Opt-in brand logos.** Off by default. When enabled, a server-side proxy
+  (`GET /api/merchants/{id}/logo`) fetches logos from DuckDuckGo's keyless icon service behind a
+  port/adapter, with an in-memory TTL cache, a per-IP rate limit, and a per-member gate; the
+  monogram is always the fallback, and logos never feed categorization.
+- **Fortuneo sync.** A Playwright sidecar handles login and the security code,
+  then imports PEA, PEA-PME, CTO and current accounts with their balances,
+  cash, positions and transactions. Portfolio imports are reconciled and fail
+  closed rather than replacing valid data with a partial snapshot. See
+  [feature notes](docs/features/fortuneo.md).
 - **The French regulated passbooks each get their own account type.** Livret A,
   LDDS, Livret Jeune, PEL and CEL sit alongside the existing LEP instead of all
   collapsing into the generic "Livret d'épargne", so a household holding several
@@ -123,6 +532,163 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page (paste token + query id, then sync/disconnect) drives it, in all four locales. See
   [ADR](docs/decisions/2026-07-19-ibkr-flex-web-service.md) and
   [feature note](docs/features/ibkr-sync.md).
+### Fixed
+
+- **Docker deployments with a custom PostgreSQL password no longer crash-loop because Spring uses `picsou`.**
+  The entrypoint now forwards the resolved PostgreSQL password to Spring, while
+  preserving an explicit Spring datasource password override. The database's
+  own password must still be configured to match.
+- **A Trade Republic position that never gets a price no longer fails the whole
+  sync.** The read waited for every ticker subscription to answer, bounded only by
+  a timeout on the gap between two frames, and answered tickers keep streaming
+  deltas: with one silent subscription (a delisted share, a contingent value
+  right) the gap never opened, the 45-second hard timeout failed the sync and no
+  account was stored, right after a successful login. The read now stops after 30
+  seconds in total and persists what answered; the silent position falls back to
+  its average buy-in price, as a missing ticker price already did. A WebSocket
+  error mid-read still keeps what arrived instead of failing the sync.
+- **A BoursoBank contract invested in a single fund syncs instead of failing the
+  whole import** ([#154](https://github.com/Cloeille/picsou-finance/issues/154)).
+  Its trading summary reports the contract balance and one `fund` node, with no
+  cash, valuation, total or positions list, so the sidecar refused it and every
+  other BoursoBank account went unsynced with it. The contract is now read as
+  fully invested: its balance is the account total and the fund's value, with a
+  zero cash balance. A payload mixing both shapes, or carrying zero or several
+  funds, is still refused.
+- **A BoursoBank position whose gain is reported in a foreign currency is refused
+  instead of being recorded as EUR.** The sidecar already refused a line valued in
+  USD and dropped a USD cost basis, but read `gainLoss` as EUR whatever its
+  currency. The backend derives a line's cost basis as value minus gain (first
+  choice for the displayed P&L, fallback for the invested amount when
+  `buyingPrice` is missing), so a 150 USD gain read as 150 EUR misstated it by
+  the exchange-rate difference. The sync now fails with `INVALID_DATA` and keeps the last good
+  portfolio; a gain without a currency is still read as EUR.
+- **A price the provider could not deliver a minute ago no longer blanks a position
+  in the exchange sync.** `refreshPrices` returned a remembered miss as a `null`
+  price, `refreshCryptoQuotes` wrapped it in a quote, and the last-known-price
+  fallback that exists for exactly this case was skipped: during a CoinGecko rate
+  limit, an exchange account holding BTC and ETH was stored, and snapshotted for
+  the day, at its BTC value alone. A remembered miss now stays out of the result,
+  so the fallback runs, and misses expire after 60 seconds as documented rather
+  than after the 15-minute hit TTL.
+- **The startup price backfill no longer records a listed company's history under
+  a coin's symbol.** Holdings of CRYPTO accounts are backfilled through CoinGecko
+  only, as the hourly refresh already did; a coin CoinGecko cannot map is left
+  without history instead of receiving twelve months of the stock trading under
+  the same ticker (STX: Stacks in the wallet, Seagate on Nasdaq).
+- **A cash account in USD, GBP or any other currency is worth its FX-converted
+  balance again.** `toEur` used the currency code as a Yahoo chart symbol when the
+  account had no ticker, and Yahoo answers `chart/USD` with the ProShares Ultra
+  Semiconductors ETF (~89 USD a share): a 1 000 USD checking account showed as
+  ~76 000 EUR on the dashboard and in every daily snapshot. Cash now converts with
+  the `{CURRENCY}EUR=X` rate, and its cost basis is that same converted figure, so
+  a foreign-currency account no longer reports the FX rate as a gain or a loss.
+  The balances typed on the account form or as a manual snapshot, and the ones
+  Enable Banking reports, are converted the same way before they enter the
+  history, which always read them as EUR. A failed FX lookup is remembered for a
+  minute instead of being retried by every valuation.
+- **A CSV transaction import can no longer run twice on one preview.** The
+  `fileToken` was removed from the cache only after the rows had been saved, so a
+  second execute that arrived during the import (a double click, a request the
+  client retried after a timeout) passed every check and saved the whole file a
+  second time: duplicated transactions, and a cost basis and realized P&L off by
+  exactly one import, with nothing to flag it. The token is now consumed atomically
+  before anything is written, and handed back if the import fails, since its
+  transaction rolled back.
+- **Trade Republic re-authentication persists again.** Trade Republic now issues a
+  session token longer than 1472 bytes, which `CryptoEncryption` inflates past the
+  `VARCHAR(2000)` of `trade_republic_session.session_token`: the 2FA succeeded, then
+  the INSERT that stored the session was refused, and every following sync asked to
+  reconnect, forever. The three encrypted columns whose length a third party controls
+  (the Trade Republic session and refresh tokens, the DEGIRO session blob) are now
+  `TEXT`, as the Amundi, Bourse Direct and BoursoBank session state already was. (#115)
+- **The 24H chart no longer leaves out the cash pocket of an investment account.**
+  The hourly points valued a PEA or a compte-titres from its positions alone, so
+  switching from a daily range to 24H made the total drop by the cash held in the
+  envelope, a drop that never happened. The cash pocket now counts in the hourly
+  value and in the invested amount, as the daily chart's today point already did,
+  so the gain is unchanged and the two charts agree.
+- **Trade Republic and DEGIRO daily snapshots now cost today's positions, not
+  yesterday's.** Both syncs took the day's snapshot before replacing the holdings,
+  and the snapshot derives its invested amount from the holdings in the table, so
+  every daily point carried the cost basis of the previous sync. The snapshot now
+  follows the holdings. The Trade Republic PEA's cash pocket also reaches
+  `cashBalance`, so it counts on both sides of the valuation instead of dropping
+  out of the live value.
+- **A refresh token now identifies its account by id, not by username.**
+  `/api/auth/refresh` looked the account up by the username stored in the token's
+  `sub` claim. A username can be changed, or freed and given to a new member, so
+  a refresh token minted for one person could log its holder into whoever carried
+  that name next, and a renamed user was logged out at the next refresh. The
+  endpoint now resolves the immutable `uid` claim, as the access-token filter
+  already did.
+- **A goal month with an objective override shows what was actually saved.** The
+  override was displayed as the amount saved and the computed objective stayed, so
+  lowering December's target to 200 read as "200 of 500" whatever went in that
+  month. The override now adjusts the objective, and the amount saved is the
+  manual contribution or the balance delta.
+- **A goal's average monthly contribution adds up its accounts.** It was a
+  per-account mean compared with the goal-level monthly need, so three accounts
+  saving 100 each reported a 100 contribution and a shortfall.
+- **A loan whose monthly payment is computed now amortises its capital in full.**
+  The computed annuity excluded the insurance, then the schedule subtracted the
+  insurance from it, so every installment repaid less capital than the payment
+  implied and the last one absorbed the difference.
+- **A loan saved without dates is valued at the balance you entered**, not at the
+  full borrowed amount. With no start and end date the schedule is empty and the
+  "remaining balance" was the whole principal, on the dashboard and in the real
+  estate equity.
+- **A Bitcoin wallet whose xpub scan fails no longer shows a balance of zero.** Any
+  error during the scan (an Esplora rate limit or outage, a timeout, an invalid
+  key) was turned into 0 BTC and written into the account and its daily snapshot.
+  The sync now fails and keeps the previous figures.
+- **A coin sold or withdrawn from an exchange disappears from the account.** The
+  exchange sync only ever added or updated holdings, so a sold coin kept its last
+  price in the account's value and cost basis until the exchange was removed.
+- **The Finary auto-sync runs in one transaction.** It called the import past the
+  Spring proxy, so nothing was transactional on that path and a failure halfway
+  left a half-imported account behind.
+- **Mapping a Finary account onto a bank or broker account no longer steals that
+  account from its connector.** The Finary id replaced the connector's external
+  id, and the connector then created a duplicate at its next sync.
+- **A rebuilt Finary or manual-cash history dates each balance at the end of its
+  day.** The rebuilt snapshot for a day held the balance before that day's
+  transactions, so every point of the rebuilt history was one day off.
+- The account-deletion dialog scrolls on short screens and wraps long action
+  labels without horizontal overflow.
+- Account deletion preserves the last active administrator even when other
+  administrator logins are inactive. Committed deletion also purges pending
+  Finary and CSV import data, with member binding and expiry checked on execute.
+
+- **BoursoBank's fraud-education interstitial no longer reads as a wrong password.**
+  When the bank parks a valid login on its fraud-prevention notice, the sidecar
+  returns `FRAUD_ACK_REQUIRED` and the app tells the user to validate the notice
+  on the bank's website and retry, instead of claiming the credentials are wrong.
+- **A Trade Republic portfolio answer that errors no longer wipes the account.** An
+  error frame, or a payload the adapter could not parse, was counted as an
+  authoritative empty portfolio: every holding was deleted and the day's snapshot
+  recorded the securities at zero, with a PEA reduced to its cash pocket. Such an
+  answer now leaves the account untouched for that sync, with a warning naming it;
+  a genuinely emptied portfolio still persists.
+- **An Amundi account holding two share classes of the same fund now syncs.**
+  Amundi does not always put an ISIN in `codeIsin` — on employer funds it holds
+  the AMF code — so the holding was keyed on a slug of the fund label, capped at
+  30 characters. Two share classes of one fund differ only in their last word, so
+  both truncated to the same key, the collision guard correctly refused to merge
+  two different funds, and the entire sync failed with `INVALID_DATA` on a
+  payload that was perfectly valid. The line's own `codeFonds` is now used
+  between the ISIN and the label, and the guard stays behind it.
+
+### Added
+
+- **Editable cost basis for imported crypto wallets (#59).** A wallet/exchange
+  holding starts with its average buy-in set to the market price at import time,
+  which zeroes out gain/loss on existing holdings. The holding editor now lets
+  you correct it by entering either the average buy-in **or** the total invested
+  — the two stay in sync through the quantity. For synced accounts the quantity
+  is read-only (it's owned by the chain/exchange), so only the cost basis
+  changes, and the corrected value survives future syncs. Dashboard, P&L and KPIs
+  then reflect what you actually invested.
 - **BNB Chain support and EVM multichain wallets.** On-chain wallets gained an
   `EVM` chain that tracks a single `0x` address across every enabled EVM network
   — Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base and Avalanche —
@@ -164,6 +730,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The budget section's single 7-tab page was replaced by the nested-route IA above, and recurring
+  detection was rewritten around canonical merchant identity (it previously drifted on the raw
+  bank counterparty and never auto-acted).
 - **HSTS is now opt-in in Docker (`HSTS_ENABLED`, default off).** Nginx
   previously sent `Strict-Transport-Security` unconditionally, including on
   plain-HTTP deployments. Combined with a locally-issued certificate that is a
@@ -191,6 +760,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dividend and fee transactions no longer look like purchases.** When a manual
+  transaction has a ticker but no supplied or resolved name, the frontend now derives
+  its translated fallback label from `txType`. The backend persists only the canonical
+  ticker or instrument name, so descriptions no longer embed French UI text (#108).
+- **Manual transaction annotations can no longer overwrite synced account state (2026-08-31).**
+  Adding, editing, or deleting a manual transaction on a synced account now leaves provider-owned
+  holdings, balance, and snapshots untouched. Transaction-derived state is reserved for manual
+  accounts. CSV transaction import now accepts only manual investment accounts and rejects synced
+  investment accounts before caching a preview or saving rows (#107).
+- **Investment accounts holding unpriceable securities no longer display a
+  partial value.** They fall back to the broker's reported total instead of
+  showing only cash and the holdings resolved by the public price provider.
+- **Dropdown options were unreadable in dark mode.** Native `<select>` popups
+  (account type, currency, bank country, CSV import mapping, property type…)
+  don't honour a translucent background — the browser falls back to an opaque
+  white popup while the option text stayed the light color meant for a dark
+  background, making the list nearly invisible. Every select now uses an
+  opaque background/text pair plus a `color-scheme` hint so the native popup
+  renders legibly in both themes.
 - **A PEA held through ETFs could display 0 €, graph included.** Picsou asked OpenFIGI
   which listings an ISIN maps to and picked one by exchange priority — but OpenFIGI
   returns every listing of an instrument and knows nothing about which one Yahoo quotes,
@@ -248,8 +836,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   startup backfill skips history it already has instead of re-downloading a year of
   it at every boot.
 - **The GitHub link in Settings → About now points to the right repository.** It
-  linked to `github.com/zoeille/picsou`, which does not exist; the repository is
-  `github.com/zoeille/picsou-finance`.
+  linked to `github.com/cloeille/picsou`, which does not exist; the repository is
+  `github.com/cloeille/picsou-finance`.
 - **Restoring several tabs at once no longer logs you out everywhere.** When
   multiple tabs were restored together they each presented the same "Remember
   Me" token; the first request rotated it and the rest looked like a replayed
@@ -261,12 +849,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **anchored** to the rotation that opened it — a previous-token acceptance does
   not advance it — so every tab in the burst is tolerated (not just the first
   two) and replaying the previous token cannot slide the window forward. A token
-  presented after the window still trips theft detection (migration `V56`).
+  presented after the window still trips theft detection (migration `V58`).
 - **Bourse Direct positions no longer appear at €0 when an ISIN has no live
   quote.** Dashboard totals now reuse the same atomic account valuation as
   account cards and history. A guarded migration also restores per-position EUR
   values from early connector data only when every stored price reconciles with
   the broker's account total minus cash; ambiguous legacy quotes remain unset.
+- **Opening `/login` after a restart no longer flashes the form when you have a
+  session.** `isAuthenticated` mirrors `sessionStorage`, which is wiped on every
+  tab/browser close — but the HttpOnly cookies can keep a "Remember Me" session
+  alive for 90 days. Only `RequireAuth` probed the cookie-backed session, so
+  navigating straight to `/login` showed the login form even though the session
+  was restorable. `PublicOnly` now runs the same probe (shared query key, so
+  it's a single request) and redirects into the app when the session
+  rehydrates; the mid-login MFA challenge page opts out (`probe={false}`).
 - **Wallet sync and removal failures now say why.** Both buttons reported nothing
   at all when they failed — the row simply re-enabled, and the delete dialog sat
   there — so a `422` from an RPC outage was indistinguishable from success. The
@@ -330,16 +926,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **Sync logs no longer dump full third-party payloads.** Provider responses
-  were written whole at INFO/WARN/ERROR in production: `EnableBankingBankConnector`
-  logged the full balances object (account amounts) — now an INFO **count-only**
-  line (visibility kept, amounts dropped); `FinaryApiClient` logged the raw Clerk
-  sign-in response (which can carry session tokens) — now a body-free message.
-  Every Finary/Clerk error body that flows into an `IOException` → `SyncException`
-  (and thus into logs *and* the user-facing 422) is now bounded before it is
-  thrown — Clerk auth and the low-level retry path to 200 chars, the Finary
-  data-API body to 500 (enough to keep its actionable message, still capped).
-  Defense-in-depth against financial PII and third-party secrets landing in logs.
+- **Enable Banking session ids are no longer written to logs in the clear.** The
+  raw session id (stored as `Requisition.requisitionId`) was printed by several
+  sync log statements; it is now replaced with the non-sensitive requisition
+  database id in `SyncService`, and with a short non-reversible SHA-256
+  fingerprint in the low-level connector where only the raw value is available.
+  A new `LogSanitizer.fingerprint(...)` helper keeps the fingerprints stable so
+  log lines can still be correlated during debugging. Defense-in-depth against
+  log aggregators with weaker access control than the primary database (#44).
+- **At-rest encryption now pins UTF-8 and validates the key length at startup.**
+  `CryptoEncryption` encoded/decoded secrets with the platform-default charset.
+  A single JVM with a stable charset round-trips fine, but the moment the
+  charset differs across the boundary — a non-UTF-8 JVM writing and a UTF-8 one
+  reading (or vice versa), or interop with any UTF-8 consumer — a non-ASCII
+  secret (e.g. an accented passphrase) decodes to garbage. Both directions now
+  pin `StandardCharsets.UTF_8` for deterministic behaviour. (Migration note:
+  any non-ASCII ciphertext written by a *non*-UTF-8 JVM before this change would
+  now read back mangled — effectively impossible on Java 21, whose default is
+  UTF-8, unless `-Dfile.encoding` was overridden.) `CRYPTO_ENCRYPTION_KEY` is
+  also validated at bean construction — an invalid-base64 or wrong-length key
+  fails fast with a clear message instead of silently selecting a weaker AES
+  variant or throwing a cryptic `InvalidKeyException` at the first
+  encrypt/decrypt.
+
+### Notes
+
+- See [`docs/features/budget.md`](docs/features/budget.md) and the ADRs
+  [merchant KB & budget IA](docs/decisions/2026-06-09-merchant-kb-and-budget-ia.md) (this redesign)
+  and [budget cycle & categorization](docs/decisions/2026-06-02-budget-cycle-and-categorization.md)
+  (the original foundation).
+- Categorization stays **100% offline** — no ML, no third-party categorization API (privacy).
+- Custom reports remain out of scope for this release. (The embedded MCP server arrived on the
+  1.0.x line and is carried into this release — see [`docs/features/mcp-server.md`](docs/features/mcp-server.md).)
+
+### Database migrations
+
+- **V33** — budget foundation (categories, rules, `budget_settings`)
+- **V34** — envelopes / budgets
+- **V35** — recurring series
+- **V36 / V37** — inherited from the 1.0.x line (`transaction.name`, then access-keys + embedded
+  MCP server); see [1.0.7] below. The budget branch reserved V33–V35, so these slot in above it.
+- **V38** — budget categorization foundation (`category.parent_id`/`slug`,
+  `transaction.merchant_label`, `budget_settings.kb_version`/`logo_fetch_enabled`)
+- **V39** — merchant knowledge base (`merchant_brand`, `merchant_alias`,
+  `transaction.merchant_brand_id`, 137-brand seed)
+- **V40** — recurring v2 (`confidence`, amount range, `is_variable`, `previous_amount`,
+  `price_changed_at`; `(member_id, lower(label))` unique index)
 
 ## [1.0.13] — 2026-07-07
 
@@ -889,4 +1521,4 @@ internationalization, and mobile responsiveness.
 - **V31** — price-snapshot cleanup gate
 - **V32** — `goal.history_start` (anchors trajectory charts)
 
-[1.0.0]: https://github.com/Zoeille/picsou-finance/releases/tag/v1.0.0
+[1.0.0]: https://github.com/Cloeille/picsou-finance/releases/tag/v1.0.0

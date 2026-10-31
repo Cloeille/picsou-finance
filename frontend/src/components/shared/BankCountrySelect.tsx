@@ -56,7 +56,7 @@ export function BankCountrySelect({ value, onChange }: BankCountrySelectProps) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-label={t('sync.banks.country')}
-        className="h-10 rounded-md border border-input bg-input/20 px-4 text-sm outline-none dark:bg-input/30"
+        className="h-10 rounded-md border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]"
       >
         {options.map((o) => (
           <option key={o.code} value={o.code}>{o.label}</option>

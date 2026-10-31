@@ -7,13 +7,18 @@ import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
+import com.picsou.model.Category;
+import com.picsou.model.CategoryKind;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.CategoryRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.budget.CategorizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -33,6 +38,8 @@ class ManualTransactionServiceTest {
     @Mock TransactionRepository transactionRepository;
     @Mock HoldingComputeService holdingComputeService;
     @Mock FinaryPersistenceHelper finaryPersistenceHelper;
+    @Mock CategoryRepository categoryRepository;
+    @Mock CategorizationService categorizationService;
     @Mock OpenFigiIsinConverter openFigiIsinConverter;
 
     ManualTransactionService manualTransactionService;
@@ -43,9 +50,11 @@ class ManualTransactionServiceTest {
         // end-to-end ISIN/ticker resolution assertions below exercise the actual logic.
         manualTransactionService = new ManualTransactionService(
             accountRepository, transactionRepository, holdingComputeService,
-            finaryPersistenceHelper, new InstrumentFieldResolver(openFigiIsinConverter));
+            finaryPersistenceHelper, categoryRepository, categorizationService,
+            new InstrumentFieldResolver(openFigiIsinConverter));
     }
 
+    /** A manual cash account — its balance IS the sum of its (hand-entered) transactions. */
     private Account checkingAccount() {
         return Account.builder()
             .id(1L)
@@ -99,7 +108,7 @@ class ManualTransactionServiceTest {
             "Salary",
             new BigDecimal("1000"),
             TransactionType.DEPOSIT,
-            null, null, null, null, "EUR"
+            null, null, null, null, "EUR", null
         );
 
         when(accountRepository.findByIdAndMemberId(1L, 10L)).thenReturn(Optional.of(account));
@@ -170,6 +179,63 @@ class ManualTransactionServiceTest {
     }
 
     @Test
+    void addTransaction_explicitCategory_isMarkedManualSoAutomaticPassesKeepIt() {
+        Account account = syncedCheckingAccount();
+        Category chosen = Category.builder().id(55L).slug("autres-revenus").kind(CategoryKind.INCOME).build();
+        TransactionRequest req = new TransactionRequest(
+            LocalDate.of(2026, 10, 10), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"),
+            TransactionType.DEPOSIT, null, null, null, null, "EUR", 55L
+        );
+        when(accountRepository.findByIdAndMemberId(3L, 10L)).thenReturn(Optional.of(account));
+        when(categoryRepository.findByIdAndMemberId(55L, 10L)).thenReturn(Optional.of(chosen));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        manualTransactionService.addTransaction(3L, 10L, req);
+
+        ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(saved.capture());
+        assertThat(saved.getValue().getCategoryRef()).isSameAs(chosen);
+        assertThat(saved.getValue().isCategoryManual()).isTrue();
+    }
+
+    @Test
+    void addTransaction_noCategory_leavesTheAutomaticPipelineInCharge() {
+        Account account = syncedCheckingAccount();
+        TransactionRequest req = new TransactionRequest(
+            LocalDate.of(2026, 10, 10), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"),
+            TransactionType.DEPOSIT, null, null, null, null, "EUR"
+        );
+        when(accountRepository.findByIdAndMemberId(3L, 10L)).thenReturn(Optional.of(account));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        manualTransactionService.addTransaction(3L, 10L, req);
+
+        ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(saved.capture());
+        assertThat(saved.getValue().isCategoryManual()).isFalse();
+    }
+
+    @Test
+    void updateTransaction_explicitCategory_isMarkedManual() {
+        Account account = syncedCheckingAccount();
+        Transaction tx = syncedManualTransaction(account);
+        Category chosen = Category.builder().id(55L).slug("autres-revenus").kind(CategoryKind.INCOME).build();
+        TransactionRequest req = new TransactionRequest(
+            LocalDate.of(2026, 10, 10), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"),
+            TransactionType.DEPOSIT, null, null, null, null, "EUR", 55L
+        );
+        when(accountRepository.findByIdAndMemberId(3L, 10L)).thenReturn(Optional.of(account));
+        when(transactionRepository.findByIdAndAccountId(7L, 3L)).thenReturn(Optional.of(tx));
+        when(categoryRepository.findByIdAndMemberId(55L, 10L)).thenReturn(Optional.of(chosen));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        manualTransactionService.updateTransaction(3L, 7L, 10L, req);
+
+        assertThat(tx.getCategoryRef()).isSameAs(chosen);
+        assertThat(tx.isCategoryManual()).isTrue();
+    }
+
+    @Test
     void deleteTransaction_syncedAccount_doesNotReconstruct() {
         Account account = syncedCheckingAccount();
         Transaction tx = syncedManualTransaction(account);
@@ -198,7 +264,7 @@ class ManualTransactionServiceTest {
             null,
             new BigDecimal("5"),
             new BigDecimal("100"),
-            "EUR"
+            "EUR", null
         );
 
         when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(account));
@@ -214,7 +280,7 @@ class ManualTransactionServiceTest {
     }
 
     @Test
-    void addTransaction_syncedInvestmentAccount_stillRecomputesHoldings() {
+    void addTransaction_syncedInvestmentAccount_leavesProviderHoldingsUntouched() {
         Account account = Account.builder()
             .id(4L)
             .name("Synced CTO")
@@ -240,9 +306,7 @@ class ManualTransactionServiceTest {
 
         manualTransactionService.addTransaction(4L, 10L, req);
 
-        // The isManual guard only gates the cash recompute path — holdings
-        // derivation runs for investment accounts regardless of provenance.
-        verify(holdingComputeService).recomputeHoldings(account);
+        verify(holdingComputeService, never()).recomputeHoldings(any());
         verify(finaryPersistenceHelper, never()).reconstructSnapshotsFromDb(any());
     }
 
@@ -250,7 +314,7 @@ class ManualTransactionServiceTest {
     void addTransaction_accountNotFound_throws() {
         TransactionRequest req = new TransactionRequest(
             LocalDate.now(), "Test", BigDecimal.TEN,
-            TransactionType.DEPOSIT, null, null, null, null, "EUR"
+            TransactionType.DEPOSIT, null, null, null, null, "EUR", null
         );
 
         when(accountRepository.findByIdAndMemberId(99L, 10L)).thenReturn(Optional.empty());
@@ -339,7 +403,7 @@ class ManualTransactionServiceTest {
             null,
             new BigDecimal("5"),
             new BigDecimal("100"),
-            "EUR"
+            "EUR", null
         );
 
         when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(account));
@@ -371,6 +435,7 @@ class ManualTransactionServiceTest {
             new BigDecimal("10"),
             new BigDecimal("100"),
             "EUR",
+            null,
             new BigDecimal("1.50")
         );
 
@@ -379,6 +444,8 @@ class ManualTransactionServiceTest {
 
         TransactionResponse result = manualTransactionService.addTransaction(2L, 10L, req);
 
+        assertThat(result.txType()).isEqualTo(TransactionType.BUY);
+        assertThat(result.description()).isEqualTo("AAPL");
         assertThat(result.fees()).isEqualByComparingTo("1.50");
         verify(holdingComputeService).recomputeHoldings(account);
     }
@@ -396,6 +463,7 @@ class ManualTransactionServiceTest {
             new BigDecimal("10"),
             new BigDecimal("100"),
             "EUR",
+            null,
             new BigDecimal("-1")
         );
 
@@ -420,7 +488,7 @@ class ManualTransactionServiceTest {
             "My World ETF",
             new BigDecimal("5"),
             new BigDecimal("100"),
-            "EUR"
+            "EUR", null
         );
 
         when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(account));

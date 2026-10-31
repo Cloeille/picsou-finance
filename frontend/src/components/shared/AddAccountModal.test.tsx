@@ -1,8 +1,11 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { formatCurrency, localeFromLanguage } from '@/lib/utils'
+import { makeMoneyFormatter } from '@/lib/money'
+import { localeFromLanguage } from '@/lib/utils'
 import type { FinaryAccountMapping, FinaryPreviewResponse } from '@/types/api'
+
+const enMoney = makeMoneyFormatter({ hidden: false, locale: localeFromLanguage('en') })
 
 const { createAccount, updateDebtMetadata } = vi.hoisted(() => ({
   createAccount: vi.fn(),
@@ -67,6 +70,42 @@ vi.mock('@/components/sync/BourseDirectPanel', () => ({
 vi.mock('@/components/sync/AmundiPanel', () => ({
   AmundiPanel: ({ onConnected }: { onConnected?: () => void }) => (
     <button onClick={onConnected}>amundi-wizard</button>
+  ),
+}))
+
+vi.mock('@/components/sync/CaisseEpargnePanel', () => ({
+  CaisseEpargnePanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>caisse-epargne-wizard</button>
+  ),
+}))
+
+vi.mock('@/components/sync/IbkrPanel', () => ({
+  IbkrPanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>ibkr-wizard</button>
+  ),
+}))
+
+vi.mock('@/components/sync/SimplefinPanel', () => ({
+  SimplefinPanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>simplefin-wizard</button>
+  ),
+}))
+
+vi.mock('@/components/sync/AmexPanel', () => ({
+  AmexPanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>amex-wizard</button>
+  ),
+}))
+
+vi.mock('@/components/sync/CorumPanel', () => ({
+  CorumPanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>corum-wizard</button>
+  ),
+}))
+
+vi.mock('@/components/sync/SofidyPanel', () => ({
+  SofidyPanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>sofidy-wizard</button>
   ),
 }))
 
@@ -341,8 +380,8 @@ describe('AddAccountModal Finary wizard', () => {
   it('shows each Finary balance in the currency the preview reports', () => {
     syncWithPreview(preview(false))
 
-    expect(screen.getByText(formatCurrency(1234.5, 'USD', localeFromLanguage('en')))).toBeInTheDocument()
-    expect(screen.queryByText(formatCurrency(1234.5, 'EUR', localeFromLanguage('en')))).not.toBeInTheDocument()
+    expect(screen.getByText(enMoney.amount(1234.5, 'USD'))).toBeInTheDocument()
+    expect(screen.queryByText(enMoney.amount(1234.5, 'EUR'))).not.toBeInTheDocument()
   })
 
   it('does not offer a Picsou account that another Finary row already maps onto', () => {
@@ -365,6 +404,61 @@ describe('AddAccountModal Amundi wizard', () => {
 
     fireEvent.click(screen.getByText('sync.amundi.title'))
     fireEvent.click(screen.getByRole('button', { name: 'amundi-wizard' }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('AddAccountModal IBKR wizard', () => {
+  it('opens the connector and closes after authentication', () => {
+    const onOpenChange = vi.fn()
+    render(<AddAccountModal open onOpenChange={onOpenChange} />)
+
+    fireEvent.click(screen.getByText('sync.ibkr.title'))
+    fireEvent.click(screen.getByRole('button', { name: 'ibkr-wizard' }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('AddAccountModal Caisse d\'Epargne wizard', () => {
+  it('lists the source with its own description', () => {
+    render(<AddAccountModal open onOpenChange={vi.fn()} />)
+
+    expect(screen.getByText('sync.caisseEpargne.title')).toBeInTheDocument()
+    expect(screen.getByText('addAccount.desc.caisseEpargne')).toBeInTheDocument()
+  })
+
+  it('opens the connector and closes after authentication', () => {
+    const onOpenChange = vi.fn()
+    render(<AddAccountModal open onOpenChange={onOpenChange} />)
+
+    fireEvent.click(screen.getByText('sync.caisseEpargne.title'))
+    fireEvent.click(screen.getByRole('button', { name: 'caisse-epargne-wizard' }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('AddAccountModal SimpleFIN wizard', () => {
+  it('opens the connector and closes after authentication', () => {
+    const onOpenChange = vi.fn()
+    render(<AddAccountModal open onOpenChange={onOpenChange} />)
+
+    fireEvent.click(screen.getByText('sync.simplefin.title'))
+    fireEvent.click(screen.getByRole('button', { name: 'simplefin-wizard' }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe.each(['amex', 'corum', 'sofidy'])('AddAccountModal %s wizard', (key) => {
+  it('lists the source, opens the connector and closes after authentication', () => {
+    const onOpenChange = vi.fn()
+    render(<AddAccountModal open onOpenChange={onOpenChange} />)
+
+    fireEvent.click(screen.getByText(`sync.${key}.title`))
+    fireEvent.click(screen.getByRole('button', { name: `${key}-wizard` }))
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })

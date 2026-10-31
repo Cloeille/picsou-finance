@@ -1,14 +1,24 @@
 package com.picsou.controller;
 
+import com.picsou.config.AiConfigProvider;
 import com.picsou.config.EnableBankingConfigProvider;
+import com.picsou.dto.AdminAiRequest;
 import com.picsou.dto.AdminEnableBankingRequest;
 import com.picsou.dto.AdminSecurityRequest;
 import com.picsou.dto.AdminSettingsResponse;
+import com.picsou.dto.AdminTelemetryRequest;
+import com.picsou.dto.AiCallLogPage;
+import com.picsou.dto.AiTestResponse;
 import com.picsou.dto.EnableBankingImportRequest;
 import com.picsou.dto.EnableBankingKeypairResponse;
+import com.picsou.dto.InstanceStatusResponse;
+import com.picsou.service.AiCallLogService;
+import com.picsou.service.EnableBankingCallLogger;
 import com.picsou.service.EnableBankingKeyPairService;
+import com.picsou.service.InstanceStatusService;
 import com.picsou.service.IntegrationsService;
 import com.picsou.service.SetupService;
+import com.picsou.telemetry.TelemetryService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -31,17 +41,32 @@ public class AdminController {
     private final IntegrationsService integrationsService;
     private final EnableBankingConfigProvider ebConfigProvider;
     private final EnableBankingKeyPairService keyPairService;
+    private final AiConfigProvider aiConfigProvider;
+    private final AiCallLogService aiCallLogService;
+    private final EnableBankingCallLogger ebCallLogger;
+    private final TelemetryService telemetryService;
+    private final InstanceStatusService instanceStatusService;
     private final String envAllowedOrigins;
 
     public AdminController(SetupService setupService,
                            IntegrationsService integrationsService,
                            EnableBankingConfigProvider ebConfigProvider,
                            EnableBankingKeyPairService keyPairService,
+                           AiConfigProvider aiConfigProvider,
+                           AiCallLogService aiCallLogService,
+                           EnableBankingCallLogger ebCallLogger,
+                           TelemetryService telemetryService,
+                           InstanceStatusService instanceStatusService,
                            @Value("${app.cors.allowed-origins:}") String envAllowedOrigins) {
         this.setupService = setupService;
         this.integrationsService = integrationsService;
         this.ebConfigProvider = ebConfigProvider;
         this.keyPairService = keyPairService;
+        this.aiConfigProvider = aiConfigProvider;
+        this.aiCallLogService = aiCallLogService;
+        this.ebCallLogger = ebCallLogger;
+        this.telemetryService = telemetryService;
+        this.instanceStatusService = instanceStatusService;
         this.envAllowedOrigins = envAllowedOrigins;
     }
 
@@ -66,17 +91,43 @@ public class AdminController {
             integrations.put(name, integrationsService.isEffectivelyEnabled(name));
         }
 
+        AdminSettingsResponse.AiSettings ai = new AdminSettingsResponse.AiSettings(
+            aiConfigProvider.storedProvider(),
+            aiConfigProvider.storedModel(),
+            aiConfigProvider.storedBaseUrl(),
+            aiConfigProvider.apiKeyPresent(),
+            aiConfigProvider.maxConcurrency()
+        );
+
         return ResponseEntity.ok(new AdminSettingsResponse(
             new AdminSettingsResponse.SecuritySettings(origins, secureCookies),
             new AdminSettingsResponse.EnableBankingSettings(
                 appId, redirectUri, ebConfigProvider.privateKeyPresent()),
-            integrations
+            integrations,
+            ai,
+            new AdminSettingsResponse.TelemetrySettings(
+                telemetryService.isAvailable(), String.valueOf(telemetryService.consent()))
         ));
     }
 
     @PutMapping("/settings/security")
     public ResponseEntity<Void> updateSecurity(@Valid @RequestBody AdminSecurityRequest request) {
         setupService.writeSecurity(request.allowedOrigins(), request.secureCookies());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Opt-in anonymous telemetry consent (instance-wide). Applies immediately: the backend SDK is
+     * initialised or closed in-process. Enabling without a configured DSN is a 409.
+     */
+    @PutMapping("/settings/telemetry")
+    public ResponseEntity<?> updateTelemetry(@Valid @RequestBody AdminTelemetryRequest request) {
+        try {
+            telemetryService.setEnabled(request.enabled());
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage()));
+        }
         return ResponseEntity.noContent().build();
     }
 
@@ -131,5 +182,39 @@ public class AdminController {
         if (enabled) integrationsService.enable(key);
         else integrationsService.disable(key);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/settings/ai")
+    public ResponseEntity<Void> updateAi(@Valid @RequestBody AdminAiRequest request) {
+        aiConfigProvider.save(request.provider(), request.model(), request.baseUrl(), request.apiKey(), request.maxConcurrency());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/settings/ai/test")
+    public ResponseEntity<AiTestResponse> testAi(@Valid @RequestBody AdminAiRequest request) {
+        return ResponseEntity.ok(aiConfigProvider.test(request.provider(), request.model(), request.baseUrl(), request.apiKey()));
+    }
+
+    @GetMapping("/ai-calls")
+    public AiCallLogPage aiCalls(
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(defaultValue = "0") int offset) {
+        return aiCallLogService.list(limit, offset);
+    }
+
+    @GetMapping("/enablebanking/call-log")
+    public List<EnableBankingCallLogger.CallEntry> ebCallLog() {
+        return ebCallLogger.entries();
+    }
+
+    @DeleteMapping("/enablebanking/call-log")
+    public ResponseEntity<Void> clearEbCallLog() {
+        ebCallLogger.clear();
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/instance-status")
+    public ResponseEntity<InstanceStatusResponse> instanceStatus() {
+        return ResponseEntity.ok(instanceStatusService.status());
     }
 }

@@ -76,6 +76,9 @@ bootstrap_secret "jwt_secret"        "JWT_SECRET"            "rand -base64 48"
 bootstrap_secret "crypto_key"        "CRYPTO_ENCRYPTION_KEY" "rand -base64 32"
 bootstrap_secret "postgres_password" "POSTGRES_PASSWORD"     "rand -base64 24"
 
+# Spring reads its datasource password from this variable, not POSTGRES_PASSWORD.
+export SPRING_DATASOURCE_PASSWORD="${SPRING_DATASOURCE_PASSWORD:-$POSTGRES_PASSWORD}"
+
 # ── HSTS (opt-in) ────────────────────────────────────────────────────────
 # nginx.conf includes this snippet; empty means the header is never sent.
 #
@@ -125,5 +128,7 @@ fi
 # single-line entrypoint.
 export SERVER_PORT=9090
 export TR_AUTH_URL=${TR_AUTH_URL:-http://127.0.0.1:8001}
+export REVOLUT_AUTH_URL=${REVOLUT_AUTH_URL:-http://127.0.0.1:8002}
+export APP_STARTUP_SYNC_ENABLED=${APP_STARTUP_SYNC_ENABLED:-false}
 
-exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/picsou.conf

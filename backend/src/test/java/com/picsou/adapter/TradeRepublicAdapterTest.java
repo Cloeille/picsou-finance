@@ -1,18 +1,25 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
+import org.springframework.web.reactive.function.client.WebClient;
 import com.picsou.port.TradeRepublicPort.TrTokens;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.netty.DisposableServer;
 import reactor.netty.http.server.HttpServer;
+import reactor.test.StepVerifier;
 
+import java.io.IOException;
 import java.time.Duration;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -26,7 +33,7 @@ class TradeRepublicAdapterTest {
     @Test
     void productionConstructorIsExplicitSpringInjectionPoint() throws NoSuchMethodException {
         assertThat(TradeRepublicAdapter.class
-            .getConstructor(ObjectMapper.class, String.class)
+            .getConstructor(SidecarWebClientFactory.class, ObjectMapper.class, String.class)
             .isAnnotationPresent(Autowired.class))
             .isTrue();
     }
@@ -140,10 +147,91 @@ class TradeRepublicAdapterTest {
     }
 
     private static TradeRepublicAdapter adapterFor(DisposableServer server, Duration timeout) {
+        String baseUrl = "http://127.0.0.1:" + server.port();
         return new TradeRepublicAdapter(
             new ObjectMapper(),
-            "http://127.0.0.1:" + server.port(),
+            WebClient.builder().baseUrl(baseUrl).build(),
             timeout
         );
+    }
+
+    // ─── shouldPersist: what an answer must be before it replaces the previous holdings ────
+
+    /**
+     * The case that wiped a PEA: the cash subscription answered (500 EUR), the portfolio
+     * subscription answered with an error frame. Persisting it stored an account worth its
+     * cash with no positions, so the service deleted every holding.
+     */
+    @Test
+    void shouldPersist_anErroredPortfolioWithNoPositions_isSkipped_evenWithCash() {
+        assertThat(TradeRepublicAdapter.shouldPersist(new java.math.BigDecimal("500"), true, true, true)).isFalse();
+    }
+
+    @Test
+    void shouldPersist_aGenuinelyEmptiedPortfolio_isPersisted() {
+        assertThat(TradeRepublicAdapter.shouldPersist(java.math.BigDecimal.ZERO, true, true, false)).isTrue();
+    }
+
+    @Test
+    void shouldPersist_positionsWinOverAnErrorOnALaterFrame() {
+        assertThat(TradeRepublicAdapter.shouldPersist(new java.math.BigDecimal("900"), false, true, true)).isTrue();
+    }
+
+    @Test
+    void shouldPersist_anAccountThatNeverAnsweredAndHasNothing_isSkipped() {
+        assertThat(TradeRepublicAdapter.shouldPersist(java.math.BigDecimal.ZERO, true, false, false)).isFalse();
+    }
+
+    // ─── untilAnsweredOrCapped: how long the WebSocket read may wait ───────────────────────
+
+    /**
+     * The case that stored no account at all: every ticker but one answered and kept
+     * streaming deltas, the last one (an instrument TR never prices) stayed silent. Frames
+     * never stopped, so only a cap on total time ends the read.
+     */
+    @Test
+    void untilAnsweredOrCapped_aSubscriptionThatNeverAnswers_endsAtTheCap_whileOthersKeepTicking() {
+        // A delta every 7s: frames at 7, 14, 21 and 28s, the next one would land after the cap.
+        StepVerifier.withVirtualTime(() -> TradeRepublicAdapter.untilAnsweredOrCapped(
+                Flux.interval(Duration.ofSeconds(7)), frame -> false, TradeRepublicAdapter.WS_WAIT_CAP))
+            .expectSubscription()
+            .thenAwait(TradeRepublicAdapter.WS_WAIT_CAP.minusSeconds(1))
+            .expectNextCount(4)
+            .expectNoEvent(Duration.ofMillis(999))
+            .thenAwait(Duration.ofMillis(1))
+            .expectComplete()
+            .verify(Duration.ofSeconds(5));
+    }
+
+    /** The cap only helps if it ends the read before the hard timeout fails the whole sync. */
+    @Test
+    void wsWaitCap_endsTheReadBeforeTheHardTimeoutFailsTheSync() {
+        assertThat(TradeRepublicAdapter.WS_WAIT_CAP).isLessThan(TradeRepublicAdapter.WS_HARD_TIMEOUT);
+    }
+
+    /**
+     * The socket dropping mid-read used to end it like a timeout; the sync went on with what
+     * had answered and the rest fell back to averageBuyIn. It must not fail the whole sync.
+     */
+    @Test
+    void untilAnsweredOrCapped_aStreamThatErrorsMidRead_keepsTheFramesReceivedSoFar() {
+        Flux<String> framesThenDrop = Flux.just("cash", "portfolio", "ticker")
+            .concatWith(Flux.error(new IOException("Connection reset")));
+
+        StepVerifier.create(TradeRepublicAdapter.untilAnsweredOrCapped(
+                framesThenDrop, frame -> false, TradeRepublicAdapter.WS_WAIT_CAP))
+            .expectNext("cash", "portfolio", "ticker")
+            .expectComplete()
+            .verify(Duration.ofSeconds(5));
+    }
+
+    @Test
+    void untilAnsweredOrCapped_everythingAnswered_endsOnThatFrame_withoutWaitingForTheCap() {
+        List<Long> frames = TradeRepublicAdapter
+            .untilAnsweredOrCapped(Flux.interval(Duration.ofMillis(10)), frame -> frame == 2L, Duration.ofSeconds(30))
+            .collectList()
+            .block(Duration.ofSeconds(5));
+
+        assertThat(frames).containsExactly(0L, 1L, 2L);
     }
 }

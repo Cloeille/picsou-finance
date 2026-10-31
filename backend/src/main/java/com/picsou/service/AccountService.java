@@ -4,14 +4,18 @@ import com.picsou.dto.AccountRequest;
 import com.picsou.dto.AccountResponse;
 import com.picsou.dto.DebtRequest;
 import com.picsou.dto.DebtResponse;
+import com.picsou.dto.HoldingLogoUrls;
 import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataRequest;
 import com.picsou.dto.RealEstateMetadataResponse;
+import com.picsou.dto.SavingsConfigDto;
+import com.picsou.dto.ScpiPositionResponse;
 import com.picsou.dto.SnapshotRequest;
 import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.picsou.model.ScpiProvider;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
@@ -28,6 +32,8 @@ import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
+import com.picsou.repository.SavingsInterestConfigRepository;
+import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,11 +42,13 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional(readOnly = true)
@@ -61,7 +69,8 @@ public class AccountService {
     private static final Set<String> PROVIDER_VALUED = Set.of(
         BourseDirectSyncService.PROVIDER,
         AmundiSyncService.PROVIDER,
-        BoursoSyncService.PROVIDER
+        BoursoSyncService.PROVIDER,
+        FortuneoSyncService.PROVIDER
     );
 
     private final AccountRepository accountRepository;
@@ -71,10 +80,15 @@ public class AccountService {
     private final RealEstateMetadataRepository realEstateMetadataRepository;
     private final PropertyValuationRepository propertyValuationRepository;
     private final DebtRepository debtRepository;
+    private final SavingsInterestConfigRepository savingsInterestConfigRepository;
     private final PriceService priceService;
     private final LoanAmortizationService loanAmortizationService;
     private final AccountAccessResolver accessResolver;
     private final BankLogoResolver bankLogoResolver;
+    private final CryptoLogoService cryptoLogoService;
+    private final InstrumentLogoService instrumentLogoService;
+    private final ScpiPositionRepository scpiPositionRepository;
+    private final ScpiFundService scpiFundService;
 
     public AccountService(
         AccountRepository accountRepository,
@@ -84,10 +98,15 @@ public class AccountService {
         RealEstateMetadataRepository realEstateMetadataRepository,
         PropertyValuationRepository propertyValuationRepository,
         DebtRepository debtRepository,
+        SavingsInterestConfigRepository savingsInterestConfigRepository,
         PriceService priceService,
         LoanAmortizationService loanAmortizationService,
         AccountAccessResolver accessResolver,
-        BankLogoResolver bankLogoResolver
+        BankLogoResolver bankLogoResolver,
+        CryptoLogoService cryptoLogoService,
+        InstrumentLogoService instrumentLogoService,
+        ScpiPositionRepository scpiPositionRepository,
+        ScpiFundService scpiFundService
     ) {
         this.accountRepository = accountRepository;
         this.snapshotRepository = snapshotRepository;
@@ -96,10 +115,15 @@ public class AccountService {
         this.realEstateMetadataRepository = realEstateMetadataRepository;
         this.propertyValuationRepository = propertyValuationRepository;
         this.debtRepository = debtRepository;
+        this.savingsInterestConfigRepository = savingsInterestConfigRepository;
         this.priceService = priceService;
         this.loanAmortizationService = loanAmortizationService;
         this.accessResolver = accessResolver;
         this.bankLogoResolver = bankLogoResolver;
+        this.cryptoLogoService = cryptoLogoService;
+        this.instrumentLogoService = instrumentLogoService;
+        this.scpiPositionRepository = scpiPositionRepository;
+        this.scpiFundService = scpiFundService;
     }
 
     /**
@@ -111,7 +135,19 @@ public class AccountService {
      * real-estate summary), not to the listing.
      */
     public List<AccountResponse> findAll(Long memberId) {
+        return findAll(memberId, false);
+    }
+
+    /**
+     * @param includeHidden false (default) excludes hidden accounts, matching every other
+     *                       user-facing account list. true is used only by the /sync visibility
+     *                       tab, which must be able to see (and re-show) hidden accounts.
+     */
+    public List<AccountResponse> findAll(Long memberId, boolean includeHidden) {
         List<Account> accounts = accessResolver.readableAccounts(memberId);
+        if (!includeHidden) {
+            accounts = accounts.stream().filter(a -> !a.isHidden()).toList();
+        }
         Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);
         return accounts.stream()
             .map(a -> toResponse(a, shares.get(a.getId()), memberId))
@@ -125,14 +161,20 @@ public class AccountService {
 
     @Transactional
     public AccountResponse create(AccountRequest req, FamilyMember member) {
+        boolean scpi = req.type() == AccountType.SCPI;
+        // A typed balance belongs to a cash account. On a SCPI it would be snapshotted as if
+        // it were a withdrawal value, which it is not.
+        BigDecimal opening = scpi
+            ? BigDecimal.ZERO
+            : (req.currentBalance() != null ? signedBalance(req.type(), req.currentBalance()) : BigDecimal.ZERO);
         Account account = Account.builder()
             .member(member)
             .name(req.name())
             .type(req.type())
             .provider(req.provider())
-            .currency(req.currency())
-            .currentBalance(req.currentBalance() != null ? req.currentBalance() : BigDecimal.ZERO)
-            .isManual(req.isManual())
+            .currency(scpi ? "EUR" : req.currency())
+            .currentBalance(opening)
+            .isManual(scpi || req.isManual())
             .color(req.color() != null ? req.color() : "#6366f1")
             .ticker(req.ticker())
             // Nothing stored yet, so nothing survives normalization: a logo key is only ever
@@ -141,14 +183,16 @@ public class AccountService {
             // A hand-entered account has no connector to ask, so the bank it names is looked up
             // in the institution catalog instead — the only logo source open to it.
             .logoUrl(req.isManual() ? bankLogoUrl(req.provider(), req.institutionId()) : null)
+            .openedAt(req.openedAt())
             .build();
 
         account = accountRepository.save(account);
 
-        // Create initial snapshot if balance is provided
-        if (account.getCurrentBalance().compareTo(BigDecimal.ZERO) > 0) {
+        // Create initial snapshot if balance is provided; a card's debt is stored negative
+        if (account.getCurrentBalance().compareTo(BigDecimal.ZERO) > 0
+            || (account.getType() == AccountType.CREDIT_CARD && account.getCurrentBalance().signum() != 0)) {
             BigDecimal invested = calculateInvestedAmount(account);
-            createSnapshot(account, account.getCurrentBalance(), invested, LocalDate.now());
+            createSnapshot(account, toSnapshotEur(account, account.getCurrentBalance()), invested, LocalDate.now());
         }
 
         return toResponse(account);
@@ -158,8 +202,15 @@ public class AccountService {
     public AccountResponse update(Long id, AccountRequest req, Long memberId) {
         Account account = getOrThrow(id, memberId);
 
+        boolean nameChanged = !req.name().equals(account.getName());
         String previousProvider = account.getProvider();
 
+        AccountType previousType = account.getType();
+        if (previousType != AccountType.SCPI && req.type() == AccountType.SCPI
+                && !holdingRepository.findByAccount_Id(account.getId()).isEmpty()) {
+            throw new IllegalArgumentException(
+                "Cannot convert an account that still has holdings to SCPI");
+        }
         account.setName(req.name());
         account.setType(req.type());
         account.setProvider(req.provider());
@@ -173,16 +224,50 @@ public class AccountService {
         // "clear it" -- and silently dropping a Ledger back to the generic wallet icon on an
         // unrelated rename would be a surprise.
         account.setLogoKey(normalizeLogoKey(req.logoKey(), account.getLogoKey(), account.getType()));
+        // Kept when absent, like logoKey rather than like ticker, and for the same reason: the
+        // MCP update_account tool has no such parameter and sends null on every call, so
+        // treating null as "clear it" would wipe a PEA's opening date the first time an agent
+        // renamed the account. The cost is that the form can change the date but not blank it.
+        if (req.openedAt() != null) {
+            account.setOpenedAt(req.openedAt());
+        }
 
-        // For manual accounts, allow balance update
-        if (account.isManual() && req.currentBalance() != null) {
+        if (account.getType() == AccountType.SCPI) {
+            account.setManual(true);
+            // The withdrawal price is in euros. Leaving USD here would convert that figure again.
+            account.setCurrency("EUR");
+        }
+        // Converting a current account must not keep its old balance as a paper valuation.
+        // A SCPI that is already a SCPI keeps the figure ScpiPositionService wrote.
+        if (previousType != AccountType.SCPI && account.getType() == AccountType.SCPI) {
+            account.setCurrentBalance(BigDecimal.ZERO);
+        } else if (account.isManual() && req.currentBalance() != null && account.getType() != AccountType.SCPI) {
             BigDecimal oldBalance = account.getCurrentBalance();
-            account.setCurrentBalance(req.currentBalance());
-            if (req.currentBalance().compareTo(oldBalance) != 0) {
-                upsertSnapshot(account, req.currentBalance(), LocalDate.now());
+            BigDecimal newBalance = signedBalance(account.getType(), req.currentBalance());
+            account.setCurrentBalance(newBalance);
+            if (newBalance.compareTo(oldBalance) != 0) {
+                upsertSnapshotFromNative(account, newBalance, LocalDate.now());
             }
         }
 
+        AccountResponse response = toResponse(accountRepository.save(account));
+
+        // When a Revolut pocket is renamed, propagate the new name as merchantLabel on its
+        // transactions (mirror legs in the pocket) and on the corresponding wallet-side debits.
+        if (nameChanged && account.getParentAccountId() != null
+                && account.getExternalAccountId() != null) {
+            transactionRepository.updateMerchantLabelByAccountId(account.getId(), req.name());
+            transactionRepository.updateMerchantLabelForPocketWalletSide(
+                account.getParentAccountId(), account.getExternalAccountId(), req.name());
+        }
+
+        return response;
+    }
+
+    @Transactional
+    public AccountResponse setHidden(Long id, Long memberId, boolean hidden) {
+        Account account = getOrThrow(id, memberId);
+        account.setHidden(hidden);
         return toResponse(accountRepository.save(account));
     }
 
@@ -228,6 +313,18 @@ public class AccountService {
     @Transactional
     public void delete(Long id, Long memberId) {
         Account account = getOrThrow(id, memberId);
+        // Soft-delete leaves the row, and the fund-code unique indexes do not
+        // exclude it. Clearing the links is what lets the same fund be attached
+        // to a new account, and what stops a later sync from writing here.
+        // The fund is also tombstoned: since #232 a sync creates the account of a fund
+        // it has not seen, so without this the deleted account would come back.
+        scpiPositionRepository.findByAccountIdAndMemberId(id, memberId).ifPresent(position -> {
+            scpiFundService.tombstone(memberId, ScpiProvider.CORUM, position.getCorumFundCode());
+            scpiFundService.tombstone(memberId, ScpiProvider.SOFIDY, position.getSofidyFundCode());
+            position.setCorumFundCode(null);
+            position.setSofidyFundCode(null);
+            scpiPositionRepository.save(position);
+        });
         account.setDeletedAt(Instant.now());
         accountRepository.save(account);
     }
@@ -235,16 +332,17 @@ public class AccountService {
     @Transactional
     public BalanceSnapshot addManualSnapshot(Long accountId, Long memberId, SnapshotRequest req) {
         Account account = getOrThrow(accountId, memberId);
+        BigDecimal balance = signedBalance(account.getType(), req.balance());
 
         // Update current balance if this is the most recent snapshot
         Optional<BalanceSnapshot> latest = snapshotRepository.findLatestByAccountId(accountId);
         if (latest.isEmpty() || !req.date().isBefore(latest.get().getDate())) {
-            account.setCurrentBalance(req.balance());
+            account.setCurrentBalance(balance);
             account.setLastSyncedAt(Instant.now());
             accountRepository.save(account);
         }
 
-        return upsertSnapshot(account, req.balance(), req.date());
+        return upsertSnapshotFromNative(account, balance, req.date());
     }
 
     public List<BalanceSnapshot> getHistory(Long accountId, Long memberId, LocalDate from, LocalDate to) {
@@ -258,8 +356,11 @@ public class AccountService {
         Account account = getOrThrow(accountId, memberId); // validate account exists
         List<AccountHolding> holdings = holdingRepository.findByAccountIdOrderByCurrentPriceDesc(accountId);
         Map<String, PriceService.Quote> quotes = quotesFor(account, holdings);
+        // Both lookups are batched outside the stream: calling either inside it would issue one
+        // provider request per holding instead of one per page.
+        Map<String, HoldingLogoUrls> logos = logosFor(account, holdings);
         return holdings.stream()
-            .map(holding -> toHoldingResponse(holding, quotes))
+            .map(holding -> toHoldingResponse(account, holding, quotes, logos))
             .toList();
     }
 
@@ -322,10 +423,27 @@ public class AccountService {
     /**
      * Calculate the invested amount (cost basis) for an account.
      * For accounts with holdings: SUM(quantity × averageBuyIn), excluding assets that could
-     * not be valued at all. For cash accounts: same as the current balance.
+     * not be valued at all. For cash accounts: the balance converted to EUR, the same figure
+     * as its value.
      */
     public BigDecimal calculateInvestedAmount(Account account) {
         return valuation(account).investedEur();
+    }
+
+    /**
+     * Records a balance expressed in the account's own currency. {@code balance_snapshot.balance}
+     * is read as EUR everywhere ({@code HistoryService} sums the rows straight into net worth,
+     * and the daily job writes {@link #valuation} figures next to these), so a hand-typed or
+     * bank-reported USD balance is converted before it is stored, the way {@link #valuation}
+     * converts it for the dashboard. A back-dated manual snapshot converts at today's rate: the
+     * provider has no historical FX, and an approximate EUR figure beats a USD one read as EUR.
+     */
+    BalanceSnapshot upsertSnapshotFromNative(Account account, BigDecimal nativeBalance, LocalDate date) {
+        return upsertSnapshot(account, toSnapshotEur(account, nativeBalance), date);
+    }
+
+    private BigDecimal toSnapshotEur(Account account, BigDecimal nativeBalance) {
+        return priceService.toEur(nativeBalance, account.getCurrency(), account.getTicker());
     }
 
     BalanceSnapshot upsertSnapshot(Account account, BigDecimal balance, LocalDate date) {
@@ -399,7 +517,7 @@ public class AccountService {
      * @param anyPriced   false only when the account holds assets and <em>none</em> could be
      *                    valued. {@code liveEur} is then not a small balance, it is a blank one —
      *                    callers that persist a valuation must refuse rather than record it
-     * @param anyStale    true when at least one price is a recorded one rather than a live quote
+     * @param anyStale    true when at least one price or line value is a recorded fallback
      */
     public record Valuation(BigDecimal liveEur, BigDecimal investedEur,
                             boolean allPriced, boolean anyPriced, boolean anyStale) {}
@@ -419,7 +537,10 @@ public class AccountService {
      */
     public Valuation valuation(Account account) {
         if (account.getType() == AccountType.LOAN) {
+            // A Debt without dates has no schedule, and its "remaining balance" is the whole
+            // borrowed amount; the balance the user typed on the account is the better figure.
             BigDecimal outstanding = debtRepository.findByAccountId(account.getId())
+                .filter(LoanAmortizationService::hasSchedule)
                 .map(debt -> loanAmortizationService.computeRemainingBalance(debt, LocalDate.now()))
                 .orElseGet(() -> priceService.toEur(
                     account.getCurrentBalance(), account.getCurrency(), account.getTicker()));
@@ -430,7 +551,10 @@ public class AccountService {
         if (holdings.isEmpty()) {
             BigDecimal cash = priceService.toEur(
                 account.getCurrentBalance(), account.getCurrency(), account.getTicker());
-            return new Valuation(cash, account.getCurrentBalance(), true, true, false);
+            // Cash costs what it is worth, in the same currency on both sides: returning the
+            // stored balance as the cost basis paired a converted value with an unconverted
+            // cost, so a USD or GBP account reported the FX rate as a gain or a loss.
+            return new Valuation(cash, cash, true, true, false);
         }
 
         Map<String, PriceService.Quote> quotes = quotesFor(account, holdings);
@@ -444,10 +568,16 @@ public class AccountService {
         // holding too — pairing it with the partial basis would invent a gain the size of the
         // positions Yahoo failed to price.
         BigDecimal investedOverAllHoldings = cashBalance;
+        // The provider's own per-line values, summed over *every* holding. Only the
+        // provider-valued override below reads them, and only to tell how much of the account
+        // total is cash rather than positions -- see the cash reconstruction there.
+        BigDecimal providerValuedHoldings = BigDecimal.ZERO;
+        boolean allHoldingsProviderValued = true;
         boolean allHoldingsPriced = true;
         boolean anyHoldingPriced = false;
         boolean anyStale = false;
         boolean anyCostBasisUnknown = false;
+        boolean caisseEpargnePer = isCaisseEpargnePer(account);
 
         for (AccountHolding h : holdings) {
             BigDecimal qty = h.getQuantity();
@@ -456,12 +586,23 @@ public class AccountService {
                 ? quotes.get(h.getTicker().toUpperCase(Locale.ROOT)) : null;
 
             investedOverAllHoldings = investedOverAllHoldings.add(costBasisOf(h));
+            if (h.getProviderValueEur() != null) {
+                providerValuedHoldings = providerValuedHoldings.add(h.getProviderValueEur());
+            } else {
+                allHoldingsProviderValued = false;
+            }
 
-            if (quote != null) {
+            boolean usableQuote = quote != null && (!caisseEpargnePer
+                || quote.price() != null && quote.price().signum() > 0);
+            boolean usableProviderValue = h.getProviderValueEur() != null && (!caisseEpargnePer
+                || h.getProviderValueEur().signum() > 0);
+            if (caisseEpargnePer && !usableQuote && (quote != null
+                || h.getProviderValueEur() != null && !usableProviderValue)) anyStale = true;
+            if (usableQuote) {
                 anyHoldingPriced = true;
                 if (!quote.live()) anyStale = true;
                 liveValue = liveValue.add(qty.multiply(quote.price()));
-            } else if (hasTicker && h.getProviderValueEur() != null) {
+            } else if (hasTicker && usableProviderValue) {
                 // A ticker we could not price at any age, but the connector reported this line's
                 // own EUR value (Trade Republic, Bourse Direct). Use it rather than dropping the
                 // line. The lookup did fail, so allHoldingsPriced goes false — that is what makes
@@ -472,6 +613,7 @@ public class AccountService {
                 allHoldingsPriced = false;
                 liveValue = liveValue.add(h.getProviderValueEur());
                 anyHoldingPriced = true;
+                if (caisseEpargnePer) anyStale = true;
             } else if (hasTicker) {
                 allHoldingsPriced = false;
                 // Skipping is deliberate -- a held-but-unpriced asset must not be valued at a
@@ -492,7 +634,7 @@ public class AccountService {
                 // what reported an untouched account as an 85% loss: the whole cost of the
                 // positions that failed to price stayed in the denominator.
                 continue;
-            } else if (h.getProviderValueEur() != null) {
+            } else if (usableProviderValue) {
                 // No ticker to price, but the connector reported the line's EUR value itself
                 // (Bourse Direct is the only one that does). That is a valuation, so count it and
                 // its cost basis below, and treat the account as priced: there was no lookup to
@@ -500,6 +642,7 @@ public class AccountService {
                 // into a permanent one — such an account simply stopped receiving snapshots.
                 liveValue = liveValue.add(h.getProviderValueEur());
                 anyHoldingPriced = true;
+                if (caisseEpargnePer) anyStale = true;
             } else {
                 // No ticker *and* no reported value: nothing can put a number on this line. Drop
                 // it from both sides, exactly as for a ticker the providers could not price —
@@ -521,23 +664,28 @@ public class AccountService {
             }
         }
 
-        if (anyCostBasisUnknown) {
-            // A partial cost basis creates a fictitious gain. Until every
-            // position is known, use the account value as a neutral baseline, in EUR: a Finary
-            // import may store the balance in its own currency. The currency pair, not toEur,
-            // which prices a currency code as a ticker; with no rate, the live value stands in.
-            BigDecimal baseline = account.getCurrentBalance();
-            if (account.getCurrency() != null && !"EUR".equalsIgnoreCase(account.getCurrency())) {
-                BigDecimal rate = priceService.getFxRateEur(account.getCurrency().toUpperCase(Locale.ROOT));
-                baseline = rate != null ? baseline.multiply(rate) : liveValue;
-            }
-            invested = baseline;
-            investedOverAllHoldings = baseline;
-        }
         // Some providers report an authoritative total in EUR. If Yahoo/OpenFIGI cannot
         // price even one instrument, prefer that last successful provider valuation over a
         // misleading partial total (cash + only the symbols Yahoo happened to resolve).
         if (!allHoldingsPriced && isProviderValued(account)) {
+            if (account.getCashBalance() == null && allHoldingsProviderValued && !anyCostBasisUnknown) {
+                // currentBalance is a *total*: the cash pocket sitting on the account is folded
+                // into it. With no cashBalance stored, investedOverAllHoldings started from a
+                // zero cash leg, so pairing the two charges that idle cash to the gain — a
+                // 2 000 EUR sleeve waiting to be invested read as 2 000 EUR of profit (issue
+                // #106). The provider priced every line here, so whatever the total exceeds
+                // them by is the cash pocket: put it on the cost side too and it cancels out,
+                // exactly as it does whenever cashBalance is stored.
+                //
+                // The "every line" condition is what makes that inference safe. When even one
+                // line carries no provider value, the residual is an unpriced *position* rather
+                // than cash — charging it to the cost side would invent a loss the size of that
+                // position — so both sides are left alone instead.
+                BigDecimal cashPocket = account.getCurrentBalance().subtract(providerValuedHoldings);
+                if (cashPocket.signum() > 0) {
+                    investedOverAllHoldings = investedOverAllHoldings.add(cashPocket);
+                }
+            }
             // Both sides move together. The provider's total covers every position, so the cost
             // basis must too: pairing it with the partial basis reports a gain the size of the
             // unpriced positions' cost — the same value/cost mismatch as the -85% incident, with
@@ -546,6 +694,20 @@ public class AccountService {
             invested = investedOverAllHoldings;
             // The provider valued them; only our price lookup failed.
             anyHoldingPriced = true;
+        }
+        if (anyCostBasisUnknown) {
+            // PER purchase basis is not reported. Pair the current PER valuation with itself;
+            // its last bank NAV may predate newer market prices and is not a cost basis.
+            BigDecimal neutralBaseline = caisseEpargnePer ? liveValue : account.getCurrentBalance();
+            if (!caisseEpargnePer && account.getCurrency() != null && !"EUR".equalsIgnoreCase(account.getCurrency())) {
+                // The baseline is in EUR: a Finary import may store the balance in its own currency.
+                // The currency pair, not toEur, which prices a currency code as a ticker; with no
+                // rate, the live value stands in.
+                BigDecimal rate = priceService.getFxRateEur(account.getCurrency().toUpperCase(Locale.ROOT));
+                neutralBaseline = rate != null ? neutralBaseline.multiply(rate) : liveValue;
+            }
+            invested = neutralBaseline;
+            investedOverAllHoldings = neutralBaseline;
         }
         return new Valuation(liveValue, invested, allHoldingsPriced, anyHoldingPriced, anyStale);
     }
@@ -574,20 +736,62 @@ public class AccountService {
      * what was synced.
      */
     private Map<String, PriceService.Quote> quotesFor(Account account, List<AccountHolding> holdings) {
-        Set<String> tickers = holdings.stream()
-            .map(AccountHolding::getTicker)
-            .filter(t -> t != null && !t.isBlank())
-            .map(t -> t.toUpperCase(Locale.ROOT))
-            .collect(java.util.stream.Collectors.toSet());
+        Set<String> tickers = tickersOf(holdings);
         if (tickers.isEmpty()) return Map.of();
         return account.getType() == AccountType.CRYPTO
             ? priceService.getCryptoQuotes(tickers)
             : priceService.getQuotes(tickers);
     }
 
+    /**
+     * Logo URLs for an account's holdings, in one call.
+     *
+     * <p>Mirrors {@link #quotesFor}: a crypto account asks CoinGecko, batched like the prices.
+     * Any other account reads the marks already stored for its shares and funds — one query, no
+     * network, since {@link InstrumentLogoService} fetches them in the background, never on a
+     * render. A ticker with nothing stored is absent and keeps showing its ticker alone.
+     */
+    private Map<String, HoldingLogoUrls> logosFor(Account account, List<AccountHolding> holdings) {
+        Set<String> tickers = tickersOf(holdings);
+        if (tickers.isEmpty()) return Map.of();
+        if (account.getType() != AccountType.CRYPTO) return instrumentLogoService.storedUrls(tickers);
+        Map<String, HoldingLogoUrls> logos = new HashMap<>();
+        cryptoLogoService.getLogoUrls(tickers).forEach((ticker, url) -> logos.put(ticker, HoldingLogoUrls.of(url)));
+        return logos;
+    }
+
+    /**
+     * The holdings' non-blank tickers, upper-cased and deduplicated — the key set both
+     * {@link #quotesFor} and {@link #logosFor} resolve against, and the key their results are
+     * read back with in {@link #toHoldingResponse}.
+     *
+     * <p>One place, because a normalization that drifts between the two lookups is a bug neither
+     * of them could see: the price would resolve under one spelling and the logo under another.
+     */
+    private static Set<String> tickersOf(List<AccountHolding> holdings) {
+        return holdings.stream()
+            .map(AccountHolding::getTicker)
+            .filter(t -> t != null && !t.isBlank())
+            .map(t -> t.toUpperCase(Locale.ROOT))
+            .collect(Collectors.toSet());
+    }
+
+    /**
+     * The form asks for a card's amount owed, like a loan's remaining capital, but a card stores
+     * its debt signed (negative), the way the American Express sync writes it: 800 becomes -800.
+     */
+    private static BigDecimal signedBalance(AccountType type, BigDecimal balance) {
+        return type == AccountType.CREDIT_CARD ? balance.abs().negate() : balance;
+    }
+
     /** Null-safe: {@code Set.of(...)} throws on a null lookup, and most accounts have no provider. */
     private boolean isProviderValued(Account account) {
         return account.getProvider() != null && PROVIDER_VALUED.contains(account.getProvider());
+    }
+
+    private boolean isCaisseEpargnePer(Account account) {
+        return account.getType() == AccountType.PER
+            && CaisseEpargneSyncService.PROVIDER.equals(account.getProvider());
     }
 
     /**
@@ -632,12 +836,31 @@ public class AccountService {
             }
         }
 
+        if (account.getType() == AccountType.SCPI) {
+            // Owner id, not viewer id: a co-owner must still see the share they do not administer.
+            Long ownerId = account.getMember() != null ? account.getMember().getId() : null;
+            Optional<ScpiPositionResponse> position = ownerId == null
+                ? Optional.empty()
+                : scpiPositionRepository.findByAccountIdAndMemberId(account.getId(), ownerId)
+                .map(p -> ScpiPositionResponse.from(p, ScpiPositionService.withdrawalValue(
+                    p.getShareCount(), p.getWithdrawalPriceEur())));
+            if (position.isPresent()) {
+                response = response.withScpi(position.get());
+            }
+        }
+
         if (account.getType() == AccountType.LOAN) {
             Optional<DebtResponse> debt = debtRepository.findByAccountId(account.getId())
                 .map(DebtResponse::from);
             if (debt.isPresent()) {
                 response = response.withDebt(debt.get());
             }
+        }
+
+        Optional<SavingsConfigDto> savings = savingsInterestConfigRepository.findByAccountId(account.getId())
+            .map(SavingsConfigDto::from);
+        if (savings.isPresent()) {
+            response = response.withSavingsConfig(savings.get());
         }
 
         return response;
@@ -649,14 +872,21 @@ public class AccountService {
         Account account = getOrThrow(accountId, memberId);
         AccountHolding h = holdingRepository.findByAccountIdAndTicker(accountId, ticker)
             .orElseThrow(() -> new ResourceNotFoundException("Holding not found"));
-        h.setQuantity(quantity);
+        // Synced accounts (on-chain wallets, exchanges) own the quantity from the
+        // chain/exchange. Ignore a client-supplied quantity there — the read-only
+        // rule is a UI convenience; enforcing it server-side removes the trust gap
+        // (and the stale-snapshot race) so a cost-basis edit can't clobber the
+        // authoritative balance, which the next sync would overwrite anyway.
+        if (account.isManual() && quantity != null) {
+            h.setQuantity(quantity);
+        }
         if (averageBuyIn != null) h.setAverageBuyIn(averageBuyIn);
         // A user edit invalidates broker-derived valuation/P&L as a coherent
         // pair. A subsequent provider sync will repopulate both fields.
         h.setProviderValueEur(null);
         h.setProviderPnlEur(null);
         holdingRepository.save(h);
-        return toHoldingResponse(h, quotesFor(account, List.of(h)));
+        return toHoldingResponse(account, h, quotesFor(account, List.of(h)), logosFor(account, List.of(h)));
     }
 
     @Transactional
@@ -806,8 +1036,13 @@ public class AccountService {
         return loanAmortizationService.compute(debt, LocalDate.now());
     }
 
-    private HoldingResponse toHoldingResponse(AccountHolding holding, Map<String, PriceService.Quote> quotes) {
+    private HoldingResponse toHoldingResponse(Account account,
+                                              AccountHolding holding,
+                                              Map<String, PriceService.Quote> quotes,
+                                              Map<String, HoldingLogoUrls> logos) {
         BigDecimal currentPrice = holding.getCurrentPrice();
+        BigDecimal quantity = holding.getQuantity();
+        String quoteCurrency = holding.getQuoteCurrency();
         BigDecimal currentPriceEur = null;
         Instant priceUpdatedAt = null;
         LocalDate priceAsOf = null;
@@ -819,25 +1054,56 @@ public class AccountService {
         // currency without conversion — using it as a fallback would silently
         // produce native-as-EUR values. Better to return null and surface
         // "price unknown" than to invent a wrong number.
-        if (holding.getTicker() != null && !holding.getTicker().isBlank()) {
-            PriceService.Quote quote = quotes.get(holding.getTicker().toUpperCase(Locale.ROOT));
-            if (quote != null) {
+        // Both maps are keyed by the upper-cased ticker, per tickersOf(). One normalization
+        // here, read by both lookups below: spelled twice it would be a place where a price
+        // resolves and its logo does not, which reads as a missing image rather than a bug.
+        boolean hasTicker = holding.getTicker() != null && !holding.getTicker().isBlank();
+        String tickerKey = hasTicker ? holding.getTicker().toUpperCase(Locale.ROOT) : null;
+        boolean caisseEpargnePer = isCaisseEpargnePer(account);
+        BigDecimal providerValue = holding.getProviderValueEur();
+        boolean hasProviderValue = providerValue != null;
+        if (caisseEpargnePer && providerValue != null && providerValue.signum() <= 0) {
+            providerValue = null;
+        }
+        if (hasTicker) {
+            PriceService.Quote quote = quotes.get(tickerKey);
+            boolean usableQuote = quote != null && (!caisseEpargnePer
+                || quote.price() != null && quote.price().signum() > 0);
+            if (usableQuote) {
                 currentPriceEur = quote.price();
+                if (caisseEpargnePer) {
+                    currentPrice = quote.price();
+                    quoteCurrency = "EUR";
+                }
                 priceAsOf = quote.asOf();
                 priceStale = !quote.live();
+            } else if (caisseEpargnePer && (quote != null || hasProviderValue)) {
+                priceStale = true;
             }
             priceUpdatedAt = holding.getLastSyncedAt();
+        } else if (caisseEpargnePer && hasProviderValue) {
+            priceStale = true;
         }
 
-        BigDecimal quantity = holding.getQuantity();
+        if (caisseEpargnePer && currentPriceEur == null && providerValue != null) {
+            // The bank's line valuation is the fallback, not its sync timestamp. Keep the
+            // displayed unit price and EUR total mathematically aligned with that NAV.
+            currentPrice = quantity != null && quantity.signum() != 0
+                ? providerValue.divide(quantity, 8, RoundingMode.HALF_UP)
+                : null;
+            quoteCurrency = "EUR";
+            priceAsOf = holding.getProviderPriceDate();
+            priceStale = true;
+        }
+
         BigDecimal averageBuyIn = holding.getAverageBuyIn();
-        BigDecimal costBasis = providerCostBasisEur(holding);
+        BigDecimal costBasis = providerValue == null ? null : providerCostBasisEur(holding);
         if (costBasis == null && averageBuyIn != null) {
             costBasis = averageBuyIn.multiply(quantity);
         }
         BigDecimal currentValueEur = currentPriceEur != null
             ? currentPriceEur.multiply(quantity)
-            : holding.getProviderValueEur();
+            : providerValue;
         BigDecimal pnlEur = currentValueEur != null && costBasis != null
             ? currentValueEur.subtract(costBasis)
             : holding.getProviderPnlEur();
@@ -850,13 +1116,16 @@ public class AccountService {
             ? pnlEur.divide(costBasis.abs(), 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
             : null;
 
+        HoldingLogoUrls logo = tickerKey == null ? null : logos.get(tickerKey);
         return new HoldingResponse(
             holding.getTicker(),
             holding.getName(),
+            logo == null ? null : logo.light(),
+            logo == null ? null : logo.dark(),
             quantity,
             averageBuyIn,
             currentPrice,
-            holding.getQuoteCurrency(),
+            quoteCurrency,
             currentValueEur,
             costBasis,
             pnlEur,

@@ -336,6 +336,8 @@ public class FinaryApiSyncService {
                 applyBalance(account, finaryAcc, displayIsEur);
                 account.setLastSyncedAt(Instant.now());
                 if (FinaryAccountMatcher.ownedByAnotherConnector(account)) {
+                    // The account belongs to another connector, which finds it by this id: taking
+                    // it over made that connector create a duplicate at its next sync.
                     log.warn("Finary mapping onto account {} keeps its external id {} and holdings (owned by another connector)",
                         account.getId(), account.getExternalAccountId());
                 } else {

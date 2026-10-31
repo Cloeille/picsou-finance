@@ -170,7 +170,7 @@ export function AccessKeysSection() {
       {/* List ---------------------------------------------------------------- */}
       {isLoading ? (
         <p className="text-sm text-muted-foreground">{t('accessKeys.loading')}</p>
-      ) : !keys || keys.length === 0 ? (
+      ) : !Array.isArray(keys) || keys.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('accessKeys.empty')}</p>
       ) : (
         <ul className="divide-y rounded-lg border">

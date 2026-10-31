@@ -22,6 +22,15 @@ public record TransactionResponse(
     String name,
     BigDecimal quantity,
     BigDecimal pricePerUnit,
+    Long categoryId,
+    String categoryName,
+    String counterparty,
+    String merchantLabel,
+    Long merchantBrandId,
+    Long aiSuggestedCategoryId,
+    Integer aiConfidence,
+    Long accountId,
+    String accountName,
     BigDecimal fees
 ) {
     public static TransactionResponse from(Transaction t) {
@@ -40,6 +49,15 @@ public record TransactionResponse(
             t.getName(),
             t.getQuantity(),
             t.getPricePerUnit(),
+            t.getCategoryRef() != null ? t.getCategoryRef().getId() : null,
+            t.getCategoryRef() != null ? t.getCategoryRef().getName() : null,
+            t.getCounterparty(),
+            t.getMerchantLabel(),
+            t.getMerchantBrandId(),
+            t.getAiSuggestedCategoryId(),
+            t.getAiConfidence(),
+            t.getAccount().getId(),
+            t.getAccount().getName(),
             t.getFees()
         );
     }

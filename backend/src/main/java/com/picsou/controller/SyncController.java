@@ -70,17 +70,20 @@ public class SyncController {
         return ResponseEntity.ok(response);
     }
 
-    /** OAuth callback completion — rate-limited on its own bucket like initiate/reconnect (exchangeCode + fetchBalances hit the provider). */
-    @GetMapping("/complete")
+    /**
+     * OAuth callback completion — rate-limited on its own bucket like initiate/reconnect (exchangeCode + fetchBalances hit the provider).
+     * The bank redirects the browser to the SPA's /sync/callback page, which posts the code here: a POST keeps this
+     * state-changing call under the cross-site request check, which never inspects GETs.
+     */
+    @PostMapping("/complete")
     public ResponseEntity<?> complete(
-        @RequestParam String code,
-        @RequestParam(required = false) String state,
+        @RequestBody @Valid CompleteRequest req,
         HttpServletRequest httpReq
     ) {
         if (!checkSyncRateLimit(httpReq, "complete")) {
             return tooManyRequests();
         }
-        return ResponseEntity.ok(syncService.completeConnection(code, state, userContext.currentMemberId()));
+        return ResponseEntity.ok(syncService.completeConnection(req.code(), req.state(), userContext.currentMemberId()));
     }
 
     @GetMapping("/status")
@@ -128,4 +131,6 @@ public class SyncController {
     }
 
     record InitiateRequest(@NotBlank String institutionId, @NotBlank String institutionName) {}
+
+    record CompleteRequest(@NotBlank String code, String state) {}
 }

@@ -1,0 +1,300 @@
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { NumericInput } from '@/components/shared/NumericInput'
+import { DateInput } from '@/components/shared/DateInput'
+import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { useIgnoreScpiFund, useUpdateScpiPosition } from '@/features/accounts/hooks'
+import { formatApiError } from '@/lib/errors'
+import { parseAmount } from '@/lib/utils'
+import type { Account, DistributionFrequency, DividendPolicy, ScpiPositionRequest, ScpiProvider } from '@/types/api'
+
+const selectControlClassName =
+  'flex h-10 w-full rounded-md border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]'
+
+const num = (v: string): number | undefined => (v.trim() === '' ? undefined : parseAmount(v))
+
+function distributionFrequencyKey(frequency: DistributionFrequency | null | undefined): string {
+  if (frequency === 'MONTHLY') return 'scpi.frequencyMonthly'
+  if (frequency === 'QUARTERLY') return 'scpi.frequencyQuarterly'
+  return 'scpi.frequencyNone'
+}
+
+/**
+ * The share, the two prices, and nothing that belongs to a house.
+ * The balance shown above this card is the withdrawal value, never the subscription price.
+ */
+export function ScpiDetailSection({ account }: { account: Account }) {
+  const { t } = useTranslation()
+  const updatePosition = useUpdateScpiPosition()
+  const ignoreFund = useIgnoreScpiFund()
+  const [fundToIgnore, setFundToIgnore] = useState<{ provider: ScpiProvider; fundCode: string } | null>(null)
+  const position = account.scpi
+  const canEdit = account.isOwner !== false
+  const [editing, setEditing] = useState(canEdit && !position)
+  const [shareCount, setShareCount] = useState(position?.shareCount?.toString() ?? '')
+  const [subscriptionPrice, setSubscriptionPrice] = useState(position?.subscriptionPriceEur?.toString() ?? '')
+  const [withdrawalPrice, setWithdrawalPrice] = useState(position?.withdrawalPriceEur?.toString() ?? '')
+  const [dividendPolicy, setDividendPolicy] = useState<DividendPolicy>(position?.dividendPolicy ?? 'CASH')
+  const [annualDistribution, setAnnualDistribution] = useState(position?.annualDistributionPerShareEur?.toString() ?? '')
+  const [distributionFrequency, setDistributionFrequency] = useState<DistributionFrequency | ''>(position?.distributionFrequency ?? '')
+  const [jouissanceDate, setJouissanceDate] = useState(position?.jouissanceDate ?? '')
+  const [isin, setIsin] = useState(position?.isin ?? '')
+  const [managementCompany, setManagementCompany] = useState(position?.managementCompany ?? '')
+  const [corumFundCode, setCorumFundCode] = useState(position?.corumFundCode ?? '')
+  const [sofidyFundCode, setSofidyFundCode] = useState(position?.sofidyFundCode ?? '')
+
+  function startEditing() {
+    setShareCount(position?.shareCount?.toString() ?? '')
+    setSubscriptionPrice(position?.subscriptionPriceEur?.toString() ?? '')
+    setWithdrawalPrice(position?.withdrawalPriceEur?.toString() ?? '')
+    setDividendPolicy(position?.dividendPolicy ?? 'CASH')
+    setAnnualDistribution(position?.annualDistributionPerShareEur?.toString() ?? '')
+    setDistributionFrequency(position?.distributionFrequency ?? '')
+    setJouissanceDate(position?.jouissanceDate ?? '')
+    setIsin(position?.isin ?? '')
+    setManagementCompany(position?.managementCompany ?? '')
+    setCorumFundCode(position?.corumFundCode ?? '')
+    setSofidyFundCode(position?.sofidyFundCode ?? '')
+    setEditing(true)
+  }
+
+  const shares = num(shareCount)
+  const distribution = num(annualDistribution)
+  // Both set, or both empty. One without the other is a silent no-forecast.
+  const amountSet = distribution != null
+  const frequencySet = distributionFrequency !== ''
+  const distributionPairOk = amountSet === frequencySet && (distribution == null || distribution >= 0)
+  const canSave = shares != null && shares >= 0 && distributionPairOk
+
+  async function save() {
+    if (!canEdit || !canSave || shares == null) return
+    const data: ScpiPositionRequest = {
+      isin: isin.trim() || null,
+      managementCompany: managementCompany.trim() || null,
+      corumFundCode: corumFundCode.trim(),
+      sofidyFundCode: sofidyFundCode.trim(),
+      shareCount: shares,
+      subscriptionPriceEur: num(subscriptionPrice) ?? null,
+      withdrawalPriceEur: num(withdrawalPrice) ?? null,
+      dividendPolicy,
+      jouissanceDate: jouissanceDate || null,
+      annualDistributionPerShareEur: distribution != null && distribution >= 0 ? distribution : null,
+      distributionFrequency: distributionFrequency || null,
+    }
+    await updatePosition.mutateAsync({ id: account.id, data })
+    setEditing(false)
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-base">{t('scpi.position')}</CardTitle>
+        {canEdit && position && !editing && (
+          <Button size="sm" variant="outline" onClick={startEditing}>
+            {t('scpi.edit')}
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {position?.valuationStatus === 'PRICE_INCOMPLETE' && (
+          <p className="text-sm text-amber-600 dark:text-amber-400">{t('scpi.incomplete')}</p>
+        )}
+
+        {position && (!editing || !canEdit) && (
+          <dl className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <dt className="text-muted-foreground">{t('scpi.shareCount')}</dt>
+              <dd className="tabular-nums font-medium">{position.shareCount}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('scpi.withdrawalValue')}</dt>
+              <dd>
+                {position.withdrawalValueEur != null
+                  ? <CurrencyDisplay value={position.withdrawalValueEur} />
+                  : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('scpi.withdrawalPrice')}</dt>
+              <dd>
+                {position.withdrawalPriceEur != null
+                  ? <CurrencyDisplay value={position.withdrawalPriceEur} />
+                  : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('scpi.subscriptionPrice')}</dt>
+              <dd>
+                {position.subscriptionPriceEur != null
+                  ? <CurrencyDisplay value={position.subscriptionPriceEur} />
+                  : '—'}
+              </dd>
+            </div>
+            <div className="col-span-2 text-xs text-muted-foreground">{t('scpi.subscriptionHint')}</div>
+            <div>
+              <dt className="text-muted-foreground">{t('scpi.dividendPolicy')}</dt>
+              <dd>{t(position.dividendPolicy === 'REINVEST' ? 'scpi.reinvest' : 'scpi.cash')}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('scpi.annualDistribution')}</dt>
+              <dd>
+                {position.annualDistributionPerShareEur != null
+                  ? <CurrencyDisplay value={position.annualDistributionPerShareEur} />
+                  : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('scpi.distributionFrequency')}</dt>
+              <dd>{t(distributionFrequencyKey(position.distributionFrequency))}</dd>
+            </div>
+            {position.jouissanceDate && (
+              <div>
+                <dt className="text-muted-foreground">{t('scpi.jouissanceDate')}</dt>
+                <dd>{position.jouissanceDate}</dd>
+              </div>
+            )}
+            {([
+              ['CORUM', 'scpi.corumFundCode', position.corumFundCode],
+              ['SOFIDY', 'scpi.sofidyFundCode', position.sofidyFundCode],
+            ] as const).map(([provider, label, code]) => (
+              <div key={provider}>
+                <dt className="text-muted-foreground">{t(label)}</dt>
+                <dd className="flex items-center gap-2">
+                  <span>{code || '—'}</span>
+                  {code && canEdit && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-auto px-2 py-0 text-xs"
+                      disabled={ignoreFund.isPending}
+                      onClick={() => setFundToIgnore({ provider, fundCode: code })}
+                    >
+                      {t('scpi.ignoreFund')}
+                    </Button>
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+
+        {canEdit && editing && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="scpi-edit-company">{t('scpi.managementCompany')}</Label>
+                <Input id="scpi-edit-company" value={managementCompany} onChange={(e) => setManagementCompany(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="scpi-edit-isin">{t('scpi.isin')}</Label>
+                <Input id="scpi-edit-isin" value={isin} maxLength={12} onChange={(e) => setIsin(e.target.value)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="scpi-edit-shares">{t('scpi.shareCount')}</Label>
+                <NumericInput id="scpi-edit-shares" value={shareCount} onChange={(e) => setShareCount(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="scpi-edit-withdrawal">{t('scpi.withdrawalPrice')}</Label>
+                <NumericInput id="scpi-edit-withdrawal" value={withdrawalPrice} onChange={(e) => setWithdrawalPrice(e.target.value)} />
+              </div>
+            </div>
+            <details className="space-y-4 rounded-md border p-3">
+            <summary className="cursor-pointer text-sm text-muted-foreground">{t('scpi.advancedLinks')}</summary>
+            <div className="space-y-2">
+              <Label htmlFor="scpi-edit-corum-fund">{t('scpi.corumFundCode')}</Label>
+              <Input id="scpi-edit-corum-fund" value={corumFundCode} maxLength={40} onChange={(e) => setCorumFundCode(e.target.value)} />
+              <p className="text-xs text-muted-foreground">{t('scpi.corumFundHint')}</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="scpi-edit-sofidy-fund">{t('scpi.sofidyFundCode')}</Label>
+              <Input id="scpi-edit-sofidy-fund" value={sofidyFundCode} maxLength={40} onChange={(e) => setSofidyFundCode(e.target.value)} />
+              <p className="text-xs text-muted-foreground">{t('scpi.sofidyFundHint')}</p>
+            </div>
+            </details>
+            <div className="space-y-2">
+              <Label htmlFor="scpi-edit-subscription">{t('scpi.subscriptionPrice')}</Label>
+              <NumericInput id="scpi-edit-subscription" value={subscriptionPrice} onChange={(e) => setSubscriptionPrice(e.target.value)} />
+              <p className="text-xs text-muted-foreground">{t('scpi.subscriptionHint')}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="scpi-edit-dividend">{t('scpi.dividendPolicy')}</Label>
+                <select
+                  id="scpi-edit-dividend"
+                  className={selectControlClassName}
+                  value={dividendPolicy}
+                  onChange={(e) => setDividendPolicy(e.target.value as DividendPolicy)}
+                >
+                  <option value="CASH">{t('scpi.cash')}</option>
+                  <option value="REINVEST">{t('scpi.reinvest')}</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="scpi-edit-jouissance">{t('scpi.jouissanceDate')}</Label>
+                <DateInput id="scpi-edit-jouissance" value={jouissanceDate} onChange={setJouissanceDate} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="scpi-edit-annual-distribution">{t('scpi.annualDistribution')}</Label>
+                <NumericInput
+                  id="scpi-edit-annual-distribution"
+                  value={annualDistribution}
+                  onChange={(e) => setAnnualDistribution(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="scpi-edit-distribution-frequency">{t('scpi.distributionFrequency')}</Label>
+                <select
+                  id="scpi-edit-distribution-frequency"
+                  className={selectControlClassName}
+                  value={distributionFrequency}
+                  onChange={(e) => setDistributionFrequency(e.target.value as DistributionFrequency | '')}
+                >
+                  <option value="">{t('scpi.frequencyNone')}</option>
+                  <option value="MONTHLY">{t('scpi.frequencyMonthly')}</option>
+                  <option value="QUARTERLY">{t('scpi.frequencyQuarterly')}</option>
+                </select>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">{t('scpi.annualDistributionHint')}</p>
+            {updatePosition.error && (
+              <p className="text-sm text-destructive">{formatApiError(updatePosition.error, t, 'common.error')}</p>
+            )}
+            <div className="flex gap-2">
+              <Button type="button" onClick={save} disabled={!canSave || updatePosition.isPending}>
+                {t('scpi.save')}
+              </Button>
+              {position && (
+                <Button type="button" variant="outline" onClick={() => setEditing(false)}>
+                  {t('common.cancel')}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </CardContent>
+      <ConfirmDialog
+        open={fundToIgnore != null}
+        onOpenChange={(open) => { if (!open) setFundToIgnore(null) }}
+        title={t('scpi.ignoreFund')}
+        description={t('scpi.ignoreFundConfirm')}
+        confirmLabel={t('scpi.ignoreFund')}
+        loading={ignoreFund.isPending}
+        error={ignoreFund.error ? formatApiError(ignoreFund.error, t, 'common.error') : undefined}
+        onConfirm={() => {
+          if (!fundToIgnore) return
+          ignoreFund.mutate(fundToIgnore, { onSuccess: () => setFundToIgnore(null) })
+        }}
+      />
+    </Card>
+  )
+}

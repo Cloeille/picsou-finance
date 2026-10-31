@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { useDashboard, useNetWorthIntraday, usePnl } from '@/features/dashboard/hooks'
 import { useHistory } from '@/features/history/hooks'
+import { useBankSyncStatus } from '@/features/sync/hooks'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { NetWorthChart } from '@/components/shared/NetWorthChart'
@@ -37,7 +38,7 @@ import {
 } from '@/components/ui/item'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { TrendingUp, TrendingDown, Plus, RefreshCw, ChevronDown } from 'lucide-react'
+import { TrendingUp, TrendingDown, Plus, RefreshCw, ChevronDown, AlertTriangle } from 'lucide-react'
 import { GoalDetailModal } from '@/pages/goals/GoalDetailModal'
 
 type WealthMode = 'net' | 'gross' | 'financial'
@@ -52,6 +53,8 @@ export function DashboardPage() {
   const [detailGoalId, setDetailGoalId] = useState<number | null>(null)
 
   const { data, isLoading } = useDashboard(range)
+  const { data: bankConnections } = useBankSyncStatus()
+  const failedBanks = bankConnections?.filter(b => b.status === 'FAILED') ?? []
 
   // Account IDs filtered by the selected wealth mode — drives both the headline value
   // and the history chart so the curve never includes categories the mode excludes.
@@ -127,12 +130,12 @@ export function DashboardPage() {
     }
   }, [data, wealthMode])
 
-  // PnL: use range fields when available, fall back to live PnL (ALL range)
-  const pnl = pnlData?.rangePnl != null ? pnlData.rangePnl : (pnlData?.pnl ?? 0)
-  const pnlPct = pnlData?.rangePnlPercent != null
-    ? pnlData.rangePnlPercent.toFixed(1)
-    : (pnlData?.pnlPercent != null ? pnlData.pnlPercent.toFixed(1) : null)
-  const pnlPositive = pnl >= 0
+  // ALL uses live PnL; selected ranges use only their range PnL. Unknown is not zero.
+  const pnl = range === 'ALL' ? (pnlData?.pnl ?? null) : (pnlData?.rangePnl ?? null)
+  const pnlPct = range === 'ALL'
+    ? (pnlData?.pnlPercent != null ? pnlData.pnlPercent.toFixed(1) : null)
+    : (pnlData?.rangePnlPercent != null ? pnlData.rangePnlPercent.toFixed(1) : null)
+  const pnlPositive = pnl != null && pnl >= 0
 
   if (isLoading || !data) {
     return <LoadingSkeleton />
@@ -160,6 +163,29 @@ export function DashboardPage() {
           </Button>
         }
       />
+
+      {/* Failed bank sync banner */}
+      {failedBanks.length > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="size-4 shrink-0 text-destructive" />
+            <p className="text-sm font-medium text-destructive">
+              {t('dashboard.bankSyncFailed', {
+                count: failedBanks.length,
+                institution: failedBanks[0].institutionName,
+              })}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => setShowSyncModal(true)}
+          >
+            {t('dashboard.fixConnections')}
+          </Button>
+        </div>
+      )}
 
       {/* Wealth hero */}
       <Card>
@@ -205,20 +231,26 @@ export function DashboardPage() {
           )}
 
           <div className="mt-3 flex items-center gap-2">
-            {pnlPositive
-              ? <TrendingUp className="text-emerald-500" size={18} />
-              : <TrendingDown className="text-red-500" size={18} />}
-            <span
-              className={`text-sm font-medium ${pnlPositive ? 'text-emerald-500' : 'text-red-500'}`}
-            >
-              <CurrencyDisplay value={pnl} />
-              {pnlPct !== null && (
-                <span className="ml-1 font-normal text-muted-foreground">
-                  ({pnlPositive ? '+' : ''}{pnlPct}%)
+            {pnl != null ? (
+              <>
+                {pnlPositive
+                  ? <TrendingUp className="text-emerald-500" size={18} />
+                  : <TrendingDown className="text-red-500" size={18} />}
+                <span
+                  className={`text-sm font-medium ${pnlPositive ? 'text-emerald-500' : 'text-red-500'}`}
+                >
+                  <CurrencyDisplay value={pnl} />
+                  {pnlPct !== null && (
+                    <span className="ml-1 font-normal text-muted-foreground">
+                      ({pnlPositive ? '+' : ''}{pnlPct}%)
+                    </span>
+                  )}
                 </span>
-              )}
-            </span>
-            <span className="text-sm text-muted-foreground">{t('dashboard.netWorthChange')}</span>
+              </>
+            ) : (
+              <span className="text-sm font-medium text-muted-foreground">{t('goals.noData')}</span>
+            )}
+            <span className="text-sm text-muted-foreground">{t('dashboard.portfolioPerformance')}</span>
           </div>
         </CardContent>
       </Card>
@@ -238,11 +270,6 @@ export function DashboardPage() {
 
         <DistributionPie data={data.distribution} />
       </div>
-
-      {/* Liabilities — rendered separately from assets (issue #18) */}
-      {(data.totalLiabilities ?? 0) > 0 && (
-        <LiabilitiesCard liabilities={data.liabilities} totalLiabilities={data.totalLiabilities} />
-      )}
 
       {/* Property wealth: gross, mortgage debt and the equity between them. Renders nothing
           when the member owns no property. */}
@@ -269,8 +296,11 @@ export function DashboardPage() {
             <p className="text-sm text-muted-foreground">{t('dashboard.noGoals')}</p>
           ) : (
             <ItemGroup className="gap-3">
-              {[...data.goalSummaries]
-                .sort((a, b) => b.percentComplete - a.percentComplete)
+              {/* Savings targets only — the backend already filters recurring plans out of
+                  goalSummaries, and this card is built entirely around a completion percentage. */}
+              {data.goalSummaries
+                .filter((g) => g.percentComplete != null && g.targetAmount != null)
+                .sort((a, b) => (b.percentComplete ?? 0) - (a.percentComplete ?? 0))
                 .slice(0, 3)
                 .map((goal) => (
                 <Item
@@ -287,14 +317,14 @@ export function DashboardPage() {
                       value={goal.currentTotal}
                       className="text-3xl font-semibold tabular-nums"
                     />
-                    <Progress value={goal.percentComplete} className="h-2.5 [&_[data-slot=progress-indicator]]:bg-emerald-500" />
+                    <Progress value={goal.percentComplete ?? 0} className="h-2.5 [&_[data-slot=progress-indicator]]:bg-emerald-500" />
                   </ItemContent>
                   <ItemFooter>
                     <span className="text-sm text-muted-foreground">
-                      {Math.round(goal.percentComplete)}% {t('dashboard.achieved')}
+                      {Math.round(goal.percentComplete ?? 0)}% {t('dashboard.achieved')}
                     </span>
                     <CurrencyDisplay
-                      value={goal.targetAmount}
+                      value={goal.targetAmount ?? 0}
                       className="text-sm font-medium tabular-nums"
                     />
                   </ItemFooter>
@@ -318,6 +348,14 @@ export function DashboardPage() {
           </CardFooter>
         )}
       </Card>
+
+      {/* Liabilities overview */}
+      {data.liabilities.length > 0 && (
+        <LiabilitiesCard
+          liabilities={data.liabilities}
+          totalMonthlyPayment={data.totalMonthlyPayment ?? null}
+        />
+      )}
 
       {/* Holdings overview */}
       <HoldingsCard />

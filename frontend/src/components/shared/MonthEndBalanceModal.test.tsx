@@ -64,4 +64,27 @@ describe('MonthEndBalanceModal', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
+
+  it('shows and takes a card debt as the positive amount owed', async () => {
+    mutateAsync.mockResolvedValue({})
+    const now = new Date()
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+    render(
+      <MonthEndBalanceModal
+        open
+        onClose={vi.fn()}
+        accountId={1}
+        history={[{ id: 1, date, balance: -800 }]}
+        amountOwed
+      />,
+    )
+
+    expect(screen.getByText('accounts.currentDebt')).toBeInTheDocument()
+    expect(screen.getAllByRole('textbox')[0]).toHaveValue('800')
+
+    editFirstMonth('900')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ id: 1, balance: 900, date }))
+  })
 })

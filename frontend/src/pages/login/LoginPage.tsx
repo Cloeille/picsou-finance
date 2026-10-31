@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useLoginWithRememberMe } from '@/features/mfa/hooks'
 import { useAppStore } from '@/stores/app-store'
-import { safeRedirect } from '@/lib/utils'
+import { safeRedirect, isOAuthAuthorizeRedirect } from '@/lib/utils'
 import { formatApiError, getErrorStatus } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,6 +24,13 @@ export function LoginPage() {
   const [searchParams] = useSearchParams()
   const redirect = safeRedirect(searchParams.get('redirect'))
 
+  // A /oauth2/ target is the backend authorize endpoint (native app login) — hand off with a
+  // full-page navigation so the server resumes the flow; everything else is an in-app SPA route.
+  const finishLogin = (target: string) => {
+    if (isOAuthAuthorizeRedirect(target)) window.location.assign(target)
+    else navigate(target, { replace: true })
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -42,7 +49,7 @@ export function LoginPage() {
         navigate(`/login/mfa${qs ? `?${qs}` : ''}`)
         return
       }
-      navigate(redirect, { replace: true })
+      finishLogin(redirect)
     } catch (err: unknown) {
       const status = getErrorStatus(err)
       const ax = err as { response?: unknown; message?: string }

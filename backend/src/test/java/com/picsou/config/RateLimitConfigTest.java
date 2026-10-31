@@ -1,10 +1,14 @@
 package com.picsou.config;
 
+import com.github.benmanes.caffeine.cache.Ticker;
 import io.github.bucket4j.Bucket;
+import io.github.bucket4j.TimeMeter;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -24,6 +28,53 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RateLimitConfigTest {
 
     private static final int MAX_SIZE = 50_000;
+
+    @Test
+    void mcpMemberSyncBuckets_survive61MinutesAndRejectFifthConsumptionBefore24Hours() {
+        AtomicLong nanos = new AtomicLong();
+        Ticker ticker = nanos::get;
+        TimeMeter timeMeter = new TimeMeter() {
+            @Override
+            public long currentTimeNanos() {
+                return nanos.get();
+            }
+
+            @Override
+            public boolean isWallClockBased() {
+                return false;
+            }
+        };
+        Map<Long, Bucket> buckets = RateLimitConfig.mcpMemberSyncBucketStore(ticker);
+        Bucket bucket = buckets.computeIfAbsent(42L, ignored ->
+            RateLimitConfig.createMcpMemberSyncBucket(timeMeter));
+
+        for (int consumption = 0; consumption < 4; consumption++) {
+            assertThat(buckets.get(42L)).isSameAs(bucket);
+            assertThat(bucket.tryConsume(1)).isTrue();
+            nanos.addAndGet(Duration.ofMinutes(61).toNanos());
+        }
+
+        assertThat(buckets.get(42L)).isSameAs(bucket);
+        assertThat(bucket.tryConsume(1)).isFalse();
+    }
+
+    @Test
+    void mcpMemberSyncBuckets_expireAfter24HoursAndOrdinaryStoresKeepOneHourAccessTtl() {
+        AtomicLong nanos = new AtomicLong();
+        Ticker ticker = nanos::get;
+        Map<Long, Bucket> mcpBuckets = RateLimitConfig.mcpMemberSyncBucketStore(ticker);
+        Bucket bucket = mcpBuckets.computeIfAbsent(42L, ignored ->
+            RateLimitConfig.createMcpMemberSyncBucket());
+        Map<String, Bucket> ordinaryBuckets = RateLimitConfig.boundedBucketStore(ticker);
+        ordinaryBuckets.put("ip", RateLimitConfig.createLoginBucket());
+
+        nanos.addAndGet(Duration.ofMinutes(61).toNanos());
+        assertThat(mcpBuckets.get(42L)).isSameAs(bucket);
+        assertThat(ordinaryBuckets.get("ip")).isNull();
+
+        nanos.addAndGet(Duration.ofHours(24).minus(Duration.ofMinutes(61)).toNanos());
+        assertThat(mcpBuckets.get(42L)).isNull();
+    }
 
     @Test
     void loginBuckets_evictsDownToMaximumSize_whenOverfilled() {

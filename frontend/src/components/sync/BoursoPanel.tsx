@@ -53,6 +53,10 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
     switch (value) {
       case "INVALID_CREDENTIALS":
         return t("sync.bourso.errors.invalidCredentials")
+      case "FRAUD_ACK_REQUIRED":
+        return t("sync.bourso.errors.fraudAckRequired")
+      case "IDENTITY_SELECTION_UNSUPPORTED":
+        return t("sync.bourso.errors.identitySelectionUnsupported")
       case "MFA_TYPE_UNSUPPORTED":
         return t("sync.bourso.errors.mfaTypeUnsupported")
       case "APP_VALIDATION_TIMEOUT":

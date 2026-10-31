@@ -3,12 +3,15 @@ package com.picsou.service;
 import com.picsou.dto.AccountRequest;
 import com.picsou.dto.AccountResponse;
 import com.picsou.dto.DebtRequest;
+import com.picsou.dto.HoldingLogoUrls;
 import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataResponse;
+import com.picsou.dto.SnapshotRequest;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
+import com.picsou.model.BalanceSnapshot;
 import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.PropertyKind;
@@ -20,9 +23,12 @@ import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
+import com.picsou.repository.SavingsInterestConfigRepository;
+import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -38,9 +44,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -53,9 +61,15 @@ class AccountServiceTest {
     @Mock RealEstateMetadataRepository realEstateMetadataRepository;
     @Mock PropertyValuationRepository propertyValuationRepository;
     @Mock DebtRepository debtRepository;
+    @Mock SavingsInterestConfigRepository savingsInterestConfigRepository;
     @Mock PriceService priceService;
     @Mock LoanAmortizationService loanAmortizationService;
+    @Mock AccountAccessResolver accessResolver;
     @Mock BankLogoResolver bankLogoResolver;
+    @Mock CryptoLogoService cryptoLogoService;
+    @Mock InstrumentLogoService instrumentLogoService;
+    @Mock ScpiPositionRepository scpiPositionRepository;
+    @Mock ScpiFundService scpiFundService;
     @InjectMocks AccountService accountService;
 
     private Account ownedAccount() {
@@ -122,7 +136,7 @@ class AccountServiceTest {
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         accountService.update(1L, new AccountRequest("Livret", AccountType.SAVINGS, "BTC", "EUR",
-            null, false, "#f59e0b", null, null, null), 7L);
+            null, false, "#f59e0b", null, null, null, null), 7L);
 
         assertThat(account.getLogoKey()).isNull();
     }
@@ -138,7 +152,7 @@ class AccountServiceTest {
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         accountService.update(1L, new AccountRequest("Meria", AccountType.CRYPTO, "MERIA", "EUR",
-            null, false, "#f59e0b", null, "ledger", null), 7L);
+            null, false, "#f59e0b", null, "ledger", null, null), 7L);
 
         assertThat(exchange.getLogoKey()).isNull();
     }
@@ -149,7 +163,7 @@ class AccountServiceTest {
 
         AccountResponse created = accountService.create(
             new AccountRequest("Livret", AccountType.SAVINGS, null, "EUR",
-                null, true, "#f59e0b", null, "ledger", null),
+                null, true, "#f59e0b", null, "ledger", null, null),
             FamilyMember.builder().id(7L).build());
 
         assertThat(created.logoKey()).isNull();
@@ -163,10 +177,138 @@ class AccountServiceTest {
 
         AccountResponse created = accountService.create(
             new AccountRequest("BITCOIN Wallet", AccountType.CRYPTO, "BTC", "EUR",
-                null, false, "#f59e0b", null, "ledger", null),
+                null, false, "#f59e0b", null, "ledger", null, null),
             FamilyMember.builder().id(7L).build());
 
         assertThat(created.logoKey()).isNull();
+    }
+
+    // --- Credit card balance sign --------------------------------------------------------
+
+    @Test
+    void create_storesAManualCardsAmountOwedAsANegativeDebt() {
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.create(cardRequest("800"), FamilyMember.builder().id(7L).build());
+
+        verify(accountRepository).save(argThat(account ->
+            account.getCurrentBalance().compareTo(new BigDecimal("-800")) == 0));
+    }
+
+    @Test
+    void create_recordsTheInitialSnapshotOfAManualCardsDebt() {
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(priceService.toEur(new BigDecimal("-800"), "EUR", null)).thenReturn(new BigDecimal("-800"));
+
+        accountService.create(cardRequest("800"), FamilyMember.builder().id(7L).build());
+
+        ArgumentCaptor<BalanceSnapshot> snapshot = ArgumentCaptor.forClass(BalanceSnapshot.class);
+        verify(snapshotRepository).save(snapshot.capture());
+        assertThat(snapshot.getValue().getBalance()).isEqualByComparingTo("-800");
+    }
+
+    @Test
+    void addManualSnapshot_storesAManualCardsAmountOwedAsANegativeDebt() {
+        Account card = Account.builder().id(1L).name("Card").type(AccountType.CREDIT_CARD)
+            .currency("EUR").isManual(true).currentBalance(new BigDecimal("-500")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(card));
+        when(snapshotRepository.findLatestByAccountId(1L)).thenReturn(Optional.empty());
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(priceService.toEur(new BigDecimal("-800"), "EUR", null)).thenReturn(new BigDecimal("-800"));
+
+        BalanceSnapshot saved = accountService.addManualSnapshot(
+            1L, 7L, new SnapshotRequest(new BigDecimal("800"), LocalDate.now()));
+
+        assertThat(saved.getBalance()).isEqualByComparingTo("-800");
+        assertThat(card.getCurrentBalance()).isEqualByComparingTo("-800");
+    }
+
+    @Test
+    void update_keepsAManualCardsDebtNegativeWhenTheFormSendsTheAmountOwed() {
+        Account card = Account.builder().id(1L).name("Card").type(AccountType.CREDIT_CARD)
+            .currency("EUR").isManual(true).currentBalance(new BigDecimal("-800")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(card));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.update(1L, cardRequest("800"), 7L);
+
+        assertThat(card.getCurrentBalance()).isEqualByComparingTo("-800");
+        // Same debt as before: no new snapshot, which a sign flip to +800 would have written.
+        verifyNoInteractions(snapshotRepository);
+    }
+
+    @Test
+    void update_renamingASyncedCardInCredit_keepsItsPositiveBalance() {
+        Account card = Account.builder().id(1L).name("Card").type(AccountType.CREDIT_CARD)
+            .currency("EUR").isManual(false).currentBalance(new BigDecimal("150")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(card));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // The form pre-fills a card with Math.abs(balance), so a credit of 150 comes back as 150.
+        accountService.update(1L, new AccountRequest("Renamed", AccountType.CREDIT_CARD, null, "EUR",
+            new BigDecimal("150"), false, "#2563eb", null, null, null, null), 7L);
+
+        assertThat(card.getCurrentBalance()).isEqualByComparingTo("150");
+        verifyNoInteractions(snapshotRepository);
+    }
+
+    private static AccountRequest cardRequest(String amountOwed) {
+        return new AccountRequest("Card", AccountType.CREDIT_CARD, null, "EUR",
+            new BigDecimal(amountOwed), true, "#2563eb", null, null, null, null);
+    }
+
+    @Test
+    void create_scpi_ignoresTheTypedBalanceAndForcesManual() {
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(scpiPositionRepository.findByAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
+
+        AccountResponse created = accountService.create(
+            new AccountRequest("Pierre-papier", AccountType.SCPI, null, "USD",
+                new BigDecimal("5000"), false, "#7c3aed", null, null, null, null),
+            FamilyMember.builder().id(7L).build());
+
+        assertThat(created.currentBalance()).isEqualByComparingTo("0");
+        assertThat(created.isManual()).isTrue();
+        assertThat(created.currency()).isEqualTo("EUR");
+        verify(snapshotRepository, never()).save(any());
+    }
+
+    @Test
+    void update_convertingToScpi_zerosTheOldBalanceAndForcesManual() {
+        Account checking = Account.builder().id(1L).name("Compte").type(AccountType.CHECKING)
+            .currency("EUR").currentBalance(new BigDecimal("2400")).isManual(false).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(checking));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.update(1L, new AccountRequest("Pierre-papier", AccountType.SCPI, null, "EUR",
+            new BigDecimal("2400"), false, "#7c3aed", null, null, null, null), 7L);
+
+        assertThat(checking.getType()).isEqualTo(AccountType.SCPI);
+        assertThat(checking.getCurrentBalance()).isEqualByComparingTo("0");
+        assertThat(checking.isManual()).isTrue();
+        assertThat(checking.getCurrency()).isEqualTo("EUR");
+        verify(snapshotRepository, never()).save(any());
+    }
+
+    @Test
+    void update_convertingToScpi_isRejectedWhileHoldingsRemain() {
+        Account pea = Account.builder().id(1L).name("PEA").type(AccountType.PEA)
+            .currency("EUR").currentBalance(new BigDecimal("9000")).isManual(true).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(pea));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(
+            AccountHolding.builder().ticker("CW8").quantity(new BigDecimal("2")).build()));
+
+        assertThatThrownBy(() -> accountService.update(1L,
+            new AccountRequest("Pierre-papier", AccountType.SCPI, null, "EUR",
+                null, true, "#7c3aed", null, null, null, null), 7L))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("holdings");
+
+        assertThat(pea.getType()).isEqualTo(AccountType.PEA);
+        assertThat(pea.getCurrentBalance()).isEqualByComparingTo("9000");
+        verify(accountRepository, never()).save(any());
     }
 
     // --- Bank logo on a manual account -------------------------------------------------
@@ -280,7 +422,7 @@ class AccountServiceTest {
 
     private static AccountRequest bankRequest(String provider, String institutionId, boolean isManual) {
         return new AccountRequest("Compte", AccountType.CHECKING, provider, "EUR",
-            null, isManual, "#6366f1", null, null, institutionId);
+            null, isManual, "#6366f1", null, null, institutionId, null);
     }
 
     private static Account manualBankAccount(String provider, String logoUrl) {
@@ -290,7 +432,117 @@ class AccountServiceTest {
 
     private static AccountRequest logoRequest(String logoKey) {
         return new AccountRequest("BITCOIN Wallet", AccountType.CRYPTO, "BTC", "EUR",
-            null, false, "#f59e0b", null, logoKey, null);
+            null, false, "#f59e0b", null, logoKey, null, null);
+    }
+
+    private static AccountRequest usdBalanceRequest(String balance) {
+        return new AccountRequest("US checking", AccountType.CHECKING, null, "USD",
+            new BigDecimal(balance), true, "#6366f1", null, null, null, null);
+    }
+
+    private static Account usdManualAccount(String balance) {
+        return Account.builder().id(1L).name("US checking").type(AccountType.CHECKING)
+            .currency("USD").currentBalance(new BigDecimal(balance)).isManual(true).build();
+    }
+
+    // ─── snapshots are stored in EUR ──────────────────────────────────────────
+
+    @Test
+    void update_storesTheTypedBalanceInEur_andKeepsTheNativeFigureOnTheAccount() {
+        Account account = usdManualAccount("100");
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(priceService.toEur(new BigDecimal("150"), "USD", null)).thenReturn(new BigDecimal("135"));
+
+        accountService.update(1L, usdBalanceRequest("150"), 7L);
+
+        ArgumentCaptor<BalanceSnapshot> snapshot = ArgumentCaptor.forClass(BalanceSnapshot.class);
+        verify(snapshotRepository).save(snapshot.capture());
+        // The history reads balance_snapshot.balance as EUR: 150 USD must land as 135, not 150.
+        assertThat(snapshot.getValue().getBalance()).isEqualByComparingTo("135");
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("150");
+    }
+
+    @Test
+    void addManualSnapshot_storesTheBalanceInEur_andKeepsTheNativeFigureOnTheAccount() {
+        Account account = usdManualAccount("100");
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(snapshotRepository.findLatestByAccountId(1L)).thenReturn(Optional.empty());
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any())).thenReturn(Optional.empty());
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(priceService.toEur(new BigDecimal("200"), "USD", null)).thenReturn(new BigDecimal("180"));
+
+        BalanceSnapshot saved = accountService.addManualSnapshot(
+            1L, 7L, new SnapshotRequest(new BigDecimal("200"), LocalDate.now()));
+
+        assertThat(saved.getBalance()).isEqualByComparingTo("180");
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("200");
+    }
+
+    @Test
+    void findAll_excludesHiddenAccounts_byDefault() {
+        Account visible = ownedAccount();
+        Account hidden = Account.builder()
+            .id(2L).name("Hidden One").type(AccountType.CHECKING).currency("EUR").hidden(true)
+            .build();
+        when(accessResolver.readableAccounts(1L)).thenReturn(List.of(visible, hidden));
+        when(accessResolver.sharesFor(any(), eq(1L))).thenAnswer(inv -> {
+            java.util.Collection<Account> accs = inv.getArgument(0);
+            java.util.Map<Long, BigDecimal> shares = new java.util.HashMap<>();
+            for (Account a : accs) shares.put(a.getId(), new BigDecimal("100"));
+            return shares;
+        });
+
+        List<com.picsou.dto.AccountResponse> result = accountService.findAll(1L);
+
+        assertThat(result).hasSize(1);
+        assertThat(result).noneMatch(com.picsou.dto.AccountResponse::hidden);
+        verify(accessResolver).readableAccounts(1L);
+    }
+
+    @Test
+    void findAll_includesHiddenAccounts_whenRequested() {
+        Account visible = ownedAccount();
+        Account hidden = Account.builder()
+            .id(2L).name("Hidden One").type(AccountType.CHECKING).currency("EUR").hidden(true)
+            .build();
+        when(accessResolver.readableAccounts(1L)).thenReturn(List.of(visible, hidden));
+        when(accessResolver.sharesFor(any(), eq(1L))).thenAnswer(inv -> {
+            java.util.Collection<Account> accs = inv.getArgument(0);
+            java.util.Map<Long, BigDecimal> shares = new java.util.HashMap<>();
+            for (Account a : accs) shares.put(a.getId(), new BigDecimal("100"));
+            return shares;
+        });
+
+        List<com.picsou.dto.AccountResponse> result = accountService.findAll(1L, true);
+
+        assertThat(result).hasSize(2);
+        assertThat(result).anyMatch(com.picsou.dto.AccountResponse::hidden);
+        verify(accessResolver).readableAccounts(1L);
+    }
+
+    @Test
+    void setHidden_persistsFlag_forOwnedAccount() {
+        Account account = ownedAccount();
+        when(accountRepository.findByIdAndMemberId(1L, 1L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(account)).thenReturn(account);
+
+        AccountResponse response = accountService.setHidden(1L, 1L, true);
+
+        assertThat(account.isHidden()).isTrue();
+        assertThat(response.hidden()).isTrue();
+        verify(accountRepository).save(account);
+    }
+
+    @Test
+    void setHidden_throws_whenAccountNotOwnedByMember() {
+        when(accountRepository.findByIdAndMemberId(1L, 1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> accountService.setHidden(1L, 1L, true))
+            .isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
@@ -419,7 +671,7 @@ class AccountServiceTest {
     @Test
     void liveBalanceEur_loanWithDebt_returnsPositiveRemainingBalance() {
         Account loan = loanAccount();
-        Debt debt = Debt.builder().build();
+        Debt debt = Debt.builder().startDate(LocalDate.of(2024, 1, 1)).endDate(LocalDate.of(2044, 1, 1)).build();
         when(debtRepository.findByAccountId(1L)).thenReturn(Optional.of(debt));
         when(loanAmortizationService.computeRemainingBalance(eq(debt), any(LocalDate.class)))
             .thenReturn(new BigDecimal("8500"));
@@ -441,6 +693,23 @@ class AccountServiceTest {
 
         // No Debt row → plain toEur pass-through of the stored balance, sign untouched.
         assertThat(result).isEqualByComparingTo("12000");
+    }
+
+    /**
+     * A Debt saved without dates has no schedule: computeRemainingBalance would answer the whole
+     * borrowed amount, so the balance the user typed on the account is used instead.
+     */
+    @Test
+    void liveBalanceEur_loanWithDebtWithoutDates_fallsBackToStoredBalance() {
+        Account loan = loanAccount();
+        Debt undated = Debt.builder().borrowedAmount(new BigDecimal("200000")).build();
+        when(debtRepository.findByAccountId(1L)).thenReturn(Optional.of(undated));
+        when(priceService.toEur(new BigDecimal("12000"), "EUR", null)).thenReturn(new BigDecimal("12000"));
+
+        BigDecimal result = accountService.liveBalanceEur(loan);
+
+        assertThat(result).isEqualByComparingTo("12000");
+        verify(loanAmortizationService, never()).computeRemainingBalance(any(), any());
     }
 
     @Test
@@ -555,6 +824,28 @@ class AccountServiceTest {
         assertThat(result).isEqualByComparingTo("2300");
     }
 
+    /**
+     * Cash costs what it is worth: pairing the converted value with the unconverted stored
+     * balance reported a 2 500 USD account as a 200 EUR loss, purely the FX rate.
+     */
+    @Test
+    void valuation_cashAccount_costsWhatItIsWorthInEur() {
+        Account cash = Account.builder()
+            .id(2L)
+            .name("USD Cash")
+            .type(AccountType.CHECKING)
+            .currency("USD")
+            .currentBalance(new BigDecimal("2500"))
+            .build();
+        when(holdingRepository.findByAccount_Id(2L)).thenReturn(List.of());
+        when(priceService.toEur(new BigDecimal("2500"), "USD", null)).thenReturn(new BigDecimal("2300"));
+
+        AccountService.Valuation valuation = accountService.valuation(cash);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("2300");
+        assertThat(valuation.investedEur()).isEqualByComparingTo("2300");
+    }
+
     @Test
     void liveBalanceEur_bourseDirect_addsCashWhenAllPositionsArePriced() {
         Account account = Account.builder().id(3L).name("PEA Bourse Direct")
@@ -632,6 +923,180 @@ class AccountServiceTest {
     }
 
     @Test
+    void liveBalanceEur_fortuneo_usesBrokerTotalWhenAnUnlistedHoldingCannotBePriced() {
+        // A Fortuneo PEA can hold "titres non cotés" that OpenFIGI never resolves, so
+        // the partial recomputation (cash + only the priceable symbols) is permanently
+        // wrong, not merely stale. Confirmed live: three such holdings displayed an
+        // 84k EUR PEA as 49k.
+        Account account = Account.builder().id(4L).name("PEA Fortuneo")
+            .type(AccountType.PEA).provider("Fortuneo").currency("EUR")
+            .currentBalance(new BigDecimal("5000")).cashBalance(new BigDecimal("500")).build();
+        AccountHolding priced = AccountHolding.builder()
+            .ticker("ACME.PA").quantity(new BigDecimal("10")).build();
+        AccountHolding unlisted = AccountHolding.builder()
+            .ticker("XX0000000001").quantity(new BigDecimal("100")).build();
+        when(holdingRepository.findByAccount_Id(4L)).thenReturn(List.of(priced, unlisted));
+        stubQuotes("ACME.PA", "100", "XX0000000001", null);
+
+        // Recomputing would give 500 + 10*100 = 1500, silently dropping the unlisted
+        // holding; the broker's own total is the only figure that includes it.
+        assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("5000");
+    }
+
+    @Test
+    void liveBalanceEur_fortuneo_recomputesLiveWhenEveryHoldingIsPriced() {
+        Account account = Account.builder().id(4L).name("PEA Fortuneo")
+            .type(AccountType.PEA).provider("Fortuneo").currency("EUR")
+            .currentBalance(new BigDecimal("999999")).cashBalance(new BigDecimal("250")).build();
+        AccountHolding holding = AccountHolding.builder()
+            .ticker("ACME.PA").quantity(new BigDecimal("10")).build();
+        when(holdingRepository.findByAccount_Id(4L)).thenReturn(List.of(holding));
+        stubQuotes("ACME.PA", "100");
+
+        // Fully priceable: live prices win over the stored broker total.
+        assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("1250");
+    }
+
+    @Test
+    void caisseEpargnePer_usesLiveQuotesAndKeepsUnresolvedBankValuationsStale() {
+        Account account = Account.builder().id(6L).name("Synthetic pension")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
+        LocalDate navDate = LocalDate.of(2026, 10, 6);
+        AccountHolding ucA = AccountHolding.builder()
+            .ticker("UC_A").quantity(new BigDecimal("10"))
+            .currentPrice(new BigDecimal("50")).quoteCurrency("USD")
+            .providerValueEur(new BigDecimal("500")).build();
+        AccountHolding ucB = AccountHolding.builder()
+            .ticker("UC_B").quantity(new BigDecimal("2"))
+            .currentPrice(new BigDecimal("999")).quoteCurrency("USD")
+            .providerValueEur(new BigDecimal("200")).providerPriceDate(navDate).build();
+        List<AccountHolding> holdings = List.of(ucA, ucB);
+        when(holdingRepository.findByAccount_Id(6L)).thenReturn(holdings);
+        LocalDate quoteFallbackDate = LocalDate.of(2026, 10, 10);
+        when(priceService.getQuotes(any())).thenReturn(
+            Map.of("UC_A", new PriceService.Quote(new BigDecimal("50"), LocalDate.now(), true)),
+            Map.of("UC_A", new PriceService.Quote(new BigDecimal("55"), LocalDate.now(), true)),
+            Map.of("UC_A", new PriceService.Quote(new BigDecimal("60"), quoteFallbackDate, false)));
+
+        AccountService.Valuation atOldPrice = accountService.valuation(account);
+        AccountService.Valuation atNewPrice = accountService.valuation(account);
+
+        assertThat(atOldPrice.liveEur()).isEqualByComparingTo("1700");
+        assertThat(atNewPrice.liveEur()).isEqualByComparingTo("1750");
+        assertThat(atOldPrice.investedEur()).isEqualByComparingTo("1700");
+        // PER positions have no known purchase basis; use the current valuation as a neutral
+        // baseline instead of manufacturing profit against the older bank NAV total.
+        assertThat(atNewPrice.investedEur()).isEqualByComparingTo("1750");
+        assertThat(atNewPrice.anyPriced()).isTrue();
+        assertThat(atNewPrice.anyStale()).isTrue();
+        assertThat(ucA.getQuantity()).isEqualByComparingTo("10");
+        assertThat(ucB.getQuantity()).isEqualByComparingTo("2");
+
+        when(accountRepository.findByIdAndMemberId(6L, 1L)).thenReturn(Optional.of(account));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(6L)).thenReturn(holdings);
+        List<HoldingResponse> responses = accountService.getHoldings(6L, 1L);
+
+        assertThat(responses.get(0).currentPrice()).isEqualByComparingTo("60");
+        assertThat(responses.get(0).quoteCurrency()).isEqualTo("EUR");
+        assertThat(responses.get(0).currentValueEur()).isEqualByComparingTo("600");
+        assertThat(responses.get(0).priceAsOf()).isEqualTo(quoteFallbackDate);
+        assertThat(responses.get(0).priceStale()).isTrue();
+        assertThat(responses.get(0).costBasisEur()).isNull();
+        assertThat(responses.get(0).pnlEur()).isNull();
+        HoldingResponse unresolved = responses.get(1);
+        assertThat(unresolved.currentValueEur()).isEqualByComparingTo("200");
+        assertThat(unresolved.currentPrice()).isEqualByComparingTo("100");
+        assertThat(unresolved.quoteCurrency()).isEqualTo("EUR");
+        assertThat(unresolved.priceAsOf()).isEqualTo(navDate);
+        assertThat(unresolved.priceStale()).isTrue();
+        assertThat(unresolved.costBasisEur()).isNull();
+        assertThat(unresolved.pnlEur()).isNull();
+    }
+
+    @Test
+    void caisseEpargnePer_ignoresNonpositiveQuotesAndBankValues() {
+        Account account = Account.builder().id(7L).name("Synthetic pension")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
+        AccountHolding valued = AccountHolding.builder()
+            .ticker("UC_A").quantity(new BigDecimal("10"))
+            .providerValueEur(new BigDecimal("500")).build();
+        AccountHolding invalid = AccountHolding.builder()
+            .ticker("UC_B").quantity(new BigDecimal("2"))
+            .providerValueEur(BigDecimal.ZERO).build();
+        List<AccountHolding> holdings = List.of(valued, invalid);
+        when(holdingRepository.findByAccount_Id(7L)).thenReturn(holdings);
+        when(priceService.getQuotes(any())).thenReturn(Map.of(
+            "UC_A", new PriceService.Quote(BigDecimal.ZERO, LocalDate.now(), true),
+            "UC_B", new PriceService.Quote(new BigDecimal("-1"), LocalDate.now(), true)));
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1500");
+        assertThat(valuation.anyPriced()).isTrue();
+        assertThat(valuation.anyStale()).isTrue();
+
+        when(accountRepository.findByIdAndMemberId(7L, 1L)).thenReturn(Optional.of(account));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(7L)).thenReturn(holdings);
+        List<HoldingResponse> responses = accountService.getHoldings(7L, 1L);
+        assertThat(responses.get(0).currentValueEur()).isEqualByComparingTo("500");
+        assertThat(responses.get(0).priceStale()).isTrue();
+        assertThat(responses.get(1).currentValueEur()).isNull();
+        assertThat(responses.get(1).priceStale()).isTrue();
+        assertThat(responses.get(1).costBasisEur()).isNull();
+        assertThat(responses.get(1).pnlEur()).isNull();
+    }
+
+    @Test
+    void caisseEpargnePer_liveQuoteStaysFreshWhenBankFallbackIsInvalid() {
+        Account account = Account.builder().id(10L).name("Synthetic pension")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("500")).cashBalance(BigDecimal.ZERO).build();
+        AccountHolding holding = AccountHolding.builder()
+            .ticker("UC_A").quantity(new BigDecimal("10")).providerValueEur(BigDecimal.ZERO).build();
+        when(holdingRepository.findByAccount_Id(10L)).thenReturn(List.of(holding));
+        when(priceService.getQuotes(any())).thenReturn(Map.of(
+            "UC_A", new PriceService.Quote(new BigDecimal("50"), LocalDate.now(), true)));
+        AccountService.Valuation valuation = accountService.valuation(account);
+        assertThat(valuation.liveEur()).isEqualByComparingTo("500");
+        assertThat(valuation.anyPriced()).isTrue();
+        assertThat(valuation.anyStale()).isFalse();
+    }
+
+    @Test
+    void caisseEpargnePer_allMissingQuotesKeepsTheCompleteBankTotalAsStaleAndPriced() {
+        Account account = Account.builder().id(8L).name("Synthetic pension")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
+        List<AccountHolding> holdings = List.of(
+            AccountHolding.builder().ticker("UC_A").quantity(new BigDecimal("10"))
+                .providerValueEur(new BigDecimal("500")).build(),
+            AccountHolding.builder().ticker("UC_B").quantity(new BigDecimal("2"))
+                .providerValueEur(new BigDecimal("200")).build());
+        when(holdingRepository.findByAccount_Id(8L)).thenReturn(holdings);
+        when(priceService.getQuotes(any())).thenReturn(Map.of());
+        AccountService.Valuation valuation = accountService.valuation(account);
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1700");
+        assertThat(valuation.anyPriced()).isTrue();
+        assertThat(valuation.allPriced()).isFalse();
+        assertThat(valuation.anyStale()).isTrue();
+    }
+
+    @Test
+    void caisseEpargnePer_euroPocketWithoutHoldingsUsesItsStoredBalance() {
+        Account account = Account.builder().id(9L).name("Synthetic pension")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("1000")).cashBalance(new BigDecimal("1000")).build();
+        when(holdingRepository.findByAccount_Id(9L)).thenReturn(List.of());
+        when(priceService.toEur(new BigDecimal("1000"), "EUR", null)).thenReturn(new BigDecimal("1000"));
+        AccountService.Valuation valuation = accountService.valuation(account);
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1000");
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1000");
+        assertThat(valuation.anyPriced()).isTrue();
+        assertThat(valuation.anyStale()).isFalse();
+    }
+
+    @Test
     void calculateInvestedAmount_includesCashAndPrefersBrokerEurCostBasis() {
         Account account = Account.builder().id(3L)
             .currentBalance(new BigDecimal("1250"))
@@ -697,6 +1162,55 @@ class AccountServiceTest {
 
         assertThat(valuation.liveEur()).isEqualByComparingTo("5000");   // the broker's own total
         assertThat(valuation.investedEur()).isEqualByComparingTo("4900"); // 900 + 4000, both lines
+    }
+
+    @Test
+    void idleCashOnAPricedAccountIsOnBothSidesSoItDoesNotShowUpAsGain() {
+        // 250 EUR waiting to be invested is not 250 EUR of profit. Cash costs what it is worth,
+        // so it belongs to the value *and* the cost basis; on one side only it becomes the gain
+        // (issue #106).
+        Account account = Account.builder().id(3L).name("PEA Bourse Direct")
+            .type(AccountType.PEA).provider("Bourse Direct").currency("EUR")
+            .currentBalance(new BigDecimal("1250")).cashBalance(new BigDecimal("250")).build();
+        AccountHolding holding = AccountHolding.builder()
+            .ticker("ACME").quantity(new BigDecimal("10"))
+            .averageBuyIn(new BigDecimal("90")).build();
+        when(holdingRepository.findByAccount_Id(3L)).thenReturn(List.of(holding));
+        stubQuotes("ACME", "100");
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1250");    // 250 cash + 10 × 100
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1150"); // 250 cash + 10 × 90
+        // The gain is the position's 100, not the position's 100 plus the cash.
+        assertThat(valuation.liveEur().subtract(valuation.investedEur()))
+            .isEqualByComparingTo("100");
+    }
+
+    @Test
+    void idleCashFoldedIntoTheBrokerTotalIsOnBothSidesToo() {
+        // The same 250 EUR sleeve, on an account that stores no cashBalance: it is folded into
+        // currentBalance, which the override takes as the value. The cost side started from a
+        // zero cash leg, so the sleeve used to land squarely in the gain — 350 reported on an
+        // account that made 100 (issue #106). Every line carries the broker's own value here,
+        // so the 250 the total exceeds them by is the cash pocket, and it cancels out.
+        Account account = Account.builder().id(3L).name("PEA Bourse Direct")
+            .type(AccountType.PEA).provider("Bourse Direct").currency("EUR")
+            .currentBalance(new BigDecimal("1250")).build();
+        AccountHolding holding = AccountHolding.builder()
+            .ticker("PHYMF").quantity(new BigDecimal("10"))
+            .providerValueEur(new BigDecimal("1000"))
+            .providerPnlEur(new BigDecimal("100"))   // cost basis = 1000 - 100 = 900
+            .build();
+        when(holdingRepository.findByAccount_Id(3L)).thenReturn(List.of(holding));
+        stubQuotes("PHYMF", null);   // the lookup fails, so the broker's total takes over
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1250");    // the broker's own total
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1150"); // 900 + the 250 sleeve
+        assertThat(valuation.liveEur().subtract(valuation.investedEur()))
+            .isEqualByComparingTo("100");
     }
 
     @Test
@@ -828,7 +1342,7 @@ class AccountServiceTest {
     @Test
     void signedLiveBalanceEur_loan_returnsNegativeOutstanding() {
         Account loan = loanAccount();
-        Debt debt = Debt.builder().build();
+        Debt debt = Debt.builder().startDate(LocalDate.of(2024, 1, 1)).endDate(LocalDate.of(2044, 1, 1)).build();
         when(debtRepository.findByAccountId(1L)).thenReturn(Optional.of(debt));
         when(loanAmortizationService.computeRemainingBalance(eq(debt), any(LocalDate.class)))
             .thenReturn(new BigDecimal("8500"));
@@ -856,60 +1370,103 @@ class AccountServiceTest {
         assertThat(result).isEqualByComparingTo("2500");
     }
 
-    /**
-     * A property carries no holdings, so its balance comes straight back out of
-     * {@code priceService.toEur}; nothing here exercises pricing.
-     */
-    private Account propertyAccount() {
-        return Account.builder()
-            .id(8L)
-            .name("Résidence principale")
-            .type(AccountType.REAL_ESTATE)
-            .currency("EUR")
-            .currentBalance(new BigDecimal("412000"))
-            .build();
-    }
+    @Test
+    void updateHolding_manualAccount_updatesQuantityAndCostBasis() {
+        Account manual = Account.builder().id(1L).type(AccountType.COMPTE_TITRES).currency("EUR").isManual(true).build();
+        AccountHolding h = AccountHolding.builder()
+            .account(manual).ticker("IWDA").quantity(new BigDecimal("10")).averageBuyIn(new BigDecimal("80")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(manual));
+        when(holdingRepository.findByAccountIdAndTicker(1L, "IWDA")).thenReturn(Optional.of(h));
+        when(holdingRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-    private RealEstateMetadataResponse propertyResponse(String propertyType, LocalDate lastValuedAt) {
-        when(priceService.toEur(any(), eq("EUR"), any())).thenReturn(new BigDecimal("412000"));
-        when(realEstateMetadataRepository.findByAccountId(8L)).thenReturn(Optional.of(
-            RealEstateMetadata.builder()
-                .purchasePrice(new BigDecimal("320000"))
-                .propertyType(propertyType)
-                .city("Bordeaux")
-                .build()));
-        when(propertyValuationRepository.findFirstByAccountIdOrderByValuedAtDesc(8L)).thenReturn(
-            lastValuedAt == null
-                ? Optional.empty()
-                : Optional.of(PropertyValuation.builder().valuedAt(lastValuedAt).build()));
+        accountService.updateHolding(1L, 9L, "IWDA", new BigDecimal("12"), new BigDecimal("85"));
 
-        return accountService.toResponse(propertyAccount()).realEstate();
+        assertThat(h.getQuantity()).isEqualByComparingTo("12"); // manual: quantity editable
+        assertThat(h.getAverageBuyIn()).isEqualByComparingTo("85");
     }
 
     @Test
-    void toResponse_normalizesTheFreeTextPropertyTypeIntoAKind() {
-        // property_type predates PropertyKind and is free text, so an old row may hold a French
-        // label. Clients pick the card's glyph off the parsed value, never the raw string.
-        RealEstateMetadataResponse realEstate = propertyResponse("maison", LocalDate.of(2026, 1, 10));
+    void updateHolding_syncedAccount_ignoresClientQuantity_butSetsCostBasis() {
+        Account synced = Account.builder().id(1L).type(AccountType.CRYPTO).currency("EUR").isManual(false).build();
+        AccountHolding h = AccountHolding.builder()
+            .account(synced).ticker("BTC").quantity(new BigDecimal("0.5")).averageBuyIn(new BigDecimal("60000")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(synced));
+        when(holdingRepository.findByAccountIdAndTicker(1L, "BTC")).thenReturn(Optional.of(h));
+        when(holdingRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        assertThat(realEstate.propertyType()).isEqualTo("maison");
-        assertThat(realEstate.propertyKind()).isEqualTo(PropertyKind.HOUSE);
+        // Client sends a stale/tampered quantity; only the cost basis must take effect.
+        accountService.updateHolding(1L, 9L, "BTC", new BigDecimal("0.4"), new BigDecimal("30000"));
+
+        assertThat(h.getQuantity()).isEqualByComparingTo("0.5"); // synced: chain owns it, unchanged
+        assertThat(h.getAverageBuyIn()).isEqualByComparingTo("30000");
     }
 
     @Test
-    void toResponse_reportsWhenThePropertyWasLastValued() {
-        RealEstateMetadataResponse realEstate = propertyResponse("HOUSE", LocalDate.of(2026, 1, 10));
+    void getHoldings_carriesTheCryptoLogoOntoTheResponse() {
+        Account crypto = Account.builder().id(1L).type(AccountType.CRYPTO).currency("EUR").build();
+        AccountHolding h = AccountHolding.builder()
+            .account(crypto).ticker("BTC").quantity(new BigDecimal("0.5")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(crypto));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(1L)).thenReturn(List.of(h));
+        when(cryptoLogoService.getLogoUrls(Set.of("BTC")))
+            .thenReturn(Map.of("BTC", "https://coin-images/btc.png"));
 
-        assertThat(realEstate.lastValuedAt()).isEqualTo(LocalDate.of(2026, 1, 10));
+        List<HoldingResponse> holdings = accountService.getHoldings(1L, 9L);
+
+        assertThat(holdings).singleElement()
+            .extracting(HoldingResponse::logoUrl)
+            .isEqualTo("https://coin-images/btc.png");
     }
 
     @Test
-    void toResponse_leavesBothNullOnAPropertyNeitherDescribedNorValued() {
-        // A property has no lastSyncedAt to fall back on -- the card simply renders no
-        // freshness line, exactly as a manual account with no provider does.
-        RealEstateMetadataResponse realEstate = propertyResponse("chalet", null);
+    void getHoldings_leavesAnEquityLogoNullWhenNoneIsStored_andNeverAsksTheCryptoResolver() {
+        Account pea = Account.builder().id(1L).type(AccountType.PEA).currency("EUR").build();
+        AccountHolding h = AccountHolding.builder()
+            .account(pea).ticker("MC").quantity(new BigDecimal("10")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(pea));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(1L)).thenReturn(List.of(h));
+        when(instrumentLogoService.storedUrls(Set.of("MC"))).thenReturn(Map.of());
 
-        assertThat(realEstate.propertyKind()).isNull();
-        assertThat(realEstate.lastValuedAt()).isNull();
+        List<HoldingResponse> holdings = accountService.getHoldings(1L, 9L);
+
+        // Nothing stored for MC: the ticker is all the UI has to show, exactly as before share
+        // logos existed -- and the crypto-only resolver is never consulted for an equity account.
+        assertThat(holdings).singleElement().satisfies(r -> {
+            assertThat(r.logoUrl()).isNull();
+            assertThat(r.logoUrlDark()).isNull();
+        });
+        verifyNoInteractions(cryptoLogoService);
+    }
+
+    @Test
+    void getHoldings_carriesAStoredShareMark_fromPicsousOwnEndpoint() {
+        Account pea = Account.builder().id(1L).type(AccountType.PEA).currency("EUR").build();
+        AccountHolding h = AccountHolding.builder()
+            .account(pea).ticker("aapl").quantity(new BigDecimal("3")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(pea));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(1L)).thenReturn(List.of(h));
+        when(instrumentLogoService.storedUrls(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new HoldingLogoUrls(
+            "/api/instrument-logos/AAPL?v=1759400000", "/api/instrument-logos/AAPL?v=1759400000&variant=dark")));
+
+        List<HoldingResponse> holdings = accountService.getHoldings(1L, 9L);
+
+        assertThat(holdings).singleElement().satisfies(r -> {
+            assertThat(r.logoUrl()).isEqualTo("/api/instrument-logos/AAPL?v=1759400000");
+            assertThat(r.logoUrlDark()).isEqualTo("/api/instrument-logos/AAPL?v=1759400000&variant=dark");
+        });
+    }
+
+    @Test
+    void getHoldings_neverReadsTheShareLogoStore_forACryptoAccount() {
+        Account crypto = Account.builder().id(1L).type(AccountType.CRYPTO).currency("EUR").build();
+        AccountHolding h = AccountHolding.builder()
+            .account(crypto).ticker("SUI").quantity(new BigDecimal("1")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(crypto));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(1L)).thenReturn(List.of(h));
+
+        accountService.getHoldings(1L, 9L);
+
+        // SUI is also a listed share's symbol; a coin must never borrow that company's mark.
+        verifyNoInteractions(instrumentLogoService);
     }
 }

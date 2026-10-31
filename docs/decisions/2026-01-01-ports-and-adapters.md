@@ -19,7 +19,7 @@ The 5 port interfaces:
 | `TradeRepublicPort` | `TradeRepublicAdapter` |
 | `CryptoExchangePort` | `BinanceAdapter`, `MeriaAdapter` |
 | `WalletPort` | `BitcoinWalletAdapter`, `EvmWalletAdapter`, `SolanaWalletAdapter` |
-| `PriceProviderPort` | `CoinGeckoPriceProvider`, `YahooFinancePriceProvider` |
+| `PriceProviderPort` | `CompositePriceProvider` (`@Primary`, routes crypto → CoinGecko, rest → Yahoo), delegating to `CoinGeckoPriceProvider` and `YahooFinancePriceProvider` |
 
 Swapping a provider means implementing the port and swapping the `@Primary` bean.
 

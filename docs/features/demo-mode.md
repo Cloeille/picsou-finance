@@ -35,7 +35,7 @@ VITE_DEMO_MODE=true
 - `frontend/.env` — `VITE_DEMO_MODE=true`
 - `frontend/src/lib/api-client.ts` — mock adapter injection
 - `frontend/src/demo/index.ts` — `createDemoAdapter()`, route handler table
-- `frontend/src/demo/data/` — mock data (accounts, goals, dashboard, transactions, holdings, sync-status)
+- `frontend/src/demo/data/` — mock data (accounts, goals, dashboard, transactions, holdings, sync-status, analysis)
 - `frontend/src/stores/app-store.ts` — `demoMode` state, not persisted
 - `frontend/src/features/auth/guards.tsx` — auth bypass in demo mode
 

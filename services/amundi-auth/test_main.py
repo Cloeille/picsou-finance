@@ -8,6 +8,7 @@ def fund(**overrides):
     line = {
         "libelleFonds": "Amundi Label Actions Solidaires",
         "codeIsin": "fr0010405035",
+        "codeFonds": "4256",
         "nbParts": 12.3456,
         "vl": 100.0,
         "mtBrut": 1234.56,
@@ -83,10 +84,29 @@ class ParsePlansTest(unittest.TestCase):
 
         [line] = parsed["positions"]
         self.assertEqual(line["isin"], "FR0010405035")
+        self.assertEqual(line["fundCode"], "4256")
         self.assertEqual(line["quantity"], Decimal("12.3456"))
         self.assertEqual(line["unitValue"], Decimal("100.0"))
         self.assertEqual(line["valueEur"], Decimal("1234.56"))
         self.assertEqual(line["pnlEur"], Decimal("34.56"))
+
+    def test_the_fund_code_is_carried_even_when_codeisin_is_not_an_isin(self):
+        # Employer funds carry the AMF code in codeIsin. The backend rejects it,
+        # and codeFonds is then the only stable identifier the line still has.
+        [parsed] = parse_plans(payload(plan(positionsSalarieFondsDto=[
+            fund(codeIsin="990000093539", codeFonds="4256")
+        ])))
+
+        [line] = parsed["positions"]
+        self.assertEqual(line["fundCode"], "4256")
+
+    def test_a_line_without_a_fund_code_is_still_accepted(self):
+        [parsed] = parse_plans(payload(plan(positionsSalarieFondsDto=[
+            fund(codeFonds=None)
+        ])))
+
+        [line] = parsed["positions"]
+        self.assertIsNone(line["fundCode"])
 
     def test_id_falls_back_to_iddispositif(self):
         [parsed] = parse_plans(payload(plan(codeDispositif=None, idDispositif="42")))

@@ -1,15 +1,53 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-09-04
+> Last updated: 2026-10-08 (migration-safe release deployment)
 
 ## Context
 
-Picsou deploys as three Docker images orchestrated by `docker/docker-compose.yml`:
-- **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/zoeille/picsou-finance`.
-- **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/zoeille/picsou-finance/tr-auth`.
-- **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/zoeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
+Picsou deploys as the app and ten authentication sidecars orchestrated by `docker/docker-compose.yml`:
+- **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
+- **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
+- **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
+- **`amundi-auth`** — Amundi login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/amundi-auth`.
+- **`bourso-auth`** — BoursoBank login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourso-auth`.
+- **`caisse-epargne-auth`** — browserless Caisse d'Epargne read sidecar (session replay, no in-app login yet), published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
+- **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
+- **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
+- **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
+- **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
 
-A fourth container is PostgreSQL 16 (official image, not built).
+All sidecars use the Docker workflow's shared `linux/amd64,linux/arm64` platforms
+and tag strategy. AMEX pins Camoufox `152.0.4-beta.30` and selects the Linux
+archive matching the container architecture (`x86_64` or `arm64`).
+Its GeoIP database is downloaded from the upstream release's direct
+`GeoLite2-City.mmdb` asset URL, without querying the unauthenticated GitHub
+releases API. Download failures still fail the build; no token is baked into
+the image and GeoIP support is retained.
+A push to `1.1.0` publishes `:1.1.0`; `:latest` follows main
+or version-tag pushes, not release-branch pushes. The deployment Compose file
+offers both `image:` and `build:` for AMEX and DEGIRO, like the other sidecars.
+For a pinned release deployment, override their image values with
+`ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0` and
+`ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0` and pull before starting.
+
+New GHCR packages may initially be private. After the first upstream build,
+the repository owner must check both packages' visibility and make them public
+if needed. Before that build, the workflow change alone does not prove public
+availability. Verify from a Docker client with an empty authentication config:
+
+```sh
+DOCKER_CONFIG="$(mktemp -d)"
+export DOCKER_CONFIG
+docker pull ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
+rmdir "$DOCKER_CONFIG"
+```
+
+CI builds both Dockerfiles and runs credential-free tests inside their images,
+with the server command overridden by Python unittest. No real provider login
+or banking credentials are used.
+
+PostgreSQL 16 and the optional Caddy TLS proxy use upstream images.
 
 ## How it works
 
@@ -26,16 +64,76 @@ A fourth container is PostgreSQL 16 (official image, not built).
 | Nginx | 8080 (public) | Serves SPA, proxies `/api/*` and `/actuator` to backend |
 | Java (Spring Boot) | 9090 (internal) | Backend API |
 
+### Shared sidecar bases — `services/base/Dockerfile`
+
+Every sidecar except amex-auth and revolut-auth (Camoufox) builds `FROM` one of
+two shared bases, built from one pin set (`services/base/requirements*.txt`):
+`python` (Python 3.12 slim bookworm, fastapi, uvicorn, pydantic, httpx) and
+`chromium` (the same plus Playwright 1.52 and Chromium in
+`/opt/playwright-browsers`). A sidecar Dockerfile only adds its user and code.
+The publish workflow pushes `sidecar-python` and `sidecar-chromium` first and
+builds every sidecar from them by digest, so a pull stores Chromium once. With
+`docker compose up --build`, the build-only services `sidecar-python` and
+`sidecar-chromium` (`scale: 0`, never started) are built first; this
+needs Compose v2.33+ (`additional_contexts: service:`), tested on 5.6.0.
+`docker compose pull` needs no particular version. It also pulls the two bases
+by name (`ghcr.io/cloeille/picsou-finance/sidecar-*:latest`); their layers are
+the ones the published sidecars are built from, so nothing is downloaded twice. See
+[ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md).
+A sidecar whose base is missing, or still on a pre-base image, is reported to the admin
+by the [instance-status alert](./admin-instance-status.md).
+
 ### tr-auth sidecar — `services/tr-auth/Dockerfile`
 
-Based on `python:3.12-slim`. Installs only Chromium (not Firefox/WebKit) via `playwright install chromium`, with system deps pre-installed via apt. The sidecar exposes port 8001 and is reached by the backend via `TR_AUTH_URL=http://tr-auth:8001`.
+Built on the shared `chromium` base (Chromium only, no Firefox/WebKit). The sidecar exposes port 8001 and is reached by the backend via `TR_AUTH_URL=http://tr-auth:8001`.
 
 ### Bourse Direct sidecar — `services/bourse-direct-auth/Dockerfile`
 
-Based on `python:3.12-slim-bookworm`, with Chromium only. It runs as a
+Built on the shared `chromium` base. It runs as a
 dedicated non-root user and is reached by the backend at
 `BOURSE_DIRECT_AUTH_URL=http://bourse-direct-auth:8001`. Compose does not
 publish its port, so login, 2FA and portfolio endpoints remain internal.
+
+### Fortuneo sidecar — `services/fortuneo-auth/Dockerfile`
+
+Built on the shared `chromium` base. It runs as a
+dedicated non-root user and is reached by the backend at
+`FORTUNEO_AUTH_URL=http://fortuneo-auth:8001`. Compose does not publish its
+port. Its API is attached to `fortuneo-auth-net`, an internal network shared
+only with the application, while `fortuneo-egress` gives the sidecar outbound
+provider access without exposing that API to the other containers. Custom
+remote sidecar URLs must use HTTPS; HTTP is accepted only for a single-label
+Compose service name or loopback development, the rule every sidecar adapter
+applies through `SidecarBaseUrl`.
+
+### Sidecar shared secret — `APP_SIDECAR_API_KEY`
+
+The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank,
+Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy) share one secret.
+Generate it with `openssl rand -base64 32`. Both Compose files forward it
+explicitly to the app and to every sidecar service they define, and refuse to
+start when it is missing or empty. The root `docker-compose.yml` defines all
+ten sidecars, as does `docker/docker-compose.yml`. Both explicitly set
+`DEGIRO_AUTH_URL` on the backend rather than relying on its application default.
+Both AMEX service definitions use `init: true` so an init process reaps orphaned
+browser children during repeated logins. The entrypoint does not generate the
+shared secret: the sidecars run in separate containers and
+cannot read the app's `/data/.secrets/` volume.
+
+- The backend sends it as `X-Picsou-Sidecar-Key` on every sidecar call, through
+  `SidecarWebClientFactory`, and refuses to start when it is blank.
+- Each sidecar refuses to start when it is missing or whitespace-only. Every
+  route except the exact `/health` path, including `/docs` and
+  `/openapi.json`, requires the header. A constant-time comparison
+  (`secrets.compare_digest`) runs in an HTTP middleware, before routing, body
+  parsing or any upstream work.
+- A missing or wrong key returns HTTP 401 `{"detail": "UNAUTHORIZED"}` with
+  `WWW-Authenticate: Picsou-Sidecar-Key`. The backend matches on that challenge
+  and raises `SidecarAuthenticationException` (`SIDECAR_UNAUTHORIZED`), so a key
+  mismatch never reads as a bank-side 401 such as `INVALID_CREDENTIALS` or
+  `SESSION_EXPIRED`.
+- The key is never logged. After rotating it, recreate the backend and every
+  sidecar together.
 
 ### Entrypoint (`docker/entrypoint.sh`)
 
@@ -45,6 +143,21 @@ On first boot, auto-generates three secrets into `/data/.secrets/` (mounted name
 - `POSTGRES_PASSWORD` — 24-byte base64
 
 On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency. Secrets are **never** regenerated once created — doing so would invalidate JWTs and corrupt all encrypted data in the DB.
+
+After resolving these secrets, the entrypoint exports `SPRING_DATASOURCE_PASSWORD`
+from `POSTGRES_PASSWORD`, so Spring uses the supplied, persisted or generated
+password rather than its literal `picsou` fallback. An explicit non-empty
+`SPRING_DATASOURCE_PASSWORD` takes precedence; an empty value uses the resolved
+PostgreSQL password.
+
+This does not synchronize or rotate the database container's password. Set
+`POSTGRES_PASSWORD` in `docker/.env` to the actual database password before
+starting the stack. Compose explicitly passes `${POSTGRES_PASSWORD:-picsou}`
+to both the app and PostgreSQL, so an unset or empty password retains their
+shared `picsou` default rather than generating a different app-side secret.
+Standalone image runs still generate a password when none is supplied; that
+password must match the external database. Changing an environment variable
+does not change the password of an already initialized database volume.
 
 ### TLS — the optional `tls` compose profile
 
@@ -146,10 +259,11 @@ fixed at create time, so the new value is never seen.
 ### Key files
 
 - `docker/Dockerfile` — main image, 3-stage build
-- `docker/docker-compose.yml` — orchestration (app + proxy + both broker sidecars + PostgreSQL + volumes)
+- `docker/docker-compose.yml` — orchestration (app + proxy + connector sidecars + PostgreSQL + volumes)
 - `docker/Caddyfile` — optional TLS terminator (profile `tls`)
 - `services/tr-auth/Dockerfile` — tr-auth sidecar image
 - `services/bourse-direct-auth/Dockerfile` — Bourse Direct sidecar image
+- `services/fortuneo-auth/Dockerfile` — Fortuneo sidecar image
 - `docker/nginx.conf` — Nginx reverse proxy config (`/api`, `/actuator`, `/mcp` → backend)
 - `docker/supervisord.conf` — supervisor (nginx + backend)
 - `docker/entrypoint.sh` — secret bootstrap + HSTS snippet + exec supervisord
@@ -160,7 +274,16 @@ fixed at create time, so the new value is never seen.
 docker compose -f docker/docker-compose.yml up
   → picsou:latest  (nginx:8080 → backend:9090 for /api, /actuator, /mcp)
   → docker-tr-auth (uvicorn:8001)
+  → revolut-auth (uvicorn:8002, internal only)
   → bourse-direct-auth (uvicorn:8001, internal only)
+  → amundi-auth (uvicorn:8001, internal only)
+  → bourso-auth (uvicorn:8001, internal only)
+  → caisse-epargne-auth (uvicorn:8001, internal only)
+  → fortuneo-auth (uvicorn:8001, internal only)
+  → corum-auth (uvicorn:8001, internal only)
+  → sofidy-auth (uvicorn:8001, internal only)
+  → amex-auth (uvicorn:8001, internal only)
+  → degiro-auth (uvicorn:8001, internal only)
   → postgres:16-alpine (:5432)
 ```
 
@@ -181,9 +304,18 @@ the “build this branch, do not `compose pull` GHCR `:latest`” warning are in
 
 ```bash
 docker compose -f docker/docker-compose.yml build
-docker save ghcr.io/zoeille/picsou-finance:latest \
-  ghcr.io/zoeille/picsou-finance/tr-auth:latest \
-  ghcr.io/zoeille/picsou-finance/bourse-direct-auth:latest \
+docker save ghcr.io/cloeille/picsou-finance:latest \
+  ghcr.io/cloeille/picsou-finance/tr-auth:latest \
+  ghcr.io/cloeille/picsou-finance/revolut-auth:latest \
+  ghcr.io/cloeille/picsou-finance/bourse-direct-auth:latest \
+  ghcr.io/cloeille/picsou-finance/amundi-auth:latest \
+  ghcr.io/cloeille/picsou-finance/bourso-auth:latest \
+  ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:latest \
+  ghcr.io/cloeille/picsou-finance/fortuneo-auth:latest \
+  ghcr.io/cloeille/picsou-finance/corum-auth:latest \
+  ghcr.io/cloeille/picsou-finance/sofidy-auth:latest \
+  ghcr.io/cloeille/picsou-finance/amex-auth:latest \
+  ghcr.io/cloeille/picsou-finance/degiro-auth:latest \
   | gzip > picsou-release.tar.gz
 # On target machine:
 docker load < picsou-release.tar.gz
@@ -191,20 +323,29 @@ docker load < picsou-release.tar.gz
 
 ### Pulling from GHCR
 
-All three images are published by `.github/workflows/docker.yml` **only after
-CI is green** (backend tests, frontend lint/typecheck/unit, Playwright e2e, and
-the Trade Republic, Bourse Direct, Bourso and Amundi sidecar tests). `ci.yml` calls that workflow on a successful `push` to
-`main` or a version tag — not on pull requests, so a failing test never
-produces `nightly` / `latest` / semver. `docker.yml` has no `workflow_dispatch`:
-a manual run would publish without that gate.
+The app and all eleven sidecar images are published by `.github/workflows/docker.yml`
+(matrix build, one entry per image) **only after CI is green**: backend tests, frontend
+lint/typecheck/unit, Playwright e2e, every sidecar's image tests, the Compose sidecar build
+and the workflow inventory. `ci.yml` calls that workflow on a successful `push` to `main` or a
+version tag — not on pull requests, so a failing test never produces `nightly` / `latest` /
+semver. `docker.yml` has no `workflow_dispatch`: a manual run would publish without that gate.
 
 To deploy from the registry instead of building or loading a tar.gz:
 
 ```bash
-# Replace 1.0.0 with the desired tag (nightly, branch name, or semver).
-docker pull ghcr.io/zoeille/picsou-finance:1.0.0
-docker pull ghcr.io/zoeille/picsou-finance/tr-auth:1.0.0
-docker pull ghcr.io/zoeille/picsou-finance/bourse-direct-auth:1.0.0
+# Replace 1.1.0 with the desired tag (nightly, latest, or semver).
+docker pull ghcr.io/cloeille/picsou-finance:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/tr-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/revolut-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/bourse-direct-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/amundi-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/bourso-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/fortuneo-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/corum-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/sofidy-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
 ```
 
 Tag scheme:
@@ -212,6 +353,59 @@ Tag scheme:
 - version tag (`1.0.0` or `v1.0.0`, CI green) → `latest` + semver (`1.0.0`, `1.0`, `1`)
 - feature-branch pushes no longer publish an image (open a PR to run CI; build
   locally if you need a one-off image)
+
+### Upgrading a 1.1.0 install that applied the old V80–V88 numbering
+
+Commit 2839c94 renumbered seven 1.1.0 migrations that some databases had already applied
+(V80, V81 and V86–V88 became V93–V99). On those databases the 1.1.0 image failed at boot with a
+Flyway validation error ([#174](https://github.com/Cloeille/picsou-finance/issues/174)), and some
+operators started it with `SPRING_FLYWAY_ENABLED=false` as a workaround.
+
+The backend now repairs the history itself. Before Flyway validates, `LegacyMigrationRenumberingCallback`
+moves each legacy row to its new version, inside Flyway's transaction. A row is moved only when its
+old version, description and checksum all match one of the renamed files, and only when the new
+version is not in the history yet. On a fresh or already repaired database it does nothing. When it
+moves rows it logs them once at INFO:
+
+```
+Renumbered 2 legacy Flyway schema-history row(s) (issue #174): V80 'backfill tr crypto transaction tickers' -> V94, V81 'backfill trade republic valuations' -> V96
+```
+
+Flyway then applies the migrations the database has not run yet (out-of-order is enabled), without
+re-running V93–V99.
+
+**If you disabled Flyway as a workaround:**
+
+1. **Remove `SPRING_FLYWAY_ENABLED=false`** from your environment. With
+   Flyway off, no new migration ever runs, and Hibernate refuses to boot as soon as an entity needs
+   a column a skipped migration adds (for example `bourso_session.encrypted_credentials`, V103).
+2. Use the [safe release deployment](#safe-release-deployment) below. It takes a backup and
+   rehearses the callback and migrations on a restored database before replacing the running app.
+   The renumbering line above is expected. A failed rehearsal leaves the current app untouched.
+
+The callback only renames history rows. It does not reconcile a schema that changed while Flyway
+was off. If objects exist that the history does not record (a table or column created by hand, or
+by an image that ran with Flyway disabled), the first migration that creates them again fails with
+`already exists` and the application does not start. Flyway commits each migration on its own, so
+only the failing one is rolled back. The renumbered rows and every migration that succeeded earlier
+in that start stay applied and recorded. For example, with a history that stops at the old V80/V81
+rows, V80 `widen tr and degiro session tokens` is applied and committed before V82 fails. The
+release CLI's error output names the failing script and version (the redacted diagnosis in the
+release runbook); at application startup the Flyway log names it. Reconcile on a restored copy first, with a reviewed, incident-specific
+plan: restore a known-good pre-drift database or prove that every migration effect matches before
+repairing its history. Do not simply insert the highest version, run `baseline`/`repair`, or copy
+the incident's ad-hoc SQL. Issue #195's hand-created tables were missing CHECK constraints and V100's
+`CREDIT_CARD` enum value despite successful Hibernate validation. History cannot prove correctness
+of unrecorded or falsely recorded manual changes. Do not keep `SPRING_FLYWAY_ENABLED=false` as a
+lasting fix. The release workflow deliberately refuses to guess how to reconcile that drift.
+
+### Safe release deployment
+
+Follow [the production release runbook](./release-deployment.md). `docker/deploy.sh` is the
+authoritative upgrade path: back up, restore and rehearse the candidate image's complete Flyway
+chain on a temporary database, migrate and verify the live database, then replace only the app
+with that same pinned image and require a real unauthenticated `/api/auth/me` HTTP 401.
+Do not use a bare `compose up` for a production upgrade.
 
 ### Build version shown in the app
 
@@ -259,8 +453,15 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 
 ## Tests
 
-- No dedicated Docker integration tests. Build validation is manual: `docker build -f docker/Dockerfile .`.
+- `python3 -m pytest docker/tests/test_deploy.py -v` exercises deployment ordering and failure
+  isolation against command doubles. CI runs it independently of the application tests.
+- `ReleaseMigrationCliTest` checks strict migration history and idempotency on real PostgreSQL.
+- CI builds the release image and runs `test_deploy_integration.py` against real PostgreSQL,
+  the packaged JAR, the normal application entrypoint, and its Nginx API route.
+- Build validation: `docker build -f docker/Dockerfile .`.
 - Backend unit tests run separately via `./mvnw test` (not in Docker build — skipped with `-DskipTests`).
+- `LegacyMigrationRenumberingTest` (Testcontainers) upgrades databases built under the old V80–V88
+  numbering and a fresh database to head, and checks that a second start changes nothing.
 
 ## Links
 

@@ -7,8 +7,11 @@ import com.picsou.dto.GoalProgressResponse;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
+import com.picsou.model.Debt;
+import com.picsou.model.GoalType;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.DebtRepository;
 import com.picsou.repository.GoalRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +22,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional(readOnly = true)
@@ -32,6 +36,8 @@ public class DashboardService {
     private final PriceService priceService;
     private final AccountHoldingRepository holdingRepository;
     private final HistoryService historyService;
+    private final DebtRepository debtRepository;
+    private final LoanAmortizationService loanAmortizationService;
     private final AccountService accountService;
     private final AccountAccessResolver accessResolver;
 
@@ -42,6 +48,8 @@ public class DashboardService {
         PriceService priceService,
         AccountHoldingRepository holdingRepository,
         HistoryService historyService,
+        DebtRepository debtRepository,
+        LoanAmortizationService loanAmortizationService,
         AccountService accountService,
         AccountAccessResolver accessResolver
     ) {
@@ -51,13 +59,18 @@ public class DashboardService {
         this.priceService = priceService;
         this.holdingRepository = holdingRepository;
         this.historyService = historyService;
+        this.debtRepository = debtRepository;
+        this.loanAmortizationService = loanAmortizationService;
         this.accountService = accountService;
         this.accessResolver = accessResolver;
     }
 
     public DashboardResponse getDashboard(Long memberId, String range) {
         // Owned accounts plus any the member co-owns; each contributes only their share.
-        List<Account> accounts = accessResolver.readableAccounts(memberId);
+        // Hidden accounts are excluded, matching every other user-facing account list.
+        List<Account> accounts = accessResolver.readableAccounts(memberId).stream()
+            .filter(a -> !a.isHidden())
+            .toList();
         Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);
 
         // Pre-load all holdings and group by account
@@ -73,6 +86,9 @@ public class DashboardService {
         Map<Long, BigDecimal> accountValues = new HashMap<>();
 
         for (Account account : accounts) {
+            // Pocket sub-accounts: balance already counted in the parent wallet.
+            if (account.getParentAccountId() != null) continue;
+
             List<AccountHolding> holdings = holdingsByAccount.get(account.getId());
 
             BigDecimal accountValue;
@@ -83,6 +99,12 @@ public class DashboardService {
                 // remaining capital when a Debt row exists, stored balance otherwise.
                 // Keeps the hero's liabilities consistent with the chart's today point.
                 accountValue = accountService.liveBalanceEur(account);
+                accountInvested = BigDecimal.ZERO;
+            } else if (account.getType() == AccountType.CREDIT_CARD) {
+                // A card stores its debt signed (negative); a liability here is the positive
+                // amount owed, like a loan's outstanding capital.
+                accountValue = priceService.toEur(account.getCurrentBalance(), account.getCurrency(), account.getTicker())
+                    .negate();
                 accountInvested = BigDecimal.ZERO;
             } else if (holdings.isEmpty()) {
                 accountValue = priceService.toEur(account.getCurrentBalance(), account.getCurrency(), account.getTicker());
@@ -108,7 +130,7 @@ public class DashboardService {
 
             accountValues.put(account.getId(), accountValue);
 
-            if (account.getType() == AccountType.LOAN) {
+            if (account.getType().isLiability()) {
                 totalLiabilities = totalLiabilities.add(accountValue);
             } else {
                 totalAssets = totalAssets.add(accountValue);
@@ -121,8 +143,13 @@ public class DashboardService {
         log.info("getDashboard: totalAssets={}, totalLiabilities={}, totalNetWorth={}, totalInvested={}, pnl={}",
             totalAssets, totalLiabilities, totalNetWorth, totalInvested, totalNetWorth.subtract(totalInvested));
 
-        // Build history using shared HistoryService
-        List<Long> allAccountIds = accounts.stream().map(Account::getId).toList();
+        // Build history using shared HistoryService. Pocket sub-accounts are excluded -- same reason
+        // as the skip above: their balance is already counted in the parent wallet, and HistoryService
+        // sums whatever account ids it's given with no parentAccountId filtering of its own.
+        List<Long> allAccountIds = accounts.stream()
+            .filter(a -> a.getParentAccountId() == null)
+            .map(Account::getId)
+            .toList();
         int months = switch (range != null ? range : "1Y") {
             case "7D", "1M" -> 1;
             case "3M" -> 3;
@@ -136,14 +163,68 @@ public class DashboardService {
         // assets divide by totalAssets, liabilities by totalLiabilities (issue #18).
         List<DistributionItem> distribution = buildDistribution(
             accounts, totalAssets, holdingsByAccount, accountValues, false);
-        List<DistributionItem> liabilities = buildDistribution(
+        List<DistributionItem> rawLiabilities = buildDistribution(
             accounts, totalLiabilities, holdingsByAccount, accountValues, true);
 
+        // Enrich liabilities with loan parameters in one query
+        List<Long> liabilityIds = rawLiabilities.stream().map(DistributionItem::accountId).toList();
+        Map<Long, Debt> debtByAccountId = debtRepository.findByAccountIdIn(liabilityIds).stream()
+            .collect(Collectors.toMap(d -> d.getAccount().getId(), d -> d));
+
+        Map<Long, Account> accountsById = accounts.stream()
+            .collect(Collectors.toMap(Account::getId, a -> a));
+
+        BigDecimal totalMonthlyPayment = null;
+        List<DashboardResponse.LiabilityEntry> liabilities = new ArrayList<>();
+        for (DistributionItem item : rawLiabilities) {
+            Account account = accountsById.get(item.accountId());
+            BigDecimal paymentDueAmountEur = null;
+            LocalDate paymentDueDate = null;
+            if (account.getType() == AccountType.CREDIT_CARD) {
+                // Weighted like balanceEur so a shared card shows the member's part of the statement.
+                if (account.getPaymentDueAmount() != null) {
+                    paymentDueAmountEur = AccountAccessResolver.weigh(
+                        priceService.toEur(account.getPaymentDueAmount(), account.getCurrency(), account.getTicker()),
+                        shares.get(account.getId()));
+                }
+                paymentDueDate = account.getPaymentDueDate();
+            }
+            Debt debt = debtByAccountId.get(item.accountId());
+            BigDecimal monthlyPayment = null;
+            Double percentPaid = null;
+            if (debt != null) {
+                monthlyPayment = loanAmortizationService.resolveMonthlyPayment(debt);
+                BigDecimal borrowed = debt.getBorrowedAmount();
+                if (borrowed != null && borrowed.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal remaining = item.balanceEur().abs();
+                    BigDecimal repaid = borrowed.subtract(remaining);
+                    percentPaid = repaid.divide(borrowed, 6, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)).doubleValue();
+                    percentPaid = Math.max(0.0, Math.min(100.0, percentPaid));
+                }
+                if (monthlyPayment != null) {
+                    totalMonthlyPayment = (totalMonthlyPayment == null ? BigDecimal.ZERO : totalMonthlyPayment)
+                        .add(monthlyPayment);
+                }
+            }
+            liabilities.add(new DashboardResponse.LiabilityEntry(
+                item.accountId(), item.name(), item.color(), item.balanceEur(),
+                item.percentage(), item.accountType(), item.hasHoldings(),
+                monthlyPayment, percentPaid, paymentDueAmountEur, paymentDueDate
+            ));
+        }
+
+        // Savings targets only. The dashboard card shows progress towards an amount, which a
+        // recurring investment plan does not have — it would render as an empty row with no
+        // percentage and no deadline. Recurring plans live on the Goals page and in the
+        // projection instead.
         List<GoalProgressResponse> goals = goalRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId).stream()
+            .filter(goal -> goal.getType() != GoalType.RECURRING_INVESTMENT)
             .map(goalService::toProgressResponse)
             .toList();
 
-        return new DashboardResponse(totalNetWorth, totalLiabilities, updatedHistory, distribution, liabilities, goals);
+        return new DashboardResponse(totalNetWorth, totalLiabilities, totalMonthlyPayment,
+            updatedHistory, distribution, liabilities, goals);
     }
 
     private List<DistributionItem> buildDistribution(List<Account> accounts, BigDecimal divisor,
@@ -153,8 +234,10 @@ public class DashboardService {
         List<DistributionItem> items = new ArrayList<>();
 
         for (Account account : accounts) {
-            boolean isLoan = account.getType() == AccountType.LOAN;
-            if (liabilitiesOnly != isLoan) continue;
+            // Pocket sub-accounts are internal transfers from their parent wallet — their balance
+            // is already included in the wallet, so including them here would double-count.
+            if (account.getParentAccountId() != null) continue;
+            if (liabilitiesOnly != account.getType().isLiability()) continue;
 
             List<AccountHolding> holdings = holdingsByAccount.getOrDefault(account.getId(), List.of());
             // Reuse the exact value that fed the hero total. Repricing here could mix two

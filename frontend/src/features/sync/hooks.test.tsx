@@ -16,6 +16,12 @@ const cryptoExchangeApi = vi.hoisted(() => ({
   add: vi.fn(),
 }))
 
+const { amundiApi, corumApi, sofidyApi } = vi.hoisted(() => ({
+  amundiApi: { getStatus: vi.fn() },
+  corumApi: { getStatus: vi.fn() },
+  sofidyApi: { getStatus: vi.fn() },
+}))
+
 vi.mock("./api", () => ({
   bankSyncApi: {},
   trApi: {},
@@ -24,6 +30,9 @@ vi.mock("./api", () => ({
   finaryApi: {},
   boursoApi: {},
   bourseDirectApi,
+  amundiApi,
+  corumApi,
+  sofidyApi,
 }))
 
 const {
@@ -34,6 +43,9 @@ const {
   useSyncBourseDirect,
   useClearBourseDirectSession,
   useAddCryptoExchange,
+  useAmundiStatus,
+  useCorumStatus,
+  useSofidyStatus,
 } = await import("./hooks")
 
 const idleStatus: BourseDirectSessionStatus = {
@@ -165,5 +177,38 @@ describe("Crypto exchange hooks", () => {
     )
 
     expect(cryptoExchangeApi.add).toHaveBeenCalledWith("MERIA", "meria-key", undefined)
+  })
+})
+
+describe("completed sidecar syncs", () => {
+  it.each([
+    { name: "Bourse Direct", api: bourseDirectApi, useStatus: useBourseDirectStatus, key: syncKeys.bourseDirect() },
+    { name: "Amundi", api: amundiApi, useStatus: useAmundiStatus, key: syncKeys.amundi() },
+    { name: "CORUM", api: corumApi, useStatus: useCorumStatus, key: syncKeys.corum() },
+    { name: "Sofidy", api: sofidyApi, useStatus: useSofidyStatus, key: syncKeys.sofidy() },
+  ])("refreshes all balance-derived views when $name finishes", async ({ api, useStatus }) => {
+    api.getStatus.mockResolvedValue({ ...queuedStatus, syncStatus: "RUNNING" })
+    const { client, wrapper } = createHarness()
+    const keys = [
+      ["accounts"], ["accounts", 42], ["dashboard"],
+      ["real-estate", "summary"], ["analysis", "wealth-pyramid"],
+    ]
+    keys.forEach(key => client.setQueryData(key, { previous: true }))
+    const { result } = renderHook(() => {
+      const status = useStatus()
+      return { isSuccess: status.isSuccess, refetch: status.refetch }
+    }, { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    keys.forEach(key => expect(client.getQueryState(key)?.isInvalidated).toBe(false))
+
+    api.getStatus.mockResolvedValue({
+      ...queuedStatus, syncStatus: "SUCCESS", lastSyncCompletedAt: "2026-10-01T12:00:00Z",
+    })
+    await act(async () => { await result.current.refetch() })
+    await waitFor(() => {
+      for (const key of keys) {
+        expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
+      }
+    })
   })
 })

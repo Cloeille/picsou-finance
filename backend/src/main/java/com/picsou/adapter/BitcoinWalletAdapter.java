@@ -68,7 +68,11 @@ public class BitcoinWalletAdapter implements WalletPort {
     // ─── Extended key (xpub / zpub / descriptor) ──────────────────────────────
 
     private WalletBalance fetchExtendedKeyBalance(String input) {
-        try {
+        // No catch-all here. An Esplora 429 or 5xx, a timeout or an invalid key used to come
+        // back as BTC = 0, which WalletSyncService then wrote into the account and its daily
+        // snapshot as a real balance. Let it propagate: the service turns it into a failed
+        // sync that leaves the previous figures standing and shows the user an error.
+        {
             String xpub = BitcoinKeyUtils.normalizeToXpub(input);
             BitcoinKeyUtils.Xpub root = BitcoinKeyUtils.parseXpub(xpub);
 
@@ -83,9 +87,6 @@ public class BitcoinWalletAdapter implements WalletPort {
             log.info("Bitcoin HD wallet balance for [xpub]: {} BTC ({} sats total)", btc, totalSats);
             return new WalletBalance("BTC", btc);
 
-        } catch (Exception ex) {
-            log.warn("Failed to fetch Bitcoin HD wallet balance: {}", ex.getMessage());
-            return new WalletBalance("BTC", BigDecimal.ZERO);
         }
     }
 

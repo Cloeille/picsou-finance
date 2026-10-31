@@ -15,6 +15,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AmundiSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -38,6 +39,14 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
+import static com.picsou.service.SyncValues.clean;
+import static com.picsou.service.SyncValues.errorCode;
+import static com.picsou.service.SyncValues.limit;
+import static com.picsou.service.SyncValues.moneyClose;
+import static com.picsou.service.SyncValues.requireTransactionResult;
+import static com.picsou.service.SyncValues.sumComplete;
+import static com.picsou.service.SyncValues.weightedAverage;
+
 /**
  * Imports Amundi Épargne Salariale plans, one Picsou account per dispositif.
  *
@@ -53,8 +62,6 @@ public class AmundiSyncService {
     static final String PROVIDER = "Amundi Épargne Salariale";
     private static final String EXTERNAL_ID_PREFIX = "amundi_";
     private static final String ACCOUNT_COLOR = "#8b5cf6";
-    private static final BigDecimal ABSOLUTE_RECONCILIATION_TOLERANCE = new BigDecimal("0.05");
-    private static final BigDecimal RELATIVE_RECONCILIATION_TOLERANCE = new BigDecimal("0.001");
     private static final int MAX_TICKER_LENGTH = 30;
 
     private final AmundiPort port;
@@ -344,25 +351,6 @@ public class AmundiSyncService {
         );
     }
 
-    private BigDecimal weightedAverage(
-        BigDecimal left,
-        BigDecimal leftQuantity,
-        BigDecimal right,
-        BigDecimal rightQuantity,
-        BigDecimal totalQuantity
-    ) {
-        if (left == null || right == null || totalQuantity.signum() == 0) {
-            return null;
-        }
-        return left.multiply(leftQuantity)
-            .add(right.multiply(rightQuantity))
-            .divide(totalQuantity, 8, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal sumComplete(BigDecimal left, BigDecimal right) {
-        return left == null || right == null ? null : left.add(right);
-    }
-
     private BigDecimal investedAmount(AmundiPort.PlanData plan, List<PreparedPosition> positions) {
         BigDecimal invested = BigDecimal.ZERO;
         for (PreparedPosition position : positions) {
@@ -526,34 +514,51 @@ public class AmundiSyncService {
             .orElseGet(SessionStatusResponse::inactive);
     }
 
-    public void clearSession(Long memberId) {
-        txTemplate.executeWithoutResult(status ->
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete)
-        );
+    /** Returns whether a stored session was there to delete. */
+    public boolean clearSession(Long memberId) {
+        return Boolean.TRUE.equals(txTemplate.execute(status -> {
+            var session = sessionRepository.findByMemberIdForUpdate(memberId);
+            session.ifPresent(sessionRepository::delete);
+            return session.isPresent();
+        }));
     }
 
-    public void resyncIfSessionActive(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                return;
+                if (status.lastSyncError() == AmundiErrorCode.SESSION_EXPIRED) {
+                    return new SourceSyncResult("amundi", SourceSyncResult.Status.NEEDS_REAUTH,
+                        status.lastSyncError().name());
+                }
+                if (status.lastSyncError() != null) {
+                    return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED,
+                        status.lastSyncError().name());
+                }
+                return new SourceSyncResult("amundi", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
             }
             queueSync(memberId);
+            return new SourceSyncResult("amundi", SourceSyncResult.Status.QUEUED, "");
         } catch (ResourceNotFoundException ex) {
-            log.debug("Member disappeared before scheduled Amundi sync (member={})", memberId);
+            return new SourceSyncResult("amundi", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
             log.error("Database error during scheduled Amundi sync (member={})", memberId, ex);
+            return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED, "Database error");
         } catch (SyncException ex) {
-            log.warn(
-                "Could not queue scheduled Amundi sync (member={}; code={})",
-                memberId,
-                codeOf(ex),
-                ex
-            );
-        } catch (RuntimeException ex) {
-            log.error("Unexpected scheduled Amundi sync failure (member={})", memberId, ex);
+            log.warn("Could not queue scheduled Amundi sync (member={}; code={})", memberId, ex.getCode(), ex);
+            SourceSyncResult classified = SourceSyncResult.fromSyncException("amundi", ex);
+            return new SourceSyncResult("amundi", classified.status(),
+                classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
+        } catch (Exception ex) {
+            log.error("Amundi scheduled sync failed unexpectedly for member {}", memberId, ex);
+            return new SourceSyncResult("amundi", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
+
+    public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId); // ignore return
+    }
+
 
     private SessionStatusResponse toStatus(AmundiSession session) {
         return new SessionStatusResponse(
@@ -566,14 +571,7 @@ public class AmundiSyncService {
     }
 
     private AmundiErrorCode codeOf(SyncException exception) {
-        if (exception.getCode() == null) {
-            return AmundiErrorCode.UPSTREAM_UNAVAILABLE;
-        }
-        try {
-            return AmundiErrorCode.valueOf(exception.getCode());
-        } catch (IllegalArgumentException ignored) {
-            return AmundiErrorCode.UPSTREAM_UNAVAILABLE;
-        }
+        return errorCode(exception, AmundiErrorCode.class, AmundiErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
     private SyncException error(AmundiErrorCode code, String message, Throwable cause) {
@@ -612,9 +610,20 @@ public class AmundiSyncService {
 
     /**
      * FCPEs are not in OpenFIGI's universe and Yahoo cannot quote them, so no
-     * conversion is attempted: the ISIN is the ticker. Employer share funds
-     * sometimes carry no ISIN at all, and those fall back to their label --
-     * {@link #mergePositions} refuses to fuse two funds should that collide.
+     * conversion is attempted: the ISIN is the ticker when there is one.
+     *
+     * <p>There often is not. `codeIsin` carries the AMF code on employer funds
+     * (`990000093539`), which is not an ISIN and is rejected here. Falling
+     * straight to the label is what made that expensive: the slug is truncated to
+     * {@value #MAX_TICKER_LENGTH} characters, and two share classes of one fund
+     * differ only in their last word -- "EPARGNE SOLIDAIRE DYNAMIQUE THALES - A"
+     * and "- B" both slug to `EPARGNE-SOLIDAIRE-DYNAMIQUE-TH`. {@link
+     * #mergePositions} then correctly refuses to fuse them, and the whole sync
+     * fails on a payload that is perfectly valid.
+     *
+     * <p>So the fund's own `codeFonds` is tried first: short, stable, and unique
+     * per fund. The label stays as the last resort, and the collision guard in
+     * {@link #mergePositions} stays behind it.
      */
     private String resolveTicker(AmundiPort.Position position) {
         String isin = clean(position.isin());
@@ -624,42 +633,30 @@ public class AmundiSyncService {
                 return isin;
             }
         }
-        String label = clean(position.label());
+        String fundCode = slug(position.fundCode());
+        if (fundCode != null) {
+            return fundCode;
+        }
+        String label = slug(position.label());
         if (label == null) {
             throw error(AmundiErrorCode.INVALID_DATA, "Amundi returned a fund without any identifier", null);
         }
-        String fallback = label.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]+", "-");
-        fallback = fallback.replaceAll("^-+|-+$", "");
-        if (fallback.isEmpty()) {
-            throw error(AmundiErrorCode.INVALID_DATA, "Amundi returned a fund without any identifier", null);
-        }
-        return fallback.length() <= MAX_TICKER_LENGTH ? fallback : fallback.substring(0, MAX_TICKER_LENGTH);
+        return label;
     }
 
-    private String clean(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
-    }
-
-    private String limit(String value, int maxLength, String fallback) {
+    /** Uppercase alphanumeric slug, capped at {@value #MAX_TICKER_LENGTH}, or null if nothing is left. */
+    private String slug(String value) {
         String cleaned = clean(value);
         if (cleaned == null) {
-            cleaned = fallback;
+            return null;
         }
-        return cleaned.length() <= maxLength ? cleaned : cleaned.substring(0, maxLength);
-    }
-
-    private boolean moneyClose(BigDecimal actual, BigDecimal expected) {
-        BigDecimal tolerance = ABSOLUTE_RECONCILIATION_TOLERANCE.max(
-            expected.abs().multiply(RELATIVE_RECONCILIATION_TOLERANCE)
-        );
-        return actual.subtract(expected).abs().compareTo(tolerance) <= 0;
-    }
-
-    private <T> T requireTransactionResult(T value) {
-        return Objects.requireNonNull(value, "Transaction callback returned no result");
+        String slug = cleaned.toUpperCase(Locale.ROOT)
+            .replaceAll("[^A-Z0-9]+", "-")
+            .replaceAll("^-+|-+$", "");
+        if (slug.isEmpty()) {
+            return null;
+        }
+        return slug.length() <= MAX_TICKER_LENGTH ? slug : slug.substring(0, MAX_TICKER_LENGTH);
     }
 
     public record AuthInitResponse(String processId, boolean mfaRequired, String mfaType) {}

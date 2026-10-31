@@ -1,11 +1,15 @@
 """Turns BoursoBank's dashboard HTML and trading JSON into the sidecar contract.
 
-Two upstream shapes are parsed here:
+Three upstream shapes are parsed here:
 
 * the account summary at `/dashboard/liste-comptes`, which is HTML grouped into
-  `data-summary-bank` / `-savings` / `-trading` / `-loan` sections;
+  `data-summary-bank` / `-savings` / `-trading` / `-loan` / `-insurance` /
+  `-assurance` / `-child` sections;
 * the trading board's `accounts/summary/{id}` JSON, which carries the cash, the
-  portfolio valuation, the account total and every open position.
+  portfolio valuation, the account total and every open position;
+* the identity selector at `/connexion/lister-identites`, which BoursoBank puts
+  in front of the dashboard when one access holds a personal and a business
+  identity.
 
 Kept free of FastAPI and httpx, because these rules are the part that silently
 breaks when BoursoBank reskins a page, and a silent break here would overwrite a
@@ -16,7 +20,9 @@ parse fails the whole sync, so the last known-good data survives.
 
 import re
 import unicodedata
+from datetime import date
 from decimal import Decimal, InvalidOperation
+from html import unescape as html_unescape
 from typing import Any, Literal
 
 FORMAT_CHANGED = "UPSTREAM_FORMAT_CHANGED"
@@ -38,13 +44,17 @@ MAX_ACCOUNTS = 60
 OWN_BANK_LABELS = {"BOURSOBANK", "BOURSORAMA", "BOURSORAMA BANQUE"}
 
 # `</ul>` for savings, `</div>` for the rest -- BoursoBank's own markup, mirrored
-# from the reference implementation. Loans are parsed so they can be counted and
-# skipped explicitly rather than silently missed.
+# from the reference implementation. Loans, insurance and children's accounts are
+# parsed so they can be counted and skipped explicitly rather than silently missed.
 SECTION_PATTERNS = {
     "banking": re.compile(r"data-summary-bank>(.*?)</div>", re.DOTALL),
     "savings": re.compile(r"data-summary-savings>(.*?)</ul>", re.DOTALL),
     "trading": re.compile(r"data-summary-trading>(.*?)</div>", re.DOTALL),
     "loans": re.compile(r"data-summary-loan>(.*?)</div>", re.DOTALL),
+    "insurance": re.compile(r"data-summary-(?:insurance|assurance)>(.*?)</div>", re.DOTALL),
+    # "Comptes de mes enfants": accounts the holder manages for a minor. They
+    # belong to the child, not to the holder's net worth.
+    "children": re.compile(r"data-summary-child>(.*?)</div>", re.DOTALL),
 }
 
 _ACCOUNT_RE = re.compile(
@@ -57,7 +67,9 @@ _ACCOUNT_RE = re.compile(
 
 # Used only to count the account cards a section *should* have yielded, so a card
 # that stopped matching the full pattern is a hard failure instead of a silent drop.
-_ACCOUNT_LINK_RE = re.compile(r"/compte/[^\"']*?(?P<id>[a-f0-9]{32})/")
+_ACCOUNT_LINK_RE = re.compile(
+    r"href=\"(?P<href>[^\"]*?/compte/[^\"]*?(?P<id>[a-f0-9]{32})/)\""
+)
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -122,7 +134,7 @@ def parse_amount(raw: str) -> Decimal | None:
 def text_value(value: Any, limit: int) -> str | None:
     if not isinstance(value, str):
         return None
-    cleaned = " ".join(_TAG_RE.sub(" ", value).split())
+    cleaned = " ".join(html_unescape(_TAG_RE.sub(" ", value)).split())
     if not cleaned:
         return None
     return cleaned[:limit]
@@ -254,6 +266,7 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
         # means the page moved or we were served something else entirely.
         raise AccountsFormatError(FORMAT_CHANGED, "Dashboard carried no account section")
 
+    linked = {match.group("id"): match.group("href") for match in _ACCOUNT_LINK_RE.finditer(html)}
     accounts: list[dict[str, Any]] = []
     accounted_ids: set[str] = set()
     third_party = 0
@@ -276,9 +289,14 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
                     continue
                 accounted_ids.add(account_id)
 
-                # Loans are out of scope but still have to be *seen*, or the
-                # completeness check below would read them as parse failures.
+                # Loans, insurance and children's accounts are out of scope but
+                # still have to be *seen*, or the completeness check below would
+                # read them as parse failures.
+                if section == "children":
+                    continue
                 if section == "loans":
+                    continue
+                if section == "insurance":
                     continue
                 if not is_own_account(bank):
                     third_party += 1
@@ -291,6 +309,7 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
                         "type": account_type(section, name),
                         "balanceEur": balance,
                         "section": section,
+                        "href": linked[account_id],
                     }
                 )
 
@@ -298,7 +317,7 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
     # section patterns stop at the first closing tag, so a card gaining a nested
     # list would truncate its section and silently drop everything after it.
     # Comparing against every account link on the page catches that too.
-    linked_ids = {match.group("id") for match in _ACCOUNT_LINK_RE.finditer(html)}
+    linked_ids = set(linked)
     missing = linked_ids - accounted_ids
     if missing:
         raise AccountsFormatError(
@@ -311,6 +330,201 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
     if len(accounts) > MAX_ACCOUNTS:
         raise AccountsFormatError(INCOMPLETE, "Dashboard held more accounts than supported")
     return accounts, third_party
+
+
+_MOVEMENT_ROW_RE = re.compile(r"<li\b(?P<attrs>[^>]*)>(?P<body>.*?)</li>", re.DOTALL | re.IGNORECASE)
+_MOVEMENT_CONTAINER_RE = re.compile(
+    r"<ul\b(?=[^>]*\bclass\s*=\s*(['\"])[^'\"]*\blist__movement\b[^'\"]*\1)[^>]*>",
+    re.IGNORECASE,
+)
+_ATTRIBUTE_RE = re.compile(r"\b(?P<name>data-id|data-custom-id|data-operations-next-pagination)\s*=\s*(['\"])(?P<value>.*?)\2", re.IGNORECASE)
+_AMOUNT_RE = re.compile(r"<[^>]*class=\"[^\"]*list-operation-item__amount[^\"]*\"[^>]*>(?P<value>.*?)</", re.DOTALL | re.IGNORECASE)
+_DESCRIPTION_RE = re.compile(
+    r"<(?:span|div)[^>]*class=\"[^\"]*(?:list__movement--label-(?:initial|user)|list-operation-item__label-name)[^\"]*\"[^>]*>(?P<value>.*?)</(?:span|div)>",
+    re.DOTALL | re.IGNORECASE,
+)
+_TAG_RE = re.compile(r"<[^>]+>")
+_FRENCH_MONTHS = {
+    "janvier": 1, "février": 2, "fevrier": 2, "mars": 3, "avril": 4,
+    "mai": 5, "juin": 6, "juillet": 7, "août": 8, "aout": 8,
+    "septembre": 9, "octobre": 10, "novembre": 11, "décembre": 12, "decembre": 12,
+}
+
+
+def _plain_text(value: str) -> str:
+    return " ".join(html_unescape(_TAG_RE.sub(" ", value)).split())
+
+
+def _movement_date(raw: str) -> date | None:
+    text = _plain_text(raw).casefold()
+    match = re.search(r"(?P<day>\d{1,2})\s+(?P<month>[a-zéû]+)\s+(?P<year>\d{4})", text)
+    if not match:
+        return None
+    month = _FRENCH_MONTHS.get(match.group("month"))
+    if not month:
+        return None
+    try:
+        return date(int(match.group("year")), month, int(match.group("day")))
+    except ValueError:
+        return None
+
+
+def _movement_kind(description: str) -> str:
+    upper = _deaccent(description).upper()
+    if re.match(r"^(?:VIR|VIREMENT)\b", upper):
+        # A salary or an external payment is also a virement. The label alone
+        # cannot establish an own-account movement excluded from Budget.
+        return "OTHER"
+    if "CARTE" in upper or upper.startswith(("CB ", "PAIEMENT ")):
+        return "CARD"
+    if upper.startswith(("PRLV", "PRELEVEMENT")):
+        return "DIRECT_DEBIT"
+    if upper.startswith(("CHQ", "CHEQUE")):
+        return "CHECK"
+    return "OTHER"
+
+
+def parse_operations(html: str, from_date: date, to_date: date) -> tuple[list[dict[str, Any]], str | None]:
+    """Parse a BoursoBank movements page, following woob's published selectors."""
+    if from_date > to_date:
+        raise ValueError("Invalid movements date range")
+    if not _MOVEMENT_CONTAINER_RE.search(html):
+        raise AccountsFormatError(FORMAT_CHANGED, "Movements page omitted the expected history container")
+    transactions: list[dict[str, Any]] = []
+    current_date: date | None = None
+    next_token: str | None = None
+    in_movements = True
+    for match in _MOVEMENT_ROW_RE.finditer(html):
+        attrs, body = match.group("attrs"), match.group("body")
+        if "list__movement" in attrs and "range-summary" in attrs:
+            in_movements = True
+        if "date-line" in attrs:
+            current_date = _movement_date(body)
+            continue
+        if not in_movements:
+            continue
+        attributes = {item.group("name").lower(): html_unescape(item.group("value"))
+                      for item in _ATTRIBUTE_RE.finditer(attrs)}
+        if "data-operations-next-pagination" in attributes:
+            next_token = attributes["data-operations-next-pagination"] or None
+            continue
+        if "list__movement__line--deffered" in attrs or "list__movement__line--block__split" in body:
+            continue
+        external_id = attributes.get("data-id") or attributes.get("data-custom-id")
+        if not external_id:
+            if "list__movement__line" in attrs or "list-operation-item__amount" in body:
+                raise ValueError("Movement row omitted its upstream identifier")
+            continue
+        amount_match = _AMOUNT_RE.search(body)
+        description_match = _DESCRIPTION_RE.search(body)
+        amount = parse_amount(_plain_text(amount_match.group("value"))) if amount_match else None
+        description = _plain_text(description_match.group("value")) if description_match else ""
+        if current_date is None or amount is None or not description:
+            raise ValueError("Movement row omitted required fields")
+        if not from_date <= current_date <= to_date:
+            continue
+        transactions.append({
+            "externalId": external_id,
+            "date": current_date.isoformat(),
+            "amount": amount,
+            "description": description,
+            # The verified woob selectors expose raw labels, not a separate
+            # counterparty field; keep it absent rather than infer one.
+            "counterparty": None,
+            "kind": _movement_kind(description),
+        })
+    return transactions, next_token
+
+
+_IBAN_RE = re.compile(
+    r"<div\b[^>]*>\s*<strong\b[^>]*>\s*IBAN\s*</strong>\s*"
+    r"<div\b[^>]*class=\"[^\"]*\bdefinition\b[^\"]*\"[^>]*>\s*"
+    r"<p\b[^>]*>(?P<iban>.*?)</p>",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def parse_iban_page(html: str) -> str | None:
+    """Read the RIB field exposed by woob's verified IbanPage selector."""
+    match = _IBAN_RE.search(html)
+    if not match:
+        return None
+    iban = re.sub(r"\s+", "", _plain_text(match.group("iban"))).upper()
+    return iban if re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}", iban) else None
+
+
+# ─── Identity selector ──────────────────────────────────────────────────────
+
+
+IDENTITY_UNSUPPORTED = "IDENTITY_SELECTION_UNSUPPORTED"
+IDENTITY_SWITCH_PATH = "/connexion/changer-identite/"
+
+# The switch token is per-session and acts as a credential for that session's
+# identity switch: it must never reach a log line or an error message.
+_IDENTITY_LINK_RE = re.compile(
+    r"<a\b[^>]*?href=\"(?:https://clients\.boursobank\.com)?"
+    + re.escape(IDENTITY_SWITCH_PATH)
+    + r"(?P<token>[^\"]*)\"[^>]*>(?P<body>.*?)</a>",
+    re.DOTALL | re.IGNORECASE,
+)
+# Every switch link on the page, however it is written, so an identity rendered
+# outside a plain `<a href>` cannot drop out of the choice unnoticed.
+_ANY_IDENTITY_LINK_RE = re.compile(
+    re.escape(IDENTITY_SWITCH_PATH) + r"(?P<token>[^\"'\s<>?#]+)", re.IGNORECASE
+)
+_IDENTITY_TOKEN_RE = re.compile(r"[A-Za-z0-9._~=-]+(?:/[A-Za-z0-9._~=-]+)*")
+
+# Matched against the identity's deaccented, uppercased label. Only the business
+# side is recognised: the one real selector reported (#153) showed a personal
+# identity carrying no marker of its own beside a sole-trader one. A marker
+# missing from this list fails safe: the business identity stays unmarked, so the
+# choice below sees two unmarked identities and refuses. A marker matching a
+# personal label does not: it can leave the business identity as the only
+# unmarked one and pick it. Every marker is therefore a whole word, so a name
+# such as "Liberali" or "Partisan" never reads as LIBERAL or ARTISAN.
+_BUSINESS_IDENTITY_RE = re.compile(
+    r"\b(?:PROS?|PROFESSIONNEL(?:LE)?S?|ENTREPRISES?|ENTREPRENEURS?|ENTREPRENEUSES?"
+    r"|INDEPENDANTE?S?|EIR?L?|SOCIETES?|SAS|SASU|SARL|EURL|SCI|SIRE[NT]"
+    r"|COMMERCANTE?S?|ARTISANE?S?|LIBERALE?S?|LIBERAUX|ASSOCIATIONS?)\b"
+    r"|\bE\.I\."
+)
+
+
+def choose_personal_identity(html: str) -> str:
+    """Return the switch path of the one personal identity on the selector page.
+
+    The page shape is inferred from the #153 report, not from a captured page:
+    each identity is assumed to be an `<a href="/connexion/changer-identite/…">`
+    whose text is its label. The personal identity is the only one whose label
+    carries no business marker, and the choice is refused rather than guessed
+    when that is not exactly one identity, or when no identity reads as
+    business at all: syncing a sole-trader's accounts as personal wealth is
+    worse than a clear error.
+    """
+    labels: dict[str, list[str]] = {}
+    for match in _IDENTITY_LINK_RE.finditer(html):
+        token = html_unescape(match.group("token"))
+        labels.setdefault(token, []).append(text_value(match.group("body"), 200) or "")
+
+    linked = {html_unescape(match.group("token")) for match in _ANY_IDENTITY_LINK_RE.finditer(html)}
+    if not labels or linked != set(labels):
+        raise AccountsFormatError(FORMAT_CHANGED, "Identity selector links did not parse")
+    if any(not _IDENTITY_TOKEN_RE.fullmatch(token) or ".." in token for token in labels):
+        raise AccountsFormatError(FORMAT_CHANGED, "Identity selector carried a malformed link")
+
+    business = {
+        token
+        for token, texts in labels.items()
+        if _BUSINESS_IDENTITY_RE.search(_deaccent(" ".join(texts)))
+    }
+    personal = [token for token in labels if token not in business]
+    if len(personal) != 1 or not business:
+        raise AccountsFormatError(
+            IDENTITY_UNSUPPORTED,
+            f"Identity selector listed {len(labels)} identities, "
+            f"{len(personal)} without a business marker",
+        )
+    return IDENTITY_SWITCH_PATH + personal[0]
 
 
 # ─── Trading board ──────────────────────────────────────────────────────────
@@ -377,6 +591,16 @@ def _parse_position(raw: Any) -> dict[str, Any] | None:
             INVALID_DATA, f"Position {symbol} is valued in {value_currency}, not EUR"
         )
 
+    gain_node = raw.get("gainLoss")
+    gain_currency = _summary_currency(gain_node)
+    if gain_currency is not None and gain_currency != "EUR":
+        # Not dropped like a foreign cost basis: the backend derives the basis as
+        # value − gain, first for the displayed P&L and as the fallback for the
+        # invested amount, where a null gain falls the account back to its balance.
+        raise AccountsFormatError(
+            INVALID_DATA, f"Position {symbol} reports its gain in {gain_currency}, not EUR"
+        )
+
     last_node = raw.get("last")
     buying_node = raw.get("buyingPrice")
     buying_currency = _summary_currency(buying_node)
@@ -396,8 +620,103 @@ def _parse_position(raw: Any) -> dict[str, Any] | None:
         # The quote's own currency when it carries one, else the position's.
         "quoteCurrency": _summary_currency(last_node) or text_value(raw.get("currency"), 3),
         "currentValueEur": value_eur,
-        "pnlEur": _summary_money(raw.get("gainLoss"), "gainLoss", required=False),
+        "pnlEur": _summary_money(gain_node, "gainLoss", required=False),
     }
+
+
+def _parse_single_fund(
+    sections: list[dict[str, Any]], account: dict[str, Any], account_id: str
+) -> dict[str, Any]:
+    """Normalise a contract invested in one fund, with no cash pocket (#154).
+
+    BoursoBank answers these with the contract's `balance` and a `fund` section
+    instead of cash/valuation/total and a positions list. The balance is the only
+    valuation it states, so it is both the account total and the fund's value.
+    Quantity x price is deliberately not reconciled against it: the price is
+    dated `priceDate`, and a lagging NAV would fail a correct contract.
+    """
+    # Neither reading of a mixed payload is safe: the fund could be one line among
+    # the positions, or the cash a pocket beside the fund. The account fields are
+    # absent from this shape, so even a null one means it changed. An empty
+    # positions section carries nothing to contradict the fund, and BoursoBank
+    # already sends those beside populated ones.
+    mixed = any(field in account for field in ("cash", "valuation", "total"))
+    if mixed or any(section.get("positions") for section in sections):
+        raise AccountsFormatError(
+            FORMAT_CHANGED, "Trading summary mixes a fund contract and a securities account"
+        )
+    funds = [section["fund"] for section in sections if "fund" in section]
+    if len(funds) != 1:
+        raise AccountsFormatError(
+            FORMAT_CHANGED, f"Fund contract carries {len(funds)} fund nodes instead of one"
+        )
+    fund = funds[0]
+    if not isinstance(fund, dict):
+        raise AccountsFormatError(FORMAT_CHANGED, "Fund contract's fund node is not an object")
+
+    balance_node = account.get("balance")
+    total = _summary_money(balance_node, "balance")
+    if total < 0:
+        raise AccountsFormatError(
+            INVALID_DATA, f"Fund contract {account_id[:8]}… reports a negative balance"
+        )
+    for currency in (_summary_currency(balance_node), text_value(account.get("currency"), 3)):
+        if currency is not None and currency.upper() != "EUR":
+            raise AccountsFormatError(
+                INVALID_DATA, f"Fund contract {account_id[:8]}… is denominated in {currency}"
+            )
+    # The backend derives the cost basis as value - gain, so a foreign gain
+    # would corrupt it as surely as a foreign balance.
+    gain_node = account.get("gainLoss")
+    gain_currency = _summary_currency(gain_node)
+    if gain_currency is not None and gain_currency != "EUR":
+        raise AccountsFormatError(
+            INVALID_DATA, f"Fund contract {account_id[:8]}… reports its gain in {gain_currency}"
+        )
+
+    # No BoursoBank symbol here: the ISIN is the fund's only identity, so unlike
+    # a trading line it cannot fall back to anything when it is unusable.
+    isin = _position_isin(fund, "")
+    label = text_value(fund.get("label"), 200)
+    quantity = decimal_value(fund.get("quantity"))
+    if isin is None or label is None or quantity is None:
+        raise AccountsFormatError(
+            FORMAT_CHANGED, "Fund contract is missing its fund's ISIN, label or quantity"
+        )
+    if quantity < 0:
+        raise AccountsFormatError(INVALID_DATA, "Fund contract reports a negative quantity")
+
+    price_node = fund.get("price")
+    positions = []
+    if quantity != 0:
+        positions.append(
+            {
+                "isin": isin,
+                "symbol": isin,
+                "label": label,
+                "quantity": quantity,
+                "buyingPriceEur": None,
+                "currentPrice": _summary_money(price_node, "price", required=False),
+                "quoteCurrency": _summary_currency(price_node) or "EUR",
+                "currentValueEur": total,
+                # The contract holds nothing else, so its gain is the fund's.
+                "pnlEur": _summary_money(gain_node, "gainLoss", required=False),
+            }
+        )
+
+    # An emptied contract reconciles at zero. Units and balance must otherwise
+    # come together: the line is valued at the balance, so the backend's
+    # reconciliation cannot catch either one missing.
+    empty_balance = money_close(Decimal("0"), total)
+    if not positions and not empty_balance:
+        raise AccountsFormatError(
+            INCOMPLETE, f"Fund contract {account_id[:8]}… has a balance but no units"
+        )
+    if positions and empty_balance:
+        raise AccountsFormatError(
+            INCOMPLETE, f"Fund contract {account_id[:8]}… holds units but no balance"
+        )
+    return {"cashEur": Decimal("0"), "totalEur": total, "positions": positions}
 
 
 def parse_trading_summary(payload: Any, account_id: str) -> dict[str, Any]:
@@ -406,6 +725,9 @@ def parse_trading_summary(payload: Any, account_id: str) -> dict[str, Any]:
     Two reconciliations, both of which a partial read fails:
       total    ~= cash + portfolio valuation
       sum(line valuations) ~= portfolio valuation
+
+    A contract invested in a single fund has neither figure and is read by
+    `_parse_single_fund` instead.
     """
     items = payload if isinstance(payload, list) else [payload]
     sections = [item for item in items if isinstance(item, dict)]
@@ -422,6 +744,11 @@ def parse_trading_summary(payload: Any, account_id: str) -> dict[str, Any]:
     )
     if account is None:
         raise AccountsFormatError(FORMAT_CHANGED, "Trading summary has no account node")
+
+    # PEA and CTO accounts also carry a (zero) `balance`, so the fund section is
+    # what tells the two shapes apart, not the balance.
+    if any("fund" in section for section in sections):
+        return _parse_single_fund(sections, account, account_id)
 
     cash = _summary_money(account.get("cash"), "cash")
     valuation = _summary_money(account.get("valuation"), "valuation")

@@ -55,6 +55,7 @@ public class AuthController {
     private final PersistentSessionService persistentSessionService;
     private final SetupAuditService auditService;
     private final boolean adminRecoveryEnabled;
+    private final boolean loginRateLimitEnabled;
 
     /**
      * A throwaway hash with the same cost factor as {@link #passwordEncoder}.
@@ -74,7 +75,8 @@ public class AuthController {
         MfaService mfaService,
         PersistentSessionService persistentSessionService,
         SetupAuditService auditService,
-        @org.springframework.beans.factory.annotation.Value("${app.admin-recovery.enabled:false}") boolean adminRecoveryEnabled
+        @org.springframework.beans.factory.annotation.Value("${app.admin-recovery.enabled:false}") boolean adminRecoveryEnabled,
+        @org.springframework.beans.factory.annotation.Value("${app.auth.login-rate-limit.enabled:true}") boolean loginRateLimitEnabled
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
@@ -86,6 +88,7 @@ public class AuthController {
         this.persistentSessionService = persistentSessionService;
         this.auditService = auditService;
         this.adminRecoveryEnabled = adminRecoveryEnabled;
+        this.loginRateLimitEnabled = loginRateLimitEnabled;
         this.dummyPasswordHash = passwordEncoder.encode("login-timing-equalizer");
     }
 
@@ -96,12 +99,13 @@ public class AuthController {
         HttpServletResponse httpRes
     ) {
         String ip = getClientIp(httpReq);
-        Bucket bucket = loginBuckets.computeIfAbsent(ip, k -> RateLimitConfig.createLoginBucket());
-
-        if (!bucket.tryConsume(1)) {
-            ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
-            detail.setDetail("Too many login attempts. Try again in 15 minutes.");
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
+        if (loginRateLimitEnabled) {
+            Bucket bucket = loginBuckets.computeIfAbsent(ip, k -> RateLimitConfig.createLoginBucket());
+            if (!bucket.tryConsume(1)) {
+                ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
+                detail.setDetail("Too many login attempts. Try again in 15 minutes.");
+                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
+            }
         }
 
         AppUser user = userRepository.findByUsernameWithMember(req.username()).orElse(null);
@@ -264,7 +268,12 @@ public class AuthController {
             try {
                 var claims = jwtUtil.validateAndParse(refreshToken);
                 if (jwtUtil.isRefreshToken(claims)) {
-                    AppUser user = userRepository.findByUsernameWithMember(claims.getSubject()).orElse(null);
+                    // By the immutable uid, like JwtAuthenticationFilter, never by the username in
+                    // `sub`: a username can be changed (change-username) or freed and given to a new
+                    // member, and resolving by name logged the old token's holder into whoever now
+                    // carried that name, or locked a renamed user out at the next refresh.
+                    Long uid = jwtUtil.getUserId(claims);
+                    AppUser user = uid == null ? null : userRepository.findByIdWithMember(uid).orElse(null);
                     // Reject if the user is gone, the token version was bumped (credential
                     // change / recovery), or the account has since been deactivated.
                     Long tv = jwtUtil.getTokenVersion(claims);

@@ -1,16 +1,31 @@
 package com.picsou.finary;
 
 import com.picsou.adapter.CoinGeckoPriceProvider;
+import com.picsou.adapter.CompositePriceProvider;
 import com.picsou.adapter.YahooFinancePriceProvider;
 import com.picsou.adapter.YahooFinanceStubs;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
+import com.picsou.model.AccountHolding;
+import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
+import com.picsou.model.Category;
+import com.picsou.model.CategoryKind;
+import com.picsou.model.DividendEvent;
+import com.picsou.model.DividendSource;
+import com.picsou.model.DividendSourceStatus;
 import com.picsou.model.Transaction;
+import com.picsou.model.TransactionType;
+import com.picsou.repository.AccountHoldingRepository;
+import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
+import com.picsou.repository.DividendSourceRepository;
 import com.picsou.repository.PriceSnapshotRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.AccountAccessResolver;
+import com.picsou.service.DividendReceiptService;
 import com.picsou.service.PriceService;
+import com.picsou.service.budget.CategorizationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -20,14 +35,18 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -147,7 +166,8 @@ class FinaryPersistenceHelperTest {
             return null;
         });
         FinaryPersistenceHelper realFx = new FinaryPersistenceHelper(balanceSnapshotRepository,
-            transactionRepository, new PriceService(mock(CoinGeckoPriceProvider.class), yahoo,
+            transactionRepository, new PriceService(
+                new CompositePriceProvider(mock(CoinGeckoPriceProvider.class), yahoo),
                 mock(PriceSnapshotRepository.class)));
         Account account = Account.builder().id(1L).name("Checking").currency("EUR")
             .currentBalance(new BigDecimal("1000")).build();
@@ -182,5 +202,90 @@ class FinaryPersistenceHelperTest {
             .hasMessageContaining("USD");
         verify(balanceSnapshotRepository, never()).deleteAllInBatch(any());
         verify(balanceSnapshotRepository, never()).save(any(BalanceSnapshot.class));
+    }
+
+    @Test
+    void importTransactions_keepsADividendRecognisedBeforeTheClassificationWindow() {
+        // Every Finary sync deletes and recreates the account's rows, while classification only
+        // revisits 45 days: a dividend recognised 50 days ago would come back as a plain credit.
+        LocalDate paid = LocalDate.now().minusDays(50);
+        Account cto = Account.builder()
+            .id(1L).name("CTO").type(AccountType.COMPTE_TITRES).provider("Finary").currency("EUR").build();
+        Category revenusCapital = Category.builder()
+            .id(100L).slug("revenus-capital").name("Revenus du capital").kind(CategoryKind.INCOME).build();
+        Transaction stored = Transaction.builder()
+            .id(5L).account(cto).date(paid).description("DIVIDENDE TOTALENERGIES")
+            .amount(new BigDecimal("59.50")).nativeCurrency("EUR").build();
+        AtomicReference<List<Transaction>> ledger = new AtomicReference<>(List.of(stored));
+        DividendReceiptService receipts = realReceipts(cto, revenusCapital, ledger, paid.minusDays(9));
+        assertThat(receipts.classifyRecent(7L, paid.plusDays(1))).isEqualTo(1);
+        when(transactionRepository.findByAccountIdAndIsManualFalse(1L)).thenReturn(List.of(stored));
+
+        helper.importTransactions(cto,
+            new FinaryPersistenceHelper.ParsedFinaryAccount("CTO", "Bourse Direct", "investments", BigDecimal.TEN, "EUR"),
+            List.of(new FinaryPersistenceHelper.ParsedFinaryTransaction(
+                "CTO", paid, "DIVIDENDE TOTALENERGIES", new BigDecimal("59.5"), "credit", "income", "EUR")));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Transaction>> saved = ArgumentCaptor.forClass(List.class);
+        verify(transactionRepository).saveAll(saved.capture());
+        assertThat(saved.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getTxType()).isEqualTo(TransactionType.DIVIDEND);
+            assertThat(row.getTicker()).isEqualTo("TTE.PA");
+            assertThat(row.getCategoryRef()).isSameAs(revenusCapital);
+        });
+        ledger.set(saved.getValue());
+        assertThat(receipts.received(7L, LocalDate.now(), 90)).singleElement().satisfies(line -> {
+            assertThat(line.ticker()).isEqualTo("TTE.PA");
+            assertThat(line.receivedDate()).isEqualTo(paid);
+        });
+    }
+
+    @Test
+    void importTransactions_restoresEachRecognitionOnASingleReimportedRow() {
+        LocalDate paid = LocalDate.now().minusDays(50);
+        Account cto = Account.builder().id(1L).name("CTO").currency("EUR").build();
+        when(transactionRepository.findByAccountIdAndIsManualFalse(1L)).thenReturn(List.of(Transaction.builder()
+            .account(cto).date(paid).description("DIVIDENDE").amount(new BigDecimal("59.50"))
+            .txType(TransactionType.DIVIDEND).ticker("TTE.PA").build()));
+        FinaryPersistenceHelper.ParsedFinaryTransaction credit = new FinaryPersistenceHelper.ParsedFinaryTransaction(
+            "CTO", paid, "DIVIDENDE", new BigDecimal("59.50"), "credit", "income", "EUR");
+
+        helper.importTransactions(cto,
+            new FinaryPersistenceHelper.ParsedFinaryAccount("CTO", "Bourse Direct", "investments", BigDecimal.TEN, "EUR"),
+            List.of(credit, credit));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Transaction>> saved = ArgumentCaptor.forClass(List.class);
+        verify(transactionRepository).saveAll(saved.capture());
+        assertThat(saved.getValue()).extracting(Transaction::getTxType)
+            .containsExactlyInAnyOrder(TransactionType.DIVIDEND, null);
+    }
+
+    private static DividendReceiptService realReceipts(
+        Account account,
+        Category revenusCapital,
+        AtomicReference<List<Transaction>> ledger,
+        LocalDate exDate
+    ) {
+        AccountRepository accounts = mock(AccountRepository.class);
+        AccountAccessResolver access = mock(AccountAccessResolver.class);
+        AccountHoldingRepository holdings = mock(AccountHoldingRepository.class);
+        DividendSourceRepository sources = mock(DividendSourceRepository.class);
+        TransactionRepository transactions = mock(TransactionRepository.class);
+        CategorizationService categorization = mock(CategorizationService.class);
+        DividendSource source = DividendSource.builder()
+            .ticker("TTE.PA").currency("EUR").status(DividendSourceStatus.OK).events(new ArrayList<>()).build();
+        source.getEvents().add(DividendEvent.builder()
+            .source(source).exDate(exDate).amount(new BigDecimal("0.85")).amountEur(new BigDecimal("0.85")).build());
+        lenient().when(accounts.findAllByMemberIdOrderByCreatedAtAsc(7L)).thenReturn(List.of(account));
+        lenient().when(access.readableAccounts(7L)).thenReturn(List.of(account));
+        lenient().when(holdings.findPositiveByAccountIdIn(anyCollection())).thenReturn(List.of(AccountHolding.builder()
+            .account(account).ticker("TTE.PA").name("TotalEnergies").quantity(new BigDecimal("100")).build()));
+        lenient().when(sources.findAllWithEventsByTickerIn(anyCollection())).thenReturn(List.of(source));
+        lenient().when(categorization.categoriesBySlug(7L)).thenReturn(Map.of("revenus-capital", revenusCapital));
+        lenient().when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(anyCollection(), any(), any()))
+            .thenAnswer(invocation -> ledger.get());
+        return new DividendReceiptService(accounts, access, holdings, sources, transactions, categorization);
     }
 }

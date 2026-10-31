@@ -10,8 +10,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.time.Duration;
 import java.util.List;
@@ -19,8 +22,13 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
 class SyncControllerTest {
@@ -74,6 +82,43 @@ class SyncControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isEqualTo(List.of("FR"));
+    }
+
+    @Test
+    void complete_isAPostCarryingCodeAndStateInTheBody() throws Exception {
+        when(userContext.currentMemberId()).thenReturn(4L);
+        when(syncService.completeConnection("auth-code", "nonce-1", 4L)).thenReturn(List.of());
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller(new ConcurrentHashMap<>())).build();
+
+        mvc.perform(post("/api/sync/complete")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"code\":\"auth-code\",\"state\":\"nonce-1\"}"))
+            .andExpect(status().isOk())
+            .andExpect(content().json("[]"));
+
+        verify(syncService).completeConnection("auth-code", "nonce-1", 4L);
+    }
+
+    @Test
+    void complete_noLongerAnswersGet() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller(new ConcurrentHashMap<>())).build();
+
+        mvc.perform(get("/api/sync/complete").param("code", "auth-code"))
+            .andExpect(status().isMethodNotAllowed());
+
+        verifyNoInteractions(syncService);
+    }
+
+    @Test
+    void complete_withoutCode_isRejected() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller(new ConcurrentHashMap<>())).build();
+
+        mvc.perform(post("/api/sync/complete")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"state\":\"nonce-1\"}"))
+            .andExpect(status().is4xxClientError());
+
+        verifyNoInteractions(syncService);
     }
 
     private static Bucket exhaustedOneTokenBucket() {

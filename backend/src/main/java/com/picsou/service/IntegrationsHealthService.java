@@ -103,9 +103,7 @@ public class IntegrationsHealthService {
     }
 
     public BoursoBankHealthResponse checkBoursoBankSidecar() {
-        String url = setupService.readSetting(SetupService.KEY_BOURSO_AUTH_URL)
-            .filter(s -> !s.isBlank())
-            .orElse(envBoursoUrl);
+        String url = setupService.boursoAuthUrl(envBoursoUrl);
 
         try {
             WebClient.builder().baseUrl(url).build()

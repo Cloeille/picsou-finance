@@ -1,7 +1,17 @@
 # ADR: Access-key authentication + embedded MCP server
 
 > Date: 2026-06-05
-> Status: ✅ Active
+> Status: ✅ Active (amended 2026-10-04)
+> Amended by:
+> - [2026-08-11 — Deleting an account removes the connection behind it](./2026-08-11-account-deletion-removes-its-connection.md)
+> - [`docs/features/mcp-server.md`](../features/mcp-server.md)
+
+> **What changed.** The write surface is no longer limited to manual records and
+> refresh-existing-syncs. With `accounts:write`, `delete_account` also deletes synced accounts,
+> and deleting the last account on a connection removes that connection: stored provider
+> sessions/credentials, a wallet or exchange connection, an IBKR connection, or an Enable Banking
+> requisition. Auth and credential flows stay out of the tool set. The rest of this ADR is kept
+> as the original decision record.
 
 ## Context
 

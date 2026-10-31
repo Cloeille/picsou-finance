@@ -16,6 +16,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -25,7 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -38,12 +38,18 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
+import static com.picsou.service.SyncValues.clean;
+import static com.picsou.service.SyncValues.errorCode;
+import static com.picsou.service.SyncValues.limit;
+import static com.picsou.service.SyncValues.moneyClose;
+import static com.picsou.service.SyncValues.requireTransactionResult;
+import static com.picsou.service.SyncValues.sumComplete;
+import static com.picsou.service.SyncValues.weightedAverage;
+
 @Service
 public class BourseDirectSyncService {
     private static final Logger log = LoggerFactory.getLogger(BourseDirectSyncService.class);
     static final String PROVIDER = "Bourse Direct";
-    private static final BigDecimal ABSOLUTE_RECONCILIATION_TOLERANCE = new BigDecimal("0.05");
-    private static final BigDecimal RELATIVE_RECONCILIATION_TOLERANCE = new BigDecimal("0.001");
 
     private final BourseDirectPort port;
     private final BourseDirectSessionRepository sessionRepository;
@@ -52,6 +58,7 @@ public class BourseDirectSyncService {
     private final FamilyMemberRepository memberRepository;
     private final AccountService accountService;
     private final OpenFigiIsinConverter isinConverter;
+    private final SecurityIdentityService identityService;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
@@ -64,6 +71,7 @@ public class BourseDirectSyncService {
         FamilyMemberRepository memberRepository,
         AccountService accountService,
         OpenFigiIsinConverter isinConverter,
+        SecurityIdentityService identityService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         @Qualifier("bourseDirectSyncExecutor") Executor syncExecutor
@@ -75,6 +83,7 @@ public class BourseDirectSyncService {
         this.memberRepository = memberRepository;
         this.accountService = accountService;
         this.isinConverter = isinConverter;
+        this.identityService = identityService;
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
@@ -276,6 +285,7 @@ public class BourseDirectSyncService {
 
     private List<PreparedPosition> preparePositions(List<BourseDirectPort.Position> rawPositions) {
         Map<String, PreparedPosition> positions = new LinkedHashMap<>();
+        Map<String, String> isinByTicker = new LinkedHashMap<>();
         for (BourseDirectPort.Position position : rawPositions) {
             if (position == null || position.quantity() == null || position.currentValueEur() == null) {
                 throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an incomplete position", null);
@@ -291,7 +301,7 @@ public class BourseDirectSyncService {
                     null
                 );
             }
-            String ticker = resolveTicker(position);
+            String ticker = resolveTicker(position, isinByTicker);
             PreparedPosition resolved = new PreparedPosition(
                 ticker,
                 limit(position.label(), 100, ticker),
@@ -304,12 +314,13 @@ public class BourseDirectSyncService {
             );
             positions.merge(ticker, resolved, this::mergePositions);
         }
+        identityService.record(isinByTicker);
         return positions.values().stream()
             .filter(position -> position.quantity().signum() != 0)
             .toList();
     }
 
-    private String resolveTicker(BourseDirectPort.Position position) {
+    private String resolveTicker(BourseDirectPort.Position position, Map<String, String> isinByTicker) {
         String ticker = clean(position.symbol());
         String isin = normalizeIsin(position.isin());
         if (isin != null) {
@@ -325,6 +336,9 @@ public class BourseDirectSyncService {
         }
         if (ticker == null || ticker.length() > 30) {
             throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an invalid instrument identifier", null);
+        }
+        if (isin != null) {
+            isinByTicker.put(ticker, isin);
         }
         return ticker;
     }
@@ -356,25 +370,6 @@ public class BourseDirectSyncService {
             left.currentValueEur().add(right.currentValueEur()),
             sumComplete(left.pnlEur(), right.pnlEur())
         );
-    }
-
-    private BigDecimal weightedAverage(
-        BigDecimal left,
-        BigDecimal leftQuantity,
-        BigDecimal right,
-        BigDecimal rightQuantity,
-        BigDecimal totalQuantity
-    ) {
-        if (left == null || right == null || totalQuantity.signum() == 0) {
-            return null;
-        }
-        return left.multiply(leftQuantity)
-            .add(right.multiply(rightQuantity))
-            .divide(totalQuantity, 8, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal sumComplete(BigDecimal left, BigDecimal right) {
-        return left == null || right == null ? null : left.add(right);
     }
 
     private BigDecimal investedAmount(
@@ -547,34 +542,51 @@ public class BourseDirectSyncService {
             .orElseGet(SessionStatusResponse::inactive);
     }
 
-    public void clearSession(Long memberId) {
-        txTemplate.executeWithoutResult(status ->
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete)
-        );
+    /** Returns whether a stored session was there to delete. */
+    public boolean clearSession(Long memberId) {
+        return Boolean.TRUE.equals(txTemplate.execute(status -> {
+            var session = sessionRepository.findByMemberIdForUpdate(memberId);
+            session.ifPresent(sessionRepository::delete);
+            return session.isPresent();
+        }));
     }
 
-    public void resyncIfSessionActive(Long memberId) {
+    public SourceSyncResult resyncReporting(Long memberId) {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                return;
+                if (status.lastSyncError() == BourseDirectErrorCode.SESSION_EXPIRED) {
+                    return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.NEEDS_REAUTH,
+                        status.lastSyncError().name());
+                }
+                if (status.lastSyncError() != null) {
+                    return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.FAILED,
+                        status.lastSyncError().name());
+                }
+                return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
             }
             queueSync(memberId);
+            return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.QUEUED, "");
         } catch (ResourceNotFoundException ex) {
-            log.debug("Member disappeared before scheduled Bourse Direct sync (member={})", memberId);
+            return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
             log.error("Database error during scheduled Bourse Direct sync (member={})", memberId, ex);
+            return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.FAILED, "Database error");
         } catch (SyncException ex) {
-            log.warn(
-                "Could not queue scheduled Bourse Direct sync (member={}; code={})",
-                memberId,
-                codeOf(ex),
-                ex
-            );
-        } catch (RuntimeException ex) {
-            log.error("Unexpected scheduled Bourse Direct sync failure (member={})", memberId, ex);
+            log.warn("Could not queue scheduled Bourse Direct sync (member={}; code={})", memberId, ex.getCode(), ex);
+            SourceSyncResult classified = SourceSyncResult.fromSyncException("bourse-direct", ex);
+            return new SourceSyncResult("bourse-direct", classified.status(),
+                classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
+        } catch (Exception ex) {
+            log.error("Bourse Direct scheduled sync failed unexpectedly for member {}", memberId, ex);
+            return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }
+
+    public void resyncIfSessionActive(Long memberId) {
+        resyncReporting(memberId); // ignore return
+    }
+
 
     private SessionStatusResponse toStatus(BourseDirectSession session) {
         return new SessionStatusResponse(
@@ -588,14 +600,7 @@ public class BourseDirectSyncService {
     }
 
     private BourseDirectErrorCode codeOf(SyncException exception) {
-        if (exception.getCode() == null) {
-            return BourseDirectErrorCode.UPSTREAM_UNAVAILABLE;
-        }
-        try {
-            return BourseDirectErrorCode.valueOf(exception.getCode());
-        } catch (IllegalArgumentException ignored) {
-            return BourseDirectErrorCode.UPSTREAM_UNAVAILABLE;
-        }
+        return errorCode(exception, BourseDirectErrorCode.class, BourseDirectErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
     private SyncException error(BourseDirectErrorCode code, String message, Throwable cause) {
@@ -624,32 +629,6 @@ public class BourseDirectSyncService {
             throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an invalid quote currency", null);
         }
         return currency;
-    }
-
-    private String clean(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
-    }
-
-    private String limit(String value, int maxLength, String fallback) {
-        String cleaned = clean(value);
-        if (cleaned == null) {
-            cleaned = fallback;
-        }
-        return cleaned.length() <= maxLength ? cleaned : cleaned.substring(0, maxLength);
-    }
-
-    private boolean moneyClose(BigDecimal actual, BigDecimal expected) {
-        BigDecimal tolerance = ABSOLUTE_RECONCILIATION_TOLERANCE.max(
-            expected.abs().multiply(RELATIVE_RECONCILIATION_TOLERANCE)
-        );
-        return actual.subtract(expected).abs().compareTo(tolerance) <= 0;
-    }
-
-    private <T> T requireTransactionResult(T value) {
-        return Objects.requireNonNull(value, "Transaction callback returned no result");
     }
 
     public record AuthInitResponse(String processId, boolean mfaRequired, String mfaType) {}

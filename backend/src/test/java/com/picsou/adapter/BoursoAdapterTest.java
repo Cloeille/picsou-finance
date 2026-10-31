@@ -33,6 +33,9 @@ class BoursoAdapterTest {
               "balanceEur":20810.50,
               "cashBalance":null,
               "positions":[],
+              "iban":"FR7630006000011234567890189",
+              "transactions":[{"externalId":"move-1","date":"2026-09-20","description":"VIREMENT",
+                "amount":-25.00,"counterparty":null,"kind":"TRANSFER"}],
               "snapshotComplete":true
             },{
               "externalId":"bourso_9651d8edd5975de1b9eff3865505f15f",
@@ -64,6 +67,12 @@ class BoursoAdapterTest {
             assertThat(account.cashBalance()).isNull();
             assertThat(account.positions()).isEmpty();
             assertThat(account.snapshotComplete()).isTrue();
+            assertThat(account.iban()).isEqualTo("FR7630006000011234567890189");
+            assertThat(account.transactions()).singleElement().satisfies(transaction -> {
+                assertThat(transaction.externalId()).isEqualTo("move-1");
+                assertThat(transaction.kind()).isEqualTo("TRANSFER");
+                assertThat(transaction.counterparty()).isNull();
+            });
         });
         assertThat(accounts.get(1)).satisfies(account -> {
             assertThat(account.type()).isEqualTo(AccountType.PEA);
@@ -108,6 +117,20 @@ class BoursoAdapterTest {
     }
 
     @Test
+    void fetchAccounts_reportsAnUnresolvedIdentitySelectorRatherThanAFormatChange() {
+        BoursoAdapter adapter = adapterReturning(
+            HttpStatus.BAD_GATEWAY,
+            "{\"detail\":\"IDENTITY_SELECTION_UNSUPPORTED\"}"
+        );
+
+        assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
+            .isInstanceOfSatisfying(SyncException.class, error -> {
+                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.IDENTITY_SELECTION_UNSUPPORTED.name());
+                assertThat(error.getMessage()).contains("several identities");
+            });
+    }
+
+    @Test
     void fetchAccounts_surfacesAnExpiredSessionSoTheUserIsAskedToReconnect() {
         BoursoAdapter adapter = adapterReturning(
             HttpStatus.UNAUTHORIZED,
@@ -147,6 +170,23 @@ class BoursoAdapterTest {
             .isInstanceOfSatisfying(SyncException.class, error ->
                 assertThat(error.getCode()).isEqualTo(BoursoErrorCode.INVALID_CREDENTIALS.name())
             );
+    }
+
+    @Test
+    void initiateAuth_reportsAFraudEducationInterstitialRatherThanBadCredentials() {
+        // BoursoBank parks a valid login on its fraud-education notice until the
+        // holder ticks it on the bank's website; calling it a wrong password
+        // sends the user to reset credentials that already work.
+        BoursoAdapter adapter = adapterReturning(
+            HttpStatus.UNAUTHORIZED,
+            "{\"detail\":\"FRAUD_ACK_REQUIRED\"}"
+        );
+
+        assertThatThrownBy(() -> adapter.initiateAuth("12345678", "123456"))
+            .isInstanceOfSatisfying(SyncException.class, error -> {
+                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.FRAUD_ACK_REQUIRED.name());
+                assertThat(error.getMessage()).contains("fraud-prevention notice");
+            });
     }
 
     @Test

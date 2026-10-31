@@ -17,6 +17,7 @@ from accounts_parser import (
     AccountsFormatError,
     _SAVINGS_PATTERNS,
     account_type,
+    choose_personal_identity,
     guard_symbol_collisions,
     describe_payload,
     is_own_account,
@@ -24,6 +25,7 @@ from accounts_parser import (
     parse_amount,
     parse_dashboard,
     parse_trading_summary,
+    text_value,
 )
 from fixtures import DASHBOARD_HTML
 
@@ -153,6 +155,39 @@ class OwnAccountTest(unittest.TestCase):
         self.assertFalse(is_own_account("CIC"))
 
 
+def insurance_panel(marker, card_id, name, balance):
+    return f"""<div class="c-panel c-panel--primary">
+    <div class="c-panel__header ">
+        <span class="c-panel__title">
+            Mes assurances
+        </span>
+    </div>
+    <div class="c-panel__body ">
+        <div class="c-panel__no-animation-glitch ">
+            <ul class="c-info-box " role="list" data-brs-list-header {marker}>
+                <li class="c-panel__item c-info-box__item" data-brs-filterable>
+                    <a class="c-info-box__link-wrapper" href="/compte/assurance/{card_id}/"
+                        aria-label="Détails du compte {name} - Solde : {balance} €" title="{name}">
+                        <span class="c-info-box__account">
+                            <span class="c-info-box__account-label"
+                                data-account-label="{card_id}" data-brs-list-item-label>
+                                {name}
+                            </span>
+                            <span class="c-info-box__account-balance c-info-box__account-balance--positive">
+                                {balance} €
+                            </span>
+                        </span>
+                        <span class="c-info-box__account-sub-label" data-brs-list-item-label>
+                            BoursoBank
+                        </span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>"""
+
+
 class DashboardTest(unittest.TestCase):
     def test_parses_a_real_dashboard(self):
         accounts, third_party = parse_dashboard(DASHBOARD_HTML)
@@ -168,6 +203,23 @@ class DashboardTest(unittest.TestCase):
         )
         self.assertEqual(accounts[0]["balanceEur"], Decimal("20810.50"))
         self.assertEqual(accounts[2]["balanceEur"], Decimal("143088.89"))
+        self.assertEqual(
+            accounts[0]["href"],
+            "/compte/cav/e2f509c466f5294f15abd873dbbf8a62/",
+        )
+
+    def test_account_names_are_stored_with_their_entities_decoded(self):
+        # BoursoBank escapes apostrophes and ampersands in the card markup; the
+        # raw entity used to end up in account.name and on every screen.
+        escaped = DASHBOARD_HTML.replace(
+            "LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE\n",
+            "LIVRET D&#039;EPARGNE &amp; CO\n",
+        )
+        accounts, _ = parse_dashboard(escaped)
+        self.assertEqual(accounts[1]["name"], "LIVRET D'EPARGNE & CO")
+
+    def test_an_entity_escaping_a_tag_is_decoded_only_once(self):
+        self.assertEqual(text_value("A &amp;lt;b&amp;gt; <i>x</i>", 200), "A &lt;b&gt; x")
 
     def test_the_loan_is_excluded_without_failing_the_completeness_check(self):
         accounts, _ = parse_dashboard(DASHBOARD_HTML)
@@ -191,6 +243,69 @@ class DashboardTest(unittest.TestCase):
         with self.assertRaises(AccountsFormatError) as raised:
             parse_dashboard(foreign)
         self.assertEqual(raised.exception.code, INCOMPLETE)
+
+    def test_insurance_contracts_are_skipped_without_failing_the_sync(self):
+        # Assurance-vie and Bourso Protect cards are account-shaped links in
+        # their own sections. They are out of scope like loans, so they must
+        # not trip the completeness check that guards real format changes.
+        html = (
+            DASHBOARD_HTML
+            + insurance_panel(
+                "data-summary-insurance",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "Assurance Vie **01",
+                "45 210,30",
+            )
+            + insurance_panel(
+                "data-summary-assurance",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "Bourso Protect",
+                "150,00",
+            )
+        )
+        accounts, third_party = parse_dashboard(html)
+        self.assertEqual(
+            [(account["type"], account["name"]) for account in accounts],
+            [
+                ("CHECKING", "BoursoBank"),
+                ("LDDS", "LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE"),
+                ("PEA", "PEA DOE"),
+            ],
+        )
+        self.assertEqual(third_party, 2)
+
+    def test_children_accounts_are_skipped_without_failing_the_sync(self):
+        # A holder who manages a minor's accounts gets a "Comptes de mes
+        # enfants" panel. Its cards are BoursoBank accounts, so before this
+        # section was known they read as parse failures and failed the whole
+        # sync, the holder's own PEA included.
+        html = DASHBOARD_HTML + insurance_panel(
+            "data-summary-child",
+            "dddddddddddddddddddddddddddddddd",
+            "LIVRET A (M. DOE Junior)",
+            "2 476,41",
+        )
+        accounts, third_party = parse_dashboard(html)
+        self.assertEqual(
+            [(account["type"], account["name"]) for account in accounts],
+            [
+                ("CHECKING", "BoursoBank"),
+                ("LDDS", "LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE"),
+                ("PEA", "PEA DOE"),
+            ],
+        )
+        self.assertEqual(third_party, 2)
+
+    def test_a_section_with_an_unknown_marker_still_fails_the_sync(self):
+        html = DASHBOARD_HTML + insurance_panel(
+            "data-summary-foobar",
+            "cccccccccccccccccccccccccccccccc",
+            "Produit Inconnu",
+            "10,00",
+        )
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_dashboard(html)
+        self.assertEqual(raised.exception.code, FORMAT_CHANGED)
 
 
 class TradingSummaryTest(unittest.TestCase):
@@ -243,6 +358,20 @@ class TradingSummaryTest(unittest.TestCase):
             parse_trading_summary(summary(positions=[position(currency="USD")]), "acc")
         self.assertEqual(raised.exception.code, INVALID_DATA)
 
+    def test_a_position_whose_gain_is_in_a_foreign_currency_is_refused(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(
+                summary(positions=[position(gainLoss=money("150.00", "USD"))]), "acc"
+            )
+        self.assertEqual(raised.exception.code, INVALID_DATA)
+
+    def test_a_gain_in_lowercase_eur_or_without_a_currency_is_kept(self):
+        for currency in ("eur", None):
+            parsed = parse_trading_summary(
+                summary(positions=[position(gainLoss=money("150.00", currency))]), "acc"
+            )
+            self.assertEqual(parsed["positions"][0]["pnlEur"], Decimal("150.00"))
+
     def test_a_native_quote_keeps_its_currency_and_drops_the_cost_basis(self):
         # A USD cost basis recorded as EUR reports a gain the size of the FX
         # spread; null is the honest answer.
@@ -287,6 +416,184 @@ class TradingSummaryTest(unittest.TestCase):
     def test_a_non_finite_amount_cannot_slip_through(self):
         with self.assertRaises(AccountsFormatError):
             parse_trading_summary(summary(positions=[position(amount=float("nan"))]), "acc")
+
+
+def single_fund(balance="350.00", quantity="3.5", **fund_overrides):
+    """A contract invested in one fund: the account reports a balance only, and
+    the fund sits in its own section instead of a positions list (#154)."""
+    fund = {
+        "isin": "FR0010315770",
+        "label": "Lyxor MSCI World",
+        "quantity": quantity,
+        "priceDate": "2026-09-18",
+        "price": money("100.00"),
+        "headings": [],
+        "permalink": "/bourse/opcvm/cours/0P0000Z1B6/",
+        "actions": [],
+        "composition": [],
+    }
+    fund.update(fund_overrides)
+    return [
+        {
+            "account": {
+                "name": "CONTRAT DOE",
+                "reference": "0123",
+                "currency": "EUR",
+                "typeCategory": "LIFE_INSURANCE",
+                "activationDate": "2021-03-01",
+                "profile": "FREE",
+                "balance": money(balance),
+                "gainLoss": money("50.00"),
+            }
+        },
+        {"fund": fund},
+    ]
+
+
+class SingleFundContractTest(unittest.TestCase):
+    def test_the_contract_is_fully_invested_in_its_fund(self):
+        parsed = parse_trading_summary(single_fund(), "acc")
+
+        self.assertEqual(parsed["cashEur"], Decimal("0"))
+        self.assertEqual(parsed["totalEur"], Decimal("350.00"))
+        self.assertEqual(len(parsed["positions"]), 1)
+        line = parsed["positions"][0]
+        self.assertEqual(line["isin"], "FR0010315770")
+        self.assertEqual(line["symbol"], "FR0010315770")
+        self.assertEqual(line["label"], "Lyxor MSCI World")
+        self.assertEqual(line["quantity"], Decimal("3.5"))
+        self.assertIsNone(line["buyingPriceEur"])
+        self.assertEqual(line["currentPrice"], Decimal("100.00"))
+        self.assertEqual(line["quoteCurrency"], "EUR")
+        self.assertEqual(line["currentValueEur"], Decimal("350.00"))
+        self.assertEqual(line["pnlEur"], Decimal("50.00"))
+
+    def test_the_line_reconciles_with_total_minus_cash(self):
+        # The same equation the backend re-runs before it writes anything.
+        parsed = parse_trading_summary(single_fund(), "acc")
+        lines = sum(line["currentValueEur"] for line in parsed["positions"])
+        self.assertEqual(lines, parsed["totalEur"] - parsed["cashEur"])
+
+    def test_the_fund_is_found_whichever_section_carries_it(self):
+        parsed = parse_trading_summary(list(reversed(single_fund())), "acc")
+        self.assertEqual(parsed["positions"][0]["isin"], "FR0010315770")
+
+    def test_a_contract_without_its_fund_is_refused(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(single_fund()[:1], "acc")
+        self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_contract_with_two_funds_is_refused_rather_than_half_read(self):
+        sections = single_fund()
+        sections.append({"fund": dict(sections[1]["fund"], isin="LU0274208692")})
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(sections, "acc")
+        self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_fund_node_that_is_not_an_object_is_refused(self):
+        sections = single_fund()
+        sections[1]["fund"] = None
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(sections, "acc")
+        self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_payload_mixing_both_shapes_is_refused(self):
+        # Neither reading is safe: the fund could be one line among the
+        # positions, or the cash could be a pocket beside the fund.
+        with_cash = single_fund()
+        with_cash[0]["account"]["cash"] = money("10.00")
+        with_positions = single_fund() + [{"positions": [position()]}]
+        for mixed in (with_cash, with_positions):
+            with self.assertRaises(AccountsFormatError) as raised:
+                parse_trading_summary(mixed, "acc")
+            self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_null_securities_field_beside_a_fund_is_refused(self):
+        # A PEA with blanked figures and a stray fund would otherwise sync at its
+        # zero balance.
+        for field in ("cash", "valuation", "total"):
+            sections = single_fund()
+            sections[0]["account"][field] = None
+            with self.assertRaises(AccountsFormatError) as raised:
+                parse_trading_summary(sections, "acc")
+            self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_an_empty_positions_section_beside_a_fund_is_tolerated(self):
+        sections = single_fund() + [{"id": "positions", "positions": [], "count": 0}]
+        parsed = parse_trading_summary(sections, "acc")
+        self.assertEqual(parsed["positions"][0]["currentValueEur"], Decimal("350.00"))
+
+    def test_a_fund_without_a_valid_isin_is_refused(self):
+        # A fund carries no BoursoBank symbol: its ISIN is its only identity.
+        for broken in (None, "", "NOT-AN-ISIN"):
+            with self.assertRaises(AccountsFormatError) as raised:
+                parse_trading_summary(single_fund(isin=broken), "acc")
+            self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_fund_without_a_label_or_quantity_is_refused(self):
+        for broken in ({"label": None}, {"quantity": None}, {"quantity": "abc"}):
+            with self.assertRaises(AccountsFormatError) as raised:
+                parse_trading_summary(single_fund(**broken), "acc")
+            self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_negative_quantity_is_refused(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(single_fund(quantity="-1"), "acc")
+        self.assertEqual(raised.exception.code, INVALID_DATA)
+
+    def test_an_emptied_contract_syncs_with_no_line(self):
+        parsed = parse_trading_summary(single_fund(balance="0", quantity="0"), "acc")
+        self.assertEqual(parsed["totalEur"], Decimal("0"))
+        self.assertEqual(parsed["positions"], [])
+
+    def test_a_balance_without_units_does_not_reconcile(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(single_fund(quantity="0"), "acc")
+        self.assertEqual(raised.exception.code, INCOMPLETE)
+
+    def test_units_without_a_balance_do_not_reconcile(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(single_fund(balance="0"), "acc")
+        self.assertEqual(raised.exception.code, INCOMPLETE)
+
+    def test_a_negative_balance_is_refused(self):
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(single_fund(balance="-350"), "acc")
+        self.assertEqual(raised.exception.code, INVALID_DATA)
+
+    def test_a_contract_in_a_foreign_currency_is_refused(self):
+        for field in ("balance", "currency"):
+            sections = single_fund()
+            account = sections[0]["account"]
+            account[field] = money("350.00", "USD") if field == "balance" else "USD"
+            with self.assertRaises(AccountsFormatError) as raised:
+                parse_trading_summary(sections, "acc")
+            self.assertEqual(raised.exception.code, INVALID_DATA)
+
+    def test_a_gain_in_a_foreign_currency_is_refused(self):
+        # The backend derives the cost basis as value - gain.
+        sections = single_fund()
+        sections[0]["account"]["gainLoss"] = money("50.00", "USD")
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(sections, "acc")
+        self.assertEqual(raised.exception.code, INVALID_DATA)
+
+    def test_a_gain_whose_currency_is_lowercase_or_absent_is_eur(self):
+        for currency in ("eur", None):
+            sections = single_fund()
+            sections[0]["account"]["gainLoss"] = money("50.00", currency)
+            parsed = parse_trading_summary(sections, "acc")
+            self.assertEqual(parsed["positions"][0]["pnlEur"], Decimal("50.00"))
+
+    def test_a_native_quote_keeps_its_currency(self):
+        parsed = parse_trading_summary(single_fund(price=money("110.00", "USD")), "acc")
+        self.assertEqual(parsed["positions"][0]["quoteCurrency"], "USD")
+        self.assertEqual(parsed["positions"][0]["currentValueEur"], Decimal("350.00"))
+
+    def test_a_fund_without_a_price_still_syncs_on_the_balance(self):
+        parsed = parse_trading_summary(single_fund(price=None), "acc")
+        self.assertIsNone(parsed["positions"][0]["currentPrice"])
+        self.assertEqual(parsed["positions"][0]["currentValueEur"], Decimal("350.00"))
 
 
 class SymbolCollisionTest(unittest.TestCase):
@@ -346,6 +653,133 @@ class ToleranceTest(unittest.TestCase):
     def test_relative_tolerance_scales_with_the_amount(self):
         self.assertTrue(money_close(Decimal("100050"), Decimal("100000")))
         self.assertFalse(money_close(Decimal("100200"), Decimal("100000")))
+
+
+PERSONAL_TOKEN = "c3ludGhldGljLXBlcnNvbmFs.v1"
+BUSINESS_TOKEN = "c3ludGhldGljLWJ1c2luZXNz.v1"
+
+
+def identity_card(token, name, kind=""):
+    return (
+        f'<a class="c-identity" href="/connexion/changer-identite/{token}">'
+        f'<span class="c-identity__name">{name}</span>'
+        f'<span class="c-identity__type">{kind}</span></a>'
+    )
+
+
+def identity_selector_html(*cards):
+    """Synthetic: modelled on the #153 description, not captured from BoursoBank."""
+    return (
+        "<html><body><h1>Choisissez votre espace</h1><ul>"
+        + "".join(f"<li>{card}</li>" for card in cards)
+        + '</ul><a href="/se-deconnecter">Se déconnecter</a></body></html>'
+    )
+
+
+PERSONAL_AND_BUSINESS = identity_selector_html(
+    identity_card(PERSONAL_TOKEN, "Camille Exemple"),
+    identity_card(BUSINESS_TOKEN, "Camille Exemple", "Entrepreneur individuel"),
+)
+
+
+class IdentitySelectorTest(unittest.TestCase):
+    def assert_refused(self, html, code):
+        with self.assertRaises(AccountsFormatError) as raised:
+            choose_personal_identity(html)
+        self.assertEqual(raised.exception.code, code)
+        self.assertNotIn(PERSONAL_TOKEN, str(raised.exception))
+        self.assertNotIn(BUSINESS_TOKEN, str(raised.exception))
+
+    def test_picks_the_only_identity_without_a_business_marker(self):
+        self.assertEqual(
+            choose_personal_identity(PERSONAL_AND_BUSINESS),
+            f"/connexion/changer-identite/{PERSONAL_TOKEN}",
+        )
+
+    def test_recognises_business_identities_however_they_are_labelled(self):
+        for kind in ("EI", "Espace Pro", "Professionnel", "SASU", "Auto-entrepreneur", "Société"):
+            with self.subTest(kind=kind):
+                html = identity_selector_html(
+                    identity_card(BUSINESS_TOKEN, "Camille Exemple", kind),
+                    identity_card(PERSONAL_TOKEN, "Camille Exemple"),
+                )
+                self.assertTrue(choose_personal_identity(html).endswith(PERSONAL_TOKEN))
+
+    def test_recognises_inflected_business_markers(self):
+        kinds = (
+            "Professionnelle", "Professionnels", "Professionnelles", "Entreprises",
+            "Entrepreneurs", "Entrepreneuse", "Société", "Sociétés", "Association",
+            "Associations", "Artisane", "Artisans", "Commerçante", "Commerçants",
+            "Indépendante", "Indépendants", "Libérale", "Libéraux", "Profession libérale",
+            "Micro-entrepreneur", "E.I.", "EIRL",
+        )
+        for kind in kinds:
+            with self.subTest(kind=kind):
+                html = identity_selector_html(
+                    identity_card(BUSINESS_TOKEN, "Camille Exemple", kind),
+                    identity_card(PERSONAL_TOKEN, "Camille Exemple"),
+                )
+                self.assertTrue(choose_personal_identity(html).endswith(PERSONAL_TOKEN))
+
+    def test_a_marker_inside_a_personal_name_does_not_mark_it_business(self):
+        for name in ("Dominique Liberali", "Camille Partisan", "Sasha Prost", "Eli Societano"):
+            with self.subTest(name=name):
+                self.assert_refused(
+                    identity_selector_html(
+                        identity_card(PERSONAL_TOKEN, name),
+                        identity_card(BUSINESS_TOKEN, "Atelier Bois Flotté"),
+                    ),
+                    "IDENTITY_SELECTION_UNSUPPORTED",
+                )
+
+    def test_an_absolute_link_and_a_repeated_link_count_as_one_identity(self):
+        html = identity_selector_html(
+            identity_card(PERSONAL_TOKEN, "Camille Exemple"),
+            f'<a href="https://clients.boursobank.com/connexion/changer-identite/{PERSONAL_TOKEN}">'
+            "Accéder</a>",
+            identity_card(BUSINESS_TOKEN, "Camille Exemple", "EI"),
+        )
+        self.assertTrue(choose_personal_identity(html).endswith(PERSONAL_TOKEN))
+
+    def test_a_business_only_selector_is_refused(self):
+        self.assert_refused(
+            identity_selector_html(identity_card(BUSINESS_TOKEN, "Exemple SARL")),
+            "IDENTITY_SELECTION_UNSUPPORTED",
+        )
+
+    def test_two_unmarked_identities_are_ambiguous(self):
+        self.assert_refused(
+            identity_selector_html(
+                identity_card(PERSONAL_TOKEN, "Camille Exemple"),
+                identity_card(BUSINESS_TOKEN, "Atelier Exemple"),
+            ),
+            "IDENTITY_SELECTION_UNSUPPORTED",
+        )
+
+    def test_a_lone_unmarked_identity_is_not_assumed_personal(self):
+        # Nothing on the page says what it is, so nothing says it is not a
+        # business whose label merely lacks a known marker.
+        self.assert_refused(
+            identity_selector_html(identity_card(PERSONAL_TOKEN, "Camille Exemple")),
+            "IDENTITY_SELECTION_UNSUPPORTED",
+        )
+
+    def test_a_switch_link_outside_an_anchor_fails_rather_than_shrinking_the_choice(self):
+        html = PERSONAL_AND_BUSINESS.replace(
+            "</ul>",
+            '<li data-href="/connexion/changer-identite/c3ludGhldGljLXRoaXJk">Atelier</li></ul>',
+        )
+        self.assert_refused(html, FORMAT_CHANGED)
+
+    def test_a_page_without_switch_links_is_a_format_change(self):
+        self.assert_refused("<html><body>Choisissez votre espace</body></html>", FORMAT_CHANGED)
+
+    def test_a_link_that_could_leave_the_switch_path_is_refused(self):
+        html = identity_selector_html(
+            identity_card("../../virement", "Camille Exemple"),
+            identity_card(BUSINESS_TOKEN, "Camille Exemple", "EI"),
+        )
+        self.assert_refused(html, FORMAT_CHANGED)
 
 
 if __name__ == "__main__":

@@ -22,11 +22,36 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   return <Navigate to="/login" replace />
 }
 
-export function PublicOnly({ children }: { children: React.ReactNode }) {
+export function PublicOnly({
+  children,
+  probe = true,
+}: {
+  children: React.ReactNode
+  /**
+   * Probe the cookie-backed session before showing a public-only page. On by
+   * default so opening `/login` after a tab/browser restart rehydrates a
+   * restorable "Remember Me" session and redirects into the app, instead of
+   * showing the login form. Set `false` on the mid-login MFA challenge page,
+   * where there is no session to restore yet. Shares the same query key as
+   * `RequireAuth`, so a single probe is reused across guards.
+   */
+  probe?: boolean
+}) {
   const isAuthenticated = useAuthStore(s => s.isAuthenticated)
+  const login = useAuthStore(s => s.login)
   const demoMode = useAppStore(s => s.demoMode)
 
+  const shouldProbe = probe && !demoMode && !isAuthenticated
+  const sessionProbe = useSessionProbe(shouldProbe)
+
+  useEffect(() => {
+    if (sessionProbe.isSuccess) login(sessionProbe.data)
+  }, [sessionProbe.isSuccess, sessionProbe.data, login])
+
   if (demoMode || isAuthenticated) return <Navigate to="/" replace />
+  // While the probe resolves (only when actually enabled), hold the form back so
+  // a restorable session redirects into the app rather than flashing /login.
+  if (shouldProbe && (sessionProbe.isPending || sessionProbe.isSuccess)) return <LoadingSkeleton />
 
   return <>{children}</>
 }

@@ -7,6 +7,7 @@ import com.picsou.dto.TransactionImportRequest;
 import com.picsou.dto.TransactionImportResultResponse;
 import com.picsou.dto.TransactionImportResultResponse.RowError;
 import com.picsou.exception.ResourceNotFoundException;
+import com.picsou.imports.ImportPreviewStore;
 import com.picsou.imports.TransactionRowMapper;
 import com.picsou.imports.csv.CsvDialect;
 import com.picsou.imports.csv.CsvDialectDetector;
@@ -17,22 +18,24 @@ import com.picsou.model.Account;
 import com.picsou.model.Transaction;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.util.LogSanitizer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Two-phase CSV import of investment transactions into a single target account. Phase one
@@ -48,15 +51,23 @@ public class TransactionImportService {
     private static final Logger log = LoggerFactory.getLogger(TransactionImportService.class);
 
     private static final int SAMPLE_ROWS = 15;
+    // Global cap bounds memory (a CSV can be 10 MB); 4 per member lets a family of 8 each keep a few
+    // previews open without one member's repeated uploads ever reaching the global cap.
+    private static final int MAX_CACHED_PREVIEWS = 32;
+    private static final int MAX_CACHED_PREVIEWS_PER_MEMBER = 4;
+    private static final long MAX_CSV_BYTES = 10L * 1024 * 1024;
+    private static final String PREVIEW_EXPIRED = "Preview expired or invalid -- please re-upload the file";
 
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final HoldingComputeService holdingComputeService;
     private final TransactionRowMapper rowMapper;
 
-    private final ConcurrentHashMap<String, CachedCsv> cache = new ConcurrentHashMap<>();
+    private final ImportPreviewStore<CachedCsv> cache = new ImportPreviewStore<>(
+        Clock.systemUTC(), Duration.ofMinutes(30), MAX_CACHED_PREVIEWS,
+        MAX_CACHED_PREVIEWS_PER_MEMBER);
 
-    record CachedCsv(Long accountId, String content, Instant parsedAt) {}
+    record CachedCsv(Long accountId, String content) {}
 
     // --- Phase 1: preview -------------------------------------------------------------------
 
@@ -81,8 +92,7 @@ public class TransactionImportService {
         ColumnMappingDto suggestedMapping = hasHeader ? guessMapping(rows.get(0)) : emptyMapping();
         List<List<String>> sampleRows = dataRows.stream().limit(SAMPLE_ROWS).toList();
 
-        String fileToken = UUID.randomUUID().toString();
-        cache.put(fileToken, new CachedCsv(accountId, content, Instant.now()));
+        String fileToken = cache.put(memberId, new CachedCsv(accountId, content));
 
         CsvDialectDto dialect = new CsvDialectDto(String.valueOf(delimiter), decimal.name(), dateFormat);
         return new TransactionImportPreviewResponse(
@@ -95,15 +105,60 @@ public class TransactionImportService {
     public TransactionImportResultResponse executeImport(Long accountId, Long memberId, TransactionImportRequest req) {
         Account account = getInvestmentAccount(accountId, memberId);
 
-        CachedCsv cached = cache.get(req.fileToken());
-        if (cached == null) {
-            throw new IllegalArgumentException("Preview expired or invalid -- please re-upload the file");
+        ImportPreviewStore.Entry<CachedCsv> entry = cache.get(req.fileToken(), memberId);
+        if (entry == null) {
+            throw new IllegalArgumentException(PREVIEW_EXPIRED);
         }
+        CachedCsv cached = entry.payload();
         // Bind the token to its account so a preview cannot be replayed against another account.
         if (!cached.accountId().equals(accountId)) {
             throw new IllegalArgumentException("Preview does not belong to this account");
         }
+        // Consume the token BEFORE writing anything. Removing it after saveAll left a window the
+        // width of the whole import in which a second execute on the same preview (a double click,
+        // request the client retried after a timeout) passed the checks above too and saved every
+        // row a second time: duplicated transactions, a cost basis and a realized P&L off by exactly
+        // one import, and nothing to flag it. consume is atomic, so of two callers racing on one
+        // token exactly one gets past this line.
+        if (!cache.consume(req.fileToken(), entry)) {
+            throw new IllegalArgumentException(PREVIEW_EXPIRED);
+        }
 
+        // If this attempt does not reach the database, the preview goes back into the cache so
+        // the user can retry without a new upload. saveAll may only queue the rows: the INSERTs
+        // run at flush, on commit, after this method has returned, so a failure there never
+        // passes through a catch block here. Hooking the transaction's completion covers it.
+        boolean transactional = TransactionSynchronizationManager.isSynchronizationActive();
+        if (transactional) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status == STATUS_COMMITTED) {
+                        cache.complete(req.fileToken(), entry);
+                    } else if (status == STATUS_ROLLED_BACK) {
+                        cache.restore(req.fileToken(), entry);
+                    }
+                }
+            });
+        }
+        try {
+            TransactionImportResultResponse result = importRows(account, cached, req);
+            if (!transactional) {
+                cache.complete(req.fileToken(), entry);
+            }
+            return result;
+        } catch (RuntimeException ex) {
+            // No live transaction to hook (the bean called directly, as in the unit tests): hand
+            // the preview back here. With one, the synchronization above does it once the
+            // rollback has actually completed.
+            if (!transactional) {
+                cache.restore(req.fileToken(), entry);
+            }
+            throw ex;
+        }
+    }
+
+    private TransactionImportResultResponse importRows(Account account, CachedCsv cached, TransactionImportRequest req) {
         CsvDialect dialect = toDialect(req.dialect());
         List<List<String>> rows = CsvReader.parse(cached.content(), dialect.delimiter());
         List<List<String>> dataRows = req.hasHeaderRow() && !rows.isEmpty() ? rows.subList(1, rows.size()) : rows;
@@ -126,9 +181,8 @@ public class TransactionImportService {
             transactionRepository.saveAll(toSave);
             holdingComputeService.recomputeHoldings(account);
         }
-        cache.remove(req.fileToken());
 
-        log.info("CSV import for account {}: {} imported, {} skipped", accountId, toSave.size(), errors.size());
+        log.info("CSV import for account {}: {} imported, {} skipped", account.getId(), toSave.size(), errors.size());
         return new TransactionImportResultResponse(toSave.size(), errors.size(), errors);
     }
 
@@ -141,12 +195,23 @@ public class TransactionImportService {
             throw new IllegalArgumentException(
                 "CSV transaction import is only available for investment accounts (PEA, CTO, crypto)");
         }
+        if (!account.isManual()) {
+            throw new IllegalArgumentException(
+                "CSV transaction import is only available for manual investment accounts");
+        }
         return account;
     }
 
     private String readContent(MultipartFile file) {
         try {
-            String content = new String(file.getBytes(), StandardCharsets.UTF_8);
+            if (file.getSize() > MAX_CSV_BYTES) {
+                throw new IllegalArgumentException("The file exceeds the 10 MiB limit");
+            }
+            byte[] bytes = file.getBytes();
+            if (bytes.length > MAX_CSV_BYTES) {
+                throw new IllegalArgumentException("The file exceeds the 10 MiB limit");
+            }
+            String content = new String(bytes, StandardCharsets.UTF_8);
             if (content.isBlank()) {
                 throw new IllegalArgumentException("The file is empty");
             }
@@ -154,7 +219,7 @@ public class TransactionImportService {
         } catch (IOException ex) {
             // The 400 stays deliberately vague; the cause is what tells an operator whether the
             // upload was truncated or the temp store is broken.
-            log.warn("Could not read uploaded transaction file '{}'", file.getOriginalFilename(), ex);
+            log.warn("Could not read uploaded transaction file '{}'", LogSanitizer.safe(file.getOriginalFilename()), ex);
             throw new IllegalArgumentException("Could not read the uploaded file", ex);
         }
     }
@@ -246,10 +311,9 @@ public class TransactionImportService {
         return new ColumnMappingDto(date, side, ticker, name, quantity, unitPrice, fees, currency, amount);
     }
 
-    /** Evicts cached uploads older than 30 minutes (copy of the Finary importer's TTL sweep). */
+    /** Evicts cached uploads older than 30 minutes. */
     @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
     void cleanupExpiredCache() {
-        Instant cutoff = Instant.now().minusSeconds(1800);
-        cache.entrySet().removeIf(e -> e.getValue().parsedAt().isBefore(cutoff));
+        cache.purgeExpired();
     }
 }

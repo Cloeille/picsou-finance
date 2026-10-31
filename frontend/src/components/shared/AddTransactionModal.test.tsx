@@ -45,7 +45,8 @@ describe('AddTransactionModal fees', () => {
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce())
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
-      txType: 'BUY', quantity: 10, pricePerUnit: 100, fees: 5, amount: -1005,
+      txType: 'BUY', ticker: 'AAPL', description: 'AAPL',
+      quantity: 10, pricePerUnit: 100, fees: 5, amount: -1005,
     }))
   })
 
@@ -58,6 +59,8 @@ describe('AddTransactionModal fees', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common.create' }))
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce())
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ txType: 'SELL', amount: 995, fees: 5 }))
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      txType: 'SELL', ticker: 'AAPL', description: 'AAPL', amount: 995, fees: 5,
+    }))
   })
 })

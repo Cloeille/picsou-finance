@@ -111,6 +111,8 @@ BalanceSnapshot persisted  →  historical balance chart steps down monthly
 
 ## Gotchas / Pitfalls
 
+- **A computed monthly payment includes the insurance.** `monthlyPayment` is the whole installment; the schedule subtracts `insuranceMonthly` from it before amortising. A user-entered payment already includes the insurance, a computed annuity does not, so `LoanAmortizationService` adds it when it computes the payment itself. Before that, every installment under-amortised the capital by the insurance and the last installment absorbed the shortfall.
+- **A `Debt` without a start and an end date has no schedule.** `computeRemainingBalance` then answers the borrowed amount, not what is owed, so `AccountService.valuation` and `RealEstateSummaryService` check `LoanAmortizationService.hasSchedule` first and fall back to the balance stored on the loan account.
 - **The last installment absorbs the rounding residue.** With BigDecimal precision and scale 2,
   240 monthly capitals do not sum exactly to the borrowed amount; the service forces the
   last installment to bring `remainingBalance` to zero.

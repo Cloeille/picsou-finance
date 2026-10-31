@@ -137,4 +137,35 @@ class TransactionRepositoryTest {
             .containsExactly(1L);
         assertThat(transactionRepository.findManualAccountIdsByTickerIn(List.of("MWRD.PA"))).isEmpty();
     }
+
+    // ─── File re-import lookups ─────────────────────────────────────────────────
+    // Rows of a soft-deleted account are gone for the user, so a re-import must not see them:
+    // they would block it or count as already imported.
+
+    private void imported(long accountId, String externalId) {
+        transactionRepository.save(Transaction.builder()
+            .account(testEntityManager.getEntityManager().getReference(Account.class, accountId))
+            .date(LocalDate.of(2026, 7, 1))
+            .description(externalId)
+            .amount(BigDecimal.ONE)
+            .nativeCurrency("EUR")
+            .externalId(externalId)
+            .isManual(true)
+            .build());
+    }
+
+    @Test
+    void importLookupsIgnoreRowsOfASoftDeletedAccount() {
+        imported(1L, "actual_live");
+        imported(3L, "actual_deleted");
+        testEntityManager.flush();
+        testEntityManager.clear();
+
+        assertThat(transactionRepository.findStoredExternalIds(1L, List.of("actual_live", "actual_deleted")))
+            .extracting(TransactionRepository.StoredExternalId::getExternalId)
+            .containsExactly("actual_live");
+        assertThat(transactionRepository.findStoredExternalIdsInAccounts(1L, List.of(1L, 3L), "actual_"))
+            .extracting(TransactionRepository.StoredExternalId::getExternalId)
+            .containsExactly("actual_live");
+    }
 }

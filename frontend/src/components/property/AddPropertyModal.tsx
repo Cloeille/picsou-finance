@@ -32,7 +32,7 @@ const CATEGORIES: PropertyCategory[] = [
 ]
 
 const selectControlClassName =
-  'flex h-10 w-full rounded-md border border-input bg-input/20 px-4 text-sm outline-none dark:bg-input/30'
+  'flex h-10 w-full rounded-md border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]'
 
 const num = (v: string): number | undefined => (v.trim() === '' ? undefined : parseAmount(v))
 

@@ -55,6 +55,7 @@ class BourseDirectSyncServiceTest {
     @Mock FamilyMemberRepository memberRepository;
     @Mock AccountService accountService;
     @Mock OpenFigiIsinConverter isinConverter;
+    @Mock SecurityIdentityService identityService;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
@@ -67,6 +68,23 @@ class BourseDirectSyncServiceTest {
     void setUp() {
         executeTransactionsImmediately();
         service = serviceWith(Runnable::run);
+    }
+
+    @Test
+    void clearSessionReportsTheSessionItDeleted() {
+        BourseDirectSession session = activeSession(member());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+
+        assertThat(service.clearSession(7L)).isTrue();
+        verify(sessionRepository).delete(session);
+    }
+
+    @Test
+    void clearSessionReportsNothingWhenNoSessionIsStored() {
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+
+        assertThat(service.clearSession(7L)).isFalse();
+        verify(sessionRepository, never()).delete(any());
     }
 
     @Test
@@ -597,6 +615,7 @@ class BourseDirectSyncServiceTest {
             memberRepository,
             accountService,
             isinConverter,
+            identityService,
             encryption,
             txTemplate,
             executor

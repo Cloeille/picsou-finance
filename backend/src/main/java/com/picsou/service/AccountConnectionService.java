@@ -45,15 +45,20 @@ public class AccountConnectionService {
     private static final String TR_PREFIX = "tr_";
     private static final String BOURSE_DIRECT_PREFIX = "bd_";
     private static final String BOURSO_PREFIX = "bourso_";
+    private static final String FORTUNEO_PREFIX = "ft_";
     private static final String IBKR_PREFIX = "ibkr_";
+    private static final String SIMPLEFIN_PREFIX = "sfin_";
     private static final String DEGIRO_EXTERNAL_ID = "degiro-portfolio";
 
     /** One connection instance. {@code discriminator} separates two of the same kind. */
     public record ConnectionRef(Kind kind, String discriminator) {}
 
-    public enum Kind { WALLET, EXCHANGE, AMUNDI, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, IBKR, DEGIRO, ENABLE_BANKING }
+    public enum Kind { WALLET, EXCHANGE, AMUNDI, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, SIMPLEFIN, DEGIRO, ENABLE_BANKING }
 
-    /** What deleting an account is about to cost, for the confirmation dialog. */
+    /**
+     * What deleting an account would cost ({@link #describeDeletion}, a prediction) or what it
+     * actually removed ({@link #deleteAccount}).
+     */
     public record DeletionImpact(boolean removesConnection, String connectionLabel) {}
 
     private final AccountRepository accountRepository;
@@ -67,9 +72,10 @@ public class AccountConnectionService {
     private final TradeRepublicSyncService tradeRepublicSyncService;
     private final BourseDirectSyncService bourseDirectSyncService;
     private final BoursoSyncService boursoSyncService;
+    private final FortuneoSyncService fortuneoSyncService;
     private final DegiroSyncService degiroSyncService;
     private final IbkrSyncService ibkrSyncService;
-    private final SyncService syncService;
+    private final SimplefinSyncService simplefinSyncService;
 
     public AccountConnectionService(
         AccountRepository accountRepository,
@@ -83,9 +89,10 @@ public class AccountConnectionService {
         TradeRepublicSyncService tradeRepublicSyncService,
         BourseDirectSyncService bourseDirectSyncService,
         BoursoSyncService boursoSyncService,
+        FortuneoSyncService fortuneoSyncService,
         DegiroSyncService degiroSyncService,
         IbkrSyncService ibkrSyncService,
-        SyncService syncService
+        SimplefinSyncService simplefinSyncService
     ) {
         this.accountRepository = accountRepository;
         this.accountService = accountService;
@@ -98,9 +105,10 @@ public class AccountConnectionService {
         this.tradeRepublicSyncService = tradeRepublicSyncService;
         this.bourseDirectSyncService = bourseDirectSyncService;
         this.boursoSyncService = boursoSyncService;
+        this.fortuneoSyncService = fortuneoSyncService;
         this.degiroSyncService = degiroSyncService;
         this.ibkrSyncService = ibkrSyncService;
-        this.syncService = syncService;
+        this.simplefinSyncService = simplefinSyncService;
     }
 
     /**
@@ -108,19 +116,33 @@ public class AccountConnectionService {
      *
      * <p>Order matters: the account is deleted first so a connector that runs concurrently
      * finds the soft-deleted row and refuses to rebuild it, rather than racing the removal.
+     *
+     * <p>The returned impact reports a removal only when a wallet row, exchange session, stored
+     * session or requisition was actually there to remove.
      */
-    public void deleteAccount(Long accountId, Long memberId) {
+    public DeletionImpact deleteAccount(Long accountId, Long memberId) {
         Account account = accountRepository.findByIdAndMemberId(accountId, memberId)
             .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
         Optional<ConnectionRef> connection = resolve(account);
 
         accountService.delete(accountId, memberId);
 
-        connection.filter(ref -> !hasOtherLiveAccount(ref, accountId, memberId))
-            .ifPresent(ref -> removeConnection(ref, memberId));
+        if (connection.isEmpty() || hasOtherLiveAccount(connection.get(), accountId, memberId)) {
+            return new DeletionImpact(false, null);
+        }
+
+        ConnectionRef ref = connection.get();
+        String connectionLabel = label(ref, account, memberId);
+        return removeConnection(ref, memberId)
+            ? new DeletionImpact(true, connectionLabel)
+            : new DeletionImpact(false, null);
     }
 
-    /** Whether deleting this account would also remove its connection, and which one. */
+    /**
+     * Preview: whether deleting this account would also remove its connection, and which one.
+     * A prediction, not a promise -- {@link #deleteAccount} reports what actually happened, which
+     * differs if a sibling account appears or the connection is already gone in between.
+     */
     @Transactional(readOnly = true)
     public DeletionImpact describeDeletion(Long accountId, Long memberId) {
         Account account = accountRepository.findByIdAndMemberId(accountId, memberId)
@@ -167,7 +189,9 @@ public class AccountConnectionService {
             if (externalId.startsWith(TR_PREFIX)) return singleton(Kind.TRADE_REPUBLIC);
             if (externalId.startsWith(BOURSE_DIRECT_PREFIX)) return singleton(Kind.BOURSE_DIRECT);
             if (externalId.startsWith(BOURSO_PREFIX)) return singleton(Kind.BOURSO);
+            if (externalId.startsWith(FORTUNEO_PREFIX)) return singleton(Kind.FORTUNEO);
             if (externalId.startsWith(IBKR_PREFIX)) return singleton(Kind.IBKR);
+            if (externalId.startsWith(SIMPLEFIN_PREFIX)) return singleton(Kind.SIMPLEFIN);
             if (externalId.equals(DEGIRO_EXTERNAL_ID)) return singleton(Kind.DEGIRO);
         }
 
@@ -192,22 +216,37 @@ public class AccountConnectionService {
             .anyMatch(other -> resolve(other).filter(ref::equals).isPresent());
     }
 
-    private void removeConnection(ConnectionRef ref, Long memberId) {
+    /** Returns whether there was anything left to remove. */
+    private boolean removeConnection(ConnectionRef ref, Long memberId) {
         log.info("Removing {} connection {} -- its last account was deleted", ref.kind(), ref.discriminator());
-        switch (ref.kind()) {
+        return switch (ref.kind()) {
             case WALLET -> walletRepository
                 .findByIdAndMemberId(Long.valueOf(ref.discriminator()), memberId)
-                .ifPresent(w -> walletSyncService.removeWallet(w.getId(), memberId));
+                .map(w -> {
+                    walletSyncService.removeWallet(w.getId(), memberId);
+                    return true;
+                })
+                .orElse(false);
             case EXCHANGE -> exchangeSession(ref, memberId)
-                .ifPresent(s -> cryptoExchangeSyncService.removeExchange(s.getId(), memberId));
+                .map(s -> {
+                    cryptoExchangeSyncService.removeExchange(s.getId(), memberId);
+                    return true;
+                })
+                .orElse(false);
             case AMUNDI -> amundiSyncService.clearSession(memberId);
             case TRADE_REPUBLIC -> tradeRepublicSyncService.clearSession(memberId);
             case BOURSE_DIRECT -> bourseDirectSyncService.clearSession(memberId);
             case BOURSO -> boursoSyncService.clearSession(memberId);
+            case FORTUNEO -> fortuneoSyncService.clearSession(memberId);
             case DEGIRO -> degiroSyncService.clearSession(memberId);
             case IBKR -> ibkrSyncService.deleteConnection(memberId);
-            case ENABLE_BANKING -> syncService.deleteRequisition(Long.valueOf(ref.discriminator()), memberId);
-        }
+            case SIMPLEFIN -> simplefinSyncService.deleteConnection(memberId);
+            // Not SyncService.deleteRequisition: it throws on a missing requisition, and one
+            // removed concurrently (DELETE /api/sync/requisitions/{id}) would roll back the
+            // account deletion with it.
+            case ENABLE_BANKING -> requisitionRepository
+                .deleteByIdAndMemberId(Long.valueOf(ref.discriminator()), memberId) > 0;
+        };
     }
 
     /** Human name for the connection, so the confirmation can say what it is about to remove. */
@@ -222,8 +261,10 @@ public class AccountConnectionService {
             case TRADE_REPUBLIC -> "Trade Republic";
             case BOURSE_DIRECT -> "Bourse Direct";
             case BOURSO -> "BoursoBank";
+            case FORTUNEO -> "Fortuneo";
             case DEGIRO -> "DEGIRO";
             case IBKR -> "Interactive Brokers";
+            case SIMPLEFIN -> "SimpleFIN";
             case ENABLE_BANKING -> requisitionRepository
                 .findByIdAndMemberId(Long.valueOf(ref.discriminator()), memberId)
                 .map(r -> r.getInstitutionName())

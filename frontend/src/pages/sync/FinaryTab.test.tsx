@@ -3,8 +3,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
-import { formatCurrency, localeFromLanguage } from '@/lib/utils'
+import { makeMoneyFormatter } from '@/lib/money'
+import { localeFromLanguage } from '@/lib/utils'
 import type { FinaryAccountMapping, FinaryPreviewResponse } from '@/types/api'
+
+const enMoney = makeMoneyFormatter({ hidden: false, locale: localeFromLanguage('en') })
 
 const { apiGet, apiPost, apiDelete } = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -141,10 +144,10 @@ describe('FinaryTab', () => {
     await submitTotp()
 
     expect(
-      await screen.findByText(formatCurrency(1234.5, 'USD', localeFromLanguage('en'))),
+      await screen.findByText(enMoney.amount(1234.5, 'USD')),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText(formatCurrency(1234.5, 'EUR', localeFromLanguage('en'))),
+      screen.queryByText(enMoney.amount(1234.5, 'EUR')),
     ).not.toBeInTheDocument()
   })
 

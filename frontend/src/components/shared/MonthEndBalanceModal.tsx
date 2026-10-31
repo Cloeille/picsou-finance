@@ -42,9 +42,11 @@ interface MonthEndBalanceModalProps {
   onClose: () => void
   accountId: number
   history: BalanceSnapshot[] | undefined
+  /** A card's debt is stored negative; the user reads and types the positive amount owed. */
+  amountOwed?: boolean
 }
 
-export function MonthEndBalanceModal({ open, onClose, accountId, history }: MonthEndBalanceModalProps) {
+export function MonthEndBalanceModal({ open, onClose, accountId, history, amountOwed = false }: MonthEndBalanceModalProps) {
   const { t } = useTranslation()
 
   return (
@@ -52,6 +54,7 @@ export function MonthEndBalanceModal({ open, onClose, accountId, history }: Mont
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('accounts.monthlyHistory')}</DialogTitle>
+          {amountOwed && <p className="text-sm text-muted-foreground">{t('accounts.currentDebt')}</p>}
         </DialogHeader>
         {/* Mount the form only while open so its inputs seed from `history`
             via lazy initializers — no seed-on-open effect needed. */}
@@ -60,6 +63,7 @@ export function MonthEndBalanceModal({ open, onClose, accountId, history }: Mont
             key={accountId}
             accountId={accountId}
             history={history}
+            amountOwed={amountOwed}
             onClose={onClose}
           />
         )}
@@ -71,10 +75,11 @@ export function MonthEndBalanceModal({ open, onClose, accountId, history }: Mont
 interface MonthEndFormProps {
   accountId: number
   history: BalanceSnapshot[] | undefined
+  amountOwed: boolean
   onClose: () => void
 }
 
-function MonthEndForm({ accountId, history, onClose }: MonthEndFormProps) {
+function MonthEndForm({ accountId, history, amountOwed, onClose }: MonthEndFormProps) {
   const { t, i18n } = useTranslation()
   const addSnapshot = useAddSnapshot()
 
@@ -84,7 +89,7 @@ function MonthEndForm({ accountId, history, onClose }: MonthEndFormProps) {
     const initial: Record<string, string> = {}
     months.forEach(({ key, year, month }) => {
       const snap = snapshotForMonth(history, year, month)
-      if (snap) initial[key] = String(snap.balance)
+      if (snap) initial[key] = String(amountOwed ? Math.abs(snap.balance) : snap.balance)
     })
     return initial
   })

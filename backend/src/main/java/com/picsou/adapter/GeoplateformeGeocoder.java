@@ -2,6 +2,7 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.picsou.port.GeocodingPort;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -140,12 +141,12 @@ public class GeoplateformeGeocoder implements GeocodingPort {
     private void logFailure(String query, RuntimeException ex) {
         Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
         if (cause instanceof WebClientResponseException http) {
-            log.warn("Geocoding failed for '{}': HTTP {} {}", query,
-                http.getStatusCode().value(), http.getStatusText());
+            log.warn("Geocoding failed for '{}': HTTP {} {}", LogSanitizer.safe(query),
+                http.getStatusCode().value(), LogSanitizer.safe(http.getStatusText()));
         } else if (cause instanceof WebClientRequestException || cause instanceof java.util.concurrent.TimeoutException) {
-            log.warn("Geocoding unreachable for '{}' (timeout {}s)", query, TIMEOUT.toSeconds());
+            log.warn("Geocoding unreachable for '{}' (timeout {}s)", LogSanitizer.safe(query), TIMEOUT.toSeconds());
         } else {
-            log.warn("Geocoding failed for '{}'", query, ex);
+            log.warn("Geocoding failed for '{}'", LogSanitizer.safe(query), ex);
         }
     }
 
