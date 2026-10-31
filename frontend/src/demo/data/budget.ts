@@ -90,7 +90,7 @@ export const mockRules: CategorizationRule[] = [
 
 // ── To-categorize inbox ───────────────────────────────────────────────────────
 
-export const mockUncategorized: UncategorizedTransaction[] = [
+export let mockUncategorized: UncategorizedTransaction[] = [
   {
     id: 9001, date: daysAgoWithin(2, CYCLE_FROM), description: 'AMAZON EU SARL', amount: -42.9, type: null,
     category: null, nativeCurrency: 'EUR', createdAt: daysAgoWithin(2, CYCLE_FROM), isManual: false,
@@ -451,7 +451,7 @@ const inboxTransactions = mockUncategorized.map((tx): Transaction => ({
 }))
 
 /** Every transaction since January, newest first: one cycle per month, the current one up to today. */
-export const mockLedger: Transaction[] = Array.from({ length: NOW.getMonth() + 1 }, (_, cycle) => {
+export let mockLedger: Transaction[] = Array.from({ length: NOW.getMonth() + 1 }, (_, cycle) => {
   const from = isoDate(new Date(NOW.getFullYear(), NOW.getMonth() - cycle, 1))
   const to = cycle === 0 ? NOW : new Date(NOW.getFullYear(), NOW.getMonth() - cycle + 1, 0)
   return [
@@ -459,6 +459,23 @@ export const mockLedger: Transaction[] = Array.from({ length: NOW.getMonth() + 1
     ...SPEND_BASE.flatMap((s) => leafTransactions(s.cat, s.amount, cycle, from, to)),
   ]
 }).flat().concat(inboxTransactions).sort((a, b) => b.date.localeCompare(a.date))
+
+const categoryById = (id: number | null | undefined): Category | undefined =>
+  id == null ? undefined : mockCategories.find((c) => c.id === id)
+
+/**
+ * Files a transaction under a category as `PUT /transactions/{id}/category` does: the ledger row
+ * takes the category and leaves the review inbox, so every view that reads the ledger follows.
+ * Both lists are rebuilt, never edited, so a refetch hands the query cache new data. An unknown
+ * transaction or category changes nothing and returns false.
+ */
+export function categorizeDemoTransaction(id: number, categoryId: number): boolean {
+  const category = categoryById(categoryId)
+  if (!category || !mockLedger.some((tx) => tx.id === id)) return false
+  mockLedger = mockLedger.map((tx) => (tx.id === id ? { ...tx, category: category.name, categoryId: category.id } : tx))
+  mockUncategorized = mockUncategorized.filter((tx) => tx.id !== id)
+  return true
+}
 
 function ledgerIn(period: CashflowPeriod): Transaction[] {
   const { from, to } = periodRange(period)
@@ -528,41 +545,29 @@ export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
 
 export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCategoryResponse {
   const { from, to } = periodRange(period)
-  const expenses = ledgerIn(period).filter((tx) => tx.amount < 0)
-  const spent = (categoryId: number | null) => {
-    const txns = expenses.filter((tx) => (tx.categoryId ?? null) === categoryId)
-    return { amount: r2(txns.reduce((acc, tx) => acc - tx.amount, 0)), count: txns.length }
-  }
+  // As `CashflowFlowService.spendingByCategory`: every expense outside the TRANSFER categories,
+  // one row per category it is filed under (none for a category with no spend).
+  const expenses = ledgerIn(period).filter((tx) => tx.amount < 0 && categoryById(tx.categoryId)?.kind !== 'TRANSFER')
 
-  const rows = [
-    ...SPEND_BASE.map((s) => {
-      // Leaf rows carry their parent's identity so the client can fold them under a group
-      // header — the aggregation itself stays strictly leaf-scoped (no double-counting).
-      const parent = s.cat.parentId != null ? mockCategories.find((c) => c.id === s.cat.parentId) : null
-      return {
-        categoryId: s.cat.id as number | null,
-        slug: null,
-        name: s.cat.name as string | null,
-        color: s.cat.color,
-        icon: null,
-        ...spent(s.cat.id),
-        parentId: parent?.id ?? null,
-        parentName: parent?.name ?? null,
-        parentColor: parent?.color ?? null,
-      }
-    }),
-    {
-      categoryId: null,
+  const rows = [...new Set(expenses.map((tx) => tx.categoryId ?? null))].map((categoryId) => {
+    const txns = expenses.filter((tx) => (tx.categoryId ?? null) === categoryId)
+    const cat = categoryById(categoryId)
+    // Leaf rows carry their parent's identity so the client can fold them under a group
+    // header — the aggregation itself stays strictly leaf-scoped (no double-counting).
+    const parent = categoryById(cat?.parentId)
+    return {
+      categoryId,
       slug: null,
-      name: null,
-      color: null,
-      icon: null,
-      ...spent(null),
-      parentId: null,
-      parentName: null,
-      parentColor: null,
-    },
-  ]
+      name: cat?.name ?? null,
+      color: cat?.color ?? null,
+      icon: cat?.icon ?? null,
+      amount: r2(txns.reduce((acc, tx) => acc - tx.amount, 0)),
+      count: txns.length,
+      parentId: parent?.id ?? null,
+      parentName: parent?.name ?? null,
+      parentColor: parent?.color ?? null,
+    }
+  })
   const totalExpense = r2(rows.reduce((acc, r) => acc + r.amount, 0))
   const categories: CategorySpend[] = rows
     .map((r) => ({ ...r, share: totalExpense > 0 ? Math.round((r.amount / totalExpense) * 1e4) / 1e4 : 0 }))
@@ -573,36 +578,26 @@ export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCatego
 
 export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): SpendingDetailResponse {
   const { from, to } = periodRange(period)
-  const cat = mockCategories.find((c) => c.id === categoryId)
+  const cat = categoryById(categoryId)
   const ledger = ledgerIn(period)
-  const filedUnder = (leafId: number) => ledger.filter((tx) => tx.categoryId === leafId)
 
-  // A parent drill rolls up its (non-archived) children: the transaction list is the union of the
-  // children's leaves, and `children` carries each child's signed subtotal + count. A leaf returns
-  // its own transactions with an empty `children` — mirroring CashflowFlowService.categoryDetail.
+  // A drill spans the category's subtree, as CashflowFlowService.categoryDetail does: the rows
+  // filed under it plus every (non-archived) child's, newest first as the ledger is. `children`
+  // carries each child's signed subtotal + count, and is empty for a leaf.
   const childCats = mockCategories.filter((c) => c.parentId === categoryId && !c.archived)
-
-  let transactions: Transaction[]
-  let children: ChildSpend[]
-  if (childCats.length > 0) {
-    children = childCats.map((child) => {
-      const txns = filedUnder(child.id)
-      return {
-        categoryId: child.id,
-        name: child.name,
-        color: child.color,
-        icon: child.icon,
-        total: r2(txns.reduce((acc, t) => acc + t.amount, 0)),
-        count: txns.length,
-      }
-    })
-    transactions = childCats
-      .flatMap((child) => filedUnder(child.id))
-      .sort((a, b) => b.date.localeCompare(a.date)) // newest first across the whole subtree
-  } else {
-    transactions = cat ? filedUnder(cat.id) : []
-    children = []
-  }
+  const subtree = new Set([categoryId, ...childCats.map((c) => c.id)])
+  const transactions = ledger.filter((tx) => tx.categoryId != null && subtree.has(tx.categoryId))
+  const children: ChildSpend[] = childCats.map((child) => {
+    const txns = ledger.filter((tx) => tx.categoryId === child.id)
+    return {
+      categoryId: child.id,
+      name: child.name,
+      color: child.color,
+      icon: child.icon,
+      total: r2(txns.reduce((acc, t) => acc + t.amount, 0)),
+      count: txns.length,
+    }
+  })
 
   const total = r2(transactions.reduce((acc, t) => acc + t.amount, 0))
 

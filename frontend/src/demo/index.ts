@@ -17,6 +17,7 @@ import { ageFromBirthDate, mockMemberProfile, netIncome } from './data/profile'
 import { mockTransactions } from './data/transactions'
 import { mockExchangeStatuses, mockWalletStatuses, mockRequisitions } from './data/sync-status'
 import {
+  categorizeDemoTransaction,
   mockActivity,
   mockAllocation,
   mockBudgetSettings,
@@ -33,7 +34,7 @@ import {
   mockUncategorized,
 } from './data/budget'
 import { mockUpcomingDividends } from './data/dividends'
-import type { CashflowPeriod, DebtInfo, LoanScheduleResponse } from '@/types/api'
+import type { CashflowPeriod, CategorizeRequest, DebtInfo, LoanScheduleResponse } from '@/types/api'
 
 function randomDelay(): number {
   return 200 + Math.random() * 400
@@ -1373,7 +1374,8 @@ handlers.set(key('POST', '/finary/api-sync/execute'), () => ({
 
 // ── Budget module ─────────────────────────────────────────────────────────────
 // Read endpoints serve the mock fixtures; mutations echo a plausible object so the
-// optimistic UI flows. Demo state is not persisted — refetches return the fixtures.
+// optimistic UI flows. Demo state is not persisted — refetches return the fixtures — except
+// categorizing a transaction, which edits the ledger the Spending pages and the inbox read.
 
 // Categories
 handlers.set(key('GET', '/categories'), () => mockCategories)
@@ -1414,7 +1416,13 @@ handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categor
 
 // To-categorize inbox
 handlers.set(key('GET', '/transactions/uncategorized'), () => mockUncategorized)
-handlers.set(key('PUT', '/transactions/:id/category'), () => ({}))
+// The real endpoint answers 204, or 404 for an unknown transaction or category; the adapter has
+// no error path, so an unknown id or category changes nothing and still answers {}.
+handlers.set(key('PUT', '/transactions/:id/category'), (config, params) => {
+  const { categoryId } = JSON.parse(config.data || '{}') as CategorizeRequest
+  categorizeDemoTransaction(Number(params.id), categoryId)
+  return {}
+})
 
 // The budget ledger on the main checking account: the rows the Spending pages and the review
 // inbox summarize, so a search over any period lists what they count.

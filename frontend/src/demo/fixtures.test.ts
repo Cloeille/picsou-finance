@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { FamilyDashboard } from '@/features/family/api'
 import type {
   Account, AllocationResponse, BudgetSettings, DashboardData, GoalMonthEntry, GoalProgress, ScpiPositionRequest,
+  SpendingByCategoryResponse, Transaction, UncategorizedTransaction,
 } from '@/types/api'
 
 // East of UTC, where a local-midnight date run through toISOString() slips to the day before.
@@ -166,5 +167,70 @@ describe('demo fixtures', () => {
   it('signs the visitor in as the demo admin', async () => {
     const response = await adapter({ method: 'POST', url: '/auth/refresh', headers: new AxiosHeaders() })
     expect(response.data).toMatchObject({ username: 'demo', role: 'ADMIN', memberId: 1, displayName: 'Demo' })
+  })
+
+  // Categorizing edits the shared ledger and cannot be undone through the API, so these run last;
+  // no test above reads the ledger.
+  describe('categorizing an inbox row', () => {
+    const RESTAURANTS = 7
+    const TAXES = 12 // no demo spend until a row is filed under it
+    const SAVINGS_TRANSFER = 8
+    const categorize = (id: number, categoryId: number) => adapter({
+      method: 'PUT', url: `/transactions/${id}/category`, headers: new AxiosHeaders(),
+      data: JSON.stringify({ categoryId, createRule: false }),
+    })
+    const inbox = () => get<UncategorizedTransaction[]>('/transactions/uncategorized')
+    const spending = () => get<SpendingByCategoryResponse>('/spending/by-category', { period: 'CYCLE' })
+    const row = (s: SpendingByCategoryResponse, categoryId: number | null) =>
+      s.categories.find((c) => c.categoryId === categoryId)
+
+    it('leaves the inbox and the ledger alone for an unknown transaction or category', async () => {
+      const inboxBefore = await inbox()
+      const ledgerBefore = await get<Transaction[]>('/transactions')
+      await categorize(inboxBefore[0].id, 9999)
+      await categorize(9999, RESTAURANTS)
+      expect(await inbox()).toEqual(inboxBefore)
+      expect(await get<Transaction[]>('/transactions')).toEqual(ledgerBefore)
+    })
+
+    it('moves the row from the inbox to its category in the ledger and the spending', async () => {
+      const [first] = await inbox()
+      const spendingBefore = await spending()
+      const uncategorizedBefore = row(spendingBefore, null)!
+      const restaurantsBefore = row(spendingBefore, RESTAURANTS)!
+
+      const response = await categorize(first.id, RESTAURANTS)
+      expect(response.status).toBe(200)
+
+      expect((await inbox()).map((tx) => tx.id)).not.toContain(first.id)
+      const ledger = await get<Transaction[]>('/transactions', { from: first.date, to: first.date })
+      expect(ledger.find((tx) => tx.id === first.id)).toMatchObject({ categoryId: RESTAURANTS, category: 'Restaurants' })
+
+      // The expense changes row, not total: it is counted once, under its new category.
+      const after = await spending()
+      expect(after.totalExpense).toBe(spendingBefore.totalExpense)
+      expect(row(after, RESTAURANTS)).toMatchObject({
+        count: restaurantsBefore.count + 1, amount: Math.round((restaurantsBefore.amount - first.amount) * 100) / 100,
+      })
+      expect(row(after, null)?.count ?? 0).toBe(uncategorizedBefore.count - 1)
+      const drill = await get<{ transactions: Transaction[] }>(`/spending/category/${RESTAURANTS}`, { period: 'CYCLE' })
+      expect(drill.transactions.map((tx) => tx.id)).toContain(first.id)
+    })
+
+    it('adds a spending row for a category that had no spend', async () => {
+      const [next] = await inbox()
+      expect(row(await spending(), TAXES)).toBeUndefined()
+      await categorize(next.id, TAXES)
+      expect(row(await spending(), TAXES)).toMatchObject({ count: 1, amount: -next.amount })
+    })
+
+    it('keeps a row filed under a transfer category out of the spending, as the backend does', async () => {
+      const [next] = await inbox()
+      const before = await spending()
+      await categorize(next.id, SAVINGS_TRANSFER)
+      const after = await spending()
+      expect(after.totalExpense).toBe(Math.round((before.totalExpense + next.amount) * 100) / 100)
+      expect(row(after, SAVINGS_TRANSFER)).toBeUndefined()
+    })
   })
 })
