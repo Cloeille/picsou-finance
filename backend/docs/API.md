@@ -2032,6 +2032,58 @@ account.
 
 ---
 
+### 16c. Dividends — `/api/dividends`
+
+Read-only. Both endpoints read the stored dividend history (`dividend_source`, `dividend_event`),
+never Yahoo or Nasdaq, and are scoped to the accounts the member can read. See
+[Dividend forecast](../../docs/features/dividend-forecast.md).
+
+#### `GET /api/dividends/upcoming?horizonDays=60[&accountId=12]`
+
+- **Auth:** Required
+- `horizonDays` defaults to 60, clamped to 1..366. `accountId`, when set, keeps that account
+  only; an account the member cannot read is `404`, not an empty list.
+
+**Response `200` — `UpcomingDividendResponse[]`:** `id` (`HOLDING:accountId:ticker:exDate` or
+`SCPI:...`), `source`, `accountId`, `accountName`, `ticker`, `name`, `expectedDate`, `cadence`,
+`basis`, `quantity`, `amountPerShare`, `currency`, `amountEur` (weighted by the member's share),
+`reinvested`, `accountType`, `countsInBudget`, `exDate`, `paymentDate`, `paymentDateEstimated`,
+`amountPerShareEur`.
+
+#### `GET /api/dividends/received?days=30`
+
+- **Auth:** Required
+- `days` defaults to 30, clamped to 1..366.
+
+**Response `200` — `ReceivedDividendResponse[]`, newest first:**
+```json
+[{
+  "id": "HOLDING:21:TTE.PA:2026-10-01",
+  "transactionId": 1,
+  "accountId": 21,
+  "accountName": "TR PEA",
+  "accountType": "PEA",
+  "ticker": "TTE.PA",
+  "name": "TotalEnergies",
+  "receivedDate": "2026-10-10",
+  "amount": 59.50,
+  "currency": "EUR",
+  "exDate": "2026-10-01",
+  "amountPerShare": 0.85,
+  "countsInBudget": false
+}]
+```
+
+`id` matches the forecast line it fulfils; with no known ex-date it is
+`HOLDING:accountId:ticker:tx<transactionId>` and `exDate`/`amountPerShare` are null. A `DIVIDEND`
+row with no ticker is listed on the credited account with `ticker` null and the id
+`HOLDING:accountId::tx<transactionId>`. `accountId`
+is the account holding the line (a Trade Republic cash dividend reports the PEA); with no readable
+holder of that ticker, or several of the same provider, it stays the credited account. `amount` is
+the credit as booked, not weighted by the member's share.
+
+---
+
 ### 17. Member profile — `/api/me/profile`
 
 The authenticated member's personal and fiscal context: age, marginal tax rate, household,

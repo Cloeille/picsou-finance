@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Shared browser service for the desktop app (draft, not used by Docker).** A new
+  `browser-service` owns the only Chromium binary and starts one fresh Chromium process
+  per login or sync, wiped when it ends. It rebuilds, outside Docker, what Docker already
+  gives a Compose install: one copy of Chromium on disk and one owner for every browser
+  process. It runs on the same pins and Chromium as the shared sidecar base. The Docker
+  install does not start it and no sidecar uses it there. Groundwork
+  for the desktop app (#235). See [ADR](docs/decisions/2026-10-18-shared-browser-service.md) and
+  [feature note](docs/features/browser-service.md).
+
+- **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
+  Picsou matches it to the dividend history it already holds, marks it as a dividend and files
+  it under capital income. `GET /api/dividends/received` lists them, with the same id as the
+  forecast line they fulfil, including a dividend you entered by hand without a ticker. A
+  deposit that merely has a similar amount, or shares one word with a holding's name, is left
+  alone, and so is a category you picked yourself, including one chosen when adding or editing
+  a transaction by hand. Fortuneo and BoursoBank dividends are recognised as soon as their sync
+  finishes, a later Fortuneo or Finary sync keeps the dividends it already recognised, and
+  London lines quoted in pence are matched in pounds. When Fortuneo later reports the row as
+  something other than a dividend, it leaves capital income.
+
 - **Instance-status alert for admins.** An admin sees a pop-up when a sidecar the household
   uses does not answer, or still runs an image from before the shared base images (typically
   a build that failed because `sidecar-python` or `sidecar-chromium` was missing), with the
@@ -208,6 +228,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gain new transactions. Loan accounts can't receive an Actual import.
 
 ### Fixed
+
+- **American Express no longer stores a second copy of a charge AMEX re-describes.** A
+  charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
+  `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its
+  category, so budgets counted it twice. The stored row now takes the new label and keeps its
+  category; two identical purchases on the same day stay two rows. A relabelled charge is
+  matched only when it is the one purchase stored and the one reported for its date and amount,
+  so no charge takes another's category or recurring series. Copies stored before the
+  fix are not removed automatically, since nothing tells them from a genuine second purchase;
+  delete them by hand (#245).
+- **BoursoBank sync no longer fails when the dashboard lists children's accounts.** A holder
+  who manages a minor's accounts gets a "Comptes de mes enfants" panel, which the connector
+  did not know: its cards failed the completeness check and the whole sync stopped with
+  `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
+  like loans and insurance, since they belong to the child.
+- **Account edit and delete buttons on touch screens.** On the Accounts page these buttons
+  only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
+  the card's corner could still hit delete). They now stay visible on touch screens and when
+  keyboard focus is inside the card.
 
 - **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in

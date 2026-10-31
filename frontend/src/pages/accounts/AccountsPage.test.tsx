@@ -205,3 +205,24 @@ describe('AccountsPage — Immobilier gain / loss', () => {
     expect(chartData[0]).not.toHaveProperty('1')
   })
 })
+
+describe('AccountsPage — card actions on touch screens', () => {
+  beforeEach(() => {
+    useAccounts.mockReset()
+    useHistory.mockReset()
+  })
+
+  it('keeps the edit and delete buttons visible without hover', () => {
+    // A touch screen has no hover: the buttons must not depend on it alone.
+    const accounts = [investmentAccount(1, 'PEA', 1000)]
+    useAccounts.mockReturnValue({ data: accounts, isLoading: false })
+    useHistory.mockReturnValue({ data: history(accounts), isLoading: false })
+
+    render(<AccountsPage />)
+
+    for (const name of ['common.edit', 'common.delete']) {
+      const actions = screen.getByRole('button', { name }).parentElement
+      expect(actions).toHaveClass('pointer-coarse:opacity-100', 'group-focus-within:opacity-100')
+    }
+  })
+})

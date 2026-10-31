@@ -3,6 +3,7 @@ package com.picsou.finary;
 import com.picsou.model.*;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.DividendReceiptService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -126,6 +127,9 @@ public class FinaryPersistenceHelper {
      */
     public int importTransactions(Account account, ParsedFinaryAccount finaryAcc,
                                   List<ParsedFinaryTransaction> allTransactions) {
+        // The recreated rows come back untyped, and classification only revisits recent ones.
+        DividendReceiptService.Recognitions recognised = DividendReceiptService.Recognitions.of(
+            transactionRepository.findByAccountIdAndIsManualFalse(account.getId()));
         // Delete existing transactions for this account
         transactionRepository.deleteByAccountIdAndIsManualFalse(account.getId());
 
@@ -148,6 +152,7 @@ public class FinaryPersistenceHelper {
                 .nativeCurrency(tx.currency())
                 .build())
             .collect(Collectors.toList());
+        toInsert.forEach(recognised::restoreOn);
 
         transactionRepository.saveAll(toInsert);
         return toInsert.size();

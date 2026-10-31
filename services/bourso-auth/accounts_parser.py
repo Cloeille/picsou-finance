@@ -4,7 +4,7 @@ Three upstream shapes are parsed here:
 
 * the account summary at `/dashboard/liste-comptes`, which is HTML grouped into
   `data-summary-bank` / `-savings` / `-trading` / `-loan` / `-insurance` /
-  `-assurance` sections;
+  `-assurance` / `-child` sections;
 * the trading board's `accounts/summary/{id}` JSON, which carries the cash, the
   portfolio valuation, the account total and every open position;
 * the identity selector at `/connexion/lister-identites`, which BoursoBank puts
@@ -44,14 +44,17 @@ MAX_ACCOUNTS = 60
 OWN_BANK_LABELS = {"BOURSOBANK", "BOURSORAMA", "BOURSORAMA BANQUE"}
 
 # `</ul>` for savings, `</div>` for the rest -- BoursoBank's own markup, mirrored
-# from the reference implementation. Loans and insurance are parsed so they can
-# be counted and skipped explicitly rather than silently missed.
+# from the reference implementation. Loans, insurance and children's accounts are
+# parsed so they can be counted and skipped explicitly rather than silently missed.
 SECTION_PATTERNS = {
     "banking": re.compile(r"data-summary-bank>(.*?)</div>", re.DOTALL),
     "savings": re.compile(r"data-summary-savings>(.*?)</ul>", re.DOTALL),
     "trading": re.compile(r"data-summary-trading>(.*?)</div>", re.DOTALL),
     "loans": re.compile(r"data-summary-loan>(.*?)</div>", re.DOTALL),
     "insurance": re.compile(r"data-summary-(?:insurance|assurance)>(.*?)</div>", re.DOTALL),
+    # "Comptes de mes enfants": accounts the holder manages for a minor. They
+    # belong to the child, not to the holder's net worth.
+    "children": re.compile(r"data-summary-child>(.*?)</div>", re.DOTALL),
 }
 
 _ACCOUNT_RE = re.compile(
@@ -286,9 +289,11 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
                     continue
                 accounted_ids.add(account_id)
 
-                # Loans and insurance are out of scope but still have to be
-                # *seen*, or the completeness check below would read them as
-                # parse failures.
+                # Loans, insurance and children's accounts are out of scope but
+                # still have to be *seen*, or the completeness check below would
+                # read them as parse failures.
+                if section == "children":
+                    continue
                 if section == "loans":
                     continue
                 if section == "insurance":

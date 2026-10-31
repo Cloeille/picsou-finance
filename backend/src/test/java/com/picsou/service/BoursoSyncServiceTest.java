@@ -65,6 +65,7 @@ class BoursoSyncServiceTest {
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
+    @Mock DividendReceiptService dividendReceiptService;
     @Captor ArgumentCaptor<Account> accountCaptor;
     @Captor ArgumentCaptor<List<AccountHolding>> holdingsCaptor;
 
@@ -354,6 +355,19 @@ class BoursoSyncServiceTest {
 
         assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
+        verify(dividendReceiptService, never()).classifyRecent(any(), any());
+    }
+
+    @Test
+    void aCommittedJobClassifiesDividendsOnceItsImportIsStored() {
+        // A member sync returns QUEUED before this job imports anything: only the job can
+        // classify a dividend it brings in.
+        arrangeCommittableSync(peaAccount());
+
+        BoursoSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(BoursoSyncStatus.SUCCESS);
+        verify(dividendReceiptService).classifyRecent(7L, LocalDate.now());
     }
 
     @Test
@@ -708,7 +722,8 @@ class BoursoSyncServiceTest {
             identityService,
             encryption,
             txTemplate,
-            executor
+            executor,
+            new ReceivedDividendClassifier(dividendReceiptService)
         );
     }
 
