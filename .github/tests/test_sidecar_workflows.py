@@ -257,7 +257,16 @@ class CiJobSelectionTest(unittest.TestCase):
             "docker/entrypoint.sh": {"backend", "docker-entrypoint", "release-deployment"},
             "docker/Dockerfile": {"docker-entrypoint", "release-deployment", "workflow-inventory"},
             "docker/docker-compose.yml": {"docker-entrypoint", "release-deployment"} | services,
-            "docker-compose.yml": {"workflow-inventory"},
+            "docker-compose.yml": {"docker-entrypoint", "workflow-inventory"},
+            "frontend/Dockerfile": {
+                "docker-entrypoint", "e2e", "frontend", "release-deployment",
+            },
+            "frontend/nginx.conf": {
+                "docker-entrypoint", "e2e", "frontend", "release-deployment",
+            },
+            "frontend/picsou-realip.conf": {
+                "docker-entrypoint", "e2e", "frontend", "release-deployment",
+            },
             "services/sofidy-auth/main.py": {"sofidy-sidecar", "backend"} | services,
             "services/tr-auth/main.py": {"tr-auth-sidecar"} | services,
             "services/amex-auth/main.py": {"amex-auth-sidecar", "camoufox-arm64-smoke"}

@@ -63,6 +63,10 @@ jobs:
             docker-entrypoint:
               - *workflows
               - 'docker/**'
+              - 'docker-compose.yml'
+              - 'frontend/Dockerfile'
+              - 'frontend/nginx.conf'
+              - 'frontend/picsou-realip.conf'
             backend:
               - *workflows
               - 'backend/**'
@@ -202,8 +206,14 @@ jobs:
           python-version: '3.12'
       - name: Check entrypoint syntax
         run: bash -n docker/entrypoint.sh
+      - name: Install Docker proxy test runner
+        run: python3 -m pip install pytest
       - name: Test secrets passed to the backend process
         run: python -m unittest discover -s docker/tests -p 'test_entrypoint.py' -v
+      - name: Test trusted proxy client address forwarding
+        run: |
+          docker info > /dev/null
+          python3 -m pytest docker/tests/test_proxy_client_ip.py -v
 
   backend:
     needs: changes

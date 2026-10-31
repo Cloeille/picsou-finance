@@ -90,22 +90,18 @@ spring:
 
 server:
   port: 8080
-  # Trust X-Forwarded-* from the local nginx so request scheme/host/port reflect the
-  # public-facing values when running behind a TLS-terminating reverse proxy. Without
-  # this, request.getScheme() stays "http" and Spring's CorsUtils.isCorsRequest() wrongly
-  # classifies genuinely same-origin HTTPS requests as cross-origin, rejecting them with
-  # 403. "framework" (Spring's ForwardedHeaderFilter) is used because the backend is only
-  # reachable through nginx — no per-IP trusted-proxy config needed — and it is a no-op
-  # when no X-Forwarded-* headers are present (dev / direct-HTTP access).
-  #
-  # Side effect: this ALSO rewrites request.getRemoteAddr() from the leftmost
-  # X-Forwarded-For entry, which nginx's proxy_add_x_forwarded_for only appends to (never
-  # replaces) — so a raw client can set that entry itself and getRemoteAddr() is no longer
-  # a trustworthy per-client identity. Never key a rate limiter (or anything else
-  # security-sensitive) on getRemoteAddr() while this is "framework"; use
-  # com.picsou.config.ClientIp#resolve(request) instead, which reads the nginx-owned
-  # X-Real-IP header — see docs/features/security-cors-cookies.md ("client IP trust").
-  forward-headers-strategy: framework
+  # Resolve forwarded addresses and the public origin only from known nginx peers.
+  # Bundled nginx connects over loopback; the split Compose stack explicitly configures
+  # its frontend peer. Do not use Tomcat's broad private-network proxy defaults.
+  # All rate limiters and audit readers share this container-resolved remote address.
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: '127\.0\.0\.1|::1|0:0:0:0:0:0:0:1'
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+      host-header: X-Forwarded-Host
+      port-header: X-Forwarded-Port
   error:
     include-stacktrace: never     # never expose stack traces to clients
     include-message: never

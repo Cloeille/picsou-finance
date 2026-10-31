@@ -32,6 +32,10 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      # The frontend is the only member assigned this address on the isolated
+      # ingress network below. Tomcat therefore accepts forwarded client
+      # addresses only from that exact nginx peer.
+      SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES: '172\.30\.254\.2'
       BOURSO_AUTH_URL: http://bourso-auth:8001
       CAISSE_EPARGNE_AUTH_URL: http://caisse-epargne-auth:8001
       BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001
@@ -73,8 +77,12 @@ services:
       sofidy-auth:
         condition: service_started
     networks:
-      - picsou-net
-      - fortuneo-auth-net
+      picsou-net:
+      fortuneo-auth-net:
+      picsou-ingress:
+        aliases:
+          - ingress-backend
+        ipv4_address: 172.30.254.3
 
   # Shared sidecar base images (services/base). Never started (`scale: 0`).
   # `docker compose pull` fetches them by name; their layers are the ones the
@@ -313,7 +321,12 @@ services:
     depends_on:
       - backend
     networks:
-      - picsou-net
+      # Retain the general application network for normal container egress and
+      # published-port return traffic. Backend traffic still resolves only via
+      # the ingress-backend alias on the isolated network below.
+      picsou-net:
+      picsou-ingress:
+        ipv4_address: 172.30.254.2
 
   ollama:
     image: ollama/ollama:latest
@@ -337,3 +350,14 @@ networks:
     internal: true
   fortuneo-egress:
     driver: bridge
+  # Dedicated frontend -> backend path. If this subnet overlaps a local Docker/VPN
+  # subnet, change it, both static addresses, and the backend's
+  # SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES regex together. Trust only the
+  # frontend's exact address.
+  # No sidecar joins it, so 172.30.254.2 identifies only the nginx frontend.
+  picsou-ingress:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.254.0/29
