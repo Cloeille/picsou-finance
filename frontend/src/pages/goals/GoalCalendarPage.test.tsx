@@ -91,12 +91,12 @@ describe('GoalCalendarPage year grid', () => {
 
     const september = monthButton('sept.')
     expect(september).toHaveTextContent(/985\s/)
-    expect(september).toHaveTextContent(/72%/)
+    expect(september).toHaveTextContent(/72\s%/)
     expect(september).toHaveTextContent(/obj.\s1\s373\s/)
 
     const october = monthButton('oct.')
     expect(october).toHaveTextContent(/1\s490\s/)
-    expect(october).toHaveTextContent(/\+8%/)
+    expect(october).toHaveTextContent(/\+8\s%/)
     expect(october).toHaveTextContent(/obj.\s1\s373\s/)
 
     for (const label of ['août', 'sept.', 'oct.']) {

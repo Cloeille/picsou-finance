@@ -238,12 +238,12 @@ export function CryptoExchangeTab() {
                     <Badge
                       variant={exchange.status === 'CONNECTED' ? 'default' : 'destructive'}
                     >
-                      {exchange.status}
+                      {t(`sync.connectionStatus.${exchange.status}`, { defaultValue: exchange.status })}
                     </Badge>
                   </div>
                   {exchange.lastSyncedAt && (
                     <p className="text-xs text-muted-foreground">
-                      {t('sync.exchanges.lastSync')}: {formatDate(exchange.lastSyncedAt)}
+                      {t('common.labelColon', { label: t('sync.exchanges.lastSync') })} {formatDate(exchange.lastSyncedAt)}
                     </p>
                   )}
                 </div>

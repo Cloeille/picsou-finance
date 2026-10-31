@@ -56,7 +56,7 @@ test.describe('Analysis', () => {
     await page.goto('/analysis')
     // Coverage is stated rather than renormalised away — a bar over part of the portfolio must
     // not read as one over all of it.
-    await expect(page.getByText(/Calculé sur \d+ % du portefeuille/)).toBeVisible()
+    await expect(page.getByText(/Calculé sur \d+\s% du portefeuille/)).toBeVisible()
     await expect(page.getByText(/non classé/)).toBeVisible()
   })
 })

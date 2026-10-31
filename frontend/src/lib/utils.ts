@@ -40,6 +40,15 @@ export function normalizeIntlLocale(locale: string): string {
   }
 }
 
+/**
+ * Swaps ICU's narrow no-break space (U+202F, the French digit-group and percent separator) for a
+ * plain one. Geist has no U+202F glyph, so the browser drew a fallback sliver and "51 646,95 €"
+ * read as "51646,95 €". U+00A0 is in the font and does not break a line either.
+ */
+export function withDrawableSpaces(formatted: string): string {
+  return formatted.replace(/\u202f/g, '\u00a0')
+}
+
 // formatCurrency used to live here. It moved to `lib/money.ts` and became private, so that every
 // amount on screen goes through the formatter that knows whether amounts are hidden. Reaching for
 // a raw currency format is now a compile error rather than a silent leak during a demo.
@@ -130,8 +139,39 @@ export function formatDateTime(dateStr: string | null | undefined, locale = getL
   return new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d)
 }
 
-export function formatPercent(value: number, locale = getLocale()): string {
-  return new Intl.NumberFormat(locale, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)
+/**
+ * A percentage given in points (`8.3` → "8,3 %" in French, "8.3%" in English). Every percentage on
+ * screen goes through here: the locale, not a `toFixed(1) + '%'`, owns the separator and the space.
+ */
+export function formatPercent(
+  points: number,
+  { fractionDigits = 1, signed = false }: { fractionDigits?: number; signed?: boolean } = {},
+  locale = getLocale(),
+): string {
+  return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale), {
+    style: 'percent',
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+    signDisplay: signed ? 'exceptZero' : 'auto',
+  }).format(points / 100))
+}
+
+/** A plain decimal at a fixed precision, with the locale's separator. */
+export function formatDecimal(value: number, fractionDigits: number, locale = getLocale()): string {
+  return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale), {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(value))
+}
+
+/** A count or a quantity at Intl's default precision (up to three decimals), grouped by the locale. */
+export function formatNumber(value: number, locale = getLocale()): string {
+  return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale)).format(value))
+}
+
+/** A holding quantity, up to eight decimals so a small crypto position such as 0.0001 does not show as 0. */
+export function formatQuantity(value: number, locale = getLocale()): string {
+  return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale), { maximumFractionDigits: 8 }).format(value))
 }
 
 function capitalizeFirstCharacter(value: string, locale = getLocale()): string {

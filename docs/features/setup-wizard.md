@@ -150,9 +150,11 @@ Done → POST /api/setup/complete → auto-login → /
   wizard will show raw translation keys under the form fields. Inline errors should
   only be shown after the user has typed into the field; empty untouched fields keep
   their neutral helper copy.
-- **Setup loading is intentionally blank.** The generic dashboard `LoadingSkeleton`
-  must not be used for `/setup` route guards or lazy-route fallbacks; it flashes
-  dashboard-shaped grey placeholders before the wizard appears.
+- **Setup loading is a delayed centred spinner.** The `/setup` guards and the
+  `SetupLayout` fallback use `RouteSpinner`, which paints nothing for the first 200 ms
+  and then a centred spinner. Step fallbacks inside the wizard frame stay `null`. The
+  dashboard `LoadingSkeleton` must not be used there; it flashes dashboard-shaped grey
+  placeholders before the wizard appears.
 - **Setup form scale is intentionally consistent.** Wizard steps use `max-w-2xl`,
   `h-10` inputs / primary CTAs, rounded field controls, and no decorative uppercase
   surtitles. Multiple primary choices in a wizard step should stack vertically instead

@@ -47,6 +47,7 @@ class AccountConnectionServiceTest {
     @Mock CryptoExchangeSyncService cryptoExchangeSyncService;
     @Mock AmundiSyncService amundiSyncService;
     @Mock CmesSyncService cmesSyncService;
+    @Mock CicSyncService cicSyncService;
     @Mock TradeRepublicSyncService tradeRepublicSyncService;
     @Mock BourseDirectSyncService bourseDirectSyncService;
     @Mock BoursoSyncService boursoSyncService;
@@ -58,7 +59,7 @@ class AccountConnectionServiceTest {
     private AccountConnectionService service() {
         return new AccountConnectionService(
             accountRepository, accountService, walletRepository, exchangeSessionRepository,
-            requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService, cmesSyncService,
+            requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService, cmesSyncService, cicSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
             fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService);
     }
@@ -233,6 +234,42 @@ class AccountConnectionServiceTest {
             new AccountConnectionService.DeletionImpact(true, "Crédit Mutuel / CIC Épargne Salariale"));
         verify(accountService).delete(10L, MEMBER_ID);
         verify(cmesSyncService).clearSession(MEMBER_ID);
+    }
+
+    @Test
+    void deletingTheLastCicAccountClearsItsSessionAndCredentials() {
+        given(account(10L, "cic_1000000012345602"), account(11L, "cmes_employee-plan"));
+        when(cicSyncService.clearSession(MEMBER_ID)).thenReturn(true);
+
+        AccountConnectionService service = service();
+        assertThat(service.describeDeletion(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "CIC"));
+        assertThat(service.deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "CIC"));
+        verify(accountService).delete(10L, MEMBER_ID);
+        verify(cicSyncService).clearSession(MEMBER_ID);
+        verify(cmesSyncService, never()).clearSession(anyLong());
+    }
+
+    @Test
+    void deletingACicAccountPreservesTheSessionWhileAnotherCicAccountRemains() {
+        given(account(10L, "cic_1000000012345602"), account(11L, "cic_1000000012345601"));
+
+        assertThat(service().describeDeletion(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        assertThat(service().deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(accountService).delete(10L, MEMBER_ID);
+        verify(cicSyncService, never()).clearSession(anyLong());
+    }
+
+    @Test
+    void deletingTheLastCicAccountReportsNoRemovalIfItsSessionIsAlreadyGone() {
+        given(account(10L, "cic_1000000012345602"));
+
+        assertThat(service().deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(cicSyncService).clearSession(MEMBER_ID);
     }
 
     @Test

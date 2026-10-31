@@ -45,7 +45,8 @@ vi.mock('@/features/budget/hooks', () => ({
 }))
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key === 'accounts.perEuroFundBalance' ? 'Fonds euro' : key,
+    t: (key: string, opts?: { label?: string }) =>
+      opts?.label ? `${opts.label}:` : key === 'accounts.perEuroFundBalance' ? 'Fonds euro' : key,
     i18n: { resolvedLanguage: 'fr', language: 'fr' },
   }),
 }))

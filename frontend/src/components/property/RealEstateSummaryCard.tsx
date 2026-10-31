@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { useRealEstateSummary } from '@/features/accounts/hooks'
+import { formatPercent } from '@/lib/utils'
 
 /**
  * Whole-portfolio property position: gross value, mortgage debt and the equity between them.
@@ -55,7 +56,7 @@ export function RealEstateSummaryCard({ enabled = true }: { enabled?: boolean })
               <GainIcon className="size-4" />
               <CurrencyDisplay value={data.unrealizedGain} showSign />
               {data.unrealizedGainPercent != null && (
-                <span className="text-xs">({data.unrealizedGainPercent.toFixed(1)} %)</span>
+                <span className="text-xs">({formatPercent(data.unrealizedGainPercent)})</span>
               )}
             </span>
           </Stat>
@@ -63,7 +64,7 @@ export function RealEstateSummaryCard({ enabled = true }: { enabled?: boolean })
 
         {data.loanToValue != null && (
           <p className="text-xs text-muted-foreground">
-            {t('property.summary.loanToValue', { pct: data.loanToValue.toFixed(1) })}
+            {t('property.summary.loanToValue', { pct: formatPercent(data.loanToValue) })}
           </p>
         )}
 

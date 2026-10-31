@@ -15,7 +15,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
 import { ArrowLeft, Calendar, LayoutGrid, Clock, Loader2, Plus } from 'lucide-react'
-import { cn, localeFromLanguage, parseAmount } from '@/lib/utils'
+import { cn, formatPercent, localeFromLanguage, parseAmount } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import type { GoalMonthEntry } from '@/types/api'
 
@@ -114,9 +114,10 @@ function getProgressColor(entry: GoalMonthEntry, isPast: boolean): { color: stri
   if (entry.effective == null) return { color: COLORS.muted, pct: 0, label: '–', textColor: COLORS.mutedFg }
   const obj = entry.objective ?? 0
   const ratio = obj > 0 ? entry.effective / obj : 1
-  if (ratio >= 1) return { color: COLORS.success, pct: ratio, label: `${Math.round(ratio * 100)}%`, textColor: COLORS.success }
-  if (ratio >= 0.6) return { color: COLORS.warning, pct: ratio, label: `${Math.round(ratio * 100)}%`, textColor: COLORS.warning }
-  return { color: COLORS.destructive, pct: ratio, label: `${Math.round(ratio * 100)}%`, textColor: COLORS.destructive }
+  const label = formatPercent(ratio * 100, { fractionDigits: 0 })
+  if (ratio >= 1) return { color: COLORS.success, pct: ratio, label, textColor: COLORS.success }
+  if (ratio >= 0.6) return { color: COLORS.warning, pct: ratio, label, textColor: COLORS.warning }
+  return { color: COLORS.destructive, pct: ratio, label, textColor: COLORS.destructive }
 }
 
 
@@ -177,7 +178,9 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
                 const { color, pct, textColor } = getProgressColor(entry, true)
                 const effectiveText = entry.effective != null ? wholeEuros(entry.effective) : null
                 const percentLabel = effectiveText != null
-                  ? (pct > 1 ? `+${Math.round((pct - 1) * 100)}%` : `${Math.round(pct * 100)}%`)
+                  ? (pct > 1
+                    ? `+${formatPercent((pct - 1) * 100, { fractionDigits: 0 }, locale)}`
+                    : formatPercent(pct * 100, { fractionDigits: 0 }, locale))
                   : null
 
                 return (
@@ -279,7 +282,7 @@ function TimelineView({ months, selectedYm, onSelect }: {
                 <div className={`h-full rounded-full transition-[width] ${barClass}`} style={{ width: `${pct}%` }} />
               </div>
               <span className="w-12 shrink-0 text-sm font-bold text-right">
-                {entry.effective != null ? `${Math.round(pct)}%` : '—'}
+                {entry.effective != null ? formatPercent(pct, { fractionDigits: 0 }, locale) : '—'}
               </span>
               <span className="w-20 shrink-0 text-right text-sm text-muted-foreground">
                 {entry.effective != null ? <CurrencyDisplay value={entry.effective} /> : ''}
@@ -408,7 +411,7 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
           <div className="space-y-3">
             <Label>{t('goals.monthlyObjective')}</Label>
             <p className="text-sm text-muted-foreground">
-              {t('goals.calculatedObjective')}: <CurrencyDisplay value={entry.objective} />
+              {t('common.labelColon', { label: t('goals.calculatedObjective') })} <CurrencyDisplay value={entry.objective} />
             </p>
             <div className="relative">
               <NumericInput
@@ -456,7 +459,7 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
           <div className="space-y-3">
             <Label>{t('goals.actual')}</Label>
             <p className="text-sm text-muted-foreground">
-              {t('goals.fromAccounts')}: {entry.actual != null ? <CurrencyDisplay value={entry.actual} /> : t('goals.noData')}
+              {t('common.labelColon', { label: t('goals.fromAccounts') })} {entry.actual != null ? <CurrencyDisplay value={entry.actual} /> : t('goals.noData')}
             </p>
             <div className="relative">
               <NumericInput
@@ -597,7 +600,7 @@ export function GoalCalendarPage() {
       {/* Summary bar */}
       <div className="flex items-center gap-3 text-sm">
         <span className="text-muted-foreground">
-          {t('goals.monthlyObjective')}: <CurrencyDisplay value={goal.monthlyNeeded ?? 0} />
+          {t('common.labelColon', { label: t('goals.monthlyObjective') })} <CurrencyDisplay value={goal.monthlyNeeded ?? 0} />
         </span>
         {pastMonths.length > 0 && (
           <Badge variant="secondary">

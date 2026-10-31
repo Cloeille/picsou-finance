@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { extractErrorMessage } from '@/lib/errors'
-import { parseAmount } from '@/lib/utils'
+import { formatPercent, getLocale, parseAmount } from '@/lib/utils'
 import type {
   HouseholdStatus,
   MemberProfile,
@@ -34,8 +34,11 @@ function numberOrNull(raw: string): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+/** Seeds a field in the member's own notation ("2,5" in French), ungrouped so it parses back. */
 function text(value: number | null): string {
-  return value == null ? '' : String(value)
+  return value == null
+    ? ''
+    : new Intl.NumberFormat(getLocale(), { useGrouping: false, maximumFractionDigits: 20 }).format(value)
 }
 
 /**
@@ -161,7 +164,7 @@ function ProfileForm({
         options={TMI_BRACKETS}
         value={marginalTaxRate}
         onChange={setMarginalTaxRate}
-        render={bracket => `${bracket} %`}
+        render={bracket => formatPercent(bracket, { fractionDigits: 0 })}
       />
 
       <ChoiceRow
