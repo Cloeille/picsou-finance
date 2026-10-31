@@ -224,6 +224,7 @@ class CiJobSelectionTest(unittest.TestCase):
             "frontend/src/App.tsx": {"frontend", "e2e", "release-deployment"},
             "backend/src/main/java/com/picsou/App.java": {"backend", "release-deployment"},
             "docker/entrypoint.sh": {"backend", "docker-entrypoint", "release-deployment"},
+            "docker/Dockerfile": {"docker-entrypoint", "release-deployment", "workflow-inventory"},
             "docker/docker-compose.yml": {"docker-entrypoint", "release-deployment"} | services,
             "docker-compose.yml": {"workflow-inventory"},
             "services/sofidy-auth/main.py": {"sofidy-sidecar", "backend"} | services,

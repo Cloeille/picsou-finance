@@ -60,7 +60,8 @@ PostgreSQL 16 and the optional Caddy TLS proxy use upstream images.
 The two build stages run on `--platform=$BUILDPLATFORM`: `dist/` and the JAR are the same on
 every architecture, so the multi-platform publish builds them once, natively, and only the
 runtime stage runs per target (arm64 under QEMU). `APP_VERSION` and `VITE_*` are declared after
-the dependency installs, so a new version reuses the bun, Maven and apt layers. The
+the dependency installs, so a new `APP_VERSION` reuses the bun, Maven and apt layers (an edit to
+`frontend/package.json` still reinstalls the bun dependencies). The
 Dockerfile therefore needs BuildKit (the default builder once `docker buildx` is installed);
 the legacy builder rejects the empty `$BUILDPLATFORM`.
 

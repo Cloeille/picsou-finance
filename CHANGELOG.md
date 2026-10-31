@@ -224,7 +224,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   affect, a new push cancels the stale run, and the demo Playwright suite runs once instead of
   twice. Pushes to `main` and tags still run every job, and a new `ci-ok` check fails when a
   selected job did not pass. The app image builds its frontend and backend once, natively,
-  instead of once per platform, and a version bump no longer reinstalls the dependencies.
+  instead of once per platform, and a new `APP_VERSION` build argument no longer reinstalls the
+  dependencies (an edit to `frontend/package.json`, version field included, still does).
   Building `docker/Dockerfile` yourself now needs BuildKit (`docker buildx`).
 
 ### Fixed
