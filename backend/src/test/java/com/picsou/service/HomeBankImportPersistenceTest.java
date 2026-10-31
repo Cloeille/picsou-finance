@@ -45,6 +45,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 /**
  * End-to-end HomeBank persistence (real Flyway migrations, {@code ddl-auto=validate}, rollback and
@@ -85,13 +86,10 @@ class HomeBankImportPersistenceTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class TestServiceConfiguration {
-        /**
-         * FinaryPersistenceHelper needs PriceService for FX conversion, and the DataJpaTest slice has
-         * none. Every synthetic fixture here is EUR, so the helper never calls it.
-         */
+        /** The fixtures are EUR, so FinaryPersistenceHelper never asks for an FX rate. */
         @Bean
         PriceService priceService() {
-            return org.mockito.Mockito.mock(PriceService.class);
+            return mock(PriceService.class);
         }
 
         @Bean

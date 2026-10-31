@@ -8,7 +8,7 @@ import org.springframework.ai.anthropic.api.AnthropicApi;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaApi;
-import org.springframework.ai.ollama.api.OllamaOptions;
+import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
@@ -46,7 +46,7 @@ public class AiChatModelFactory {
                 case OLLAMA -> {
                     OllamaApi api = OllamaApi.builder().baseUrl(cfg.effectiveBaseUrl()).build();
                     yield Optional.of(OllamaChatModel.builder().ollamaApi(api)
-                        .defaultOptions(OllamaOptions.builder().model(cfg.effectiveModel()).build())
+                        .defaultOptions(OllamaChatOptions.builder().model(cfg.effectiveModel()).build())
                         .build());
                 }
             };

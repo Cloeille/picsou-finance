@@ -35,6 +35,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 /** Synthetic QIF import against a throwaway PostgreSQL started by Testcontainers. Runs in CI. */
 @DataJpaTest(showSql = false)
@@ -69,13 +70,10 @@ class HomeBankQifPersistenceTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class Configuration {
-        /**
-         * FinaryPersistenceHelper needs PriceService for FX conversion, and the DataJpaTest slice has
-         * none. Every synthetic fixture here is EUR, so the helper never calls it.
-         */
+        /** The fixtures are EUR, so FinaryPersistenceHelper never asks for an FX rate. */
         @Bean
         PriceService priceService() {
-            return org.mockito.Mockito.mock(PriceService.class);
+            return mock(PriceService.class);
         }
 
         @Bean
