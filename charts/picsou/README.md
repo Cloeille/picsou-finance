@@ -121,6 +121,21 @@ By default the chart creates the Secret, keeps its values across upgrades
 (`lookup`) and does not delete it on uninstall. **With Argo CD or any tool that
 renders the chart with `helm template`, set `secrets.existingSecret`**: `lookup`
 returns nothing there and the generated values would change on every sync.
+Null or empty inline secret values preserve the stored key. When no key is stored,
+the chart generates required keys and leaves optional app keys absent.
+
+After rotating `secrets.existingSecret`, restart the app and all enabled sidecars
+together so they load the same key. This also applies to External Secrets and
+Sealed Secrets. The chart checksum tracks inline values only; changing an external
+Secret does not trigger a rollout, even on a later Helm upgrade. For a release
+named `picsou` in namespace `picsou`, run:
+
+```bash
+kubectl -n picsou rollout restart deployment -l app.kubernetes.io/instance=picsou
+```
+
+Coordinate the rollout with a maintenance window; authentication can fail while
+pods use different keys. Never rotate the encryption key without a data migration.
 
 **New installs only:** generate the keys once and keep a secure copy.
 
@@ -149,6 +164,15 @@ Other files under `/data`, including Enable Banking keys, remain ephemeral.
 `crypto-encryption-key` decrypts the stored API secrets and bank session tokens.
 Losing it makes them unreadable: either provide it and keep a copy, or back up
 the `<release>-data` volume where the app generated it.
+
+## Environment overrides
+
+`app.env` and `app.extraEnv` replace generated app variables by name, including
+`JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`, `APP_SIDECAR_API_KEY`, sidecar URLs and
+`ENABLEBANKING_PRIVATE_KEY_PATH`. `app.extraEnv` takes precedence over `app.env`.
+Duplicate names within `app.extraEnv` fail rendering. Keep app and sidecar API keys
+in sync when overriding the app key. Kubernetes gives explicit entries precedence
+over `envFrom`.
 
 ## Database
 
@@ -294,11 +318,13 @@ CI runs it in both directions. On a pull request, the `helm-chart` job reports
 differences as warnings and never fails because of them. The repository inventory
 test accepts exit codes 0 (in sync) and 2 (drift), while script errors still fail
 that check. Supported customization tests use a frozen synthetic inventory so
-new Compose sidecars cannot make those assertions block releases. Helm validation
+new Compose sidecars cannot make those assertions block releases. All script tests
+live in `charts/picsou/tests` and run only in the independent chart job. Helm validation
 is independent of `ci-ok` and image publishing, so a chart failure does not block application releases.
 When publishing, stale entries are disabled in the packaged values so removed images
-are never deployed. Port or URL-variable mismatches fail publishing and must be
-corrected in the chart before retrying, including for custom sidecars.
+are never deployed. Port or URL-variable mismatches and missing app wiring for
+listed sidecars fail publishing. Correct them in the chart before retrying,
+including for custom sidecars.
 The missing standard sidecars are added to the packaged chart,
 so a new sidecar of that kind is available without a chart change; the others
 are left out of the published chart until it supports them.

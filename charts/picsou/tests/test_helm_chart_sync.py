@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "charts/picsou/sync-sidecars.sh"
 VALUES = ROOT / "charts/picsou/values.yaml"
 
@@ -238,6 +238,20 @@ class SyncSidecarsTest(unittest.TestCase):
                 result = self.run_script("--apply", "--json")
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertTrue(any(f["kind"] == "mismatch" for f in json.loads(result.stdout)))
+
+    def test_apply_rejects_an_unwired_known_sidecar(self):
+        self.compose.write_text(COMPOSE.replace(
+            "KNOWN_AUTH_URL: http://known-auth:8001",
+            "TRADE_REPUBLIC_AUTH_URL: http://renamed-auth:8001",
+        ), encoding="utf-8")
+        result = self.run_script("--apply", "--json")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        findings = json.loads(result.stdout)
+        self.assertIn({
+            "sidecar": "known-auth",
+            "kind": "unwired",
+            "detail": "no *_AUTH_URL of the app service points at it",
+        }, findings)
 
     def test_apply_rejects_mismatches_on_custom_sidecars(self):
         self.compose.write_text(COMPOSE.replace(

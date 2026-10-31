@@ -3,6 +3,7 @@
 import base64
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tarfile
@@ -154,14 +155,100 @@ class ReviewRegressionsTest(unittest.TestCase):
                 result = subprocess.run(["sh", "-c", script], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_null_and_empty_inline_secrets_use_generated_or_absent_defaults(self):
+        keys = {"sidecarApiKey": "sidecar-api-key", "postgresPassword": "postgres-password",
+                "jwtSecret": "jwt-secret", "cryptoEncryptionKey": "crypto-encryption-key"}
+        for empty in ("null", '\"\"'):
+            with self.subTest(value=empty):
+                args = [arg for key in keys for arg in
+                        ("--set-json", f"secrets.{key}={empty}")]
+                secret = next(r for r in self.resources(*args) if r["kind"] == "Secret")
+                for key in ("sidecar-api-key", "postgres-password"):
+                    value = base64.b64decode(secret["data"][key])
+                    self.assertTrue(value)
+                    self.assertNotEqual(value, b"<nil>")
+                self.assertNotIn("jwt-secret", secret["data"])
+                self.assertNotIn("crypto-encryption-key", secret["data"])
+
+    def test_null_and_empty_inline_secrets_preserve_stored_keys(self):
+        keys = {"sidecarApiKey": "sidecar-api-key", "postgresPassword": "postgres-password",
+                "jwtSecret": "jwt-secret", "cryptoEncryptionKey": "crypto-encryption-key"}
+        stored = {key: base64.b64encode(f"stored-{key}".encode()).decode()
+                  for key in keys.values()}
+        with tempfile.TemporaryDirectory() as tmp:
+            chart = Path(tmp) / "picsou"
+            shutil.copytree(CHART, chart)
+            template = chart / "templates/secret.yaml"
+            # helm template has no cluster lookup; inject only its synthetic response.
+            template.write_text(template.read_text().replace(
+                '(lookup "v1" "Secret" .Release.Namespace $name).data',
+                '(' + json.dumps(json.dumps(stored)) + ' | fromJson)'))
+            for empty in ("null", '\"\"'):
+                with self.subTest(value=empty):
+                    args = [arg for key in keys for arg in
+                            ("--set-json", f"secrets.{key}={empty}")]
+                    secret = next(r for r in self.resources(*args, chart=chart)
+                                  if r["kind"] == "Secret")
+                    self.assertEqual(secret["data"], stored)
+
+    def test_operator_environment_replaces_all_app_defaults_by_name(self):
+        resources = self.resources("--set", "app.enableBanking.existingSecret=eb")
+        original = next(r for r in resources if r["kind"] == "Deployment"
+                        and r["metadata"]["name"] == "picsou")
+        defaults = original["spec"]["template"]["spec"]["containers"][0]["env"]
+        self.assertTrue({"JWT_SECRET", "TR_AUTH_URL", "ENABLEBANKING_PRIVATE_KEY_PATH"}
+                        <= {entry["name"] for entry in defaults})
+        for source in ("env", "extraEnv"):
+            with self.subTest(source=source):
+                if source == "env":
+                    overrides = {entry["name"]: "synthetic-override" for entry in defaults}
+                else:
+                    overrides = [{"name": entry["name"], "valueFrom": {"secretKeyRef": {
+                        "name": "operator-secret", "key": entry["name"]}}} for entry in defaults]
+                resources = self.resources("--set", "app.enableBanking.existingSecret=eb",
+                                           "--set-json", f"app.{source}=" + json.dumps(overrides))
+                app = next(r for r in resources if r["kind"] == "Deployment"
+                           and r["metadata"]["name"] == "picsou")
+                env = app["spec"]["template"]["spec"]["containers"][0]["env"]
+                self.assertEqual(len(env), len(defaults))
+                self.assertEqual(len({entry["name"] for entry in env}), len(env))
+                for entry in env:
+                    if source == "env":
+                        self.assertEqual(entry["value"], "synthetic-override")
+                        self.assertNotIn("valueFrom", entry)
+                    else:
+                        self.assertIn(entry, overrides)
+
+    def test_extra_env_wins_over_env_in_app_and_migration(self):
+        resources = self.resources("--set-json", 'app.env={"JWT_SECRET":"map-value"}',
+                                   "--set-json", 'app.extraEnv=[{"name":"JWT_SECRET",'
+                                   '"value":"extra-value"}]')
+        for resource in resources:
+            if resource["kind"] == "Job":
+                pod = resource["spec"]["template"]["spec"]
+            elif resource["kind"] == "Deployment" and resource["metadata"]["name"] == "picsou":
+                pod = resource["spec"]["template"]["spec"]
+            else:
+                continue
+            entries = [e for e in pod["containers"][0]["env"] if e["name"] == "JWT_SECRET"]
+            self.assertEqual(entries, [{"name": "JWT_SECRET", "value": "extra-value"}])
+
+    def test_duplicate_extra_env_names_fail_with_an_actionable_message(self):
+        result = self.render("--set-json", 'app.extraEnv=[{"name":"JWT_SECRET","value":"a"},'
+                             '{"name":"JWT_SECRET","value":"b"}]')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("app.extraEnv contains duplicate name JWT_SECRET", result.stderr)
+
     def test_numeric_inline_secrets_render_as_strings(self):
         keys = {"sidecarApiKey": "sidecar-api-key", "postgresPassword": "postgres-password",
                 "jwtSecret": "jwt-secret", "cryptoEncryptionKey": "crypto-encryption-key"}
-        resources = self.resources(*[arg for key in keys for arg in
-                                    ("--set", f"secrets.{key}=12345678")])
-        secret = next(r for r in resources if r["kind"] == "Secret")
-        for key in keys.values():
-            self.assertEqual(base64.b64decode(secret["data"][key]), b"12345678")
+        for value in ("12345678", "0", "false"):
+            with self.subTest(value=value):
+                resources = self.resources(*[arg for key in keys for arg in
+                                             ("--set", f"secrets.{key}={value}")])
+                secret = next(r for r in resources if r["kind"] == "Secret")
+                for key in keys.values():
+                    self.assertEqual(base64.b64decode(secret["data"][key]), value.encode())
 
     def test_health_test_inherits_registry_and_scheduling_settings(self):
         scheduling = {"nodeSelector": {"kubernetes.io/arch": "amd64"},

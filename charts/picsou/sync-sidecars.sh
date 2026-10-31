@@ -111,7 +111,10 @@ for name in $compose_sidecars; do
   if printf '%s\n' "$chart_sidecars" | grep -qx "$name"; then
     chart_port=$(yq -r ".sidecars[\"$name\"].port" "$values")
     chart_env=$(yq -r ".sidecars[\"$name\"].urlEnv" "$values")
-    if [ -n "$wiring" ] && { [ "$chart_port" != "$port" ] || [ "$chart_env" != "$url_env" ]; }; then
+    if [ -z "$wiring" ]; then
+      publish_error=true
+      add_finding "$name" unwired "no *_AUTH_URL of the app service points at it"
+    elif [ "$chart_port" != "$port" ] || [ "$chart_env" != "$url_env" ]; then
       publish_error=true
       add_finding "$name" mismatch "Compose: $url_env on port $port, chart: $chart_env on port $chart_port"
     fi

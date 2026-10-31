@@ -49,9 +49,13 @@ and publishes to `oci://ghcr.io/<owner>/charts/picsou`:
   `appVersion` = `sha-<short sha>`, the image tag `docker/metadata-action` gives every image of the
   commit.
 
+The `base` job computes the app build version and immutable image tag once. Both the image
+matrix and the chart consume those outputs, and every image explicitly publishes that tag.
+
 Before packaging, `sync-sidecars.sh --apply` adds to the packaged copy the standard sidecars that
 `values.yaml` does not list yet and disables entries removed from Compose, preserving their other
-settings. A port or URL-variable mismatch fails publishing (including for custom sidecars), so
+settings. A port or URL-variable mismatch, or missing app wiring for a listed sidecar, fails publishing
+(including for custom sidecars), so
 known-broken wiring requires an explicit chart correction. `--check` remains warning-only in CI.
 Live inventory tests accept exit 0 or 2; supported customization checks use a frozen synthetic
 inventory so new Compose sidecars cannot turn inventory drift into a release-blocking test failure.
@@ -62,7 +66,8 @@ lints and renders the chart and runs `sync-sidecars.sh --check` on pull requests
 chart, the Compose file or the workflows; differences are warnings, a broken chart fails
 that independent check. Neither `ci-ok` nor image publishing depends on `helm-chart`.
 The repository inventory test accepts exit codes 0 (in sync) and 2 (drift), but still fails
-on script errors. Synthetic fixtures test comparison and warning behavior. Rendered chart
+on script errors. All chart script tests live in `charts/picsou/tests`, outside the
+release-blocking workflow inventory suite. Synthetic fixtures test comparison and warning behavior. Rendered chart
 tests in `charts/picsou/tests` verify Revolut's volume permissions, existing-claim overrides,
 mandatory keys for ephemeral app storage, hostname-less exposure, packaged health hooks,
 external database password sources, configurable PostgreSQL data layout and stable PostgreSQL
@@ -131,6 +136,15 @@ helm upgrade
   into the corresponding Secret keys, or leave those keys absent with persistent `/data`.
   Never generate replacement keys: environment values override the files and lose access to
   existing encrypted credentials.
+- **External Secret rotation requires a rollout.** The checksum covers inline chart values,
+  not changes to `secrets.existingSecret`. After rotating the sidecar key, restart the app
+  and every enabled sidecar together, including with External Secrets or Sealed Secrets.
+  A `lookup` checksum could only notice rotation during a Helm run and is unavailable to
+  offline GitOps renderers. See the chart README for the rollout command.
+- **Explicit app environment entries replace chart defaults by name.** This includes app keys,
+  sidecar URLs and the Enable Banking private key path. `app.extraEnv` wins over `app.env`;
+  duplicate names within `extraEnv` fail rendering with a clear error. The environment is
+  merged by name before rendering to keep the list valid for Helm 4 server-side apply.
 - **Migration database context matches the app.** Shared helpers render datasource defaults
   and `app.env`/`app.extraEnv` overrides; explicit overrides replace defaults by name.
   The Job also inherits `app.envFrom`, extra volumes/mounts (including database CA files),
@@ -145,6 +159,8 @@ helm upgrade
   policy. The pod inherits global pull secrets and app node selector, tolerations and affinity.
 - **Numeric inline secrets are stringified before encoding.** Numeric `--set` values render
   successfully for all four secret keys; use `--set-string` to preserve leading zeros.
+  Null and empty inline values preserve stored keys through `lookup`. Without a stored key,
+  required keys are generated and optional app keys remain absent.
 - **The migration Job does not back up or rehearse.** `docker/deploy.sh` restores a backup into a
   clone first; on Kubernetes, backups belong to the storage or database operator. For bundled
   PostgreSQL, use `kubectl exec` into its pod to run `pg_dump` (command in the chart README);
@@ -179,7 +195,7 @@ helm upgrade
 ## Tests
 
 - `helm lint --strict charts/picsou` and two `helm template` renders (`helm-chart` CI job)
-- `.github/tests/test_helm_chart_sync.py` (run by the `helm-chart` job): the repository inventory
+- `charts/picsou/tests/test_helm_chart_sync.py` (run by the `helm-chart` job): the repository inventory
   check accepts both in-sync and drift results and fails on script errors; synthetic fixtures
   verify `--check` reports each kind of difference, including nonstandard settings on known
   sidecars; `--apply` adds only standard
@@ -196,7 +212,8 @@ helm upgrade
 - `charts/picsou/tests/test_review_regressions.py` packages the chart and verifies that the
   rendered package retains the `test-health` hook while excluding local Python tests.
   It also checks database TLS mounts, environment overrides and password fallback, migration
-  scheduling and labels, numeric inline secrets, and health-test images and scheduling.
+  scheduling and labels, numeric and null inline secrets, stored-key fallback, all generated
+  app environment overrides, duplicate-name rejection, and health-test images and scheduling.
 - Manual cluster check: `helm test` runs the `test-health` pod, which calls `/actuator/health`
   through the app Service. This requires a running release and is not run by the render tests.
 - Validated on 2026-10-31 on a Talos cluster (Kubernetes 1.37, Trident NFS, Traefik, cert-manager

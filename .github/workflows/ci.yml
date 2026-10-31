@@ -691,8 +691,6 @@ jobs:
             --set 'networkPolicy.appIngressFrom[0].podSelector.matchLabels.app=ingress' > /dev/null
       - name: Test chart storage and upgrade safety
         run: python3 -m unittest discover -s charts/picsou/tests -v
-      - name: Test the sidecar comparison script
-        run: python3 -m unittest discover -s .github/tests -p 'test_helm_chart_sync.py' -v
       - name: Compare the chart's sidecars with the Compose file
         run: |
           status=0

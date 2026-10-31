@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -40,6 +41,27 @@ def _builds_then_runs_image(job, service):
 
 
 class SidecarWorkflowInventoryTest(unittest.TestCase):
+    def run_publish_versions(self, ref_type, ref_name, sha):
+        workflow = _load(DOCKER_WORKFLOW)
+        step = next(step for step in workflow["jobs"]["base"]["steps"] if step.get("id") == "versions")
+        with tempfile.NamedTemporaryFile() as output:
+            result = subprocess.run(
+                ["bash", "-c", step["run"]],
+                env={
+                    **os.environ,
+                    "GITHUB_REF_TYPE": ref_type,
+                    "GITHUB_REF_NAME": ref_name,
+                    "GITHUB_SHA": sha,
+                    "GITHUB_OUTPUT": output.name,
+                },
+                capture_output=True,
+                text=True,
+            )
+            output.seek(0)
+            values = dict(line.decode().rstrip().split("=", 1) for line in output)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return values
+
     def test_ci_pins_the_workflow_yaml_dependency(self):
         workflow = _load(CI_WORKFLOW)
         commands = _run_commands(workflow["jobs"]["workflow-inventory"])
@@ -111,6 +133,41 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
             "type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}",
             job_text,
         )
+        self.assertEqual(job_text.count("type=semver,pattern={{version}}"), 3)
+        self.assertEqual(job_text.count("type=sha,format=short"), 3)
+
+    def test_publish_versions_are_computed_once_for_images_and_chart(self):
+        sha = "0123456789abcdef"
+        cases = {
+            ("tag", "v1.2.3"): {
+                "publish": "true", "app-version": "1.2.3", "image-tag": "1.2.3",
+                "chart-release-version": "1.2.3",
+            },
+            ("branch", "main"): {
+                "publish": "true", "app-version": "nightly-0123456", "image-tag": "sha-0123456",
+                "chart-release-version": "",
+            },
+            ("branch", "feature/version-test"): {
+                "publish": "false", "app-version": "feature-version-test-0123456",
+                "image-tag": "sha-0123456", "chart-release-version": "",
+            },
+        }
+        for ref, expected in cases.items():
+            with self.subTest(ref=ref):
+                self.assertEqual(self.run_publish_versions(*ref, sha), expected)
+
+        workflow = _load(DOCKER_WORKFLOW)
+        base = workflow["jobs"]["base"]
+        build = workflow["jobs"]["build"]
+        chart = workflow["jobs"]["chart"]
+        self.assertEqual(set(base["outputs"]), {
+            "python", "chromium", "publish", "app-version", "image-tag", "chart-release-version",
+        })
+        self.assertEqual(chart["needs"], ["base", "build"])
+        self.assertIn("needs.base.outputs.image-tag", build["steps"][-1]["with"]["tags"])
+        self.assertIn("needs.base.outputs.app-version", build["steps"][-1]["with"]["build-args"])
+        self.assertNotIn("GITHUB_SHA", _run_commands(chart))
+        self.assertNotIn("GITHUB_REF", _run_commands(chart))
 
     def test_new_sidecar_jobs_build_and_run_every_test_read_only_in_the_image(self):
         workflow = _load(CI_WORKFLOW)
@@ -410,7 +467,7 @@ class SharedSidecarBaseTest(unittest.TestCase):
         workflow = _load(DOCKER_WORKFLOW)
         self.assertEqual(workflow["jobs"]["build"]["needs"], "base")
         outputs = workflow["jobs"]["base"]["outputs"]
-        self.assertEqual(set(outputs), {"python", "chromium"})
+        self.assertTrue({"python", "chromium"} <= set(outputs))
         steps = {step.get("id"): step for step in workflow["jobs"]["base"]["steps"]}
         for target in ("python", "chromium"):
             with self.subTest(target=target):

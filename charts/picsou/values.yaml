@@ -62,6 +62,7 @@ app:
   replicaCount: 1
 
   # Plain environment variables for the app and migration Job. Values render as strings.
+  # Explicit entries replace generated app variables by name.
   # Settings stored by the setup wizard (redirect URI, allowed origins, secure
   # cookies) take precedence over these once setup has completed — change them
   # in Admin afterwards.
@@ -77,6 +78,7 @@ app:
     # reaches the app from a single stable address; see the chart README.
     # PICSOU_PROXY_IP: 10.0.0.10
   # Raw EnvVar entries, for valueFrom and anything env cannot express.
+  # Overrides env by name; duplicate names within extraEnv fail rendering.
   extraEnv: []
   envFrom: []
 
