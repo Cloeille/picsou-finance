@@ -116,6 +116,6 @@ test.describe('Sync page tabs', () => {
 
   test('should open a tab directly via the ?tab= query param', async ({ page }) => {
     await page.goto('/sync?tab=exchanges')
-    await expect(page.getByText('Ajouter un exchange')).toBeVisible()
+    await expect(page.getByText('Ajouter une plateforme')).toBeVisible()
   })
 })
