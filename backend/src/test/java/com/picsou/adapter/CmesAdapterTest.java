@@ -30,6 +30,7 @@ class CmesAdapterTest {
         CmesAdapter adapter = adapter(new ArrayList<>(), HttpStatus.OK, """
             [{
               "externalId":"cmes_12345_PEG",
+              "legacyExternalIds":["cmes_12345_PEG","cmes_12345_PEG-plan-d-pargne-groupe"],
               "name":"Plan d'épargne groupe",
               "planKind":"PEG",
               "employer":"ACME INDUSTRIES",
@@ -51,6 +52,8 @@ class CmesAdapterTest {
 
         assertThat(plans).singleElement().satisfies(plan -> {
             assertThat(plan.externalId()).isEqualTo("cmes_12345_PEG");
+            assertThat(plan.legacyExternalIds())
+                .containsExactly("cmes_12345_PEG", "cmes_12345_PEG-plan-d-pargne-groupe");
             assertThat(plan.employer()).isEqualTo("ACME INDUSTRIES");
             assertThat(plan.positions()).singleElement().satisfies(position -> {
                 assertThat(position.fundCode()).isEqualTo("1613");

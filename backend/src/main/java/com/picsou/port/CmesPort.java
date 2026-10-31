@@ -44,9 +44,10 @@ public interface CmesPort {
 
     /**
      * One plan -- PEG, PEE, PERCOL... -- and the funds held inside it.
-     * {@code legacyExternalId} is the id earlier builds gave the plan, or null;
-     * an account still carrying it moves to {@code externalId}.
+     * {@code legacyExternalIds} are the ids earlier builds could have given the
+     * plan; an account carrying one of them and the plan's name moves to
+     * {@code externalId}.
      */
-    record PlanData(String externalId, String legacyExternalId, String name, String planKind, String employer,
+    record PlanData(String externalId, List<String> legacyExternalIds, String name, String planKind, String employer,
                     BigDecimal balanceEur, List<Position> positions, boolean snapshotComplete) {}
 }

@@ -80,6 +80,8 @@ class FakeSite:
             state = self.states.pop(0)
             if state == "UNREACHABLE":
                 raise httpx.ConnectError("polling endpoint unreachable", request=request)
+            if isinstance(state, int):
+                return httpx.Response(state, text="")
             return httpx.Response(200, text=transaction_state(state))
         if path.endswith("SOSD_OTP_CancelTransaction.htm"):
             self.cancelled = True
@@ -299,6 +301,18 @@ class FlowTest(unittest.TestCase):
         self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_UNAVAILABLE"}))
         self.assertTrue(self.site.cancelled)
 
+    def test_a_polling_error_status_withdraws_the_confirmation_from_the_phone(self):
+        for status in (429, 503):
+            with self.subTest(status=status):
+                self.site.states = ["PENDING", status]
+                self.site.cancelled = False
+                started = self.initiate()
+
+                response = self.client.post("/complete", json={"processId": started.json()["processId"]}, headers=HEADERS)
+
+                self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_UNAVAILABLE"}))
+                self.assertTrue(self.site.cancelled)
+
     def test_a_wrong_code_the_full_pool_cannot_keep_is_disposed_of(self):
         process = self.sms_login()
         dispose = AsyncMock(wraps=main._dispose_pending_state)
@@ -368,20 +382,23 @@ class FlowTest(unittest.TestCase):
 
         self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
 
-    def test_each_plan_names_the_id_earlier_builds_gave_it(self):
+    def test_each_plan_names_every_id_earlier_builds_could_have_given_it(self):
         self.session = self.confirm()
 
-        [single] = self.plans_listed("Plan d&#39;&#233;pargne groupe")
-        shared = self.plans_listed("Plan d&#39;&#233;pargne groupe ACME", "Plan d&#39;&#233;pargne groupe GLOBEX")
-        colliding = self.plans_listed("Plan d&#39;&#233;pargne groupe A+B", "Plan d&#39;&#233;pargne groupe A B")
+        [alone] = self.plans_listed("Plan d&#39;&#233;pargne groupe ACME")
+        beside = self.plans_listed("Plan d&#39;&#233;pargne groupe ACME", "Plan d&#39;&#233;pargne groupe GLOBEX")
 
-        self.assertEqual(single["legacyExternalId"], "cmes_12345_PEG")
+        # The plans listed beside it at the last old sync are unknown now: a plan
+        # names the same candidates whatever it is listed with.
         self.assertEqual(
-            [plan["legacyExternalId"] for plan in shared],
-            ["cmes_12345_PEG-plan-d-pargne-groupe-acme", "cmes_12345_PEG-plan-d-pargne-groupe-globex"],
+            alone["legacyExternalIds"],
+            ["cmes_12345_PEG", "cmes_12345_PEG-plan-d-pargne-groupe-acme"],
         )
-        # Earlier builds gave both the same id: neither may claim the old account.
-        self.assertEqual([plan["legacyExternalId"] for plan in colliding], [None, None])
+        self.assertEqual(beside[0]["legacyExternalIds"], alone["legacyExternalIds"])
+        self.assertEqual(
+            beside[1]["legacyExternalIds"],
+            ["cmes_12345_PEG", "cmes_12345_PEG-plan-d-pargne-groupe-globex"],
+        )
 
     def test_an_entity_encoded_skip_link_is_found(self):
         page = '<a href="/skip.html">Passer cette &eacute;tape</a>'

@@ -38,10 +38,9 @@ import re
 import secrets
 import time
 import uuid
-from collections import Counter
 from contextlib import asynccontextmanager
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -232,7 +231,7 @@ class PlanPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     externalId: str = Field(min_length=1, max_length=100)
-    legacyExternalId: str | None = Field(default=None, max_length=100)
+    legacyExternalIds: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list)
     name: str = Field(min_length=1, max_length=200)
     planKind: str | None = Field(default=None, max_length=30)
     employer: str | None = Field(default=None, max_length=200)
@@ -648,8 +647,13 @@ async def _await_confirmation(client: httpx.AsyncClient, state: dict[str, Any]) 
             raise
         match = _TRANSACTION_STATE_RE.search(response.text) if response.status_code == 200 else None
         if match is None:
-            # Sent elsewhere (typically the login page): the request is gone.
+            # An answer without a state proves nothing about the phone, which may
+            # still show the request: withdraw it whatever the cause.
             log.info("CMES confirmation polling answered without a state (status=%s)", response.status_code)
+            await _withdraw_confirmation(client, state)
+            if response.status_code == 429 or response.status_code >= 500:
+                raise UpstreamError("UPSTREAM_UNAVAILABLE", f"Confirmation polling answered HTTP {response.status_code}")
+            # Sent elsewhere (typically the login page): the request is gone.
             raise UpstreamError("AUTH_ATTEMPT_EXPIRED", "Confirmation request no longer exists")
         current = match.group("state").upper()
         if current == "VALIDATED":
@@ -700,22 +704,19 @@ def plan_external_id(number: str, label: str) -> str:
     return f"cmes_{number}_{_slug(label)[:40].rstrip('-')}-{digest}"
 
 
-def legacy_external_ids(number: str, plans: list[dict]) -> list[str | None]:
-    """The ids earlier builds gave these plans, so the backend can move an
-    account still carrying one to its new id with its history.
+def legacy_external_ids(number: str, plan: dict) -> list[str]:
+    """Every id earlier builds could have given this plan, so the backend can
+    move an account still carrying one to its new id with its history.
 
-    Those ids were `cmes_<number>_<KIND>`, with the name added only when another
-    plan of the same fetch shared the kind. An id two plans of this fetch would
-    both claim names neither: None, and the backend leaves the old account be.
+    Those ids were `cmes_<number>_<KIND>`, with the name added when another plan
+    listed at the time shared the kind. Which one a plan got hung on plans that
+    may have opened or closed since, so both are named, and the id alone proves
+    nothing: another plan of the family may have held `cmes_<number>_<KIND>`.
+    The backend moves an account only if it also carries this plan's name.
     """
-    kinds = Counter(plan["planKind"] for plan in plans)
-    ids = []
-    for plan in plans:
-        kind, name = plan["planKind"], _slug(plan["name"])
-        slug = (f"{kind}-{name}" if kinds[kind] > 1 else kind) if kind else name
-        ids.append(f"cmes_{number}_{slug}"[:100])
-    claimed = Counter(ids)
-    return [legacy if claimed[legacy] == 1 else None for legacy in ids]
+    name, kind = _slug(plan["name"]), plan["planKind"]
+    slugs = [kind, f"{kind}-{name}"] if kind else [name]
+    return [f"cmes_{number}_{slug}"[:100] for slug in slugs]
 
 
 async def _situation(client: httpx.AsyncClient) -> str:
@@ -745,11 +746,11 @@ async def _collect_plans(client: httpx.AsyncClient) -> list[PlanPayload]:
     if len(set(external_ids)) != len(external_ids):
         raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "Two plans share an external id")
     payloads = []
-    for plan, external_id, legacy_id in zip(plans, external_ids, legacy_external_ids(number, plans)):
+    for plan, external_id in zip(plans, external_ids):
         positions = [await fetch_fund(client, fund) for fund in plan["funds"]]
         payloads.append({
             "externalId": external_id,
-            "legacyExternalId": legacy_id,
+            "legacyExternalIds": legacy_external_ids(number, plan),
             "name": plan["name"],
             "planKind": plan["planKind"],
             "employer": employer,

@@ -33,6 +33,8 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -396,7 +398,9 @@ public class CmesSyncService {
 
             prepared.add(new PreparedPlan(
                 externalId,
-                plan.legacyExternalId() == null ? null : stableExternalId(plan.legacyExternalId()),
+                plan.legacyExternalIds() == null
+                    ? List.of()
+                    : plan.legacyExternalIds().stream().map(this::stableExternalId).distinct().toList(),
                 accountName(plan),
                 plan.balanceEur(),
                 investedAmount(plan, positions),
@@ -501,10 +505,14 @@ public class CmesSyncService {
             FamilyMember member = memberRepository.findById(job.memberId())
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             Instant syncedAt = Instant.now();
+            List<Account> imported = accountRepository.findAllByMemberIdAndProvider(job.memberId(), PROVIDER);
+            // Resolved before any write: an ambiguous match fails the sync with
+            // every account as it was.
+            Map<String, Account> inherited = inheritedAccounts(prepared, imported);
             for (PreparedPlan data : prepared) {
-                upsertAccount(data, member, job.memberId(), syncedAt);
+                upsertAccount(data, inherited.get(data.externalId()), member, job.memberId(), syncedAt);
             }
-            closeUnlistedPlans(prepared, job.memberId(), syncedAt);
+            closeUnlistedPlans(prepared, imported, job.memberId(), syncedAt);
 
             session.markSuccessful(syncedAt);
             sessionRepository.save(session);
@@ -513,23 +521,63 @@ public class CmesSyncService {
     }
 
     /**
-     * Earlier builds derived a plan's id from its family and the other plans
-     * listed beside it. An account still carrying such an id moves to the plan's
-     * new id here, so its history follows the plan instead of a fresh account
-     * starting next to a zeroed one. A deleted account stays deleted under
-     * either id.
+     * Picks, for each plan without an account under its new id, the account an
+     * earlier build imported it as, so its history follows the plan instead of
+     * a fresh account starting next to a zeroed one.
+     *
+     * <p>Earlier ids hung on the family and on the plans listed beside it at
+     * the time, so the id alone proves nothing: {@code cmes_<n>_PEE} may be a
+     * PEE closed since, which the remaining plan of the family now also names.
+     * An account matches a plan only if it carries one of the plan's earlier ids
+     * <em>and</em> the name every build gave that plan. An account two plans
+     * match fails the sync rather than hand one plan's history to the other. A
+     * plan two accounts match (it changed id once already) takes the one synced
+     * last; the other closes at zero with the unlisted plans.
      */
-    private void upsertAccount(PreparedPlan data, FamilyMember member, Long memberId, Instant syncedAt) {
-        String legacyId = data.legacyExternalId();
+    private Map<String, Account> inheritedAccounts(List<PreparedPlan> prepared, List<Account> imported) {
+        Set<String> current = new HashSet<>();
+        prepared.forEach(plan -> current.add(plan.externalId()));
+        Map<String, Account> inherited = new HashMap<>();
+        for (Account account : imported) {
+            String externalId = account.getExternalAccountId();
+            if (externalId == null || current.contains(externalId)) {
+                continue;
+            }
+            List<PreparedPlan> claimants = prepared.stream()
+                .filter(plan -> plan.legacyExternalIds().contains(externalId)
+                    && plan.name().equals(account.getName()))
+                .toList();
+            if (claimants.size() > 1) {
+                throw error(CmesErrorCode.INVALID_DATA, "Several CMES plans match one earlier account", null);
+            }
+            if (claimants.size() == 1) {
+                inherited.merge(claimants.getFirst().externalId(), account, CmesSyncService::syncedLast);
+            }
+        }
+        return inherited;
+    }
+
+    private static Account syncedLast(Account left, Account right) {
+        Comparator<Account> bySync = Comparator.comparing(
+            Account::getLastSyncedAt, Comparator.nullsFirst(Comparator.naturalOrder()));
+        return bySync.compare(left, right) >= 0 ? left : right;
+    }
+
+    /**
+     * {@code inherited} is the account an earlier build imported the plan as,
+     * from {@link #inheritedAccounts}; it takes the plan's new id. A deleted
+     * account stays deleted under either id, matched on the name too.
+     */
+    private void upsertAccount(PreparedPlan data, Account inherited, FamilyMember member, Long memberId,
+                               Instant syncedAt) {
         Optional<Account> existing = accountRepository
             .findByExternalAccountIdAndMemberId(data.externalId(), memberId)
-            .or(() -> legacyId == null
-                ? Optional.empty()
-                : accountRepository.findByExternalAccountIdAndMemberId(legacyId, memberId));
+            .or(() -> Optional.ofNullable(inherited));
         if (existing.isEmpty()
             && (accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId)
-                || (legacyId != null
-                    && accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(legacyId, memberId)))) {
+                || (!data.legacyExternalIds().isEmpty()
+                    && accountRepository.existsSoftDeletedByExternalAccountIdInAndNameAndMemberId(
+                        data.legacyExternalIds(), data.name(), memberId)))) {
             log.info("CMES skipped a soft-deleted account (member={})", memberId);
             return;
         }
@@ -588,10 +636,12 @@ public class CmesSyncService {
      * deleted: a soft-deleted account reads as removed by the user and would
      * never be imported again, while a plan can reopen.
      */
-    private void closeUnlistedPlans(List<PreparedPlan> prepared, Long memberId, Instant syncedAt) {
+    private void closeUnlistedPlans(List<PreparedPlan> prepared, List<Account> imported, Long memberId,
+                                    Instant syncedAt) {
         Set<String> listed = new HashSet<>();
         prepared.forEach(plan -> listed.add(plan.externalId()));
-        for (Account account : accountRepository.findAllByMemberIdAndProvider(memberId, PROVIDER)) {
+        // An inherited account already carries its plan's new id here.
+        for (Account account : imported) {
             String externalId = account.getExternalAccountId();
             if (externalId == null || !externalId.startsWith(EXTERNAL_ID_PREFIX) || listed.contains(externalId)) {
                 continue;
@@ -824,7 +874,7 @@ public class CmesSyncService {
     private record SyncJob(Long sessionId, Long memberId, String plainState) {}
     private record PreparedPlan(
         String externalId,
-        String legacyExternalId,
+        List<String> legacyExternalIds,
         String name,
         BigDecimal balanceEur,
         BigDecimal investedAmountEur,

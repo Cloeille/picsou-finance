@@ -68,6 +68,22 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     );
 
     /**
+     * {@link #existsSoftDeletedByExternalAccountIdAndMemberId} for an id that may
+     * have belonged to another account: a soft-deleted account counts only if it
+     * also carries {@code name}.
+     */
+    @Query(value =
+        "SELECT EXISTS(SELECT 1 FROM account " +
+        "  WHERE external_account_id IN (:externalIds) AND name = :name AND member_id = :memberId " +
+        "  AND deleted_at IS NOT NULL)",
+        nativeQuery = true)
+    boolean existsSoftDeletedByExternalAccountIdInAndNameAndMemberId(
+        @Param("externalIds") Collection<String> externalIds,
+        @Param("name") String name,
+        @Param("memberId") Long memberId
+    );
+
+    /**
      * Find an active account by IBAN + member. Used as a stable match key when the
      * provider's uid changes (e.g. Enable Banking v0.16.4 identification hash rotation).
      * Only called when data.iban() is non-null; bypassed for accounts without an IBAN.

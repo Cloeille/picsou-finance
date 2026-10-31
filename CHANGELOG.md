@@ -34,7 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session as expired and the saver reconnects from the CMES tab. A plan the site no longer lists
   is closed at zero instead of keeping its last balance. Each plan's id comes from its full
   label alone, so it stays the same when another plan opens or closes; an account created with
-  an earlier id moves to the new one with its history. It is listed in the dashboard's
+  an earlier id moves to the new one with its history only if it also carries that plan's name,
+  so a closed plan's history never passes to another plan of the same family. It is listed in the dashboard's
   *Sync all* modal, MCP `get_sync_status` and `trigger_broker_sync`, and the admin
   instance-status check like the other session connectors. Deleting its last account also
   removes the stored session and credentials.

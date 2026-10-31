@@ -31,8 +31,10 @@ speaks HTTPS with `httpx`, on the shared `sidecar-python` base.
    sends it. That button is what checks the code: a post without it only refreshes the page, and
    the site answers it by sending a new SMS. A wrong code brings the same form back with an error: `INVALID_OTP`, and the attempt
    stays open for another try (if the pending pool is full it cannot be kept, and is disposed of).
-   Digipass and Safetrans answer `MFA_TYPE_UNSUPPORTED`. A polling request that fails withdraws
-   the confirmation from the phone before reporting the error, like the timeout does.
+   Digipass and Safetrans answer `MFA_TYPE_UNSUPPORTED`. A polling request that fails, or that
+   answers without a state (an HTTP error status, or a redirect elsewhere), withdraws the
+   confirmation from the phone before reporting the error, like the timeout does. HTTP 429 and
+   5xx read as `UPSTREAM_UNAVAILABLE`; any other answer without a state as `AUTH_ATTEMPT_EXPIRED`.
 3. **Remembered device**: once the second factor is passed, the site sets `auth_client_state`,
    which spares the confirmation for a while (90 days on the banking sites of the same platform).
    `/initiate` accepts the previous session and replays that cookie only, so a re-login with
@@ -54,12 +56,14 @@ speaks HTTPS with `httpx`, on the shared `sidecar-python` base.
    lists one label twice, and `/positions` refuses a fetch where two plans would share an id
    (`UPSTREAM_FORMAT_CHANGED`). The site shows no plan identifier of its own: the plan rows only
    carry positional ids.
-   Earlier builds used `cmes_<number>_<KIND>`, adding the name slug only when another plan of the
-   same fetch shared the kind. That id changed as plans came and went, and "Plan d'épargne
-   entreprise" and "Plan d'épargne interentreprises" could take each other's. Each plan also
-   carries `legacyExternalId`, the id those builds would give it in this fetch (null when two
-   plans of the fetch would claim the same one), so the backend can move an old account to the
-   new id. It can go once every deployment has synced on this version.
+   Earlier builds used `cmes_<number>_<KIND>` (or the name slug for a plan without a kind),
+   adding the name slug (`cmes_<number>_<KIND>-<name slug>`) when another plan of the same fetch
+   shared the kind. That id changed as plans came and went, and "Plan d'épargne entreprise" and
+   "Plan d'épargne interentreprises" could take each other's. Which of the two a plan got hung on
+   the plans listed at its last old sync, which the current fetch cannot know, so each plan
+   carries `legacyExternalIds`, both ids those builds could have given it. The ids alone prove
+   nothing; the backend also checks the name (see below). The field can go once every deployment
+   has synced on this version.
 
 Every read is reconciled: the funds must add up to the plan total, units × unit value must give
 the fund value, and the fund page must agree with the situation page. Anything else fails the
@@ -85,9 +89,19 @@ could not log in again. Rate limits per IP: `/auth/initiate` 5 per 15 min (each 
 password to the site, which locks an access after a few failures); `/auth/complete` has its own
 budget of 10 per 15 min.
 
-An account still carrying a plan's `legacyExternalId` moves to the new id on the first sync:
-same row, so its snapshots and history stay with the plan, and the close-at-zero below does not
-see it as unlisted. A plan whose account was soft-deleted under either id is not imported again.
+An account still carrying one of a plan's `legacyExternalIds` moves to the new id on the first
+sync, but only if it also carries the plan's account name ("<label> — <employer>", which every
+build wrote on each sync). Same row, so its snapshots and history stay with the plan, and the
+close-at-zero below does not see it as unlisted. The name check is what keeps a closed plan's
+history from passing to another plan of its family: when a PEE synced alone as `cmes_<n>_PEE`
+has closed and an interentreprise plan now names that id too, the old account is closed at zero
+and the new plan starts its own. The matches are resolved before any write. An old account two
+plans match fails the sync with `INVALID_DATA`, every account left as it was. A plan two old
+accounts match (it already changed id once) takes the one synced last, and the other closes at
+zero. An old account renamed since its last sync matches nothing: it closes at zero and the
+plan starts a new account, splitting its history rather than risking another plan's. A plan
+whose account was soft-deleted under its new id, or under an earlier id with its name, is not
+imported again.
 
 A plan that a complete fetch no longer lists (closed or transferred) is closed at zero: balance
 0, holdings removed, a zero snapshot for the day. It is not soft-deleted, since a soft-deleted

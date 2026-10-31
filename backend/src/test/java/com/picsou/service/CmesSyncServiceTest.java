@@ -50,6 +50,14 @@ import static org.mockito.Mockito.when;
 class CmesSyncServiceTest {
     private static final String PEG_ID = "cmes_12345_PEG";
     private static final String LABEL_ID = "cmes_12345_plan-d-pargne-groupe-0123456789abcdef";
+    private static final String PEG_SHARED_ID = "cmes_12345_PEG-plan-d-pargne-groupe";
+    private static final String PEG_NAME = "Plan d'épargne groupe — ACME INDUSTRIES";
+    private static final String PEE_ID = "cmes_12345_PEE";
+    private static final String PEE_LABEL = "Plan d'épargne entreprise";
+    private static final String PEE_NAME = PEE_LABEL + " — ACME INDUSTRIES";
+    private static final String PEE_NEW_ID = "cmes_12345_plan-d-pargne-entreprise-1111111111111111";
+    private static final String PEI_LABEL = "Plan d'épargne interentreprises";
+    private static final String PEI_ID = "cmes_12345_plan-d-pargne-interentreprises-2222222222222222";
     private static final String CREDENTIALS_JSON = "{\"login\":\"12345678\",\"password\":\"secret\"}";
 
     @Mock CmesPort port;
@@ -108,7 +116,7 @@ class CmesSyncServiceTest {
 
     @Test
     void queueSync_refusesAPlanWhoseFundsDoNotAddUp() {
-        CmesPort.PlanData broken = new CmesPort.PlanData(PEG_ID, null, "Plan d'épargne groupe", "PEG", null,
+        CmesPort.PlanData broken = new CmesPort.PlanData(PEG_ID, List.of(), "Plan d'épargne groupe", "PEG", null,
             new BigDecimal("9999.99"), pegPlan().positions(), true);
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
@@ -354,14 +362,8 @@ class CmesSyncServiceTest {
 
     @Test
     void anAccountStillCarryingThePlansEarlierIdMovesToItsNewIdWithItsHistory() {
-        arrangeCommittableSync(pegPlan(LABEL_ID, PEG_ID));
-        Account imported = Account.builder()
-            .id(20L)
-            .externalAccountId(PEG_ID)
-            .provider(CmesSyncService.PROVIDER)
-            .currentBalance(new BigDecimal("1400.00"))
-            .build();
-        when(accountRepository.findByExternalAccountIdAndMemberId(PEG_ID, 7L)).thenReturn(Optional.of(imported));
+        arrangeCommittableSync(pegPlan(LABEL_ID, List.of(PEG_ID, PEG_SHARED_ID)));
+        Account imported = importedPlan(20L, PEG_ID, PEG_NAME, "1400.00");
         when(accountRepository.findAllByMemberIdAndProvider(7L, CmesSyncService.PROVIDER))
             .thenReturn(List.of(imported));
 
@@ -376,13 +378,94 @@ class CmesSyncServiceTest {
     }
 
     @Test
+    void aPlanNowAloneOfItsFamilyDoesNotTakeTheHistoryOfAPlanClosedSince() {
+        // The last old sync listed only the PEE, as cmes_12345_PEE; it has closed
+        // since, and the interentreprise plan that opened names the same old id.
+        arrangeCommittableSync(peePlan(PEI_ID, PEI_LABEL));
+        Account closedPee = importedPlan(20L, PEE_ID, PEE_NAME, "800.00");
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CmesSyncService.PROVIDER))
+            .thenReturn(List.of(closedPee));
+
+        service.queueSync(7L);
+
+        assertThat(closedPee.getExternalAccountId()).isEqualTo(PEE_ID);
+        assertThat(closedPee.getName()).isEqualTo(PEE_NAME);
+        assertThat(closedPee.getCurrentBalance()).isEqualByComparingTo("0");
+        verify(accountService).upsertSnapshot(closedPee, BigDecimal.ZERO, BigDecimal.ZERO, LocalDate.now());
+        verify(accountRepository, times(2)).save(accountCaptor.capture());
+        Account opened = accountCaptor.getAllValues().getFirst();
+        assertThat(opened).isNotSameAs(closedPee);
+        assertThat(opened.getExternalAccountId()).isEqualTo(PEI_ID);
+        assertThat(opened.getCurrentBalance()).isEqualByComparingTo("1500.50");
+    }
+
+    @Test
+    void aPlanListedBesideANewPlanOfItsFamilyKeepsItsHistory() {
+        // The last old sync listed the PEE alone, as cmes_12345_PEE; the
+        // interentreprise plan opened since. Both name the old id.
+        arrangeCommittableSync(peePlan(PEE_NEW_ID, PEE_LABEL), peePlan(PEI_ID, PEI_LABEL));
+        Account pee = importedPlan(20L, PEE_ID, PEE_NAME, "800.00");
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CmesSyncService.PROVIDER))
+            .thenReturn(List.of(pee));
+
+        CmesSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CmesSyncStatus.SUCCESS);
+        assertThat(pee.getExternalAccountId()).isEqualTo(PEE_NEW_ID);
+        assertThat(pee.getCurrentBalance()).isEqualByComparingTo("1500.50");
+        // Moved, so not closed: no zero snapshot splits its history.
+        verify(accountService, never()).upsertSnapshot(pee, BigDecimal.ZERO, BigDecimal.ZERO, LocalDate.now());
+        verify(accountRepository, times(2)).save(accountCaptor.capture());
+        assertThat(accountCaptor.getAllValues())
+            .extracting(Account::getExternalAccountId)
+            .containsExactly(PEE_NEW_ID, PEI_ID);
+    }
+
+    @Test
+    void aPlanThatChangedIdOnceAlreadyTakesTheAccountSyncedLast() {
+        arrangeCommittableSync(pegPlan(LABEL_ID, List.of(PEG_ID, PEG_SHARED_ID)));
+        Account first = importedPlan(20L, PEG_ID, PEG_NAME, "0");
+        first.setLastSyncedAt(Instant.parse("2026-10-24T06:00:00Z"));
+        Account second = importedPlan(21L, PEG_SHARED_ID, PEG_NAME, "1400.00");
+        second.setLastSyncedAt(Instant.parse("2026-10-31T06:00:00Z"));
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CmesSyncService.PROVIDER))
+            .thenReturn(List.of(first, second));
+
+        service.queueSync(7L);
+
+        assertThat(second.getExternalAccountId()).isEqualTo(LABEL_ID);
+        assertThat(second.getCurrentBalance()).isEqualByComparingTo("1500.50");
+        assertThat(first.getExternalAccountId()).isEqualTo(PEG_ID);
+    }
+
+    @Test
+    void anEarlierAccountTwoPlansMatchFailsTheSyncBeforeAnyWrite() {
+        arrangeQueuedSession(activeSession(member()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(port.fetchPlans("plain-state"))
+            .thenReturn(List.of(pegPlan(LABEL_ID, List.of(PEG_ID)), pegPlan(PEG_SHARED_ID, List.of(PEG_ID))));
+        Account imported = importedPlan(20L, PEG_ID, PEG_NAME, "1400.00");
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CmesSyncService.PROVIDER))
+            .thenReturn(List.of(imported));
+
+        CmesSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CmesSyncStatus.FAILED);
+        assertThat(result.lastSyncError()).isEqualTo(CmesErrorCode.INVALID_DATA);
+        assertThat(imported.getExternalAccountId()).isEqualTo(PEG_ID);
+        assertThat(imported.getCurrentBalance()).isEqualByComparingTo("1400.00");
+        verify(accountRepository, never()).save(any());
+        verify(holdingRepository, never()).deleteByAccountId(any());
+    }
+
+    @Test
     void aPlanWhoseAccountWasDeletedUnderItsEarlierIdIsNotImportedAgain() {
         arrangeQueuedSession(activeSession(member()));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
-        when(port.fetchPlans("plain-state")).thenReturn(List.of(pegPlan(LABEL_ID, PEG_ID)));
+        when(port.fetchPlans("plain-state")).thenReturn(List.of(pegPlan(LABEL_ID, List.of(PEG_ID, PEG_SHARED_ID))));
         when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
-        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(anyString(), eq(7L)))
-            .thenAnswer(invocation -> PEG_ID.equals(invocation.getArgument(0)));
+        when(accountRepository.existsSoftDeletedByExternalAccountIdInAndNameAndMemberId(
+            List.of(PEG_ID, PEG_SHARED_ID), PEG_NAME, 7L)).thenReturn(true);
 
         CmesSyncService.SessionStatusResponse result = service.queueSync(7L);
 
@@ -457,16 +540,36 @@ class CmesSyncServiceTest {
             .build();
     }
 
-    private CmesPort.PlanData pegPlan() {
-        return pegPlan(PEG_ID, null);
+    private Account importedPlan(Long id, String externalId, String name, String balance) {
+        return Account.builder()
+            .id(id)
+            .externalAccountId(externalId)
+            .name(name)
+            .provider(CmesSyncService.PROVIDER)
+            .currentBalance(new BigDecimal(balance))
+            .build();
     }
 
-    private CmesPort.PlanData pegPlan(String externalId, String legacyExternalId) {
+    private CmesPort.PlanData pegPlan() {
+        return pegPlan(PEG_ID, List.of());
+    }
+
+    private CmesPort.PlanData pegPlan(String externalId, List<String> legacyExternalIds) {
+        return plan(externalId, legacyExternalIds, "Plan d'épargne groupe", "PEG");
+    }
+
+    /** A PEE-family plan with the two ids earlier builds could have given it. */
+    private CmesPort.PlanData peePlan(String externalId, String label) {
+        String slug = label.equals(PEE_LABEL) ? "plan-d-pargne-entreprise" : "plan-d-pargne-interentreprises";
+        return plan(externalId, List.of(PEE_ID, PEE_ID + "-" + slug), label, "PEE");
+    }
+
+    private CmesPort.PlanData plan(String externalId, List<String> legacyExternalIds, String label, String kind) {
         return new CmesPort.PlanData(
             externalId,
-            legacyExternalId,
-            "Plan d'épargne groupe",
-            "PEG",
+            legacyExternalIds,
+            label,
+            kind,
             "ACME INDUSTRIES",
             new BigDecimal("1500.50"),
             List.of(
