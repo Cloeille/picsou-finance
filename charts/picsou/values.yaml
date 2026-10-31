@@ -281,6 +281,16 @@ sidecars:
     enabled: true
     urlEnv: DEGIRO_AUTH_URL
     port: 8001
+  # Not in the 1.1.0 release yet: enable with an image tag that ships them
+  # (global.imageTag=nightly, or the next release).
+  cmes-auth:
+    enabled: false
+    urlEnv: CMES_AUTH_URL
+    port: 8001
+  cic-auth:
+    enabled: false
+    urlEnv: CIC_AUTH_URL
+    port: 8001
 
 # Any sidecar entry also accepts: image.repository, image.tag, image.pullPolicy,
 # resources, env (map), extraEnv, podAnnotations, nodeSelector, tolerations and

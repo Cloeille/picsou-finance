@@ -111,8 +111,11 @@ for the first sync, then enable it.
 
 ## Sidecars
 
-Every sidecar from the Compose stack is deployed by default. Disable the ones
-you do not use, the browser-based ones take the most memory:
+Every sidecar of the release the chart targets is deployed by default.
+`cmes-auth` (Crédit Mutuel Épargne Salariale) and `cic-auth` are newer than
+1.1.0 and stay disabled until a release ships their images; enable them with
+`global.imageTag=nightly`. Disable the ones you do not use, the browser-based
+ones take the most memory:
 
 ```yaml
 sidecars:

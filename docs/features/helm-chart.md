@@ -15,8 +15,9 @@ One release creates:
 
 - **app** — a `Recreate` Deployment of `ghcr.io/cloeille/picsou-finance` (nginx + Spring Boot
   under supervisord), a `/data` PVC and a `ClusterIP` Service on 8080.
-- **sidecars** — one Deployment and Service per entry of `sidecars` (the eleven `*-auth`
-  services of the Compose file), each toggled by `enabled`. The app receives the matching
+- **sidecars** — one Deployment and Service per entry of `sidecars` (the `*-auth` services of
+  the Compose file), each toggled by `enabled`. Sidecars added after the release the chart's
+  `appVersion` points to ship disabled, since their images do not exist under that tag yet. The app receives the matching
   `*_AUTH_URL` for every enabled sidecar. `revolut-auth` gets a PVC for its browser profiles.
 - **postgresql** — optional single-replica StatefulSet of `postgres:16-alpine`, or
   `externalDatabase` for an operator-managed cluster.
