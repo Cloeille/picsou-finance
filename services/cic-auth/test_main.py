@@ -155,7 +155,7 @@ class FlowTest(unittest.TestCase):
         response = self.client.post("/accounts", json={"sessionState": session}, headers=HEADERS)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(
-            [(a["externalId"], a["type"], Decimal(a["balanceEur"])) for a in response.json()],
+            [(a["externalId"], a["type"], Decimal(a["balanceEur"])) for a in response.json()["accounts"]],
             [
                 ("cic_1000000012345601", "CHECKING", Decimal("1234.56")),
                 ("cic_1000000012345602", "LIVRET_A", Decimal("5000.00")),
@@ -275,8 +275,10 @@ class FlowTest(unittest.TestCase):
         response = self.client.post("/accounts", json={"sessionState": session}, headers=HEADERS)
 
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual([account["type"] for account in response.json()], ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
-        self.assertTrue(all(account["snapshotComplete"] for account in response.json()))
+        self.assertEqual(
+            [account["type"] for account in response.json()["accounts"]], ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
+        self.assertTrue(all(account["snapshotComplete"] for account in response.json()["accounts"]))
+        self.assertEqual(response.json()["categoriesRead"], ["CHECKING", "SAVINGS"])
 
     def test_only_checked_boxes_are_sent(self):
         [form] = main.parse_forms(

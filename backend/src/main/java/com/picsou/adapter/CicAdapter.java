@@ -1,5 +1,6 @@
 package com.picsou.adapter;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarErrorTranslator;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
@@ -12,8 +13,10 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 public class CicAdapter implements CicPort {
@@ -28,6 +31,7 @@ public class CicAdapter implements CicPort {
     private static final Duration DEFAULT_ACCOUNTS_TIMEOUT = Duration.ofSeconds(60);
 
     private final SidecarErrorTranslator<CicErrorCode> sidecar;
+    private final ObjectMapper objectMapper;
     private final Duration authTimeout;
     private final Duration validationTimeout;
     private final Duration accountsTimeout;
@@ -67,6 +71,7 @@ public class CicAdapter implements CicPort {
             CicErrorCode.AUTH_ATTEMPT_EXPIRED,
             CicAdapter::friendlyMessage
         );
+        this.objectMapper = objectMapper;
         this.authTimeout = authTimeout;
         this.validationTimeout = validationTimeout;
         this.accountsTimeout = accountsTimeout;
@@ -107,16 +112,35 @@ public class CicAdapter implements CicPort {
     }
 
     @Override
-    public List<AccountData> fetchAccounts(String sessionState) {
-        return sidecar.postForList(
+    public AccountListing fetchAccounts(String sessionState) {
+        JsonNode response = sidecar.post(
             "/accounts",
             Map.of("sessionState", sessionState),
-            AccountData[].class,
+            JsonNode.class,
             accountsTimeout,
             "Could not fetch CIC accounts",
-            CicErrorCode.PORTFOLIO_INCOMPLETE,
-            "CIC returned no account"
+            null
         );
+        // {accounts, categoriesRead}; a bare list is an older sidecar that does not say which tables it read.
+        JsonNode accounts = response.isArray() ? response : response.path("accounts");
+        Set<String> categories = null;
+        if (!response.isArray() && response.path("categoriesRead").isArray()) {
+            categories = new HashSet<>();
+            for (JsonNode category : response.path("categoriesRead")) {
+                categories.add(category.asText());
+            }
+        }
+        if (!accounts.isArray() || accounts.isEmpty()) {
+            // Nothing back means the read fell short, not an empty portfolio.
+            throw sidecar.coded(CicErrorCode.PORTFOLIO_INCOMPLETE, "CIC returned no account", null);
+        }
+        AccountData[] parsed;
+        try {
+            parsed = objectMapper.treeToValue(accounts, AccountData[].class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException ex) {
+            throw sidecar.coded(CicErrorCode.INVALID_DATA, "CIC returned unreadable accounts", ex);
+        }
+        return new AccountListing(List.of(parsed), categories);
     }
 
     private static String friendlyMessage(CicErrorCode code) {

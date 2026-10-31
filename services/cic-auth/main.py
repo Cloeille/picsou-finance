@@ -52,7 +52,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from forms import Form, field_names, find_form, parse_forms
-from accounts_parser import AccountKind, AccountsFormatError, _text, parse_accounts
+from accounts_parser import AccountKind, AccountsFormatError, _text, categories_read, parse_accounts
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -230,6 +230,14 @@ class AccountPayload(BaseModel):
     balanceEur: Decimal
     # A type-level assertion that a partial read can never be serialised.
     snapshotComplete: Literal[True]
+
+
+class AccountsResponse(BaseModel):
+    """The accounts, and which in-scope tables the page carried (an empty one included)."""
+    model_config = ConfigDict(extra="forbid")
+
+    accounts: list[AccountPayload]
+    categoriesRead: list[Literal["CHECKING", "SAVINGS"]]
 
 
 class InitiateResponse(BaseModel):
@@ -714,23 +722,27 @@ async def _accounts_page(client: httpx.AsyncClient) -> str:
     return response.text
 
 
-async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
-    accounts, skipped = parse_accounts(await _accounts_page(client))
+async def _collect_accounts(client: httpx.AsyncClient) -> AccountsResponse:
+    page = await _accounts_page(client)
+    accounts, skipped = parse_accounts(page)
     if skipped:
         # Category names only: insurance, links to sister sites and the like.
         log.info("CIC: skipped out-of-scope categories %s", skipped)
     if not accounts:
         raise UpstreamError("PORTFOLIO_INCOMPLETE", "No current or savings account on the page")
-    return [
-        AccountPayload.model_validate({
-            "externalId": f"cic_{account['id']}",
-            "name": account["name"],
-            "type": account["type"],
-            "balanceEur": account["balanceEur"],
-            "snapshotComplete": True,
-        })
-        for account in accounts
-    ]
+    return AccountsResponse(
+        accounts=[
+            AccountPayload.model_validate({
+                "externalId": f"cic_{account['id']}",
+                "name": account["name"],
+                "type": account["type"],
+                "balanceEur": account["balanceEur"],
+                "snapshotComplete": True,
+            })
+            for account in accounts
+        ],
+        categoriesRead=categories_read(page),
+    )
 
 
 # ─── Routes ─────────────────────────────────────────────────────────────────
@@ -883,8 +895,8 @@ async def complete(req: CompleteRequest) -> dict:
             await _dispose_pending_state(state)
 
 
-@app.post("/accounts", response_model=list[AccountPayload])
-async def accounts(req: AccountsRequest) -> list[AccountPayload]:
+@app.post("/accounts", response_model=AccountsResponse)
+async def accounts(req: AccountsRequest) -> AccountsResponse:
     client = _new_client()
     try:
         restore_cookies(client, req.sessionState)

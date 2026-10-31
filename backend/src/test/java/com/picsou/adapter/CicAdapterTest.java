@@ -28,18 +28,42 @@ class CicAdapterTest {
     @Test
     void fetchAccounts_mapsTheSidecarContract() {
         CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.OK, """
-            [{"externalId":"cic_1000000012345602","name":"Livret A","type":"LIVRET_A",
-              "balanceEur":5000.00,"snapshotComplete":true}]
+            {"accounts":[{"externalId":"cic_1000000012345602","name":"Livret A","type":"LIVRET_A",
+              "balanceEur":5000.00,"snapshotComplete":true}],
+             "categoriesRead":["CHECKING","SAVINGS"]}
             """);
 
-        var accounts = adapter.fetchAccounts("state");
+        var listing = adapter.fetchAccounts("state");
 
-        assertThat(accounts).singleElement().satisfies(account -> {
+        assertThat(listing.categoriesRead()).containsExactlyInAnyOrder("CHECKING", "SAVINGS");
+        assertThat(listing.accounts()).singleElement().satisfies(account -> {
             assertThat(account.externalId()).isEqualTo("cic_1000000012345602");
             assertThat(account.type()).isEqualTo(com.picsou.model.AccountType.LIVRET_A);
             assertThat(account.balanceEur()).isEqualByComparingTo("5000");
             assertThat(account.snapshotComplete()).isTrue();
         });
+    }
+
+    @Test
+    void fetchAccounts_readsABareListFromAnOlderSidecarWithoutCategories() {
+        CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.OK, """
+            [{"externalId":"cic_1000000012345602","name":"Livret A","type":"LIVRET_A",
+              "balanceEur":5000.00,"snapshotComplete":true}]
+            """);
+
+        var listing = adapter.fetchAccounts("state");
+
+        assertThat(listing.accounts()).hasSize(1);
+        assertThat(listing.categoriesRead()).isNull();
+    }
+
+    @Test
+    void fetchAccounts_refusesAnEmptyListing() {
+        CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.OK, "{\"accounts\":[],\"categoriesRead\":[\"SAVINGS\"]}");
+
+        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CicErrorCode.PORTFOLIO_INCOMPLETE.name()));
     }
 
     @Test
