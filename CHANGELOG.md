@@ -9,13 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SCPI positions over MCP.** An MCP client can now record a SCPI account's share count,
+  subscription and withdrawal prices and distribution with the new `set_scpi_position` tool
+  (`accounts:write`). It goes through the same service as the account form, so the balance is
+  still the withdrawal price times the share count, and a call never detaches a CORUM or Sofidy
+  fund. `get_account` already returned the position, so reading needs no new tool.
+
 - **Caisse d'Epargne home loans.** A home loan listed in the synthesis was reported as
   unsupported. The sidecar now reads its detail from the bank's home-loan app (amount borrowed,
   rate, installment, insurance, first and last due dates) and imports it like a personal loan.
   A property you linked the mortgage to stays linked when the loan syncs again. A loan due on
   the 31st keeps that due day in its schedule, even after a shorter month, and a detail with
   figures out of range, or amounts too large to store, leaves only that loan's details aside
-  instead of failing the import.
+  instead of failing the import. Personal and home loans accept up to 600 monthly
+  installments (50 years); longer durations are refused before calculating insurance,
+  so they cannot block the other accounts' import.
 
 - **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
   Picsou matches it to the dividend history it already holds, marks it as a dividend and files
@@ -44,6 +52,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Caisse d'Epargne in *Sync all*.** The dashboard's *Sync all* modal lists Caisse d'Epargne
   like the other session connectors: a live session syncs in place, an expired one opens the
   Caisse d'Epargne tab, where the keypad and Sécur'Pass login run, and *Sync all* skips it.
+  Caisse d'Epargne tab, where the keypad and Sécur'Pass login run.
+- **Reconnect from stored credentials.** A session panel can offer a *Reconnect* button that
+  logs in again with the credentials stored at the last login, then runs the second factor
+  as after a typed login, with the user there to approve it. CIC uses it: its daily
+  confirmation no longer means retyping the customer number and password, and the *Sync all*
+  row of a lapsed CIC session opens the tab with the reconnect already started.
+- **CIC savings accounts.** A browserless `cic-auth` sidecar reads the CIC customer site and imports
+  the current and savings accounts (Livret A, LDDS, PEL…) that the PSD2 connection does not return,
+  balances only. CIC asks for a mobile confirmation at least once every 24 hours, so the daily sync
+  only goes through within a day of the last confirmation. It is listed in the dashboard's
+  *Sync all* modal, which opens the CIC tab when the session has lapsed.
+  Deleting its last account removes the session and credentials and revokes pending logins,
+  including a confirmation already in progress or a stored-credentials reconnect still reading
+  its password. Unreadable account rows and unrecognized tables containing account data fail the
+  whole import. Savings captions accept typographic apostrophes. A wrong SMS code can be corrected
+  without another login, and expired attempts have their pending passwords cleared every minute.
+  Rejected credentials make the session inactive and require credential entry, including after an
+  explicit reconnect, without erasing a newer login's password. Expired sessions stay in *Sync all*
+  before their first import. MCP `get_sync_status`
+  reports CIC progress and reconnection requirements. Terminal polling failures withdraw the phone
+  confirmation, with HTTP 429 and 5xx reported as upstream unavailability.
+  See [docs](docs/features/cic-banking.md).
 - **Crédit Mutuel / CIC Épargne Salariale sync.** A browserless `cmes-auth` sidecar reads the
   saver's space (www.creditmutuel-ere.fr) and imports each plan (PEE, PEG, PERCOL) with its funds:
   units, unit value and gain. The login is confirmed once, in the bank's app or with a code
@@ -301,6 +331,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeping the import from failing on multiple matches. Revolut converts native balances to
   EUR before writing snapshots, keeping their value and invested amount in the same currency.
 
+  before applying ISO balance-type priority, and never pick an entry that belongs to
+  another account in the session or to a label two accounts share. Flat account details
+  supply the IBAN and the description, product, or holder name for new accounts. Ambiguous or missing
+  balances fail explicitly instead of selecting another account's balance or storing
+  zero. Existing account names stay unchanged and can be edited in the account form.
+- **Enable Banking setup guidance.** Registration now lists the required application fields,
+  explains email-link sign-in and account-linked activation, and describes restricted-mode
+  limits. Key import is the default. Server key generation requires an explicit action.
+  The success screen distinguishes application configuration from connecting bank accounts,
+  and network failures show a translated Picsou connection message in all four languages.
+- **Caisse d'Epargne loan insurance rounding.** Personal and home loans now
+  retain the correct cent-rounded insurance at exact half-cent annuity boundaries
+  and extremely small positive nominal rates. Directed Decimal bounds certify
+  the rounded annuity, with an exact rational fallback when the bounds disagree.
+  This prevents an extra cent of insurance from reducing the capital repaid in
+  the amortization schedule.
+- **Trade Republic crypto is valued at its market price again.** The connector guessed the
+  venue of each price subscription (`TRD0` for crypto). Trade Republic refused that guess, and
+  every crypto position was valued at its average buy-in, which hid its whole gain or loss
+  from the net worth. The connector now asks Trade Republic which venue prices each
+  instrument. When a price still does not come back, the holding shows no current price
+  instead of its buy-in, and the sync log names it (#268).
 - **Numbers and labels follow the interface language.** Percentages are formatted by the
   locale everywhere ("8,3 %" in French, "8.3%" in English) instead of a dot and a hand-placed
   sign. Every amount axis uses one compact format ("60 k €", "1,25 M €") instead of "60.0k",

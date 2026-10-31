@@ -37,7 +37,8 @@ public class MemberSyncService {
         "degiro",
         // Last so the existing sources keep their order. Re-logs in with stored
         // credentials when its short session has expired.
-        "cmes"
+        "cmes",
+        "cic"
     );
 
     private final RevolutSyncService revolutSyncService;
@@ -56,6 +57,7 @@ public class MemberSyncService {
     private final DegiroSyncService degiroSyncService;
     private final ReceivedDividendClassifier dividendClassifier;
     private final CmesSyncService cmesSyncService;
+    private final CicSyncService cicSyncService;
 
     public MemberSyncService(
             RevolutSyncService revolutSyncService,
@@ -73,7 +75,8 @@ public class MemberSyncService {
             FinaryApiSyncService finaryApiSyncService,
             DegiroSyncService degiroSyncService,
             ReceivedDividendClassifier dividendClassifier,
-            CmesSyncService cmesSyncService) {
+            CmesSyncService cmesSyncService,
+            CicSyncService cicSyncService) {
         this.revolutSyncService = revolutSyncService;
         this.syncService = syncService;
         this.trSyncService = trSyncService;
@@ -90,6 +93,7 @@ public class MemberSyncService {
         this.degiroSyncService = degiroSyncService;
         this.dividendClassifier = dividendClassifier;
         this.cmesSyncService = cmesSyncService;
+        this.cicSyncService = cicSyncService;
     }
 
     public List<SourceSyncResult> resyncScheduled(Long memberId) {
@@ -148,6 +152,8 @@ public class MemberSyncService {
                     return amundiSyncService.resyncReporting(memberId);
                 case "cmes":
                     return cmesSyncService.resyncReporting(memberId);
+                case "cic":
+                    return cicSyncService.resyncReporting(memberId);
                 case "fortuneo":
                     return fortuneoSyncService.resyncReporting(memberId);
                 case "amex":

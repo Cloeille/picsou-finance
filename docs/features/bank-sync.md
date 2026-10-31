@@ -1,6 +1,6 @@
 # Feature: Bank Sync
 
-> Last updated: 2026-10-31 (deleted-uid precedence and shared account descriptions)
+> Last updated: 2026-10-31 (merged account attribution, provider scope, and currency-aware matching)
 
 > **Status (1.0.0).** Enable Banking is the only enabled provider. The Powens
 > adapter ships in the codebase but is **experimental and untested** —
@@ -100,7 +100,10 @@ through the usual upsert path, including currency-aware IBAN matching after a ui
 
 Some ASPSPs, including the Qonto response shape reported in issue #317, return the
 organization's balances for every account uid. The adapter fetches each session account's
-details and balances once before selecting balances. The same session response supplies
+details before collecting balance candidates, then selects balances after all requests finish.
+Each endpoint is called at most once per uid to respect Enable Banking's daily call limits.
+Successfully fetched details retain their label claims even if the balance request fails.
+The same session response supplies
 the ASPSP name. Enable Banking documents the balance endpoint as account-scoped and
 uses `Booked balance` as an example generic label. A named ASPSP other than Qonto follows
 that contract unless its response names a sibling with a different account description.
@@ -122,7 +125,18 @@ A description shared by several session accounts cannot establish ownership, eve
 their IBANs differ. Holder and product names are not matching keys because several
 accounts can share them.
 
-Within that set, the adapter prefers the following
+For shared or unproven responses, attribution follows these rules:
+
+- **Own label.** When an account's `details` label is unique in the session and some
+  entries carry that name, only those entries are candidates.
+- **No own label.** When the label is blank or matches no entry, entries named after
+  another session account's label are dropped. An unlabelled account can only take an
+  entry that no sibling can claim. If none remains, the account is skipped.
+- **Shared label.** When two accounts have the same label, neither can tell which entries
+  are its own, so entries with that name and those named after other siblings are
+  dropped. Both accounts are skipped unless an unattributed entry remains.
+
+Within the candidates, the adapter prefers the following
 [ISO balance types](https://enablebanking.com/docs/api/reference/#balancestatus) in order:
 
 1. `CLBD`, closing booked.
@@ -179,6 +193,12 @@ a credit limit. The account-level `credit_limit` cannot identify which tied entr
 so it does not provide a safe tie-break. Unlisted types such as `OPBD` and `PRCD` retain equal
 priority and also fail closed when tied.
 
+Residual limit: sibling labels only exist for accounts linked in the same session.
+For Qonto or an unknown ASPSP, a single linked uid still rejects distinct unclaimed
+labels, but cannot detect a shared list whose entries all have the same generic label.
+A named account-scoped provider ranks its response by type unless a distinct sibling
+claim contradicts that scope.
+
 The selected amount supplies the currency. If it omits the currency, the adapter uses
 the account-details currency, then `EUR`.
 
@@ -195,6 +215,10 @@ conservative handling of missing ASPSP metadata, independent empty accounts with
 description matches, failed sibling details with a shared description,
 oversized display names, full-description matching before truncation,
 ambiguous or missing data, and per-account failure isolation for details and balance requests.
+It also checks that a three-account shared-list sync makes exactly one details request
+and one balance request per uid. `EnableBankingBankConnectorTest` verifies that an earlier
+request failure remains the reported error after a later amount-conversion failure,
+and that unexpected exceptions propagate from either stage.
 
 `SyncServiceCurrencyMatchTest` persists accounts and snapshots through real repositories
 against an isolated H2 database. Synthetic EUR and GBP accounts sharing one IBAN stay
@@ -354,6 +378,17 @@ SchedulerService.dailyBankSync() --> SyncService.resyncAll()   (LINKED only)
 
 ## Enable Banking onboarding caveats
 
+The setup wizard follows Enable Banking's browser-generated PEM path. Registration guidance
+covers all required application fields, Production mode, and **Activate by linking accounts**
+before the credentials form. **Request activation** is the commercial path. The Application ID
+is the downloaded PEM filename without `.pem`. Import that application's private key instead
+of generating an unrelated server key. See [setup-wizard.md](./setup-wizard.md).
+
+In restricted mode, the application can access only accounts linked to it in the Enable
+Banking Control Panel. Link another bank's accounts there before adding that bank in Picsou.
+The setup test checks application credentials and connectivity. It does not create a bank
+connection or import accounts into Picsou.
+
 Two pitfalls cost real users a lot of time during 1.0.0 testing — both are surfaced in the wizard now (`EBStep1Explain`, `EBStep2Credentials`):
 
 - **PRODUCTION vs SANDBOX**: The Enable Banking developer dashboard defaults to SANDBOX, which only exposes fictitious test banks. A user who creates a SANDBOX application will reach the bank picker, see a list of unfamiliar test banks, and never find their real one. The wizard now shows a warning encart on step 1 and forces the user to tick a "my application is in PRODUCTION mode" checkbox before submitting credentials on step 3.
@@ -401,6 +436,8 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
   Picsou does not send them, so a business bank may now be *findable* yet fail
   when connecting. That is a different failure from "the bank isn't listed" —
   don't re-diagnose the search path for it.
+  This caveat does not exclude all business banks. Restricted-mode account linking also
+  applies to business accounts.
 - **`IntegrationsHealthService` queries `/aspsps` unfiltered too**, deliberately:
   it is a JWT/connectivity probe (`toBodilessEntity()`), and leaving a lone
   `psu_type=personal` there would read as an oversight.

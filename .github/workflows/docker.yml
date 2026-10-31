@@ -200,6 +200,12 @@ jobs:
             dockerfile: services/cmes-auth/Dockerfile
             base: python
             versioned: false
+          - name: cic-auth
+            image: ${{ github.repository }}/cic-auth
+            context: services/cic-auth
+            dockerfile: services/cic-auth/Dockerfile
+            base: python
+            versioned: false
 
     steps:
       - name: Checkout

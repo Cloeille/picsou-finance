@@ -16,6 +16,7 @@ import {
   degiroApi,
   amundiApi,
   cmesApi,
+  cicApi,
   amexApi,
   fortuneoApi,
   corumApi,
@@ -51,6 +52,7 @@ export const syncKeys = {
   degiro: () => [...syncKeys.all, 'degiro'] as const,
   amundi: () => [...syncKeys.all, 'amundi'] as const,
   cmes: () => [...syncKeys.all, 'cmes'] as const,
+  cic: () => [...syncKeys.all, 'cic'] as const,
   amex: () => [...syncKeys.all, 'amex'] as const,
   fortuneo: () => [...syncKeys.all, 'fortuneo'] as const,
   corum: () => [...syncKeys.all, 'corum'] as const,
@@ -637,6 +639,70 @@ export function useClearCmesSession() {
     mutationFn: cmesApi.clearSession,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: syncKeys.cmes() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// CIC online banking
+// ---------------------------------------------------------------------------
+
+export function useCicStatus() {
+  return useSidecarSessionStatus(syncKeys.cic(), cicApi.getStatus)
+}
+
+export function useInitiateCicAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ login, password }: { login: string; password: string }) =>
+      cicApi.initiateAuth(login, password),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.cic() })
+    },
+  })
+}
+
+export function useReconnectCic() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => cicApi.reconnect(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.cic() })
+    },
+  })
+}
+
+export function useCompleteCicAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ processId, code }: { processId: string; code?: string }) =>
+      cicApi.completeAuth(processId, code),
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.cic(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.cic() })
+    },
+  })
+}
+
+export function useSyncCic() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: cicApi.sync,
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.cic(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.cic() })
+    },
+  })
+}
+
+export function useClearCicSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: cicApi.clearSession,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.cic() })
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     },

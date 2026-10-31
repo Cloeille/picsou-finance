@@ -1,6 +1,6 @@
 # Feature: Embedded MCP server + scoped access-keys
 
-> Last updated: 2026-10-07
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -132,10 +132,24 @@ by `delete_account`.
 | `analysis:read` | `get_allocation`, `get_wealth_pyramid`, `get_portfolio_diversification`, `get_wealth_projection`, `get_allocation_targets`, `get_essential_expense_estimate`, `get_savings_suggestions`, `get_real_estate_summary` |
 | `sync:read` | `get_sync_status` |
 | `prices:read` | `get_price`, `get_security_insight` |
-| `accounts:write` | `create_manual_account`, `update_account`, `delete_account`, `add_balance_snapshot`, `upsert_holding`, `delete_holding` |
+| `accounts:write` | `create_manual_account`, `update_account`, `delete_account`, `add_balance_snapshot`, `upsert_holding`, `delete_holding`, `set_scpi_position` |
 | `transactions:write` | `add_transaction`, `update_transaction`, `delete_transaction` |
 | `goals:write` | `create_goal`, `update_goal`, `delete_goal`, `set_goal_month_contribution` |
 | `sync:trigger` | `trigger_full_sync`, `trigger_bank_sync`, `trigger_broker_sync`, `trigger_crypto_exchange_sync`, `trigger_crypto_wallet_sync` |
+
+`set_scpi_position` is to a SCPI account what `upsert_holding` is to a brokerage account: it
+records the share count and the prices of the one fund the account holds. It calls
+`ScpiPositionService.save`, the method behind `PUT /api/accounts/{id}/scpi`, so the balance
+follows the same rule as the form: withdrawal price times share count (zero shares give a zero
+balance), or the previous balance with `PRICE_INCOMPLETE` when shares are held but the withdrawal
+price is missing. The arguments go through the same
+bean validation the controller applies with `@Valid`. Like the form, a call replaces the share
+count, both prices, the management company, the ISIN, the dividend policy and the jouissance
+date, so the tool description tells the agent to read `get_account` (its `scpi` field) first.
+Omitted distribution fields keep their stored value. Unlike the form, the tool cannot clear them:
+a JSON null and an omitted argument reach the tool the same way, so both mean "keep". The CORUM and Sofidy fund codes are never
+sent, so a call cannot detach a fund from its sync or set an ignore tombstone. Reading needs no
+new tool: `get_account` and `list_accounts` already return the position.
 
 The wealth-analysis tools (`AnalysisTools`) are read-only. Each calls the service behind its REST
 counterpart with the caller's member and returns the same payload. Whole-wealth judgements
@@ -209,8 +223,8 @@ sessions/credentials as the documented side effect of deleting a connection's la
   broker-tool refresh are preserved through `MemberSyncService`, immediately after Fortuneo and
   before IBKR. Full sync includes it once; `get_sync_status` exposes its queue/failure state and
   last completion time. These calls only reuse the stored session, never initiate authentication.
-- **Triggers never connect a source, but two log in again.** When their session has expired,
-  BoursoBank and Crédit Mutuel / CIC Épargne Salariale log in again with their stored credentials
+- **Triggers only reuse existing connections.** When their session has expired,
+  BoursoBank, Crédit Mutuel / CIC Épargne Salariale, and CIC log in again with their stored credentials
   (`reauthenticateAndFetch`). No source completes a new second factor: one that asks for it reads
   as `NEEDS_REAUTH`.
 - **SimpleFIN is a bank source.** `MemberSyncService` runs it right after IBKR. Full sync includes
@@ -225,8 +239,8 @@ sessions/credentials as the documented side effect of deleting a connection's la
   failed exchange cannot roll back a successful neighbour. Transient connector errors do not ask
   the user to reconnect; `NEEDS_REAUTH` is reserved for authentication/session-expiry codes.
 - **Inactive browser sessions preserve their stored failure reason.** BoursoBank, Bourse Direct,
-  Amundi, Crédit Mutuel / CIC Épargne Salariale (`cmes`) and Fortuneo report `NEEDS_REAUTH` for
-  `SESSION_EXPIRED` (also `INVALID_CREDENTIALS` for BoursoBank and `cmes`, which clear a rejected
+  Amundi, Crédit Mutuel / CIC Épargne Salariale (`cmes`), CIC (`cic`), and Fortuneo report `NEEDS_REAUTH` for
+  `SESSION_EXPIRED` (also `INVALID_CREDENTIALS` for BoursoBank, `cmes`, and `cic`, which clear a rejected
   password), `FAILED` for another stored error, and `SKIPPED_NOT_CONNECTED` only when no error is
   recorded. Database failures and sync exceptions retain their throwable in server logs; raw
   database messages are never returned in their MCP summary.

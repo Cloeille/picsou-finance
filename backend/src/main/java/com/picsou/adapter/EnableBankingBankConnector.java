@@ -193,11 +193,13 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         SessionAccounts sessionAccounts = fetchSessionAccountsWithRetry(sessionId);
         List<String> accounts = sessionAccounts.accounts();
         List<AccountData> fetched = new ArrayList<>(accounts.size());
-        RuntimeException firstFailure = null;
+        List<RuntimeException> failures = new ArrayList<>();
         Map<String, AccountDetailsResponse> detailsByAccount = new LinkedHashMap<>();
         Map<String, Integer> labelClaims = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         Map<String, AccountBalanceCandidates> candidatesByAccount = new LinkedHashMap<>();
-        // A uid's balances may include its siblings. Collect every description before selection.
+        // A uid's balances may include its siblings. Collect every description before selection,
+        // even when its balance request will fail. Each endpoint is fetched at most once per uid
+        // because Enable Banking enforces strict daily call limits.
         for (String accountId : accounts) {
             try {
                 AccountDetailsResponse details = fetchAccountDetails(accountId);
@@ -205,9 +207,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
                 String label = details != null ? firstNonBlank(details.details()) : null;
                 if (label != null) labelClaims.merge(label, 1, Integer::sum);
             } catch (SyncException ex) {
-                log.warn("Failed to fetch account details {} from Enable Banking; skipping it for this sync",
-                    LogSanitizer.fingerprint(accountId), ex);
-                if (firstFailure == null) firstFailure = ex;
+                skip(accountId, ex, failures);
             }
         }
         boolean detailsComplete = detailsByAccount.size() == accounts.size()
@@ -219,9 +219,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
                 var candidates = fetchAccountCandidates(accountId, entry.getValue(), accountLabels);
                 candidatesByAccount.put(accountId, candidates);
             } catch (SyncException ex) {
-                log.warn("Failed to fetch account balances {} from Enable Banking; skipping it for this sync",
-                    LogSanitizer.fingerprint(accountId), ex);
-                if (firstFailure == null) firstFailure = ex;
+                skip(accountId, ex, failures);
             }
         }
         var ownership = new BalanceOwnership(candidatesByAccount,
@@ -234,17 +232,21 @@ public class EnableBankingBankConnector implements BankConnectorPort {
                 // An account uid can rotate independently after a successful session link,
                 // and one ASPSP may send a malformed balance amount. Keep the remaining accounts
                 // syncable; anything else is a bug and must fail the whole sync.
-                log.warn("Failed to fetch account {} from Enable Banking; skipping it for this sync",
-                    LogSanitizer.fingerprint(accountId), ex);
-                if (firstFailure == null) firstFailure = ex;
+                skip(accountId, ex, failures);
             }
         }
         // An empty list means "accounts still linking" upstream, so report a failure
         // when a populated session has no usable accounts.
-        if (fetched.isEmpty() && firstFailure != null) {
-            throw firstFailure;
+        if (fetched.isEmpty() && !failures.isEmpty()) {
+            throw failures.getFirst();
         }
         return fetched;
+    }
+
+    private static void skip(String accountId, RuntimeException failure, List<RuntimeException> failures) {
+        log.warn("Failed to fetch account {} from Enable Banking; skipping it for this sync",
+            LogSanitizer.fingerprint(accountId), failure);
+        failures.add(failure);
     }
 
     /**
@@ -775,7 +777,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
 
     private static String balanceLabel(List<BalancesResponse.BalanceItem> candidates) {
         if (candidates.isEmpty()) {
-            throw new SyncException("Enable Banking returned no unclaimed account balances");
+            throw new SyncException("Enable Banking returned ambiguous account balances; no unclaimed balance remains");
         }
         String balanceLabel = nullToEmpty(candidates.getFirst().name()).trim();
         if (candidates.stream().anyMatch(item -> !balanceLabel.equalsIgnoreCase(nullToEmpty(item.name()).trim()))) {
