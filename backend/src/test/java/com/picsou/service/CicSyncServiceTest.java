@@ -595,12 +595,14 @@ class CicSyncServiceTest {
             .id(12L)
             .externalAccountId("cic_1000000012345603")
             .provider(CicSyncService.PROVIDER)
+            .type(AccountType.LDDS)
             .currentBalance(new BigDecimal("800.00"))
             .build();
         Account listedLivret = Account.builder()
             .id(13L)
             .externalAccountId(LIVRET_ID)
             .provider(CicSyncService.PROVIDER)
+            .type(AccountType.LIVRET_A)
             .currentBalance(new BigDecimal("4900.00"))
             .build();
         when(accountRepository.findAllByMemberIdAndProvider(7L, CicSyncService.PROVIDER))
@@ -612,6 +614,41 @@ class CicSyncServiceTest {
         assertThat(closedLivret.getDeletedAt()).isNull();
         verify(accountService).upsertSnapshot(closedLivret, BigDecimal.ZERO, LocalDate.now());
         verify(accountService, never()).upsertSnapshot(eq(listedLivret), eq(BigDecimal.ZERO), any(LocalDate.class));
+    }
+
+    @Test
+    void aFetchWithoutAnyAccountOfACategoryKeepsThatCategorysAccounts() {
+        // Only the current account came back: the savings table is missing from the page.
+        arrangeCommittableSync(List.of(new CicPort.AccountData(
+            "cic_1000000012345601", "Compte Courant", AccountType.CHECKING, new BigDecimal("1234.56"), true)));
+        Account livret = Account.builder()
+            .id(12L)
+            .externalAccountId(LIVRET_ID)
+            .provider(CicSyncService.PROVIDER)
+            .type(AccountType.LIVRET_A)
+            .currentBalance(new BigDecimal("5000.00"))
+            .build();
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CicSyncService.PROVIDER))
+            .thenReturn(List.of(livret));
+
+        service.queueSync(7L);
+
+        assertThat(livret.getCurrentBalance()).isEqualByComparingTo("5000.00");
+        verify(accountService, never()).upsertSnapshot(eq(livret), any(BigDecimal.class), any(LocalDate.class));
+    }
+
+    @Test
+    void anIncompleteAccountInASuccessfulFetchClosesNoAccount() {
+        arrangeQueuedSession(activeSession(member()));
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(
+            new CicPort.AccountData("cic_1000000012345601", "Compte Courant", AccountType.CHECKING,
+                new BigDecimal("1234.56"), true),
+            new CicPort.AccountData(LIVRET_ID, "Livret A", AccountType.LIVRET_A, new BigDecimal("5000.00"), false)));
+
+        service.queueSync(7L);
+
+        verify(accountRepository, never()).findAllByMemberIdAndProvider(any(), any());
+        verify(accountRepository, never()).save(any());
     }
 
     @Test

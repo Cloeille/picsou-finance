@@ -532,14 +532,30 @@ public class CicSyncService {
      * account is closed at zero rather than soft deleted: a soft-deleted account
      * reads as removed by the user and would never be imported again, while an
      * account can come back.
+     *
+     * <p>The page lists current accounts and savings accounts in two separate
+     * tables, and a customer may hold only one of the two. So an account is
+     * closed only when the fetch returned another account of its category: a
+     * whole table missing from the page (a partial render, a renamed caption the
+     * sidecar did not catch) leaves that category's accounts as they were rather
+     * than zeroing every livret.
      */
     private void closeUnlistedAccounts(List<PreparedAccount> prepared, List<Account> imported, Long memberId,
                                        Instant syncedAt) {
         Set<String> listed = new HashSet<>();
-        prepared.forEach(account -> listed.add(account.externalId()));
+        Set<Boolean> categoriesRead = new HashSet<>();
+        prepared.forEach(account -> {
+            listed.add(account.externalId());
+            categoriesRead.add(account.type() == AccountType.CHECKING);
+        });
         for (Account account : imported) {
             String externalId = account.getExternalAccountId();
             if (externalId == null || !externalId.startsWith(EXTERNAL_ID_PREFIX) || listed.contains(externalId)) {
+                continue;
+            }
+            if (!categoriesRead.contains(account.getType() == AccountType.CHECKING)) {
+                log.info("CIC returned no account of an imported account's category, keeping it (member={}; account={})",
+                    memberId, account.getId());
                 continue;
             }
             if (account.getCurrentBalance() != null && account.getCurrentBalance().signum() == 0) {
