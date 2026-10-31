@@ -251,7 +251,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   duplicate-account check in the
   [upgrade note](docs/features/docker-deployment.md#upgrading-a-10x-database-to-110): these
   databases now run V47, which deletes active accounts sharing an external id and member, so the
-  backend refuses to migrate while such duplicates exist. Do not run `flyway repair`, and keep
+  backend refuses to migrate while such duplicates exist, including one synced in while the
+  upgrade runs. Do not run `flyway repair`, and keep
   Flyway enabled.
 - **Sidebar style prompt shows what each style looks like.** The two miniatures in the
   first-launch "choose your sidebar style" window now match the real sidebars: logo on the left

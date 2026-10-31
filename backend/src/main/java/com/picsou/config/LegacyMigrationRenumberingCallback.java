@@ -1,6 +1,7 @@
 package com.picsou.config;
 
 import org.flywaydb.core.api.FlywayException;
+import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.callback.Callback;
 import org.flywaydb.core.api.callback.Context;
 import org.flywaydb.core.api.callback.Event;
@@ -13,6 +14,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,7 +37,9 @@ import java.util.List;
  * <p>It also stops the migration while V47 is pending and active accounts share an
  * {@code external_account_id} and member. V47 deletes all but the newest of each such group, and
  * their history cascades with them. Databases that skipped V47 are the 1.0.x line, which never
- * enforced that key; the operator resolves the duplicates first (upgrade note below).
+ * enforced that key; the operator resolves the duplicates first (upgrade note below). That check
+ * commits before any migration runs, while the old instance may still be syncing, so it runs again
+ * in V47's own transaction with account writes locked out until V47 commits.
  *
  * <p>Spring Boot registers every {@link Callback} bean with the auto-configured Flyway. Flyway
  * runs the callback in a transaction. Operator upgrade path: docs/features/docker-deployment.md.
@@ -87,10 +91,13 @@ public class LegacyMigrationRenumberingCallback implements Callback {
         new Renumbering("38", "94", "backfill tr crypto transaction tickers", 2050086936)
     );
 
+    private static final MigrationVersion V47 = MigrationVersion.fromVersion("47");
+
     @Override
     public boolean supports(Event event, Context context) {
         // BEFORE_MIGRATE covers validate-on-migrate=false; after a validation it finds nothing left.
-        return event == Event.BEFORE_VALIDATE || event == Event.BEFORE_MIGRATE;
+        return event == Event.BEFORE_VALIDATE || event == Event.BEFORE_MIGRATE
+            || event == Event.BEFORE_EACH_MIGRATE;
     }
 
     @Override
@@ -102,8 +109,15 @@ public class LegacyMigrationRenumberingCallback implements Callback {
     public void handle(Event event, Context context) {
         int duplicateGroups;
         try {
-            renumber(context.getConnection(), context.getConfiguration());
-            duplicateGroups = duplicateGroupsBeforeV47(context.getConnection(), context.getConfiguration());
+            if (event == Event.BEFORE_EACH_MIGRATE) {
+                if (!V47.equals(context.getMigrationInfo().getVersion())) {
+                    return;
+                }
+                duplicateGroups = lockAccountsForV47(context.getConnection(), context.getConfiguration());
+            } else {
+                renumber(context.getConnection(), context.getConfiguration());
+                duplicateGroups = duplicateGroupsBeforeV47(context.getConnection(), context.getConfiguration());
+            }
         } catch (SQLException e) {
             throw new FlywayException("Could not renumber the legacy schema-history rows", e);
         }
@@ -177,6 +191,23 @@ public class LegacyMigrationRenumberingCallback implements Callback {
                 return 0;
             }
         }
+        return duplicateGroups(connection, schema);
+    }
+
+    /**
+     * Runs in V47's own transaction, just before its DELETE. The up-front check has already
+     * committed, and a running 1.0.x instance can still sync a duplicate in. The lock blocks
+     * account writes until V47 commits, so the groups counted here are the groups V47 sees.
+     */
+    private static int lockAccountsForV47(Connection connection, Configuration configuration) throws SQLException {
+        String schema = historySchema(connection, configuration);
+        try (Statement lock = connection.createStatement()) {
+            lock.execute("LOCK TABLE " + quote(schema) + ".account IN SHARE ROW EXCLUSIVE MODE");
+        }
+        return duplicateGroups(connection, schema);
+    }
+
+    private static int duplicateGroups(Connection connection, String schema) throws SQLException {
         // Before V20 (member_id) and V30 (deleted_at) every account is one member's and active.
         String member = columnExists(connection, schema, "account", "member_id") ? ", member_id" : "";
         String active = columnExists(connection, schema, "account", "deleted_at") ? " AND deleted_at IS NULL" : "";

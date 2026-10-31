@@ -3,6 +3,10 @@ package com.picsou.migration;
 import com.picsou.config.LegacyMigrationRenumberingCallback;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
+import org.flywaydb.core.api.MigrationVersion;
+import org.flywaydb.core.api.callback.Callback;
+import org.flywaydb.core.api.callback.Context;
+import org.flywaydb.core.api.callback.Event;
 import org.flywaydb.core.api.exception.FlywayValidateException;
 import org.flywaydb.core.api.output.MigrateResult;
 import org.junit.jupiter.api.Test;
@@ -286,6 +290,51 @@ class LegacyMigrationRenumberingTest {
     }
 
     @Test
+    void aDuplicateCommittedAfterTheUpFrontCheckStillStopsBeforeV47() throws Exception {
+        String url = createDatabase("release_racing_duplicate");
+        migrateRelease(url, RELEASE_1_0_18_UNCHANGED, RELEASE_1_0_18_MOVED, RELEASE_1_0_18_EDITED);
+        execute(url, "INSERT INTO family_member (display_name) VALUES ('Test')");
+        execute(url, "INSERT INTO account (name, provider, external_account_id, is_manual, member_id) VALUES "
+            + "('Synced', 'TRADE_REPUBLIC', 'ext-1', false, (SELECT min(id) FROM family_member))");
+        // The running 1.0.x instance syncs again once the up-front check has passed, before V47.
+        Flyway flyway = upgrade(url, concurrentWrite(url, "46", writer -> {
+            try (Statement st = writer.createStatement()) {
+                st.execute("INSERT INTO account (name, provider, external_account_id, is_manual, member_id) VALUES "
+                    + "('Resynced', 'TRADE_REPUBLIC', 'ext-1', false, (SELECT min(id) FROM family_member))");
+            }
+        }));
+
+        assertThatThrownBy(flyway::migrate)
+            .isInstanceOf(FlywayException.class)
+            .hasMessageContaining("1 group(s) of active accounts share an external_account_id");
+
+        assertThat(query(url, "SELECT name FROM account ORDER BY id")).containsExactly("Synced", "Resynced");
+        assertThat(query(url, "SELECT version FROM flyway_schema_history WHERE version = '47'")).isEmpty();
+    }
+
+    @Test
+    void accountWritesWaitUntilV47Commits() throws Exception {
+        String url = createDatabase("release_v47_lock");
+        migrateRelease(url, RELEASE_1_0_18_UNCHANGED, RELEASE_1_0_18_MOVED, RELEASE_1_0_18_EDITED);
+        execute(url, "INSERT INTO family_member (display_name) VALUES ('Test')");
+        List<String> writerErrors = new ArrayList<>();
+        Flyway flyway = upgrade(url, concurrentWrite(url, "47", writer -> {
+            try (Statement st = writer.createStatement()) {
+                st.execute("SET lock_timeout = '500ms'");
+                st.execute("INSERT INTO account (name, provider, external_account_id, is_manual, member_id) VALUES "
+                    + "('Resynced', 'TRADE_REPUBLIC', 'ext-1', false, (SELECT min(id) FROM family_member))");
+            } catch (SQLException e) {
+                writerErrors.add(e.getSQLState());
+            }
+        }));
+
+        flyway.migrate();
+
+        assertThat(writerErrors).as("the insert timed out on the account lock").containsExactly("55P03");
+        assertThat(upgrade(url).info().pending()).isEmpty();
+    }
+
+    @Test
     void aSecondStartOfARelease1018DatabaseChangesNothing() throws Exception {
         String url = createDatabase("release_second_start");
         migrateRelease(url, RELEASE_1_0_18_UNCHANGED, RELEASE_1_0_18_MOVED, RELEASE_1_0_18_EDITED);
@@ -316,13 +365,50 @@ class LegacyMigrationRenumberingTest {
     }
 
     /** The application's Flyway: current files, out-of-order, and the renumbering callback. */
-    private static Flyway upgrade(String url) {
+    private static Flyway upgrade(String url, Callback... others) {
+        Callback[] callbacks = Stream.concat(Stream.of(new LegacyMigrationRenumberingCallback()), Stream.of(others))
+            .toArray(Callback[]::new);
         return Flyway.configure()
             .dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword())
             .locations("classpath:db/migration")
             .outOfOrder(true)
-            .callbacks(new LegacyMigrationRenumberingCallback())
+            .callbacks(callbacks)
             .load();
+    }
+
+    private interface Write {
+        void run(Connection writer) throws SQLException;
+    }
+
+    /** Another connection writes, and commits, just before {@code version} runs. */
+    private static Callback concurrentWrite(String url, String version, Write write) {
+        return new Callback() {
+            @Override
+            public boolean supports(Event event, Context context) {
+                return event == Event.BEFORE_EACH_MIGRATE
+                    && MigrationVersion.fromVersion(version).equals(context.getMigrationInfo().getVersion());
+            }
+
+            @Override
+            public boolean canHandleInTransaction(Event event, Context context) {
+                return true;
+            }
+
+            @Override
+            public void handle(Event event, Context context) {
+                try (Connection writer = DriverManager.getConnection(url, POSTGRES.getUsername(), POSTGRES.getPassword())) {
+                    write.run(writer);
+                } catch (SQLException e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+
+            @Override
+            public String getCallbackName() {
+                // Flyway runs callbacks by name: this one after the callback under test.
+                return "zz-concurrent-write";
+            }
+        };
     }
 
     /** Applies V1-V79 and the line's files under the names they had before 2839c94. */

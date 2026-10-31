@@ -386,7 +386,10 @@ their provider and even for manual accounts. Their holdings, transactions and sn
 them (`ON DELETE CASCADE`). V72 narrows the index to provider and non-manual accounts afterwards,
 too late for the rows V47 deleted. 1.0.x never enforced this. The backend refuses to migrate
 while V47 is pending and this query returns rows (`N group(s) of active accounts share an
-external_account_id and member`), and nothing is changed. Check before upgrading:
+external_account_id and member`), and nothing is changed. It checks again just before V47, with
+writes to `account` blocked until V47 commits, because the running 1.0.x instance can still sync
+during the migration. A duplicate that appears only then stops the upgrade at V47; the 1.1.0
+migrations before V47 stay applied, and the next start resumes at V47. Check before upgrading:
 
 ```sql
 SELECT member_id, external_account_id, count(*)
@@ -519,7 +522,8 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
   builds 1.0.18 and 1.0.11 databases from those releases' files (the five comment-edited 1.0.18
   files are kept verbatim under `src/test/resources/db/legacy-1.0.18`), upgrades them, and
   compares the resulting schema with a fresh database, and checks that a 1.0.18 database with
-  duplicate external account ids stops before V47 without losing an account.
+  duplicate external account ids stops before V47 without losing an account, also when a second
+  connection commits the duplicate after the first check, and that account writes wait for V47.
 
 ## Links
 
