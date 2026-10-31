@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   ageAt,
   cn,
+  deriveMonogram,
   formatDate,
   formatLocalDate,
   formatPercent,
@@ -267,4 +268,47 @@ describe('ageAt', () => {
     expect(ageAt('2030-01-01', '2026-01-01')).toBe(-4)
     expect(ageAt('2030-06-01', '2026-01-01')).toBe(-5)
   })
+})
+
+describe('deriveMonogram', () => {
+  const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+
+  it('uses the first letter of the first two words, uppercased', () => {
+    expect(deriveMonogram('credit agricole')).toBe('CA')
+  })
+
+  it('uses the first two characters of a single word, uppercased', () => {
+    expect(deriveMonogram('Carrefour')).toBe('CA')
+  })
+
+  it.each([null, undefined, '', '   '])('falls back to a neutral glyph for %j', (label) => {
+    expect(deriveMonogram(label)).toBe('•')
+  })
+
+  it('keeps a leading emoji whole in a multi-word label', () => {
+    expect(deriveMonogram('🚀 Rocket')).toBe('🚀R')
+  })
+
+  it('keeps a leading emoji whole in a single-word label', () => {
+    expect(deriveMonogram('🚀Rocket')).toBe('🚀R')
+  })
+
+  it('keeps a ZWJ emoji sequence as one character', () => {
+    expect(deriveMonogram('👩\u200D👩\u200D👧 Fund')).toBe('👩\u200D👩\u200D👧F')
+  })
+
+  it('keeps both regional indicators of a flag together', () => {
+    expect(deriveMonogram('🇫🇷 Bourse')).toBe('🇫🇷B')
+  })
+
+  it('keeps a combining accent attached to its base letter', () => {
+    expect(deriveMonogram('e\u0301cole')).toBe('E\u0301C')
+  })
+
+  it.each(['🚀 Rocket', '🚀Rocket', '🍕🍔🍟', '👩\u200D👩\u200D👧 Fund', '🇫🇷 Bourse'])(
+    'never emits a lone surrogate for %s',
+    (label) => {
+      expect(deriveMonogram(label)).not.toMatch(LONE_SURROGATE)
+    },
+  )
 })

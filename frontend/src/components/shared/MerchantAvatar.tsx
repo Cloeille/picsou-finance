@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { cn, deriveMonogram } from '@/lib/utils'
+import { cn, deriveMonogram, firstGraphemes } from '@/lib/utils'
 
 /**
  * A small monogram tile standing in for a merchant logo. Fully offline by design
@@ -87,7 +87,7 @@ export function MerchantAvatar({
   size = 'md',
   className,
 }: MerchantAvatarProps) {
-  const text = (monogram?.trim() || deriveMonogram(label)).slice(0, 2)
+  const text = firstGraphemes(monogram?.trim() || deriveMonogram(label), 2)
   const { background, foreground } = pickColors(label, color)
 
   // The monogram is the base layer; the logo (if any) renders on top and is removed

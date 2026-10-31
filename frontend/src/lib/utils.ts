@@ -145,15 +145,28 @@ export function todayLabel(locale = getLocale(), date = new Date()): string {
   return capitalizeFirstCharacter(label, safeLocale)
 }
 
-/** First letters of up to two words, else the first two characters. Always uppercase. */
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+/** First `count` user-perceived characters of `value`; never splits a surrogate pair, ZWJ emoji, flag or combining accent. */
+export function firstGraphemes(value: string, count: number): string {
+  let result = ''
+  let taken = 0
+  for (const { segment } of graphemeSegmenter.segment(value)) {
+    if (taken++ === count) break
+    result += segment
+  }
+  return result
+}
+
+/** First character of up to two words, else the first two characters (user-perceived, not UTF-16 units). Always uppercase. */
 export function deriveMonogram(label: string | null | undefined): string {
   const clean = (label ?? '').trim()
   if (!clean) return '•'
   const words = clean.split(/\s+/).filter(Boolean)
   const letters =
     words.length >= 2
-      ? words[0]!.charAt(0) + words[1]!.charAt(0)
-      : clean.slice(0, 2)
+      ? firstGraphemes(words[0]!, 1) + firstGraphemes(words[1]!, 1)
+      : firstGraphemes(clean, 2)
   return letters.toUpperCase()
 }
 
