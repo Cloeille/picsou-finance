@@ -330,12 +330,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Caisse d'Epargne loans link to the member's EUR account when currencies share an IBAN,
   keeping the import from failing on multiple matches. Revolut converts native balances to
   EUR before writing snapshots, keeping their value and invested amount in the same currency.
-
-  before applying ISO balance-type priority, and never pick an entry that belongs to
-  another account in the session or to a label two accounts share. Flat account details
-  supply the IBAN and the description, product, or holder name for new accounts. Ambiguous or missing
-  balances fail explicitly instead of selecting another account's balance or storing
-  zero. Existing account names stay unchanged and can be edited in the account form.
 - **Enable Banking setup guidance.** Registration now lists the required application fields,
   explains email-link sign-in and account-linked activation, and describes restricted-mode
   limits. Key import is the default. Server key generation requires an explicit action.
