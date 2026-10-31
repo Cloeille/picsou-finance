@@ -261,6 +261,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
   the card's corner could still hit delete). They now stay visible on touch screens and when
   keyboard focus is inside the card.
+- **Hidden accounts no longer count in the budget.** Hiding an account already took it out of
+  the dashboard and allocation views, but its transactions still fed spending, cashflow,
+  envelopes and recurring detection. When the same bank account is synced by two connectors
+  and one copy is hidden, every movement was counted twice. Opening the hidden account itself
+  still lists its transactions.
 - **MCP calls no longer time out after a few idle minutes.** The MCP SSE stream stayed silent
   between two replies, so clients dropped it as idle (Claude Code after about 6 minutes, the
   Python MCP SDK after 300 s) and the next call timed out. The server now pings every open
