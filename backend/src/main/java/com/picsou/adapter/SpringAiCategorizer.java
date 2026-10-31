@@ -4,6 +4,7 @@ import com.picsou.port.TransactionCategorizerPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -11,6 +12,7 @@ import org.springframework.ai.converter.BeanOutputConverter;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -97,17 +99,26 @@ public class SpringAiCategorizer implements TransactionCategorizerPort {
     }
 
     /**
-     * The model's answer: the first generation carrying non-blank text, or {@code null}. Spring AI
-     * maps every content block to a generation, so an Anthropic thinking block (empty text with
-     * the default {@code display: omitted}) comes first and must be skipped.
+     * The model's answer: the first non-thinking generation carrying non-blank text, or
+     * {@code null}. Spring AI maps every Anthropic content block to a generation, so a thinking
+     * block comes first: its text is empty under the default {@code display: omitted}, but holds
+     * a reasoning summary under {@code display: summarized}. Spring AI tags those generations with
+     * a {@code signature} property ({@code data} for a redacted one), which is how they are skipped.
      */
     public static String answerText(ChatResponse resp) {
         if (resp == null) return null;
         for (Generation g : resp.getResults()) {
-            String text = g.getOutput() == null ? null : g.getOutput().getText();
+            AssistantMessage out = g.getOutput();
+            if (out == null || isThinking(out)) continue;
+            String text = out.getText();
             if (text != null && !text.isBlank()) return text;
         }
         return null;
+    }
+
+    private static boolean isThinking(AssistantMessage out) {
+        Map<String, Object> props = out.getMetadata();
+        return props != null && (props.containsKey("signature") || props.containsKey("data"));
     }
 
     /** Extract slug-normalize/unknown/empty logic from the model's raw answer. */

@@ -11,6 +11,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,6 +45,24 @@ class SpringAiCategorizerTest {
             assertThat(s.confidence()).isEqualTo(0.9);
         });
         assertThat(r.response()).contains("groceries");
+    }
+
+    @Test
+    void skipsASummarizedThinkingBlockEvenThoughItCarriesText() {
+        // Under display: summarized the thinking block holds prose; Spring AI tags it "signature".
+        AssistantMessage thinking = AssistantMessage.builder()
+            .content("The merchant looks like a supermarket.")
+            .properties(Map.of("signature", "sig"))
+            .build();
+        ChatModel model = mock(ChatModel.class);
+        when(model.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(
+            new Generation(thinking),
+            new Generation(new AssistantMessage("{\"categorySlug\": \"groceries\", \"confidence\": 0.8}")))));
+
+        var r = new SpringAiCategorizer(model).categorize(TX, CATS, List.of());
+
+        assertThat(r.status()).isEqualTo("OK");
+        assertThat(r.suggestion()).get().extracting(s -> s.categorySlug()).isEqualTo("groceries");
     }
 
     @Test

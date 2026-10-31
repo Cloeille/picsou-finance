@@ -21,8 +21,10 @@ import java.util.Optional;
 @Component
 public class AiChatModelFactory {
     private static final Logger log = LoggerFactory.getLogger(AiChatModelFactory.class);
-    /** Ample for the categorizer's one-line JSON answer and the admin "Reply OK" test. */
-    static final int ANTHROPIC_MAX_TOKENS = 1024;
+    /** Caps thinking + answer. The JSON answer is ~25 tokens and Haiku 5.5's thinking stayed under
+     *  300, but always-thinking models (Opus 5.5, Fable) can think longer; tokens are billed as
+     *  generated, so headroom is free. Kept within every current model's output cap. */
+    static final int ANTHROPIC_MAX_TOKENS = 4096;
 
     public Optional<ChatModel> build(AiProviderConfig cfg) {
         if (cfg == null) return Optional.empty();

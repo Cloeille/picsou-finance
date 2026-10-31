@@ -25,6 +25,8 @@ class AiChatModelFactoryTest {
         var opts = (AnthropicChatOptions) m.getDefaultOptions();
         assertThat(opts.getMaxTokens()).isEqualTo(AiChatModelFactory.ANTHROPIC_MAX_TOKENS);
         assertThat(opts.getModel()).isEqualTo("claude-haiku-4-5");
+        // Current Claude models reject non-default sampling values (the builder default was 0.8).
+        assertThat(opts.getTemperature()).isNull();
     }
     @Test void ollamaBuildsOllamaModelWithoutKey() {
         assertThat(factory.build(new AiProviderConfig(AiProvider.OLLAMA, null, "", "")).get())

@@ -144,14 +144,22 @@ served by `GET /api/admin/ai-calls` (admin-only).
   exposure.
 - **Anthropic requires `max_tokens`.** `AnthropicChatModel.builder()` carries `maxTokens=500` in
   its default options, but `AiChatModelFactory` passes its own `defaultOptions` (for the model id),
-  which *replaces* them — so the factory sets `maxTokens` itself. Without it every Anthropic call
-  fails with `400 max_tokens: Field required`.
-- **Thinking models put an empty generation first.** Claude Haiku 5.5 (and the other Claude 5.x
-  models) think by default; with the default `display: omitted` the thinking block has empty text,
-  and Spring AI maps it to the *first* `Generation`. `ChatClient...responseEntity()` and
-  `.content()` read only that one, so the categorizer and the admin Test button use
-  `SpringAiCategorizer.answerText()`, which takes the first generation with non-blank text.
-  Disabling thinking is not an option: Opus 5.5 / Sonnet 5.5 reject `thinking: disabled` with a 400.
+  which *replaces* them — so the factory sets `maxTokens` (4096) itself. Without it every Anthropic
+  call fails with `400 max_tokens: Field required`. The cap covers thinking + answer; tokens are
+  billed as generated, so the headroom costs nothing.
+- **No sampling parameters for Anthropic.** The builder defaults also carried `temperature=0.8`;
+  current Claude models reject non-default sampling values with a 400, so the factory sets none.
+- **Thinking models put a thinking generation first.** Claude Haiku 5.5 (and the other Claude 5.x
+  models) think by default, and Spring AI maps the thinking block to the *first* `Generation`
+  (empty text under the default `display: omitted`, a summary under `display: summarized`).
+  `ChatClient...responseEntity()` and `.content()` read only that one, so the categorizer and the
+  admin Test button use `SpringAiCategorizer.answerText()`, which skips generations Spring AI tags
+  as thinking (`signature` / `data` property) and takes the first one with text. Disabling
+  thinking is not an option: Opus 5.5 / Sonnet 5.5 reject `thinking: disabled` with a 400.
+- **Console API keys only.** Spring AI authenticates with `x-api-key`: a Console key (personal,
+  service-account or workspace) works; a Claude Pro/Max subscription token (`sk-ant-oat…`) does
+  not, and the API is billed to the Console organization, not the subscription. A key that isn't
+  scoped to a workspace needs an `anthropic-workspace-id` header Picsou doesn't send yet (400).
 - **Spring AI is on 1.1.x** since the MCP keep-alive fix — see
   [ADR](../decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md); the two Anthropic
   pitfalls above were observed on 1.1.8.
@@ -168,8 +176,8 @@ served by `GET /api/admin/ai-calls` (admin-only).
   exceeds 2000.
 - `BudgetSeedWriteOnReadPostgresTest` — boots the full context with the three provider starters
   present and runs `V41`+`V42` on real Postgres (verifies `none` keeps startup clean).
-- `SpringAiCategorizerTest` — a thinking-block-first response is parsed from the text block; no
-  text at all is an `ERROR`; `unknown` yields no suggestion.
+- `SpringAiCategorizerTest` — a thinking-block-first response (empty or summarized) is parsed from
+  the text block; no text at all is an `ERROR`; `unknown` yields no suggestion.
 - `AiChatModelFactoryTest` — the Anthropic model carries `maxTokens`.
 - `CategorizeTab.test.tsx` — suggestion pre-selects the dropdown + renders the chip; the
   "Categorize with AI" button is gated on the setting; progress indicator renders while status is
