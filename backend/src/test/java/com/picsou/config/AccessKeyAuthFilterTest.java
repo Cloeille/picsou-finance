@@ -6,6 +6,7 @@ import com.picsou.model.AppUser;
 import com.picsou.model.UserRole;
 import com.picsou.repository.AppUserRepository;
 import io.github.bucket4j.Bucket;
+import io.github.bucket4j.TimeMeter;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.AfterEach;
@@ -52,6 +53,7 @@ class AccessKeyAuthFilterTest {
 
     AccessKeyAuthFilter filter;
     Map<Long, Bucket> keyBuckets;
+    RequestAttributeSecurityContextRepository securityContextRepository;
     MockHttpServletRequest request;
     MockHttpServletResponse response;
     AppUser owner;
@@ -62,7 +64,9 @@ class AccessKeyAuthFilterTest {
     @BeforeEach
     void setUp() {
         keyBuckets = new ConcurrentHashMap<>();
-        filter = new AccessKeyAuthFilter(accessKeyService, keyBuckets, jwtTokenAuthenticator, appUserRepository);
+        securityContextRepository = new RequestAttributeSecurityContextRepository();
+        filter = new AccessKeyAuthFilter(
+            accessKeyService, keyBuckets, jwtTokenAuthenticator, appUserRepository, securityContextRepository);
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
         owner = AppUser.builder().id(7L).username("alice").role(UserRole.MEMBER).activated(true).build();
@@ -302,6 +306,7 @@ class AccessKeyAuthFilterTest {
         if (bearer.equals(VALID_KEY)) {
             when(accessKeyService.validate(bearer))
                 .thenReturn(Optional.of(new ResolvedKey(owner, Set.of("accounts:read"), KEY_ID)));
+            keyBuckets.put(KEY_ID, RateLimitConfig.createMcpKeyBucket(frozenMeter()));
         } else {
             when(jwtTokenAuthenticator.authenticateMcpToken(bearer))
                 .thenReturn(Optional.of(new JwtTokenAuthenticator.McpPrincipal(7L, Set.of("accounts:read"))));
@@ -325,8 +330,8 @@ class AccessKeyAuthFilterTest {
         assertThat(request.getSession(false)).isNull();
         if (bearer.equals(VALID_KEY)) {
             verify(accessKeyService).validate(bearer);
-            assertThat(keyBuckets.get(KEY_ID).getAvailableTokens())
-                .isEqualTo(RateLimitConfig.createMcpKeyBucket().getAvailableTokens() - 1);
+            // 120 capacity, one token for the request; the ASYNC dispatch must not consume a second.
+            assertThat(keyBuckets.get(KEY_ID).getAvailableTokens()).isEqualTo(119);
         } else {
             verify(jwtTokenAuthenticator).authenticateMcpToken(bearer);
             verify(appUserRepository).findByIdWithMember(7L);
@@ -348,8 +353,22 @@ class AccessKeyAuthFilterTest {
         verifyNoInteractions(chain, accessKeyService, jwtTokenAuthenticator, appUserRepository);
     }
 
+    private static TimeMeter frozenMeter() {
+        return new TimeMeter() {
+            @Override
+            public long currentTimeNanos() {
+                return 0L;
+            }
+
+            @Override
+            public boolean isWallClockBased() {
+                return false;
+            }
+        };
+    }
+
     private void dispatchThroughSecurity() throws Exception {
-        var contextFilter = new SecurityContextHolderFilter(new RequestAttributeSecurityContextRepository());
+        var contextFilter = new SecurityContextHolderFilter(securityContextRepository);
         var anonymousFilter = new AnonymousAuthenticationFilter("test");
         var authorizationFilter = new AuthorizationFilter(AuthenticatedAuthorizationManager.authenticated());
         contextFilter.doFilter(request, response, (loadedRequest, loadedResponse) ->

@@ -11,7 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -51,19 +51,25 @@ public class AccessKeyAuthFilter extends OncePerRequestFilter {
     private final Map<Long, Bucket> keyBuckets;
     private final JwtTokenAuthenticator jwtTokenAuthenticator;
     private final AppUserRepository appUserRepository;
-    private final RequestAttributeSecurityContextRepository securityContextRepository =
-        new RequestAttributeSecurityContextRepository();
+    private final SecurityContextRepository securityContextRepository;
 
+    /**
+     * @param securityContextRepository the repository the filter chain loads its context from;
+     *     it must be the same instance configured on the chain, or the saved authentication is
+     *     never seen again
+     */
     public AccessKeyAuthFilter(
         AccessKeyService accessKeyService,
         Map<Long, Bucket> keyBuckets,
         JwtTokenAuthenticator jwtTokenAuthenticator,
-        AppUserRepository appUserRepository
+        AppUserRepository appUserRepository,
+        SecurityContextRepository securityContextRepository
     ) {
         this.accessKeyService = accessKeyService;
         this.keyBuckets = keyBuckets;
         this.jwtTokenAuthenticator = jwtTokenAuthenticator;
         this.appUserRepository = appUserRepository;
+        this.securityContextRepository = securityContextRepository;
     }
 
     /** Property A: an access-key/MCP-JWT authenticates ONLY the MCP surface, never {@code /api/**}. */
@@ -149,8 +155,10 @@ public class AccessKeyAuthFilter extends OncePerRequestFilter {
         var context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
-        // The stateless chain reloads request attributes on async dispatch, after it clears the
-        // thread-local context. Without this save, completing an MCP stream fails authorization.
+        // The stateless chain reloads the context from request attributes on the async dispatch
+        // that completes an MCP stream, after it has cleared the thread-local context. Save it
+        // here rather than rely on SessionManagementFilter, which only persists it as a side
+        // effect of its new-authentication handling.
         securityContextRepository.saveContext(context, request, response);
     }
 
