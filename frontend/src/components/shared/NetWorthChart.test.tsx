@@ -44,7 +44,8 @@ const UNKNOWN_POINT_TOOLTIP: TooltipEntry[] = [
   },
 ]
 
-vi.mock('recharts', () => {
+vi.mock('recharts', async (importOriginal) => {
+  const { getNiceTickValues } = await importOriginal<typeof import('recharts')>()
   const ResponsiveContainer = ({ children }: { children?: ReactNode }) => <div>{children}</div>
   const AreaChart = ({ data, children }: { data: ChartPoint[]; children?: ReactNode }) => (
     <div data-testid="area-chart">
@@ -63,6 +64,7 @@ vi.mock('recharts', () => {
   const Empty = () => null
 
   return {
+    getNiceTickValues,
     ResponsiveContainer,
     AreaChart,
     Area,

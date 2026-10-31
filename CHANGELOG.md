@@ -221,8 +221,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Alignment and control consistency pass (budget, account detail, charts).** Chart Y axes
-  are now wide enough for their longest tick, so labels such as "10.00k" and "-250k" are no
-  longer clipped. The investment account chart is titled "Valeur et capital investi", the
+  are now wide enough for every tick they draw, so labels such as "10.00k", "-3.5k" and
+  "-250k" are no longer clipped. The investment account chart is titled "Valeur et capital investi", the
   name of what it plots. A holding or dividend without a logo shows its name's initials
   instead of an empty grey circle, unless that name is only its ticker. A dividend with no
   payment date says "Date inconnue" and stays on one line. Income on an account's
