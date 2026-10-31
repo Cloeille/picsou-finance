@@ -62,6 +62,7 @@ export function BudgetTransactionsPage() {
           <DateInput id="tx-filter-to" value={to} onChange={setTo} className="w-36" />
         </div>
         <NativeSelect
+          aria-label={t('transactions.account')}
           value={accountId ?? ''}
           onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : undefined)}
           className="w-auto"
@@ -72,6 +73,7 @@ export function BudgetTransactionsPage() {
           ))}
         </NativeSelect>
         <NativeSelect
+          aria-label={t('common.category')}
           value={categoryId ?? ''}
           onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : undefined)}
           className="w-auto"

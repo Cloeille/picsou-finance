@@ -9,9 +9,10 @@ const TICK_CHAR_PX = 7.5
  * measured at the next power of ten too, which bounds every nice tick from outside.
  *
  * `format` must be the formatter handed to the axis (`money.tick(...)`), so a masked axis is
- * sized for the mask.
+ * sized for the mask. Recharts also offsets the tick text by `tickSize` (6px by default) even with
+ * `tickLine={false}`, so that offset is part of the width.
  */
-export function yAxisWidth(values: Iterable<number>, format: (value: number) => string, tickMargin = 8): number {
+export function yAxisWidth(values: Iterable<number>, format: (value: number) => string, tickMargin = 8, tickSize = 6): number {
   let min = 0
   let max = 0
   for (const v of values) {
@@ -24,5 +25,5 @@ export function yAxisWidth(values: Iterable<number>, format: (value: number) => 
     if (v !== 0) candidates.push(Math.sign(v) * 10 ** Math.ceil(Math.log10(Math.abs(v))))
   }
   const longest = Math.max(...candidates.map((v) => format(v).length))
-  return Math.ceil(longest * TICK_CHAR_PX) + tickMargin
+  return Math.ceil(longest * TICK_CHAR_PX) + tickMargin + tickSize
 }

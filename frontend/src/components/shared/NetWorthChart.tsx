@@ -317,9 +317,9 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
   }, [filteredData])
   const yTick = money.tick(yTickFormatter)
   const yWidth = useMemo(() => yAxisWidth(
-    filteredData.flatMap(d => [d.total, d.invested, d.target, d.projection].filter(v => typeof v === 'number')),
+    filteredData.flatMap(d => [d.total, showInvested ? d.invested : undefined, d.target, d.projection].filter(v => typeof v === 'number')),
     yTick,
-  ), [filteredData, yTick])
+  ), [filteredData, showInvested, yTick])
 
   const chartConfig = useMemo(() => ({
     total: {

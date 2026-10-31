@@ -19,8 +19,9 @@ import { cn, deriveMonogram } from '@/lib/utils'
  *   as text right beside this component, so a ticker fallback would print it twice — and that is
  *   not a cosmetic detail: `PositionsByProduct.test.tsx` asserts one `BTC` per product group, and a
  *   duplicate is a real signal that the layout is wrong. Initials read as a mark where an empty disc
- *   read as a missing image. A holding without a name (an exchange coin line) keeps the empty disc,
- *   since its only initials would be the ticker's. Either way the column width stays stable.
+ *   read as a missing image. A holding without a usable name — blank, or just the ticker repeated, as an exchange coin
+ *   line or a nameless dividend does — keeps the empty disc, since its only initials would be the
+ *   ticker's. Either way the column width stays stable.
  * - The `onError` reset is what makes a *transient* failure recoverable: Radix keeps the image
  *   mounted after a load error, so without flipping back to "no image" a single failed request
  *   would leave the mark blank for that holding. Remounting on the next URL change also picks up
@@ -39,7 +40,7 @@ export function HoldingLogo({
   logoUrlDark?: string | null
   /** The image's accessible name, so the asset is read whether or not the mark loads. */
   ticker: string
-  /** The holding's name, whose initials stand in for a missing mark. Without one the disc stays empty. */
+  /** The holding's name, whose initials stand in for a missing mark. Blank, or equal to the ticker, the disc stays empty. */
   name?: string | null
   className?: string
 }) {
@@ -48,6 +49,8 @@ export function HoldingLogo({
   // Keyed on the URL: changing it remounts the image, so a previously failed one is retried.
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const src = url && url !== failedUrl ? url : null
+  const label = name?.trim()
+  const monogram = label && label.toLowerCase() !== ticker.toLowerCase() ? deriveMonogram(label) : ''
 
   return (
     <Avatar className={cn('size-6 shrink-0', className)}>
@@ -61,7 +64,7 @@ export function HoldingLogo({
         />
       )}
       <AvatarFallback aria-hidden className="bg-muted text-[0.6rem] font-semibold">
-        {name && deriveMonogram(name)}
+        {monogram}
       </AvatarFallback>
     </Avatar>
   )

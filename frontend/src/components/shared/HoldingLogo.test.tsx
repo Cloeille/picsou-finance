@@ -44,6 +44,22 @@ describe('HoldingLogo', () => {
     expect(container.querySelector('[data-slot="avatar-fallback"]')).toBeInTheDocument()
   })
 
+  it('keeps an empty disc when the name is blank', () => {
+    const { container } = render(<HoldingLogo logoUrl={null} ticker="BTC" name="   " />)
+
+    expect(container.textContent).toBe('')
+    expect(container.querySelector('[data-slot="avatar-fallback"]')).toBeInTheDocument()
+  })
+
+  it('keeps an empty disc when the name is just the ticker', () => {
+    // A nameless holding whose caller passes the ticker as its name: the initials would be the
+    // ticker's own letters, printed beside the ticker.
+    const { container } = render(<HoldingLogo logoUrl={null} ticker="IWDA" name="iwda" />)
+
+    expect(container.textContent).toBe('')
+    expect(container.querySelector('[data-slot="avatar-fallback"]')).toBeInTheDocument()
+  })
+
   it('falls back to an empty mark when the image fails to load', async () => {
     const { container } = render(<HoldingLogo logoUrl={BROKEN} ticker="BTC" />)
 

@@ -55,7 +55,7 @@ export function TransactionRow({ transaction: tx, logoUrlFor, onClick, index = 0
       <CurrencyDisplay
         value={tx.amount}
         currency={tx.nativeCurrency}
-        showSign
+        showSign={tx.amount !== 0}
         className={cn(
           'ml-4 text-base font-semibold tabular-nums shrink-0',
           tx.amount >= 0 ? 'text-emerald-500' : 'text-foreground',
