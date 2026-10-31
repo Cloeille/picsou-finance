@@ -1101,6 +1101,44 @@ export type AmundiErrorCode =
   | 'INVALID_DATA'
   | 'INTERNAL_ERROR'
 
+interface CmesSessionStatusBase {
+  isActive: boolean
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+}
+
+export type CmesSessionStatus =
+  | (CmesSessionStatusBase & {
+      syncStatus: 'FAILED'
+      lastSyncError: CmesErrorCode
+    })
+  | (CmesSessionStatusBase & {
+      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
+      lastSyncError: null
+    })
+
+export type CmesErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'ACTION_REQUIRED'
+  | 'MFA_TYPE_UNSUPPORTED'
+  | 'INVALID_OTP'
+  | 'APP_VALIDATION_TIMEOUT'
+  | 'APP_VALIDATION_CANCELLED'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'PORTFOLIO_INCOMPLETE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INVALID_DATA'
+  | 'INTERNAL_ERROR'
+
+/** `mfaType` is `APP_PUSH` for a mobile confirmation, `SMS` for a code to type. */
+export interface CmesAuthInitResponse {
+  processId: string | null
+  mfaRequired: boolean
+  mfaType: 'APP_PUSH' | 'SMS' | null
+}
+
 /** `mfaType` is `APP_PUSH` when the user must approve in the Mon Épargne app, `SMS` otherwise. */
 export interface AmundiAuthInitResponse {
   processId: string | null

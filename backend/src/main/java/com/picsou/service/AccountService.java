@@ -69,6 +69,7 @@ public class AccountService {
     private static final Set<String> PROVIDER_VALUED = Set.of(
         BourseDirectSyncService.PROVIDER,
         AmundiSyncService.PROVIDER,
+        CmesSyncService.PROVIDER,
         BoursoSyncService.PROVIDER,
         FortuneoSyncService.PROVIDER
     );

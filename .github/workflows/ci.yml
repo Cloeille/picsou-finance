@@ -90,7 +90,7 @@ jobs:
             backend/target/surefire-reports/com.picsou.service.HomeBankQifPersistenceTest.txt
       - name: Require the legacy migration renumbering tests
         run: >-
-          grep -q 'Tests run: 12, Failures: 0, Errors: 0, Skipped: 0'
+          grep -q 'Tests run: 15, Failures: 0, Errors: 0, Skipped: 0'
           backend/target/surefire-reports/com.picsou.migration.LegacyMigrationRenumberingTest.txt
       - name: Require the sidecar Budget PostgreSQL tests
         run: >-
@@ -332,6 +332,30 @@ jobs:
           picsou-degiro-auth:test
           -m unittest discover -v
 
+  cmes-auth-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the shared python sidecar base
+        run: docker build --target python --tag picsou-sidecar-python services/base
+      - name: Build the Crédit Mutuel Épargne Salariale sidecar image
+        run: docker build --tag picsou-cmes-auth:test services/cmes-auth
+      - name: Run sidecar tests in the image
+        run: >-
+          docker run --rm
+          --entrypoint python
+          --env PYTHONPATH=/app
+          --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/cmes-auth/fixtures.py:/tests/fixtures.py:ro"
+          --volume "${{ github.workspace }}/services/cmes-auth/test_parsers.py:/tests/test_parsers.py:ro"
+          --volume "${{ github.workspace }}/services/cmes-auth/test_main.py:/tests/test_main.py:ro"
+          --volume "${{ github.workspace }}/services/cmes-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --workdir /tests
+          picsou-cmes-auth:test
+          -m unittest discover -v
+
   tr-auth-sidecar:
     runs-on: ubuntu-latest
     steps:
@@ -469,6 +493,7 @@ jobs:
       - degiro-auth-sidecar
       - tr-auth-sidecar
       - revolut-auth-sidecar
+      - cmes-auth-sidecar
       - compose-sidecar-build
       - workflow-inventory
     if: github.event_name == 'push'
