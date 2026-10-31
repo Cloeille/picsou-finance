@@ -25,6 +25,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from html import unescape as html_unescape
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 FORMAT_CHANGED = "UPSTREAM_FORMAT_CHANGED"
 INCOMPLETE = "PORTFOLIO_INCOMPLETE"
@@ -852,9 +853,10 @@ _LI_MENTION_RE = re.compile(r'class="c-table__mention[^"]*">(?P<mention>.*?)</sp
 # (a query string, a new URL shape) must still count as a quote link, or a quoted
 # fund without units would pass for the euro fund.
 _LI_QUOTE_LINK_MARK = "/cours/"
-_LI_SYMBOL_RE = re.compile(
-    r"""href=(?P<q>["'])[^"']*/cours/(?P<symbol>[^/"'?#]+)/?(?:[?#][^"']*)?(?P=q)"""
-)
+_LI_HREF_RE = re.compile(r"""href=(?P<q>["'])(?P<url>.*?)(?P=q)""", re.DOTALL)
+# Matched against the URL path alone: a "/cours/MSFT/" in a returnUrl or a fragment
+# is another instrument's page, not this support's symbol.
+_LI_SYMBOL_PATH_RE = re.compile(r"(?:/(?!cours/)[^/]*)*/cours/(?P<symbol>[^/]+)/?")
 _LI_ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}\d$")
 # The euro fund carries no unit and no ISIN; its label is what names it. "Euro"
 # must be a whole word: "Fonds Europe Actions" is a unit-linked fund, not cash.
@@ -903,6 +905,26 @@ def _li_symbol(quote_symbol: str | None, isin: str | None, label: str) -> str:
         prefix += char
     digest = hashlib.sha256(label.encode("utf-8", "surrogatepass")).hexdigest()[:_LI_DIGEST_LENGTH]
     return f"{prefix.rstrip()}-{digest}"
+
+
+def _li_quote_symbol(cell: str) -> str | None:
+    """The Boursorama symbol of the cell's quote link, None when it has no quote link.
+
+    Read from each link's path, after HTML-unescaping, never from its query or fragment.
+    A quote link whose symbol cannot be read, or two links naming different symbols, is
+    refused: guessing would move the ticker, and the backend keys holdings by ticker.
+    """
+    symbols = set()
+    for href in _LI_HREF_RE.finditer(cell):
+        path = urlsplit(html_unescape(href.group("url"))).path
+        match = _LI_SYMBOL_PATH_RE.fullmatch(path)
+        if match:
+            symbols.add(match.group("symbol"))
+    if len(symbols) > 1:
+        raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has quote links naming different symbols")
+    if not symbols and _LI_QUOTE_LINK_MARK in html_unescape(cell):
+        raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has a quote link without a readable symbol")
+    return symbols.pop() if symbols else None
 
 
 def _li_amount(cell: str, field: str, *, required: bool = True) -> Decimal | None:
@@ -960,11 +982,7 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
         isin = text_value(mention.group("mention"), 20) if mention else None
         if isin and not _LI_ISIN_RE.match(isin):
             isin = None
-        symbol = _LI_SYMBOL_RE.search(cells[0])
-        if symbol is None and _LI_QUOTE_LINK_MARK in cells[0]:
-            # Guessing would also move the ticker to the ISIN or label, and the
-            # backend keys holdings by ticker.
-            raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has a quote link without a readable symbol")
+        symbol = _li_quote_symbol(cells[0])
         value = _li_amount(cells[5], "amount")
         quantity = _li_amount(cells[2], "quantity", required=False)
         price = _li_amount(cells[4], "price", required=False)
@@ -987,7 +1005,7 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
                 raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no units and is not a euro fund")
         positions.append({
             "isin": isin,
-            "symbol": _li_symbol(symbol.group("symbol") if symbol else None, isin, full_label),
+            "symbol": _li_symbol(symbol, isin, full_label),
             "label": label,
             "quantity": quantity,
             "buyingPriceEur": _li_amount(cells[3], "buying price", required=False),

@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gain), the euro fund in the cash balance, reconciled against the contract valuation. They were
   silently skipped before: their links have no trailing slash. A row is read as the euro fund only
   without units, ISIN, quote link or price; an unreadable cell or quote link stops the sync
-  instead.
+  instead. A support's ticker comes from its quote link's path, never from its query or
+  fragment.
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per

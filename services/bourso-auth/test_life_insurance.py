@@ -129,9 +129,25 @@ class LifeInsurancePageTest(unittest.TestCase):
 
         self.assertEqual(position["symbol"], "1rASUSW")
 
+    def test_a_cours_path_in_the_query_or_fragment_does_not_replace_the_ticker(self):
+        # Without an ISIN the backend keeps this ticker and values the holding with its quote.
+        for suffix in ("/?returnUrl=/cours/MSFT/", "/?returnUrl=%2Fcours%2FMSFT%2F&amp;x=/cours/MSFT/",
+                       "/#/cours/MSFT/", "&#47;?returnUrl=&#47;cours&#47;MSFT&#47;"):
+            with self.subTest(suffix=suffix):
+                rows = life_insurance_row("Euro Stoxx 50", None, "1rTXYZ" + suffix,
+                                          "10,0000", "300,00 €", "330,00 €", "3 300,00 €", "300,00 €")
+
+                position, = parse_life_insurance(life_insurance_page(rows))["positions"]
+
+                self.assertEqual(position["symbol"], "1rTXYZ")
+
     def test_a_quote_link_without_a_readable_symbol_is_a_format_change(self):
         # Neither cash nor a position under a guessed ticker: the row is refused.
-        for symbol, quantity in (("1rTXYZ/extra", ""), ("", ""), ("1rTXYZ/extra", "100,0000")):
+        # A /cours/ only in the query is still a quote link, and two links naming different
+        # symbols leave no symbol to trust.
+        for symbol, quantity in (("1rTXYZ/extra", ""), ("", ""), ("1rTXYZ/extra", "100,0000"),
+                                 ("../fiche/?returnUrl=/cours/MSFT/", "100,0000"),
+                                 ('1rTXYZ/"></a><a href="/cours/MSFT/', "100,0000")):
             with self.subTest(symbol=symbol, quantity=quantity):
                 rows = life_insurance_row("Fonds Euro", None, None, quantity, "", "", "3 300,00 €", "")
                 rows = rows.replace('<span class="c-link__label ">',

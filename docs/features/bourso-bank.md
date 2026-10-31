@@ -565,9 +565,12 @@ unit-linked line becomes a position; the euro fund becomes `cashBalance`. A row 
 only when it has no units (blank or `0,0000`), no ISIN, no quote link, no price (blank or `0,00 €`)
 and a label naming the euro as a whole word: "Euro Stoxx 50" with a quote link or a price is a
 fund, and without units it is refused, not read as cash. Any `/cours/` link in the label cell counts
-as a quote link, even one whose symbol cannot be read; the symbol is read from the URL path, so a
-query string (`/cours/1rTXYZ/?foo=1`) does not hide it, and a link without a readable symbol is
-refused as `FORMAT_CHANGED` rather than given a guessed ticker. A blank or dash cell is an absent
+as a quote link, even one whose symbol cannot be read. The symbol is read from the path of the
+HTML-unescaped `href` alone (`urlsplit`), so a query string (`/cours/1rTXYZ/?foo=1`) does not hide
+it, and a `/cours/MSFT/` inside a `returnUrl` or a fragment cannot replace it: without an ISIN the
+backend would keep that ticker and value the support as another instrument. A link without a
+readable symbol, or two links naming different symbols, is refused as `FORMAT_CHANGED` rather than
+given a guessed ticker. A blank or dash cell is an absent
 value; any other text that does not parse as an amount (`n/a`) is refused as `FORMAT_CHANGED`, so an
 unreadable quantity can never pass for the euro fund's empty one. Any other row shape is refused.
 
