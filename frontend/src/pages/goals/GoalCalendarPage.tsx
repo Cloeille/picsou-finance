@@ -165,7 +165,7 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
                   const effectiveText = entry.effective != null ? money.compact(entry.effective, { currency }) : null
                   const percentLabel = effectiveText != null
                     ? (pct > 1
-                      ? formatPercent((pct - 1) * 100, { fractionDigits: 0, signed: true }, locale)
+                      ? `+${formatPercent((pct - 1) * 100, { fractionDigits: 0 }, locale)}`
                       : formatPercent(pct * 100, { fractionDigits: 0 }, locale))
                     : null
 

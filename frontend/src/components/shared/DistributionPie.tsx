@@ -13,6 +13,11 @@ import {
 import { squarify, type TreemapRect } from '@/lib/treemap'
 import { formatPercent } from '@/lib/utils'
 
+/** One decimal, except a nonzero share that would round to 0.0 — it keeps two so it does not read as empty. */
+function formatShare(points: number): string {
+  return formatPercent(points, { fractionDigits: points > 0 && points < 0.05 ? 2 : 1 })
+}
+
 /** The layout is shared with the diversification treemap; only the item shape differs. */
 type Rect = TreemapRect<DistributionItem>
 
@@ -55,7 +60,7 @@ function TooltipAnchor({ rect }: { rect: Rect }) {
         {rect.item.name}
       </span>
       <span className="text-white/80 text-xs bg-black/60 backdrop-blur-sm px-2 py-0.5 rounded mt-0.5">
-        {formatPercent(rect.item.percentage)}
+        {formatShare(rect.item.percentage)}
       </span>
     </div>
   )
@@ -97,7 +102,7 @@ function AllocationTreemap({ data }: { data: DistributionItem[] }) {
                   {item.name}
                 </span>
                 <span className="text-white/80 text-xs mt-0.5">
-                  {formatPercent(item.percentage)}
+                  {formatShare(item.percentage)}
                 </span>
               </div>
             )}
@@ -186,7 +191,7 @@ export function DistributionPie({ data }: DistributionPieProps) {
                   <div key={item.accountId} className="flex items-center gap-2 text-sm">
                     <div className="size-2.5 rounded-full" style={{ backgroundColor: item.color }} />
                     <span className="truncate">{item.name}</span>
-                    <span className="ml-auto text-muted-foreground">{formatPercent(item.percentage)}</span>
+                    <span className="ml-auto text-muted-foreground">{formatShare(item.percentage)}</span>
                   </div>
                 ))}
               </div>
