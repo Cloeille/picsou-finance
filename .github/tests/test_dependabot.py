@@ -1,12 +1,15 @@
 """Keep dependency-update coverage aligned with the repository manifests."""
 
 from pathlib import Path
+import re
 import unittest
 
 import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
+# Every filename Docker Compose loads by default, plus its override variants.
+COMPOSE_FILE = re.compile(r"(docker-)?compose(\..+)?\.ya?ml")
 
 
 class DependabotCoverageTest(unittest.TestCase):
@@ -26,8 +29,8 @@ class DependabotCoverageTest(unittest.TestCase):
             "maven": {path.parent for path in ROOT.glob("*/pom.xml")},
             "bun": {path.parent for path in ROOT.glob("*/bun.lock")},
             "pip": {path.parent for path in (ROOT / "services").glob("*/requirements*.txt")},
-            "docker-compose": {path.parent for path in ROOT.glob("**/docker-compose*.yml")
-                               if "node_modules" not in path.parts},
+            "docker-compose": {path.parent for path in ROOT.rglob("*.y*ml")
+                               if COMPOSE_FILE.fullmatch(path.name) and "node_modules" not in path.parts},
             "docker": {path.parent for path in ROOT.glob("**/Dockerfile*")
                        if "node_modules" not in path.parts and ".venv" not in path.parts},
         }
