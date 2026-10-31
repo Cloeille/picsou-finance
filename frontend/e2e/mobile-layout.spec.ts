@@ -36,13 +36,19 @@ test.describe('Mobile layout', () => {
   test('the end of a page also clears a home-indicator safe area', async ({ page }) => {
     // Playwright's viewport has no safe area, so env(safe-area-inset-bottom) is 0 above;
     // a CDP override gives it the height of an iPhone home indicator.
+    const safeArea = 34
     const cdp = await page.context().newCDPSession(page)
-    await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { bottom: 34 } })
+    await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { bottom: safeArea } })
     await page.goto('/accounts')
 
     const nav = (await page.locator('nav.fixed').boundingBox())!
     const content = await contentBox(page)
     expect(content.bottom).toBeLessThanOrEqual(nav.y - NAV_INSET)
+
+    // The visible bar sits above the nav's safe-area spacer: it must clear the inset by its
+    // own bottom-4, which also fails this test if the override had no effect.
+    const bar = (await page.locator('nav.fixed > div').first().boundingBox())!
+    expect(bar.y + bar.height).toBeLessThanOrEqual(page.viewportSize()!.height - safeArea - NAV_INSET)
   })
 
   test('page content lines up with the bottom nav gutter', async ({ page }) => {

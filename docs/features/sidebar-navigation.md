@@ -89,7 +89,7 @@ Active nav items keep Lucide icons stroke-only. The item gets `ring-1 ring-borde
 - **File encoding**: Editing `AppSidebar.tsx` with the Edit tool introduced invisible characters that broke Babel parsing. If the file breaks after edits, rewrite it entirely with the Write tool.
 - **`ItemMedia` import**: The component is imported even though the user dropdown no longer uses it — it's still used by `NavItem`. Don't remove the import.
 - **Mobile bottom nav padding**: `AppLayout`'s `<main>` reserves `5rem` plus the safe-area inset on mobile so content never sits behind the fixed bottom nav. If the bottom nav height changes, update this value; `e2e/mobile-layout.spec.ts` fails when they drift, including when the
-  safe-area term is dropped.
+  safe-area term is dropped from `<main>` or from the bar's spacer.
 - **Account menu scope**: the sidebar dropdown carries profile scope (admins), Sync, Administration (admins), and Sign out. Language and account controls stay in Settings. Add new entries to `AccountMenuFooterItems` so both sidebar styles get them.
 - **Admin-only members query**: keep `useFamilyMembers({ enabled: isAdmin })` on the sidebar. Calling `/family/members` for non-admins causes a 403 redirect.
 - **No duplicate desktop Settings item**: desktop settings access is the bottom-pinned account row. Do not add `/settings` back to `NAV_ITEMS`, or the sidebar will show two entries for the same page.
