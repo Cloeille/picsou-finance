@@ -113,6 +113,10 @@ helm upgrade
 ## Tests
 
 - `helm lint --strict charts/picsou` and two `helm template` renders (`helm-chart` CI job)
+- `.github/tests/test_helm_chart_sync.py` (run by the `helm-chart` job): the repository chart lists
+  every Compose sidecar; `--check` reports each kind of difference; `--apply` adds only standard
+  sidecars and keeps the rest of `values.yaml` byte for byte; a second `--apply` is a no-op; a port
+  change is a mismatch; `--github` warns about everything but added sidecars
 - `sync-sidecars.sh` on modified Compose files: new standard sidecar (added by `--apply`, values
   otherwise unchanged byte for byte), sidecar with a volume and extra variable (reported, not
   added), sidecar without an app URL, removed sidecar, changed port; idempotent second `--apply`
@@ -127,6 +131,7 @@ helm upgrade
 
 ## Links
 
-- Related ADR: [Rehearse release migrations](../decisions/2026-10-08-rehearse-release-migrations.md),
+- Related ADR: [Helm chart published by CI](../decisions/2026-10-31-helm-chart-published-from-ci.md),
+  [Rehearse release migrations](../decisions/2026-10-08-rehearse-release-migrations.md),
   [Caddy as an opt-in TLS terminator](../decisions/2026-07-19-caddy-opt-in-tls-profile.md)
 - Compose counterpart: [docker-deployment.md](./docker-deployment.md)
