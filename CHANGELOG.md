@@ -29,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BoursoBank assurance vie.** Contracts listed on the dashboard are now synced as
   `ASSURANCE_VIE` accounts: unit-linked supports as holdings (ISIN, units, buying price, latent
   gain), the euro fund in the cash balance, reconciled against the contract valuation. They were
-  silently skipped before: their links have no trailing slash.
+  silently skipped before: their links have no trailing slash. A row is read as the euro fund only
+  without units, ISIN, quote link or price; an unreadable cell stops the sync instead.
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per

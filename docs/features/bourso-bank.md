@@ -561,14 +561,20 @@ Positions come from the contract's server-rendered page `/compte/assurance-vie/<
 the trading board: the "Valorisation au <date>" box gives the total, and
 `table[data-table-trading-operations]` one row per support (label, ISIN in `.c-table__mention`,
 Boursorama symbol from the quote link, quantity, buying price, price, amount, latent gain). A
-unit-linked line becomes a position; the euro fund (no units, no ISIN, a label naming the euro
-fund) becomes `cashBalance`. Any other row shape is refused.
+unit-linked line becomes a position; the euro fund becomes `cashBalance`. A row is the euro fund
+only when it has no units (blank or `0,0000`), no ISIN, no quote link, no price (blank or `0,00 €`)
+and a label naming the euro as a whole word: "Euro Stoxx 50" with a quote link or a price is a
+fund, and without units it is refused, not read as cash. A blank or dash cell is an absent value;
+any other text that does not parse as an amount (`n/a`) is refused as `FORMAT_CHANGED`, so an
+unreadable quantity can never pass for the euro fund's empty one. Any other row shape is refused.
 
 The lines must reconcile with the valuation within a cent per line (floor 0.05 €), in the sidecar
-(`lines_close`) and again in `BoursoSyncService` (`linesClose`, counting the euro fund as a line).
-Each support amount is rounded to the cent, so that is all the rounding can add up to. The backend
-counts the positions it received, before rows of one fund merge into a single holding and zero-unit
-rows are dropped, so its allowance matches the sidecar's row count. The 0.1 %
+(`lines_close`) and again in `BoursoSyncService` (`linesClose`). Each support amount is rounded to
+the cent, so that is all the rounding can add up to. The sidecar counts every table row, and sends
+that count as `valuationLineCount` because the backend cannot rebuild it: rows of one fund merge into
+a single holding, zero-unit rows are dropped and all euro-fund rows are summed into one cash figure.
+The backend refuses an assurance vie without that count, or with fewer rows than positions, as
+`INVALID_DATA`. The 0.1 %
 tolerance of the other envelopes is deliberately not used: it scales with the valuation, so a
 support missing from a large contract would pass inside it. A position's ticker is, in order: the
 quote-link symbol (dropped if over 30 characters, the backend's ticker limit), the ISIN, the label

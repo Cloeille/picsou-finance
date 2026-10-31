@@ -14,7 +14,7 @@ Auth flow:
   POST /complete {processId}
     → holds open while the user approves in the BoursoBank app → {sessionState}
   POST /accounts {sessionState}
-    → [{externalId, name, type, balanceEur, cashBalance, positions[], snapshotComplete}]
+    → [{externalId, name, type, balanceEur, cashBalance, positions[], valuationLineCount, snapshotComplete}]
 
 Only the session cookies are returned to Java, which encrypts them before
 storage. Credentials are held in memory for the length of one request and are
@@ -242,6 +242,9 @@ class AccountPayload(BaseModel):
     balanceEur: Decimal
     cashBalance: Decimal | None = None
     positions: list[PositionPayload]
+    # Assurance vie only: the supports-table rows the valuation was reconciled
+    # against, euro-fund rows included, which the backend needs to redo the check.
+    valuationLineCount: int | None = Field(default=None, ge=0)
     iban: str | None = None
     transactions: list[dict[str, Any]] = Field(default_factory=list)
     transactionWarning: Literal["TRANSACTIONS_UNAVAILABLE", "TRANSACTIONS_INCOMPLETE"] | None = None
@@ -759,6 +762,7 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
             entry["balanceEur"] = contract["totalEur"]
             entry["cashBalance"] = contract["cashEur"]
             entry["positions"] = contract["positions"]
+            entry["valuationLineCount"] = contract["valuationLineCount"]
             guard_symbol_collisions(entry["positions"])
         elif account["section"] == "trading":
             summary = await _fetch_trading_account(client, api_url, user_hash, account["id"])

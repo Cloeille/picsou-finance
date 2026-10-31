@@ -75,11 +75,17 @@ public interface BoursoPort {
         List<Position> positions,
         boolean snapshotComplete,
         String iban,
-        List<SidecarTransaction> transactions
+        List<SidecarTransaction> transactions,
+        /**
+         * Assurance vie only: the rows the sidecar reconciled against the valuation,
+         * euro-fund rows included. Those are summed into {@code cashBalance}, so
+         * {@code positions} alone cannot tell how many rounded amounts there were.
+         */
+        Integer valuationLineCount
     ) {
         public AccountData(String externalId, String name, AccountType type, BigDecimal balanceEur,
                            BigDecimal cashBalance, List<Position> positions, boolean snapshotComplete) {
-            this(externalId, name, type, balanceEur, cashBalance, positions, snapshotComplete, null, List.of());
+            this(externalId, name, type, balanceEur, cashBalance, positions, snapshotComplete, null, List.of(), null);
         }
     }
 }

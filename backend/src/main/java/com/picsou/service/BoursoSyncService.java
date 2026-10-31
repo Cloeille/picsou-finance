@@ -405,11 +405,8 @@ public class BoursoSyncService {
                     .map(PreparedPosition::currentValueEur)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
                 BigDecimal expectedValue = account.balanceEur().subtract(cashBalance);
-                // Count the rows as the sidecar did, before merging and dropping: each
-                // one was rounded to the cent on its own. The euro fund line feeds the
-                // cash leg, so it counts as one more line.
                 boolean reconciled = account.type() == AccountType.ASSURANCE_VIE
-                    ? linesClose(positionValue, expectedValue, account.positions().size() + 1)
+                    ? linesClose(positionValue, expectedValue, valuationLineCount(account))
                     : moneyClose(positionValue, expectedValue);
                 if (!reconciled) {
                     throw error(
@@ -910,6 +907,20 @@ public class BoursoSyncService {
             expected.abs().multiply(RELATIVE_RECONCILIATION_TOLERANCE)
         );
         return actual.subtract(expected).abs().compareTo(tolerance) <= 0;
+    }
+
+    /**
+     * The rows an assurance-vie allowance is counted on, as the sidecar counted them:
+     * each was rounded to the cent on its own, before rows of one fund merge into a
+     * single holding, zero-unit rows are dropped and euro-fund rows are summed into
+     * the cash leg. Fewer rows than positions received cannot be true.
+     */
+    private int valuationLineCount(BoursoPort.AccountData account) {
+        Integer lines = account.valuationLineCount();
+        if (lines == null || lines < account.positions().size()) {
+            throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned no valid line count for an assurance vie", null);
+        }
+        return lines;
     }
 
     /**

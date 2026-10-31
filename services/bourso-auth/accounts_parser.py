@@ -900,10 +900,20 @@ def _li_symbol(quote_symbol: str | None, isin: str | None, label: str) -> str:
 
 
 def _li_amount(cell: str, field: str, *, required: bool = True) -> Decimal | None:
+    """An amount cell: None when it is blank or a dash, an error when it says anything else.
+
+    Only an absent value may be optional. Text that does not parse ("n/a", a new
+    format) is refused even on an optional cell: read as None, an unreadable quantity
+    would look like the euro fund's empty one.
+    """
     text = text_value(cell, 100)
-    value = parse_amount(text.replace("€", "").replace("%", "")) if text and text not in ("-", "—") else None
-    if value is None and required:
-        raise AccountsFormatError(FORMAT_CHANGED, f"Assurance-vie line has no readable {field}")
+    if not text or text in ("-", "—"):
+        if required:
+            raise AccountsFormatError(FORMAT_CHANGED, f"Assurance-vie line has no {field}")
+        return None
+    value = parse_amount(text.replace("€", "").replace("%", ""))
+    if value is None:
+        raise AccountsFormatError(FORMAT_CHANGED, f"Assurance-vie line has an unreadable {field}")
     return value
 
 
@@ -914,9 +924,10 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
     `table[data-table-trading-operations]` with one row per support -- Valeur
     (label, ISIN, link to its quote), Date de valeur, Quantité, Px. revient,
     Cours, Montant, +/- latentes, +/- %. A unit-linked line becomes a position;
-    the euro fund, which has no ISIN and no units (or "0,0000"), becomes the cash leg, the
-    slot Picsou keeps for it on a life-insurance account. Any other row shape is
-    refused rather than guessed, and the lines must add up to the valuation.
+    the euro fund, which has no ISIN, no quote link, no price and no units (or "0,0000"),
+    becomes the cash leg, the slot Picsou keeps for it on a life-insurance account. Any
+    other row shape, or a cell that does not parse, is refused rather than guessed, and
+    the lines must add up to the valuation.
     """
     valuation = _LI_VALUATION_RE.search(html)
     table = _LI_TABLE_RE.search(html)
@@ -946,13 +957,20 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
         symbol = _LI_SYMBOL_RE.search(cells[0])
         value = _li_amount(cells[5], "amount")
         quantity = _li_amount(cells[2], "quantity", required=False)
+        price = _li_amount(cells[4], "price", required=False)
         if not full_label:
             raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no label")
         label = full_label[:200]
-        if quantity is None or quantity == 0:
-            # The euro fund is shown either with no units or with "0,0000": it
-            # is a balance, not units of a fund.
-            if isin is None and _LI_EURO_FUND_RE.search(_deaccent(label)):
+        if not quantity:
+            # The euro fund is shown either with no units or with "0,0000": it is
+            # a balance, not units of a fund. It has no ISIN, no quote page and no
+            # price; a label naming the euro is not enough on its own ("Euro Stoxx
+            # 50" is a quoted fund), so a row with any of those is not cash.
+            is_euro_fund = (
+                isin is None and symbol is None and not price
+                and _LI_EURO_FUND_RE.search(_deaccent(label))
+            )
+            if is_euro_fund:
                 cash += value
                 continue
             if quantity is None or value != 0:
@@ -963,7 +981,7 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
             "label": label,
             "quantity": quantity,
             "buyingPriceEur": _li_amount(cells[3], "buying price", required=False),
-            "currentPrice": _li_amount(cells[4], "price", required=False),
+            "currentPrice": price,
             "quoteCurrency": "EUR",
             "currentValueEur": value,
             "pnlEur": _li_amount(cells[6], "gain", required=False),
@@ -976,4 +994,6 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
             f"Assurance-vie lines do not reconcile with the valuation "
             f"({len(positions)} line(s); lines vs valuation={relative_difference(lines_total, total)})",
         )
-    return {"cashEur": cash, "totalEur": total, "positions": positions}
+    # The backend re-runs this check after the euro-fund rows have been summed into
+    # one cash figure; it needs the row count to grant the same allowance.
+    return {"cashEur": cash, "totalEur": total, "positions": positions, "valuationLineCount": len(rows)}

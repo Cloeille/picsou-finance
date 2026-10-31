@@ -99,6 +99,38 @@ class LifeInsurancePageTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, FORMAT_CHANGED)
 
+    def test_an_unreadable_quantity_is_a_format_change_not_an_empty_one(self):
+        rows = life_insurance_row("Euro Stoxx 50", None, "1rTXYZ",
+                                  "n/a", "", "120,00 €", "3 300,00 €", "")
+
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_life_insurance(life_insurance_page(rows))
+
+        self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_quoted_unitless_line_naming_the_euro_is_not_the_euro_fund(self):
+        # Without units, a quote link or a price is enough to show this is a fund, not cash.
+        for symbol, price in (("1rTXYZ", ""), (None, "120,00 €")):
+            with self.subTest(symbol=symbol, price=price):
+                rows = life_insurance_row("Euro Stoxx 50", None, symbol, "", "", price, "3 300,00 €", "")
+
+                with self.assertRaises(AccountsFormatError) as raised:
+                    parse_life_insurance(life_insurance_page(rows))
+
+                self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_several_euro_fund_rows_report_every_row_for_the_backend_check(self):
+        rows = "".join(
+            life_insurance_row(f"Fonds Euro {index}", None, None, "", "", "", "1 000,01 €", "")
+            for index in range(12)
+        )
+
+        contract = parse_life_insurance(life_insurance_page(rows, valuation="12 000,06 €"))
+
+        self.assertEqual(contract["positions"], [])
+        self.assertEqual(contract["cashEur"], Decimal("12000.12"))
+        self.assertEqual(contract["valuationLineCount"], 12)
+
     def test_an_empty_valuation_is_a_format_change(self):
         with self.assertRaises(AccountsFormatError) as raised:
             parse_life_insurance(life_insurance_page(LIFE_INSURANCE_ROWS, valuation="&nbsp;"))
@@ -242,6 +274,8 @@ class LifeInsuranceSyncTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(contract.balanceEur, Decimal("3300.00"))
         self.assertEqual(contract.cashBalance, Decimal("1100.00"))
         self.assertEqual([position.isin for position in contract.positions], ["IE00BYX2JD69", "LU0123456789"])
+        # Two supports and the euro fund: the backend grants its allowance on all three.
+        self.assertEqual(contract.valuationLineCount, 3)
         self.assertTrue(contract.snapshotComplete)
 
     async def test_an_expired_session_on_the_contract_page_reads_as_such(self):
