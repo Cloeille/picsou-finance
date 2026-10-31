@@ -68,6 +68,10 @@ app:
     # HSTS_ENABLED: "true"          # only with a publicly trusted certificate
     # APP_UPDATE_CHECK_ENABLED: "false"
     # APP_TELEMETRY_DSN: ""
+    # One exact IPv4 address nginx trusts for X-Forwarded-For (ADR 2026-10-31,
+    # trusted proxy client addresses). Set it only when the ingress controller
+    # reaches the app from a single stable address; see the chart README.
+    # PICSOU_PROXY_IP: 10.0.0.10
   # Raw EnvVar entries, for valueFrom and anything env cannot express.
   extraEnv: []
   envFrom: []

@@ -98,6 +98,11 @@ helm upgrade
   `SECURE_COOKIES` are database-first once setup completed.
 - **Sidecar images run as named, non-numeric users**, so `runAsNonRoot` cannot be verified by the
   kubelet and is not set; privilege escalation is disabled and all capabilities dropped instead.
+- **`PICSOU_PROXY_IP` is left unset.** It names one exact trusted proxy address
+  ([trusted proxy ADR](../decisions/2026-10-31-trusted-proxy-client-address.md)); ingress controller
+  pods change addresses, so the app sees the controller pod's address and per-address limits apply
+  per controller pod. `app.env` can set it when the controller has one stable address.
+  `X-Forwarded-Proto` is honoured regardless, so HTTPS same-origin detection works without it.
 - **NetworkPolicies need an enforcing CNI.** On Flannel (Talos default) they are created and
   ignored: a pod in the namespace still reaches the sidecars and PostgreSQL.
 - **Pod Security `baseline` is required**, `restricted` rejects the app (root under supervisord),

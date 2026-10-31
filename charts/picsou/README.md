@@ -92,6 +92,14 @@ an internal CA, a wildcard Secret.
   explains how to fix them).
 - **`HSTS_ENABLED`** (`app.env.HSTS_ENABLED: "true"`) only with a certificate
   every browser that opens Picsou trusts.
+- **Client addresses: `PICSOU_PROXY_IP`.** nginx takes the client address from
+  `X-Forwarded-For` only when the request comes from that one exact IPv4 address
+  ([trusted proxy ADR](../../docs/decisions/2026-10-31-trusted-proxy-client-address.md)).
+  Ingress controllers usually run several pods whose addresses change, so the
+  chart leaves it unset: the app then sees the controller pod's address, and
+  per-address limits such as the login limit apply per controller pod. Set it
+  with `app.env.PICSOU_PROXY_IP` only when the controller reaches Picsou from a
+  single stable address. HTTPS detection does not depend on it.
 
 For the Gateway API, set `httpRoute.enabled=true` and `httpRoute.parentRefs`
 instead of the Ingress.

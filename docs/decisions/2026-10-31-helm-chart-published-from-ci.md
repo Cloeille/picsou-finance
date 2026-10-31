@@ -85,6 +85,9 @@ the only thing CI enforces is that the chart itself renders.
 - Charts from `main` are pre-releases: Helm installs them only with `--devel` or a version
   constraint that allows pre-releases.
 - Network policies are only effective with a CNI that enforces them.
+- `PICSOU_PROXY_IP` trusts one exact address ([trusted proxy ADR](./2026-10-31-trusted-proxy-client-address.md)),
+  which ingress controller pods do not have: by default the app sees the controller pod's address,
+  so per-address limits apply per controller pod.
 
 ## Consequences
 
