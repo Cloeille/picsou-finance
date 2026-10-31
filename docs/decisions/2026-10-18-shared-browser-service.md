@@ -110,8 +110,8 @@ lifecycle owner. B's saving is RAM at peak, which the cap already bounds.
   `Page.navigate`, `Target.createTarget` and `Fetch.continueRequest` to a scheme
   other than http(s)/about; `DOM.setFileInputFiles`, `Page.handleFileChooser`,
   `Input.dispatchDragEvent` with files, `Network.loadNetworkResource`,
-  `Target.sendMessageToTarget` (nested, unfiltered commands) and
-  `Extensions.loadUnpacked`. Download-behaviour commands are rewritten to `deny`.
+  `Target.sendMessageToTarget` and `Target.exposeDevToolsProtocol` (nested,
+  unfiltered commands) and `Extensions.loadUnpacked`. Download-behaviour commands are rewritten to `deny`.
   This is a denylist; a per-session Unix user and the Chromium sandbox are the
   stronger fix, left for the desktop packaging work.
 - **Egress moves.** Page traffic leaves from browser-service, not from the

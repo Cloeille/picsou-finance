@@ -125,7 +125,7 @@ class RemoteLaunchTest(unittest.IsolatedAsyncioTestCase):
             [(
                 "http://browser-service:8001/sessions",
                 {"args": ["--disable-blink-features=AutomationControlled"]},
-                {"X-Picsou-Sidecar-Key": "sidecar-key"},
+                {"X-Picsou-Sidecar-Key": b"sidecar-key"},
             )],
         )
         pw.chromium.connect_over_cdp.assert_awaited_once_with(
@@ -169,7 +169,7 @@ class RemoteLaunchTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(BrowserUnavailableError):
             await launch_chromium(pw, args=[])
         self.assertEqual(self.factory.deletes[0][0], "http://browser-service:8001/sessions/sess-1")
-        self.assertEqual(self.factory.deletes[0][1], {"X-Picsou-Sidecar-Key": "sidecar-key"})
+        self.assertEqual(self.factory.deletes[0][1], {"X-Picsou-Sidecar-Key": b"sidecar-key"})
 
     async def test_unusable_201_still_deletes_the_session(self):
         self.factory.post_body = {"sessionId": "sess-1", "token": 7}
@@ -179,6 +179,39 @@ class RemoteLaunchTest(unittest.IsolatedAsyncioTestCase):
             await launch_chromium(pw, args=[])
         pw.chromium.connect_over_cdp.assert_not_called()
         self.assertEqual(self.factory.deletes[0][0], "http://browser-service:8001/sessions/sess-1")
+
+
+class NonAsciiSidecarKeyTest(unittest.IsolatedAsyncioTestCase):
+    async def test_utf8_key_goes_out_as_utf8_bytes_on_post_websocket_and_delete(self):
+        sent = []
+
+        def service(request: httpx.Request) -> httpx.Response:
+            sent.append((request.method, request.headers.raw))
+            if request.method == "POST":
+                return httpx.Response(201, json=_Factory().post_body)
+            return httpx.Response(204)
+
+        real_client = httpx.AsyncClient
+
+        def client(**kwargs):
+            return real_client(transport=httpx.MockTransport(service), **kwargs)
+
+        pw = MagicMock()
+        pw.chromium.connect_over_cdp = AsyncMock(return_value=MagicMock(close=AsyncMock()))
+        env = {"BROWSER_SERVICE_URL": "http://browser-service:8001", "APP_SIDECAR_API_KEY": "clé"}
+        with patch.dict(os.environ, env), patch("picsou_browser.httpx.AsyncClient", client):
+            lease = await launch_chromium(pw, args=[])
+            await lease.close()
+
+        wire = "clé".encode("utf-8")
+        self.assertEqual(
+            [(method, [value for name, value in raw if name.lower() == b"x-picsou-sidecar-key"])
+             for method, raw in sent],
+            [("POST", [wire]), ("DELETE", [wire])],
+        )
+        ws_headers = pw.chromium.connect_over_cdp.await_args.kwargs["headers"]
+        # Playwright writes WebSocket header strings as latin-1.
+        self.assertEqual(ws_headers["X-Picsou-Sidecar-Key"].encode("latin-1"), wire)
 
 
 class LeaseCloseTest(unittest.IsolatedAsyncioTestCase):
@@ -191,7 +224,7 @@ class LeaseCloseTest(unittest.IsolatedAsyncioTestCase):
             browser,
             session_id="sess-1",
             base_url="http://browser-service:8001",
-            sidecar_key="sidecar-key",
+            sidecar_key=b"sidecar-key",
         )
         with patch("picsou_browser.httpx.AsyncClient", factory):
             await lease.close()
@@ -212,7 +245,7 @@ class RemoteFetchGuardTest(unittest.IsolatedAsyncioTestCase):
     def setUpClass(cls):
         cls.port = _free_port()
         env = os.environ.copy()
-        env["APP_SIDECAR_API_KEY"] = "e2e-key"
+        env["APP_SIDECAR_API_KEY"] = "e2e-clé"
         env["BROWSER_MAX_SESSIONS"] = "2"
         env["BROWSER_CLAIM_TIMEOUT_SECONDS"] = "30"
         env["BROWSER_SESSION_TTL_SECONDS"] = "120"
@@ -320,7 +353,7 @@ class RemoteFetchGuardTest(unittest.IsolatedAsyncioTestCase):
 
         env = os.environ.copy()
         env["BROWSER_SERVICE_URL"] = f"http://127.0.0.1:{self.port}"
-        env["APP_SIDECAR_API_KEY"] = "e2e-key"
+        env["APP_SIDECAR_API_KEY"] = "e2e-clé"
         with patch.dict(os.environ, env, clear=False):
             playwright = await async_playwright().start()
             lease = None

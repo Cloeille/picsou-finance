@@ -36,8 +36,9 @@ def _service_url() -> str:
     return os.environ.get("BROWSER_SERVICE_URL", "").strip()
 
 
-def _sidecar_key() -> str:
-    return os.environ.get("APP_SIDECAR_API_KEY", "")
+def _sidecar_key() -> bytes:
+    # browser-service compares the key's UTF-8 bytes; httpx would encode a str header as ASCII.
+    return os.environ.get("APP_SIDECAR_API_KEY", "").encode("utf-8")
 
 
 def websocket_url(base: str, ws_path: str) -> str:
@@ -50,7 +51,7 @@ def websocket_url(base: str, ws_path: str) -> str:
     return urlunsplit((scheme, parts.netloc, parts.path.rstrip("/") + path, "", ""))
 
 
-async def _delete_session(base: str, session_id: str, key: str) -> None:
+async def _delete_session(base: str, session_id: str, key: bytes) -> None:
     try:
         async with httpx.AsyncClient(timeout=_CLOSE_TIMEOUT_S) as client:
             await client.delete(
@@ -70,12 +71,12 @@ class BrowserLease:
         *,
         session_id: str | None = None,
         base_url: str | None = None,
-        sidecar_key: str | None = None,
+        sidecar_key: bytes | None = None,
     ) -> None:
         self.browser = browser
         self._session_id = session_id
         self._base_url = base_url
-        self._sidecar_key = sidecar_key or ""
+        self._sidecar_key = sidecar_key or b""
         self._closed = False
 
     async def close(self) -> None:
@@ -93,7 +94,7 @@ class BrowserLease:
         self._session_id = None
         if session_id and base_url:
             await _delete_session(base_url, session_id, self._sidecar_key)
-        self._sidecar_key = ""
+        self._sidecar_key = b""
 
 
 async def launch_chromium(
@@ -151,7 +152,8 @@ async def launch_chromium(
             ws_url,
             headers={
                 "X-Picsou-Browser-Token": token,
-                "X-Picsou-Sidecar-Key": key,
+                # Playwright's Node client writes header strings as latin-1 code points.
+                "X-Picsou-Sidecar-Key": key.decode("latin-1"),
             },
             timeout=_CONNECT_TIMEOUT_MS,
         )

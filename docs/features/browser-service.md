@@ -43,13 +43,17 @@ Allowed extra args: `--disable-blink-features=AutomationControlled` only.
   schemes (`file:`, `chrome:`, `data:`, …); `DOM.setFileInputFiles`,
   `Page.handleFileChooser`, `Input.dispatchDragEvent` with files,
   `Network.loadNetworkResource`, `Target.sendMessageToTarget`,
-  `Extensions.loadUnpacked`. Download-behaviour commands are rewritten to `deny`.
+  `Target.exposeDevToolsProtocol`, `Extensions.loadUnpacked`. Download-behaviour
+  commands are rewritten to `deny`.
 - Chromium stderr is discarded. A profile dir that cannot be removed is retried
   by the reaper until it is gone.
 - Kill on WS close, `DELETE`, TTL, unclaimed timeout, Chromium exit, shutdown.
   The kill, wipe and registry removal run in their own task: cancelling the
   caller (the reaper at shutdown) does not stop them halfway, and shutdown waits
-  for every cleanup in flight.
+  for every cleanup in flight. A launch whose session was closed while it looked
+  up the Chromium binary creates no profile, pipe or process.
+- The client sends the sidecar key as its UTF-8 bytes on HTTP and on the
+  WebSocket, so a non-ASCII key works.
 - Logs: session id prefix and lifecycle reason only.
 
 ## Configuration

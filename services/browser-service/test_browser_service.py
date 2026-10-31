@@ -12,7 +12,7 @@ import threading
 import time
 import unittest
 from base64 import b64encode
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -549,6 +549,46 @@ class ReaperTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(leftover, main._pending_wipes)
 
 
+class LaunchOutlivedByItsSessionTest(unittest.IsolatedAsyncioTestCase):
+    async def test_executable_lookup_suspended_past_expiry_creates_nothing(self):
+        import httpx
+
+        looking = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_executable():
+            looking.set()
+            await release.wait()
+            return "/usr/bin/chromium"
+
+        popen = MagicMock(side_effect=OSError("must not launch"))
+        transport = httpx.ASGITransport(app=main.app)
+        with patch.object(main, "SIDECAR_API_KEY", KEY), \
+                patch.object(main, "chromium_executable", slow_executable), \
+                patch.object(main.subprocess, "Popen", popen), \
+                patch.object(main.tempfile, "mkdtemp", wraps=tempfile.mkdtemp) as mkdtemp:
+            async with httpx.AsyncClient(transport=transport, base_url="http://browser-service") as client:
+                post = asyncio.create_task(
+                    client.post("/sessions", json={"args": []}, headers={"X-Picsou-Sidecar-Key": KEY}))
+                try:
+                    await asyncio.wait_for(looking.wait(), timeout=5)
+                    (session,) = main._sessions.values()
+                    session.created_mono -= main._PROBE_TIMEOUT_S + main.CLAIM_TIMEOUT_SECONDS + 1
+                    await main._reap_once()
+                    self.assertEqual(main._sessions, {})
+                    release.set()
+                    response = await asyncio.wait_for(post, timeout=5)
+                finally:
+                    release.set()
+                    main._sessions.clear()
+
+        self.assertEqual(response.status_code, 502)
+        mkdtemp.assert_not_called()
+        popen.assert_not_called()
+        self.assertEqual((session.read_fd, session.write_fd), (-1, -1))
+        self.assertEqual(main._cleanups, set())
+
+
 class ShutdownDuringExpiryCloseTest(unittest.IsolatedAsyncioTestCase):
     async def test_shutdown_finishes_a_close_the_reaper_had_started(self):
         signals = []
@@ -624,7 +664,11 @@ class RefuseCommandTest(unittest.TestCase):
         for frame in ({"id": 1, "method": "Target.sendMessageToTarget",
                        "params": {"targetId": "T", "message": nested}},
                       {"id": 2, "method": "Network.loadNetworkResource",
-                       "params": {"frameId": "F", "url": "file:///etc/passwd", "options": {}}}):
+                       "params": {"frameId": "F", "url": "file:///etc/passwd", "options": {}}},
+                      # Gives an about:blank page a window.cdp binding whose commands
+                      # Chromium dispatches internally, never through this relay.
+                      {"id": 3, "method": "Target.exposeDevToolsProtocol",
+                       "params": {"targetId": "T", "bindingName": "cdp"}}):
             with self.subTest(method=frame["method"]):
                 self.assertIsNotNone(main.refuse_command(json.dumps(frame)))
 

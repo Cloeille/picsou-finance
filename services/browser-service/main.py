@@ -186,9 +186,12 @@ _URL_COMMANDS = frozenset({"Page.navigate", "Target.createTarget", "Fetch.contin
 _DOWNLOAD_COMMANDS = frozenset({"Browser.setDownloadBehavior", "Page.setDownloadBehavior"})
 _ALLOWED_SCHEMES = frozenset({"http", "https", "about"})
 # Never sent by Playwright. sendMessageToTarget carries a nested command string
-# this filter would not inspect; loadNetworkResource fetches an arbitrary URL.
+# this filter would not inspect, and exposeDevToolsProtocol hands a page a CDP
+# binding Chromium serves without this relay; loadNetworkResource fetches an
+# arbitrary URL.
 _DENIED_COMMANDS = frozenset({
     "Target.sendMessageToTarget",
+    "Target.exposeDevToolsProtocol",
     "Network.loadNetworkResource",
     "DOM.setFileInputFiles",
     "Page.handleFileChooser",
@@ -408,6 +411,11 @@ class Session:
 
     async def launch(self, extra: list[str]) -> None:
         executable = await chromium_executable()
+        # The reaper may have closed this session during the lookup, and its
+        # cleanup has then already run. From here to the probe nothing awaits,
+        # so a cleanup started later sees every resource created below.
+        if self._closed:
+            raise LaunchError("closed")
         self.data_dir = tempfile.mkdtemp(prefix="picsou-browser-")
         os.chmod(self.data_dir, 0o700)
         child_read, parent_write = os.pipe()
