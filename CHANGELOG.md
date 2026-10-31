@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Caisse d'Epargne home loans.** A home loan listed in the synthesis was reported as
+  unsupported. The sidecar now reads its detail from the bank's home-loan app (amount borrowed,
+  rate, installment, insurance, first and last due dates) and imports it like a personal loan.
+  A property you linked the mortgage to stays linked when the loan syncs again. A loan due on
+  the 31st keeps that due day in its schedule, even after a shorter month, and a detail with
+  figures out of range, or amounts too large to store, leaves only that loan's details aside
+  instead of failing the import.
+
 - **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
   Picsou matches it to the dividend history it already holds, marks it as a dividend and files
   it under capital income. `GET /api/dividends/received` lists them, with the same id as the
@@ -26,6 +34,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands that fix it. The same pop-up announces a newer Picsou release, read from GitHub at
   most once every 6 hours; `APP_UPDATE_CHECK_ENABLED=false` turns that call off. See
   [feature note](docs/features/admin-instance-status.md).
+- **Crédit Mutuel / CIC Épargne Salariale sync.** A browserless `cmes-auth` sidecar reads the
+  saver's space (www.creditmutuel-ere.fr) and imports each plan (PEE, PEG, PERCOL) with its funds:
+  units, unit value and gain. The login is confirmed once, in the bank's app or with a code
+  received by SMS. While the site remembers the device, the daily sync logs in again with the
+  stored credentials without asking; once it asks for a new confirmation, the sync reports the
+  session as expired and the saver reconnects from the CMES tab. A plan the site no longer lists
+  is closed at zero instead of keeping its last balance. Each plan's id comes from its full
+  label alone, so it stays the same when another plan opens or closes; an account created with
+  an earlier id moves to the new one with its history only if it also carries that plan's name,
+  so a closed plan's history never passes to another plan of the same family. It is listed in the dashboard's
+  *Sync all* modal, MCP `get_sync_status` and `trigger_broker_sync`, and the admin
+  instance-status check like the other session connectors. Deleting its last account also
+  removes the stored session and credentials, and cancels a login still waiting for the
+  phone, so a late approval stores nothing. A plan deleted under its new id stays deleted
+  even while an account from an earlier id is still there.
+  See [docs](docs/features/cmes-epargne-salariale.md).
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per
@@ -260,6 +284,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   did not know: its cards failed the completeness check and the whole sync stopped with
   `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
   like loans and insurance, since they belong to the child.
+- **Upgrading a 1.0.11–1.0.18 database to 1.1.0.** The backend no longer stops at boot with 13
+  Flyway checksum mismatches (V38, V51, V54–V64). Merging main into 1.1.0 had moved these
+  migrations to new versions, and edited comments in five of them. Before Flyway validates, the
+  backend now moves each of those history rows to its new version, so nothing re-runs, and then
+  applies the 1.1.0 migrations the database never ran
+  ([#265](https://github.com/Cloeille/picsou-finance/issues/265)). Before upgrading, run the
+  duplicate-account check in the
+  [upgrade note](docs/features/docker-deployment.md#upgrading-a-10x-database-to-110): these
+  databases now run V47, which deletes active accounts sharing an external id and member, so the
+  backend refuses to migrate while such duplicates exist, including one synced in while the
+  upgrade runs. Do not run `flyway repair`, and keep
+  Flyway enabled.
 - **Sidebar style prompt shows what each style looks like.** The two miniatures in the
   first-launch "choose your sidebar style" window now match the real sidebars: logo on the left
   beside the privacy toggle, two-line nav items, a full-height column with the member row and

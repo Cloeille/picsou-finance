@@ -145,6 +145,26 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP Crédit Mutuel Épargne Salariale login rate limiter: 5 attempts per
+     * 15 minutes. Every attempt sends the password to the site, which locks an
+     * access after a few wrong passwords.
+     */
+    @Bean("cmesAuthBuckets")
+    public Map<String, Bucket> cmesAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP Crédit Mutuel Épargne Salariale second-factor rate limiter, kept
+     * apart from the login budget so a confirmation is never refused once the
+     * phone was notified.
+     */
+    @Bean("cmesCompleteBuckets")
+    public Map<String, Bucket> cmesCompleteBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP CORUM auth rate limiter: 5 attempts per 15 minutes.
      */
     @Bean("corumAuthBuckets")
@@ -430,6 +450,29 @@ public class RateLimitConfig {
             .addLimit(Bandwidth.builder()
                 .capacity(5)
                 .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    /** Five password checks per 15 minutes: only {@code /auth/initiate} sends the password. */
+    public static Bucket createCmesAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    /**
+     * Ten per 15 minutes for {@code /auth/complete}: a wrong SMS code can be
+     * typed again on the same attempt, and none of these calls sends the password.
+     */
+    public static Bucket createCmesCompleteBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(10)
+                .refillIntervally(10, Duration.ofMinutes(15))
                 .build())
             .build();
     }

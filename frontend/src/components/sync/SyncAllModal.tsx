@@ -54,6 +54,8 @@ import {
   useInitiateTrAuth,
   useCompleteTrAuth,
   useSyncBourso,
+  useCmesStatus,
+  useSyncCmes,
   useAmundiStatus,
   useSyncAmundi,
   useFortuneoStatus,
@@ -87,7 +89,7 @@ type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
-    | 'amex' | 'corum' | 'sofidy'
+    | 'amex' | 'corum' | 'sofidy' | 'cmes'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -114,6 +116,7 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   amex: CreditCard,
   corum: Building2,
   sofidy: Building2,
+  cmes: PiggyBank,
 }
 
 /** Which Sync-page tab each provider re-authenticates on. */
@@ -128,6 +131,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   amex: 'amex',
   corum: 'corum',
   sofidy: 'sofidy',
+  cmes: 'cmes',
   finary: 'finary',
 }
 
@@ -192,6 +196,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: amexStatus } = useAmexStatus()
   const { data: corumStatus } = useCorumStatus()
   const { data: sofidyStatus } = useSofidyStatus()
+  const { data: cmesStatus } = useCmesStatus()
   const { data: accounts } = useAccounts()
 
   // Show TR in modal if: there are active TR accounts, the session is active, or the session
@@ -272,7 +277,15 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       active: sofidyStatus?.isActive ?? false, lastSyncedAt: sofidyStatus?.lastSyncCompletedAt ?? null,
       failed: sofidyStatus?.syncStatus === 'FAILED',
     },
-  ], [amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
+    {
+      type: 'cmes' as const, name: 'Crédit Mutuel / CIC Épargne Salariale', provider: 'Crédit Mutuel Épargne Salariale',
+      active: cmesStatus?.isActive ?? false, lastSyncedAt: cmesStatus?.lastSyncCompletedAt ?? null,
+      // A stored session is never IDLE (it is queued as it is created): an expired one is kept
+      // even before its first sync created an account, so the saver can reconnect from here.
+      hasSession: cmesStatus != null && cmesStatus.syncStatus !== 'IDLE',
+      failed: cmesStatus?.syncStatus === 'FAILED',
+    },
+  ], [cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -293,6 +306,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncAmexMutation         = useSyncAmex()
   const syncCorumMutation        = useSyncCorum()
   const syncSofidyMutation       = useSyncSofidy()
+  const syncCmesMutation = useSyncCmes()
 
   // Track syncing state per connection
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set())
@@ -374,7 +388,8 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       const hasAccount = accounts?.some(a =>
         (provider.provider !== undefined && a.provider === provider.provider)
         || ('ownsAccount' in provider && provider.ownsAccount?.(a) === true)) ?? false
-      if (!provider.active && !hasAccount) continue
+      const hasSession = 'hasSession' in provider && provider.hasSession === true
+      if (!provider.active && !hasSession && !hasAccount) continue
       list.push({
         id: provider.type,
         providerType: provider.type,
@@ -494,6 +509,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'sofidy':
         syncSofidyMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'cmes':
+        syncCmesMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'revolut':
         // Remembered credentials: a blank body makes the backend fall back to them. The spinner
         // stays on until the discover → confirm effect below finishes or fails.
@@ -536,6 +554,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncAmexMutation,
     syncCorumMutation,
     syncSofidyMutation,
+    syncCmesMutation,
     queryClient,
     t,
   ])

@@ -953,6 +953,24 @@ handlers.set(key('POST', '/amundi/auth/complete'), () => demoAmundiStatus)
 handlers.set(key('POST', '/amundi/sync'), () => demoAmundiStatus)
 handlers.set(key('DELETE', '/amundi/session'), () => null)
 
+// Crédit Mutuel Épargne Salariale — same convention. Sync all lists CMES as an
+// expired session whenever its status is not IDLE, so the `{}` fallback would
+// show a phantom connection.
+const demoCmesStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+handlers.set(key('GET', '/cmes/status'), () => demoCmesStatus)
+handlers.set(key('POST', '/cmes/auth/initiate'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/cmes/auth/complete'), () => demoCmesStatus)
+handlers.set(key('POST', '/cmes/sync'), () => demoCmesStatus)
+handlers.set(key('DELETE', '/cmes/session'), () => null)
+
 // BoursoBank — same convention. Its demo accounts already carry
 // `provider: 'BoursoBank'`, so without these the Sync-all modal would list a
 // connection whose status request falls through to `{}`.

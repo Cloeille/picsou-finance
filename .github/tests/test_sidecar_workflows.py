@@ -352,7 +352,7 @@ def _shared_base_services():
 class SharedSidecarBaseTest(unittest.TestCase):
     def test_every_non_camoufox_sidecar_builds_on_a_shared_base(self):
         services = _shared_base_services()
-        self.assertEqual(len(services), 9)
+        self.assertEqual(len(services), 10)
         for service in services:
             with self.subTest(service=service):
                 text = (ROOT / "services" / service / "Dockerfile").read_text(encoding="utf-8")

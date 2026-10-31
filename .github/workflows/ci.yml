@@ -38,6 +38,7 @@ jobs:
       degiro-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.degiro-auth-sidecar == 'true' }}
       tr-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.tr-auth-sidecar == 'true' }}
       revolut-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.revolut-auth-sidecar == 'true' }}
+      cmes-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.cmes-auth-sidecar == 'true' }}
       compose-sidecar-build: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.compose-sidecar-build == 'true' }}
       workflow-inventory: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.workflow-inventory == 'true' }}
       e2e: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.e2e == 'true' }}
@@ -113,6 +114,10 @@ jobs:
               - *workflows
               - 'services/base/**'
               - 'services/revolut-auth/**'
+            cmes-auth-sidecar:
+              - *workflows
+              - 'services/base/**'
+              - 'services/cmes-auth/**'
             compose-sidecar-build:
               - *workflows
               - 'services/**'
@@ -211,6 +216,10 @@ jobs:
             backend/target/surefire-reports/com.picsou.service.HomeBankImportPersistenceTest.txt
           grep -q 'Tests run: 1, Failures: 0, Errors: 0, Skipped: 0' \
             backend/target/surefire-reports/com.picsou.service.HomeBankQifPersistenceTest.txt
+      - name: Require the legacy migration renumbering tests
+        run: >-
+          grep -q 'Tests run: 12, Failures: 0, Errors: 0, Skipped: 0'
+          backend/target/surefire-reports/com.picsou.migration.LegacyMigrationRenumberingTest.txt
       - name: Require the sidecar Budget PostgreSQL tests
         run: >-
           grep -q 'Tests run: 6, Failures: 0, Errors: 0, Skipped: 0'
@@ -470,6 +479,32 @@ jobs:
           picsou-degiro-auth:test
           -m unittest discover -v
 
+  cmes-auth-sidecar:
+    needs: changes
+    if: needs.changes.outputs.cmes-auth-sidecar == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the shared python sidecar base
+        run: docker build --target python --tag picsou-sidecar-python services/base
+      - name: Build the Crédit Mutuel Épargne Salariale sidecar image
+        run: docker build --tag picsou-cmes-auth:test services/cmes-auth
+      - name: Run sidecar tests in the image
+        run: >-
+          docker run --rm
+          --entrypoint python
+          --env PYTHONPATH=/app
+          --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/cmes-auth/fixtures.py:/tests/fixtures.py:ro"
+          --volume "${{ github.workspace }}/services/cmes-auth/test_parsers.py:/tests/test_parsers.py:ro"
+          --volume "${{ github.workspace }}/services/cmes-auth/test_main.py:/tests/test_main.py:ro"
+          --volume "${{ github.workspace }}/services/cmes-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --workdir /tests
+          picsou-cmes-auth:test
+          -m unittest discover -v
+
   tr-auth-sidecar:
     needs: changes
     if: needs.changes.outputs.tr-auth-sidecar == 'true'
@@ -624,6 +659,7 @@ jobs:
       - degiro-auth-sidecar
       - tr-auth-sidecar
       - revolut-auth-sidecar
+      - cmes-auth-sidecar
       - compose-sidecar-build
       - workflow-inventory
     runs-on: ubuntu-latest
@@ -661,6 +697,7 @@ jobs:
       - degiro-auth-sidecar
       - tr-auth-sidecar
       - revolut-auth-sidecar
+      - cmes-auth-sidecar
       - compose-sidecar-build
       - workflow-inventory
     if: github.event_name == 'push'
