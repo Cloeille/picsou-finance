@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-10-31 (hCaptcha visibility overrides and transformed iframe content bounds)
+> Last updated: 2026-10-31 (hCaptcha opacity checks and rotated empty overflow clips)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -252,17 +252,28 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   which ends the wait at once. The detector walks `page.frames` and matches only HTTP or HTTPS
   URLs on `hcaptcha.com` or its subdomains. A URL containing that string on another host does
   not count. Each matching frame and its parent frames must have visible screen space in common.
-  The detector checks the frame's computed visibility and ancestor opacity and display. An iframe
-  with `visibility:visible` can override an ancestor's `visibility:hidden` or `visibility:collapse`.
+  Firefox's `checkVisibility` checks the frame's visibility and opacity, including ancestor display
+  and opacity. An iframe with `visibility:visible` can override an ancestor's `visibility:hidden`
+  or `visibility:collapse`.
   Ancestor `display:none` and zero opacity still hide the frame. A one-shot `IntersectionObserver`
   applies overflow clipping and viewport bounds, then disconnects. The browser follows the CSS
   containing-block chain, so a fixed or absolute frame can escape an ancestor's overflow clip when
   its containing block is outside that ancestor. A transformed ancestor that establishes the
   containing block still clips the frame. Overflow clips at the transformed padding box, excluding
-  borders. A zero-height wrapper with only a border does not expose a challenge.
+  borders. A zero-height or zero-width padding box does not expose a challenge, even after rotation.
+  For `hidden`, `auto`, and `scroll` overflow, the detector rejects empty padding quads along the
+  containing-block chain before trusting the observer's axis-aligned rectangle.
+  Rotating an empty clip can give that rectangle nonzero area.
+  It checks the quad's coordinates rather than integer `clientWidth` or `clientHeight`, so a fractional
+  padding box can still expose content after scaling. Ancestors outside a positioned frame's
+  containing-block chain do not apply an overflow clip.
+  Root overflow and body overflow propagated to the viewport use the observer's viewport clip.
+  `overflow:clip` also stays with the observer because `overflow-clip-margin` can expand its clip.
   The observer's border-box intersection is restricted to the iframe's transformed content bounds,
   obtained through Camoufox's `getBoxQuads({box: 'content'})`. Browser launch and the offline fixture
   enable Firefox's `layout.css.getBoxQuads.enabled` preference for this geometry API.
+  Visibility and content bounds are checked again when the asynchronous observer callback runs,
+  so a frame hidden while the observation is pending does not count as an active challenge.
   A strip showing only the iframe's own border or padding does not expose a challenge.
   The visible content must exceed one pixel on both axes.
   Zero-size and one-pixel content frames do not count, even when their borders have a larger box.
@@ -340,6 +351,11 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 
 ## Tests
 
+- `services/revolut-auth/tests/test_captcha_browser.py` covers offline Camoufox visibility, opacity
+  changes between polls and during observation, nested frames, positioned frames escaping overflow,
+  rotated empty padding boxes, viewport overflow propagation, and fractional padding boxes that
+  expose content after scaling. `test_captcha_detection.py` covers host matching, frame traversal,
+  detached frames, and unexpected browser errors.
 - `services/revolut-auth/tests/test_login_screen.py` — fake-page tests of `sync()`: known device /
   phone screen nominal paths, passcode URL before its inputs render, `?redirect=…passcode` query
   string, single-field passcode fallbacks, `504 LOGIN_SCREEN_TIMEOUT`, captcha after the phone step

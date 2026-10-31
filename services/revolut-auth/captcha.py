@@ -5,19 +5,49 @@ from urllib.parse import urlsplit
 
 _VISIBLE_RECT = """
 frame => {
-    if (frame.clientWidth <= 1 || frame.clientHeight <= 1) return null;
-    const visibility = getComputedStyle(frame).visibility;
-    if (visibility === 'hidden' || visibility === 'collapse') return null;
-    for (let el = frame; el; el = el.parentElement) {
-        const style = getComputedStyle(el);
-        if (style.display === 'none' || Number(style.opacity) === 0) return null;
-    }
-    // Observer bounds include borders; content bounds must use the same transformed coordinates.
-    const content = frame.getBoxQuads({box: 'content'})[0].getBounds();
-    // The browser clips transformed padding boxes along the containing-block chain.
+    const rendered = () => {
+        if (frame.clientWidth <= 1 || frame.clientHeight <= 1 ||
+            !frame.checkVisibility({opacityProperty: true, visibilityProperty: true})) return false;
+        let position = getComputedStyle(frame).position;
+        for (let el = frame.parentElement; el; el = el.parentElement) {
+            const style = getComputedStyle(el);
+            const containingBlock = style.display !== 'contents' && style.display !== 'inline' && (
+                ['transform', 'translate', 'rotate', 'scale', 'perspective', 'filter', 'backdropFilter']
+                    .some(property => style[property] !== 'none') ||
+                /(?:layout|paint|strict|content)/.test(style.contain) ||
+                /(?:transform|translate|rotate|scale|perspective|filter|contain)/.test(style.willChange) ||
+                style.contentVisibility === 'auto');
+            if ((position === 'fixed' && !containingBlock) ||
+                (position === 'absolute' && !containingBlock && style.position === 'static')) continue;
+            let viewportOverflow = el === document.documentElement;
+            if (el === document.body && style.contain === 'none') {
+                const rootStyle = getComputedStyle(document.documentElement);
+                viewportOverflow = rootStyle.overflowX === 'visible' &&
+                    rootStyle.overflowY === 'visible' && rootStyle.contain === 'none';
+            }
+            // overflow:clip can extend beyond the padding box via overflow-clip-margin.
+            const clipX = ['auto', 'scroll', 'hidden'].includes(style.overflowX);
+            const clipY = ['auto', 'scroll', 'hidden'].includes(style.overflowY);
+            if (!viewportOverflow && style.display !== 'inline' && (clipX || clipY)) {
+                const padding = el.getBoxQuads({box: 'padding'})[0];
+                // A rotated empty clip has a nonempty axis-aligned observer rectangle.
+                if (padding && (
+                    (clipX && padding.p1.x === padding.p2.x && padding.p1.y === padding.p2.y) ||
+                    (clipY && padding.p1.x === padding.p4.x && padding.p1.y === padding.p4.y))) return false;
+            }
+            position = style.position;
+        }
+        return true;
+    };
+    if (!rendered()) return null;
     return new Promise(resolve => {
         const observer = new IntersectionObserver(([entry]) => {
             observer.disconnect();
+            if (!rendered()) {
+                resolve(null);
+                return;
+            }
+            const content = frame.getBoxQuads({box: 'content'})[0].getBounds();
             const box = entry.boundingClientRect;
             const clip = entry.intersectionRect;
             const left = Math.max(clip.left, content.left);

@@ -102,6 +102,10 @@ async def test_clipped_frame_requires_visible_content(
     ("absolute", "position:relative", False),
     ("fixed", "transform:translate(20px, 20px)", False),
     ("absolute", "transform:translate(20px, 20px)", False),
+    ("fixed", "rotate:15deg", False),
+    ("absolute", "rotate:15deg", False),
+    ("fixed", "contain:layout", False),
+    ("absolute", "contain:layout", False),
 ])
 async def test_positioned_challenge_uses_containing_block_clips(
         page, position, wrapper_style, expected):
@@ -129,6 +133,47 @@ async def test_overflow_clips_at_transformed_padding_box(
         '<iframe src="https://hcaptcha.com/challenge" '
         'style="border:0;width:400px;height:300px"></iframe></div>')
     assert await captcha.visible(page) is expected
+
+
+@pytest.mark.parametrize("dimension", ["height", "width"])
+async def test_scaled_subpixel_padding_box_exposes_content(page, dimension):
+    await page.set_content(
+        f'<div style="width:400px;height:300px;{dimension}:0.25px;overflow:hidden;'
+        'transform-origin:top left;transform:scale(10)">'
+        '<iframe src="https://hcaptcha.com/challenge" '
+        'style="display:block;border:0;width:400px;height:300px"></iframe></div>')
+    assert await captcha.visible(page)
+
+
+@pytest.mark.parametrize("element", ["html", "body"])
+async def test_viewport_overflow_does_not_clip_at_empty_element_box(page, element):
+    await page.set_content(
+        f'<style>{element} {{height:0;overflow:hidden}}</style>'
+        '<iframe src="https://hcaptcha.com/challenge" '
+        'style="display:block;border:0;width:400px;height:300px"></iframe>')
+    assert await captcha.visible(page)
+
+
+async def test_challenge_visibility_tracks_opacity_changes(page):
+    await page.set_content('<iframe src="https://hcaptcha.com/challenge" '
+                           'style="border:0;width:400px;height:300px;opacity:0"></iframe>')
+    assert not await captcha.visible(page)
+    await page.locator('iframe').evaluate("frame => frame.style.opacity = '0.1'")
+    assert await captcha.visible(page)
+    await page.locator('iframe').evaluate("frame => frame.style.opacity = '0'")
+    assert not await captcha.visible(page)
+
+
+@pytest.mark.parametrize("target", ["frame", "frame.parentElement"])
+async def test_opacity_change_during_geometry_observation(page, target):
+    await page.set_content('<div><iframe src="https://hcaptcha.com/challenge" '
+                           'style="border:0;width:400px;height:300px"></iframe></div>')
+    portion = await page.locator('iframe').evaluate(f"""frame => {{
+        const portion = ({captcha._VISIBLE_RECT})(frame);
+        {target}.style.opacity = '0';
+        return portion;
+    }}""")
+    assert portion is None
 
 
 async def test_nested_challenge(page):
