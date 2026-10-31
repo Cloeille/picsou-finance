@@ -21,17 +21,20 @@ public class CicController {
     private final CicSyncService service;
     private final UserContext userContext;
     private final Map<String, Bucket> authBuckets;
+    private final Map<String, Bucket> completeBuckets;
     private final Map<String, Bucket> syncBuckets;
 
     public CicController(
         CicSyncService service,
         UserContext userContext,
         @org.springframework.beans.factory.annotation.Qualifier("cicAuthBuckets") Map<String, Bucket> authBuckets,
+        @org.springframework.beans.factory.annotation.Qualifier("cicCompleteBuckets") Map<String, Bucket> completeBuckets,
         @org.springframework.beans.factory.annotation.Qualifier("syncBuckets") Map<String, Bucket> syncBuckets
     ) {
         this.service = service;
         this.userContext = userContext;
         this.authBuckets = authBuckets;
+        this.completeBuckets = completeBuckets;
         this.syncBuckets = syncBuckets;
     }
 
@@ -50,7 +53,7 @@ public class CicController {
 
     @PostMapping("/auth/complete")
     public ResponseEntity<?> complete(@Valid @RequestBody CompleteRequest req, HttpServletRequest request) {
-        if (!consumeAuthToken(request)) return rateLimited("Too many CIC authentication attempts. Please wait before retrying.");
+        if (!consumeCompleteToken(request)) return rateLimited("Too many CIC authentication attempts. Please wait before retrying.");
         return ResponseEntity.ok(service.completeAuth(req.processId(), req.code(), userContext.currentMemberId()));
     }
 
@@ -80,6 +83,14 @@ public class CicController {
         return authBuckets.computeIfAbsent(
             ClientIp.resolve(request),
             key -> RateLimitConfig.createCicAuthBucket()
+        )
+            .tryConsume(1);
+    }
+
+    private boolean consumeCompleteToken(HttpServletRequest request) {
+        return completeBuckets.computeIfAbsent(
+            ClientIp.resolve(request),
+            key -> RateLimitConfig.createCicCompleteBucket()
         )
             .tryConsume(1);
     }
