@@ -6,3 +6,4 @@
 *.orig
 ci/
 sync-sidecars.sh
+tests/

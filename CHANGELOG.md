@@ -14,7 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   isolation and a pre-upgrade Job that migrates and verifies the schema before the app is
   replaced. TLS terminates on the cluster's Ingress or Gateway. CI publishes it to
   `oci://ghcr.io/cloeille/charts/picsou` with every release, and as a pre-release pinned to the
-  commit's images with every push to `main`. See [feature note](docs/features/helm-chart.md).
+  commit's images with every push to `main`. Revolut's non-root process can write browser
+  profiles to a fresh PVC through a pod supplemental group. Sidecar inventory drift remains
+  warnings-only in CI, while script errors still fail. See [feature note](docs/features/helm-chart.md).
 
 - **SCPI positions over MCP.** An MCP client can now record a SCPI account's share count,
   subscription and withdrawal prices and distribution with the new `set_scpi_position` tool

@@ -1,6 +1,6 @@
 # Feature: Kubernetes deployment (Helm chart)
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-01
 
 ## Context
 
@@ -18,6 +18,10 @@ One release creates:
 - **sidecars** — one Deployment and Service per entry of `sidecars` (the `*-auth` services of
   the Compose file), each toggled by `enabled`. The app receives the matching
   `*_AUTH_URL` for every enabled sidecar. `revolut-auth` gets a PVC for its browser profiles.
+  Its pod sets `fsGroup: 1000` so the non-root process can write to a fresh volume through
+  a supplemental group, including with an existing claim. This requires storage that supports
+  `fsGroup` permissions, or a directory provisioned with write access for that group.
+  Operators can override `sidecars.revolut-auth.podSecurityContext.fsGroup`.
 - **postgresql** — optional single-replica StatefulSet of `postgres:16-alpine`, or
   `externalDatabase` for an operator-managed cluster.
 - **Secret** — `sidecar-api-key` and `postgres-password`, generated once and preserved through
@@ -46,6 +50,9 @@ this run pushed the images, so a chart published from a fork runs that fork's im
 committed back). The `helm-chart` job of `ci.yml`
 lints and renders the chart and runs `sync-sidecars.sh --check` on pull requests that touch the
 chart, the Compose file or the workflows; differences are warnings, a broken chart fails.
+The repository inventory test accepts exit codes 0 (in sync) and 2 (drift), but still fails
+on script errors. Synthetic fixtures test comparison and warning behavior. Rendered chart
+tests in `charts/picsou/tests` verify Revolut's volume permissions and existing-claim overrides.
 
 ### Key files
 

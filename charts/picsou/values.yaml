@@ -241,6 +241,9 @@ sidecars:
     enabled: true
     urlEnv: REVOLUT_AUTH_URL
     port: 8002
+    podSecurityContext:
+      # The PVC hides the image's chown; Kubernetes grants this supplemental group write access.
+      fsGroup: 1000
     # Browser profiles that keep the Revolut session between syncs.
     persistence:
       enabled: true

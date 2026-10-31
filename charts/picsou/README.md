@@ -179,6 +179,13 @@ reaches them in its own namespace: the backend accepts plain HTTP to a sidecar
 only on such a name, everything else must be HTTPS. Per-sidecar `resources`,
 `securityContext` and `podSecurityContext` are merged over `sidecarDefaults`.
 
+Revolut stores browser profiles on a PVC at `/data/revolut-profiles`. Its pod
+sets `sidecars.revolut-auth.podSecurityContext.fsGroup: 1000` so Kubernetes gives
+the non-root process write access to a fresh volume through a supplemental group.
+This also applies to `persistence.existingClaim`. The storage driver must support
+`fsGroup` volume permissions; otherwise provision a group-writable directory
+for that group. Override `fsGroup` if your storage requires another group.
+
 ### Keeping up with the Compose file
 
 `sync-sidecars.sh` compares the `*-auth` services of `docker/docker-compose.yml`
@@ -194,10 +201,11 @@ restart policy and `APP_SIDECAR_API_KEY`: the generic template covers it. One
 with volumes, networks, `init` or more variables needs a chart change by hand.
 
 CI runs it in both directions. On a pull request, the `helm-chart` job reports
-differences as warnings and never fails because of them. When publishing, the
-missing standard sidecars are added to the packaged chart, so a new sidecar of
-that kind is available without a chart change; the others are left out of the
-published chart until it supports them.
+differences as warnings and never fails because of them. The repository inventory
+test accepts exit codes 0 (in sync) and 2 (drift), while script errors still fail CI.
+When publishing, the missing standard sidecars are added to the packaged chart,
+so a new sidecar of that kind is available without a chart change; the others
+are left out of the published chart until it supports them.
 
 ## Network policies
 

@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -68,7 +69,8 @@ class SyncSidecarsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp)
-        self.compose = self.tmp / "docker-compose.yml"
+        self.compose = self.tmp / "docker" / "docker-compose.yml"
+        self.compose.parent.mkdir()
         self.values = self.tmp / "values.yaml"
         self.compose.write_text(COMPOSE, encoding="utf-8")
         self.values.write_text(CHART_VALUES, encoding="utf-8")
@@ -84,9 +86,20 @@ class SyncSidecarsTest(unittest.TestCase):
         result = self.run_script(*args, "--json")
         return result.returncode, {(f["sidecar"], f["kind"]) for f in json.loads(result.stdout)}
 
-    def test_the_repository_chart_lists_every_compose_sidecar(self):
+    def test_repository_inventory_check_succeeds(self):
         result = self.run_script("--check", compose=ROOT / "docker/docker-compose.yml", values=VALUES)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # Exit 2 is drift, reported by the workflow's warning step; errors still fail CI.
+        self.assertIn(result.returncode, (0, 2), result.stdout + result.stderr)
+
+    def test_repository_inventory_allows_sidecar_drift(self):
+        with patch(__name__ + ".ROOT", self.tmp), patch(__name__ + ".VALUES", self.values):
+            self.test_repository_inventory_check_succeeds()
+
+    def test_repository_inventory_rejects_script_errors(self):
+        self.compose.unlink()
+        with patch(__name__ + ".ROOT", self.tmp), patch(__name__ + ".VALUES", self.values):
+            with self.assertRaises(AssertionError):
+                self.test_repository_inventory_check_succeeds()
 
     def test_check_reports_each_kind_of_difference(self):
         code, found = self.findings("--check")
@@ -121,6 +134,12 @@ class SyncSidecarsTest(unittest.TestCase):
         self.compose.write_text(COMPOSE.replace("http://known-auth:8001", "http://known-auth:9000"), encoding="utf-8")
         _, found = self.findings("--check")
         self.assertIn(("known-auth", "mismatch"), found)
+
+    def test_check_github_warns_about_missing_standard_sidecars_without_editing_values(self):
+        result = self.run_script("--check", "--github")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("::warning title=Helm chart: std-auth::", result.stdout)
+        self.assertEqual(self.values.read_text(encoding="utf-8"), CHART_VALUES)
 
     def test_github_mode_emits_warnings_but_never_for_added_sidecars(self):
         result = self.run_script("--apply", "--github")
