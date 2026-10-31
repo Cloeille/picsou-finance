@@ -264,6 +264,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trade Republic crypto is valued at its market price again.** The connector guessed the
+  venue of each price subscription (`TRD0` for crypto). Trade Republic refused that guess, and
+  every crypto position was valued at its average buy-in, which hid its whole gain or loss
+  from the net worth. The connector now asks Trade Republic which venue prices each
+  instrument. When a price still does not come back, the holding shows no current price
+  instead of its buy-in, and the sync log names it (#268).
 - **Numbers and labels follow the interface language.** Percentages are formatted by the
   locale everywhere ("8,3 %" in French, "8.3%" in English) instead of a dot and a hand-placed
   sign. Every amount axis uses one compact format ("60 k €", "1,25 M €") instead of "60.0k",

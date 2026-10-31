@@ -129,18 +129,6 @@ public class OpenFigiIsinConverter {
     private static final java.util.regex.Pattern TR_CRYPTO_ISIN_PATTERN =
         java.util.regex.Pattern.compile("^" + TR_CRYPTO_ISIN_PREFIX + "([A-Z]+)[0-9]+$");
 
-    /**
-     * Whether {@code isin} is a Trade Republic internal crypto identifier — prefix
-     * {@code XF000}, e.g. {@code XF000BTC0017}. TR prices these on its own venue (TRD0),
-     * not the {@code LSX} default used for equities/ETFs, so {@link TradeRepublicAdapter}
-     * calls this to pick the ticker-subscription exchange. Sharing this one predicate (and
-     * the prefix constant it and {@link #TR_CRYPTO_ISIN_PATTERN} both use) keeps the two
-     * TR-crypto detection sites from drifting. Case/whitespace-insensitive.
-     */
-    public static boolean isTrCryptoIsin(String isin) {
-        return isin != null && isin.trim().toUpperCase(Locale.ROOT).startsWith(TR_CRYPTO_ISIN_PREFIX);
-    }
-
     /** ISIN country prefix → preferred exchange code for that market. */
     private static final Map<String, String> HOME_EXCHANGE = Map.ofEntries(
         Map.entry("US", "US"),  Map.entry("HK", "HK"),  Map.entry("JP", "JT"),
