@@ -111,10 +111,14 @@ describe('demo fixtures', () => {
   })
 
   it('answers a path with a malformed escape like any unhandled call', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const response = await adapter({ method: 'GET', url: '/prices/BAD%/history', headers: new AxiosHeaders() })
-    expect(response.status).toBe(200)
-    expect(response.data).toEqual({})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const response = await adapter({ method: 'GET', url: '/prices/BAD%/history', headers: new AxiosHeaders() })
+      expect(response.status).toBe(200)
+      expect(response.data).toEqual({})
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('signs the visitor in as the demo admin', async () => {
