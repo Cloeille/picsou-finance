@@ -154,7 +154,9 @@ served by `GET /api/admin/ai-calls` (admin-only).
   (empty text under the default `display: omitted`, a summary under `display: summarized`).
   `ChatClient...responseEntity()` and `.content()` read only that one, so the categorizer and the
   admin Test button use `SpringAiCategorizer.answerText()`, which skips generations Spring AI tags
-  as thinking (`signature` / `data` property) and takes the first one with text. Disabling
+  as thinking (`signature` / `data` property) and takes the first one with text. A response with
+  no text at all (e.g. thinking used up `max_tokens`) is an `ERROR` for the categorizer and a
+  failed Test (`ok=false`), never a silent success. Disabling
   thinking is not an option: Opus 5.5 / Sonnet 5.5 reject `thinking: disabled` with a 400.
 - **Console API keys only.** Spring AI authenticates with `x-api-key`: a Console key (personal,
   service-account or workspace) works; a Claude Pro/Max subscription token (`sk-ant-oat…`) does
@@ -177,7 +179,9 @@ served by `GET /api/admin/ai-calls` (admin-only).
 - `BudgetSeedWriteOnReadPostgresTest` — boots the full context with the three provider starters
   present and runs `V41`+`V42` on real Postgres (verifies `none` keeps startup clean).
 - `SpringAiCategorizerTest` — a thinking-block-first response (empty or summarized) is parsed from
-  the text block; no text at all is an `ERROR`; `unknown` yields no suggestion.
+  the text block; the JSON format instructions are sent and audited; a fenced answer parses and
+  token usage is recorded; no text at all is an `ERROR`; `unknown` yields no suggestion.
+- `AiConfigProviderTest` — `test_thinking*`: thinking then `OK` passes, thinking only fails.
 - `AiChatModelFactoryTest` — the Anthropic model carries `maxTokens`.
 - `CategorizeTab.test.tsx` — suggestion pre-selects the dropdown + renders the chip; the
   "Categorize with AI" button is gated on the setting; progress indicator renders while status is

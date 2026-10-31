@@ -57,13 +57,14 @@ public class SpringAiCategorizer implements TransactionCategorizerPort {
         String fullPrompt = null;
         long t0 = System.nanoTime();
         try {
-            String userPrompt = buildUserPrompt(input, categories, examples);
+            // The JSON format instructions are part of what the model sees, so of the audit too.
+            String userPrompt = buildUserPrompt(input, categories, examples) + "\n" + OUTPUT.getFormat();
             fullPrompt = SYSTEM + "\n\n" + userPrompt;
             // Not responseEntity(): it parses getResult(), the FIRST generation, which for a
             // thinking model (Claude Haiku 5.5 thinks by default) is an empty thinking block.
             ChatResponse resp = chatClient.prompt()
                 .system(SYSTEM)
-                .user(userPrompt + "\n" + OUTPUT.getFormat())
+                .user(userPrompt)
                 .call()
                 .chatResponse();
             long ms = (System.nanoTime() - t0) / 1_000_000;

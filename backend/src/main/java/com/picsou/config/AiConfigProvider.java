@@ -143,8 +143,9 @@ public class AiConfigProvider {
                 .user("Reply with the single word: OK")
                 .call()
                 .chatResponse());
-            return new AiTestResponse(true,
-                "Connected. Model replied: " + (reply == null ? "" : reply.strip()));
+            // Reachable but no answer (e.g. thinking used up max_tokens): not a working setup.
+            if (reply == null) return new AiTestResponse(false, "Connected, but the model returned no text answer.");
+            return new AiTestResponse(true, "Connected. Model replied: " + reply.strip());
         } catch (Exception e) {
             return new AiTestResponse(false,
                 e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
