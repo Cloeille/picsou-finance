@@ -76,6 +76,8 @@ public class CaisseEpargneSyncService {
     /** How far a loan row may sit from the date it is expected on. */
     private static final int LOAN_DATE_TOLERANCE_DAYS = 5;
     private static final BigDecimal CENT = new BigDecimal("0.01");
+    /** The smallest amount that rounds to 10^12 at 8 places, one digit past NUMERIC(20, 8). */
+    private static final BigDecimal DEBT_AMOUNT_BOUND = new BigDecimal("999999999999.999999995");
     /** Same width the other identified-transaction connectors use for the external id. */
     private static final int MAX_EXTERNAL_ID_LENGTH = 100;
     private static final int MAX_UNSUPPORTED = 100;
@@ -626,15 +628,20 @@ public class CaisseEpargneSyncService {
 
     /**
      * The loan details the schedule can use, or null. A missing or odd field never fails the
-     * sync: the loan account is still imported, only its Debt is left as it was.
+     * sync: the loan account is still imported, only its Debt is left as it was. An amount the
+     * debt columns cannot hold counts as odd: PostgreSQL would refuse it and roll back every
+     * account of the import.
      */
     private static CaisseEpargnePort.LoanDetails usableLoan(CaisseEpargnePort.LoanDetails loan) {
         if (loan == null
             || loan.borrowedAmount() == null || loan.borrowedAmount().signum() <= 0
+            || !fitsDebtAmount(loan.borrowedAmount())
             || loan.interestRate() == null || loan.interestRate().signum() < 0
             || loan.interestRate().compareTo(BigDecimal.ONE) > 0
             || loan.monthlyPayment() == null || loan.monthlyPayment().signum() <= 0
+            || !fitsDebtAmount(loan.monthlyPayment())
             || (loan.insuranceMonthly() != null && loan.insuranceMonthly().signum() < 0)
+            || (loan.insuranceMonthly() != null && !fitsDebtAmount(loan.insuranceMonthly()))
             || loan.firstDueDate() == null || loan.lastDueDate() == null
             || loan.lastDueDate().isBefore(loan.firstDueDate())) {
             if (loan != null) {
@@ -643,6 +650,14 @@ public class CaisseEpargneSyncService {
             return null;
         }
         return loan;
+    }
+
+    /**
+     * The debt amounts are NUMERIC(20, 8): PostgreSQL rounds to 8 places, then refuses a 13th
+     * integer digit. Compared, never rescaled: rescaling a tiny 1E-999999999 is a huge computation.
+     */
+    private static boolean fitsDebtAmount(BigDecimal amount) {
+        return amount.compareTo(DEBT_AMOUNT_BOUND) < 0;
     }
 
     /**
@@ -686,7 +701,9 @@ public class CaisseEpargneSyncService {
      * clamped day: a first due date of 28 February for a loan due on the 31st would date every
      * installment on the 28th. When the first due date is the last day of its month and the last
      * due date falls on a later day, the first one was clamped, so the anchor takes the last due
-     * date's day (the home-loan first due date is derived from it).
+     * date's day (the home-loan first due date is derived from it). A shorter anchor month clamps
+     * the anchor again (31 March gives 28 February): the schedule then takes the due day back
+     * from the end date, see {@link LoanAmortizationService}.
      */
     private static LocalDate scheduleAnchor(LocalDate firstDue, LocalDate lastDue) {
         LocalDate anchor = firstDue.minusMonths(1);

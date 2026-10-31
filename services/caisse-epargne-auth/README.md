@@ -100,7 +100,9 @@ only them, are added to the allow-list. The detail is
 `nextDuedateRate`, `duration` in installments. The first due date is not given:
 it is the last one minus `duration - 1` months, clamped to the end of a short
 month (a loan due on the 31st and ending 2042-05-31 over 4 installments starts
-2042-02-28; the backend takes the due day back from the last due date). A
+2042-02-28; the backend takes the due day back from the last due date). The
+backend also leaves the Debt as it was when an amount does not fit its
+`NUMERIC(20, 8)` columns (10^12 or more), so the import goes on. A
 duration that puts that date out of range refuses the detail
 (`INVALID_LOAN_DETAIL`). The debit account comes without
 its IBAN, so `linkedIban` is null and the backend keeps whatever account the
