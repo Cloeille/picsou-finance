@@ -80,6 +80,7 @@ class MemberSyncServiceTest {
 
         assertEquals(16, results.size());
         assertEquals("cmes", results.get(15).source());
+        verify(cmesSyncService).resyncReporting(memberId);
         assertEquals("revolut", results.get(0).source());
         assertEquals("enable-banking", results.get(1).source());
         assertEquals("enable-banking-retry", results.get(2).source());

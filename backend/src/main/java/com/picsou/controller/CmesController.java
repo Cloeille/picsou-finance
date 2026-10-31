@@ -21,17 +21,20 @@ public class CmesController {
     private final CmesSyncService service;
     private final UserContext userContext;
     private final Map<String, Bucket> authBuckets;
+    private final Map<String, Bucket> completeBuckets;
     private final Map<String, Bucket> syncBuckets;
 
     public CmesController(
         CmesSyncService service,
         UserContext userContext,
         @org.springframework.beans.factory.annotation.Qualifier("cmesAuthBuckets") Map<String, Bucket> authBuckets,
+        @org.springframework.beans.factory.annotation.Qualifier("cmesCompleteBuckets") Map<String, Bucket> completeBuckets,
         @org.springframework.beans.factory.annotation.Qualifier("syncBuckets") Map<String, Bucket> syncBuckets
     ) {
         this.service = service;
         this.userContext = userContext;
         this.authBuckets = authBuckets;
+        this.completeBuckets = completeBuckets;
         this.syncBuckets = syncBuckets;
     }
 
@@ -43,7 +46,7 @@ public class CmesController {
 
     @PostMapping("/auth/complete")
     public ResponseEntity<?> complete(@Valid @RequestBody CompleteRequest req, HttpServletRequest request) {
-        if (!consumeAuthToken(request)) return rateLimited("Too many Crédit Mutuel Épargne Salariale authentication attempts. Please wait before retrying.");
+        if (!consumeCompleteToken(request)) return rateLimited("Too many Crédit Mutuel Épargne Salariale authentication attempts. Please wait before retrying.");
         return ResponseEntity.ok(service.completeAuth(req.processId(), req.code(), userContext.currentMemberId()));
     }
 
@@ -73,6 +76,14 @@ public class CmesController {
         return authBuckets.computeIfAbsent(
             ClientIp.resolve(request),
             key -> RateLimitConfig.createCmesAuthBucket()
+        )
+            .tryConsume(1);
+    }
+
+    private boolean consumeCompleteToken(HttpServletRequest request) {
+        return completeBuckets.computeIfAbsent(
+            ClientIp.resolve(request),
+            key -> RateLimitConfig.createCmesCompleteBucket()
         )
             .tryConsume(1);
     }

@@ -120,9 +120,10 @@ public class CmesSession extends AuditableEntity {
         syncStatus = CmesSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
-        // Only an expired session needs re-authentication; a failed fetch leaves
-        // a usable session so the daily scheduler can simply retry.
-        if (error == CmesErrorCode.SESSION_EXPIRED) {
+        // An expired session and a rejected stored password both need the saver
+        // to reconnect; a failed fetch leaves a usable session so the daily
+        // scheduler can simply retry.
+        if (error == CmesErrorCode.SESSION_EXPIRED || error == CmesErrorCode.INVALID_CREDENTIALS) {
             active = false;
         }
     }

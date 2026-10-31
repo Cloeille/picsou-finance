@@ -145,11 +145,22 @@ public class RateLimitConfig {
     }
 
     /**
-     * Per-IP Crédit Mutuel Épargne Salariale auth rate limiter: 5 attempts per
-     * 15 minutes. The site locks an access after a few wrong passwords.
+     * Per-IP Crédit Mutuel Épargne Salariale login rate limiter: 5 attempts per
+     * 15 minutes. Every attempt sends the password to the site, which locks an
+     * access after a few wrong passwords.
      */
     @Bean("cmesAuthBuckets")
     public Map<String, Bucket> cmesAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP Crédit Mutuel Épargne Salariale second-factor rate limiter, kept
+     * apart from the login budget so a confirmation is never refused once the
+     * phone was notified.
+     */
+    @Bean("cmesCompleteBuckets")
+    public Map<String, Bucket> cmesCompleteBuckets() {
         return boundedBucketStore();
     }
 
@@ -443,12 +454,21 @@ public class RateLimitConfig {
             .build();
     }
 
-    /**
-     * Ten per 15 minutes, not five: a login takes two calls (initiate, then
-     * complete), and a budget of five left the confirmation of the third try
-     * rejected with 429 while the phone had already been notified.
-     */
+    /** Five password checks per 15 minutes: only {@code /auth/initiate} sends the password. */
     public static Bucket createCmesAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    /**
+     * Ten per 15 minutes for {@code /auth/complete}: a wrong SMS code can be
+     * typed again on the same attempt, and none of these calls sends the password.
+     */
+    public static Bucket createCmesCompleteBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(10)

@@ -24,6 +24,7 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
      */
     List<Account> findByIdInAndMemberId(List<Long> ids, Long memberId);
     Optional<Account> findByExternalAccountIdAndMemberId(String externalAccountId, Long memberId);
+    List<Account> findAllByMemberIdAndProvider(Long memberId, String provider);
 
     /**
      * Account-level tickers of live accounts of one type, for the hourly price warm-up — see

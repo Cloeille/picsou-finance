@@ -27,6 +27,7 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -171,6 +172,8 @@ class CmesSyncServiceTest {
 
         assertThat(session.getLastSyncError()).isEqualTo(CmesErrorCode.INVALID_CREDENTIALS);
         assertThat(session.getEncryptedCredentials()).isNull();
+        // Without credentials the next scheduled run could only fail: ask the saver now.
+        assertThat(session.isActive()).isFalse();
     }
 
     @Test
@@ -272,6 +275,80 @@ class CmesSyncServiceTest {
             .isInstanceOfSatisfying(SyncException.class, error ->
                 assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(port, never()).completeAuth(anyString(), any());
+    }
+
+    @Test
+    void aCompletionWithoutLivePendingCredentialsKeepsTheStoredSession() {
+        // A backend restart forgets the pending credentials while the sidecar
+        // still holds the attempt.
+        assertThatThrownBy(() -> service.completeAuth("p5", null, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(port, never()).completeAuth(anyString(), any());
+        verify(sessionRepository, never()).delete(any());
+    }
+
+    @Test
+    void expiredPendingCredentialsAreEvictedWithoutWaitingForANewLogin() {
+        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(port.initiateAuth("12345678", "secret", null))
+            .thenReturn(new CmesPort.InitiateResult("p6", true, "SMS", null));
+        when(port.completeAuth("p6", "000000"))
+            .thenThrow(new SyncException("wrong", null, CmesErrorCode.INVALID_OTP.name()));
+        service.initiateAuth("12345678", "secret", 7L);
+
+        // Still live: kept, and the attempt reaches the sidecar.
+        service.evictPendingCredentialsExpiredAt(Instant.now());
+        assertThatThrownBy(() -> service.completeAuth("p6", "000000", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CmesErrorCode.INVALID_OTP.name()));
+
+        // Past its ten minutes: gone, with no new login needed to clear it.
+        service.evictPendingCredentialsExpiredAt(Instant.now().plusSeconds(601));
+        assertThatThrownBy(() -> service.completeAuth("p6", "000000", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(port, times(1)).completeAuth(anyString(), any());
+    }
+
+    @Test
+    void aPlanACompleteFetchNoLongerListsIsClosedAtZero() {
+        arrangeCommittableSync(pegPlan());
+        Account closedPlan = Account.builder()
+            .id(12L)
+            .externalAccountId("cmes_12345_PEE")
+            .provider(CmesSyncService.PROVIDER)
+            .currentBalance(new BigDecimal("800.00"))
+            .build();
+        Account listedPlan = Account.builder()
+            .id(11L)
+            .externalAccountId(PEG_ID)
+            .provider(CmesSyncService.PROVIDER)
+            .currentBalance(new BigDecimal("1500.50"))
+            .build();
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CmesSyncService.PROVIDER))
+            .thenReturn(List.of(closedPlan, listedPlan));
+
+        service.queueSync(7L);
+
+        assertThat(closedPlan.getCurrentBalance()).isEqualByComparingTo("0");
+        assertThat(closedPlan.getDeletedAt()).isNull();
+        verify(holdingRepository).deleteByAccountId(12L);
+        verify(accountService).upsertSnapshot(closedPlan, BigDecimal.ZERO, BigDecimal.ZERO, LocalDate.now());
+        // The listed plan only goes through the regular upsert.
+        assertThat(listedPlan.getCurrentBalance()).isEqualByComparingTo("1500.50");
+    }
+
+    @Test
+    void aFailedFetchClosesNoPlan() {
+        arrangeQueuedSession(activeSession(member()));
+        when(port.fetchPlans("plain-state"))
+            .thenThrow(new SyncException("partial", null, CmesErrorCode.PORTFOLIO_INCOMPLETE.name()));
+
+        service.queueSync(7L);
+
+        verify(accountRepository, never()).findAllByMemberIdAndProvider(any(), any());
+        verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
     @Test

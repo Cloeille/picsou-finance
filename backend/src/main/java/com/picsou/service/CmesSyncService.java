@@ -23,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessException;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -116,17 +117,36 @@ public class CmesSyncService {
             }
             storeSessionAndQueue(result.sessionState(), memberId, login, password);
         } else if (result.processId() != null) {
-            pendingCredentials.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(Instant.now()));
+            evictExpiredPendingCredentials();
             pendingCredentials.put(result.processId(), new PendingCredentials(
                 login, password, Instant.now().plusSeconds(PENDING_CREDENTIALS_SECONDS), memberId));
         }
         return new AuthInitResponse(result.processId(), result.mfaRequired(), result.mfaType());
     }
 
+    /**
+     * Drops the passwords of abandoned second factors. They are held in memory
+     * only for the length of an attempt, so they must not wait for the next
+     * login to be cleared.
+     */
+    @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
+    public void evictExpiredPendingCredentials() {
+        evictPendingCredentialsExpiredAt(Instant.now());
+    }
+
+    void evictPendingCredentialsExpiredAt(Instant now) {
+        pendingCredentials.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
+    }
+
     /** {@code code} is the SMS code, or null for a mobile confirmation. */
     public SessionStatusResponse completeAuth(String processId, String code, Long memberId) {
+        // Without live credentials (expired, or lost to a backend restart) the
+        // attempt cannot store a session able to log in again unattended, and
+        // completing it would replace the stored session and its credentials.
         PendingCredentials credentials = pendingCredentials.get(processId);
-        if (credentials != null && !credentials.memberId().equals(memberId)) {
+        if (credentials == null
+            || !credentials.memberId().equals(memberId)
+            || !credentials.expiresAt().isAfter(Instant.now())) {
             throw error(CmesErrorCode.AUTH_ATTEMPT_EXPIRED, "CMES authentication attempt expired", null);
         }
         // A wrong SMS code throws INVALID_OTP before the pending credentials are
@@ -136,10 +156,7 @@ public class CmesSyncService {
         if (plainState == null || plainState.isBlank()) {
             throw error(CmesErrorCode.INVALID_DATA, "CMES did not return a session", null);
         }
-        boolean credentialsValid = credentials != null && credentials.expiresAt().isAfter(Instant.now());
-        return storeSessionAndQueue(plainState, memberId,
-            credentialsValid ? credentials.login() : null,
-            credentialsValid ? credentials.password() : null);
+        return storeSessionAndQueue(plainState, memberId, credentials.login(), credentials.password());
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
@@ -486,6 +503,7 @@ public class CmesSyncService {
             for (PreparedPlan data : prepared) {
                 upsertAccount(data, member, job.memberId(), syncedAt);
             }
+            closeUnlistedPlans(prepared, job.memberId(), syncedAt);
 
             session.markSuccessful(syncedAt);
             sessionRepository.save(session);
@@ -546,6 +564,36 @@ public class CmesSyncService {
             data.investedAmountEur(),
             LocalDate.now()
         );
+    }
+
+    /**
+     * Zeroes the imported plans a complete fetch no longer lists: the saver
+     * closed or transferred them, and their last balance would otherwise stay
+     * in the net worth. Only complete fetches reach this point (see
+     * {@link #preparePlans}). The account is closed at zero rather than soft
+     * deleted: a soft-deleted account reads as removed by the user and would
+     * never be imported again, while a plan can reopen.
+     */
+    private void closeUnlistedPlans(List<PreparedPlan> prepared, Long memberId, Instant syncedAt) {
+        Set<String> listed = new HashSet<>();
+        prepared.forEach(plan -> listed.add(plan.externalId()));
+        for (Account account : accountRepository.findAllByMemberIdAndProvider(memberId, PROVIDER)) {
+            String externalId = account.getExternalAccountId();
+            if (externalId == null || !externalId.startsWith(EXTERNAL_ID_PREFIX) || listed.contains(externalId)) {
+                continue;
+            }
+            if (account.getCurrentBalance() != null && account.getCurrentBalance().signum() == 0) {
+                continue;
+            }
+            log.info("CMES no longer lists an imported plan, closing it at zero (member={}; account={})",
+                memberId, account.getId());
+            account.setCurrentBalance(BigDecimal.ZERO);
+            account.setCashBalance(null);
+            account.setLastSyncedAt(syncedAt);
+            Account saved = accountRepository.save(account);
+            holdingRepository.deleteByAccountId(saved.getId());
+            accountService.upsertSnapshot(saved, BigDecimal.ZERO, BigDecimal.ZERO, LocalDate.now());
+        }
     }
 
     private void markFailed(SyncJob job, CmesErrorCode code) {
