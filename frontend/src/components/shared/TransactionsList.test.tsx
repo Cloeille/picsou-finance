@@ -58,6 +58,16 @@ describe('TransactionsList', () => {
     expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument()
     expect(screen.getByText('accounts.transactions')).toBeInTheDocument()
     expect(screen.queryByPlaceholderText('common.search')).not.toBeInTheDocument()
+    expect(screen.getByText('accounts.noTransactions')).toBeInTheDocument()
+  })
+
+  it('says so when the search matches nothing', () => {
+    render(<TransactionsList transactions={[transaction({ description: 'Boulangerie' })]} />)
+
+    fireEvent.change(screen.getByPlaceholderText('common.search'), { target: { value: 'zzz' } })
+
+    expect(screen.queryByText('Boulangerie')).not.toBeInTheDocument()
+    expect(screen.getByText('common.noResults')).toBeInTheDocument()
   })
 
   it('keeps single-year date headings compact', () => {

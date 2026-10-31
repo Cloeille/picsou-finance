@@ -28,6 +28,8 @@ import type {
   DegiroAuthInitResponse,
   AmundiSessionStatus,
   AmundiAuthInitResponse,
+  CmesSessionStatus,
+  CmesAuthInitResponse,
   AmexSessionStatus,
   AmexAuthInitResponse,
   AmexOtpMethod,
@@ -319,6 +321,32 @@ export const amundiApi = {
       .then(r => r.data),
 
   clearSession: () => api.delete('/amundi/session'),
+}
+
+// --- Crédit Mutuel Épargne Salariale (CIC savers too) ---
+
+export const cmesApi = {
+  initiateAuth: (login: string, password: string) =>
+    api
+      .post<CmesAuthInitResponse>('/cmes/auth/initiate', { login, password })
+      .then(r => r.data),
+
+  // `code` is the SMS code, omitted for a mobile confirmation.
+  completeAuth: (processId: string, code?: string) =>
+    api
+      .post<CmesSessionStatus>('/cmes/auth/complete', { processId, code })
+      .then(r => r.data),
+
+  sync: () => api.post<CmesSessionStatus>('/cmes/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<CmesSessionStatus>('/cmes/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete('/cmes/session'),
 }
 
 // --- American Express ---

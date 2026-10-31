@@ -66,6 +66,9 @@ USER_AGENT = (
 )
 
 _HOST_RE = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+caisse-epargne\.fr$")
+# The home-loan app is served by the BPCE group hosts (observed live
+# 2026-10-25): these two exactly, never a wildcard on bpce.fr.
+BPCE_HOSTS = frozenset({"www.as-ext-bad-me.bpce.fr", "www.rs-ext-bad-me.bpce.fr"})
 
 
 # --- Typed errors ------------------------------------------------------------
@@ -103,7 +106,7 @@ class HostNotAllowed(UpstreamError):
 
 
 def is_allowed_url(url: Any) -> bool:
-    """True only for an https URL on a strict `*.caisse-epargne.fr` host."""
+    """True only for an https URL on a strict `*.caisse-epargne.fr` host or a `BPCE_HOSTS` one."""
     if not isinstance(url, str) or not url or "\\" in url:
         return False
     if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in url):
@@ -118,7 +121,7 @@ def is_allowed_url(url: Any) -> bool:
         return False
     if port not in (None, 443) or not host:
         return False
-    return _HOST_RE.match(host) is not None
+    return _HOST_RE.match(host) is not None or host in BPCE_HOSTS
 
 
 def _require_allowed(url: Any) -> str:
@@ -346,6 +349,24 @@ LOAN_CHAIN = ChainProfile(
         ("client_id", LOAN_CLIENT_ID),
         ("scope", LOAN_SCOPE),
         ("redirect_uri", LOAN_REDIRECT_URI),
+    ),
+    drop=("claims",),
+)
+
+# The home-loan app (gestion-client/credit-immobilier) mints its own token on the
+# BPCE authorization server (observed live 2026-10-25): public client and
+# redirect of that app, an empty `scope` (the bank grants `readLoan ...`), no
+# `claims`. Every other authorize parameter is the one the main chain sends.
+HOME_LOAN_AUTHORIZE_URL = "https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/authorize"
+HOME_LOAN_TOKEN_URL = "https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/token"
+HOME_LOAN_CLIENT_ID = "873a10ce-67a7-4917-ab31-e5a482617303"
+HOME_LOAN_REDIRECT_URI = "https://www.caisse-epargne.fr/gestion-client/credit-immobilier/postMessage/index.html"
+HOME_LOAN_CHAIN = ChainProfile(
+    name="home-loan",
+    overrides=(
+        ("client_id", HOME_LOAN_CLIENT_ID),
+        ("scope", ""),
+        ("redirect_uri", HOME_LOAN_REDIRECT_URI),
     ),
     drop=("claims",),
 )

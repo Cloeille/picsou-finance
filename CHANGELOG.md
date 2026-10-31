@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Caisse d'Epargne home loans.** A home loan listed in the synthesis was reported as
+  unsupported. The sidecar now reads its detail from the bank's home-loan app (amount borrowed,
+  rate, installment, insurance, first and last due dates) and imports it like a personal loan.
+  A property you linked the mortgage to stays linked when the loan syncs again. A loan due on
+  the 31st keeps that due day in its schedule, even after a shorter month, and a detail with
+  figures out of range, or amounts too large to store, leaves only that loan's details aside
+  instead of failing the import.
+
 - **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
   Picsou matches it to the dividend history it already holds, marks it as a dividend and files
   it under capital income. `GET /api/dividends/received` lists them, with the same id as the
@@ -26,6 +34,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands that fix it. The same pop-up announces a newer Picsou release, read from GitHub at
   most once every 6 hours; `APP_UPDATE_CHECK_ENABLED=false` turns that call off. See
   [feature note](docs/features/admin-instance-status.md).
+- **BoursoBank assurance vie.** Contracts listed on the dashboard are now synced as
+  `ASSURANCE_VIE` accounts: unit-linked supports as holdings (ISIN, units, buying price, latent
+  gain), the euro fund in the cash balance, reconciled against the contract valuation. They were
+  silently skipped before: their links have no trailing slash. A row is read as the euro fund only
+  without units, ISIN, quote link or price; an unreadable cell or quote link stops the sync
+  instead. A support's ticker comes from its quote link's path, never from its query or
+  fragment.
+- **Caisse d'Epargne in *Sync all*.** The dashboard's *Sync all* modal lists Caisse d'Epargne
+  like the other session connectors: a live session syncs in place, an expired one opens the
+  Caisse d'Epargne tab, where the keypad and Sécur'Pass login run, and *Sync all* skips it.
+- **Crédit Mutuel / CIC Épargne Salariale sync.** A browserless `cmes-auth` sidecar reads the
+  saver's space (www.creditmutuel-ere.fr) and imports each plan (PEE, PEG, PERCOL) with its funds:
+  units, unit value and gain. The login is confirmed once, in the bank's app or with a code
+  received by SMS. While the site remembers the device, the daily sync logs in again with the
+  stored credentials without asking; once it asks for a new confirmation, the sync reports the
+  session as expired and the saver reconnects from the CMES tab. A plan the site no longer lists
+  is closed at zero instead of keeping its last balance. Each plan's id comes from its full
+  label alone, so it stays the same when another plan opens or closes; an account created with
+  an earlier id moves to the new one with its history only if it also carries that plan's name,
+  so a closed plan's history never passes to another plan of the same family. It is listed in the dashboard's
+  *Sync all* modal, MCP `get_sync_status` and `trigger_broker_sync`, and the admin
+  instance-status check like the other session connectors. Deleting its last account also
+  removes the stored session and credentials, and cancels a login still waiting for the
+  phone, so a late approval stores nothing. A plan deleted under its new id stays deleted
+  even while an account from an earlier id is still there.
+  See [docs](docs/features/cmes-epargne-salariale.md).
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per
@@ -218,6 +252,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Accounts you created yourself, and accounts created for another Actual budget, only ever
   gain new transactions. Loan accounts can't receive an Actual import.
 
+### Changed
+
+- **Pull requests go green sooner.** CI runs only the jobs a pull request's changed paths can
+  affect, a new push cancels the stale run, and the demo Playwright suite runs once instead of
+  twice. Pushes to `main` and tags still run every job, and a new `ci-ok` check fails when a
+  selected job did not pass. The app image builds its frontend and backend once, natively,
+  instead of once per platform, and a new `APP_VERSION` build argument no longer reinstalls the
+  dependencies (an edit to `frontend/package.json`, version field included, still does).
+  Building `docker/Dockerfile` yourself now needs BuildKit (`docker buildx`).
+
 ### Fixed
 
 - **Demo budget dates are no longer one day early east of UTC.** In Paris the demo showed the
@@ -227,6 +271,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in every timezone (#280). The demo's upcoming-charges calendar also no longer skips a
   month after a charge due on the 31st: it moves to the last day of a shorter month, as the
   backend does.
+- **The cashflow diagram labels every destination again.** With a dozen destinations the
+  Sankey squeezed each node to a few pixels and hid all their labels; it now grows taller
+  instead and shows each name with its amount. A card too narrow for those labels (a phone, or a
+  small window with the sidebar open) lists the flows as bars instead of folding the diagram's
+  columns over each other. The list under the flow is titled
+  "Répartition du revenu", so "Sorties" only ever means spending. A transaction card with
+  nothing to show (an account without transactions, a search with no match, an empty
+  period on `/budget/transactions`) now says so instead of staying blank, the demo serves
+  `/budget/transactions`, and the "Sans catégorie" row lines up with the rows above it.
+- **The goal calendar shows every month without a hidden scroller.** The year grid now wraps
+  (six months per row on a desktop, three on a phone) and opens on the current month, where it
+  used to cut off at May or June and hide the recent months behind a horizontal scroll. The goal
+  name is the page title, with "Calendrier" above it, instead of "Calendrier de Apport
+  immobilier". Ring amounts and objectives are written in whole euros at 11px or larger, so a
+  row no longer mixes "984,72 €" with "1 k €", and the objective reads 1 373 € like the header.
+  A legend tells the share of the objective reached (94%) from the overshoot (+8%), and the
+  overshoot arc is now drawn at the ring's width (#282).
+- **Alignment and control consistency pass (budget, account detail, charts).** Chart Y axes
+  are now wide enough for every tick they draw, so labels such as "10.00k", "-3.5k" and
+  "-250k" are no longer clipped. The investment account chart is titled "Valeur et capital investi", the
+  name of what it plots. A holding or dividend without a logo shows its name's initials
+  instead of an empty grey circle, unless that name is only its ticker. A dividend with no
+  payment date says "Date inconnue" and stays on one line. Income on an account's
+  transactions carries its "+", and a zero amount carries no sign. Monthly
+  statements line up with their title and read "1er octobre 2026". In Budget, "OK" in "Ce
+  qui a changé" has a check mark rather than the undo arrow, and the dates and amounts of
+  the recurring lists stay in fixed columns. Envelopes say "87,70 € restants · 82 %" or
+  "37,90 € de dépassement", in German and Spanish too. Category pickers, rule buttons and
+  filters share one 40px height, the transaction filters show dates in your date format,
+  and screen readers announce the account and category filters by name. The confidence slider
+  and the switches follow the dark theme, category names are no longer cut short on mobile,
+  and the "À catégoriser" count sits next to its label.
+  ([#283](https://github.com/Cloeille/picsou-finance/issues/283))
+- **Every BoursoBank livret now syncs its transactions, not only the LEP.** A Livret A, LDDS,
+  Livret Jeune, PEL, CEL or Livret Bourso+ used to sync its balance with no operations, so
+  money moving in and out of it never reached Budget. The BoursoBank sync now reads the last
+  90 days of operations and the IBAN of every current account and livret, through the same
+  importer and duplicate checks as the current account. A livret whose history page cannot
+  be read, or is too slow (the history reads only use what is left of a 60 s budget counted
+  from the start of the accounts read, after balances and holdings), still syncs its balance. ([#167](https://github.com/Cloeille/picsou-finance/issues/167))
+- **Controls no longer spill out of their card on phones** (#273). At 360–390px the Settings
+  theme and language switches (Spanish was hidden), the family sharing choices, the Analysis
+  card toggles and the account Transactions buttons were cut at the card edge. Settings and
+  sharing choices now stretch across the card, and card toggles move under the title. The
+  Accounts filters and Sync providers sit on one row you can swipe instead of up to eight
+  ragged rows; that row, like the Budget sections, fades at the edge that hides more, opens
+  on the current section and brings a newly picked tab fully into view, without cutting the
+  keyboard focus ring or undoing a swipe when a count loads late. Goal names and page titles wrap to a second line instead of being
+  cut with an ellipsis.
+- **Phone layout: page margins, the end of each page, and Family.** On a phone, pages ran 4 px
+  from the screen edge while the bottom bar sat 16 px in, and the last card of every page
+  touched the bar. Pages now keep the bar's 16 px margin on every side and end 16 px above it.
+  Family, missing from the bottom bar, now has its own entry
+  and is highlighted on its page. The FR/EN switch made room for it and left the bar; the
+  language stays available in Settings, with all four languages.
+- **First Trade Republic login after a fresh start.** On a cold `tr-auth` container the first
+  login often failed with "please check your credentials" although the phone number and PIN
+  were right: the headless browser had not yet received the AWS WAF token, so Trade Republic's
+  firewall rejected the request. `tr-auth` now waits for the token and retries with a second
+  browser before contacting Trade Republic, and still answers within the backend's 60 s wait.
+  A firewall rejection now reads "Trade Republic blocked the request. Retry in a minute."
+  A Trade Republic timeout or a broken browser no longer reads as a credentials error.
+  (#266)
 - **Primary blue and chart strokes are readable in dark mode.** The dark theme's primary blue
   was darker than the light one, so blue text, badges ("This device", AI category
   suggestions) and progress bars sat at about 2:1 on the dark cards, and the dashed "Capital
@@ -249,6 +356,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   did not know: its cards failed the completeness check and the whole sync stopped with
   `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
   like loans and insurance, since they belong to the child.
+- **BoursoBank no longer merges two funds that resolve to the same ticker.** When two lines
+  of a PEA or compte-titres with different ISINs got the same ticker (two share classes of
+  one fund, for example), they became one holding recorded under only one of the ISINs, so
+  fund facts and composition described the wrong fund for part of it. The sync now stops
+  with `INVALID_DATA` and keeps the last good portfolio. Lines with the same ISIN still
+  merge ([#302](https://github.com/Cloeille/picsou-finance/issues/302)).
+- **Upgrading a 1.0.11–1.0.18 database to 1.1.0.** The backend no longer stops at boot with 13
+  Flyway checksum mismatches (V38, V51, V54–V64). Merging main into 1.1.0 had moved these
+  migrations to new versions, and edited comments in five of them. Before Flyway validates, the
+  backend now moves each of those history rows to its new version, so nothing re-runs, and then
+  applies the 1.1.0 migrations the database never ran
+- **Upgrading a 1.0.6–1.0.18 database to 1.1.0.** The backend no longer stops at boot with
+  Flyway checksum mismatches (V33 on 1.0.6; V38, V51, V54–V64 on 1.0.11–1.0.18). Merging main
+  into 1.1.0 had moved these migrations to new versions, and edited comments in five of them;
+  1.0.6 had applied today's V36 as V33. Before Flyway validates, the backend now moves each of
+  those history rows to its new version, so nothing re-runs, and then applies the 1.1.0
+  migrations the database never ran
+  ([#265](https://github.com/Cloeille/picsou-finance/issues/265)). Before upgrading, run the
+  duplicate-account check in the
+  [upgrade note](docs/features/docker-deployment.md#upgrading-a-10x-database-to-110): these
+  databases now run V47, which deletes active accounts sharing an external id and member, so the
+  backend refuses to migrate while such duplicates exist, including one synced in while the
+  upgrade runs. Do not run `flyway repair`, and keep
+  Flyway enabled.
 - **Sidebar style prompt shows what each style looks like.** The two miniatures in the
   first-launch "choose your sidebar style" window now match the real sidebars: logo on the left
   beside the privacy toggle, two-line nav items, a full-height column with the member row and
@@ -260,6 +391,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
   the card's corner could still hit delete). They now stay visible on touch screens and when
   keyboard focus is inside the card.
+- **Hidden accounts no longer count in the budget.** Hiding an account already took it out of
+  the dashboard and allocation views, but its transactions still fed spending, cashflow,
+  envelopes and recurring detection. When the same bank account is synced by two connectors
+  and one copy is hidden, every movement was counted twice. Opening the hidden account itself
+  still lists its transactions.
 - **MCP calls no longer time out after a few idle minutes.** The MCP SSE stream stayed silent
   between two replies, so clients dropped it as idle (Claude Code after about 6 minutes, the
   Python MCP SDK after 300 s) and the next call timed out. The server now pings every open

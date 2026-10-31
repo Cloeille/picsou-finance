@@ -134,6 +134,93 @@ class TradeRepublicAdapterTest {
         assertThat(tokens.refreshToken()).isEqualTo("rotated");
     }
 
+    @Test
+    void initiateAuth_wafBlockIsReportedAsTemporaryNotAsWrongCredentials() {
+        TradeRepublicAdapter adapter = adapterReturning(503, "{\"detail\":\"TR_WAF_BLOCKED\"}");
+
+        Throwable thrown = catchThrowable(() -> adapter.initiateAuth("+33600000000", "1234"));
+
+        assertThat(thrown)
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("Trade Republic blocked the request")
+            .hasMessageNotContaining("credentials");
+    }
+
+    @Test
+    void completeAuth_wafBlockIsReportedAsTemporaryNotAsAnInvalidCode() {
+        TradeRepublicAdapter adapter = adapterReturning(503, "{\"detail\":\"TR_WAF_BLOCKED\"}");
+
+        Throwable thrown = catchThrowable(() -> adapter.completeAuth("process-id", "1234"));
+
+        assertThat(thrown)
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("Trade Republic blocked the request")
+            .hasMessageNotContaining("verification code");
+    }
+
+    @Test
+    void completeAuth_validationErrorEchoingTheWafCodeIsNotAWafBlock() {
+        // A FastAPI 422 echoes the rejected input: it must not pass for the sidecar's own detail.
+        TradeRepublicAdapter adapter = adapterReturning(422, """
+            {"detail":[{"type":"string_pattern_mismatch","loc":["body","processId"],\
+            "msg":"String should match pattern","input":"TR_WAF_BLOCKED"}]}""");
+
+        Throwable thrown = catchThrowable(() -> adapter.completeAuth("TR_WAF_BLOCKED", "1234"));
+
+        assertThat(thrown)
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("verification code")
+            .hasMessageNotContaining("blocked the request");
+    }
+
+    @Test
+    void initiateAuth_trTimeoutIsReportedAsNoResponseNotAsWrongCredentials() {
+        TradeRepublicAdapter adapter = adapterReturning(504, "{\"detail\":\"TR_UNREACHABLE\"}");
+
+        Throwable thrown = catchThrowable(() -> adapter.initiateAuth("+33600000000", "1234"));
+
+        assertThat(thrown)
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("did not respond")
+            .hasMessageNotContaining("credentials");
+    }
+
+    @Test
+    void initiateAuth_browserFailureIsReportedAsServiceUnavailableNotAsWrongCredentials() {
+        TradeRepublicAdapter adapter = adapterReturning(503, "{\"detail\":\"TR_BROWSER_FAILED\"}");
+
+        Throwable thrown = catchThrowable(() -> adapter.initiateAuth("+33600000000", "1234"));
+
+        assertThat(thrown)
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("unavailable")
+            .hasMessageNotContaining("credentials");
+    }
+
+    @Test
+    void completeAuth_unhandledSidecarErrorIsReportedAsServiceUnavailableNotAsAnInvalidCode() {
+        TradeRepublicAdapter adapter = adapterReturning(500, "Internal Server Error");
+
+        Throwable thrown = catchThrowable(() -> adapter.completeAuth("process-id", "1234"));
+
+        assertThat(thrown)
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("unavailable")
+            .hasMessageNotContaining("verification code");
+    }
+
+    @Test
+    void initiateAuth_trPinRejectionStillReportsTheCredentialError() {
+        TradeRepublicAdapter adapter = adapterReturning(
+            400, "{\"detail\":\"TR rejected request: {\\\"errors\\\":[{\\\"errorCode\\\":\\\"PIN_INVALID\\\"}]}\"}");
+
+        Throwable thrown = catchThrowable(() -> adapter.initiateAuth("+33600000000", "1234"));
+
+        assertThat(thrown)
+            .isInstanceOf(SyncException.class)
+            .hasMessage("PIN_INVALID");
+    }
+
     private TradeRepublicAdapter adapterReturning(int status, String body) {
         server = HttpServer.create()
             .host("127.0.0.1")

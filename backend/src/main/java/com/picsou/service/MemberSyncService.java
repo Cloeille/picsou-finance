@@ -34,7 +34,10 @@ public class MemberSyncService {
         "crypto-exchanges",
         "wallets",
         "finary",
-        "degiro"
+        "degiro",
+        // Last so the existing sources keep their order. Re-logs in with stored
+        // credentials when its short session has expired.
+        "cmes"
     );
 
     private final RevolutSyncService revolutSyncService;
@@ -52,6 +55,7 @@ public class MemberSyncService {
     private final FinaryApiSyncService finaryApiSyncService;
     private final DegiroSyncService degiroSyncService;
     private final ReceivedDividendClassifier dividendClassifier;
+    private final CmesSyncService cmesSyncService;
 
     public MemberSyncService(
             RevolutSyncService revolutSyncService,
@@ -68,7 +72,8 @@ public class MemberSyncService {
             WalletSyncService walletSyncService,
             FinaryApiSyncService finaryApiSyncService,
             DegiroSyncService degiroSyncService,
-            ReceivedDividendClassifier dividendClassifier) {
+            ReceivedDividendClassifier dividendClassifier,
+            CmesSyncService cmesSyncService) {
         this.revolutSyncService = revolutSyncService;
         this.syncService = syncService;
         this.trSyncService = trSyncService;
@@ -84,6 +89,7 @@ public class MemberSyncService {
         this.finaryApiSyncService = finaryApiSyncService;
         this.degiroSyncService = degiroSyncService;
         this.dividendClassifier = dividendClassifier;
+        this.cmesSyncService = cmesSyncService;
     }
 
     public List<SourceSyncResult> resyncScheduled(Long memberId) {
@@ -140,6 +146,8 @@ public class MemberSyncService {
                     return bourseDirectSyncService.resyncReporting(memberId);
                 case "amundi":
                     return amundiSyncService.resyncReporting(memberId);
+                case "cmes":
+                    return cmesSyncService.resyncReporting(memberId);
                 case "fortuneo":
                     return fortuneoSyncService.resyncReporting(memberId);
                 case "amex":

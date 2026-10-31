@@ -58,8 +58,7 @@
     "analysis": "Analyse",
     "analysis.desc": "Répartition & diversification",
     "hideAmounts": "Masquer les montants",
-    "showAmounts": "Afficher les montants",
-    "switchLanguage": "Changer la langue"
+    "showAmounts": "Afficher les montants"
   },
   "auth": {
     "login": "Connexion",
@@ -184,6 +183,7 @@
     "neverSynced": "Jamais synchronisé",
     "holdings": "Positions",
     "transactions": "Transactions",
+    "noTransactions": "Aucune transaction sur ce compte.",
     "addTransaction": "Ajouter une transaction",
     "editTransaction": "Modifier la transaction",
     "transactionDate": "Date",
@@ -199,6 +199,7 @@
     "tickerOrIsinPlaceholder": "IWDA.AS, IE00B4L5Y983, BTC...",
     "assetNamePlaceholder": "Ex. : iShares Core MSCI World",
     "history": "Historique",
+    "valueAndInvested": "Valeur et capital investi",
     "priceLive": "Prix en direct",
     "priceStale": "Prix datant de {{time}}",
     "priceAsOf": "Cours du {{date}} — le fournisseur de prix n'a pas répondu",
@@ -234,7 +235,7 @@
       "next": "Dividendes suivants",
       "exDate": "Détachement",
       "paymentDate": "Versement",
-      "paymentUnknown": "Date de versement inconnue",
+      "paymentUnknown": "Date inconnue",
       "estimated": "estimée",
       "announced": "Annoncé",
       "estimatedBasis": "Estimé",
@@ -689,7 +690,8 @@
     "noGoals": "Aucun objectif défini",
     "waiting": "En cours",
     "calendar": "Calendrier",
-    "calendarTitle": "Calendrier de {{name}}",
+    "legendProgress": "Part de l'objectif du mois atteinte (ex. 94%)",
+    "legendOvershoot": "Dépassement de l'objectif (ex. +8%)",
     "viewGrid": "Grille annuelle",
     "viewTimeline": "Timeline",
     "viewCalendar": "Calendrier",
@@ -839,7 +841,7 @@
       "diagram": "Flux du cycle",
       "breakdown": "Où part votre argent",
       "inflows": "Entrées",
-      "outflows": "Sorties",
+      "outflows": "Répartition du revenu",
       "empty": "Aucun flux à afficher sur cette période.",
       "error": "Impossible de charger le diagramme de flux.",
       "ariaSummary": "Diagramme de flux : {{income}} d'entrées, {{expense}} de sorties, solde net {{net}}.",
@@ -894,6 +896,8 @@
       "emptyHint": "Créez une enveloppe pour suivre vos dépenses par catégorie.",
       "error": "Impossible de charger les enveloppes.",
       "deleteTitle": "Supprimer l'enveloppe",
+      "remaining": "{{amount}} restants · {{percent}}",
+      "overspent": "{{amount}} de dépassement · {{percent}}",
       "deleteDescription": "Supprimer l'enveloppe « {{name}} » ? Les transactions sont conservées."
     },
     "recurring": {
@@ -1102,6 +1106,7 @@
         "invalidTan": "Code de vérification incorrect ou expiré. Utilisez le dernier code reçu, ou relancez l'étape pour en recevoir un nouveau.",
         "authenticationFailed": "Échec de l'authentification Trade Republic.",
         "serviceUnavailable": "Le service Trade Republic local n'est pas disponible. Relancez les serveurs puis réessayez.",
+        "temporarilyBlocked": "Trade Republic a bloqué la requête. Réessayez dans une minute.",
         "serverError": "Erreur serveur Trade Republic. Réessayez.",
         "phoneNumberRequired": "Numéro de téléphone requis.",
         "pinRequired": "Code PIN requis.",
@@ -1381,7 +1386,11 @@
       "transactionsImported": "Transactions importées",
       "transactionsSkipped": "Transactions ignorées",
       "done": "Terminé",
-      "errors": { "invalidPreview": "La réponse de prévisualisation est invalide.", "previewFailed": "Impossible de prévisualiser le fichier HomeBank.", "importFailed": "L'import HomeBank a échoué." }
+      "errors": {
+        "invalidPreview": "La réponse de prévisualisation est invalide.",
+        "previewFailed": "Impossible de prévisualiser le fichier HomeBank.",
+        "importFailed": "L'import HomeBank a échoué."
+      }
     },
     "all": {
       "title": "Synchroniser les comptes",
@@ -1562,6 +1571,42 @@
         "formatChanged": "Le format du site Amundi a changé. Vos données existantes ont été conservées.",
         "invalidData": "Amundi a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
         "serverError": "Impossible de joindre Amundi. Veuillez réessayer."
+      }
+    },
+    "cmes": {
+      "title": "Crédit Mutuel / CIC Épargne Salariale",
+      "login": "Identifiant",
+      "password": "Mot de passe",
+      "otpCode": "Code reçu par SMS",
+      "otpPrompt": "Saisissez le code de confirmation reçu par SMS.",
+      "appValidationPrompt": "Ouvrez l'application de votre banque et confirmez la connexion (confirmation mobile).",
+      "appValidationHint": "Cette page se met à jour automatiquement dès que vous avez confirmé. Ensuite, Picsou se reconnecte seul tant que le site reconnaît l'appareil.",
+      "connect": "Se connecter",
+      "connecting": "Connexion en cours…",
+      "validate": "Valider le code",
+      "validating": "Validation en cours…",
+      "sync": "Synchroniser",
+      "queued": "Synchronisation en attente…",
+      "syncing": "Synchronisation en cours…",
+      "syncSuccess": "Plans d'épargne synchronisés.",
+      "clearSession": "Déconnecter",
+      "noSession": "Aucune session active",
+      "sessionActive": "Session active",
+      "scope": "Synchronise vos plans d'épargne salariale Crédit Mutuel ou CIC (PEE, PEG, PERCOL) et les fonds qu'ils contiennent : parts, valeur de la part et plus-value.",
+      "errors": {
+        "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
+        "invalidCredentials": "Identifiant ou mot de passe invalide.",
+        "actionRequired": "Le site vous demande une action (conditions à accepter, coordonnées à compléter). Connectez-vous une fois sur le site, puis réessayez.",
+        "mfaTypeUnsupported": "Le site demande un Digipass ou Safetrans, que Picsou ne sait pas gérer. Choisissez la confirmation mobile ou le SMS dans vos paramètres de sécurité.",
+        "appValidationTimeout": "La confirmation mobile n'a pas été validée à temps. Recommencez la connexion.",
+        "appValidationCancelled": "La confirmation mobile a été refusée dans l'application.",
+        "authAttemptExpired": "La tentative d’authentification a expiré. Recommencez la connexion.",
+        "sessionExpired": "La session a expiré et le site demande une nouvelle confirmation mobile. Veuillez vous reconnecter.",
+        "portfolioIncomplete": "Le site a renvoyé des plans incomplets. Vos données existantes ont été conservées.",
+        "formatChanged": "Le format du site a changé. Vos données existantes ont été conservées.",
+        "invalidData": "Le site a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
+        "serverError": "Impossible de joindre le site d'épargne salariale. Veuillez réessayer.",
+        "invalidCode": "Code SMS erroné. Vérifiez-le et saisissez-le à nouveau."
       }
     },
     "corum": {

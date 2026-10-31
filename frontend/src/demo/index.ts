@@ -27,7 +27,9 @@ import {
   mockRecurring,
   mockRules,
   mockSpendingByCategory,
+  mockTransactionSearch,
   mockUncategorized,
+  recategorizeMockTransaction,
 } from './data/budget'
 import { mockUpcomingDividends } from './data/dividends'
 import type { CashflowPeriod } from '@/types/api'
@@ -953,6 +955,24 @@ handlers.set(key('POST', '/amundi/auth/complete'), () => demoAmundiStatus)
 handlers.set(key('POST', '/amundi/sync'), () => demoAmundiStatus)
 handlers.set(key('DELETE', '/amundi/session'), () => null)
 
+// Crédit Mutuel Épargne Salariale — same convention. Sync all lists CMES as an
+// expired session whenever its status is not IDLE, so the `{}` fallback would
+// show a phantom connection.
+const demoCmesStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+handlers.set(key('GET', '/cmes/status'), () => demoCmesStatus)
+handlers.set(key('POST', '/cmes/auth/initiate'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/cmes/auth/complete'), () => demoCmesStatus)
+handlers.set(key('POST', '/cmes/sync'), () => demoCmesStatus)
+handlers.set(key('DELETE', '/cmes/session'), () => null)
+
 // BoursoBank — same convention. Its demo accounts already carry
 // `provider: 'BoursoBank'`, so without these the Sync-all modal would list a
 // connection whose status request falls through to `{}`.
@@ -1318,6 +1338,15 @@ for (const r of mockRules) {
   handlers.set(key('DELETE', `/categorization-rules/${r.id}`), () => ({}))
 }
 handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categorized: 4 }))
+
+handlers.set(key('GET', '/transactions'), (config) => mockTransactionSearch(config.params ?? {}))
+for (const tx of mockTransactionSearch({})) {
+  handlers.set(key('PUT', `/transactions/${tx.id}/category`), (config) => {
+    const { categoryId } = JSON.parse(config.data || '{}')
+    recategorizeMockTransaction(tx.id, categoryId)
+    return {}
+  })
+}
 
 // To-categorize inbox
 handlers.set(key('GET', '/transactions/uncategorized'), () => mockUncategorized)

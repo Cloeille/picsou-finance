@@ -187,6 +187,8 @@ Text inputs, text buttons, tabs, dropdown menus, segmented controls, and pill fi
 
 Avoid local `h-6`, `h-7`, `h-8`, `h-9`, `text-xs`, or narrow `px-2` overrides for text controls, and never re-pill a control with a `rounded-full` className that overrides the shadcn `Button`/`Tabs` primitive. OTP slots should follow the same readable `h-10` control rhythm unless a dense, space-constrained surface has a documented reason to shrink them. Reserve smaller sizing for pure icon buttons, badges, dense table data, chart labels, and non-interactive metadata.
 
+On phones (below `sm`), nothing may be wider than the card that holds it; `e2e/mobile-layout.spec.ts` checks the main pages at 360px. A segmented control stretches to the full width with equal items (`flex-1 basis-0 px-4`), with its label above it, until its card is wide enough for the desktop row. Key that switch to the card's width with a container query (`@container` + `@xl:flex-none @xl:px-8`, as on the Settings page), not to the viewport: from 768px the sidebar takes a third of the screen. A card header with toggles or buttons uses `flex-wrap` so they drop under the title. A tab or filter strip that does not fit stays on one row inside `ScrollStrip` (`components/shared/ScrollStrip.tsx`), which fades the edge that hides more items and scrolls the active one (`aria-selected`, `aria-current` or `aria-pressed`) into view. Pass it the live selection as `activeKey` (control the `Tabs` value; a `defaultValue` never changes), and do not strip its built-in `-m-1 p-1`: that is the room the 4px focus ring needs inside the overflow. The strip re-reveals the active item when it changes width, but not after a swipe when only its content grows. Titles wrap (`line-clamp-2`) rather than `truncate` when the name is what the user came to read.
+
 `Label` and `CardDescription` are app-wide readable primitives (`text-sm`). Do not shrink form labels or section descriptions locally unless the element is truly dense metadata rather than an input label.
 
 Color swatches should use a stable visible size and selection ring. Avoid
@@ -252,6 +254,12 @@ Use icons from `lucide-react` as direct JSX components (e.g., `<Pencil className
 ## Charts
 
 Recharts v3 for all data visualizations. Chart color tokens (`--chart-1` through `--chart-5`) are defined in the Tailwind theme.
+
+Size a new or touched money Y axis with `yAxisWidth(values, tick)` (`lib/chart-axis.ts`), passing the same `money.tick(...)` formatter the axis uses, rather than a fixed `width`. A fixed width clips the longer labels, such as "10.00k" or "-250k". `NetWorthChart` and `AccountsStackedChart` use it. `LoanAmortizationChart`, `PropertyValuationChart`, `AllocationTrajectory` and `CashflowTab` still use a fixed width.
+
+## Form controls
+
+A new native `<select>` goes through `NativeSelect` (`components/shared/NativeSelect.tsx`), which shares `Input`'s 40px height, border and fill. About ten older selects still use `SELECT_CONTROL_CLASS` or `rounded-xl` classes of their own. A date field goes through `DateInput`, which displays the user's date format. A range input takes the `range-input` class and sets `--range-fill` to its value's percentage.
 
 ## Scripts
 

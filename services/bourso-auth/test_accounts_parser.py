@@ -141,7 +141,7 @@ class AccountTypeTest(unittest.TestCase):
         checker, so the annotation alone would not have caught it; this does.
         """
         emitted = {kind for kind, _ in _SAVINGS_PATTERNS}
-        emitted.update({"CHECKING", "SAVINGS", "PEA", "COMPTE_TITRES"})
+        emitted.update({"CHECKING", "SAVINGS", "PEA", "COMPTE_TITRES", "ASSURANCE_VIE"})
         self.assertEqual(emitted, set(get_args(AccountKind)))
 
 

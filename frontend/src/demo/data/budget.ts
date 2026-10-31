@@ -20,6 +20,7 @@ import type {
   Transaction,
   UncategorizedTransaction,
 } from '@/types/api'
+import { mockAccounts } from './accounts'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 // Demo data is generated relative to "today" so the Budget section always looks
@@ -30,6 +31,11 @@ import type {
 function iso(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+// The transactions page filters on local calendar days; `iso` goes through UTC and can shift them.
+function localIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 const NOW = new Date()
@@ -480,7 +486,8 @@ function leafTransactions(cat: Category, factor: number): Transaction[] {
     const merchant = merchants[i % merchants.length]
     return {
       id: cat.id * 100 + i,
-      date: daysFromNow(-(i * 3 + 2)),
+      // Clamped to the 1st so the rows stay inside the current month on any day of it.
+      date: localIso(new Date(NOW.getFullYear(), NOW.getMonth(), Math.max(1, NOW.getDate() - (i * 3 + 2)))),
       description: merchant.toUpperCase(),
       amount: isIncome ? abs : -abs,
       type: null,
@@ -547,4 +554,43 @@ export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): 
     transactions,
     children,
   }
+}
+
+// Categories picked through the demo's PUT /transactions/:id/category, by transaction id.
+const recategorized = new Map<number, number>()
+
+export function recategorizeMockTransaction(id: number, categoryId: number): void {
+  recategorized.set(id, categoryId)
+}
+
+/**
+ * `GET /transactions`: the current cycle's transactions for the categories that carry demo
+ * spend (the same ones as the spending breakdown), all booked on the main checking account,
+ * filtered like `TransactionRepository.searchByMember` (inclusive dates, exact account and
+ * category) and sorted newest first.
+ */
+export function mockTransactionSearch(params: {
+  from?: string
+  to?: string
+  accountId?: number | string
+  categoryId?: number | string
+}): Transaction[] {
+  const checking = mockAccounts.find((a) => a.type === 'CHECKING')!
+  return SPEND_BASE
+    .flatMap(({ cat }) => leafTransactions(cat, 1).map((tx) => {
+      const categoryId = recategorized.get(tx.id) ?? cat.id
+      return {
+        ...tx,
+        categoryId,
+        category: mockCategories.find((c) => c.id === categoryId)?.name ?? tx.category,
+        accountId: checking.id,
+        accountName: checking.name,
+      }
+    }))
+    .filter((tx) =>
+      (!params.from || tx.date >= params.from) &&
+      (!params.to || tx.date <= params.to) &&
+      (params.accountId == null || tx.accountId === Number(params.accountId)) &&
+      (params.categoryId == null || tx.categoryId === Number(params.categoryId)))
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
 }
