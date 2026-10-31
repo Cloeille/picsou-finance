@@ -35,9 +35,15 @@ class EnableBankingBankConnectorTest {
     private EnableBankingBankConnector balanceConnector() {
         EnableBankingBankConnector underTest = spy(connector());
         doReturn(null).when(underTest).fetchAccountDetails(anyString());
-        doReturn(new EnableBankingBankConnector.AccountBalanceCandidates(null, List.of(), false))
+        doReturn(new EnableBankingBankConnector.AccountBalanceCandidates(null, List.of(),
+            EnableBankingBankConnector.BalanceSelection.FALLBACK))
             .when(underTest).fetchAccountCandidates(anyString(), any(), any());
         return underTest;
+    }
+
+    private static EnableBankingBankConnector.SessionAccounts sessionAccounts(String... accountIds) {
+        return new EnableBankingBankConnector.SessionAccounts(List.of(accountIds),
+            EnableBankingBankConnector.BalanceResponseScope.UNKNOWN);
     }
 
     // ─── Config-validation tests ──────────────────────────────────────────────
@@ -77,7 +83,7 @@ class EnableBankingBankConnectorTest {
         String sessionId = "sess-xyz";
 
         // Session returns two account uids
-        doReturn(List.of("uid-bad", "uid-good"))
+        doReturn(sessionAccounts("uid-bad", "uid-good"))
             .when(underTest).fetchSessionAccountsWithRetry(sessionId);
 
         // uid-bad: the 404 after a uid rotation, as mapToSyncException surfaces it
@@ -99,7 +105,7 @@ class EnableBankingBankConnectorTest {
     @Test
     void fetchBalances_everyAccountFails_rethrowsTheFirstFailureInsteadOfAnEmptyList() {
         EnableBankingBankConnector underTest = balanceConnector();
-        doReturn(List.of("uid-1", "uid-2")).when(underTest).fetchSessionAccountsWithRetry("sess-down");
+        doReturn(sessionAccounts("uid-1", "uid-2")).when(underTest).fetchSessionAccountsWithRetry("sess-down");
         SyncException consentExpired = new SyncException("Consent expired", null, "CONSENT_EXPIRED");
         doThrow(consentExpired).when(underTest).fetchAccountData(eq("uid-1"), any(), any());
         doThrow(new SyncException("503 Service Unavailable")).when(underTest).fetchAccountData(eq("uid-2"), any(), any());
@@ -110,7 +116,7 @@ class EnableBankingBankConnectorTest {
     @Test
     void fetchBalances_malformedBalanceAmount_skipsThatAccount() {
         EnableBankingBankConnector underTest = balanceConnector();
-        doReturn(List.of("uid-bad", "uid-good")).when(underTest).fetchSessionAccountsWithRetry("sess-nfe");
+        doReturn(sessionAccounts("uid-bad", "uid-good")).when(underTest).fetchSessionAccountsWithRetry("sess-nfe");
         doThrow(new NumberFormatException("Character n is neither a decimal digit number"))
             .when(underTest).fetchAccountData(eq("uid-bad"), any(), any());
         BankConnectorPort.AccountData goodData = new BankConnectorPort.AccountData(
@@ -123,7 +129,7 @@ class EnableBankingBankConnectorTest {
     @Test
     void fetchBalances_unexpectedFailure_propagatesEvenWhenAnotherAccountSucceeds() {
         EnableBankingBankConnector underTest = balanceConnector();
-        doReturn(List.of("uid-good", "uid-bug")).when(underTest).fetchSessionAccountsWithRetry("sess-bug");
+        doReturn(sessionAccounts("uid-good", "uid-bug")).when(underTest).fetchSessionAccountsWithRetry("sess-bug");
         doReturn(new BankConnectorPort.AccountData("uid-good", "Livret A", null, "EUR", BigDecimal.valueOf(500)))
             .when(underTest).fetchAccountData(eq("uid-good"), any(), any());
         IllegalStateException bug = new IllegalStateException("unexpected");
@@ -140,7 +146,7 @@ class EnableBankingBankConnectorTest {
         EnableBankingBankConnector underTest = balanceConnector();
         String sessionId = "sess-ok";
 
-        doReturn(List.of("uid-1", "uid-2")).when(underTest).fetchSessionAccountsWithRetry(sessionId);
+        doReturn(sessionAccounts("uid-1", "uid-2")).when(underTest).fetchSessionAccountsWithRetry(sessionId);
 
         BankConnectorPort.AccountData d1 = new BankConnectorPort.AccountData(
             "uid-1", "Livret A", "FR1234", "EUR", BigDecimal.valueOf(500));
@@ -164,7 +170,7 @@ class EnableBankingBankConnectorTest {
     void fetchBalances_emptySession_returnsEmpty() {
         EnableBankingBankConnector underTest = spy(connector());
 
-        doReturn(List.of()).when(underTest).fetchSessionAccountsWithRetry("sess-empty");
+        doReturn(sessionAccounts()).when(underTest).fetchSessionAccountsWithRetry("sess-empty");
 
         List<BankConnectorPort.AccountData> result = underTest.fetchBalances("sess-empty");
 
@@ -183,7 +189,7 @@ class EnableBankingBankConnectorTest {
         EnableBankingBankConnector underTest = balanceConnector();
         String sessionId = "sess-bourso";
 
-        doReturn(List.of("uid-bourso")).when(underTest).fetchSessionAccountsWithRetry(sessionId);
+        doReturn(sessionAccounts("uid-bourso")).when(underTest).fetchSessionAccountsWithRetry(sessionId);
 
         // Simulate fetchAccountData returning null currency (what would happen if EB omits it)
         BankConnectorPort.AccountData dataWithNullCurrency = new BankConnectorPort.AccountData(

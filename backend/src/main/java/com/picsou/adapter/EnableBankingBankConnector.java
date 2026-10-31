@@ -190,7 +190,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
 
     @Override
     public List<AccountData> fetchBalances(String sessionId) {
-        List<String> accounts = fetchSessionAccountsWithRetry(sessionId);
+        SessionAccounts sessionAccounts = fetchSessionAccountsWithRetry(sessionId);
+        List<String> accounts = sessionAccounts.accounts();
         List<AccountData> fetched = new ArrayList<>(accounts.size());
         RuntimeException firstFailure = null;
         Map<String, AccountDetailsResponse> detailsByAccount = new LinkedHashMap<>();
@@ -209,10 +210,13 @@ public class EnableBankingBankConnector implements BankConnectorPort {
                 if (firstFailure == null) firstFailure = ex;
             }
         }
+        boolean detailsComplete = detailsByAccount.size() == accounts.size()
+            && detailsByAccount.values().stream().allMatch(details -> details != null);
+        var accountLabels = new AccountLabels(labelClaims, detailsComplete, sessionAccounts.scope());
         for (var entry : detailsByAccount.entrySet()) {
             String accountId = entry.getKey();
             try {
-                var candidates = fetchAccountCandidates(accountId, entry.getValue(), labelClaims);
+                var candidates = fetchAccountCandidates(accountId, entry.getValue(), accountLabels);
                 candidatesByAccount.put(accountId, candidates);
             } catch (SyncException ex) {
                 log.warn("Failed to fetch account balances {} from Enable Banking; skipping it for this sync",
@@ -220,8 +224,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
                 if (firstFailure == null) firstFailure = ex;
             }
         }
-        var ownership = new BalanceOwnership(candidatesByAccount, candidatesByAccount.size() == accounts.size()
-            && detailsByAccount.values().stream().allMatch(details -> details != null));
+        var ownership = new BalanceOwnership(candidatesByAccount,
+            detailsComplete && candidatesByAccount.size() == accounts.size());
         for (var entry : candidatesByAccount.entrySet()) {
             String accountId = entry.getKey();
             try {
@@ -311,7 +315,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
      * id. Throwing here turned the legitimate "still linking" case into a 502
      * in production.
      */
-    List<String> fetchSessionAccountsWithRetry(String sessionId) {
+    SessionAccounts fetchSessionAccountsWithRetry(String sessionId) {
         int maxAttempts = 3;
         int delayMs = 1_500;
 
@@ -329,7 +333,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             if (session != null && session.accounts() != null && !session.accounts().isEmpty()) {
                 log.info("Session {} has {} accounts (attempt {}, status={})",
                     LogSanitizer.fingerprint(sessionId), session.accounts().size(), attempt, session.status());
-                return session.accounts();
+                return new SessionAccounts(session.accounts(), responseScope(session.aspsp()));
             }
 
             log.info("Session {} has no accounts yet (attempt {}/{}, status={})",
@@ -343,7 +347,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
 
         log.warn("Session {} still has no accounts after {} attempts — returning empty so the caller can retry asynchronously",
             LogSanitizer.fingerprint(sessionId), maxAttempts);
-        return List.of();
+        return new SessionAccounts(List.of(), BalanceResponseScope.UNKNOWN);
     }
 
     /**
@@ -664,13 +668,25 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             .block();
     }
 
+    enum BalanceResponseScope { ACCOUNT_SCOPED, SHARED, UNKNOWN }
+
+    enum BalanceSelection { ACCOUNT_SCOPED, DESCRIPTION, FALLBACK }
+
+    record SessionAccounts(List<String> accounts, BalanceResponseScope scope) {
+        SessionAccounts {
+            accounts = List.copyOf(accounts);
+        }
+    }
+
+    record AccountLabels(Map<String, Integer> claims, boolean complete, BalanceResponseScope responseScope) {}
+
     record AccountBalanceCandidates(AccountDetailsResponse details, List<BalancesResponse.BalanceItem> candidates,
-                                    boolean matchedDescription) {}
+                                    BalanceSelection selection) {}
 
     record BalanceOwnership(Map<String, AccountBalanceCandidates> candidatesByAccount, boolean complete) {}
 
     AccountBalanceCandidates fetchAccountCandidates(String accountId, AccountDetailsResponse details,
-                                                    Map<String, Integer> labelClaims) {
+                                                    AccountLabels accountLabels) {
         BalancesResponse balances = mapToSyncException(
             webClient.get()
                 .uri("/accounts/{id}/balances", accountId)
@@ -699,12 +715,21 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             .filter(item -> accountLabel != null && item.name() != null
                 && accountLabel.equalsIgnoreCase(item.name().trim()))
             .toList();
-        boolean matchedDescription = accountLabel != null && labelClaims.getOrDefault(accountLabel, 0) == 1
+        boolean matchedDescription = accountLabels.complete() && accountLabel != null
+            && accountLabels.claims().getOrDefault(accountLabel, 0) == 1
             && !matching.isEmpty();
-        candidates = matchedDescription ? matching : candidates.stream()
-            .filter(item -> !labelClaims.containsKey(nullToEmpty(item.name()).trim()))
+        if (matchedDescription) {
+            return new AccountBalanceCandidates(details, matching, BalanceSelection.DESCRIPTION);
+        }
+        if (accountLabels.responseScope() == BalanceResponseScope.ACCOUNT_SCOPED
+            && hasOneNormalizedLabel(candidates)
+            && !containsSiblingClaim(candidates, accountLabel, accountLabels.claims())) {
+            return new AccountBalanceCandidates(details, candidates, BalanceSelection.ACCOUNT_SCOPED);
+        }
+        candidates = candidates.stream()
+            .filter(item -> !accountLabels.claims().containsKey(nullToEmpty(item.name()).trim()))
             .toList();
-        return new AccountBalanceCandidates(details, candidates, matchedDescription);
+        return new AccountBalanceCandidates(details, candidates, BalanceSelection.FALLBACK);
     }
 
     AccountData fetchAccountData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
@@ -724,16 +749,34 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     private static BalancesResponse.BalanceItem selectBalance(String accountId, AccountBalanceCandidates response,
                                                              BalanceOwnership ownership) {
         List<BalancesResponse.BalanceItem> candidates = response.candidates();
+        if (response.selection() != BalanceSelection.FALLBACK) {
+            return preferredBalance(candidates);
+        }
         String balanceLabel = balanceLabel(candidates);
         // A shared list can have one generic label, so response shape cannot prove ownership.
-        if (!response.matchedDescription()
-            && (!ownership.complete() || ownership.candidatesByAccount().entrySet().stream()
-                .anyMatch(entry -> !entry.getKey().equals(accountId) && !entry.getValue().matchedDescription()
-                    && entry.getValue().candidates().stream()
-                        .anyMatch(item -> balanceLabel.equalsIgnoreCase(nullToEmpty(item.name()).trim()))))) {
+        if (!ownership.complete() || ownership.candidatesByAccount().entrySet().stream()
+            .anyMatch(entry -> !entry.getKey().equals(accountId)
+                && entry.getValue().selection() == BalanceSelection.FALLBACK
+                && entry.getValue().candidates().stream()
+                    .anyMatch(item -> balanceLabel.equalsIgnoreCase(nullToEmpty(item.name()).trim())))) {
             throw new SyncException("Enable Banking returned ambiguous account balances; cannot establish fallback ownership");
         }
         return preferredBalance(candidates);
+    }
+
+    private static boolean hasOneNormalizedLabel(List<BalancesResponse.BalanceItem> candidates) {
+        String first = nullToEmpty(candidates.getFirst().name()).trim();
+        return candidates.stream()
+            .allMatch(item -> first.equalsIgnoreCase(nullToEmpty(item.name()).trim()));
+    }
+
+    private static boolean containsSiblingClaim(List<BalancesResponse.BalanceItem> candidates, String accountLabel,
+                                                Map<String, Integer> labelClaims) {
+        return candidates.stream().anyMatch(item -> {
+            String candidateLabel = nullToEmpty(item.name()).trim();
+            int ownClaim = accountLabel != null && accountLabel.equalsIgnoreCase(candidateLabel) ? 1 : 0;
+            return labelClaims.getOrDefault(candidateLabel, 0) > ownClaim;
+        });
     }
 
     private static String balanceLabel(List<BalancesResponse.BalanceItem> candidates) {
@@ -766,6 +809,16 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         if (balance.balanceType() == null) return BALANCE_TYPE_PRIORITY.size();
         int priority = BALANCE_TYPE_PRIORITY.indexOf(balance.balanceType());
         return priority >= 0 ? priority : BALANCE_TYPE_PRIORITY.size();
+    }
+
+    private static BalanceResponseScope responseScope(AspspResponse aspsp) {
+        String name = aspsp != null ? firstNonBlank(aspsp.name()) : null;
+        if (name == null) return BalanceResponseScope.UNKNOWN;
+        // Enable Banking documents this endpoint as account-scoped; Qonto is the reported
+        // exception that returns an organization-wide list for each account uid.
+        return "Qonto".equalsIgnoreCase(name)
+            ? BalanceResponseScope.SHARED
+            : BalanceResponseScope.ACCOUNT_SCOPED;
     }
 
     private static String firstNonBlank(String... values) {
@@ -809,7 +862,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         @com.fasterxml.jackson.annotation.JsonProperty("session_id") String sessionId,
         String url,
         String status,
-        List<String> accounts
+        List<String> accounts,
+        AspspResponse aspsp
     ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)

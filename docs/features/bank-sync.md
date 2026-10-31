@@ -90,11 +90,22 @@ through the usual upsert path, including currency-aware IBAN matching after a ui
 
 Some ASPSPs, including the Qonto response shape reported in issue #317, return the
 organization's balances for every account uid. The adapter fetches each session account's
-details and balances once before selecting balances. It trims descriptions and counts them
-without case sensitivity. When a balance name matches an account's unique `details` description,
-the adapter restricts selection to those entries first. A description shared by several
-session accounts cannot establish ownership, even when their IBANs differ. Holder and
-product names are not matching keys because several accounts can share them.
+details and balances once before selecting balances. The same session response supplies
+the ASPSP name. Enable Banking documents the balance endpoint as account-scoped and
+uses `Booked balance` as an example generic label. A named ASPSP other than Qonto follows
+that contract when its response has one normalized label and does not name a known sibling.
+Those responses rank balances independently, so generic labels can overlap across accounts,
+including independent zero balances. Qonto is treated as shared regardless of country.
+Missing or blank ASPSP metadata leaves scope unproven. Distinct labels or a known sibling's
+description also keep the shared-response safeguards, even for another named ASPSP.
+
+For shared or unproven responses, the adapter trims descriptions and counts them without
+case sensitivity. A matching `details` description establishes ownership only when every
+session account's details were fetched successfully and the description is unique.
+Unavailable or null sibling details cannot make a shared description appear unique.
+A description shared by several session accounts cannot establish ownership, even when
+their IBANs differ. Holder and product names are not matching keys because several
+accounts can share them.
 
 Within that set, the adapter prefers the following
 [ISO balance types](https://enablebanking.com/docs/api/reference/#balancestatus) in order:
@@ -105,39 +116,44 @@ Within that set, the adapter prefers the following
 4. `ITAV`, interim available.
 5. `CLAV`, closing available.
 
-Other or missing types have lower priority. When the description is missing, shared, or
-matches no balance, fallback first excludes entries claimed by any session description.
+Other or missing types have lower priority. For shared or unproven responses, when the
+description is missing, shared, or matches no balance, fallback first excludes entries
+claimed by any session description.
 This includes entries with a shared description and claims from accounts whose balance
 request fails. If no entry remains, that account fails with a `SyncException`.
 Before selecting any fallback, the adapter compares its remaining labels with every other
 account that also needs fallback. Overlapping labels make every contender ambiguous,
 regardless of response size, balance types, currencies, or amounts. A shared list can contain
-only one normalized label, so that shape cannot establish account ownership. The provider's
+only one normalized label, so that shape alone cannot establish account ownership. The provider's
 [`HalBalances`](https://enablebanking.com/docs/api/reference/#halbalances) and
 [`BalanceResource`](https://enablebanking.com/docs/api/reference/#balanceresource) schemas supply
 no account identifier to resolve the overlap.
-Separate generic responses, including two zero balances, therefore fail closed when their
-labels overlap. Positive unique description matches still sync, including genuine zeros,
-and do not compete for fallback.
+Generic responses with overlapping labels therefore fail closed for Qonto or an unknown
+ASPSP. A description match with complete sibling details still syncs, including genuine
+zeros, and does not compete for fallback. Established account-scoped responses also do
+not compete for fallback.
 Every response retains its label claims until selection finishes. A later failure caused by
 inconsistent labels, tied preferred types, or an invalid amount cannot grant ownership to
 a sibling. Selection is independent of session order and changes in amounts between requests.
-Fallback also requires complete session ownership information. If any account's details
-are unavailable, or its balance response is missing or structurally invalid, other accounts can
-only use positive description matches. A failed sibling request cannot make its balances
-available to an unlabelled account.
+Shared fallback also requires complete session ownership information. Unavailable or null
+sibling details prevent both description matching and fallback for shared or unproven
+responses. A missing or structurally invalid sibling balance response prevents fallback,
+but its successfully fetched description still claims its entries. Such a balance failure
+does not block another account's unique description match. Established account-scoped
+responses can still sync after a sibling request fails.
 Type-based selection then requires a single entry or remaining labels that are all the
 same after trimming and case normalization. Null and blank labels form one unnamed group.
 This preserves generic-label fallback, such as repeated `Booked balance` labels, and
-wholly unnamed responses when their candidates do not compete across scopes. Distinct labels
+wholly unnamed responses when account scope is established or their candidates do not
+compete across scopes. Distinct labels
 require a positive account-description match before type ranking. This also rejects differently
 labeled generic balances when the response cannot be distinguished from a shared list.
 A unique best type does not prove
 that the balance belongs to the requested account.
 With only one linked uid, no sibling descriptions are available to identify another
-account's entries in an organization-wide list. An organization-wide response with only
-one normalized label is also indistinguishable from an ordinary account-scoped response
-without a positive description match.
+account's entries in an organization-wide list. A previously unknown ASPSP that violates
+the account endpoint contract with a shared, single-label response cannot be distinguished
+from an ordinary account-scoped response using labels or amounts alone.
 Without an account identifier on balance entries, non-overlapping fallback labels also cannot
 prove ownership of balances belonging to accounts outside the linked session.
 Several entries at the best priority are ambiguous and cause a `SyncException`, even
@@ -156,8 +172,9 @@ balance lists, flat details, type priorities, ordinary single-account responses,
 unmatched lists with different balance types, missing or unmatched descriptions with only
 sibling-claimed balances, unclaimed fallback, duplicate session descriptions with different
 balance types, competing fallback assignments with changing amounts, shared lists with one
-generic label, rejection of overlapping generic zero balances, independent empty accounts
-with unique description matches, incomplete ownership after a details failure,
+generic label, overlapping generic nonzero and zero balances for account-scoped providers,
+conservative handling of missing ASPSP metadata, independent empty accounts with unique
+description matches, failed sibling details with a shared description,
 oversized display names, full-description matching before truncation,
 ambiguous or missing data, and per-account failure isolation for details and balance requests.
 

@@ -479,8 +479,10 @@ class EnableBankingAccountDataTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"\"Booked balance\"", "\" BOOKED BALANCE \"", "null", "\"  \""})
-    void fetchBalances_overlappingGenericLabelsWithoutOwnerMetadata_rejectsBothAccounts(String label) {
-        responses.put("/sessions/session", "{\"accounts\":[\"uid-current\",\"uid-savings\"]}");
+    void fetchBalances_accountScopedProviderWithGenericLabels_keepsBothAccountsSyncable(String label) {
+        responses.put("/sessions/session", """
+            {"accounts":["uid-current","uid-savings"], "aspsp":{"name":"Synthetic Bank", "country":"FR"}}
+            """);
         responses.put("/accounts/uid-current/details", "{\"details\":\"Current account\"}");
         responses.put("/accounts/uid-savings/details", "{\"details\":\"Savings account\"}");
         responses.put("/accounts/uid-current/balances", """
@@ -492,14 +494,17 @@ class EnableBankingAccountDataTest {
               "balance_amount":{"currency":"EUR", "amount":"200"}}]}
             """.formatted(label));
 
-        assertThatThrownBy(() -> connector.fetchBalances("session"))
-            .isInstanceOf(SyncException.class)
-            .hasMessageContaining("ambiguous");
+        var accounts = connector.fetchBalances("session");
+
+        assertThat(accounts).extracting(AccountData::externalId).containsExactly("uid-current", "uid-savings");
+        assertThat(accounts.get(0).balance()).isEqualByComparingTo("100");
+        assertThat(accounts.get(1).balance()).isEqualByComparingTo("200");
     }
 
-    @Test
-    void fetchBalances_sharedListWithSingleGenericLabel_rejectsEveryFallbackContender() {
-        responses.put("/sessions/session", "{\"accounts\":[\"uid-current\",\"uid-savings\"]}");
+    @ParameterizedTest
+    @ValueSource(strings = {"", ",\"aspsp\":{\"name\":\" QONTO \",\"country\":\"DE\"}"})
+    void fetchBalances_sharedListWithSingleGenericLabel_rejectsEveryFallbackContender(String provider) {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-current\",\"uid-savings\"]" + provider + "}");
         responses.put("/accounts/uid-current/details", "{\"details\":\"Current account\"}");
         responses.put("/accounts/uid-savings/details", "{\"details\":\"Savings account\"}");
         String balances = """
@@ -519,8 +524,10 @@ class EnableBankingAccountDataTest {
     }
 
     @Test
-    void fetchBalances_emptyAccountsWithUnprovenGenericOwnership_rejectsBothAccounts() {
-        responses.put("/sessions/session", "{\"accounts\":[\"uid-current\",\"uid-savings\"]}");
+    void fetchBalances_accountScopedProviderWithGenericZeroBalances_keepsBothAccountsSyncable() {
+        responses.put("/sessions/session", """
+            {"accounts":["uid-current","uid-savings"], "aspsp":{"name":"Synthetic Bank", "country":"FR"}}
+            """);
         responses.put("/accounts/uid-current/details", "{\"details\":\"Current account\"}");
         responses.put("/accounts/uid-savings/details", "{\"details\":\"Savings account\"}");
         responses.put("/accounts/uid-current/balances", """
@@ -531,6 +538,59 @@ class EnableBankingAccountDataTest {
             {"balances": [{"name":"Booked balance", "balance_type":"CLBD",
               "balance_amount":{"currency":"EUR", "amount":"0.00"}}]}
             """);
+
+        var accounts = connector.fetchBalances("session");
+
+        assertThat(accounts).extracting(AccountData::externalId).containsExactly("uid-current", "uid-savings");
+        assertThat(accounts).allSatisfy(account -> {
+            assertThat(account.currency()).isEqualTo("EUR");
+            assertThat(account.balance()).isZero();
+        });
+    }
+
+    @Test
+    void fetchBalances_accountScopedProviderWithGenericTypes_ranksEachEndpointIndependently() {
+        responses.put("/sessions/session", """
+            {"accounts":["uid-current","uid-savings"], "aspsp":{"name":"Synthetic Bank", "country":"FR"}}
+            """);
+        responses.put("/accounts/uid-current/details", "{\"details\":\"Current account\"}");
+        responses.put("/accounts/uid-savings/details", "{\"details\":\"Savings account\"}");
+        String balances = """
+            {"balances": [
+              {"name":"Booked balance", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"%s"}},
+              {"name":" BOOKED BALANCE ", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"%s"}}
+            ]}
+            """;
+        responses.put("/accounts/uid-current/balances", balances.formatted("90", "100"));
+        responses.put("/accounts/uid-savings/balances", balances.formatted("190", "200"));
+
+        var accounts = connector.fetchBalances("session");
+
+        assertThat(accounts).extracting(AccountData::externalId).containsExactly("uid-current", "uid-savings");
+        assertThat(accounts.get(0).balance()).isEqualByComparingTo("100");
+        assertThat(accounts.get(1).balance()).isEqualByComparingTo("200");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "",
+        ",\"aspsp\":null",
+        ",\"aspsp\":{}",
+        ",\"aspsp\":{\"name\":\"  \"}",
+        ",\"aspsp\":{\"name\":\"Qonto\",\"country\":\"FR\"}"
+    })
+    void fetchBalances_sharedOrUnknownProvider_cannotUseOverlappingGenericZeros(String provider) {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-current\",\"uid-savings\"]" + provider + "}");
+        responses.put("/accounts/uid-current/details", "{\"details\":\"Current account\"}");
+        responses.put("/accounts/uid-savings/details", "{\"details\":\"Savings account\"}");
+        String balances = """
+            {"balances": [{"name":"Booked balance", "balance_type":"CLBD",
+              "balance_amount":{"currency":"EUR", "amount":"%s"}}]}
+            """;
+        responses.put("/accounts/uid-current/balances", balances.formatted("0"));
+        responses.put("/accounts/uid-savings/balances", balances.formatted("0.00"));
 
         assertThatThrownBy(() -> connector.fetchBalances("session"))
             .isInstanceOf(SyncException.class)
@@ -627,7 +687,9 @@ class EnableBankingAccountDataTest {
     @ParameterizedTest
     @ValueSource(strings = {"90", "90.00", "9E+1", "91"})
     void fetchBalances_partiallySharedGenericScopes_rejectsBothBeforeRanking(String sharedAmount) {
-        responses.put("/sessions/session", "{\"accounts\":[\"uid-operations\",\"uid-reserve\"]}");
+        responses.put("/sessions/session", """
+            {"accounts":["uid-operations","uid-reserve"], "aspsp":{"name":"Synthetic Bank", "country":"FR"}}
+            """);
         responses.put("/accounts/uid-operations/details", "{\"details\":\"Shared wallet\"}");
         responses.put("/accounts/uid-reserve/details", "{\"details\":\" SHARED WALLET \"}");
         responses.put("/accounts/uid-operations/balances", """
@@ -680,7 +742,7 @@ class EnableBankingAccountDataTest {
     }
 
     @Test
-    void fetchBalances_siblingDetailsUnavailable_keepsOnlyIndependentlyMatchedAccount() {
+    void fetchBalances_siblingDetailsUnavailable_rejectsUnprovenDescriptionMatches() {
         responses.put("/sessions/session", "{\"accounts\":[\"uid-missing\",\"uid-unlabelled\",\"uid-reserve\"]}");
         responseStatuses.put("/accounts/uid-missing/details", 503);
         responses.put("/accounts/uid-unlabelled/details", "{}");
@@ -696,10 +758,51 @@ class EnableBankingAccountDataTest {
         responses.put("/accounts/uid-unlabelled/balances", balances);
         responses.put("/accounts/uid-reserve/balances", balances);
 
-        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
-            assertThat(account.externalId()).isEqualTo("uid-reserve");
-            assertThat(account.balance()).isEqualByComparingTo("300");
-        });
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("Failed to fetch account details");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", ",\"aspsp\":{\"name\":\"Qonto\",\"country\":\"FR\"}"})
+    void fetchBalances_failedSiblingDetails_cannotMakeSharedDescriptionUnique(String provider) {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-shared-a\",\"uid-shared-b\"]" + provider + "}");
+        responseStatuses.put("/accounts/uid-shared-a/details", 503);
+        responses.put("/accounts/uid-shared-b/details", "{\"details\":\"Shared wallet\"}");
+        responses.put("/accounts/uid-shared-b/balances", """
+            {"balances": [
+              {"name":"Shared wallet", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"100"}},
+              {"name":"Shared wallet", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"200"}}
+            ]}
+            """);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("Failed to fetch account details");
+    }
+
+    @Test
+    void fetchBalances_nullSiblingDetails_cannotMakeSharedDescriptionUnique() {
+        responses.put("/sessions/session", """
+            {"accounts":["uid-shared-a","uid-shared-b"], "aspsp":{"name":"Qonto", "country":"FR"}}
+            """);
+        responses.put("/accounts/uid-shared-a/details", "null");
+        responses.put("/accounts/uid-shared-b/details", "{\"details\":\"Shared wallet\"}");
+        String balances = """
+            {"balances": [
+              {"name":"Shared wallet", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"100"}},
+              {"name":"Shared wallet", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"200"}}
+            ]}
+            """;
+        responses.put("/accounts/uid-shared-a/balances", balances);
+        responses.put("/accounts/uid-shared-b/balances", balances);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class);
     }
 
     @ParameterizedTest
@@ -782,7 +885,10 @@ class EnableBankingAccountDataTest {
 
     @Test
     void fetchBalances_siblingBalanceRequestFails_stillExcludesItsLabelFromFallback() {
-        responses.put("/sessions/session", "{\"accounts\":[\"uid-unmatched\",\"uid-operations\",\"uid-reserve\"]}");
+        responses.put("/sessions/session", """
+            {"accounts":["uid-unmatched","uid-operations","uid-reserve"],
+             "aspsp":{"name":"Synthetic Bank", "country":"FR"}}
+            """);
         responses.put("/accounts/uid-unmatched/details", "{}");
         responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations wallet\"}");
         responses.put("/accounts/uid-reserve/details", "{\"details\":\"Reserve wallet\"}");
@@ -803,7 +909,9 @@ class EnableBankingAccountDataTest {
 
     @Test
     void fetchBalances_oneDetailsRequestFails_keepsTheOtherAccountSyncable() {
-        responses.put("/sessions/session", "{\"accounts\":[\"uid-missing\",\"uid-operations\"]}");
+        responses.put("/sessions/session", """
+            {"accounts":["uid-missing","uid-operations"], "aspsp":{"name":"Synthetic Bank", "country":"FR"}}
+            """);
         responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations wallet\"}");
         responses.put("/accounts/uid-operations/balances", """
             {"balances": [{"name":"Operations wallet", "balance_type":"CLBD",
