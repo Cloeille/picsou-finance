@@ -55,7 +55,7 @@ IDENTIFIER_INPUT = 'input[type="text"][id^="neo-input-"]'
 # Observed live 2026-10-07: the identifier page also has a carousel button
 # labelled `Suivant` (type=button) placed before the form's submit button.
 # Only the form's `Valider` (type=submit) moves on to the keypad.
-NEXT_BUTTON = 'form:has(input[type="text"][id^="neo-input-"]) button[type="submit"]:has-text("Valider")'
+NEXT_BUTTON = f'form:has({IDENTIFIER_INPUT}) button[type="submit"]:has-text("Valider")'
 SUBMIT_BUTTON = 'button[type="submit"]:has-text("Valider")'
 KEY_SELECTOR = ".keyboard-button"
 # Not observed live yet (no failed attempt was ever made on purpose): to confirm.
