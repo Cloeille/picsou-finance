@@ -171,13 +171,18 @@ class HomeLoanDetailTest(unittest.TestCase):
             parse_home_loan_detail(d)
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
-    def test_a_rate_too_small_for_the_annuity_is_refused(self):
-        d = detail()
-        d["loan"]["financialInformation"]["nextDuedateRate"] = 1e-30
+    def test_a_tiny_rate_keeps_the_zero_rate_insurance(self):
+        zero = detail()
+        zero["loan"]["financialInformation"]["nextDuedateRate"] = 0
+        for rate in (1e-24, 1e-30):
+            with self.subTest(rate=rate):
+                tiny = detail()
+                tiny["loan"]["financialInformation"]["nextDuedateRate"] = rate
 
-        with self.assertRaises(ParseError) as caught:
-            parse_home_loan_detail(d)
-        self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
+                self.assertEqual(
+                    parse_home_loan_detail(tiny)["insuranceMonthly"],
+                    parse_home_loan_detail(zero)["insuranceMonthly"],
+                )
 
     def test_a_first_due_date_before_the_subscription_is_refused(self):
         d = detail()

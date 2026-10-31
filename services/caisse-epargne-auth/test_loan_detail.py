@@ -132,13 +132,18 @@ class LoanDetailTest(unittest.TestCase):
             parse_loan_detail(d)
         self.assertEqual(e.exception.code, "INVALID_LOAN_DETAIL")
 
-    def test_a_rate_too_small_for_the_annuity_is_refused(self):
-        # 1 + 1e-30 / 12 rounds to 1 in the 28-digit context: the annuity divides by zero.
-        d = detail()
-        view(d)["folder"]["tNC"] = 1e-30
-        with self.assertRaises(ParseError) as e:
-            parse_loan_detail(d)
-        self.assertEqual(e.exception.code, "INVALID_LOAN_DETAIL")
+    def test_a_tiny_rate_keeps_the_zero_rate_insurance(self):
+        # At 28 digits `1 + monthly` rounds: the annuity comes out low (1e-24 %) or divides by zero (1e-30 %).
+        zero = detail()
+        view(zero)["folder"]["tNC"] = 0
+        for rate in (1e-24, 1e-30):
+            with self.subTest(rate=rate):
+                tiny = detail()
+                view(tiny)["folder"]["tNC"] = rate
+                self.assertEqual(
+                    parse_loan_detail(tiny)["insuranceMonthly"],
+                    parse_loan_detail(zero)["insuranceMonthly"],
+                )
 
     def test_wrong_envelope_raises(self):
         for payload in [None, [], "x", {}, {"personalLoanPrdSynthesisView": []}]:

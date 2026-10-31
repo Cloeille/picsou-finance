@@ -39,7 +39,7 @@ import calendar
 import math
 import re
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 from typing import Any, Iterable, Optional, Union
 
 INVALID_SYNTHESIS = "INVALID_SYNTHESIS"
@@ -510,8 +510,12 @@ def _annuity(borrowed: Decimal, rate: Decimal, months: int) -> Decimal:
     """Constant monthly installment of a `months`-long loan at the yearly `rate`."""
     if rate == 0:
         return borrowed / months
-    monthly = rate / 12
-    return borrowed * monthly / (1 - (1 + monthly) ** -months)
+    # 60 digits: at 28, `1 + monthly` rounds to 1 for a tiny rate and the annuity comes
+    # out low (or divides by zero) instead of converging on the zero-rate figure.
+    with localcontext() as ctx:
+        ctx.prec = 60
+        monthly = rate / 12
+        return borrowed * monthly / (1 - (1 + monthly) ** -months)
 
 
 def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decimal) -> Optional[Decimal]:
@@ -522,10 +526,10 @@ def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decim
     amortisation schedule takes the insurance back out of the installment, so it is
     sent apart. A home loan's insurance is often taken elsewhere: the installment then
     matches the annuity to the cent and 0.00 is sent. Below the annuity: no figure.
-    Figures the 28-digit decimal context cannot carry refuse this loan's detail
-    instead of failing the import: an amount of 10^26 or more cannot be rounded to
-    the cent, and a rate around 1e-30 % rounds `1 + monthly` to 1, so the annuity
-    divides by zero.
+    The annuity is computed at 60 digits, so a tiny nonzero rate gives the zero-rate
+    figure. An amount of 10^26 or more still cannot be rounded to the cent in the
+    default 28-digit context: it refuses this loan's detail instead of failing the
+    import.
     """
     try:
         annuity = _annuity(borrowed, rate, months).quantize(_CENT, rounding=ROUND_HALF_UP)
