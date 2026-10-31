@@ -192,6 +192,22 @@ class LoanAmortizationServiceTest {
             .containsExactly(LocalDate.parse("2042-02-28"), LocalDate.parse("2042-03-28"), LocalDate.parse("2042-04-28"));
     }
 
+    @Test
+    void paidInstallments_countAnInstallmentFromItsDueDateWhenTheStartIsAClampedMonthEnd() {
+        Debt debt = debt("3000", "0", "1000", "2042-02-28", "2042-05-31");
+
+        assertThat(service.compute(debt, LocalDate.parse("2042-03-30")).summary().paidInstallments()).isZero();
+        assertThat(service.compute(debt, LocalDate.parse("2042-03-31")).summary().paidInstallments()).isEqualTo(1);
+    }
+
+    @Test
+    void paidInstallments_countAnInstallmentFromItsDueDateNotFromTheFirstOfItsMonth() {
+        Debt debt = debt("3000", "0", "1000", "2042-01-15", "2042-04-15");
+
+        assertThat(service.compute(debt, LocalDate.parse("2042-02-14")).summary().paidInstallments()).isZero();
+        assertThat(service.compute(debt, LocalDate.parse("2042-02-15")).summary().paidInstallments()).isEqualTo(1);
+    }
+
     private static Debt debt(String borrowed, String rate, String monthly, String start, String end) {
         return Debt.builder()
             .borrowedAmount(new BigDecimal(borrowed))
