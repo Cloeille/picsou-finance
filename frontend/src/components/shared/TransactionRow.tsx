@@ -41,7 +41,7 @@ export function TransactionRow({ transaction: tx, logoUrlFor, onClick, index = 0
             </p>
             {tx.isManual && (
               <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0">
-                Manuel
+                {t('accounts.manual')}
               </span>
             )}
           </div>

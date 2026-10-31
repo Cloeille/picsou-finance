@@ -9,6 +9,7 @@ import {
   ChartTooltipContent,
 } from '@/components/ui/chart'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { formatPercent } from '@/lib/utils'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -108,7 +109,7 @@ export function AllocationTab() {
                         <ColorDot color={s.color} />
                         <span className="truncate">{s.name}</span>
                         <span className="ml-auto tabular-nums text-muted-foreground">
-                          {s.percent}%
+                          {formatPercent(s.percent)}
                         </span>
                         <span className="w-24 text-right tabular-nums">
                           <CurrencyDisplay value={s.amount} />

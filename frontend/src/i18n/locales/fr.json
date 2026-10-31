@@ -32,7 +32,8 @@
     "currency": "EUR",
     "locale": "fr-FR",
     "category": "Catégorie",
-    "done": "Terminé"
+    "done": "Terminé",
+    "labelColon": "{{label}}\u00a0:"
   },
   "nav": {
     "dashboard": "Tableau de bord",
@@ -79,9 +80,9 @@
     "demoMode": "Mode démo",
     "demoModeDesc": "Données fictives pour démonstration",
     "rememberMe": "Se souvenir de moi",
-    "rememberMeDesc": "Reste connecté 90 jours sur cet appareil",
+    "rememberMeDesc": "Restez connecté 90 jours sur cet appareil",
     "mfaTitle": "Vérification en deux étapes",
-    "mfaDesc": "Saisis le code à 6 chiffres affiché par ton application d'authentification",
+    "mfaDesc": "Saisissez le code à 6 chiffres affiché par votre application d'authentification",
     "mfaCodeLabel": "Code à 6 chiffres",
     "mfaUseRecovery": "Utiliser un code de récupération",
     "mfaUseTotp": "Utiliser le code de l'application",
@@ -91,8 +92,8 @@
     "mfaVerifyButton": "Vérifier",
     "mfaVerifying": "Vérification...",
     "mfaInvalidCode": "Code incorrect",
-    "mfaTooManyAttempts": "Trop de tentatives, réessaie dans quelques minutes",
-    "mfaSessionExpired": "Session de vérification expirée, reconnecte-toi",
+    "mfaTooManyAttempts": "Trop de tentatives, réessayez dans quelques minutes",
+    "mfaSessionExpired": "Session de vérification expirée, reconnectez-vous",
     "mfaGenericError": "Impossible de vérifier le code. Veuillez réessayer.",
     "validation": {
       "usernameTooShort": "Le nom d'utilisateur doit contenir au moins 3 caractères.",
@@ -122,7 +123,7 @@
       "7D": "7J",
       "1M": "1M",
       "3M": "3M",
-      "YTD": "YTD",
+      "YTD": "1er janv.",
       "1Y": "1A",
       "ALL": "Tout"
     },
@@ -133,7 +134,8 @@
     "newGoal": "Nouvel objectif",
     "achieved": "atteint",
     "goalsSummary": "Suivez votre progression vers vos objectifs financiers.",
-    "otherGoals": "{{count}} autres objectifs",
+    "otherGoals": "{{count}} autre objectif",
+    "otherGoals_other": "{{count}} autres objectifs",
     "holdings": "Patrimoine",
     "holdingsDescription": "Votre portefeuille en un coup d'oeil",
     "searchHoldings": "Rechercher des titres ou tickers...",
@@ -146,6 +148,7 @@
     "totalAssets": "Total des actifs",
     "liabilities": "Dettes",
     "monthlyPayment": "Mensualité totale",
+    "perMonthSuffix": "/mois",
     "loanParamsUnconfigured": "Paramètres non renseignés",
     "amountDue": "Montant à régler",
     "dueOn": "Prélevé le {{date}}",
@@ -298,7 +301,7 @@
     "editTargets": "Mes cibles",
     "error": "Impossible de charger l'analyse",
     "points": "pts",
-    "targetShort": "cible {{value}}%",
+    "targetShort": "cible {{value}}",
     "empty": {
       "title": "Rien à analyser pour l'instant",
       "description": "Ajoutez des comptes pour que Picsou puisse juger la composition de votre patrimoine."
@@ -317,14 +320,14 @@
       "cryptoPenalty": "Pénalité crypto",
       "leverageBonus": "Bonus de levier",
       "notRated": "non évalué",
-      "misplaced": "{{value}}% de votre patrimoine est à déplacer pour atteindre vos cibles.",
+      "misplaced": "{{value}} de votre patrimoine est à déplacer pour atteindre vos cibles.",
       "safetyNetUnknownHint": "Renseignez vos dépenses mensuelles obligatoires pour que le matelas de sécurité soit évalué.",
       "notRatedYet": "Pas encore de score : renseignez vos dépenses mensuelles, ou investissez au-delà de votre matelas."
     },
     "safetyNet": {
       "title": "Matelas de sécurité et répartition",
       "ofTarget": "sur une cible de",
-      "short": "{{value}}% de la cible",
+      "short": "{{value}} de la cible",
       "covered": "Couvert",
       "excess": "Excédent",
       "excessHint": "La part au-delà de la cible est de la trésorerie à replacer : elle n'entre pas dans la répartition ci-dessous.",
@@ -344,7 +347,7 @@
       "useSuggestion": "Utiliser",
       "months": "Mois de dépenses à couvrir",
       "allocation": "Répartition cible du reste",
-      "sum": "Total {{value}}% / 100%",
+      "sum": "Total {{value}} / {{max}}",
       "allocationHint": "Les quatre pourcentages doivent totaliser 100%."
     },
     "targetAmount": "cible",
@@ -353,7 +356,7 @@
       "sectors": "Secteurs",
       "countries": "Zones géographiques",
       "effective": "{{value}} postes effectifs / {{target}} visés",
-      "coverage": "Calculé sur {{value}} % du portefeuille actions & ETF",
+      "coverage": "Calculé sur {{value}} du portefeuille actions & ETF",
       "unclassified": "non classé",
       "noData": "Aucune donnée de répartition disponible",
       "noHoldings": "Aucune ligne d'actions ou d'ETF à analyser.",
@@ -372,10 +375,10 @@
       "nothingToProject": "Définissez un investissement mensuel dans Objectifs pour voir une projection.",
       "disclaimer": "Projection à partir de vos versements récurrents, capitalisée mensuellement. Hors immobilier, prêts et actifs alternatifs. Ce n'est pas une prévision.",
       "scenarios": {
-        "PESSIMISTIC": "Pessimiste ({{value}} %)",
-        "CAUTIOUS": "Prudent ({{value}} %)",
-        "REFERENCE": "Référence ({{value}} %)",
-        "OPTIMISTIC": "Optimiste ({{value}} %)"
+        "PESSIMISTIC": "Pessimiste ({{value}})",
+        "CAUTIOUS": "Prudent ({{value}})",
+        "REFERENCE": "Référence ({{value}})",
+        "OPTIMISTIC": "Optimiste ({{value}})"
       },
       "contributed": "Vos versements",
       "views": {
@@ -416,7 +419,7 @@
       "hint": "Cliquez une part pour voir ce qui la compose."
     },
     "alerts": {
-      "SINGLE_ASSET_CONCENTRATION": "{{label}} représente {{percent}} % de votre patrimoine — un seul actif porte l'essentiel du risque.",
+      "SINGLE_ASSET_CONCENTRATION": "{{label}} représente {{percent}} de votre patrimoine — un seul actif porte l'essentiel du risque.",
       "EMPTY_TIER": "Aucun actif en {{label}} : cette poche est à zéro, pas simplement sous-dotée.",
       "CUSHION_OVERFUNDED": "{{value}} au-delà de votre cible de matelas — de l'argent disponible à replacer.",
       "title": "Points d'attention"
@@ -548,7 +551,7 @@
     "interestAndInsurance": "Intérêts et assurance",
     "paidInstallments": "Échéances payées",
     "remainingInstallments": "Échéances restantes",
-    "capitalRepaidPct": "Vous avez remboursé {{pct}} % du capital de l'emprunt",
+    "capitalRepaidPct": "Vous avez remboursé {{pct}} du capital de l'emprunt",
     "summary": "Synthèse",
     "totalCost": "Coût total de l'emprunt",
     "totalRepaid": "Total remboursé",
@@ -593,7 +596,7 @@
     "capitalInvested": "Capital investi",
     "avgBuyIn": "Prix moyen d'achat",
     "totalInvested": "Montant total investi",
-    "quantitySyncedHint": "La quantité provient de la synchronisation on-chain / de l'exchange et n'est pas modifiable ici.",
+    "quantitySyncedHint": "La quantité provient de la synchronisation on-chain / de la plateforme et n'est pas modifiable ici.",
     "costBasisHint": "Définissez votre prix de revient réel pour que la plus/moins-value reflète ce que vous avez réellement investi — modifier un champ met à jour l'autre.",
     "quantityInvalid": "Saisissez une quantité supérieure à zéro.",
     "costBasisInvalid": "Le prix de revient ne peut pas être négatif.",
@@ -691,7 +694,7 @@
     "calendar": "Calendrier",
     "calendarTitle": "Calendrier de {{name}}",
     "viewGrid": "Grille annuelle",
-    "viewTimeline": "Timeline",
+    "viewTimeline": "Chronologie",
     "viewCalendar": "Calendrier",
     "monthlyObjective": "Objectif mensuel",
     "calculatedObjective": "Objectif calculé",
@@ -750,7 +753,7 @@
       "title": "Taux d'épargne",
       "perMonth": "par mois",
       "benchmarkLabel": "À propos de la moyenne française",
-      "benchmark": "Le taux d'épargne moyen des ménages en France s'établit autour de {{rate}} % de leur revenu disponible brut",
+      "benchmark": "Le taux d'épargne moyen des ménages en France s'établit autour de {{rate}} de leur revenu disponible brut",
       "needsIncome": "Renseignez votre net mensuel avant impôt et votre taux de prélèvement à la source pour voir votre taux d'épargne.",
       "goToSettings": "Aller aux paramètres"
     }
@@ -915,7 +918,7 @@
       "noCategory": "Sans catégorie",
       "formHint": "Ajoutez manuellement un prélèvement récurrent.",
       "variable": "Montant variable",
-      "autoConfirmedConfident": "Auto-confirmé · {{percent}} % de confiance",
+      "autoConfirmedConfident": "Auto-confirmé · {{percent}} de confiance",
       "priceFromTo": "{{from}} → {{to}}",
       "undo": "Annuler",
       "status": {
@@ -942,7 +945,7 @@
       "subtitle": "Affectez une catégorie aux transactions non classées.",
       "recategorize": "Recatégoriser",
       "categorizeAi": "Catégoriser avec l'IA",
-      "aiSuggested": "IA : {{name}} · {{confidence}} %",
+      "aiSuggested": "IA : {{name}} · {{confidence}}",
       "selectCategory": "Choisir une catégorie",
       "learnRule": "Mémoriser une règle",
       "assign": "Affecter",
@@ -1033,8 +1036,8 @@
     "manual": "Manuel",
     "or": "ou",
     "bankConnected": "Complétez la connexion dans le nouvel onglet",
-    "exchangeConnected": "Exchange connecté !",
-    "walletConnected": "Wallet suivi !",
+    "exchangeConnected": "Plateforme connectée !",
+    "walletConnected": "Portefeuille suivi !",
     "trConnected": "Trade Republic connecté !",
     "revolutConnected": "Revolut connecté !",
     "syncing": "Synchronisation en cours...",
@@ -1061,12 +1064,22 @@
   },
   "sync": {
     "title": "Synchronisation",
+    "connectionStatus": {
+      "CREATED": "En attente",
+      "LINKED": "Connecté",
+      "CONNECTED": "Connecté",
+      "active": "Connecté",
+      "EXPIRED": "Expiré",
+      "FAILED": "Échec",
+      "ERROR": "Erreur",
+      "TOTP_REQUIRED": "Code 2FA requis"
+    },
     "banks": {
       "title": "Banques",
       "search": "Rechercher une banque",
       "country": "Pays",
       "countriesLoadError": "Impossible de charger tous les pays — France uniquement.",
-      "searchPlaceholder": "Ex: BNP Paribas...",
+      "searchPlaceholder": "Ex. : BNP Paribas...",
       "searchError": "Impossible de rechercher les banques pour le moment.",
       "connected": "Connexions actives",
       "noConnections": "Aucune connexion bancaire",
@@ -1116,31 +1129,31 @@
       "remember": "Mémoriser mes identifiants (chiffrés)",
       "sync": "Synchroniser Revolut",
       "syncing": "Synchronisation en cours...",
-      "approveOnPhone": "Approuve la connexion sur ton app Revolut…",
+      "approveOnPhone": "Approuvez la connexion sur votre app Revolut…",
       "connected": "Connecté",
       "forget": "Oublier les identifiants",
       "lastSync": "Dernière synchro",
-      "approvalTimeout": "Approbation non reçue. Réessaie.",
+      "approvalTimeout": "Approbation non reçue. Réessayez.",
       "notConnected": "Non connecté",
-      "syncSuccess": "Tes comptes sont à jour.",
+      "syncSuccess": "Vos comptes sont à jour.",
       "phase": {
-        "checkingSession": "Vérification de ta session Revolut…",
+        "checkingSession": "Vérification de votre session Revolut…",
         "loggingIn": "Connexion à Revolut…",
-        "awaitingApproval": "Approuve la connexion sur ton app Revolut… ({{remaining}} s restantes)",
-        "harvesting": "Récupération de tes comptes… ({{count}} trouvés)"
+        "awaitingApproval": "Approuvez la connexion sur votre app Revolut… ({{remaining}} s restantes)",
+        "harvesting": "Récupération de vos comptes… ({{count}} trouvés)"
       },
       "errors": {
-        "humanVerificationRequired": "Revolut te demande de prouver que tu es humain (captcha), ce que Picsou ne peut pas faire à ta place. Aucune approbation n'a été envoyée sur ton téléphone. Réessaie plus tard.",
-        "upstreamFormatChanged": "La connexion n'a pas abouti. Vérifie ton numéro de téléphone et réessaie."
+        "humanVerificationRequired": "Revolut vous demande de prouver que vous êtes humain (captcha), ce que Picsou ne peut pas faire à votre place. Aucune approbation n'a été envoyée sur votre téléphone. Réessayez plus tard.",
+        "upstreamFormatChanged": "La connexion n'a pas abouti. Vérifiez votre numéro de téléphone et réessayez."
       },
       "selection": {
-        "title": "Choisis les comptes à importer",
+        "title": "Choisissez les comptes à importer",
         "selectAll": "Tout sélectionner",
         "confirm": "Importer la sélection",
         "importing": "Import en cours…",
         "alreadyImported": "Déjà importé",
         "transactions": "{{count}} transactions",
-        "allImported": "Tous tes comptes Revolut sont déjà importés."
+        "allImported": "Tous vos comptes Revolut sont déjà importés."
       }
     },
     "ibkr": {
@@ -1189,9 +1202,9 @@
       }
     },
     "exchanges": {
-      "title": "Exchanges",
-      "add": "Ajouter un exchange",
-      "type": "Type d'exchange",
+      "title": "Plateformes crypto",
+      "add": "Ajouter une plateforme",
+      "type": "Type de plateforme",
       "apiKey": "Clé API",
       "apiSecret": "Secret API",
       "apiKeyOnly": "Meria se connecte avec une seule clé API en lecture seule — aucun secret requis.",
@@ -1202,30 +1215,30 @@
       "connectErrorKeyOnly": "Échec de la connexion. Vérifiez votre clé API.",
       "sync": "Synchroniser",
       "remove": "Supprimer",
-      "removeConfirm": "Supprimer cet exchange ?",
-      "noExchanges": "Aucun exchange connecté",
+      "removeConfirm": "Supprimer cette plateforme ?",
+      "noExchanges": "Aucune plateforme connectée",
       "lastSync": "Dernière sync"
     },
     "wallets": {
-      "title": "Wallets",
-      "add": "Ajouter un wallet",
+      "title": "Portefeuilles crypto",
+      "add": "Ajouter un portefeuille",
       "chain": "Blockchain",
       "address": "Adresse",
-      "label": "Label",
+      "label": "Libellé",
       "track": "Suivre",
       "connectError": "Échec de l'ajout. Vérifiez l'adresse et réessayez.",
       "syncError": "Échec de la synchronisation. Vérifiez l'adresse ou réessayez plus tard.",
       "removeError": "Impossible de supprimer ce portefeuille. Veuillez réessayer.",
       "sync": "Synchroniser",
       "remove": "Supprimer",
-      "removeConfirm": "Supprimer ce wallet ?",
-      "noWallets": "Aucun wallet suivi",
+      "removeConfirm": "Supprimer ce portefeuille ?",
+      "noWallets": "Aucun portefeuille suivi",
       "lastSync": "Dernière sync",
       "evmHint": "Une seule adresse, toutes les chaînes EVM — Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base et Avalanche."
     },
     "visibility": {
       "title": "Comptes",
-      "description": "Choisis quels comptes apparaissent dans l'application. Un compte masqué continue d'être synchronisé normalement — il est juste retiré de l'affichage.",
+      "description": "Choisissez quels comptes apparaissent dans l'application. Un compte masqué continue d'être synchronisé normalement — il est juste retiré de l'affichage.",
       "manualGroup": "Manuel"
     },
     "actual": {
@@ -1717,7 +1730,7 @@
     "dateFormat": "Format de date",
     "dateFormatLocale": "Localisé",
     "dateFormatIso": "JJ-MM-AAAA",
-    "sidebarStyle": "Style de sidebar",
+    "sidebarStyle": "Style de la barre latérale",
     "sidebarStyleCurrent": "Actuel",
     "sidebarStyleClassic": "Classique",
     "account": "Compte",
@@ -1744,20 +1757,20 @@
     "mfaDisable": "Désactiver la 2FA",
     "mfaRecoveryCodesRemaining": "{{count}} codes de récupération restants",
     "mfaRegenerate": "Régénérer les codes",
-    "mfaEnrollStep1Title": "Confirme ton mot de passe",
-    "mfaEnrollStep1Desc": "Pour des raisons de sécurité, saisis à nouveau ton mot de passe pour activer la 2FA.",
-    "mfaEnrollStep2Title": "Scanne le QR code",
-    "mfaEnrollStep2Desc": "Ouvre ton application d'authentification (Google Authenticator, Authy, 1Password...) et scanne ce QR code.",
-    "mfaEnrollSecretManual": "Ou saisis cette clé manuellement :",
-    "mfaEnrollStep3Title": "Vérifie le code",
-    "mfaEnrollStep3Desc": "Saisis le code à 6 chiffres affiché par l'application pour confirmer la configuration.",
-    "mfaEnrollStep4Title": "Conserve tes codes de récupération",
-    "mfaEnrollStep4Desc": "Stocke ces codes dans un endroit sûr (gestionnaire de mots de passe). Chaque code n'est utilisable qu'une fois et ils ne seront plus jamais affichés.",
+    "mfaEnrollStep1Title": "Confirmez votre mot de passe",
+    "mfaEnrollStep1Desc": "Pour des raisons de sécurité, saisissez à nouveau votre mot de passe pour activer la 2FA.",
+    "mfaEnrollStep2Title": "Scannez le QR code",
+    "mfaEnrollStep2Desc": "Ouvrez votre application d'authentification (Google Authenticator, Authy, 1Password...) et scannez ce QR code.",
+    "mfaEnrollSecretManual": "Ou saisissez cette clé manuellement :",
+    "mfaEnrollStep3Title": "Vérifiez le code",
+    "mfaEnrollStep3Desc": "Saisissez le code à 6 chiffres affiché par l'application pour confirmer la configuration.",
+    "mfaEnrollStep4Title": "Conservez vos codes de récupération",
+    "mfaEnrollStep4Desc": "Stockez ces codes dans un endroit sûr (gestionnaire de mots de passe). Chaque code n'est utilisable qu'une fois et ils ne seront plus jamais affichés.",
     "mfaEnrollStep4Confirm": "J'ai sauvegardé mes codes",
     "mfaDisableTitle": "Désactiver la 2FA",
-    "mfaDisableDesc": "La désactivation va supprimer ton secret TOTP, tes codes de récupération, et déconnecter tous les appareils de confiance.",
+    "mfaDisableDesc": "La désactivation va supprimer votre secret TOTP, vos codes de récupération, et déconnecter tous les appareils de confiance.",
     "mfaRegenerateTitle": "Régénérer les codes",
-    "mfaRegenerateDesc": "Les anciens codes seront invalidés. Sauvegarde les nouveaux codes immédiatement.",
+    "mfaRegenerateDesc": "Les anciens codes seront invalidés. Sauvegardez les nouveaux codes immédiatement.",
     "mfaCopy": "Copier",
     "mfaCopied": "Copié !",
     "mfaDownload": "Télécharger",
@@ -1768,19 +1781,21 @@
     "mfaContinue": "Continuer",
     "mfaDone": "Terminé",
     "exportTitle": "Exporter mes données",
-    "exportShortDesc": "Télécharge une archive complète (JSON + CSV) de toutes les données associées à ton compte.",
-    "exportDesc": "Réauthentifie-toi pour télécharger une archive ZIP contenant l'intégralité de tes données. Les identifiants sensibles (hash du mot de passe, secret 2FA, jetons bancaires) sont exclus.",
+    "exportShortDesc": "Téléchargez une archive complète (JSON + CSV) de toutes les données associées à votre compte.",
+    "exportDesc": "Réauthentifiez-vous pour télécharger une archive ZIP contenant l'intégralité de vos données. Les identifiants sensibles (hash du mot de passe, secret 2FA, jetons bancaires) sont exclus.",
     "exportButton": "Exporter mes données",
     "exportDownload": "Télécharger",
     "exportIncludeSnapshots": "Inclure l'historique quotidien des soldes",
     "exportIncludeSnapshotsHint": "Désactivé par défaut. Ajoute les snapshots quotidiens par compte utilisés pour les graphiques — volumineux pour les comptes anciens.",
-    "exportInvalidCredentials": "Identifiants invalides. Réessaye.",
-    "exportRateLimited": "Trop de tentatives d'export. Réessaye plus tard.",
+    "exportInvalidCredentials": "Identifiants invalides. Réessayez.",
+    "exportRateLimited": "Trop de tentatives d'export. Réessayez plus tard.",
     "sessions": "Appareils connectés",
     "sessionsDescription": "Sessions persistantes \"Se souvenir de moi\" actives",
-    "sessionsEmpty": "Aucun appareil de confiance — tu devras te reconnecter à chaque visite.",
+    "sessionsEmpty": "Aucun appareil de confiance — vous devrez vous reconnecter à chaque visite.",
     "sessionsCurrent": "Cet appareil",
     "sessionsTrusted": "2FA approuvée",
+    "sessionsUnknownDevice": "Appareil inconnu",
+    "sessionsBrowser": "Navigateur",
     "sessionsLastUsed": "Dernière utilisation",
     "sessionsCreated": "Créé le",
     "sessionsExpires": "Expire le",
@@ -1805,14 +1820,14 @@
       },
       "taxHouseholdParts": "Parts fiscales",
       "dependents": "Personnes à charge",
-      "annualGrossIncome": "Revenu brut annuel",
+      "annualGrossIncome": "Revenu brut annuel (€)",
       "incomeHint": "Le brut de votre fiche de paie. Sert de contexte fiscal ; le taux d'épargne, lui, se calcule sur le net ci-dessous.",
       "netPay": "Ce qui tombe réellement sur le compte",
       "netPayHint": "Les deux chiffres figurent sur votre fiche de paie. Le brut ne suffit pas : les cotisations sociales s'en déduisent d'abord, à un taux qui dépend de votre statut.",
-      "monthlyNetBeforeTax": "Net mensuel avant impôt",
+      "monthlyNetBeforeTax": "Net mensuel avant impôt (€)",
       "withholdingTaxRate": "Taux de prélèvement à la source (%)",
       "netIncomeDerived": "Net mensuel perçu :",
-      "savingsCapacity": "Capacité d'épargne mensuelle",
+      "savingsCapacity": "Capacité d'épargne mensuelle (€)",
       "riskProfile": "Profil de risque",
       "risk": {
         "PRUDENT": "Prudent",
@@ -1825,10 +1840,10 @@
   },
   "accessKeys": {
     "sectionTitle": "Clés d'accès & MCP",
-    "sectionDescription": "Crée des clés pour qu'un assistant IA puisse lire et gérer tes données via MCP",
+    "sectionDescription": "Créez des clés pour qu'un assistant IA puisse lire et gérer vos données via MCP",
     "newKey": "Nouvelle clé",
     "loading": "Chargement…",
-    "empty": "Aucune clé d'accès. Crées-en une pour connecter un client MCP.",
+    "empty": "Aucune clé d'accès. Créez-en une pour connecter un client MCP.",
     "statusActive": "Active",
     "statusExpired": "Expirée",
     "statusRevoked": "Révoquée",
@@ -1838,29 +1853,29 @@
     "expiresNever": "N'expire jamais",
     "revoke": "Révoquer",
     "createTitle": "Créer une clé d'accès",
-    "createDescription": "Choisis un nom et les permissions que cette clé peut utiliser. Tu peux la révoquer à tout moment.",
+    "createDescription": "Choisissez un nom et les permissions que cette clé peut utiliser. Vous pouvez la révoquer à tout moment.",
     "nameLabel": "Nom",
     "namePlaceholder": "ex. Claude Desktop",
     "permissionsLabel": "Permissions",
     "groupRead": "Lecture",
     "groupWrite": "Écriture & actions",
-    "selectScopeHint": "Sélectionne au moins une permission.",
+    "selectScopeHint": "Sélectionnez au moins une permission.",
     "expiryLabel": "Expiration (facultatif)",
-    "expiryHint": "Laisse vide pour une clé qui n'expire jamais.",
+    "expiryHint": "Laissez vide pour une clé qui n'expire jamais.",
     "cancel": "Annuler",
     "create": "Créer la clé",
     "creating": "Création…",
-    "error": "Impossible de créer la clé. Réessaye.",
-    "secretTitle": "Copie ta clé maintenant",
-    "secretWarning": "C'est la seule fois où la clé complète est affichée. Conserve-la en lieu sûr — tu ne pourras plus la revoir.",
+    "error": "Impossible de créer la clé. Réessayez.",
+    "secretTitle": "Copiez votre clé maintenant",
+    "secretWarning": "C'est la seule fois où la clé complète est affichée. Conservez-la en lieu sûr — vous ne pourrez plus la revoir.",
     "copy": "Copier",
     "copied": "Copié !",
     "done": "Terminé",
-    "connectTitle": "Connecter ton client MCP",
-    "connectIntro": "Pointe n'importe quel client MCP vers cette URL et envoie ta clé comme jeton Bearer :",
+    "connectTitle": "Connecter votre client MCP",
+    "connectIntro": "Pointez n'importe quel client MCP vers cette URL et envoyez votre clé comme jeton Bearer :",
     "connectEndpointLabel": "URL MCP",
     "connectSnippetLabel": "Claude Desktop (mcp-remote)",
-    "connectHttpsWarning": "Sers MCP en HTTPS en production — en HTTP simple, ta clé circule en clair.",
+    "connectHttpsWarning": "Servez MCP en HTTPS en production — en HTTP simple, votre clé circule en clair.",
     "revokeTitle": "Révoquer cette clé ?",
     "revokeDescription": "Tout client MCP utilisant cette clé perd l'accès immédiatement. Action irréversible.",
     "scopes": {
@@ -1967,20 +1982,20 @@
     }
   },
   "oauthConsent": {
-    "title": "Autoriser {{app}} à accéder à tes données Picsou ?",
+    "title": "Autoriser {{app}} à accéder à vos données Picsou ?",
     "titleGeneric": "Connecter une application",
-    "description": "Vérifie les permissions ci-dessous avant d'autoriser cette application à se connecter. Tu peux révoquer l'accès à tout moment depuis les Réglages.",
+    "description": "Vérifiez les permissions ci-dessous avant d'autoriser cette application à se connecter. Vous pouvez révoquer l'accès à tout moment depuis les Réglages.",
     "loading": "Chargement de la demande…",
     "scopesIntro": "Cette application demande les permissions suivantes :",
     "noScopes": "Cette application ne demande aucune permission.",
-    "missingParams": "Ce lien ne contient pas les informations nécessaires. Relance la connexion depuis l'application.",
-    "error": "Impossible de charger cette demande de connexion. Elle a peut-être expiré — relance-la depuis l'application.",
+    "missingParams": "Ce lien ne contient pas les informations nécessaires. Relancez la connexion depuis l'application.",
+    "error": "Impossible de charger cette demande de connexion. Elle a peut-être expiré — relancez-la depuis l'application.",
     "approve": "Autoriser",
     "deny": "Refuser"
   },
   "connectedApps": {
     "sectionTitle": "Applications connectées",
-    "sectionDescription": "Applications tierces autorisées à accéder à tes données via MCP par OAuth",
+    "sectionDescription": "Applications tierces autorisées à accéder à vos données via MCP par OAuth",
     "loading": "Chargement…",
     "empty": "Aucune application connectée.",
     "issued": "Connectée {{value}}",
@@ -1988,8 +2003,8 @@
     "lastUsedNever": "Jamais utilisée",
     "revoke": "Révoquer",
     "revokeTitle": "Révoquer l'accès de cette application ?",
-    "revokeDescription": "Cette application perd immédiatement l'accès à tes données. Tu pourras la reconnecter plus tard depuis l'application.",
-    "error": "Impossible de révoquer l'accès. Réessaye."
+    "revokeDescription": "Cette application perd immédiatement l'accès à vos données. Vous pourrez la reconnecter plus tard depuis l'application.",
+    "error": "Impossible de révoquer l'accès. Réessayez."
   },
   "telemetry": {
     "consent": {
@@ -2434,7 +2449,7 @@
     "revolut": {
       "surtitle": "REVOLUT",
       "title": "Revolut est prêt.",
-      "body": "Rien à configurer ici — tu connecteras Revolut avec ton numéro et ton code d'accès, puis une approbation depuis ton app mobile, au moment d'ajouter le compte.",
+      "body": "Rien à configurer ici — vous connecterez Revolut avec votre numéro et votre code d'accès, puis une approbation depuis votre app mobile, au moment d'ajouter le compte.",
       "tip": "Une fois l'installation finie, allez dans Comptes → Ajouter un compte → Revolut.",
       "cta": "C'est compris",
       "skip": "Ne pas activer Revolut"
@@ -2447,8 +2462,8 @@
       "skip": "Ne pas activer Finary"
     },
     "crypto": {
-      "title": "Chiffrez vos clés API d'exchange",
-      "body": "Vos clés API d'exchange (Binance, Meria...) sont chiffrées au repos. Picsou peut générer la clé de chiffrement pour vous — elle reste sur votre disque et n'est jamais transmise.",
+      "title": "Chiffrez vos clés API de plateformes crypto",
+      "body": "Vos clés API de plateformes crypto (Binance, Meria...) sont chiffrées au repos. Picsou peut générer la clé de chiffrement pour vous — elle reste sur votre disque et n'est jamais transmise.",
       "generateCta": "Générer une clé pour moi",
       "generating": "Génération...",
       "existed": "Votre clé de chiffrement est déjà configurée — rien à faire.",
@@ -2477,8 +2492,8 @@
     }
   },
   "pockets": {
-    "subAccountsCount": "{{count}} pocket",
-    "subAccountsCount_other": "{{count}} pockets"
+    "subAccountsCount": "{{count}} sous-compte",
+    "subAccountsCount_other": "{{count}} sous-comptes"
   },
   "savings": {
     "configSection": "Configuration livret",
@@ -2554,8 +2569,8 @@
     "qtySold": "Qté vendue"
   },
   "sidebarStylePrompt": {
-    "title": "Choisis le style de ta sidebar",
-    "description": "Deux dispositions au choix — tu pourras en changer à tout moment.",
+    "title": "Choisissez le style de votre barre latérale",
+    "description": "Deux dispositions au choix — vous pourrez en changer à tout moment.",
     "hint": "Modifiable à tout moment dans Paramètres > Apparence."
   },
   "property": {
@@ -2627,7 +2642,7 @@
       "costBasis": "Prix de revient",
       "currentValue": "Valeur actuelle",
       "gain": "Plus-value",
-      "coOwnedNote": "Vous détenez {{percent}} % de ce bien. Les totaux ne comptent que votre part."
+      "coOwnedNote": "Vous détenez {{percent}} de ce bien. Les totaux ne comptent que votre part."
     },
     "valuation": {
       "title": "Estimation",
@@ -2669,7 +2684,7 @@
       "gross": "Valeur brute",
       "debt": "Capital restant dû",
       "net": "Valeur nette",
-      "equityShare": "{{pct}} % du bien vous appartient réellement"
+      "equityShare": "{{pct}} du bien vous appartient réellement"
     },
     "summary": {
       "title": "Patrimoine immobilier",
@@ -2677,7 +2692,7 @@
       "debt": "Endettement",
       "net": "Net",
       "gain": "Plus-value",
-      "loanToValue": "Taux d'endettement : {{pct}} % de la valeur des biens",
+      "loanToValue": "Taux d'endettement : {{pct}} de la valeur des biens",
       "rentalIncome": "Revenus locatifs mensuels :"
     },
     "ownership": {
@@ -2685,7 +2700,7 @@
       "hint": "Indiquez la part détenue par chaque membre. Chacun ne compte que sa part dans son patrimoine.",
       "total": "Total réparti",
       "overAllocated": "La somme dépasse 100 %.",
-      "unassigned": "{{percent}} % ne sont attribués à aucun membre : cette part est considérée comme détenue hors de Picsou et n'entre dans le patrimoine de personne.",
+      "unassigned": "{{percent}} ne sont attribués à aucun membre : cette part est considérée comme détenue hors de Picsou et n'entre dans le patrimoine de personne.",
       "saveError": "Impossible d'enregistrer la répartition"
     },
     "chart": {

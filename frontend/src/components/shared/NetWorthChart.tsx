@@ -5,6 +5,7 @@ import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
 import { formatDate, localeFromLanguage } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
+import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import { EmptyChartState } from '@/components/shared/EmptyChartState'
 import type { IntradayPoint } from '@/features/dashboard/api'
 
@@ -299,22 +300,6 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
     return [filteredData[0].dateMs, filteredData[filteredData.length - 1].dateMs]
   }, [filteredData])
 
-  const yTickFormatter = useMemo(() => {
-    const totals: number[] = []
-    for (const d of filteredData) {
-      if (d.total != null) totals.push(d.total)
-      if ('target' in d && typeof d.target === 'number') totals.push(d.target)
-      if ('projection' in d && typeof d.projection === 'number') totals.push(d.projection)
-    }
-    const maxVal = totals.length ? Math.max(...totals) : 0
-    if (maxVal >= 1_000_000) return (v: number) => `${(v / 1_000_000).toFixed(1)}M`
-    if (maxVal >= 100_000) return (v: number) => `${(v / 1_000).toFixed(0)}k`
-    if (maxVal >= 10_000) return (v: number) => `${(v / 1_000).toFixed(1)}k`
-    if (maxVal >= 1_000) return (v: number) => `${(v / 1_000).toFixed(2)}k`
-    if (maxVal >= 100) return (v: number) => v.toFixed(0)
-    return (v: number) => v.toFixed(2)
-  }, [filteredData])
-
   const chartConfig = useMemo(() => ({
     total: {
       label: t('dashboard.netWorth'),
@@ -402,8 +387,8 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
           tickLine={false}
           axisLine={false}
           tickMargin={8}
-          tickFormatter={money.tick(yTickFormatter)}
-          width={45}
+          tickFormatter={money.tick}
+          width={MONEY_AXIS_WIDTH}
           tickCount={5}
         />
         <ChartTooltip content={<NetWorthTooltip labels={labels} is24H={is24H} showGainLoss={showInvested} />} />

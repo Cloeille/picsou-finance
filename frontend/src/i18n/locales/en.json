@@ -32,7 +32,8 @@
     "currency": "EUR",
     "locale": "en-US",
     "category": "Category",
-    "done": "Done"
+    "done": "Done",
+    "labelColon": "{{label}}:"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -133,7 +134,8 @@
     "newGoal": "New Goal",
     "achieved": "achieved",
     "goalsSummary": "Track your progress towards your financial goals.",
-    "otherGoals": "{{count}} other goals",
+    "otherGoals": "{{count}} other goal",
+    "otherGoals_other": "{{count}} other goals",
     "holdings": "Holdings",
     "holdingsDescription": "Your portfolio at a glance",
     "searchHoldings": "Search holdings or tickers...",
@@ -146,6 +148,7 @@
     "totalAssets": "Total assets",
     "liabilities": "Liabilities",
     "monthlyPayment": "Monthly payment",
+    "perMonthSuffix": "/mo",
     "loanParamsUnconfigured": "Parameters not configured",
     "amountDue": "Amount due",
     "dueOn": "Due {{date}}",
@@ -298,7 +301,7 @@
     "editTargets": "My targets",
     "error": "Could not load the analysis",
     "points": "pts",
-    "targetShort": "target {{value}}%",
+    "targetShort": "target {{value}}",
     "empty": {
       "title": "Nothing to analyse yet",
       "description": "Add accounts so Picsou can judge how your wealth is built."
@@ -317,14 +320,14 @@
       "cryptoPenalty": "Crypto penalty",
       "leverageBonus": "Leverage bonus",
       "notRated": "not rated",
-      "misplaced": "{{value}}% of your wealth would have to move to hit your targets.",
+      "misplaced": "{{value}} of your wealth would have to move to hit your targets.",
       "safetyNetUnknownHint": "Set your compulsory monthly expenses so the emergency fund can be scored.",
       "notRatedYet": "No score yet: state your monthly expenses, or invest beyond your cushion."
     },
     "safetyNet": {
       "title": "Emergency fund and allocation",
       "ofTarget": "of a target of",
-      "short": "{{value}}% of target",
+      "short": "{{value}} of target",
       "covered": "Covered",
       "excess": "Excess",
       "excessHint": "Anything beyond the target is idle cash to redeploy: it does not enter the allocation below.",
@@ -344,7 +347,7 @@
       "useSuggestion": "Use",
       "months": "Months of expenses to cover",
       "allocation": "Target split of the rest",
-      "sum": "Total {{value}}% / 100%",
+      "sum": "Total {{value}} / {{max}}",
       "allocationHint": "The four percentages must add up to 100%."
     },
     "targetAmount": "target",
@@ -353,7 +356,7 @@
       "sectors": "Sectors",
       "countries": "Regions",
       "effective": "{{value}} effective positions / {{target}} targeted",
-      "coverage": "Computed over {{value}}% of the stocks & ETFs sleeve",
+      "coverage": "Computed over {{value}} of the stocks & ETFs sleeve",
       "unclassified": "unclassified",
       "noData": "No breakdown data available",
       "noHoldings": "No stock or ETF line to analyse.",
@@ -372,10 +375,10 @@
       "nothingToProject": "Set a monthly investment under Goals to see a projection.",
       "disclaimer": "Projected from your recurring contributions, compounded monthly. Excludes property, loans and alternative assets. This is not a forecast.",
       "scenarios": {
-        "PESSIMISTIC": "Pessimistic ({{value}} %)",
-        "CAUTIOUS": "Cautious ({{value}} %)",
-        "REFERENCE": "Reference ({{value}} %)",
-        "OPTIMISTIC": "Optimistic ({{value}} %)"
+        "PESSIMISTIC": "Pessimistic ({{value}})",
+        "CAUTIOUS": "Cautious ({{value}})",
+        "REFERENCE": "Reference ({{value}})",
+        "OPTIMISTIC": "Optimistic ({{value}})"
       },
       "contributed": "Your contributions",
       "views": {
@@ -416,7 +419,7 @@
       "hint": "Select a slice to see what makes it up."
     },
     "alerts": {
-      "SINGLE_ASSET_CONCENTRATION": "{{label}} is {{percent}} % of your wealth — a single asset carries most of the risk.",
+      "SINGLE_ASSET_CONCENTRATION": "{{label}} is {{percent}} of your wealth — a single asset carries most of the risk.",
       "EMPTY_TIER": "Nothing at all in {{label}}: this tier is empty, not merely under target.",
       "CUSHION_OVERFUNDED": "{{value}} beyond your cushion target — money available to put elsewhere.",
       "title": "Worth noting"
@@ -548,7 +551,7 @@
     "interestAndInsurance": "Interest and insurance",
     "paidInstallments": "Paid installments",
     "remainingInstallments": "Remaining installments",
-    "capitalRepaidPct": "You have repaid {{pct}}% of the loan principal",
+    "capitalRepaidPct": "You have repaid {{pct}} of the loan principal",
     "summary": "Summary",
     "totalCost": "Total cost of the loan",
     "totalRepaid": "Total repaid",
@@ -750,7 +753,7 @@
       "title": "Savings rate",
       "perMonth": "per month",
       "benchmarkLabel": "About the French average",
-      "benchmark": "The average savings rate of French households sits at around {{rate}}% of their gross disposable income",
+      "benchmark": "The average savings rate of French households sits at around {{rate}} of their gross disposable income",
       "needsIncome": "Add your monthly net before tax and your withholding rate to see your savings rate.",
       "goToSettings": "Go to settings"
     }
@@ -916,7 +919,7 @@
       "noCategory": "No category",
       "formHint": "Manually add a recurring payment.",
       "variable": "Variable amount",
-      "autoConfirmedConfident": "Auto-confirmed · {{percent}}% confidence",
+      "autoConfirmedConfident": "Auto-confirmed · {{percent}} confidence",
       "priceFromTo": "{{from}} → {{to}}",
       "undo": "Undo",
       "status": {
@@ -942,7 +945,7 @@
       "subtitle": "Assign a category to unclassified transactions.",
       "recategorize": "Re-categorize",
       "categorizeAi": "Categorize with AI",
-      "aiSuggested": "AI: {{name}} · {{confidence}}%",
+      "aiSuggested": "AI: {{name}} · {{confidence}}",
       "selectCategory": "Pick a category",
       "learnRule": "Remember a rule",
       "assign": "Assign",
@@ -1061,6 +1064,16 @@
   },
   "sync": {
     "title": "Synchronization",
+    "connectionStatus": {
+      "CREATED": "Pending",
+      "LINKED": "Connected",
+      "CONNECTED": "Connected",
+      "active": "Connected",
+      "EXPIRED": "Expired",
+      "FAILED": "Failed",
+      "ERROR": "Error",
+      "TOTP_REQUIRED": "2FA code required"
+    },
     "banks": {
       "title": "Banks",
       "search": "Search a bank",
@@ -1781,6 +1794,8 @@
     "sessionsEmpty": "No trusted devices — you'll need to sign in on every visit.",
     "sessionsCurrent": "This device",
     "sessionsTrusted": "2FA-trusted",
+    "sessionsUnknownDevice": "Unknown device",
+    "sessionsBrowser": "Browser",
     "sessionsLastUsed": "Last used",
     "sessionsCreated": "Created",
     "sessionsExpires": "Expires",
@@ -1805,14 +1820,14 @@
       },
       "taxHouseholdParts": "Tax household shares",
       "dependents": "Dependents",
-      "annualGrossIncome": "Annual gross income",
+      "annualGrossIncome": "Annual gross income (€)",
       "incomeHint": "The gross figure from your payslip. Fiscal context — the savings rate is computed on the net below.",
       "netPay": "What actually reaches the account",
       "netPayHint": "Both figures are on your payslip. Gross is not enough: social contributions come off first, at a rate that depends on your status.",
-      "monthlyNetBeforeTax": "Monthly net before tax",
+      "monthlyNetBeforeTax": "Monthly net before tax (€)",
       "withholdingTaxRate": "Withholding tax rate (%)",
       "netIncomeDerived": "Monthly net received:",
-      "savingsCapacity": "Monthly savings capacity",
+      "savingsCapacity": "Monthly savings capacity (€)",
       "riskProfile": "Risk profile",
       "risk": {
         "PRUDENT": "Cautious",
@@ -2627,7 +2642,7 @@
       "costBasis": "Total cost",
       "currentValue": "Current value",
       "gain": "Gain",
-      "coOwnedNote": "You hold {{percent}}% of this property. Totals count only your share."
+      "coOwnedNote": "You hold {{percent}} of this property. Totals count only your share."
     },
     "valuation": {
       "title": "Valuation",
@@ -2669,7 +2684,7 @@
       "gross": "Gross value",
       "debt": "Outstanding debt",
       "net": "Net value",
-      "equityShare": "{{pct}}% of the property is genuinely yours"
+      "equityShare": "{{pct}} of the property is genuinely yours"
     },
     "summary": {
       "title": "Property wealth",
@@ -2677,7 +2692,7 @@
       "debt": "Debt",
       "net": "Net",
       "gain": "Gain",
-      "loanToValue": "Loan-to-value: {{pct}}% of the properties' value",
+      "loanToValue": "Loan-to-value: {{pct}} of the properties' value",
       "rentalIncome": "Monthly rental income:"
     },
     "ownership": {
@@ -2685,7 +2700,7 @@
       "hint": "Set each member's share. Everyone counts only their own part in their net worth.",
       "total": "Total assigned",
       "overAllocated": "The shares add up to more than 100%.",
-      "unassigned": "{{percent}}% is assigned to nobody: that part is held outside Picsou and counts towards no one's net worth.",
+      "unassigned": "{{percent}} is assigned to nobody: that part is held outside Picsou and counts towards no one's net worth.",
       "saveError": "Could not save the ownership split"
     },
     "chart": {

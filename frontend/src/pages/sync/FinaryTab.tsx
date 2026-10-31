@@ -370,7 +370,7 @@ export function FinaryTab() {
               <span className="text-sm text-muted-foreground">{connectionStatus.maskedEmail}</span>
               {connectionStatus.lastSyncedAt && (
                 <span className="text-xs text-muted-foreground">
-                  {t('sync.finary.lastSync')}: {formatDate(connectionStatus.lastSyncedAt)}
+                  {t('common.labelColon', { label: t('sync.finary.lastSync') })} {formatDate(connectionStatus.lastSyncedAt)}
                 </span>
               )}
               {!connectionStatus.lastSyncedAt && (

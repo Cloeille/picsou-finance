@@ -209,6 +209,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Numbers and labels follow the interface language.** Percentages are formatted by the
+  locale everywhere ("8,3 %" in French, "8.3%" in English) instead of a dot and a hand-placed
+  sign. Every amount axis uses one compact format ("60 k €", "1,25 M €") instead of "60.0k",
+  in a gutter wide enough for a negative tick. French thousands separators are visible again
+  in large amounts: the bundled font has no narrow no-break space, so "51 646,95 €" used to
+  read as "51646,95 €". In French, English leftovers are translated ("/mo", "Browser",
+  "Timeline", "YTD", "Exchanges", "Wallets", "pockets", the raw `LINKED` connection status),
+  "1 autre objectif" takes the singular, labels take a space before the colon, and the
+  settings and Revolut texts that said "tu" now say "vous". The profile form shows its
+  amounts in the member's notation with their unit (#274).
 - **American Express no longer stores a second copy of a charge AMEX re-describes.** A
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
   `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its

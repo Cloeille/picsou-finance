@@ -35,7 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Upload } from 'lucide-react'
-import { formatLocalDate, localeFromLanguage } from '@/lib/utils'
+import { formatLocalDate, formatPercent, localeFromLanguage } from '@/lib/utils'
 import { accountTypeLabelKey, HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { HoldingResponse, Transaction } from '@/types/api'
@@ -137,7 +137,7 @@ export function AccountDetailPage() {
     && pnlLatest.pnl !== null
   const pnl = canShowPnl ? pnlLatest.pnl : null
   const pnlPct = pnl !== null && pnlLatest !== null && pnlLatest.invested !== null && pnlLatest.invested > 0
-    ? ((pnl / pnlLatest.invested) * 100).toFixed(1) : null
+    ? (pnl / pnlLatest.invested) * 100 : null
   const pnlPositive = pnl !== null && pnl >= 0
 
   // History + holdings + transactions + snapshots. Rendered flat for most accounts,
@@ -302,7 +302,7 @@ export function AccountDetailPage() {
             <CurrencyDisplay value={displayBalance} className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`} />
             {showHoldings && account.cashBalance != null && (
               <p className="mt-1 text-xs text-muted-foreground">
-                {t(account.type === 'PER' ? 'accounts.perEuroFundBalance' : 'accounts.cashBalance')}: <CurrencyDisplay value={account.cashBalance} />
+                {t('common.labelColon', { label: t(account.type === 'PER' ? 'accounts.perEuroFundBalance' : 'accounts.cashBalance') })} <CurrencyDisplay value={account.cashBalance} />
               </p>
             )}
             {account.currency !== 'EUR' && (
@@ -320,7 +320,7 @@ export function AccountDetailPage() {
                   <CurrencyDisplay value={pnl} />
                   {pnlPct !== null && (
                     <span className="ml-1 font-normal text-muted-foreground">
-                      ({pnlPositive ? '+' : ''}{pnlPct}%)
+                      ({formatPercent(pnlPct, { signed: true }, locale)})
                     </span>
                   )}
                 </span>

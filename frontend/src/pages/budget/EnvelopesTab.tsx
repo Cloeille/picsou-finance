@@ -26,7 +26,7 @@ import {
   useDeleteBudget,
   useUpdateBudget,
 } from '@/features/budget/hooks'
-import { parseAmount } from '@/lib/utils'
+import { formatPercent, parseAmount } from '@/lib/utils'
 import type { Budget } from '@/types/api'
 import { ColorDot } from './budget-utils'
 
@@ -146,7 +146,7 @@ function EnvelopeRow({ budget, onEdit, onDelete }: {
         <div className="mt-3 h-2 w-full overflow-hidden rounded-md bg-muted"
           role="progressbar" aria-label={budget.categoryName}
           aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
-          aria-valuetext={`${budget.percent}%`}>
+          aria-valuetext={formatPercent(budget.percent, { fractionDigits: 0 })}>
           <div className={`h-full rounded-md transition-all ${barTone}`}
             style={{ width: `${pct}%` }} />
         </div>
@@ -155,7 +155,7 @@ function EnvelopeRow({ budget, onEdit, onDelete }: {
             <CurrencyDisplay value={budget.spent} /> / <CurrencyDisplay value={budget.monthlyLimit} />
           </span>
           <span className={budget.overBudget ? 'font-medium text-destructive' : 'text-muted-foreground'}>
-            <CurrencyDisplay value={budget.remaining} showSign /> {budget.percent}%
+            <CurrencyDisplay value={budget.remaining} showSign /> {formatPercent(budget.percent, { fractionDigits: 0 })}
           </span>
         </div>
       </CardContent>

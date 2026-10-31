@@ -27,7 +27,9 @@ Shared formatting functions used across the frontend. Centralised in one file to
 | `normalizeDecimal` | `(value: string \| null \| undefined) => string` | `"12,50"` → `"12.50"` (replaces first `,` with `.`) |
 | `parseAmount` | `(value: string \| null \| undefined) => number` | `"12,50"` → `12.5`; tolerant `parseFloat` over `normalizeDecimal` |
 | `formatLocalDate` | `(dateStr, locale=getLocale())` | `"8 avril 2026"` (long month) |
-| `formatPercent` | `(value, locale=getLocale())` | `"50,0 %"` — value is a ratio (0.5 → 50%) |
+| `formatPercent` | `(points, { fractionDigits=1, signed=false }, locale=getLocale())` | `8.3` → `"8,3 %"` (fr), `"8.3%"` (en); `signed` → `"+8,3 %"`, never on zero |
+| `formatDecimal` | `(value, fractionDigits, locale=getLocale())` | `4.7` → `"4,7"` (fr) — a plain number beside a unit that is not a percentage |
+| `withDrawableSpaces` | `(formatted) => string` | Replaces U+202F with U+00A0; applied by every number formatter here and in `money.ts` |
 | `formatTimeAgo` | `(dateStr, locale=getLocale())` | `"il y a 3 heures"` via `Intl.RelativeTimeFormat` |
 | `ageAt` | `(birthDate, at) => number \| null` | `('1998-09-20', '2042-08-31')` → `43`; completed years between two `yyyy-MM-dd` dates |
 | `todayLabel` | `(locale=getLocale(), date=new Date())` | `"Mardi 8 avril 2026"` (weekday + full date, sentence-cased) |
@@ -40,7 +42,9 @@ Shared formatting functions used across the frontend. Centralised in one file to
 | `Intl.NumberFormat` / `Intl.DateTimeFormat` for all formatting | Native, locale-aware, no extra dependency | date-fns / numeral.js |
 | `Intl.RelativeTimeFormat` for `formatTimeAgo` | Locale-correct relative strings (fr/en) | Manual string building per locale |
 | `formatDate` reads `dateFormat` from Zustand store | User can toggle between locale-aware and fixed `DD-MM-YYYY` in settings | Hardcoded format — no user preference |
-| `formatPercent` takes a ratio (0–1) | Matches `Intl.NumberFormat` `style: 'percent'` convention | Percent value (0–100) — inconsistent with Intl |
+| `formatPercent` takes points (0–100) | Every percentage the API sends (`pnlPercent`, `sharePercent`, `annualPercent`…) is in points. The earlier ratio signature matched Intl but no caller, so every site hand-rolled `toFixed(1) + '%'` and French got "8.3%" (#274) | A ratio (0–1) — each caller divides by 100 and one forgotten division prints "830 %" |
+| Percent templates carry no `%` | The caller passes `formatPercent(...)` into `{{value}}`, so the locale decides the separator and space, not the translator | `"{{value}} %"` in fr.json — the number inside is still `toFixed`, so the decimal stays a dot |
+| U+202F becomes U+00A0 | Geist ships no U+202F glyph, so the French digit-group space fell back to a system-font sliver and "51 646,95 €" read as "51646,95 €" (#274) | Shipping a font subset with U+202F — a font build step for one character |
 | `parseAmount` instead of bare `parseFloat` everywhere | French users type `12,50`; native `type="number"` inputs reject commas in FR locales and `parseFloat("12,50")` → `12`. One chokepoint fixes all amount entry | Per-field `.replace(',', '.')` (easy to forget on new fields) |
 
 ### Decimal input — `NumericInput`
@@ -108,7 +112,8 @@ Wired into the four date fields: `AddTransactionModal` (transaction date),
 - **`formatDate` vs `formatLocalDate`**: `formatDate` outputs `dd/mm/yyyy` (compact, for tables) or `DD-MM-YYYY` if the user selected the ISO format in settings; `formatLocalDate` outputs long-month form (for readable labels). Don't swap them.
 - **`formatDate` format resolution**: reads `useAppStore.getState().dateFormat` at call time (`'locale'` or `'iso'`). The optional `format` parameter overrides the store value — used by callers that need a specific format regardless of user preference.
 - **Store import in `utils.ts`**: `formatDate` imports `useAppStore` directly — safe because `app-store.ts` has no dependency on `utils.ts` (no circular dependency).
-- **`formatPercent` expects a ratio** (0.5 = 50%), not a percentage value. Passing `50` instead of `0.5` will output `"5 000 %"`.
+- **`formatPercent` expects points** (50 = 50 %), not a ratio. A 0–1 ratio (recurring-series `confidence`, goal-calendar ratios) must be multiplied by 100 first.
+- **Amount axes use `money.tick`**, never a `toFixed` ladder: it is the compact currency format at two fraction digits (`60 k €`, `1,25 M €`, `€60K`), masked to `***` in privacy mode. German CLDR does not compact thousands (`-250.000 €`), so every money axis takes `width={MONEY_AXIS_WIDTH}` (76px), sized for that label. Recharts' `width="auto"` was tried and dropped the net-worth axis entirely (Recharts 3.8).
 - **`ageAt` works on the string parts, never through `Date`.** It is asked about points twenty
   years out, and building two `Date` objects to subtract them would reintroduce the very
   local-midnight problem `toDate` exists to avoid, for no gain. It returns `null` on a malformed
@@ -123,4 +128,4 @@ Wired into the four date fields: `AddTransactionModal` (transaction date),
 
 ## Tests
 
-- `frontend/src/lib/utils.test.ts` — covers `cn`, `formatCurrency` including invalid currency/locale fallback, `formatDate`, `formatPercent`, and `parseDate` (dd/mm vs mm/dd ordering, iso mode, mixed separators, 2-digit years, impossible-date rejection, malformed input, and the `formatDate`∘`parseDate` round-trip across both formats × both locales).
+- `frontend/src/lib/utils.test.ts` — covers `cn`, `formatCurrency` including invalid currency/locale fallback, `formatDate`, `formatPercent` and `formatDecimal` in fr/de/es/en, and `parseDate` (dd/mm vs mm/dd ordering, iso mode, mixed separators, 2-digit years, impossible-date rejection, malformed input, and the `formatDate`∘`parseDate` round-trip across both formats × both locales).

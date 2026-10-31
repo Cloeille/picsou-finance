@@ -91,7 +91,7 @@ describe('nothing bypasses the masked formatter', () => {
       s.includes('<YAxis') && s.includes('tickFormatter') && !s.includes('useMoney'),
     ).filter((f) => !allowed.includes(f))
 
-    expect(offenders, 'wrap the tick ladder in money.tick()').toEqual([])
+    expect(offenders, 'pass money.tick as the tickFormatter').toEqual([])
   })
 
   it('lets no amount-shaped value be printed straight into JSX', () => {

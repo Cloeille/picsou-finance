@@ -11,6 +11,7 @@ import {
   type DistributionItem,
 } from './distribution-labels'
 import { squarify, type TreemapRect } from '@/lib/treemap'
+import { formatPercent } from '@/lib/utils'
 
 /** The layout is shared with the diversification treemap; only the item shape differs. */
 type Rect = TreemapRect<DistributionItem>
@@ -54,7 +55,7 @@ function TooltipAnchor({ rect }: { rect: Rect }) {
         {rect.item.name}
       </span>
       <span className="text-white/80 text-xs bg-black/60 backdrop-blur-sm px-2 py-0.5 rounded mt-0.5">
-        {rect.item.percentage}%
+        {formatPercent(rect.item.percentage)}
       </span>
     </div>
   )
@@ -96,7 +97,7 @@ function AllocationTreemap({ data }: { data: DistributionItem[] }) {
                   {item.name}
                 </span>
                 <span className="text-white/80 text-xs mt-0.5">
-                  {item.percentage}%
+                  {formatPercent(item.percentage)}
                 </span>
               </div>
             )}
@@ -185,7 +186,7 @@ export function DistributionPie({ data }: DistributionPieProps) {
                   <div key={item.accountId} className="flex items-center gap-2 text-sm">
                     <div className="size-2.5 rounded-full" style={{ backgroundColor: item.color }} />
                     <span className="truncate">{item.name}</span>
-                    <span className="ml-auto text-muted-foreground">{item.percentage}%</span>
+                    <span className="ml-auto text-muted-foreground">{formatPercent(item.percentage)}</span>
                   </div>
                 ))}
               </div>

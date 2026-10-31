@@ -53,6 +53,13 @@ describe('unmasked formatting', () => {
     expect(result).toContain('234')
   })
 
+  it('groups French digits with a space the bundled font can draw', () => {
+    // Geist has no U+202F glyph, so ICU's narrow no-break space fell back to a system sliver and
+    // "51 646,95 €" read as "51646,95 €" (#274).
+    expect(visible.amount(51_646.95)).toBe('51\u00a0646,95\u00a0€')
+    expect(visible.tick(60_000)).toBe('60\u00a0k\u00a0€')
+  })
+
   it('formats zero', () => {
     expect(visible.amount(0, 'EUR')).toContain('0')
   })
@@ -98,10 +105,28 @@ describe('compact', () => {
 })
 
 describe('tick', () => {
-  it('replaces an axis ladder wholesale so no scale can be read off the grid', () => {
-    const ladder = (v: number) => `${(v / 1000).toFixed(0)}k`
-    expect(visible.tick(ladder)(350_000)).toBe('350k')
-    expect(masked.tick(ladder)(350_000)).toBe(AXIS_MASK)
+  // One formatter for every amount axis, so the locale (not a hand-rolled `toFixed` ladder) decides
+  // the separator, the suffix and the symbol. Spaces are flattened for legibility; which no-break
+  // space is emitted is pinned in 'unmasked formatting'.
+  const tick = (locale: string, value: number) =>
+    makeMoneyFormatter({ hidden: false, locale }).tick(value).replace(/[\u202f\u00a0]/g, ' ')
+
+  it.each([
+    ['fr-FR', ['60 k €', '2,5 k €', '-250 k €', '1,25 M €']],
+    ['en-US', ['€60K', '€2.5K', '-€250K', '€1.25M']],
+    ['de-DE', ['60.000 €', '2500 €', '-250.000 €', '1,25 Mio. €']],
+    ['es-ES', ['60 mil €', '2,5 mil €', '-250 mil €', '1,25 M €']],
+  ])('formats a compact amount in %s', (locale, expected) => {
+    expect([60_000, 2_500, -250_000, 1_250_000].map((v) => tick(locale, v))).toEqual(expected)
+  })
+
+  it('never pads a round tick with a trailing zero', () => {
+    expect(tick('fr-FR', 0)).toBe('0 €')
+    expect(tick('fr-FR', 45_000)).toBe('45 k €')
+  })
+
+  it('is masked wholesale so no scale can be read off the grid', () => {
+    expect(masked.tick(350_000)).toBe(AXIS_MASK)
   })
 })
 

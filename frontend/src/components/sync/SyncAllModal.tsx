@@ -749,7 +749,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                                   : isRevolut
                                     ? t('sync.revolut.notConnected')
                                     : t('sync.all.sessionExpired')
-                                : connection.status}
+                                : t(`sync.connectionStatus.${connection.status}`, { defaultValue: connection.status })}
                             </Badge>
                             {isTr && (
                               <Tooltip>
@@ -773,7 +773,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {t('sync.all.lastSync')}: {formatTimeAgo(connection.lastSyncedAt)}
+                            {t('common.labelColon', { label: t('sync.all.lastSync') })} {formatTimeAgo(connection.lastSyncedAt)}
                           </p>
                           {rowErrors[connection.id] && (
                             <p className="flex items-center gap-1.5 text-xs text-destructive">

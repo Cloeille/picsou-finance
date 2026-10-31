@@ -30,7 +30,7 @@ import {
   useUpdateBudgetSettings,
   useUpdateCategory,
 } from '@/features/budget/hooks'
-import { formatDate, getLocale } from '@/lib/utils'
+import { formatDate, formatPercent, getLocale } from '@/lib/utils'
 import type { AiCategorizationMode, Category, CategoryKind, RuleMatchType } from '@/types/api'
 import { ColorDot } from './budget-utils'
 import { KIND_META } from './budget-meta'
@@ -225,7 +225,7 @@ function AiCategorizationCard() {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label htmlFor="ai-threshold">{t('budget.settings.aiThresholdLabel')}</Label>
-                      <span className="text-sm tabular-nums text-muted-foreground">{threshold}%</span>
+                      <span className="text-sm tabular-nums text-muted-foreground">{formatPercent(threshold, { fractionDigits: 0 })}</span>
                     </div>
                     <input
                       id="ai-threshold"

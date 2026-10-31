@@ -23,7 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Search, TrendingUp, TrendingDown } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatPercent } from '@/lib/utils'
 import { accountTypeLabelKey } from '@/lib/constants'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { formatApiError } from '@/lib/errors'
@@ -90,7 +90,7 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => 
               {line.pnlPercent >= 0
                 ? <TrendingUp className="size-3" />
                 : <TrendingDown className="size-3" />}
-              {line.pnlPercent >= 0 ? '+' : ''}{line.pnlPercent.toFixed(1)}%
+              {formatPercent(line.pnlPercent, { signed: true })}
             </span>
           )}
         </div>

@@ -18,7 +18,8 @@ vi.mock('@/lib/api-client', () => ({
 // Key-echo translator: assertions target i18n keys, locale content is covered by locales-parity.
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, vars?: { count?: number }) => (vars?.count != null ? `${key}:${vars.count}` : key),
+    t: (key: string, vars?: { count?: number; label?: string }) =>
+      vars?.label ? `${vars.label}:` : vars?.count != null ? `${key}:${vars.count}` : key,
   }),
 }))
 

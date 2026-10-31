@@ -33,7 +33,7 @@ import {
   useStartCategorizeAi,
   useUncategorized,
 } from '@/features/budget/hooks'
-import { formatDate, getLocale } from '@/lib/utils'
+import { formatDate, formatPercent, getLocale } from '@/lib/utils'
 import type { Category, RuleMatchType, UncategorizedTransaction } from '@/types/api'
 
 type RulePayload = {
@@ -140,7 +140,7 @@ function InboxRow({ tx, categories }: {
               <Sparkles className="size-3.5 shrink-0" />
               {t('budget.categorize.aiSuggested', {
                 name: suggested.name,
-                confidence: tx.aiConfidence ?? 0,
+                confidence: formatPercent(tx.aiConfidence ?? 0, { fractionDigits: 0 }),
               })}
             </Badge>
           </div>

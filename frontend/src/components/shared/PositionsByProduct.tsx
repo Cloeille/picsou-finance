@@ -7,7 +7,7 @@ import { PriceFreshnessDot } from '@/components/shared/PriceFreshnessDot'
 import { SortableTableHead } from '@/components/shared/SortableTableHead'
 import { useTableSort, type SortColumns } from '@/hooks/use-table-sort'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { cn } from '@/lib/utils'
+import { cn, formatPercent } from '@/lib/utils'
 import {
   Table,
   TableBody,
@@ -165,7 +165,7 @@ export function PositionsByProduct({ positions }: PositionsByProductProps) {
                         </TableCell>
                         <TableCell className={cn('text-right', pnlColor(row.pnlPercent))}>
                           {row.pnlPercent != null
-                            ? `${row.pnlPercent >= 0 ? '+' : ''}${row.pnlPercent.toFixed(1)}%`
+                            ? formatPercent(row.pnlPercent, { signed: true })
                             : '—'}
                         </TableCell>
                       </TableRow>

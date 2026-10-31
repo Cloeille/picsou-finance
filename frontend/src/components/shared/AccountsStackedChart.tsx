@@ -5,6 +5,7 @@ import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
 import { localeFromLanguage } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
+import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import type { Account } from '@/types/api'
 
 interface AccountsStackedChartProps {
@@ -127,12 +128,8 @@ export function AccountsStackedChart({ accounts, data }: AccountsStackedChartPro
             tickLine={false}
             axisLine={false}
             tickMargin={8}
-            tickFormatter={money.tick((value: number) => {
-              const abs = Math.abs(value)
-              const formatted = abs >= 1000 ? `${(abs / 1000).toFixed(abs >= 10000 ? 0 : 1)}k` : abs.toFixed(0)
-              return `${value < 0 ? '-' : ''}${formatted}`
-            })}
-            width={45}
+            tickFormatter={money.tick}
+            width={MONEY_AXIS_WIDTH}
           />
           <ChartTooltip content={<PnlTooltip accounts={accounts} labels={labels} />} />
           {accounts.map((account) => (
