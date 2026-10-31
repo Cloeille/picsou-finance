@@ -33,6 +33,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -201,6 +202,20 @@ class DividendReceiptServiceTest {
             source("TTE.PA", "EUR", event("2026-10-01", "0.85", "0.85", "2026-10-03")));
 
         assertThat(service.classifyRecent(MEMBER, TODAY)).isEqualTo(1);
+    }
+
+    @Test
+    void anEarlierEventThatFitsIsUsedWhenTheLatestWasPaidWeeksBeforeTheCredit() {
+        Account cto = account(12L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction tx = credit(1L, cto, "2026-10-10", "59.50", "DIVIDENDE TOTALENERGIES");
+        stage(List.of(cto), List.of(tx), List.of(line(cto, "TTE.PA", "TotalEnergies", "100")),
+            source("TTE.PA", "EUR",
+                event("2026-08-20", "0.85", "0.85", "2026-10-09"),
+                event("2026-09-25", "0.85", "0.85", "2026-09-28")));
+
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isEqualTo(1);
+
+        assertThat(tx.getTxType()).isEqualTo(TransactionType.DIVIDEND);
     }
 
     @Test
@@ -503,7 +518,7 @@ class DividendReceiptServiceTest {
         assertThat(service.received(MEMBER, TODAY, 30))
             .extracting(ReceivedDividendResponse::transactionId).containsExactly(1L);
         verify(transactions).findByAccountIdInAndDateBetweenOrderByDateAsc(
-            org.mockito.ArgumentMatchers.argThat(ids -> ids.contains(13L) && !ids.contains(50L)), any(), any());
+            argThat(ids -> ids.contains(13L) && !ids.contains(50L)), any(), any());
     }
 
     @Test
@@ -552,6 +567,7 @@ class DividendReceiptServiceTest {
         assertThat(tx.getTxType()).isEqualTo(TransactionType.DEPOSIT);
         assertThat(tx.getTicker()).isNull();
         assertThat(tx.getCategoryRef()).isNull();
+        verify(transactions, never()).saveAll(any());
     }
 
     @Test
@@ -620,6 +636,7 @@ class DividendReceiptServiceTest {
             assertThat(line.amountPerShare()).isNull();
             assertThat(line.countsInBudget()).isTrue();
         });
+        verify(sources, never()).findAllWithEventsByTickerIn(any());
     }
 
     @Test
