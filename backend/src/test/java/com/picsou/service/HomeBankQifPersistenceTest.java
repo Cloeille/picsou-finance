@@ -69,6 +69,15 @@ class HomeBankQifPersistenceTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class Configuration {
+        /**
+         * FinaryPersistenceHelper needs PriceService for FX conversion, and the DataJpaTest slice has
+         * none. Every synthetic fixture here is EUR, so the helper never calls it.
+         */
+        @Bean
+        PriceService priceService() {
+            return org.mockito.Mockito.mock(PriceService.class);
+        }
+
         @Bean
         HomeBankImportService homeBankImportService(HomeBankFileParser parser, AccountRepository accounts,
                 CategoryRepository categories, TransactionRepository transactions, FamilyMemberRepository members,
