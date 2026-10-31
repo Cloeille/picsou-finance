@@ -1155,6 +1155,28 @@ class CaisseEpargneSyncServiceTest {
     }
 
     @Test
+    void queueSync_keepsAnEndOfMonthLoanOnItsDueDayThroughTheSchedule() {
+        // What the sidecar sends for a 4-installment home loan ending 2042-05-31: the first due
+        // date it derives (test_the_first_due_date_keeps_to_the_end_of_a_short_month) is clamped
+        // to 2042-02-28.
+        Fixture f = new Fixture();
+        CaisseEpargnePort.LoanDetails endOfMonth = new CaisseEpargnePort.LoanDetails(
+            new BigDecimal("1000.00"), new BigDecimal("0.012"), new BigDecimal("251.25"), new BigDecimal("0.00"),
+            LocalDate.of(2042, 1, 2), LocalDate.of(2042, 2, 28), LocalDate.of(2042, 5, 31), 4, null);
+        arrangeCommittableSync(f.withLoan(f.loan(), endOfMonth));
+        when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
+
+        service.queueSync(7L);
+
+        verify(debtRepository).save(debtCaptor.capture());
+        assertThat(debtCaptor.getValue().getStartDate()).isEqualTo(LocalDate.of(2042, 1, 31));
+        LoanAmortizationService.LoanScheduleResponse schedule =
+            new LoanAmortizationService().compute(debtCaptor.getValue(), TODAY);
+        assertThat(schedule.schedule()).extracting(LoanAmortizationService.LoanInstallment::date).containsExactly(
+            LocalDate.of(2042, 2, 28), LocalDate.of(2042, 3, 31), LocalDate.of(2042, 4, 30), LocalDate.of(2042, 5, 31));
+    }
+
+    @Test
     void queueSync_updatesTheExistingDebtOfTheLoanAndKeepsWhatTheBankDoesNotSend() {
         Fixture f = new Fixture();
         arrangeCommittableSync(f.withLoan(f.loan(), f.loanDetails(null)));

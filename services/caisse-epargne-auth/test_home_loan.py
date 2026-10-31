@@ -155,6 +155,22 @@ class HomeLoanDetailTest(unittest.TestCase):
             parse_home_loan_detail(d)
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
+    def test_a_duration_too_large_for_a_date_is_refused(self):
+        d = detail()
+        d["loan"]["financialInformation"]["duration"] = 10**30
+
+        with self.assertRaises(ParseError) as caught:
+            parse_home_loan_detail(d)
+        self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
+
+    def test_a_rate_too_small_for_the_annuity_is_refused(self):
+        d = detail()
+        d["loan"]["financialInformation"]["nextDuedateRate"] = 1e-30
+
+        with self.assertRaises(ParseError) as caught:
+            parse_home_loan_detail(d)
+        self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
+
     def test_a_first_due_date_before_the_subscription_is_refused(self):
         d = detail()
         d["loan"]["contractCharacteristic"]["subscriptionDate"] = "2023-01-02"
@@ -223,6 +239,27 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [(u["externalId"], u["code"]) for u in result["unavailable"]],
             [(LOAN_ID, fetcher.UpstreamUnavailable.code)],
+        )
+        self.assertNotIn(LOAN_ID, [a["externalId"] for a in result["accounts"]])
+        self.assertTrue(result["accounts"])
+
+    async def test_an_oversized_duration_leaves_only_the_loan_unavailable(self):
+        oversized = detail()
+        oversized["loan"]["financialInformation"]["duration"] = 10**30
+
+        def answer(request: httpx.Request) -> httpx.Response:
+            if request.url.host == HOME_HOST:
+                return httpx.Response(200, json=oversized)
+            return self.ce.handle(request)
+
+        result = await fetcher.fetch_import(
+            SECRET_TOKEN, transport=httpx.MockTransport(answer), today=TODAY,
+            loan_token=loan_token_provider([]), home_loan_token=self.home_token([]),
+        )
+
+        self.assertEqual(
+            [(u["externalId"], u["code"]) for u in result["unavailable"]],
+            [(LOAN_ID, accounts_parser.INVALID_LOAN_DETAIL)],
         )
         self.assertNotIn(LOAN_ID, [a["externalId"] for a in result["accounts"]])
         self.assertTrue(result["accounts"])

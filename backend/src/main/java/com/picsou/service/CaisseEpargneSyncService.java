@@ -648,10 +648,10 @@ public class CaisseEpargneSyncService {
     /**
      * Creates or updates the Debt of each loan the bank described. Only the fields the bank
      * sends are written: file fees, or anything else the user typed, stay. {@code startDate} is
-     * one month before the first due date because the schedule dates installment i at
-     * {@code startDate + i months}. The debited account is the member's account with that IBAN:
-     * one of this import (its IBAN is never stored), else one already stored, else none. With no
-     * debit IBAN the linked account is left as it was.
+     * one month before the first due date, on the loan's due day, because the schedule dates
+     * installment i at {@code startDate + i months}. The debited account is the member's account
+     * with that IBAN: one of this import (its IBAN is never stored), else one already stored, else
+     * none. With no debit IBAN the linked account is left as it was.
      */
     private void upsertLoanDebts(
         PreparedSnapshot prepared, Map<String, Account> savedById, FamilyMember member, Long memberId
@@ -675,10 +675,26 @@ public class CaisseEpargneSyncService {
             debt.setMonthlyPayment(loan.monthlyPayment());
             debt.setInsuranceMonthly(loan.insuranceMonthly());
             debt.setLenderName(PROVIDER);
-            debt.setStartDate(loan.firstDueDate().minusMonths(1));
+            debt.setStartDate(scheduleAnchor(loan.firstDueDate(), loan.lastDueDate()));
             debt.setEndDate(loan.lastDueDate());
             debtRepository.save(debt);
         }
+    }
+
+    /**
+     * One month before the first due date, on the loan's nominal due day. plusMonths keeps a
+     * clamped day: a first due date of 28 February for a loan due on the 31st would date every
+     * installment on the 28th. When the first due date is the last day of its month and the last
+     * due date falls on a later day, the first one was clamped, so the anchor takes the last due
+     * date's day (the home-loan first due date is derived from it).
+     */
+    private static LocalDate scheduleAnchor(LocalDate firstDue, LocalDate lastDue) {
+        LocalDate anchor = firstDue.minusMonths(1);
+        boolean clamped = firstDue.getDayOfMonth() == firstDue.lengthOfMonth()
+            && lastDue.getDayOfMonth() > firstDue.getDayOfMonth();
+        return clamped
+            ? anchor.withDayOfMonth(Math.min(lastDue.getDayOfMonth(), anchor.lengthOfMonth()))
+            : anchor;
     }
 
     private Account debitedAccount(

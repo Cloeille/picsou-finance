@@ -78,9 +78,10 @@ The detail fills `loan` on the LOAN account. Dates come as `DD/MM/YYYY`, the
 nominal rate `folder.tNC` in percent. `participants` (names) and
 `linkedAccount.label` are never read. `insuranceMonthly` is derived, not read:
 installment minus the annuity at the nominal rate, rounded to the cent, null
-when negative (the bank's installment includes the borrower insurance). An
-amount of 10^26 or more cannot be rounded to the cent and refuses the detail
-(`INVALID_LOAN_DETAIL`).
+when negative (the bank's installment includes the borrower insurance). Figures
+the 28-digit decimal context cannot carry refuse the detail
+(`INVALID_LOAN_DETAIL`): an amount of 10^26 or more cannot be rounded to the
+cent, and a rate around 1e-30 % makes the annuity divide by zero.
 A detail that cannot be read (loan OAuth refused, 5xx, format change) leaves the
 LOAN out of `accounts` and lists it in `unavailable`; only its error code is
 logged, and the rest of the import goes on. Without a loan token provider,
@@ -97,7 +98,11 @@ only them, are added to the allow-list. The detail is
 `GET https://www.rs-ext-bad-me.bpce.fr/bapi/loan/v1/loans/<entityCode>-<contractId.id>`
 (`accounts_parser.parse_home_loan_detail`): ISO dates, the rate in percent in
 `nextDuedateRate`, `duration` in installments. The first due date is not given:
-it is the last one minus `duration - 1` months. The debit account comes without
+it is the last one minus `duration - 1` months, clamped to the end of a short
+month (a loan due on the 31st and ending 2042-05-31 over 4 installments starts
+2042-02-28; the backend takes the due day back from the last due date). A
+duration that puts that date out of range refuses the detail
+(`INVALID_LOAN_DETAIL`). The debit account comes without
 its IBAN, so `linkedIban` is null and the backend keeps whatever account the
 user linked the loan's Debt to (often the financed property). As for a personal
 loan, the insurance is the installment minus the annuity, both to the cent:

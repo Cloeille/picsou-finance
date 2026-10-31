@@ -39,7 +39,7 @@ import calendar
 import math
 import re
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, DecimalException
 from typing import Any, Iterable, Optional, Union
 
 INVALID_SYNTHESIS = "INVALID_SYNTHESIS"
@@ -522,14 +522,16 @@ def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decim
     amortisation schedule takes the insurance back out of the installment, so it is
     sent apart. A home loan's insurance is often taken elsewhere: the installment then
     matches the annuity to the cent and 0.00 is sent. Below the annuity: no figure.
-    An amount of 10^26 or more cannot be rounded to the cent within the 28-digit
-    decimal context: it refuses this loan's detail instead of failing the import.
+    Figures the 28-digit decimal context cannot carry refuse this loan's detail
+    instead of failing the import: an amount of 10^26 or more cannot be rounded to
+    the cent, and a rate around 1e-30 % rounds `1 + monthly` to 1, so the annuity
+    divides by zero.
     """
     try:
         annuity = _annuity(borrowed, rate, months).quantize(_CENT, rounding=ROUND_HALF_UP)
         insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
-    except InvalidOperation:
-        raise ParseError(INVALID_LOAN_DETAIL, "loan: amounts too large to round to the cent") from None
+    except DecimalException:
+        raise ParseError(INVALID_LOAN_DETAIL, "loan: figures outside the decimal precision") from None
     return insurance if insurance >= 0 else None
 
 
@@ -615,9 +617,11 @@ def parse_home_loan_detail(payload: Any) -> dict:
     signature = _iso_date(
         contract.get("subscriptionDate"), INVALID_LOAN_DETAIL, "loan.contractCharacteristic.subscriptionDate"
     )
+    # A duration reaching before year 1 raises ValueError; one too large for a C long
+    # (10^30) raises OverflowError. Either refuses this loan only.
     try:
         first_due = _add_months(last_due, -(duration - 1))
-    except ValueError:
+    except (ValueError, OverflowError):
         raise ParseError(
             INVALID_LOAN_DETAIL, "loan.financialInformation.duration: first due date out of range"
         ) from None
