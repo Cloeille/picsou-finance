@@ -16,9 +16,11 @@ table per category, each with an invisible caption naming it:
         ...
 
 Only current accounts and savings accounts are in scope. Other tables are
-skipped only when their rows contain no account data. An unrecognized category
-with account data fails the whole page, as does a balance-bearing row that
-cannot be read. Silently dropping an account would hide an incomplete sync.
+skipped unless a row carries a balance: the page also lists contract links with
+a title and no amount, such as the captionless "Vos contrats et nos offres"
+block. An unrecognized category with a balance fails the whole page, as does a
+balance-bearing row that cannot be read. Silently dropping an account would hide
+an incomplete sync.
 """
 
 import html as html_module
@@ -117,6 +119,11 @@ def _category(table: str) -> str:
     return match.group("name").strip().lower().replace("’", "'") if match else ""
 
 
+def _has_balance(fragment: str) -> bool:
+    """An amount in the row: a balance span, or money in its text."""
+    return bool(_AMOUNT_RE.search(fragment) or _BALANCE_RE.search(_text(fragment)))
+
+
 def _has_account_data(fragment: str) -> bool:
     return bool(
         _ACCOUNT_MARKER_RE.search(fragment)
@@ -170,10 +177,19 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
             title = _TITLE_RE.search(cells)
             number = _NUMBER_RE.search(cells)
             amount = _AMOUNT_RE.search(cells)
+            if not supported:
+                # A title without an amount is a link to a contract or an offer,
+                # not a balance this sync would drop.
+                if _has_balance(cells):
+                    product = _text(title.group("title"))[:60] if title else None
+                    raise AccountsFormatError(
+                        FORMAT_CHANGED,
+                        f"An account table has an unrecognized category: {category or 'unnamed'!r} "
+                        f"(product {product!r})",
+                    )
+                continue
             if not _has_account_data(cells):
                 continue
-            if not supported:
-                raise AccountsFormatError(FORMAT_CHANGED, "An account table has an unrecognized category")
             if (title is None or number is None or amount is None
                     or any(len(pattern.findall(cells)) > 1 for pattern in (_TITLE_RE, _NUMBER_RE, _AMOUNT_RE))):
                 raise AccountsFormatError(FORMAT_CHANGED, "An account row has no unique title, number, or balance")

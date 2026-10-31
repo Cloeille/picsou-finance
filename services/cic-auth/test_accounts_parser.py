@@ -244,6 +244,30 @@ class PageTest(unittest.TestCase):
         self.assertEqual(len(accounts), 4)
         self.assertEqual(skipped, ["autres contrats liés", "unnamed"])
 
+    def test_a_captionless_contracts_and_offers_link_is_skipped(self):
+        # Seen live: a captionless contract table whose only row is a titled link, with no amount.
+        offers = (
+            '<table class="_c1 ei_comptescontrats _c1 liste ei_cellspacing"><tbody><tr class="_c1 _c1">'
+            '<td class="_c1 decal1 _c1"><a href="https://www.cic.fr/fr/banque/contrats.html">'
+            '<span class="_c1 ei_sdsf_title _c1">Vos contrats et nos offres</span></a></td>'
+            '<td class="d nowrap "></td><td class="d nowrap ei_sdsf_solde"></td></tr></tbody></table>'
+        )
+        page = ACCOUNTS_PAGE.replace('</form>', offers + '</form>')
+
+        accounts, skipped = parse_accounts(page)
+
+        self.assertEqual(len(accounts), 4)
+        self.assertEqual(skipped, ["autres contrats liés", "unnamed"])
+
+    def test_an_unknown_category_with_a_balance_is_named_in_the_error(self):
+        page = ACCOUNTS_PAGE.replace("Livrets et comptes d&#39;épargne", "Nouveaux comptes")
+
+        with self.assertRaises(AccountsFormatError) as error:
+            parse_accounts(page)
+
+        self.assertIn("'nouveaux comptes'", str(error.exception))
+        self.assertIn("'LIVRET A'", str(error.exception))
+
     def test_a_balance_row_without_its_title_fails_the_whole_page(self):
         page = ACCOUNTS_PAGE.replace('ei_sdsf_title _c1">LIVRET A', 'other _c1">LIVRET A')
         self.assertNotEqual(page, ACCOUNTS_PAGE)
