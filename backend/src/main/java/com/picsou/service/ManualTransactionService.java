@@ -126,10 +126,12 @@ public class ManualTransactionService {
 
         if (account.getType().isInvestment()) {
             holdingComputeService.recomputeHoldings(account);
-        } else {
+        } else if (account.getType().isLedger()) {
             recomputeCashBalance(account);
             finaryPersistenceHelper.reconstructSnapshotsFromDb(account);
         }
+        // A valued account (SCPI, property, employee savings) keeps its valuation: a transaction
+        // on it, such as a dividend noted by hand, is history, not the source of its balance.
     }
 
     private Category resolveCategory(Long categoryId, Long memberId) {

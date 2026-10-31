@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMoney } from '@/hooks/use-money'
-import { ACCOUNT_COLORS, ACCOUNT_TYPES, SUPPORTED_CURRENCIES } from '@/lib/constants'
+import { ACCOUNT_COLORS, ACCOUNT_TYPES, NON_LEDGER_ACCOUNT_TYPES, SUPPORTED_CURRENCIES } from '@/lib/constants'
 import { formatDate } from '@/lib/utils'
 import { extractErrorMessage } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
@@ -14,9 +14,7 @@ import { useImportHomeBank, usePreviewHomeBank } from '@/features/homebank/hooks
 import type { HomeBankAccountMapping, HomeBankCategoryMapping, HomeBankCategoryPreview, HomeBankPreviewResponse } from '@/features/homebank/types'
 import type { AccountType } from '@/types/api'
 
-const allowedAccountTypes = ACCOUNT_TYPES.filter(({ value }) =>
-  !(['PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI'] as AccountType[]).includes(value),
-)
+const allowedAccountTypes = ACCOUNT_TYPES.filter(({ value }) => !NON_LEDGER_ACCOUNT_TYPES.includes(value))
 const intlSupportedValuesOf = (Intl as typeof Intl & { supportedValuesOf?: (key: 'currency') => string[] }).supportedValuesOf
 const validCurrencyCodes = new Set(intlSupportedValuesOf?.call(Intl, 'currency') ?? SUPPORTED_CURRENCIES)
 
@@ -80,7 +78,7 @@ export function HomeBankTab() {
   }
 
   function isLedgerType(type: AccountType) {
-    return !(['PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI'] as AccountType[]).includes(type)
+    return !NON_LEDGER_ACCOUNT_TYPES.includes(type)
   }
 
   function updateAccount(index: number, patch: Partial<HomeBankAccountMapping>) {

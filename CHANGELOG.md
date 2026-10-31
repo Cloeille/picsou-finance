@@ -310,6 +310,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CIC instance monitoring.** Admin status checks now cover all thirteen authentication
   sidecars, including CIC when a session exists. CIC's health response reports its shared
   base so an outdated image is detected alongside an unreachable sidecar.
+- **A transaction no longer overwrites a valued account.** Adding, editing or deleting a
+  transaction by hand on a SCPI, a property or an employee-savings plan, a dividend for
+  instance, replaced its value with the sum of its transactions, and deleting the last one left
+  it at zero. The transaction is still recorded, but the balance keeps its valuation. The
+  HomeBank import now refuses these accounts, and a PER, as targets, like the Actual Budget
+  import already did. Both importers and the manual ledger share one definition,
+  `AccountType.isLedger()`.
 
 - **Enable Banking account balances and details.** Accounts in a shared balance list,
   such as Qonto business accounts, now select entries matching the account description
