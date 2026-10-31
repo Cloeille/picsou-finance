@@ -16,8 +16,8 @@ table per category, each with an invisible caption naming it:
         ...
 
 Only current accounts and savings accounts are in scope. Other tables are
-skipped only when their rows contain no balance data. A title alone can be a
-contract link. An unrecognized category with a balance fails the whole page,
+skipped only when their rows contain no account-number markers or balance data.
+A title alone can be a contract link. An unrecognized category with a balance fails the whole page,
 as does account data in unrecognized table or row blocks or an unreadable
 account row in a supported category. Silently dropping an account would hide an incomplete sync.
 """
@@ -69,9 +69,12 @@ _CURRENCY_CODES = frozenset((
     "TWD TZS UAH UGX USD USN UYI UYU UYW UZS VED VES VND VUV WST XAD XAF XAG XAU XBA "
     "XBB XBC XBD XCD XCG XDR XOF XPD XPF XPT XSU XTS XUA XXX YER ZAR ZMW ZWG"
 ).split())
-# Symbol-first amounts need cents to distinguish balances from references like "$1".
+# Consume each numeric run once, even when it has no currency. Optional currency
+# tokens cannot force retries at every digit of a long nonmonetary run.
 _BALANCE_RE = re.compile(
-    r"\d[\d\s.,]*\s*(?:(?P<currency>[A-Z]{3})\b|[€$£])|[€$£]\s*[+-]?\s*\d[\d\s.,]*[.,]\d{2}\b"
+    r"(?:(?P<prefix>[A-Z]{3}\b|[€$£])\s*+[+-]?\s*+)?"
+    r"(?P<number>\d[\d\s.,]*+)(?P<suffix>[A-Z]{3}\b|[€$£])?",
+    re.IGNORECASE,
 )
 
 # Ordered: the first match wins, so the specific products come before the
@@ -110,22 +113,30 @@ class _TextParser(HTMLParser):
         self.ignored_tag: str | None = None
         self.ignore_titles = ignore_titles
         self.title_depth = 0
+        self.in_balance_cell = False
+        self.has_balance_text = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        classes = next((value for name, value in attrs if name == "class"), None)
         if tag in ("script", "style"):
             self.ignored_tag = tag
+        if tag in ("td", "th"):
+            self.in_balance_cell = bool(classes and "ei_sdsf_solde" in classes.split())
         if tag == "span":
-            classes = next((value for name, value in attrs if name == "class"), None)
             if self.title_depth or (self.ignore_titles and classes and "ei_sdsf_title" in classes.split()):
                 self.title_depth += 1
 
     def handle_endtag(self, tag: str) -> None:
+        if tag in ("td", "th"):
+            self.in_balance_cell = False
         if tag == self.ignored_tag:
             self.ignored_tag = None
         if tag == "span" and self.title_depth:
             self.title_depth -= 1
 
     def handle_data(self, data: str) -> None:
+        if self.ignored_tag is None and self.in_balance_cell and data.strip():
+            self.has_balance_text = True
         if self.ignored_tag is None and not self.title_depth:
             self.parts.append(data)
 
@@ -182,13 +193,30 @@ def _has_class_marker(fragment: str, markers: set[str]) -> bool:
     return marker.found
 
 
+def _has_money(text: str, *, explicit: bool = False) -> bool:
+    for match in _BALANCE_RE.finditer(text):
+        currencies = (match.group("prefix"), match.group("suffix"))
+        if not any(token and (token in "€$£" or token.upper() in _CURRENCY_CODES)
+                   for token in currencies):
+            continue
+        # A title can contain a year and a currency ("Contrat 2024 USD").
+        # Decimal punctuation or a symbol distinguishes money inside a title.
+        if (not explicit or any(token in ("€", "$", "£") for token in currencies)
+                or re.search(r"[.,]\d", match.group("number"))):
+            return True
+    return False
+
+
 def _has_balance(fragment: str) -> bool:
-    # Product names can contain years and currency codes; empty solde cells are
-    # also used by contract links. An actual amount marker still requires parsing.
-    return _has_class_marker(fragment, {"ei_sdsf_montant"}) or any(
-        match.group("currency") is None or match.group("currency") in _CURRENCY_CODES
-        for match in _BALANCE_RE.finditer(_text(fragment, ignore_titles=True))
-    )
+    # Number markers and nonempty balance cells must fail closed even when the
+    # amount format changed. Empty cells still occur beside title-only links.
+    if _has_class_marker(fragment, {"ei_sdsf_montant", "doux"}):
+        return True
+    parser = _TextParser(ignore_titles=True)
+    parser.feed(fragment)
+    parser.close()
+    return (parser.has_balance_text or _has_money(" ".join(parser.parts))
+            or _has_money(_text(fragment), explicit=True))
 
 
 def _has_account_data(fragment: str) -> bool:
@@ -243,13 +271,13 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
             number = _NUMBER_RE.search(cells)
             amount = _AMOUNT_RE.search(cells)
             if not supported:
-                # A title without an amount can be a contract or offer link.
+                # A title without an account number or balance can be an offer link.
                 if _has_balance(cells):
                     label = _text(title.group("title"))[:60] if title else ""
                     product = f", product {label!r}" if label else ""
                     raise AccountsFormatError(
                         FORMAT_CHANGED,
-                        f"An account table has an unrecognized category {category or 'unnamed'!r}{product}",
+                        f"An account table has an unrecognized category {category[:60] or 'unnamed'!r}{product}",
                     )
                 continue
             if not _has_account_data(cells):

@@ -24,17 +24,22 @@ balance.
   "Livrets et comptes d'épargne" rows are typed from their label (Livret A, LDDS, LEP, Livret Jeune,
   PEL, CEL, else `SAVINGS`). Product labels ignore accents and typographic apostrophes. Category
   names accept straight and typographic apostrophes. Tables
-  outside these categories are skipped only when their rows contain no balance data. A product
-  title alone, such as "Vos contrats et nos offres", can be a contract link without a balance,
-  including when accompanied by an empty `ei_sdsf_solde` cell. Product-title text is excluded
-  from money detection, so a name such as "Contrat 2024 USD" is not a balance. Amount markers
+  outside these categories are skipped only when their rows contain no account-number markers
+  or balance data. A product title alone, such as "Vos contrats et nos offres", can be a
+  contract link without a balance, including when accompanied by an empty `ei_sdsf_solde` cell.
+  An actual `doux` account-number
+  marker or any visible non-whitespace text in an `ei_sdsf_solde` cell fails closed, including
+  bare numeric balances without a currency. Product-title text requires decimal punctuation
+  or a currency symbol to count as money, so a name such as "Contrat 2024 USD" is not a balance,
+  while nested text such as "1 234,56 EUR" is. Amount markers
   still count even inside titles. Empty balance cells remain account markers in supported
   tables and unrecognized table or row blocks, preserving strict completeness checks.
   An unnamed or unrecognized table with a balance fails the whole page. Its error names the
-  normalized category and up to 60 characters of the product title when available. Balance
-  detection uses amount class tokens on actual elements or plain-text money with a trailing
-  currency code or a `€`, `$`, or `£` symbol on either side of the amount. A symbol before the
-  amount requires cents.
+  normalized category and product title when available, each truncated to 60 characters. Balance
+  detection uses amount class tokens on actual elements or plain-text money with a
+  case-insensitive currency code or a `€`, `$`, or `£` symbol on either side of the amount,
+  including whole-number amounts. Numeric runs are tokenized once so long text without a
+  currency does not trigger quadratic regex retries.
   Alphabetic currency tokens must belong to the local ISO 4217 code set, taken from
   [SIX List One](https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml)
   published on 2026-09-17. Ordinary text such as `© 2026 CIC` does not count as money. Scanning

@@ -70,13 +70,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   including a confirmation already in progress or a stored-credentials reconnect still reading
   its password. Unreadable account rows and unrecognized tables containing balances fail the
   whole import. Contract links without balances are skipped in unnamed or unsupported tables.
-  Unknown-category errors name the category and product. Plain-text balances, including dollar
+  Account-number markers and nonempty balance cells in those tables also fail the import,
+  including bare numeric balances. Unknown-category errors name the category and product,
+  each limited to 60 characters. Plain-text balances, including dollar
   and pound symbols, and account data in unrecognized table or row blocks cannot be silently dropped.
   Summary totals, promotions, and grey-text elements outside tables or rows are ignored.
   Complete document and table endings and unique account-row fields remain required; category
   reporting distinguishes missing tables from present empty ones before a snapshot is certified.
-  Symbol-first amounts require cents. Script and style bodies are excluded before table and
-  marker detection, so JavaScript replacement strings, class references, and CSS selectors do not
+  Currency codes are case-insensitive and accepted before or after the number, as are currency
+  symbols, including whole-number amounts. Money nested in product titles is detected when it
+  includes decimal punctuation or a symbol; a title such as `Contrat 2024 USD` remains a link.
+  Numeric runs are scanned once to avoid quadratic retries on long text without currency.
+  Script and style bodies are excluded before table and marker detection, so JavaScript
+  replacement strings, class references, and CSS selectors do not
   block imports. Alphabetic currency tokens are checked against ISO 4217 codes, so footer text
   such as `© 2026 CIC` does not block imports. Account and balance markers must be class tokens
   on actual elements; commented markup, attribute text, and partial class names are ignored.

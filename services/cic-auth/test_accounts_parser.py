@@ -1,5 +1,7 @@
 """The "Comptes et contrats" parser, against synthetic pages shaped like the real one."""
 
+import subprocess
+import sys
 import unittest
 from decimal import Decimal
 
@@ -628,6 +630,78 @@ class PageTest(unittest.TestCase):
 
         self.assertIn("'nouveaux comptes'", str(error.exception))
         self.assertIn("'LIVRET A'", str(error.exception))
+
+    def assert_unknown_row_fails(self, cells):
+        for category in ("", "Nouveaux comptes"):
+            table = accounts_table(category, f"<tr>{cells}</tr>")
+            page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+            with self.subTest(category=category):
+                with self.assertRaises(AccountsFormatError) as error:
+                    parse_accounts(page)
+                self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_unknown_rows_with_an_account_number_fail_without_an_amount(self):
+        for classes in ('"nowrap doux"', "'nowrap doux'", "doux"):
+            with self.subTest(classes=classes):
+                self.assert_unknown_row_fails(
+                    '<td><span class="ei_sdsf_title">LIVRET X</span>'
+                    f'<span class={classes}>0001 12345678</span></td>'
+                )
+
+    def test_unknown_rows_with_a_bare_number_balance_cell_fail(self):
+        for value in ("1 234,56", "0", "<strong>1 234,56</strong>"):
+            with self.subTest(value=value):
+                self.assert_unknown_row_fails(
+                    '<td><span class="ei_sdsf_title">LIVRET X</span></td>'
+                    f"<td class='nowrap ei_sdsf_solde'>{value}</td>"
+                )
+
+    def test_unknown_rows_with_prefix_or_lowercase_currency_fail(self):
+        for amount in ("EUR 1 234,56", "€ 1 234", "1 234,56 eur", "eur 1 234,56",
+                       "$1 234", "£1 234", "€ -1 234", "EUR -1 234,56"):
+            with self.subTest(amount=amount):
+                self.assert_unknown_row_fails(f"<td>{amount}</td>")
+
+    def test_title_links_with_only_hidden_or_whitespace_balance_text_are_skipped(self):
+        for content in (" \n&nbsp;", "<!-- 1 234,56 -->", "<script>12.34</script>",
+                        "<span title='1 234,56'></span>"):
+            with self.subTest(content=content):
+                row = ('<tr><td><span class="ei_sdsf_title">Contrat 2024 USD</span></td>'
+                       f'<td class="ei_sdsf_solde">{content}</td></tr>')
+                table = accounts_table("Nouveaux contrats", row)
+                page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+                accounts, skipped = parse_accounts(page)
+                self.assertEqual(accounts, parse_accounts(ACCOUNTS_PAGE)[0])
+                self.assertEqual(skipped, ["autres contrats liés", "nouveaux contrats"])
+
+    def test_unknown_rows_with_unmarked_money_inside_titles_fail(self):
+        for amount in ("1 234,56 EUR", "EUR 1 234,56", "€ 1 234", "£12.34"):
+            with self.subTest(amount=amount):
+                self.assert_unknown_row_fails(
+                    '<td><span class="ei_sdsf_title">LIVRET X '
+                    f'<span>{amount}</span></span></td>'
+                )
+
+    def test_unknown_category_and_product_diagnostics_are_bounded(self):
+        row = account_row(9, "P" * 500, "0001 12345678", "+12,34 EUR")
+        table = accounts_table("C" * 500, row)
+        with self.assertRaises(AccountsFormatError) as error:
+            parse_accounts(f"<html><body>{table}</body></html>")
+        self.assertEqual(
+            str(error.exception),
+            f"An account table has an unrecognized category {'c' * 60!r}, product {'P' * 60!r}",
+        )
+
+    def test_long_numeric_runs_do_not_retry_at_each_digit(self):
+        # Isolate the scan so a quadratic regression fails within a bounded time.
+        result = subprocess.run(
+            [sys.executable, "-c", "from accounts_parser import _has_balance\n"
+             "row = '<td>' + '1 ' * 20000 + '</td>'\n"
+             "assert not _has_balance(row)\n"
+             "assert _has_balance(row + '<td>12,34 EUR</td>')\n"],
+            capture_output=True, text=True, timeout=3,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_balance_row_without_its_title_fails_the_whole_page(self):
         page = ACCOUNTS_PAGE.replace('ei_sdsf_title _c1">LIVRET A', 'other _c1">LIVRET A')
