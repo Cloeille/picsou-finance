@@ -20,8 +20,8 @@ import { cn, deriveMonogram } from '@/lib/utils'
  *   not a cosmetic detail: `PositionsByProduct.test.tsx` asserts one `BTC` per product group, and a
  *   duplicate is a real signal that the layout is wrong. Initials read as a mark where an empty disc
  *   read as a missing image. A holding without a name (an exchange coin line), or whose name is only
- *   its ticker, keeps the empty disc, since its only initials would be the ticker's. Either way the
- *   column width stays stable.
+ *   its ticker (a nameless dividend), keeps the empty disc, since its only initials would be the
+ *   ticker's. Either way the column width stays stable.
  * - The `onError` reset is what makes a *transient* failure recoverable: Radix keeps the image
  *   mounted after a load error, so without flipping back to "no image" a single failed request
  *   would leave the mark blank for that holding. Remounting on the next URL change also picks up
@@ -40,7 +40,7 @@ export function HoldingLogo({
   logoUrlDark?: string | null
   /** The image's accessible name, so the asset is read whether or not the mark loads. */
   ticker: string
-  /** The holding's name, whose initials stand in for a missing mark. Without one the disc stays empty. */
+  /** The holding's name, whose initials stand in for a missing mark. Blank, or equal to the ticker, the disc stays empty. */
   name?: string | null
   className?: string
 }) {
@@ -50,8 +50,8 @@ export function HoldingLogo({
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const src = url && url !== failedUrl ? url : null
   // The dividend API substitutes the ticker for a missing name.
-  const initialsName = name?.trim()
-  const showInitials = !!initialsName && initialsName.toLowerCase() !== ticker.toLowerCase()
+  const label = name?.trim()
+  const monogram = label && label.toLowerCase() !== ticker.toLowerCase() ? deriveMonogram(label) : ''
 
   return (
     <Avatar className={cn('size-6 shrink-0', className)}>
@@ -65,7 +65,7 @@ export function HoldingLogo({
         />
       )}
       <AvatarFallback aria-hidden className="bg-muted text-[0.6rem] font-semibold">
-        {showInitials && deriveMonogram(initialsName)}
+        {monogram}
       </AvatarFallback>
     </Avatar>
   )

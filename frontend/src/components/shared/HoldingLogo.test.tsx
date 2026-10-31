@@ -48,13 +48,15 @@ describe('HoldingLogo', () => {
     const { container } = render(<HoldingLogo logoUrl={null} ticker="BTC" name="   " />)
 
     expect(container.textContent).toBe('')
+    expect(container.querySelector('[data-slot="avatar-fallback"]')).toBeInTheDocument()
   })
 
   it('keeps an empty disc when the name is only the ticker', () => {
     // A dividend without a known name: the backend fills the name with the ticker.
-    const { container } = render(<HoldingLogo logoUrl={null} ticker="AA" name="aa" />)
+    const { container } = render(<HoldingLogo logoUrl={null} ticker="IWDA" name="iwda" />)
 
     expect(container.textContent).toBe('')
+    expect(container.querySelector('[data-slot="avatar-fallback"]')).toBeInTheDocument()
   })
 
   it('falls back to an empty mark when the image fails to load', async () => {
