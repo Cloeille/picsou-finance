@@ -8,7 +8,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.4.9</version>
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
 
@@ -22,16 +22,12 @@
         <java.version>21</java.version>
         <jjwt.version>0.12.6</jjwt.version>
         <bucket4j.version>8.10.1</bucket4j.version>
-        <!-- Ahead of the Boot 3.4.9 BOM (1.20.6): its bundled docker-java negotiates down to
-             Docker API 1.32, which engines >= 28 refuse ("minimum supported API version is 1.40"). -->
-        <testcontainers.version>1.21.3</testcontainers.version>
-        <!-- Spring AI 1.0.x targets Spring Boot 3.4.x (Spring 6.2) — matches this project.
-             Do NOT bump to 1.1.x: it targets Boot 3.5 / Spring 6.3 and conflicts with the pins below. -->
-        <spring-ai.version>1.0.3</spring-ai.version>
-        <!-- Security overrides: pin versions ahead of Spring Boot 3.4.9 BOM (verified CLEAN on OSV) -->
-        <tomcat.version>10.1.53</tomcat.version>
-        <netty.version>4.1.132.Final</netty.version>
-        <spring-security.version>6.4.10</spring-security.version>
+        <!-- Spring AI 1.1.x is built against Spring Boot 3.5.x (Spring Framework 6.2) and bundles
+             MCP Java SDK 0.18.x, whose SSE transport can send keep-alive pings
+             (spring.ai.mcp.server.keep-alive-interval). Do NOT bump to 2.x: it requires Spring Boot 4.
+             The Boot 3.5.16 BOM already manages Tomcat, Netty, Spring Security and Testcontainers
+             at or above the versions this pom used to pin, so those overrides were dropped. -->
+        <spring-ai.version>1.1.8</spring-ai.version>
         <!-- docker-java (bundled with Testcontainers) defaults to Docker Engine API 1.32, which
              Docker Engine 25+ rejects (it requires >= 1.40; Engine >= 28 refuses outright). Pin a
              safe floor read by docker-java's `api.version` system property so the Testcontainers
@@ -67,8 +63,8 @@
         </dependency>
 
         <!-- OAuth2 Authorization Server — issues Authorization Code + PKCE tokens to the
-             native iOS app. Unversioned: governed by the Boot 3.4.9 BOM (Spring Authorization
-             Server ~1.4.x, aligned with the pinned spring-security.version=6.4.10). Tokens are
+             native iOS app. Unversioned: governed by the Boot 3.5.16 BOM (Spring Authorization
+             Server 1.5.x, aligned with Spring Security 6.5.x). Tokens are
              HS256-signed with the same JWT_SECRET as the cookie flow, so the existing
              resource-server filter validates them unchanged. See ADR
              2026-07-03-oauth2-authorization-server-for-native-app.md -->
@@ -83,7 +79,7 @@
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
-        <!-- MCP server (Model Context Protocol) — embedded, Streamable HTTP over WebMVC -->
+        <!-- MCP server (Model Context Protocol) — embedded, HTTP+SSE over WebMVC -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
@@ -250,7 +246,7 @@
              Postgres' rejection of INSERTs in a read-only transaction) and for data-mutating
              Flyway migrations (PostgreSQL-flavoured: enum types, split_part...), which can only
              be verified against real PostgreSQL, not H2. Version comes from the
-             testcontainers.version property above, which overrides the Spring Boot parent's BOM. -->
+             Spring Boot parent's BOM. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-testcontainers</artifactId>
