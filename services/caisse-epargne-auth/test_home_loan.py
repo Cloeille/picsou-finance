@@ -19,7 +19,7 @@ import fetcher
 import main
 import replay
 from accounts_parser import ParseError, parse_home_loan_detail
-from test_fetcher import FIXTURES, LOAN_ID, SECRET_TOKEN, TODAY, FakeCE, loan_token_provider
+from test_fetcher import ALL_IDS, FIXTURES, LOAN_ID, SECRET_TOKEN, TODAY, FakeCE, loan_token_provider
 
 HOME_TOKEN = "home-loan-access-token-secret-HHHH"
 HOME_HOST = "www.rs-ext-bad-me.bpce.fr"
@@ -116,6 +116,27 @@ class HomeLoanDetailTest(unittest.TestCase):
             parse_home_loan_detail(d)
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
+    def test_a_duration_of_fifty_years_is_accepted(self):
+        d = detail()
+        d["loan"]["contractCharacteristic"]["subscriptionDate"] = "1990-01-01"
+        d["loan"]["financialInformation"]["duration"] = 600
+
+        loan = parse_home_loan_detail(d)
+
+        self.assertEqual(loan["durationMonths"], 600)
+        # 600 installments ending 2042-06-05: the first is 599 months before.
+        self.assertEqual(loan["firstDueDate"], date(1992, 7, 5))
+
+    def test_a_duration_above_fifty_years_is_refused(self):
+        # Signed early enough that 601 months stays after the subscription: only the cap refuses it.
+        d = detail()
+        d["loan"]["contractCharacteristic"]["subscriptionDate"] = "1990-01-01"
+        d["loan"]["financialInformation"]["duration"] = 601
+
+        with self.assertRaises(ParseError) as caught:
+            parse_home_loan_detail(d)
+        self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
+
     def test_the_first_due_date_keeps_to_the_end_of_a_short_month(self):
         d = detail()
         d["loan"]["financialInformation"]["lastDuedate"] = "2042-05-31"
@@ -156,14 +177,17 @@ class HomeLoanDetailTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
     def test_a_duration_reaching_before_year_one_is_refused(self):
+        # Within the cap, but counted back from a last due date in the year 40.
         d = detail()
-        d["loan"]["financialInformation"]["duration"] = 30000
+        d["loan"]["contractCharacteristic"]["subscriptionDate"] = "0001-01-01"
+        d["loan"]["financialInformation"]["lastDuedate"] = "0040-06-05"
+        d["loan"]["financialInformation"]["duration"] = 600
 
         with self.assertRaises(ParseError) as caught:
             parse_home_loan_detail(d)
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
-    def test_a_duration_too_large_for_a_date_is_refused(self):
+    def test_a_duration_far_above_the_cap_is_refused(self):
         d = detail()
         d["loan"]["financialInformation"]["duration"] = 10**30
 
@@ -171,13 +195,54 @@ class HomeLoanDetailTest(unittest.TestCase):
             parse_home_loan_detail(d)
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
-    def test_a_rate_too_small_for_the_annuity_is_refused(self):
-        d = detail()
-        d["loan"]["financialInformation"]["nextDuedateRate"] = 1e-30
+    def test_a_tiny_rate_keeps_the_zero_rate_insurance(self):
+        # 200 000 / 240 rounds to 833.33, leaving 104.41 of the 937.74 payment.
+        for rate in (0, 1e-24, 1e-30, 1e-56, 1e-100, 5e-324):
+            with self.subTest(rate=rate):
+                tiny = detail()
+                tiny["loan"]["financialInformation"]["nextDuedateRate"] = rate
 
-        with self.assertRaises(ParseError) as caught:
-            parse_home_loan_detail(d)
-        self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
+                self.assertEqual(
+                    parse_home_loan_detail(tiny)["insuranceMonthly"],
+                    Decimal("104.41"),
+                )
+
+    def test_tiny_rates_round_the_annuity_at_half_cent_boundaries(self):
+        for borrowed, duration, expected in (
+            (250.005, 1, "29.99"),
+            (750.015, 3, "29.99"),
+            (12000.23, 48, "30.00"),
+            (12000.24, 48, "29.99"),
+            (12000.25, 48, "29.99"),
+            (12250.245, 49, "29.99"),
+        ):
+            for rate in (0, 1e-24, 1e-30, 1e-56, 2e-100, 5e-324):
+                with self.subTest(borrowed=borrowed, duration=duration, rate=rate):
+                    d = detail()
+                    money = d["loan"]["financialInformation"]
+                    money["amountBorrowed"]["value"] = borrowed
+                    money["duration"] = duration
+                    money["nextDuedateRate"] = rate
+                    money["nextDuedateAmount"]["value"] = 280
+
+                    self.assertEqual(parse_home_loan_detail(d)["insuranceMonthly"], Decimal(expected))
+
+    def test_annuity_rounding_at_an_exact_half_cent(self):
+        # At 12 % over two months, 100.50 gives an exact annuity of 10201/200 = 51.005.
+        for borrowed, expected in (
+            (100.49999999999999, "29.00"),
+            (100.50, "28.99"),
+            (100.50000000000001, "28.99"),
+        ):
+            with self.subTest(borrowed=borrowed):
+                d = detail()
+                money = d["loan"]["financialInformation"]
+                money["amountBorrowed"]["value"] = borrowed
+                money["duration"] = 2
+                money["nextDuedateRate"] = 12
+                money["nextDuedateAmount"]["value"] = 80
+
+                self.assertEqual(parse_home_loan_detail(d)["insuranceMonthly"], Decimal(expected))
 
     def test_a_first_due_date_before_the_subscription_is_refused(self):
         d = detail()
@@ -252,12 +317,13 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["accounts"])
 
     async def test_an_oversized_duration_leaves_only_the_loan_unavailable(self):
-        oversized = detail()
-        oversized["loan"]["financialInformation"]["duration"] = 10**30
+        invalid = detail()
+        invalid["loan"]["contractCharacteristic"]["subscriptionDate"] = "1990-01-01"
+        invalid["loan"]["financialInformation"]["duration"] = 10**30
 
         def answer(request: httpx.Request) -> httpx.Response:
             if request.url.host == HOME_HOST:
-                return httpx.Response(200, json=oversized)
+                return httpx.Response(200, json=invalid)
             return self.ce.handle(request)
 
         result = await fetcher.fetch_import(
@@ -269,8 +335,34 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
             [(u["externalId"], u["code"]) for u in result["unavailable"]],
             [(LOAN_ID, accounts_parser.INVALID_LOAN_DETAIL)],
         )
-        self.assertNotIn(LOAN_ID, [a["externalId"] for a in result["accounts"]])
-        self.assertTrue(result["accounts"])
+        self.assertEqual(
+            {a["externalId"] for a in result["accounts"]}, ALL_IDS - {LOAN_ID},
+        )
+
+    async def test_a_first_due_date_before_year_one_leaves_only_the_loan_unavailable(self):
+        # Within the cap, but counted back from a last due date in the year 40.
+        invalid = detail()
+        invalid["loan"]["contractCharacteristic"]["subscriptionDate"] = "0001-01-01"
+        invalid["loan"]["financialInformation"]["lastDuedate"] = "0040-06-05"
+        invalid["loan"]["financialInformation"]["duration"] = 600
+
+        def answer(request: httpx.Request) -> httpx.Response:
+            if request.url.host == HOME_HOST:
+                return httpx.Response(200, json=invalid)
+            return self.ce.handle(request)
+
+        result = await fetcher.fetch_import(
+            SECRET_TOKEN, transport=httpx.MockTransport(answer), today=TODAY,
+            loan_token=loan_token_provider([]), home_loan_token=self.home_token([]),
+        )
+
+        self.assertEqual(
+            [(u["externalId"], u["code"]) for u in result["unavailable"]],
+            [(LOAN_ID, accounts_parser.INVALID_LOAN_DETAIL)],
+        )
+        self.assertEqual(
+            {a["externalId"] for a in result["accounts"]}, ALL_IDS - {LOAN_ID},
+        )
 
     async def test_a_home_loan_token_refused_as_expired_leaves_only_the_loan_unavailable(self):
         result = await self.fetch(

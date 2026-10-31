@@ -39,7 +39,8 @@ import calendar
 import math
 import re
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal, localcontext
+from fractions import Fraction
 from typing import Any, Iterable, Optional, Union
 
 INVALID_SYNTHESIS = "INVALID_SYNTHESIS"
@@ -485,6 +486,10 @@ def card_outstanding(pages: Pages, *, today: Optional[date] = None) -> Decimal:
 
 _FR_DATE_RE = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
 _CENT = Decimal("0.01")
+# Fifty years. Above it a duration is not a loan the bank granted, and the exact
+# annuity fallback (a Fraction raised to `months`) would grow with it until it
+# blocks the event loop or runs out of memory, failing the whole import.
+MAX_LOAN_MONTHS = 600
 
 
 def _fr_date(value: Any, where: str) -> date:
@@ -507,11 +512,53 @@ def _positive_amount(value: Any, where: str) -> Decimal:
 
 
 def _annuity(borrowed: Decimal, rate: Decimal, months: int) -> Decimal:
-    """Constant monthly installment of a `months`-long loan at the yearly `rate`."""
+    """Constant monthly installment at the yearly `rate`, certified to the cent."""
+    bounds = []
+    with localcontext() as ctx:
+        ctx.prec = 60 + max(0, -rate.adjusted())
+        for rounding, reciprocal_rounding in (
+            (ROUND_FLOOR, ROUND_CEILING),
+            (ROUND_CEILING, ROUND_FLOOR),
+        ):
+            ctx.rounding = rounding
+            if rate == 0:
+                bounds.append(borrowed / months)
+                continue
+            monthly_factor = 1 + rate / 12
+            # Reciprocals reverse the bounds. All sum terms are positive.
+            ctx.rounding = reciprocal_rounding
+            discount = 1 / monthly_factor
+            block_discount = discount
+            block_sum = discount
+            offset = Decimal(1)
+            present_value = Decimal(0)
+            remaining = months
+            # Binary doubling sums discounted payments without cancellation.
+            while remaining:
+                if remaining & 1:
+                    present_value += offset * block_sum
+                    offset *= block_discount
+                block_sum *= 1 + block_discount
+                block_discount *= block_discount
+                remaining >>= 1
+            ctx.rounding = rounding
+            bounds.append(borrowed / present_value)
+
+    lower, upper = (bound.quantize(_CENT, rounding=ROUND_HALF_UP) for bound in bounds)
+    if lower == upper:
+        return lower
+
+    # Decimal bounds can straddle an exact tie at any precision.
+    annuity = Fraction(borrowed)
     if rate == 0:
-        return borrowed / months
-    monthly = rate / 12
-    return borrowed * monthly / (1 - (1 + monthly) ** -months)
+        annuity /= months
+    else:
+        monthly_rate = Fraction(rate) / 12
+        annuity *= monthly_rate / (1 - (1 + monthly_rate) ** -months)
+    cents, remainder = divmod(annuity.numerator * 100, annuity.denominator)
+    if remainder * 2 >= annuity.denominator:
+        cents += 1
+    return (Decimal(cents) * _CENT).quantize(_CENT)
 
 
 def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decimal) -> Optional[Decimal]:
@@ -522,13 +569,13 @@ def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decim
     amortisation schedule takes the insurance back out of the installment, so it is
     sent apart. A home loan's insurance is often taken elsewhere: the installment then
     matches the annuity to the cent and 0.00 is sent. Below the annuity: no figure.
-    Figures the 28-digit decimal context cannot carry refuse this loan's detail
-    instead of failing the import: an amount of 10^26 or more cannot be rounded to
-    the cent, and a rate around 1e-30 % rounds `1 + monthly` to 1, so the annuity
-    divides by zero.
+    The annuity uses directed Decimal bounds and exact rational rounding when
+    those bounds disagree at the cent. An amount of 10^26 or more still
+    cannot be rounded to the cent in the default 28-digit context: it refuses
+    this loan's detail instead of failing the import.
     """
     try:
-        annuity = _annuity(borrowed, rate, months).quantize(_CENT, rounding=ROUND_HALF_UP)
+        annuity = _annuity(borrowed, rate, months)
         insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
     except ArithmeticError:
         # Every decimal signal (InvalidOperation, DivisionByZero, ...) is an ArithmeticError.
@@ -550,8 +597,8 @@ def parse_loan_detail(payload: Any) -> dict:
 
     borrowed = _positive_amount(offer.get("proposedAmount"), "loan.offer.proposedAmount")
     duration = offer.get("duration")
-    if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
-        raise ParseError(INVALID_LOAN_DETAIL, "loan.offer.duration: expected a positive integer")
+    if isinstance(duration, bool) or not isinstance(duration, int) or not 0 < duration <= MAX_LOAN_MONTHS:
+        raise ParseError(INVALID_LOAN_DETAIL, "loan.offer.duration: expected 1 to 600 months")
     percent = _decimal(folder.get("tNC"), INVALID_LOAN_DETAIL, "loan.folder.tNC")
     rate = percent / 100
     if not 0 <= rate <= 1:
@@ -607,8 +654,8 @@ def parse_home_loan_detail(payload: Any) -> dict:
 
     borrowed = _eur_amount(money.get("amountBorrowed"), "loan.financialInformation.amountBorrowed")
     duration = money.get("duration")
-    if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
-        raise ParseError(INVALID_LOAN_DETAIL, "loan.financialInformation.duration: expected a positive integer")
+    if isinstance(duration, bool) or not isinstance(duration, int) or not 0 < duration <= MAX_LOAN_MONTHS:
+        raise ParseError(INVALID_LOAN_DETAIL, "loan.financialInformation.duration: expected 1 to 600 months")
     percent = _decimal(money.get("nextDuedateRate"), INVALID_LOAN_DETAIL, "loan.financialInformation.nextDuedateRate")
     rate = percent / 100
     if not 0 <= rate <= 1:
@@ -618,11 +665,10 @@ def parse_home_loan_detail(payload: Any) -> dict:
     signature = _iso_date(
         contract.get("subscriptionDate"), INVALID_LOAN_DETAIL, "loan.contractCharacteristic.subscriptionDate"
     )
-    # A duration reaching before year 1 raises ValueError; one too large for a C long
-    # (10^30) raises OverflowError. Either refuses this loan only.
+    # Even within the duration cap, an early last due date can put the first before year 1.
     try:
         first_due = _add_months(last_due, -(duration - 1))
-    except (ValueError, OverflowError):
+    except ValueError:
         raise ParseError(
             INVALID_LOAN_DETAIL, "loan.financialInformation.duration: first due date out of range"
         ) from None

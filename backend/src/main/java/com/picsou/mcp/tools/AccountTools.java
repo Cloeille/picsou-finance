@@ -3,15 +3,23 @@ package com.picsou.mcp.tools;
 import com.picsou.dto.AccountRequest;
 import com.picsou.dto.AccountResponse;
 import com.picsou.dto.HoldingResponse;
+import com.picsou.dto.ScpiPositionRequest;
+import com.picsou.dto.ScpiPositionResponse;
 import com.picsou.dto.SnapshotRequest;
 import com.picsou.mcp.RequiresScope;
 import com.picsou.mcp.Scopes;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
+import com.picsou.model.DistributionFrequency;
+import com.picsou.model.DividendPolicy;
 import com.picsou.service.AccountConnectionService;
 import com.picsou.service.AccountConnectionService.DeletionImpact;
 import com.picsou.service.AccountService;
+import com.picsou.service.ScpiPositionService;
 import com.picsou.service.UserContext;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Validator;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -19,6 +27,7 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 
 /**
  * MCP tools over a member's accounts, holdings, and balance history. Every method resolves the
@@ -27,7 +36,9 @@ import java.util.List;
  * owner's accounts. Account creation is restricted to <em>manual</em> accounts —
  * {@link #createManualAccount} always sets {@code isManual=true}. Deletion also supports synced accounts and can remove saved
  * sessions/credentials, an IBKR or SimpleFIN connection, or an Enable Banking requisition when it is the last
- * account. These tools neither create nor expose credentials and do not run authentication flows.
+ * account. {@link #setScpiPosition} records a SCPI account's share count and prices through the same
+ * service as the account form, so the withdrawal-price valuation rule is never re-implemented here.
+ * These tools neither create nor expose credentials and do not run authentication flows.
  */
 @Component
 public class AccountTools {
@@ -35,11 +46,16 @@ public class AccountTools {
     private final AccountService accountService;
     private final UserContext userContext;
     private final AccountConnectionService accountConnectionService;
+    private final ScpiPositionService scpiPositionService;
+    private final Validator validator;
 
-    public AccountTools(AccountService accountService, UserContext userContext, AccountConnectionService accountConnectionService) {
+    public AccountTools(AccountService accountService, UserContext userContext, AccountConnectionService accountConnectionService,
+                        ScpiPositionService scpiPositionService, Validator validator) {
         this.accountService = accountService;
         this.userContext = userContext;
         this.accountConnectionService = accountConnectionService;
+        this.scpiPositionService = scpiPositionService;
+        this.validator = validator;
     }
 
     @Tool(name = "list_accounts",
@@ -155,5 +171,39 @@ public class AccountTools {
         @ToolParam(description = "Ticker symbol to remove") String ticker) {
         accountService.deleteHolding(accountId, userContext.currentMemberId(), ticker);
         return "Deleted holding " + ticker + " from account " + accountId;
+    }
+
+    @Tool(name = "set_scpi_position",
+        description = "Set a SCPI account's shares, EUR prices per share and distribution. Balance = withdrawal "
+            + "price x shares; with shares but no withdrawal price it is kept (PRICE_INCOMPLETE). Replaces every "
+            + "field except the distribution (omitted = kept, cannot be cleared), so read get_account first. "
+            + "Never changes CORUM/Sofidy links.")
+    @RequiresScope(Scopes.ACCOUNTS_WRITE)
+    public ScpiPositionResponse setScpiPosition(
+        @ToolParam(description = "SCPI account id") Long accountId,
+        @ToolParam(description = "Shares held, may be fractional") BigDecimal shareCount,
+        @ToolParam(description = "Subscription price", required = false) BigDecimal subscriptionPriceEur,
+        @ToolParam(description = "Withdrawal price", required = false) BigDecimal withdrawalPriceEur,
+        @ToolParam(description = "Management company", required = false) String managementCompany,
+        @ToolParam(description = "ISIN", required = false) String isin,
+        @ToolParam(description = "Default CASH", required = false) DividendPolicy dividendPolicy,
+        @ToolParam(description = "Jouissance date, yyyy-MM-dd", required = false) LocalDate jouissanceDate,
+        @ToolParam(description = "Annual cash per share, with distributionFrequency", required = false) BigDecimal annualDistributionPerShareEur,
+        @ToolParam(description = "With annualDistributionPerShareEur", required = false) DistributionFrequency distributionFrequency) {
+        // Null fund codes leave the provider links alone, and this constructor marks the distribution
+        // fields as "not sent" when they are null, so an omitted value keeps the stored one.
+        ScpiPositionRequest request = new ScpiPositionRequest(
+            isin, managementCompany, null, null, shareCount, subscriptionPriceEur, withdrawalPriceEur,
+            dividendPolicy, jouissanceDate, annualDistributionPerShareEur, distributionFrequency);
+        return scpiPositionService.save(accountId, userContext.currentMemberId(), validated(request));
+    }
+
+    /** The bean-validation the REST controller gets from {@code @Valid}, which tool arguments bypass. */
+    private <T> T validated(T request) {
+        Set<ConstraintViolation<T>> violations = validator.validate(request);
+        if (!violations.isEmpty()) {
+            throw new ConstraintViolationException(violations);
+        }
+        return request;
     }
 }

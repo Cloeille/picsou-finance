@@ -192,6 +192,37 @@ class LoanAmortizationServiceTest {
             .containsExactly(LocalDate.parse("2042-02-28"), LocalDate.parse("2042-03-28"), LocalDate.parse("2042-04-28"));
     }
 
+    @Test
+    void paidInstallments_countAnInstallmentFromItsDueDateWhenTheStartIsAClampedMonthEnd() {
+        Debt debt = debt("3000", "0", "1000", "2042-02-28", "2042-05-31");
+
+        assertThat(service.compute(debt, LocalDate.parse("2042-03-30")).summary().paidInstallments()).isZero();
+        assertThat(service.compute(debt, LocalDate.parse("2042-03-31")).summary().paidInstallments()).isEqualTo(1);
+        assertThat(service.computeRemainingBalance(debt, LocalDate.parse("2042-03-30"))).isEqualByComparingTo("3000.00");
+        assertThat(service.computeRemainingBalance(debt, LocalDate.parse("2042-03-31"))).isEqualByComparingTo("2000.00");
+    }
+
+    @Test
+    void paidInstallments_countAnInstallmentFromItsDueDateNotFromTheFirstOfItsMonth() {
+        Debt debt = debt("3000", "0", "1000", "2042-01-15", "2042-04-15");
+
+        assertThat(service.compute(debt, LocalDate.parse("2042-02-14")).summary().paidInstallments()).isZero();
+        assertThat(service.compute(debt, LocalDate.parse("2042-02-15")).summary().paidInstallments()).isEqualTo(1);
+        assertThat(service.computeRemainingBalance(debt, LocalDate.parse("2042-02-14"))).isEqualByComparingTo("3000.00");
+        assertThat(service.computeRemainingBalance(debt, LocalDate.parse("2042-02-15"))).isEqualByComparingTo("2000.00");
+    }
+
+    @Test
+    void paidInstallments_reachTheTotalOnTheEndDateEvenBeforeTheLastDueDay() {
+        // Due on the 15th, but the loan ends on 1 April: repaid from the end date, not from 15 April.
+        Debt debt = debt("3000", "0", "1000", "2042-01-15", "2042-04-01");
+
+        assertThat(service.compute(debt, LocalDate.parse("2042-03-31")).summary().paidInstallments()).isEqualTo(2);
+        var onEndDate = service.compute(debt, LocalDate.parse("2042-04-01")).summary();
+        assertThat(onEndDate.paidInstallments()).isEqualTo(3);
+        assertThat(onEndDate.remainingBalance()).isEqualByComparingTo("0");
+    }
+
     private static Debt debt(String borrowed, String rate, String monthly, String start, String end) {
         return Debt.builder()
             .borrowedAmount(new BigDecimal(borrowed))
