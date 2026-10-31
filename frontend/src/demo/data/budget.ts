@@ -26,8 +26,11 @@ import { mockAccounts } from './accounts'
 // Demo data is generated relative to "today" so the Budget section always looks
 // alive. The payday cycle is the calendar month here (cycleStartDay = 1).
 
+// Local calendar date, not toISOString(): that is UTC and moves local midnight to the
+// previous day anywhere east of Greenwich.
 function iso(d: Date): string {
-  return d.toISOString().split('T')[0]
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 // The transactions page filters on local calendar days; `iso` goes through UTC and can shift them.
@@ -253,6 +256,14 @@ export const mockActivity: RecurringActivity[] = [
   { seriesId: 4, label: 'Salaire', type: 'AUTO_CONFIRMED', occurredOn: daysFromNow(-5), expectedAmount: 3200, previousAmount: null, cadence: 'MONTHLY', categoryId: 1, categoryName: 'Salaire', categoryColor: '#10b981', categoryIcon: null },
 ]
 
+// Monthly cadence step (all demo series are monthly), same as the backend's LocalDate.plusMonths(1):
+// the day is clamped to the end of the next month. setMonth() would roll 31 October over to
+// 1 December and skip November.
+function nextMonth(d: Date): Date {
+  const lastDayOfNextMonth = new Date(d.getFullYear(), d.getMonth() + 2, 0).getDate()
+  return new Date(d.getFullYear(), d.getMonth() + 1, Math.min(d.getDate(), lastDayOfNextMonth))
+}
+
 /** Project upcoming occurrences from the confirmed/suggested series across the horizon. */
 export function mockCalendar(horizonDays: number): RecurringOccurrence[] {
   const occ: RecurringOccurrence[] = []
@@ -273,9 +284,7 @@ export function mockCalendar(horizonDays: number): RecurringOccurrence[] {
         categoryColor: s.categoryColor,
         categoryIcon: s.categoryIcon,
       })
-      // monthly cadence step (all demo series are monthly)
-      due = new Date(due)
-      due.setMonth(due.getMonth() + 1)
+      due = nextMonth(due)
     }
   }
   return occ.sort((a, b) => a.dueDate.localeCompare(b.dueDate))
