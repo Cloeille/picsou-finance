@@ -25,7 +25,8 @@ import java.util.List;
  * <ul>
  *   <li>Issue #174: commit 2839c94 moved the 1.1.0 branch's V80, V81 and V86-V88 to V93-V99.</li>
  *   <li>Issue #265: merging main into 1.1.0 (1906d3a) moved the 1.0.11-1.0.18 releases' V38 and
- *       V54-V64 to V56-V65, V94 and V96, and added comments to V51 and V55-V58.</li>
+ *       V54-V64 to V56-V65, V94 and V96, and added comments to V51 and V55-V58. Release 1.0.6
+ *       applied today's V36 as V33.</li>
  * </ul>
  *
  * <p>Without it, such a database fails validation, and would then re-run the moved files on
@@ -89,7 +90,9 @@ public class LegacyMigrationRenumberingCallback implements Callback {
         new Renumbering("55", "57", "wallet evm account name", -1244807568, -1770899403),
         new Renumbering("54", "56", "wallet ethereum to evm", 903440536),
         new Renumbering("51", "51", "requisition oauth state", 1952390840, 960451194),
-        new Renumbering("38", "94", "backfill tr crypto transaction tickers", 2050086936)
+        new Renumbering("38", "94", "backfill tr crypto transaction tickers", 2050086936),
+        // 1.0.6 applied V36 as V33; 1.0.7 renamed it.
+        new Renumbering("33", "36", "transaction security name", -924862297)
     );
 
     private static final MigrationVersion V47 = MigrationVersion.fromVersion("47");
