@@ -76,6 +76,12 @@ describe('unmasked formatting', () => {
     expect(result).toContain('100')
   })
 
+  it('rounds to whole units when asked, without switching to a compact unit', () => {
+    expect(visible.amount(1373.33, 'EUR', { maximumFractionDigits: 0 })).toMatch(/^1\s373\s€$/)
+    expect(visible.amount(984.72, 'EUR', { maximumFractionDigits: 0 })).toMatch(/^985\s€$/)
+    expect(masked.amount(1373.33, 'EUR', { maximumFractionDigits: 0 })).toBe(masked.amount(1373.33))
+  })
+
   it('still masks when the currency is invalid, rather than falling back to the digits', () => {
     // The RangeError path is the one a leak would hide in: an odd currency code must not be a
     // way back to a legible amount.

@@ -220,6 +220,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The goal calendar shows every month without a hidden scroller.** The year grid now wraps
+  (six months per row on a desktop, three on a phone) and opens on the current month, where it
+  used to cut off at May or June and hide the recent months behind a horizontal scroll. The goal
+  name is the page title, with "Calendrier" above it, instead of "Calendrier de Apport
+  immobilier". Ring amounts and objectives are written in whole euros at 11px or larger, so a
+  row no longer mixes "984,72 €" with "1 k €", and the objective reads 1 373 € like the header.
+  A legend tells the share of the objective reached (94%) from the overshoot (+8%), and the
+  overshoot arc is now drawn at the ring's width (#282).
 - **American Express no longer stores a second copy of a charge AMEX re-describes.** A
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
   `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its
