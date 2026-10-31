@@ -89,6 +89,20 @@ class PageTest(unittest.TestCase):
 
         self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
 
+    def test_currency_code_words_in_layout_tables_keep_all_accounts(self):
+        for text in ("Depuis 2026 ils proposent", "ils 2026", "SOS 24h/24",
+                     "Top 10", "10 top", "mur 1234", "all 10", "ars 2026"):
+            table = f'<table class="layout"><tr><td>{text}</td></tr></table>'
+            page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+            with self.subTest(text=text):
+                self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
+
+    def test_uppercase_currency_codes_still_fail_with_whole_number_balances(self):
+        for currency in ("ILS", "SOS", "TOP", "MUR", "ALL", "ARS"):
+            for text in (f"{currency} 1234", f"1234 {currency}"):
+                with self.subTest(text=text):
+                    self.assert_unknown_row_fails(f"<td>{text}</td>")
+
     def test_plain_text_currency_balances_still_fail_in_account_containers(self):
         for currency in ("EUR", "USD", "GBP", "CHF", "JPY", "AED", "XCG", "ZWG"):
             amount = f"12,34 {currency}"
@@ -277,7 +291,7 @@ class PageTest(unittest.TestCase):
 
         self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
         self.assertIn("nouveaux comptes", str(error.exception))
-        self.assertIn("LIVRET A", str(error.exception))
+        self.assertNotIn("LIVRET A", str(error.exception))
 
     def test_title_only_contract_links_in_unsupported_tables_are_skipped(self):
         rows = '<tr><td><span class="ei_sdsf_title">Vos contrats et nos offres</span></td></tr>'
@@ -583,7 +597,7 @@ class PageTest(unittest.TestCase):
         with self.assertRaises(AccountsFormatError) as error:
             parse_accounts(page)
 
-        self.assertIn("'Nouveau produit'", str(error.exception))
+        self.assertEqual(str(error.exception), "An account table has an unrecognized category 'unnamed'")
 
     def test_a_currency_code_inside_a_product_title_is_not_an_amount(self):
         extra = ('<table class="ei_comptescontrats"><tr><td>'
@@ -626,7 +640,7 @@ class PageTest(unittest.TestCase):
         with self.assertRaises(AccountsFormatError) as error:
             parse_accounts(page)
 
-        self.assertIn("'Compte en roupies'", str(error.exception))
+        self.assertEqual(str(error.exception), "An account table has an unrecognized category 'unnamed'")
 
     def test_an_unknown_category_with_a_balance_is_named_in_the_error(self):
         page = ACCOUNTS_PAGE.replace("Livrets et comptes d&#39;épargne", "Nouveaux comptes")
@@ -635,7 +649,7 @@ class PageTest(unittest.TestCase):
             parse_accounts(page)
 
         self.assertIn("'nouveaux comptes'", str(error.exception))
-        self.assertIn("'LIVRET A'", str(error.exception))
+        self.assertNotIn("'LIVRET A'", str(error.exception))
 
     def assert_unknown_row_fails(self, cells):
         for category in ("", "Nouveaux comptes"):
@@ -662,8 +676,42 @@ class PageTest(unittest.TestCase):
                     f"<td class='nowrap ei_sdsf_solde'>{value}</td>"
                 )
 
+    def test_unknown_rows_with_non_cell_balance_elements_fail(self):
+        for tag in ("div", "span", "strong"):
+            for value in ("1 234", "0", "<span>1 234</span>"):
+                with self.subTest(tag=tag, value=value):
+                    self.assert_unknown_row_fails(
+                        '<td><span class="ei_sdsf_title">LIVRET X</span></td>'
+                        f'<td><{tag} class="ei_sdsf_solde">{value}</{tag}></td>'
+                    )
+
+    def test_unbalanced_titles_cannot_hide_whole_number_balances(self):
+        for cells in (
+            '<td><span class="ei_sdsf_title">X<td>1 234 EUR</td>',
+            '<td><span class="ei_sdsf_title">X</td><td>1 234 EUR</td>',
+            '<td><span class="ei_sdsf_title">X<span></span></td><th>1 234 EUR</th>',
+            '<td><span class="ei_sdsf_title">X 1 234 EUR',
+        ):
+            with self.subTest(cells=cells):
+                self.assert_unknown_row_fails(cells)
+
+    def test_unknown_category_error_omits_sensitive_product_text(self):
+        title = "Assurance 12 500,00 EUR M EXAMPLE"
+        row = f'<tr><td><span class="ei_sdsf_title">{title}</span></td></tr>'
+        for category in ("", "Nouveaux contrats"):
+            page = "<html><body>" + accounts_table(category, row) + "</body></html>"
+            with self.subTest(category=category):
+                with self.assertRaises(AccountsFormatError) as error:
+                    parse_accounts(page)
+                self.assertEqual(
+                    str(error.exception),
+                    f"An account table has an unrecognized category {category.lower() or 'unnamed'!r}",
+                )
+                for private_text in (title, "12 500", "EXAMPLE", "Assurance"):
+                    self.assertNotIn(private_text, str(error.exception))
+
     def test_unknown_rows_with_prefix_or_lowercase_currency_fail(self):
-        for amount in ("EUR 1 234,56", "ARS 2026", "ars 2026", "€ 1 234", "1 234,56 eur", "eur 1 234,56",
+        for amount in ("EUR 1 234,56", "ARS 2026", "€ 1 234", "1 234,56 eur", "eur 1 234,56",
                        "$1 234", "£1 234", "€ -1 234", "EUR -1 234,56"):
             with self.subTest(amount=amount):
                 self.assert_unknown_row_fails(f"<td>{amount}</td>")
@@ -688,14 +736,14 @@ class PageTest(unittest.TestCase):
                     f'<span>{amount}</span></span></td>'
                 )
 
-    def test_unknown_category_and_product_diagnostics_are_bounded(self):
+    def test_unknown_category_diagnostic_is_bounded_and_product_is_omitted(self):
         row = account_row(9, "P" * 500, "0001 12345678", "+12,34 EUR")
         table = accounts_table("C" * 500, row)
         with self.assertRaises(AccountsFormatError) as error:
             parse_accounts(f"<html><body>{table}</body></html>")
         self.assertEqual(
             str(error.exception),
-            f"An account table has an unrecognized category {'c' * 60!r}, product {'P' * 60!r}",
+            f"An account table has an unrecognized category {'c' * 60!r}",
         )
 
     def test_long_numeric_runs_do_not_retry_at_each_digit(self):
@@ -704,6 +752,7 @@ class PageTest(unittest.TestCase):
             [sys.executable, "-c", "from accounts_parser import _has_balance\n"
              "row = '<td>' + '1 ' * 20000 + '</td>'\n"
              "assert not _has_balance(row)\n"
+             "assert not _has_balance(row + 'h')\n"
              "assert _has_balance(row + '<td>12,34 EUR</td>')\n"],
             capture_output=True, text=True, timeout=3,
         )

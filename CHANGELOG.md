@@ -71,15 +71,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its password. Unreadable account rows and unrecognized tables containing balances fail the
   whole import. Contract links without balances are skipped in unnamed or unsupported tables.
   Account-number markers and nonempty balance cells in those tables also fail the import,
-  including bare numeric balances. Unknown-category errors name the category and product,
-  each limited to 60 characters. Plain-text balances, including dollar
+  including bare numeric balances on any element carrying the balance class.
+  Unknown-category errors name only the category, limited to 60 characters, so product titles
+  containing holder names or balances do not reach logs. Plain-text balances, including dollar
   and pound symbols, and account data in unrecognized table or row blocks cannot be silently dropped.
   Summary totals, promotions, and grey-text elements outside tables or rows are ignored.
   Complete document and table endings and unique account-row fields remain required; category
   reporting distinguishes missing tables from present empty ones before a snapshot is certified.
-  Currency codes are case-insensitive and accepted before or after the number, as are currency
-  symbols, including whole-number amounts. Money nested in product titles is detected when it
+  Uppercase currency codes are accepted before or after the number, as are currency
+  symbols, including whole-number amounts; `EUR` also accepts lowercase.
+  Ordinary words such as `ils` or `Top 10` and help text such as `SOS 24h/24`
+  in layout tables do not block imports. Money nested in product titles is detected when it
   includes decimal punctuation or a symbol; a title such as `Contrat 2024 USD` remains a link.
+  Malformed title markup cannot hide balances in following cells. Markers and both text
+  variants are collected in one HTML pass per fragment.
   Numeric runs are scanned once to avoid quadratic retries on long text without currency.
   Script and style bodies are excluded before table and marker detection, so JavaScript
   replacement strings, class references, and CSS selectors do not
@@ -90,20 +95,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on actual elements; commented markup, attribute text, and partial class names are ignored.
   Balance text is extracted with an HTML parser, so amounts in comments or quoted attributes,
   including values containing `>`, do not block valid imports.
-  Savings captions accept typographic apostrophes. A wrong SMS code can be corrected
-  its password. Unreadable account rows and unrecognized tables containing account data fail the
-  whole import, including renamed tables, rows outside the parser's selectors, and truncated
-  account tables or rows, preserving existing balances and snapshots. Recognized contract tables
-  also fail when cut off after their opening tag or caption, before any account markers appear.
-  The accounts page must end with its closing HTML tag, so cuts between tables or within their
-  opening tags also fail without changing balances or snapshots. Complete pages containing only
-  checking accounts remain valid.
+  Truncated pages, renamed account tables, and rows outside the parser's selectors fail
+  without changing balances or snapshots. Contract tables cut off before any account markers
+  also fail. Complete pages containing only checking accounts remain valid.
   Completion has its own 10-attempt quota per IP per 15 minutes,
   separate from the five password checks shared by initiate and reconnect.
   Savings captions accept typographic apostrophes. Savings labels with accents or typographic
   apostrophes are recognized. The CIC panel is now translated into German and Spanish.
-  A wrong SMS code can be corrected
-  without another login, and expired attempts have their pending passwords cleared every minute.
+  A wrong SMS code can be corrected without another login, and expired attempts have their
+  pending passwords cleared every minute.
   Rejected credentials make the session inactive and require credential entry, including after an
   explicit reconnect, without erasing a newer login's password. Expired sessions stay in *Sync all*
   before their first import. MCP `get_sync_status`

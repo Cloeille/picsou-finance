@@ -71,10 +71,10 @@ _CURRENCY_CODES = frozenset((
 ).split())
 # Consume each numeric run once, even when it has no currency. Optional currency
 # tokens cannot force retries at every digit of a long nonmonetary run.
+# Only EUR is case-insensitive: other lowercase ISO codes collide with prose.
 _BALANCE_RE = re.compile(
-    r"(?:(?P<prefix>\b[A-Z]{3}\b|[€$£])\s*+[+-]?\s*+)?"
-    r"(?P<number>\d[\d\s.,]*+)(?P<suffix>[A-Z]{3}\b|[€$£])?",
-    re.IGNORECASE,
+    r"(?:(?P<prefix>\b(?:[A-Z]{3}|(?i:EUR))\b|[€$£])\s*+[+-]?\s*+)?"
+    r"(?P<number>\d[\d\s.,]*+)(?P<suffix>(?:[A-Z]{3}|(?i:EUR))\b|[€$£])?",
 )
 
 # Ordered: the first match wins, so the specific products come before the
@@ -95,57 +95,77 @@ class AccountsFormatError(Exception):
         self.code = code
 
 
-class _ClassMarkerParser(HTMLParser):
-    def __init__(self, markers: set[str]):
-        super().__init__()
-        self.markers = markers
-        self.found = False
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        classes = next((value for name, value in attrs if name == "class"), None)
-        self.found |= bool(classes and self.markers.intersection(classes.split()))
-
-
 class _TextParser(HTMLParser):
-    def __init__(self, *, ignore_titles: bool = False):
+    # Void elements never enclose title or balance text.
+    _VOID_TAGS = frozenset((
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    ))
+
+    def __init__(self):
         super().__init__()
         self.parts: list[str] = []
+        self.outside_title_parts: list[str] = []
+        self.classes: set[str] = set()
         self.ignored_tag: str | None = None
-        self.ignore_titles = ignore_titles
-        self.title_depth = 0
+        self.in_title = False
         self.in_balance_cell = False
         self.has_balance_text = False
+        self.stack: list[tuple[str, bool, bool]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        classes = next((value for name, value in attrs if name == "class"), None)
+        if self.ignored_tag is not None:
+            return
         if tag in ("script", "style"):
             self.ignored_tag = tag
+            return
+        # HTMLParser does not close cells implicitly. A missing </span> or </td>
+        # must not let a product title hide the balance in the next cell.
         if tag in ("td", "th"):
-            self.in_balance_cell = bool(classes and "ei_sdsf_solde" in classes.split())
-        if tag == "span":
-            if self.title_depth or (self.ignore_titles and classes and "ei_sdsf_title" in classes.split()):
-                self.title_depth += 1
+            for open_tag, _, _ in reversed(self.stack):
+                if open_tag in ("td", "th"):
+                    self.handle_endtag(open_tag)
+                    break
+        classes = next((value for name, value in attrs if name == "class"), None)
+        tokens = set(classes.split()) if classes else set()
+        self.classes.update(tokens)
+        if tag not in self._VOID_TAGS:
+            self.stack.append((tag, self.in_title, self.in_balance_cell))
+            self.in_title |= "ei_sdsf_title" in tokens
+            self.in_balance_cell |= "ei_sdsf_solde" in tokens
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in ("td", "th"):
-            self.in_balance_cell = False
-        if tag == self.ignored_tag:
-            self.ignored_tag = None
-        if tag == "span" and self.title_depth:
-            self.title_depth -= 1
+        if self.ignored_tag is not None:
+            if tag == self.ignored_tag:
+                self.ignored_tag = None
+            return
+        for index in range(len(self.stack) - 1, -1, -1):
+            open_tag, was_title, was_balance = self.stack[index]
+            if open_tag == tag:
+                self.in_title = was_title
+                self.in_balance_cell = was_balance
+                del self.stack[index:]
+                break
 
     def handle_data(self, data: str) -> None:
-        if self.ignored_tag is None and self.in_balance_cell and data.strip():
+        if self.ignored_tag is not None:
+            return
+        if self.in_balance_cell and data.strip():
             self.has_balance_text = True
-        if self.ignored_tag is None and not self.title_depth:
-            self.parts.append(data)
+        self.parts.append(data)
+        if not self.in_title:
+            self.outside_title_parts.append(data)
 
 
-def _text(fragment: str, *, ignore_titles: bool = False) -> str:
-    parser = _TextParser(ignore_titles=ignore_titles)
+def _parse_text(fragment: str) -> _TextParser:
+    parser = _TextParser()
     parser.feed(fragment)
     parser.close()
-    return " ".join(" ".join(parser.parts).split())
+    return parser
+
+
+def _text(fragment: str) -> str:
+    return " ".join(" ".join(_parse_text(fragment).parts).split())
 
 
 def parse_amount(raw: str) -> Decimal:
@@ -187,14 +207,14 @@ def _category(table: str) -> str:
     return match.group("name").strip().lower().replace("’", "'") if match else ""
 
 
-def _has_class_marker(fragment: str, markers: set[str]) -> bool:
-    marker = _ClassMarkerParser(markers)
-    marker.feed(fragment)
-    return marker.found
-
-
 def _has_money(text: str, *, explicit: bool = False) -> bool:
     for match in _BALANCE_RE.finditer(text):
+        # Reject quantities such as "SOS 24h/24" after consuming the run, so
+        # boundary failures cannot restart the regex at every following digit.
+        following = text[match.end():match.end() + 1]
+        if (not match.group("suffix") and match.group("number")[-1].isdigit()
+                and following and (following.isalnum() or following in "_/")):
+            continue
         currencies = (match.group("prefix"), match.group("suffix"))
         if not any(token and (token in "€$£" or token.upper() in _CURRENCY_CODES)
                    for token in currencies):
@@ -207,20 +227,24 @@ def _has_money(text: str, *, explicit: bool = False) -> bool:
     return False
 
 
+def _balance_data(parser: _TextParser) -> bool:
+    # Number markers and nonempty balance elements must fail closed even when
+    # the amount format changed. Empty elements still accompany title-only links.
+    return (bool(parser.classes & {"ei_sdsf_montant", "doux"})
+            or parser.has_balance_text
+            or _has_money(" ".join(parser.outside_title_parts))
+            # An unterminated title cannot safely exclude whole-number balances.
+            or _has_money(" ".join(parser.parts), explicit=not parser.in_title))
+
+
 def _has_balance(fragment: str) -> bool:
-    # Number markers and nonempty balance cells must fail closed even when the
-    # amount format changed. Empty cells still occur beside title-only links.
-    if _has_class_marker(fragment, {"ei_sdsf_montant", "doux"}):
-        return True
-    parser = _TextParser(ignore_titles=True)
-    parser.feed(fragment)
-    parser.close()
-    return (parser.has_balance_text or _has_money(" ".join(parser.parts))
-            or _has_money(_text(fragment), explicit=True))
+    return _balance_data(_parse_text(fragment))
 
 
 def _has_account_data(fragment: str) -> bool:
-    return _has_class_marker(fragment, {"ei_sdsf_title", "doux", "ei_sdsf_solde"}) or _has_balance(fragment)
+    parser = _parse_text(fragment)
+    return (bool(parser.classes & {"ei_sdsf_title", "doux", "ei_sdsf_solde"})
+            or _balance_data(parser))
 
 
 # What the backend calls each in-scope table: it closes an account no longer
@@ -273,11 +297,10 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
             if not supported:
                 # A title without an account number or balance can be an offer link.
                 if _has_balance(cells):
-                    label = _text(title.group("title"))[:60] if title else ""
-                    product = f", product {label!r}" if label else ""
+                    # Product titles may contain holder names and balances.
                     raise AccountsFormatError(
                         FORMAT_CHANGED,
-                        f"An account table has an unrecognized category {category[:60] or 'unnamed'!r}{product}",
+                        f"An account table has an unrecognized category {category[:60] or 'unnamed'!r}",
                     )
                 continue
             if not _has_account_data(cells):

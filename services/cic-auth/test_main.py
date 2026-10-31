@@ -252,6 +252,23 @@ class FlowTest(unittest.TestCase):
 
         self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
 
+    def test_unknown_product_names_and_balances_do_not_reach_logs(self):
+        session = self.confirm()
+        title = "Assurance 12 500,00 EUR M EXAMPLE"
+        row = f'<tr><td><span class="ei_sdsf_title">{title}</span></td></tr>'
+        table = accounts_table("Nouveaux contrats", row)
+        self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+
+        for path in ("/accounts", "/accounts/listing"):
+            with self.subTest(path=path), self.assertLogs(main.log, level="WARNING") as logs:
+                response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+            self.assertEqual((response.status_code, response.json()),
+                             (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
+            message = " ".join(logs.output)
+            self.assertIn("nouveaux contrats", message)
+            for private_text in (title, "12 500", "EXAMPLE", "Assurance"):
+                self.assertNotIn(private_text, message)
+
     def test_a_renamed_savings_table_cannot_certify_a_partial_snapshot(self):
         session = self.confirm()
         prefix, remaining = ACCOUNTS_PAGE.split("ei_comptescontrats", 1)
@@ -353,6 +370,8 @@ class FlowTest(unittest.TestCase):
     def test_incidental_page_content_and_title_only_contracts_preserve_certified_accounts(self):
         session = self.confirm()
         fragments = (
+            '<table class="layout"><tr><td>Depuis 2026 ils proposent. '
+            'SOS 24h/24. Top 10</td></tr></table>',
             "<p>Total : 10 135,06 EUR</p>",
             '<div class="doux">Mentions légales</div>',
             "<p>Jusqu'à 80 € offerts</p>",

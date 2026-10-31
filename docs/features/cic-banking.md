@@ -28,20 +28,27 @@ balance.
   or balance data. A product title alone, such as "Vos contrats et nos offres", can be a
   contract link without a balance, including when accompanied by an empty `ei_sdsf_solde` cell.
   An actual `doux` account-number
-  marker or any visible non-whitespace text in an `ei_sdsf_solde` cell fails closed, including
+  marker or any visible non-whitespace text in an `ei_sdsf_solde` element fails closed, including
   bare numeric balances without a currency. Product-title text requires decimal punctuation
   or a currency symbol to count as money, so a name such as "Contrat 2024 USD" is not a balance,
   while nested text such as "1 234,56 EUR" is. Amount markers
-  still count even inside titles. Empty balance cells remain account markers in supported
+  still count even inside titles. Balance elements can be cells, spans, divs, or other
+  containers. Unbalanced title markup cannot suppress balances in following cells;
+  an unterminated title is also scanned for whole-number balances. Empty balance cells remain
+  account markers in supported
   tables and unrecognized table or row blocks, preserving strict completeness checks.
   An unnamed or unrecognized table with a balance fails the whole page. Its error names the
-  normalized category and product title when available, each truncated to 60 characters. Balance
-  detection uses amount class tokens on actual elements or plain-text money with a
-  case-insensitive currency code or a `€`, `$`, or `£` symbol on either side of the amount,
+  normalized category, truncated to 60 characters. Product titles are omitted because they
+  can contain holder names and balances that must not reach sidecar logs. Balance
+  detection collects element class tokens, balance-element text, and text with and without
+  titles in one HTML parse per fragment. Plain-text money requires an uppercase ISO currency code
+  (except `EUR`, which remains case-insensitive) or a `€`, `$`, or `£` symbol on either side of the amount,
   including whole-number amounts. Numeric runs are tokenized once so long text without a
   currency does not trigger quadratic regex retries.
   Alphabetic currency prefixes must be whole words, so a date such as `31 mars 2026`
-  in a layout table is not mistaken for an `ARS` balance.
+  in a layout table is not mistaken for an `ARS` balance. Lowercase words such as
+  `ils`, `top`, `mur`, or `all` are not currency tokens. A number immediately
+  followed by a unit, as in `SOS 24h/24`, is not a balance.
   Alphabetic currency tokens must belong to the local ISO 4217 code set, taken from
   [SIX List One](https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml)
   published on 2026-09-17. Ordinary text such as `© 2026 CIC` does not count as money. Scanning
@@ -140,9 +147,12 @@ two in Settings → Accounts.
   documents and tables, orphan or unparsed account rows, and merged account rows. Totals,
   promotional amounts, and legal text outside tables or rows preserve all parsed accounts.
   Title-only contracts with empty balance cells or currency codes in their names are skipped,
-  while visible balances after nested titles still fail the whole page.
+  while visible balances after nested or malformed titles still fail the whole page.
+  Non-cell balance elements, prose that overlaps ISO codes, and privacy of unknown-category
+  error messages have explicit regression cases.
 - `services/cic-auth/test_main.py` checks that incomplete and renamed tables return HTTP 502
-  before a snapshot or category evidence is certified. Complete checking-only pages remain
+  before a snapshot or category evidence is certified. Unknown-category warnings omit product
+  names and balances. Complete checking-only pages remain
   valid, and listing responses distinguish missing savings tables from empty ones.
 - `CicAdapterTest` preserves the format-change error across the sidecar boundary.
   `CicSyncServiceTest` checks that a failed fetch leaves existing balances and snapshots untouched.
