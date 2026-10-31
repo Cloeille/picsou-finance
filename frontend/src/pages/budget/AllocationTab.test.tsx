@@ -70,6 +70,7 @@ describe('AllocationTab total', () => {
     const total = screen.getByTestId('allocation-total')
     const visible = total.textContent
     expect(visible).toContain('12.5K')
+    expect(visible).toContain('€')
 
     act(() => { useAppStore.getState().setHideAmounts(true) })
     expect(total).toHaveTextContent(AMOUNT_MASK)

@@ -49,7 +49,7 @@ function files(predicate: (source: string, path: string) => boolean): string[] {
     .map(([path]) => normalise(path))
 }
 
-const hasCompactNotation = (source: string) => /\bnotation\s*:\s*['"]compact['"]/.test(source)
+const hasCompactNotation = (source: string) => /(?:\bnotation|(['"])notation\1)\s*:\s*['"]compact['"]/.test(source)
 
 describe('nothing bypasses the masked formatter', () => {
   it('keeps the raw formatter to its audited callers', () => {
@@ -77,6 +77,8 @@ describe('nothing bypasses the masked formatter', () => {
       'src/pages/goals/GoalCalendarPage.tsx',
       // Asserts the formatter put the symbol there; renders nothing.
       'src/lib/money-axis.test.tsx',
+      // Same: asserts the donut total carries the formatter's symbol; renders nothing.
+      'src/pages/budget/AllocationTab.test.tsx',
     ]
     const offenders = files((s, path) => path.endsWith('.tsx') && s.includes('€'))
       .filter((f) => !allowed.includes(f))
@@ -87,6 +89,8 @@ describe('nothing bypasses the masked formatter', () => {
   it('recognises compact notation even without currency style', () => {
     expect(hasCompactNotation("new Intl.NumberFormat(locale, { notation: 'compact' }).format(total)")).toBe(true)
     expect(hasCompactNotation('new Intl.NumberFormat(locale, { notation : "compact" }).format(total)')).toBe(true)
+    expect(hasCompactNotation("new Intl.NumberFormat(locale, { 'notation': 'compact' }).format(total)")).toBe(true)
+    expect(hasCompactNotation('new Intl.NumberFormat(locale, { "notation": "compact" }).format(total)')).toBe(true)
     expect(hasCompactNotation("new Intl.NumberFormat(locale, { notation: 'standard' }).format(count)")).toBe(false)
   })
 
