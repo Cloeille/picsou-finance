@@ -271,6 +271,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Monthly payments read "/mois" in French.** The debts card printed a hard-coded English
   "/mo" after each payment, and the dashboard said "1 autres objectifs" when one goal was left
   off the summary (#277).
+- **Controls no longer spill out of their card on phones** (#273). At 360–390px the Settings
+  theme and language switches (Spanish was hidden), the family sharing choices, the Analysis
+  card toggles and the account Transactions buttons were cut at the card edge. Settings and
+  sharing choices now stretch across the card, and card toggles move under the title. The
+  Accounts filters and Sync providers sit on one row you can swipe instead of up to eight
+  ragged rows; that row, like the Budget sections, fades at the edge that hides more, opens
+  on the current section and brings a newly picked tab fully into view, without cutting the
+  keyboard focus ring or undoing a swipe when a count loads late. Goal names and page titles wrap to a second line instead of being
+  cut with an ellipsis.
 - **Phone layout: page margins, the end of each page, and Family.** On a phone, pages ran 4 px
   from the screen edge while the bottom bar sat 16 px in, and the last card of every page
   touched the bar. Pages now keep the bar's 16 px margin on every side and end 16 px above it.
