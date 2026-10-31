@@ -86,6 +86,8 @@ describe('nothing bypasses the masked formatter', () => {
     const allowed = [
       // Its axis is a share of the portfolio, in percent — there is no magnitude to hide.
       'src/pages/analysis/AllocationTrajectory.tsx',
+      // Measures the ticks Recharts draws for yAxisWidth on synthetic values; renders no amount.
+      'src/lib/chart-axis.test.tsx',
     ]
     const offenders = files((s) =>
       s.includes('<YAxis') && s.includes('tickFormatter') && !s.includes('useMoney'),

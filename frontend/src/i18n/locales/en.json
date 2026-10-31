@@ -203,6 +203,7 @@
     "priceStale": "Price from {{time}}",
     "priceAsOf": "Price from {{date}} — the price provider did not respond",
     "history": "History",
+    "valueAndInvested": "Value and invested capital",
     "manual": "Manual",
     "allTypes": "All types",
     "accountName": "Account name",
@@ -235,7 +236,7 @@
       "next": "Next dividends",
       "exDate": "Ex-date",
       "paymentDate": "Payment",
-      "paymentUnknown": "Payment date unknown",
+      "paymentUnknown": "Unknown date",
       "estimated": "estimated",
       "announced": "Announced",
       "estimatedBasis": "Estimated",
@@ -895,6 +896,8 @@
       "emptyHint": "Create an envelope to track spending by category.",
       "error": "Could not load envelopes.",
       "deleteTitle": "Delete envelope",
+      "remaining": "{{amount}} left · {{percent}}",
+      "overspent": "{{amount}} over · {{percent}}",
       "deleteDescription": "Delete the \"{{name}}\" envelope? Transactions are kept."
     },
     "recurring": {

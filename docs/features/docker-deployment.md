@@ -1,6 +1,6 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-10-31 (Crédit Mutuel / CIC Épargne Salariale sidecar)
+> Last updated: 2026-10-31 (CI release image build reuses the GitHub Actions layer cache)
 
 ## Context
 
@@ -58,6 +58,14 @@ PostgreSQL 16 and the optional Caddy TLS proxy use upstream images.
 1. **`frontend-build`** — `oven/bun:alpine`. `bun install --frozen-lockfile`, `bun run build`. Output: `dist/`.
 2. **`backend-build`** — `maven:3.9-eclipse-temurin-21-alpine`. `mvn dependency:go-offline` (layer cache), then `mvn package -DskipTests`. Output: fat JAR.
 3. **Runtime** — `eclipse-temurin:21-jre-jammy`. Installs Nginx + supervisor + openssl. Copies `dist/` and JAR from build stages plus `docker/{nginx.conf,supervisord.conf,entrypoint.sh}`.
+
+The two build stages run on `--platform=$BUILDPLATFORM`: `dist/` and the JAR are the same on
+every architecture, so the multi-platform publish builds them once, natively, and only the
+runtime stage runs per target (arm64 under QEMU). `APP_VERSION` and `VITE_*` are declared after
+the dependency installs, so a new `APP_VERSION` reuses the bun, Maven and apt layers (an edit to
+`frontend/package.json` still reinstalls the bun dependencies). The
+Dockerfile therefore needs BuildKit (the default builder once `docker buildx` is installed);
+the legacy builder rejects the empty `$BUILDPLATFORM`.
 
 `supervisord` manages **two** processes in the main container:
 
@@ -331,9 +339,15 @@ docker load < picsou-release.tar.gz
 The app and all twelve sidecar images are published by `.github/workflows/docker.yml`
 (matrix build, one entry per image) **only after CI is green**: backend tests, frontend
 lint/typecheck/unit, Playwright e2e, every sidecar's image tests, the Compose sidecar build
-and the workflow inventory. `ci.yml` calls that workflow on a successful `push` to `main` or a
+and the workflow inventory, then the `ci-ok` gate. `ci.yml` calls that workflow on a successful `push` to `main` or a
 version tag — not on pull requests, so a failing test never produces `nightly` / `latest` /
 semver. `docker.yml` has no `workflow_dispatch`: a manual run would publish without that gate.
+
+On a pull request, the `changes` job selects only the jobs the changed paths can affect
+(`dorny/paths-filter`; any `.github/**` change selects all of them), and a new push cancels
+the stale run. Pushes to `main`, tags and pull requests of 3000 files or more run every job.
+`ci-ok` fails when a selected job did not succeed or when any job failed or was cancelled,
+so it is the one check branch protection needs.
 
 To deploy from the registry instead of building or loading a tar.gz:
 
@@ -525,7 +539,11 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
   isolation against command doubles. CI runs it independently of the application tests.
 - `ReleaseMigrationCliTest` checks strict migration history and idempotency on real PostgreSQL.
 - CI builds the release image and runs `test_deploy_integration.py` against real PostgreSQL,
-  the packaged JAR, the normal application entrypoint, and its Nginx API route.
+  the packaged JAR, the normal application entrypoint, and its Nginx API route. The build goes
+  through Buildx with the GitHub Actions layer cache (its own `release-smoke` scope, plus the
+  release build's `app` scope from `docker.yml`), so Maven Central and the npm registry are only
+  contacted when `backend/pom.xml` or `frontend/bun.lock` changes. Cold builds from shared runners
+  were rejected by Maven Central with `429 Too Many Requests`.
 - Build validation: `docker build -f docker/Dockerfile .`.
 - Backend unit tests run separately via `./mvnw test` (not in Docker build — skipped with `-DskipTests`).
 - `LegacyMigrationRenumberingTest` (Testcontainers) upgrades databases built under the old V80–V88

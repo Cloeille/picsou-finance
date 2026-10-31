@@ -1,8 +1,11 @@
 """Regression checks for published sidecar and image-test workflow coverage."""
 
 from collections import Counter
+import json
+import os
 from pathlib import Path
 import re
+import subprocess
 import unittest
 
 import yaml
@@ -11,6 +14,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 DOCKER_WORKFLOW = ROOT / ".github/workflows/docker.yml"
 CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
+CODEQL_WORKFLOW = ROOT / ".github/workflows/codeql.yml"
+APP_DOCKERFILE = ROOT / "docker/Dockerfile"
 ROOT_COMPOSE = ROOT / "docker-compose.yml"
 DOCKER_COMPOSE = ROOT / "docker/docker-compose.yml"
 BASE_DOCKERFILE = "services/base/Dockerfile"
@@ -125,6 +130,208 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
                     mount = f"services/{service}/{test_file.name}:/tests/{test_file.name}:ro"
                     with self.subTest(test_file=test_file.name):
                         self.assertIn(mount, commands)
+
+
+SELECTOR = "changes"
+GATE = "ci-ok"
+PUBLISH = "docker"
+
+
+def _gated(jobs):
+    return set(jobs) - {SELECTOR, GATE, PUBLISH}
+
+
+def _flatten(patterns):
+    for pattern in patterns:
+        if isinstance(pattern, list):
+            yield from _flatten(pattern)
+        else:
+            yield pattern
+
+
+def _filter_step(jobs):
+    return next(step for step in jobs[SELECTOR]["steps"] if step.get("id") == "filter")
+
+
+def _filters(jobs):
+    raw = yaml.safe_load(_filter_step(jobs)["with"]["filters"])
+    return {name: list(_flatten(patterns)) for name, patterns in raw.items()}
+
+
+def _glob_matches(pattern, path):
+    regex = "".join(
+        ".*" if part == "**" else "[^/]*" if part == "*" else re.escape(part)
+        for part in re.split(r"(\*\*|\*)", pattern)
+    )
+    return re.fullmatch(regex, path) is not None
+
+
+def _selected(jobs, path):
+    return {
+        name
+        for name, patterns in _filters(jobs).items()
+        if name in _gated(jobs) and any(_glob_matches(pattern, path) for pattern in patterns)
+    }
+
+
+def _gate(needs):
+    script = _run_commands(_load(CI_WORKFLOW)["jobs"][GATE])
+    return subprocess.run(
+        ["bash", "-c", script],
+        env={**os.environ, "NEEDS": json.dumps(needs)},
+        capture_output=True,
+        text=True,
+    )
+
+
+class CiJobSelectionTest(unittest.TestCase):
+    def test_only_a_pull_requests_stale_run_is_cancelled(self):
+        for path in (CI_WORKFLOW, CODEQL_WORKFLOW):
+            with self.subTest(workflow=path.name):
+                concurrency = _load(path)["concurrency"]
+                self.assertEqual(
+                    concurrency["group"],
+                    "${{ github.workflow }}-${{ github.event_name == 'pull_request'"
+                    " && github.event.pull_request.number || github.run_id }}",
+                )
+                self.assertEqual(concurrency["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
+
+    def test_every_job_runs_only_when_the_selector_picks_it(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        outputs = jobs[SELECTOR]["outputs"]
+        self.assertEqual(set(outputs), _gated(jobs))
+        self.assertEqual(set(_filters(jobs)) - {"workflows"}, _gated(jobs))
+        self.assertEqual(
+            _filter_step(jobs)["if"],
+            "github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000",
+        )
+        for name in _gated(jobs):
+            with self.subTest(job=name):
+                self.assertEqual(jobs[name]["needs"], SELECTOR)
+                self.assertEqual(jobs[name]["if"], f"needs.changes.outputs.{name} == 'true'")
+                self.assertEqual(
+                    outputs[name],
+                    f"${{{{ steps.filter.outcome == 'skipped' || steps.filter.outputs.{name} == 'true' }}}}",
+                )
+
+    def test_a_change_selects_the_jobs_it_can_affect(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        sidecars = {name for name in _gated(jobs) if name.endswith("-sidecar")}
+        services = {"compose-sidecar-build", "workflow-inventory"}
+        cases = {
+            "docs/features/budget.md": set(),
+            "CHANGELOG.md": set(),
+            "frontend/src/App.tsx": {"frontend", "e2e", "release-deployment"},
+            "backend/src/main/java/com/picsou/App.java": {"backend", "release-deployment"},
+            "docker/entrypoint.sh": {"backend", "docker-entrypoint", "release-deployment"},
+            "docker/Dockerfile": {"docker-entrypoint", "release-deployment", "workflow-inventory"},
+            "docker/docker-compose.yml": {"docker-entrypoint", "release-deployment"} | services,
+            "docker-compose.yml": {"workflow-inventory"},
+            "services/sofidy-auth/main.py": {"sofidy-sidecar", "backend"} | services,
+            "services/tr-auth/main.py": {"tr-auth-sidecar"} | services,
+            "services/base/requirements.txt": sidecars | {"backend"} | services,
+            ".github/workflows/ci.yml": _gated(jobs),
+            ".github/tests/test_sidecar_workflows.py": _gated(jobs),
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(_selected(jobs, path), expected)
+
+    def test_each_sidecar_job_runs_for_its_own_service(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        tested = 0
+        for name in _gated(jobs):
+            for service in re.findall(r"docker build --tag picsou-([a-z-]+):test services/", _run_commands(jobs[name])):
+                with self.subTest(job=name, service=service):
+                    tested += 1
+                    self.assertIn(name, _selected(jobs, f"services/{service}/main.py"))
+        self.assertEqual(tested, len(list((ROOT / "services").glob("*-auth/Dockerfile"))))
+
+    def test_the_gate_waits_for_every_job_and_publishing_waits_for_the_gate(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        self.assertEqual(jobs[GATE]["if"], "always()")
+        self.assertEqual(set(jobs[GATE]["needs"]), _gated(jobs) | {SELECTOR})
+        self.assertIn(GATE, jobs[PUBLISH]["needs"])
+
+    def test_the_gate_is_green_only_when_every_selected_job_succeeded(self):
+        jobs = _gated(_load(CI_WORKFLOW)["jobs"])
+        frontend_only = {"frontend", "e2e", "release-deployment"}
+
+        def needs(selected, **results):
+            needs = {
+                name: {"result": "success" if name in selected else "skipped", "outputs": {}}
+                for name in jobs
+            }
+            outputs = {name: str(name in selected).lower() for name in jobs}
+            needs[SELECTOR] = {"result": "success", "outputs": outputs}
+            for name, result in results.items():
+                needs[name]["result"] = result
+            return needs
+
+        selector_failed = {name: {"result": "skipped", "outputs": {}} for name in jobs}
+        selector_failed[SELECTOR] = {"result": "failure", "outputs": {}}
+        cases = {
+            "everything selected and green": (needs(jobs), True),
+            "frontend change, other jobs skipped": (needs(frontend_only), True),
+            "selected job skipped": (needs(frontend_only, e2e="skipped"), False),
+            "selected job failed": (needs(frontend_only, e2e="failure"), False),
+            "selected job cancelled": (needs(frontend_only, frontend="cancelled"), False),
+            "unselected job failed": (needs(frontend_only, backend="failure"), False),
+            "selector failed": (selector_failed, False),
+        }
+        for case, (state, green) in cases.items():
+            with self.subTest(case=case):
+                result = _gate(state)
+                self.assertEqual(result.returncode == 0, green, result.stderr)
+
+    def test_the_demo_playwright_suite_runs_once(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        running = [name for name, job in jobs.items() if "test:e2e" in _run_commands(job)]
+
+        self.assertEqual(running, ["e2e"])
+
+    def test_frontend_jobs_restore_bun_downloads_before_installing(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        for name in ("frontend", "e2e"):
+            with self.subTest(job=name):
+                steps = jobs[name]["steps"]
+                cache = next(
+                    index for index, step in enumerate(steps)
+                    if step.get("with", {}).get("path") == "~/.bun/install/cache"
+                )
+                install = next(index for index, step in enumerate(steps) if "bun install" in step.get("run", ""))
+                self.assertLess(cache, install)
+                self.assertIn("hashFiles('frontend/bun.lock')", steps[cache]["with"]["key"])
+
+
+def _dockerfile_stages(path):
+    stages = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("FROM "):
+            stages.append([])
+        if stages and line.strip() and not line.lstrip().startswith("#"):
+            stages[-1].append(line)
+    return stages
+
+
+class AppImageBuildTest(unittest.TestCase):
+    def test_only_the_runtime_stage_is_built_per_target_platform(self):
+        *build, runtime = _dockerfile_stages(APP_DOCKERFILE)
+        self.assertEqual(len(build), 2)
+        for stage in build:
+            with self.subTest(stage=stage[0]):
+                self.assertTrue(stage[0].startswith("FROM --platform=$BUILDPLATFORM "))
+        self.assertNotIn("--platform", runtime[0])
+
+    def test_a_version_bump_keeps_the_dependency_layers(self):
+        install = re.compile(r"^RUN .*(bun install|dependency:go-offline|apt-get install)")
+        version = re.compile(r"^ARG (APP_VERSION|VITE_)")
+        for stage in _dockerfile_stages(APP_DOCKERFILE):
+            installs = [index for index, line in enumerate(stage) if install.search(line)]
+            for index, line in enumerate(stage):
+                if version.search(line):
+                    with self.subTest(stage=stage[0], arg=line):
+                        self.assertGreater(index, max(installs, default=-1))
 
 
 def _sidecar_base(service):
