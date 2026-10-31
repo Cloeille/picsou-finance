@@ -135,10 +135,17 @@ PostgreSQL. Sidecars keep unrestricted egress to their providers. To also
 restrict who reaches the app, list the ingress controller in
 `networkPolicy.appIngressFrom`.
 
+They only take effect with a CNI that enforces NetworkPolicies (Cilium, Calico,
+…). Flannel, the Talos default, accepts them and enforces nothing.
+
 ## Known limitations
 
 - **One app replica.** Flyway and the `ReadWriteOnce` `/data` volume rule out
   more; the Deployment uses the `Recreate` strategy.
+- **Pod Security `baseline`, not `restricted`.** The app image runs nginx and
+  the JVM as root under supervisord, PostgreSQL starts as root before dropping
+  privileges, and the sidecar images declare non-numeric users, so
+  `runAsNonRoot` cannot be verified. The namespace must allow `baseline`.
 - **No Ollama.** Run it separately if you want local AI categorization and set
   its URL in Admin → Settings.
 

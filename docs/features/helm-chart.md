@@ -73,6 +73,12 @@ helm upgrade
   `SECURE_COOKIES` are database-first once setup completed.
 - **Sidecar images run as named, non-numeric users**, so `runAsNonRoot` cannot be verified by the
   kubelet and is not set; privilege escalation is disabled and all capabilities dropped instead.
+- **NetworkPolicies need an enforcing CNI.** On Flannel (Talos default) they are created and
+  ignored: a pod in the namespace still reaches the sidecars and PostgreSQL.
+- **Pod Security `baseline` is required**, `restricted` rejects the app (root under supervisord),
+  PostgreSQL and the sidecars (non-numeric users).
+- **Annotation values are quoted** in pod templates: `--set app.podAnnotations.x=1` would
+  otherwise send a number, which the API server rejects.
 - **Renaming a sidecar** in `docker/docker-compose.yml` needs the same change in
   `charts/picsou/values.yaml` (`sidecars` key, `urlEnv`, `port`).
 
@@ -82,6 +88,10 @@ helm upgrade
 - `helm template` of the default values and of a values set with external database, existing
   secrets, Ingress, HTTPRoute and disabled sidecars, validated with `kubeconform -strict`
 - `helm test` — `test-health` pod calls `/actuator/health` through the app Service
+- Validated on 2026-10-31 on a Talos cluster (Kubernetes 1.37, Trident NFS, Traefik, cert-manager
+  with an internal ACME CA): all pods ready in about two minutes, 114 migrations applied on first
+  boot, HTTPS through the Ingress, sidecar key enforced (401 without it), two `helm upgrade` runs
+  with the migration Job succeeding and the generated secrets unchanged
 
 ## Links
 

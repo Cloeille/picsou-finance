@@ -18,8 +18,8 @@ spec:
     metadata:
       annotations:
         {{- include "picsou.secretChecksum" . | nindent 8 }}
-        {{- with .Values.app.podAnnotations }}
-        {{- toYaml . | nindent 8 }}
+        {{- range $k, $v := .Values.app.podAnnotations }}
+        {{ $k }}: {{ toString $v | quote }}
         {{- end }}
       labels:
         {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "app") | nindent 8 }}

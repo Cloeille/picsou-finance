@@ -29,8 +29,8 @@ spec:
     metadata:
       annotations:
         {{- include "picsou.secretChecksum" $ | nindent 8 }}
-        {{- with $sc.podAnnotations }}
-        {{- toYaml . | nindent 8 }}
+        {{- range $k, $v := $sc.podAnnotations }}
+        {{ $k }}: {{ toString $v | quote }}
         {{- end }}
       labels:
         {{- include "picsou.selectorLabels" (dict "ctx" $ "component" $name) | nindent 8 }}
