@@ -1,6 +1,6 @@
 # Feature: Bank Sync
 
-> Last updated: 2026-10-31 (uid-first matching and safe Revolut reconnects)
+> Last updated: 2026-10-31 (deleted-uid precedence and shared account descriptions)
 
 > **Status (1.0.0).** Enable Banking is the only enabled provider. The Powens
 > adapter ships in the codebase but is **experimental and untested** —
@@ -43,7 +43,11 @@ Picsou now handles this with a two-pronged strategy:
 
 1. **Uid-first account matching.** `SyncService.upsertAccount()` matches an incoming account against
    stored accounts by **uid and member** first, falling back to **IBAN, currency, and member**
-   only when the current uid has no active match. This preserves a legacy Enable Banking row
+   only when the current uid has no active match and the member has not deleted that uid.
+   A deleted uid wins over an active IBAN match. Deleting a legacy Enable Banking row without
+   an IBAN stops its balance updates and transaction imports even when another connector's
+   row has the incoming IBAN and currency. A rotated uid without a deletion record can still
+   recover through the IBAN fallback. This preserves a legacy Enable Banking row
    without an IBAN when a Revolut sidecar row already has the incoming IBAN and currency.
    Updates write the incoming IBAN only if no other active or soft-deleted account for that
    member has the same IBAN and currency. A deleted sidecar still reserves that key because
@@ -99,12 +103,15 @@ organization's balances for every account uid. The adapter fetches each session 
 details and balances once before selecting balances. The same session response supplies
 the ASPSP name. Enable Banking documents the balance endpoint as account-scoped and
 uses `Booked balance` as an example generic label. A named ASPSP other than Qonto follows
-that contract unless its response names a known sibling. Balance labels can describe types,
+that contract unless its response names a sibling with a different account description.
+Accounts can share their own description, such as two `LIVRET A` accounts. That shared label
+alone does not override established account scope; each endpoint keeps its own balance.
+Balance labels can describe types,
 such as `Solde comptable` for `CLBD` and `Solde instantane` for `ITAV`; they need not match
 each other or the account description. Those responses rank balances independently, so
 generic labels can overlap across accounts, including independent zero balances.
 Qonto is treated as shared regardless of country. Missing or blank ASPSP metadata leaves
-scope unproven. Without a unique description match, a known sibling's description keeps
+scope unproven. Without a unique description match, a distinct sibling's description keeps
 the shared-response safeguards, even for another named ASPSP.
 
 For shared or unproven responses, the adapter trims descriptions and counts them without
@@ -178,7 +185,8 @@ the account-details currency, then `EUR`.
 `EnableBankingAccountDataTest` serves synthetic responses over loopback HTTP and calls
 `fetchBalances` through the production WebClient and JSON decoder. It covers shared
 balance lists, flat details, type priorities, ordinary single-account and multi-account
-responses with distinct balance-type labels, named-bank responses containing sibling claims,
+responses with distinct balance-type labels, named-bank accounts sharing their own description,
+named-bank responses containing distinct sibling claims,
 unmatched lists with different balance types, missing or unmatched descriptions with only
 sibling-claimed balances, unclaimed fallback, duplicate session descriptions with different
 balance types, competing fallback assignments with changing amounts, shared lists with one
@@ -205,6 +213,10 @@ credentials and voluntary discovery confirmation after repeated Enable Banking s
 Each reconnect restores the sidecar's original row and updates its balance and snapshot;
 the legacy row keeps its uid, balance, and snapshot on the following Enable Banking sync.
 A deleted row in another currency or belonging to another member does not block backfill.
+Deleting the legacy Enable Banking row instead leaves the surviving Revolut or Boursorama
+row's uid, connection, balance, sync timestamp, and snapshots unchanged on repeated syncs,
+and prevents Enable Banking transaction imports. A deleted uid belonging to another member
+does not block IBAN recovery for the current member.
 Live bank behavior remains unverified.
 
 ### Country selection

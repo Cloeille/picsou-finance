@@ -624,6 +624,54 @@ class EnableBankingAccountDataTest {
     }
 
     @Test
+    void fetchBalances_namedBankWithSharedAccountDescriptions_ranksEachEndpointIndependently() {
+        responses.put("/sessions/session", """
+            {"accounts":["uid-savings-a","uid-savings-b"], "aspsp":{"name":"Synthetic Bank"}}
+            """);
+        responses.put("/accounts/uid-savings-a/details", "{\"details\":\"LIVRET A\"}");
+        responses.put("/accounts/uid-savings-b/details", "{\"details\":\" livret a \"}");
+        responses.put("/accounts/uid-savings-a/balances", """
+            {"balances": [{"name":" livret a ", "balance_type":"CLBD",
+              "balance_amount":{"currency":"EUR", "amount":"100"}}]}
+            """);
+        responses.put("/accounts/uid-savings-b/balances", """
+            {"balances": [{"name":"LIVRET A", "balance_type":"CLBD",
+              "balance_amount":{"currency":"EUR", "amount":"200"}}]}
+            """);
+
+        var accounts = connector.fetchBalances("session");
+
+        assertThat(accounts).extracting(AccountData::externalId)
+            .containsExactly("uid-savings-a", "uid-savings-b");
+        assertThat(accounts.get(0).balance()).isEqualByComparingTo("100");
+        assertThat(accounts.get(1).balance()).isEqualByComparingTo("200");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"CLBD,CLBD", "OPBD,OTHR"})
+    void fetchBalances_namedBankWithTiedPreferredTypes_rejectsArbitrarySelection(
+        String firstType,
+        String secondType
+    ) {
+        responses.put("/sessions/session", """
+            {"accounts":["uid-operations"], "aspsp":{"name":"Synthetic Bank"}}
+            """);
+        responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations account\"}");
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name":"Operations account", "balance_type":"%s",
+               "balance_amount":{"currency":"EUR", "amount":"100"}},
+              {"name":"Operations account", "balance_type":"%s",
+               "balance_amount":{"currency":"EUR", "amount":"200"}}
+            ]}
+            """.formatted(firstType, secondType));
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
+    }
+
+    @Test
     void fetchBalances_namedBankWithSiblingClaim_excludesSiblingBeforeRanking() {
         responses.put("/sessions/session", """
             {"accounts":["uid-current","uid-savings"], "aspsp":{"name":"Synthetic Bank"}}

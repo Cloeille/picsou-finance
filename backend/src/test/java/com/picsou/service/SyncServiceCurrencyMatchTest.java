@@ -61,6 +61,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @DataJpaTest
@@ -87,6 +88,7 @@ class SyncServiceCurrencyMatchTest {
     @Autowired PlatformTransactionManager transactionManager;
 
     private BankConnectorPort bankConnector;
+    private BankTransactionImportService bankTransactionImportService;
     private AccountService accountService;
     private FamilyMember member;
     private SyncService syncService;
@@ -112,9 +114,10 @@ class SyncServiceCurrencyMatchTest {
             new LoanAmortizationService(), null, null, null, null, null, null));
         // Only response enrichment is stubbed; snapshot persistence and FX conversion run normally.
         doReturn(mock(AccountResponse.class)).when(accountService).toResponse(any(Account.class));
+        bankTransactionImportService = mock(BankTransactionImportService.class);
         syncService = new SyncService(bankConnector, accountRepository, requisitionRepository,
             null, accountService, null, null, mock(RecurringDetectionService.class), null, null,
-            mock(BankTransactionImportService.class));
+            bankTransactionImportService);
     }
 
     @Test
@@ -253,6 +256,74 @@ class SyncServiceCurrencyMatchTest {
         assertSnapshot(unchangedLegacy, "100");
         assertThat(accountRepository.count()).isEqualTo(2);
         assertThat(snapshotRepository.count()).isEqualTo(2);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Revolut", "Boursorama"})
+    void resyncAll_deletedLegacyUidWithActiveConnectorIban_leavesConnectorUntouched(String provider) {
+        Account deleted = persistAccount("uid-legacy", "EUR", Instant.now());
+        deleted.setIban(null);
+        deleted.setCurrentBalance(new BigDecimal("100"));
+        accountService.upsertSnapshotFromNative(deleted, new BigDecimal("100"), LocalDate.now());
+        Account sidecar = persistAccount("sidecar-eur", "EUR", null);
+        sidecar.setProvider(provider);
+        sidecar.setCurrentBalance(new BigDecimal("50"));
+        Instant lastSyncedAt = Instant.parse("2026-01-01T00:00:00Z");
+        sidecar.setLastSyncedAt(lastSyncedAt);
+        accountService.upsertSnapshotFromNative(sidecar, new BigDecimal("50"), LocalDate.now());
+        entityManager.flush();
+        entityManager.clear();
+        when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data("uid-legacy", "EUR", "125")));
+
+        for (int sync = 0; sync < 2; sync++) {
+            syncAndReload();
+
+            assertThat(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId()))
+                .singleElement().satisfies(account -> {
+                    assertThat(account.getId()).isEqualTo(sidecar.getId());
+                    assertThat(account.getExternalAccountId()).isEqualTo("sidecar-eur");
+                    assertThat(account.getProvider()).isEqualTo(provider);
+                    assertThat(account.getRequisitionId()).isNull();
+                    assertThat(account.getIban()).isEqualTo(IBAN);
+                    assertThat(account.getCurrency()).isEqualTo("EUR");
+                    assertThat(account.getCurrentBalance()).isEqualByComparingTo("50");
+                    assertThat(account.getLastSyncedAt()).isEqualTo(lastSyncedAt);
+                    assertSnapshot(account, "50");
+                });
+            assertThat(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(
+                "uid-legacy", member.getId())).isTrue();
+            // Repository snapshot lookups join active accounts and hide this deleted account's history.
+            Object[] deletedSnapshot = (Object[]) entityManager.getEntityManager().createNativeQuery(
+                "SELECT balance, invested_amount FROM balance_snapshot WHERE account_id = :accountId AND date = :date")
+                .setParameter("accountId", deleted.getId())
+                .setParameter("date", LocalDate.now())
+                .getSingleResult();
+            assertThat((BigDecimal) deletedSnapshot[0]).isEqualByComparingTo("100");
+            assertThat((BigDecimal) deletedSnapshot[1]).isEqualByComparingTo("100");
+            assertThat(snapshotRepository.count()).isEqualTo(2);
+        }
+        verifyNoInteractions(bankTransactionImportService);
+    }
+
+    @Test
+    void resyncAll_deletedUidForOtherMember_allowsIbanRotationRecovery() {
+        FamilyMember otherMember = entityManager.persist(FamilyMember.builder()
+            .displayName("Other synthetic member").build());
+        accountRepository.saveAndFlush(Account.builder()
+            .member(otherMember).name("Deleted synthetic account").type(AccountType.CHECKING)
+            .currency("EUR").externalAccountId("rotated-eur").deletedAt(Instant.now()).build());
+        Account existing = persistAccount("old-eur", "EUR", null);
+        when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data("rotated-eur", "EUR", "125")));
+
+        syncAndReload();
+
+        assertThat(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId()))
+            .singleElement().satisfies(account -> {
+                assertThat(account.getId()).isEqualTo(existing.getId());
+                assertThat(account.getExternalAccountId()).isEqualTo("rotated-eur");
+                assertThat(account.getCurrentBalance()).isEqualByComparingTo("125");
+                assertSnapshot(account, "125");
+            });
     }
 
     @ParameterizedTest

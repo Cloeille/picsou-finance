@@ -723,7 +723,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         }
         // Account-scoped responses may name each balance type rather than the account.
         if (accountLabels.responseScope() == BalanceResponseScope.ACCOUNT_SCOPED
-            && !containsSiblingClaim(candidates, accountLabel, accountLabels.claims())) {
+            && !containsDistinctSiblingClaim(candidates, accountLabel, accountLabels.claims())) {
             return new AccountBalanceCandidates(details, candidates, BalanceSelection.ACCOUNT_SCOPED);
         }
         candidates = candidates.stream()
@@ -764,13 +764,13 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         return preferredBalance(candidates);
     }
 
-    private static boolean containsSiblingClaim(List<BalancesResponse.BalanceItem> candidates, String accountLabel,
-                                                Map<String, Integer> labelClaims) {
-        return candidates.stream().anyMatch(item -> {
-            String candidateLabel = nullToEmpty(item.name()).trim();
-            int ownClaim = accountLabel != null && accountLabel.equalsIgnoreCase(candidateLabel) ? 1 : 0;
-            return labelClaims.getOrDefault(candidateLabel, 0) > ownClaim;
-        });
+    private static boolean containsDistinctSiblingClaim(List<BalancesResponse.BalanceItem> candidates,
+                                                        String accountLabel, Map<String, Integer> labelClaims) {
+        String ownLabel = nullToEmpty(accountLabel).trim();
+        return candidates.stream()
+            .map(item -> nullToEmpty(item.name()).trim())
+            .anyMatch(candidateLabel -> !ownLabel.equalsIgnoreCase(candidateLabel)
+                && labelClaims.containsKey(candidateLabel));
     }
 
     private static String balanceLabel(List<BalancesResponse.BalanceItem> candidates) {

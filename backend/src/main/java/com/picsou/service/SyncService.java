@@ -463,13 +463,14 @@ public class SyncService {
      * <ol>
      *   <li>Look up by {@code (externalAccountId, memberId)} first, preserving legacy accounts
      *       without an IBAN even when another connector already stores that IBAN.</li>
+     *   <li>If no active uid matches, skip a uid the member deleted before trying the IBAN.</li>
      *   <li>Fall back to {@code (iban, currency, memberId)} when an IBAN is available.
      *       Currency distinguishes subaccounts sharing an IBAN, which remains stable even
      *       when the provider uid changes (e.g. Boursorama after EB v0.16.4).
      *       An IBAN match refreshes the stored uid. An exact uid match only accepts the
      *       incoming IBAN if no other active or deleted account has that IBAN and currency.</li>
      * </ol>
-     * Soft-delete guards check both keys when no active account matches.
+     * The IBAN soft-delete guard applies when neither active lookup matches.
      *
      * <p>{@code sessionId} is passed in rather than read off the requisition: during
      * {@code completeConnection} the row still carries the (now spent) authorization
@@ -483,19 +484,17 @@ public class SyncService {
         String sessionId
     ) {
         String currency = data.currency() != null ? data.currency() : "EUR";
-        // Step 1: preserve the exact uid; IBAN and currency are the uid-rotation fallback.
         Optional<Account> existing =
             accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), member.getId());
-        if (existing.isEmpty() && data.iban() != null) {
-            existing = accountRepository.findByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId());
-        }
-
-        // Step 2: soft-delete guard — refuse to resurrect an account the user removed
         if (existing.isEmpty()) {
-            boolean softDeleted = (data.iban() != null &&
-                accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId()))
-                || accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), member.getId());
-            if (softDeleted) {
+            // A deleted uid is not a rotation, even when another connector owns the IBAN.
+            boolean deletedUid = accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(
+                data.externalId(), member.getId());
+            if (!deletedUid && data.iban() != null) {
+                existing = accountRepository.findByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId());
+            }
+            if (deletedUid || (existing.isEmpty() && data.iban() != null &&
+                accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId()))) {
                 log.info("Skipping resurrection of soft-deleted account externalId={} iban={} member={}",
                     data.externalId(), LogSanitizer.fingerprint(data.iban()), member.getId());
                 return Optional.empty();

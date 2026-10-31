@@ -63,7 +63,9 @@ After upgrading from an Enable Banking version that did not import IBANs, a sepa
 Enable Banking row can already coexist with a sidecar row for the same wallet. Enable Banking
 now prefers its exact uid and leaves its IBAN unset when the sidecar owns that IBAN and currency.
 It preserves both rows and their history without moving the uid onto the sidecar row or making
-Revolut's IBAN lookup ambiguous. See [bank-sync.md](./bank-sync.md#account-matching-resilience-enable-banking-0164).
+Revolut's IBAN lookup ambiguous. If the legacy Enable Banking row is deleted, its uid blocks
+Enable Banking's IBAN fallback, so later syncs leave the sidecar row and its transactions alone.
+See [bank-sync.md](./bank-sync.md#account-matching-resilience-enable-banking-0164).
 
 Discovery and persistence use the same currency-aware IBAN match, then fall back to the external
 account id and member. EUR and GBP accounts imported by Enable Banking can share an IBAN without
