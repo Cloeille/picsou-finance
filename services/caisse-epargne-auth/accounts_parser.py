@@ -523,8 +523,13 @@ def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decim
     sent apart. A home loan's insurance is often taken elsewhere: the installment then
     matches the annuity to the cent and 0.00 is sent. Below the annuity: no figure.
     """
-    annuity = _annuity(borrowed, rate, months).quantize(_CENT, rounding=ROUND_HALF_UP)
-    insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
+    try:
+        annuity = _annuity(borrowed, rate, months).quantize(_CENT, rounding=ROUND_HALF_UP)
+        insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
+    except ArithmeticError:
+        # decimal.InvalidOperation (an amount of 10^26 or more cannot be quantized to the
+        # cent) and the other decimal signals: only this loan is left unavailable.
+        raise ParseError(INVALID_LOAN_DETAIL, "loan: amounts out of range") from None
     return insurance if insurance >= 0 else None
 
 

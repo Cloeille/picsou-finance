@@ -53,6 +53,12 @@ class LoanDetailTest(unittest.TestCase):
                 with self.assertRaises(ParseError):
                     parse_loan_detail(d)
 
+    def test_an_amount_too_large_to_quantize_raises(self):
+        d = detail()
+        view(d)["offer"]["proposedAmount"]["value"] = 1e30
+        with self.assertRaises(ParseError):
+            parse_loan_detail(d)
+
     def test_zero_rate_annuity_is_capital_over_duration(self):
         d = detail()
         view(d)["folder"]["tNC"] = 0
