@@ -50,7 +50,7 @@ class FakePage:
             update(self)
 
     def locator(self, selector):
-        kinds = {main._PHONE_INPUT: "phone", main._HCAPTCHA_FRAME: "captcha",
+        kinds = {main._PHONE_INPUT: "phone",
                  **{sel: sel for sel in main._PASSCODE_FIELD_INPUTS}}
         return FakeLocator(self, kinds[selector])
 
@@ -108,6 +108,9 @@ async def _run_sync(monkeypatch, page, calls, *, after_phone=_show_passcode, pas
         p.approval_polls += 1
         return p.approval_polls >= approval_after_polls
 
+    async def captcha_visible(p):
+        return bool(p.counts["captcha"])
+
     async def device_id(_ctx):
         return "dev"
 
@@ -122,6 +125,7 @@ async def _run_sync(monkeypatch, page, calls, *, after_phone=_show_passcode, pas
     monkeypatch.setattr(main, "_fill_phone", fill_phone)
     monkeypatch.setattr(main, "_fill_passcode", fill_passcode)
     monkeypatch.setattr(main, "_logged_in", logged_in)
+    monkeypatch.setattr(main.captcha, "visible", captcha_visible)
     monkeypatch.setattr(main, "_device_id", device_id)
     monkeypatch.setattr(main, "_settle", settle)
     monkeypatch.setattr(main, "harvest_accounts", harvest)

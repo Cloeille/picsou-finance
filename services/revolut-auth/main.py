@@ -50,6 +50,8 @@ from fastapi.responses import JSONResponse
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 from pydantic import BaseModel
 
+import captcha
+
 # C0/C1 controls (CR, LF, ESC, NEL...) and the Unicode line/paragraph separators.
 _LOG_UNSAFE = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
 
@@ -734,8 +736,6 @@ async def _logged_in(page) -> bool:
 _PHONE_INPUT = "input[name='phoneNumber'], input[inputmode='tel'], input[type='tel']"
 # Single-field fallbacks when the passcode is not rendered as 6 separate boxes.
 _PASSCODE_FIELD_INPUTS = ("input[type='password']", "input[inputmode='numeric']")
-# :visible, because hCaptcha also parks hidden iframes on pages where no challenge is shown.
-_HCAPTCHA_FRAME = "iframe[src*='hcaptcha.com']:visible"
 
 
 async def _click_continue(page) -> None:
@@ -776,7 +776,7 @@ async def _wait_for_login_screen(page, *, phone: bool = True) -> Optional[str]:
     A visible captcha takes precedence over both input screens because it blocks interaction.
     """
     for _ in range(LOGIN_SCREEN_WAIT_S * 1000 // LOGIN_SCREEN_POLL_MS):
-        if await page.locator(_HCAPTCHA_FRAME).count():
+        if await captcha.visible(page):
             return "captcha"
         if await _passcode_inputs_present(page):
             return "passcode"
@@ -944,7 +944,7 @@ async def sync(req: SyncRequest):
                         await _fill_phone(page, req.phoneNumber)
                         screen = await _wait_for_login_screen(page, phone=False)
                     submitted = screen == "passcode" and await _fill_passcode(page, req.passcode)
-                    if await page.locator(_HCAPTCHA_FRAME).count():
+                    if await captcha.visible(page):
                         screen = "captcha"
                 except PlaywrightTimeout as exc:
                     log.warning("member %s: login step timed out (url=%s): %s", safe(req.memberId),
@@ -964,7 +964,7 @@ async def sync(req: SyncRequest):
                 t0 = time.monotonic()
                 approved = False
                 for i in range(ENROLMENT_APPROVE_WAIT_S * 1000 // POLL_MS):
-                    if await page.locator(_HCAPTCHA_FRAME).count():
+                    if await captcha.visible(page):
                         _set_progress(req.memberId, "LOGGING_IN")
                         log.warning("member %s: Revolut served an hCaptcha challenge while "
                                     "waiting for approval", safe(req.memberId))

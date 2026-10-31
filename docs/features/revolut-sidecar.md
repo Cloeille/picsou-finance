@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-10-31 (visible hCaptcha challenges take precedence throughout login and stop the approval countdown)
+> Last updated: 2026-10-31 (hCaptcha detection follows nested frames and checks rendered visibility)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -141,6 +141,8 @@ installing pinned `pytest` and `pytest-asyncio`, and image publishing waits for 
 - `services/revolut-auth/main.py` — sidecar: `/sync`, `/progress/{memberId}`, Camoufox launch, login
   auto-fill, harvest + synthetic wallet-parent emission (`_with_wallet_parents`), per-member
   serialization + stale profile-lock clearing.
+- `services/revolut-auth/captcha.py` owns the shared challenge detector. It checks hCaptcha frame
+  URLs and visible geometry throughout login, including nested frames.
 - `services/revolut-auth/tests/{test_profile_lock.py,test_harvest_shape.py,test_sidecar_auth.py}` —
   regression tests (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent +
   same-currency sum; shared-key 401 challenge, `/health` exemption, startup refusal);
@@ -245,9 +247,16 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   generic "Failed to sync Revolut accounts" message.
 - **The approval wait starts only after the passcode was typed.** Revolut can answer the phone step
   with an **hCaptcha image challenge**: the page stays on `/signin` with the phone field, an
-  `iframe[src*='hcaptcha.com']` is shown, and no push is ever sent. `_wait_for_login_screen` therefore
-  also returns `"captcha"` when a *visible* hCaptcha frame is on the page (hidden hCaptcha frames
-  exist on pages with no challenge), which ends the wait at once. The captcha is checked before
+  hCaptcha frame is shown, and no push is ever sent in that observed case. `_wait_for_login_screen`
+  also returns `"captcha"` when `captcha.visible(page)` finds a rendered hCaptcha frame,
+  which ends the wait at once. The detector walks `page.frames` and matches only HTTP or HTTPS
+  URLs on `hcaptcha.com` or its subdomains. A URL containing that string on another host does
+  not count. Each matching frame and its parent frames must have visible screen space in common.
+  The detector checks ancestor opacity, display, visibility, overflow clipping, and viewport bounds.
+  Zero-size and one-pixel content frames do not count, even when their borders have a larger box.
+  Playwright's `:visible` alone includes transparent and offscreen elements and cannot inspect nested
+  documents. Frame elements are released after each check. A detached frame is ignored for that poll.
+  Unexpected browser errors still propagate. The captcha is checked before
   passcode and phone inputs because a challenge can block interaction with either screen.
   The sidecar also checks immediately after passcode entry and before each approval poll.
   A detected challenge returns a flat `403 HUMAN_VERIFICATION_REQUIRED`. If it appears during the
@@ -268,6 +277,11 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   `tests/test_login_screen.py` covers captcha precedence over each passcode input shape, a challenge
   after passcode entry, and one during approval, alongside the nominal and timeout paths. These
   overlapping and later challenge states are synthetic regressions, not captured live bank pages.
+  `tests/test_captcha_detection.py` covers URL matching, nested frame traversal, clipping between
+  parent frames, and detachment. It can also run with `python -m unittest discover -s tests
+  -p test_captcha_detection.py`. `tests/test_captcha_browser.py` runs offline Camoufox fixtures for
+  CSS visibility, nested documents, and a challenge inserted after the first poll. It routes all
+  browser requests to local fixture responses and never contacts Revolut or hCaptcha.
   Human challenge completion and the proposed Camofox runtime evaluation remain follow-up work.
 - **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `403`/`424` to
   `SyncException` with the code as both message and `getCode()`; `RevolutSyncService.friendly()` turns

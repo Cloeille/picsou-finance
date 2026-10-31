@@ -413,6 +413,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sent. An unknown post-phone page or a login step that times out returns
   `UPSTREAM_FORMAT_CHANGED`. Human challenge completion remains unavailable. See
   [feature note](docs/features/revolut-sidecar.md).
+- **Revolut recognizes nested hCaptcha challenges and ignores parked frames.** Challenge checks
+  follow the browser's frame tree and require visible space through every parent frame. Transparent,
+  offscreen, clipped, and one-pixel frames no longer block sign-in. Only hCaptcha hosts count.
+  A detected challenge keeps the existing `HUMAN_VERIFICATION_REQUIRED` error. Manual challenge
+  completion remains unavailable.
 - **BoursoBank account names show apostrophes and ampersands as typed.** A name such as
   `LIVRET D'EPARGNE` was stored as `LIVRET D&#039;EPARGNE` and shown that way in the
   dashboard, legend and accounts list. The next BoursoBank sync rewrites existing names.
