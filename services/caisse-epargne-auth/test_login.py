@@ -171,7 +171,7 @@ class HappyPathTest(LoginTestBase):
     async def test_initiate_types_only_the_identifier(self):
         await self.initiate()
 
-        self.assertEqual(self.world.fills, [("#neo-input-1", CUSTOMER_ID)])
+        self.assertEqual(self.world.fills, [(login.IDENTIFIER_INPUT, CUSTOMER_ID)])
 
     async def test_keypad_clicks_the_positions_then_valider_once(self):
         pid = (await self.initiate())["processId"]

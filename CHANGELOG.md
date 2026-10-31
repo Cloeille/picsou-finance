@@ -261,6 +261,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   importer and duplicate checks as the current account. A livret whose history page cannot
   be read, or is too slow (the history reads only use what is left of a 60 s budget counted
   from the start of the accounts read, after balances and holdings), still syncs its balance. ([#167](https://github.com/Cloeille/picsou-finance/issues/167))
+- **Caisse d'Epargne login no longer stalls on the identifier page.** Some instances of the
+  bank's login page name the identifier field differently, so the sidecar waited 30 s for a
+  field that never appeared and reported a changed data format before anything was typed.
+  Both variants are now recognised.
 - **Controls no longer spill out of their card on phones** (#273). At 360–390px the Settings
   theme and language switches (Spanish was hidden), the family sharing choices, the Analysis
   card toggles and the account Transactions buttons were cut at the card edge. Settings and
