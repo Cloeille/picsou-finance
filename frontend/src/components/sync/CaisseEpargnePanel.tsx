@@ -63,9 +63,29 @@ interface KeypadPad {
 /** The sidecar waits this long for the human to approve on the phone (COMPLETE_WAIT_SECONDS). */
 const HUMAN_WAIT_SECONDS = 150
 
-/** Allow the backend's 170 s completion window and a margin for a lost response. */
-const LOST_CONFIRMATION_WAIT_MS = 180_000
-const LOST_CONFIRMATION_POLL_MS = 3_000
+/**
+ * How long the panel keeps polling the session once the completion request is lost:
+ * the backend's own window (170 s, the human wait plus collecting the session) and a margin.
+ */
+const LOST_COMPLETION_WAIT_MS = 180_000
+const LOST_COMPLETION_POLL_MS = 3_000
+/**
+ * Each poll tick sends its own status read, bounded by this, rather than refetching the
+ * status query: a refetch every 3 s would cancel a read slower than that, so a slow network
+ * would never see the session; and waiting on one read could hang on a request that never
+ * returns. Reads may overlap; the first live answer wins.
+ */
+const LOST_COMPLETION_READ_TIMEOUT_MS = 10_000
+
+/**
+ * The completion request got no answer from the backend: iOS drops it while Safari sits
+ * in the background, which is exactly when the user approves Sécur'Pass in the bank's app
+ * on the same phone. The backend carries on and stores the session regardless.
+ */
+function isLostRequest(value: unknown) {
+  const httpStatus = getErrorStatus(value)
+  return httpStatus === undefined || httpStatus === 502 || httpStatus === 504
+}
 
 const KNOWN_CODES = new Set([
   "INVALID_CREDENTIALS",
@@ -125,8 +145,9 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   const [keypadSecondsLeft, setKeypadSecondsLeft] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [secondsLeft, setSecondsLeft] = useState(0)
-  const [lostConfirmationAt, setLostConfirmationAt] = useState<number | null>(null)
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
+  // When the completion request was lost: the waiting card stays and the session is polled.
+  const [lostCompletionAt, setLostCompletionAt] = useState<number | null>(null)
   // Synchronous guard: state updates are async, so a fast double click could
   // otherwise reach the bank twice.
   const submitting = useRef(false)
@@ -134,6 +155,7 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   // "connected" only when that sync succeeded, so the accounts exist by then.
   const notifyConnectedOnSuccess = useRef(false)
   const firstSyncStarted = useRef(false)
+  const authAttempt = useRef(0)
 
   const status = useCaisseEpargneSessionStatus()
   const complete = useCompleteCaisseEpargneAuth()
@@ -190,7 +212,7 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   const startFirstSync = useCallback(() => {
     if (firstSyncStarted.current) return
     firstSyncStarted.current = true
-    setLostConfirmationAt(null)
+    setLostCompletionAt(null)
     setAuthState("IDLE")
     setCustomerId("")
     void refetchStatus()
@@ -205,30 +227,39 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   }, [formatError, refetchStatus, syncMutate])
 
   useEffect(() => {
-    if (lostConfirmationAt === null) return
+    if (lostCompletionAt === null) return
     let cancelled = false
+    const attempt = authAttempt.current
     const timer = setInterval(() => {
-      if (Date.now() - lostConfirmationAt >= LOST_CONFIRMATION_WAIT_MS) {
-        cancelled = true
+      if (Date.now() - lostCompletionAt >= LOST_COMPLETION_WAIT_MS) {
         clearInterval(timer)
-        setLostConfirmationAt(null)
+        // Stop sending reads, but let a recent in-flight read confirm the login.
+        // Keep its effect alive until success, a new attempt or unmount.
         setError(t("sync.caisseEpargne.errors.appValidationTimeout"))
         setAuthState("ERROR")
         return
       }
-      // Let slow status requests finish so they can confirm the session.
-      void refetchStatus({ cancelRefetch: false }).then(({ data }) => {
-        if (cancelled || !data?.isActive) return
-        cancelled = true
-        clearInterval(timer)
-        startFirstSync()
-      })
-    }, LOST_CONFIRMATION_POLL_MS)
+      const readStartedAt = Date.now()
+      void caisseEpargneApi
+        .getStatusWithin(LOST_COMPLETION_READ_TIMEOUT_MS)
+        .then((data) => {
+          if (cancelled || attempt !== authAttempt.current) return
+          if (Date.now() - readStartedAt >= LOST_COMPLETION_READ_TIMEOUT_MS) return
+          if (!data?.isActive) return
+          cancelled = true
+          clearInterval(timer)
+          setError(null)
+          startFirstSync()
+        })
+        .catch(() => {
+          // Only status reads are retried. Authentication is never replayed.
+        })
+    }, LOST_COMPLETION_POLL_MS)
     return () => {
       cancelled = true
       clearInterval(timer)
     }
-  }, [lostConfirmationAt, refetchStatus, startFirstSync, t])
+  }, [lostCompletionAt, startFirstSync, t])
 
   const connected = status.data?.isActive === true
   const syncStatus = status.data?.syncStatus ?? "IDLE"
@@ -292,11 +323,9 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
       {
         onSuccess: startFirstSync,
         onError: (value) => {
-          const httpStatus = getErrorStatus(value)
-          if (httpStatus === undefined || httpStatus === 502 || httpStatus === 504) {
-            // iOS can drop Safari's request during app approval while the backend
-            // still stores the session. Check status without replaying the login.
-            setLostConfirmationAt(Date.now())
+          if (isLostRequest(value)) {
+            // Keep the waiting card: the session status tells whether it went through.
+            setLostCompletionAt(Date.now())
             return
           }
           setError(formatError(value))
@@ -309,7 +338,9 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   const submit = async () => {
     if (submitting.current) return
     submitting.current = true
+    authAttempt.current += 1
     firstSyncStarted.current = false
+    setLostCompletionAt(null)
     setError(null)
     setAuthState("SUBMITTING")
     try {

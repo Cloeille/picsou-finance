@@ -227,6 +227,15 @@ export const caisseEpargneApi = {
       .get<CaisseEpargneSessionStatus>('/caisse-epargne/status', { skipGlobalErrorRedirect: true })
       .then(r => r.data),
 
+  /** One status read that gives up after `timeoutMs`, outside the query cache. */
+  getStatusWithin: (timeoutMs: number) =>
+    api
+      .get<CaisseEpargneSessionStatus>('/caisse-epargne/status', {
+        skipGlobalErrorRedirect: true,
+        timeout: timeoutMs,
+      })
+      .then(r => r.data),
+
   clearSession: () =>
     api.delete<CaisseEpargneDeleteResponse>('/caisse-epargne/session').then(r => r.data),
 }
