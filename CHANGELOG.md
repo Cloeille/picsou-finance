@@ -209,6 +209,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Controls no longer spill out of their card on phones** (#273). At 360–390px the Settings
+  theme and language switches (Spanish was hidden), the family sharing choices, the Analysis
+  card toggles and the account Transactions buttons were cut at the card edge. Settings and
+  sharing choices now stretch across the card, and card toggles move under the title. The
+  Accounts filters and Sync providers sit on one row you can swipe instead of up to eight
+  ragged rows; that row, like the Budget sections, fades at the edge that hides more and opens
+  on the current section. Goal names and page titles wrap to a second line instead of being
+  cut with an ellipsis.
 - **BoursoBank sync no longer fails when the dashboard lists children's accounts.** A holder
   who manages a minor's accounts gets a "Comptes de mes enfants" panel, which the connector
   did not know: its cards failed the completeness check and the whole sync stopped with
