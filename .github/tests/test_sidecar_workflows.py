@@ -128,6 +128,18 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertIn("/opt/sidecar-base/entrypoint.sh", commands)
         self.assertIn("python /opt/sidecar-base/smoke_camoufox.py", commands)
 
+    def test_camoufox_starts_on_amd64_in_each_built_sidecar(self):
+        for service in ("amex-auth", "revolut-auth"):
+            with self.subTest(service=service):
+                job = _load(CI_WORKFLOW)["jobs"][f"{service}-sidecar"]
+                commands = _run_commands(job)
+                image = f"picsou-{service}:test"
+                self.assertEqual(job["runs-on"], "ubuntu-latest")
+                self.assertIn(f"docker run --rm --network none --entrypoint sh {image}", commands)
+                self.assertIn('test "$(uname -m)" = x86_64', commands)
+                self.assertIn('test "$PICSOU_SIDECAR_BASE" = sidecar-camoufox', commands)
+                self.assertIn("python /opt/sidecar-base/smoke_camoufox.py", commands)
+
     def test_shared_camoufox_tests_run_in_the_base_image(self):
         commands = _run_commands(_load(CI_WORKFLOW)["jobs"]["amex-auth-sidecar"])
 

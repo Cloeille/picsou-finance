@@ -62,8 +62,8 @@ the owner of existing `revolut_profiles` volumes and their mode-700 member direc
 Its group remains automatically allocated because the base already uses GID 999.
 AMEX has no persistent volume, so its service UID remains automatically allocated.
 The Revolut CI job checks the built image's UID before running its sidecar tests.
-Native ARM64 CI launches both headless and headful Firefox in both derived images
-using offline HTML; this does not verify bank login compatibility.
+CI launches both headless and headful Firefox in both derived images, on native
+ARM64 and on AMD64, using offline HTML; this does not verify bank login compatibility.
 
 ## Alternatives considered
 

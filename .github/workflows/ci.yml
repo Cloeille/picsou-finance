@@ -494,6 +494,13 @@ jobs:
           -m unittest discover -s /services/base -p 'test_*.py' -v
       - name: Build the AMEX sidecar image
         run: docker build --tag picsou-amex-auth:test services/amex-auth
+      - name: Start Camoufox headful on AMD64 in the built image
+        run: |
+          docker run --rm --network none --entrypoint sh picsou-amex-auth:test \
+            -c 'test "$(uname -m)" = x86_64 && test "$PICSOU_SIDECAR_BASE" = sidecar-camoufox'
+          docker run --rm --network none --entrypoint sh picsou-amex-auth:test \
+            /opt/sidecar-base/entrypoint.sh \
+            python /opt/sidecar-base/smoke_camoufox.py
       - name: Run sidecar authentication tests in the image
         run: >-
           docker run --rm
@@ -629,6 +636,13 @@ jobs:
         run: >-
           docker run --rm --network none --entrypoint sh picsou-revolut-auth:test
           -c 'test "$(id -u)" = 999'
+      - name: Start Camoufox headful on AMD64 in the built image
+        run: |
+          docker run --rm --network none --entrypoint sh picsou-revolut-auth:test \
+            -c 'test "$(uname -m)" = x86_64 && test "$PICSOU_SIDECAR_BASE" = sidecar-camoufox'
+          docker run --rm --network none --entrypoint sh picsou-revolut-auth:test \
+            /opt/sidecar-base/entrypoint.sh \
+            python /opt/sidecar-base/smoke_camoufox.py
       # The async tests need pytest-asyncio, a test-only dependency the image does not ship.
       - name: Run sidecar tests in the image
         run: >-

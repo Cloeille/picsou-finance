@@ -88,7 +88,7 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
   values, stale-lock restart and explicit display-start failures using synthetic subprocesses.
 - `services/base/smoke_camoufox.py` launches headless and headful Firefox against
   offline HTML, resolving a fixed IP through the installed GeoIP database. CI runs it in both
-  non-root service images on native ARM64.
+  non-root service images on native ARM64 and on AMD64.
 
 - `AmexSyncServiceTest`, `AmexAdapterTest`, `AmexControllerTest`
 - `RecurringSeriesServiceTest`, `HistoryServiceTest`, `AccountServiceTest` (card sign)

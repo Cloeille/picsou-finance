@@ -339,7 +339,7 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   and explicit failures. `services/base/smoke_camoufox.py` checks the installed ELF
   architecture and launches headless/headful Firefox against offline HTML, resolving a fixed
   IP through the installed GeoIP database. CI runs both derived non-root images with networking disabled on native
-  ARM64. These checks do not verify bank login compatibility.
+  ARM64 and on AMD64. These checks do not verify bank login compatibility.
 
 - `services/revolut-auth/tests/test_login_screen.py` — fake-page tests of `sync()`: known device /
   phone screen nominal paths, passcode URL before its inputs render, `?redirect=…passcode` query
