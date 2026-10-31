@@ -38,7 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so a closed plan's history never passes to another plan of the same family. It is listed in the dashboard's
   *Sync all* modal, MCP `get_sync_status` and `trigger_broker_sync`, and the admin
   instance-status check like the other session connectors. Deleting its last account also
-  removes the stored session and credentials.
+  removes the stored session and credentials, and cancels a login still waiting for the
+  phone, so a late approval stores nothing. A plan deleted under its new id stays deleted
+  even while an account from an earlier id is still there.
   See [docs](docs/features/cmes-epargne-salariale.md).
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker

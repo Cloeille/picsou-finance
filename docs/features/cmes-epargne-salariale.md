@@ -101,7 +101,10 @@ accounts match (it already changed id once) takes the one synced last, and the o
 zero. An old account renamed since its last sync matches nothing: it closes at zero and the
 plan starts a new account, splitting its history rather than risking another plan's. A plan
 whose account was soft-deleted under its new id, or under an earlier id with its name, is not
-imported again.
+imported again. A deletion under the new id wins even when an earlier account still matches:
+an upgrade that found two old accounts moves one and leaves the other at zero, and deleting the
+moved one must not let the other bring the plan back. That leftover account stays as it is (or
+closes at zero) with the unlisted plans.
 
 A plan that a complete fetch no longer lists (closed or transferred) is closed at zero: balance
 0, holdings removed, a zero snapshot for the day. It is not soft-deleted, since a soft-deleted
@@ -130,6 +133,11 @@ modal lists no CMES row there.
 - **Account deletion** (`AccountConnectionService`): `cmes_` accounts resolve to the member's
   CMES connection. Deleting the last one also deletes the session and its stored credentials
   (`clearSession`), so the scheduled sync stops; while another plan remains, the session stays.
+  `clearSession` also cancels a login still waiting on the bank: it bumps the member's auth
+  generation, which `initiateAuth` read before calling the sidecar, and the session is stored
+  only if the generation is unchanged. The check and the insert share one lock with
+  `clearSession`, so a phone approval or a remembered-device login that lands after the removal
+  stores nothing and answers `AUTH_ATTEMPT_EXPIRED`.
 - **MCP**: `get_sync_status` reports a `cmes` line, with `INVALID_CREDENTIALS` read as
   `NEEDS_REAUTH` like `SESSION_EXPIRED` (the rejected password was cleared, only the saver can
   give it again). `trigger_broker_sync` includes `cmes`.

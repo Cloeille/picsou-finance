@@ -86,6 +86,13 @@ public class CmesSyncService {
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
     private final Map<String, PendingCredentials> pendingCredentials = new ConcurrentHashMap<>();
+    /**
+     * Bumped by {@link #clearSession}: a login that was waiting on the bank when
+     * the connection was removed carries an older generation and stores nothing.
+     * Checked and bumped under {@link #sessionWriteLock}.
+     */
+    private final Map<Long, Long> authGenerations = new ConcurrentHashMap<>();
+    private final Object sessionWriteLock = new Object();
 
     public CmesSyncService(
         CmesPort port,
@@ -110,6 +117,7 @@ public class CmesSyncService {
     }
 
     public AuthInitResponse initiateAuth(String login, String password, Long memberId) {
+        long generation = authGeneration(memberId);
         // A reconnection from the UI replays the remembered-device cookie too, so
         // reconnecting after an error does not ask for a confirmation again.
         CmesPort.InitiateResult result = port.initiateAuth(login, password, previousPlainState(memberId));
@@ -117,11 +125,11 @@ public class CmesSyncService {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
                 throw error(CmesErrorCode.INVALID_DATA, "CMES did not return a session", null);
             }
-            storeSessionAndQueue(result.sessionState(), memberId, login, password);
+            storeSessionAndQueue(result.sessionState(), memberId, login, password, generation);
         } else if (result.processId() != null) {
             evictExpiredPendingCredentials();
             pendingCredentials.put(result.processId(), new PendingCredentials(
-                login, password, Instant.now().plusSeconds(PENDING_CREDENTIALS_SECONDS), memberId));
+                login, password, Instant.now().plusSeconds(PENDING_CREDENTIALS_SECONDS), memberId, generation));
         }
         return new AuthInitResponse(result.processId(), result.mfaRequired(), result.mfaType());
     }
@@ -158,7 +166,8 @@ public class CmesSyncService {
         if (plainState == null || plainState.isBlank()) {
             throw error(CmesErrorCode.INVALID_DATA, "CMES did not return a session", null);
         }
-        return storeSessionAndQueue(plainState, memberId, credentials.login(), credentials.password());
+        return storeSessionAndQueue(
+            plainState, memberId, credentials.login(), credentials.password(), credentials.generation());
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
@@ -209,8 +218,25 @@ public class CmesSyncService {
         }
     }
 
-    private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId, String login, String password) {
-        SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
+    private long authGeneration(Long memberId) {
+        return authGenerations.getOrDefault(memberId, 0L);
+    }
+
+    private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId, String login, String password,
+                                                       long generation) {
+        SyncJob job;
+        synchronized (sessionWriteLock) {
+            if (authGeneration(memberId) != generation) {
+                throw error(CmesErrorCode.AUTH_ATTEMPT_EXPIRED, "The CMES connection was removed during the login", null);
+            }
+            job = insertSession(plainState, memberId, login, password);
+        }
+        submit(job);
+        return getStatus(memberId);
+    }
+
+    private SyncJob insertSession(String plainState, Long memberId, String login, String password) {
+        return requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
@@ -228,9 +254,6 @@ public class CmesSyncService {
             CmesSession stored = sessionRepository.saveAndFlush(newSession);
             return new SyncJob(stored.getId(), memberId, plainState);
         }));
-
-        submit(job);
-        return getStatus(memberId);
     }
 
     private void submit(SyncJob job) {
@@ -566,21 +589,24 @@ public class CmesSyncService {
     /**
      * {@code inherited} is the account an earlier build imported the plan as,
      * from {@link #inheritedAccounts}; it takes the plan's new id. A deleted
-     * account stays deleted under either id, matched on the name too.
+     * account stays deleted under either id, matched on the name too. A
+     * deletion under the new id wins over an earlier account still live: after
+     * an upgrade that left two earlier accounts, deleting the moved one must
+     * not let the other bring the plan back.
      */
     private void upsertAccount(PreparedPlan data, Account inherited, FamilyMember member, Long memberId,
                                Instant syncedAt) {
-        Optional<Account> existing = accountRepository
-            .findByExternalAccountIdAndMemberId(data.externalId(), memberId)
-            .or(() -> Optional.ofNullable(inherited));
+        Optional<Account> existing = accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), memberId);
         if (existing.isEmpty()
             && (accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId)
-                || (!data.legacyExternalIds().isEmpty()
+                || (inherited == null
+                    && !data.legacyExternalIds().isEmpty()
                     && accountRepository.existsSoftDeletedByExternalAccountIdInAndNameAndMemberId(
                         data.legacyExternalIds(), data.name(), memberId)))) {
             log.info("CMES skipped a soft-deleted account (member={})", memberId);
             return;
         }
+        existing = existing.or(() -> Optional.ofNullable(inherited));
 
         Account account = existing.orElseGet(() -> Account.builder()
             .member(member)
@@ -724,16 +750,21 @@ public class CmesSyncService {
 
     /**
      * Returns whether a stored session was there to delete. A pending login is
-     * dropped too but does not count: it never became a connection.
+     * dropped too but does not count: it never became a connection. A login
+     * still waiting on the bank is cancelled as well, so the saver's phone
+     * approval cannot bring the credentials back after the removal.
      */
     public boolean clearSession(Long memberId) {
-        boolean removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
-            var session = sessionRepository.findByMemberIdForUpdate(memberId);
-            session.ifPresent(sessionRepository::delete);
-            return session.isPresent();
-        }));
-        pendingCredentials.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
-        return removed;
+        synchronized (sessionWriteLock) {
+            authGenerations.merge(memberId, 1L, Long::sum);
+            boolean removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
+                var session = sessionRepository.findByMemberIdForUpdate(memberId);
+                session.ifPresent(sessionRepository::delete);
+                return session.isPresent();
+            }));
+            pendingCredentials.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
+            return removed;
+        }
     }
 
     public SourceSyncResult resyncReporting(Long memberId) {
@@ -869,7 +900,8 @@ public class CmesSyncService {
     }
 
     private record Credentials(String login, String password) {}
-    private record PendingCredentials(String login, String password, Instant expiresAt, Long memberId) {}
+    private record PendingCredentials(String login, String password, Instant expiresAt, Long memberId,
+                                      long generation) {}
     private record QueueDecision(SyncJob job, SessionStatusResponse status) {}
     private record SyncJob(Long sessionId, Long memberId, String plainState) {}
     private record PreparedPlan(

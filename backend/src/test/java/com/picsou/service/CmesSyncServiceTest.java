@@ -298,6 +298,55 @@ class CmesSyncServiceTest {
     }
 
     @Test
+    void aConfirmationThatLandsAfterTheConnectionWasRemovedStoresNothing() {
+        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(port.initiateAuth("12345678", "secret", null))
+            .thenReturn(new CmesPort.InitiateResult("p7", true, "APP_PUSH", null));
+        service.initiateAuth("12345678", "secret", 7L);
+        // The last CMES account is deleted while the bank waits for the phone.
+        when(port.completeAuth("p7", null)).thenAnswer(invocation -> {
+            service.clearSession(7L);
+            return "cookies";
+        });
+        arrangeStorableSession();
+
+        assertThatThrownBy(() -> service.completeAuth("p7", null, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(sessionRepository, never()).saveAndFlush(any());
+        verify(encryption, never()).encrypt(anyString());
+    }
+
+    @Test
+    void aRememberedDeviceLoginThatLandsAfterTheConnectionWasRemovedStoresNothing() {
+        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(port.initiateAuth("12345678", "secret", null)).thenAnswer(invocation -> {
+            service.clearSession(7L);
+            return new CmesPort.InitiateResult(null, false, null, "cookies");
+        });
+        arrangeStorableSession();
+
+        assertThatThrownBy(() -> service.initiateAuth("12345678", "secret", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(sessionRepository, never()).saveAndFlush(any());
+        verify(encryption, never()).encrypt(anyString());
+    }
+
+    @Test
+    void aLoginStartedAfterTheConnectionWasRemovedIsStored() {
+        service.clearSession(7L);
+        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(port.initiateAuth("12345678", "secret", null))
+            .thenReturn(new CmesPort.InitiateResult(null, false, null, "cookies"));
+        arrangeStorableSession();
+
+        service.initiateAuth("12345678", "secret", 7L);
+
+        verify(sessionRepository).saveAndFlush(any(CmesSession.class));
+    }
+
+    @Test
     void expiredPendingCredentialsAreEvictedWithoutWaitingForANewLogin() {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
@@ -474,6 +523,27 @@ class CmesSyncServiceTest {
     }
 
     @Test
+    void aPlanDeletedUnderItsNewIdIsNotRevivedThroughAnEarlierAccount() {
+        // The upgrade moved the newer of two earlier accounts to the new id and
+        // left the older one at zero; the saver then deleted the moved account.
+        arrangeQueuedSession(activeSession(member()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(port.fetchPlans("plain-state")).thenReturn(List.of(pegPlan(LABEL_ID, List.of(PEG_ID, PEG_SHARED_ID))));
+        when(accountRepository.findByExternalAccountIdAndMemberId(LABEL_ID, 7L)).thenReturn(Optional.empty());
+        Account older = importedPlan(20L, PEG_ID, PEG_NAME, "0");
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CmesSyncService.PROVIDER))
+            .thenReturn(List.of(older));
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(LABEL_ID, 7L)).thenReturn(true);
+
+        CmesSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CmesSyncStatus.SUCCESS);
+        assertThat(older.getExternalAccountId()).isEqualTo(PEG_ID);
+        assertThat(older.getCurrentBalance()).isEqualByComparingTo("0");
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
     void aScheduledResyncAsksForReauthenticationOnceTheSessionIsGone() {
         CmesSession session = activeSession(member());
         session.markQueued();
@@ -504,6 +574,16 @@ class CmesSyncServiceTest {
             if (account.getId() == null) account.setId(11L);
             return account;
         });
+    }
+
+    /** Lenient: a login the disconnection cancelled never reaches these. */
+    private void arrangeStorableSession() {
+        lenient().when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        lenient().when(encryption.encrypt(anyString())).thenReturn("encrypted");
+        lenient().when(sessionRepository.saveAndFlush(any(CmesSession.class)))
+            .thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(port.fetchPlans("cookies"))
+            .thenThrow(new SyncException("transient", null, CmesErrorCode.UPSTREAM_UNAVAILABLE.name()));
     }
 
     private void executeTransactionsImmediately() {
