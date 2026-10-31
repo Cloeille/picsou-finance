@@ -488,6 +488,7 @@ jobs:
       - degiro-auth-sidecar
       - tr-auth-sidecar
       - revolut-auth-sidecar
+      - cmes-auth-sidecar
       - compose-sidecar-build
       - workflow-inventory
     if: github.event_name == 'push'
