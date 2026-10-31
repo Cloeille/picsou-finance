@@ -665,11 +665,12 @@ def parse_home_loan_detail(payload: Any) -> dict:
     signature = _iso_date(
         contract.get("subscriptionDate"), INVALID_LOAN_DETAIL, "loan.contractCharacteristic.subscriptionDate"
     )
-    # A duration reaching before year 1 raises ValueError; one too large for a C long
-    # (10^30) raises OverflowError. Either refuses this loan only.
+    # The duration is capped at MAX_LOAN_MONTHS above, but a last due date in the first
+    # fifty years of the calendar can still put the first one before year 1: ValueError,
+    # which refuses this loan only.
     try:
         first_due = _add_months(last_due, -(duration - 1))
-    except (ValueError, OverflowError):
+    except ValueError:
         raise ParseError(
             INVALID_LOAN_DETAIL, "loan.financialInformation.duration: first due date out of range"
         ) from None

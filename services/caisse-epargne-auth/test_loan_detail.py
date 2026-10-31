@@ -64,8 +64,15 @@ class LoanDetailTest(unittest.TestCase):
             with self.subTest(months=months):
                 d = detail()
                 view(d)["offer"]["duration"] = months
-                with self.assertRaises(ParseError):
+                with self.assertRaises(ParseError) as e:
                     parse_loan_detail(d)
+                self.assertEqual(e.exception.code, "INVALID_LOAN_DETAIL")
+
+    def test_a_duration_of_fifty_years_is_accepted(self):
+        d = detail()
+        view(d)["offer"]["duration"] = 600
+
+        self.assertEqual(parse_loan_detail(d)["durationMonths"], 600)
 
     def test_zero_rate_annuity_is_capital_over_duration(self):
         d = detail()

@@ -117,12 +117,25 @@ class HomeLoanDetailTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
     def test_a_duration_above_fifty_years_is_refused(self):
+        # Signed early enough that 601 months stays after the subscription: only the cap refuses it.
         d = detail()
+        d["loan"]["contractCharacteristic"]["subscriptionDate"] = "1990-01-01"
         d["loan"]["financialInformation"]["duration"] = 601
 
         with self.assertRaises(ParseError) as caught:
             parse_home_loan_detail(d)
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
+
+    def test_a_duration_of_fifty_years_is_accepted(self):
+        d = detail()
+        d["loan"]["contractCharacteristic"]["subscriptionDate"] = "1990-01-01"
+        d["loan"]["financialInformation"]["duration"] = 600
+
+        loan = parse_home_loan_detail(d)
+
+        self.assertEqual(loan["durationMonths"], 600)
+        # 600 installments ending 2042-06-05: the first is 599 months before.
+        self.assertEqual(loan["firstDueDate"], date(1992, 7, 5))
 
     def test_the_first_due_date_keeps_to_the_end_of_a_short_month(self):
         d = detail()
@@ -164,14 +177,16 @@ class HomeLoanDetailTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
     def test_a_duration_reaching_before_year_one_is_refused(self):
+        # Within the cap, but counted back from a last due date in the year 40.
         d = detail()
-        d["loan"]["financialInformation"]["duration"] = 30000
+        d["loan"]["financialInformation"]["lastDuedate"] = "0040-06-05"
+        d["loan"]["financialInformation"]["duration"] = 600
 
         with self.assertRaises(ParseError) as caught:
             parse_home_loan_detail(d)
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
-    def test_a_duration_too_large_for_a_date_is_refused(self):
+    def test_a_duration_far_above_the_cap_is_refused(self):
         d = detail()
         d["loan"]["financialInformation"]["duration"] = 10**30
 
@@ -300,9 +315,11 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(LOAN_ID, [a["externalId"] for a in result["accounts"]])
         self.assertTrue(result["accounts"])
 
-    async def test_an_oversized_duration_leaves_only_the_loan_unavailable(self):
+    async def test_a_first_due_date_before_year_one_leaves_only_the_loan_unavailable(self):
+        # The date-range path, not the cap: 600 months counted back from the year 40.
         oversized = detail()
-        oversized["loan"]["financialInformation"]["duration"] = 10**30
+        oversized["loan"]["financialInformation"]["lastDuedate"] = "0040-06-05"
+        oversized["loan"]["financialInformation"]["duration"] = 600
 
         def answer(request: httpx.Request) -> httpx.Response:
             if request.url.host == HOME_HOST:
