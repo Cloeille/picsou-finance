@@ -29,6 +29,7 @@ bootstrap. A chart that does not move with them breaks silently.
 4. **Never block a contributor on the chart.** `charts/picsou/sync-sidecars.sh` compares the Compose
    sidecars with `values.yaml`: publishing adds the standard ones to the packaged chart, the
    `helm-chart` job of `ci.yml` reports differences as warnings and fails only on a broken chart.
+   This independent check is not a dependency of `ci-ok` or image publishing.
    Sidecars that need more than the generic template are left out of the published chart until
    the chart maintainer adds them.
 5. **Upgrades migrate before the app is replaced**: a `pre-upgrade` Job runs `ReleaseMigrationCli
@@ -74,7 +75,7 @@ bootstrap. A chart that does not move with them breaks silently.
 The chart is only correct if it moves with the code, and only cheap for contributors if it never
 gets in their way. Building it in the repository and publishing it from the same run as the images
 gives both: a published chart always points at images that exist, built from the same commit, and
-the only thing CI enforces is that the chart itself renders.
+the chart check validates rendering independently of the application release gate.
 
 ## Trade-offs accepted
 
@@ -93,6 +94,6 @@ the only thing CI enforces is that the chart itself renders.
 
 - New directory `charts/picsou` and script `charts/picsou/sync-sidecars.sh`.
 - `docker.yml` gains a `chart` job after the image builds; `ci.yml` gains the `helm-chart` job,
-  registered with the job selector and the `ci-ok` gate like every other job.
+  registered with the job selector but independent of the `ci-ok` and image-publishing gates.
 - A new GHCR package, `charts/picsou`, which must be made public once after its first publication.
 - Feature note: [helm-chart.md](../features/helm-chart.md).

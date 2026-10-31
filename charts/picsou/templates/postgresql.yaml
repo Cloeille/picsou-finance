@@ -15,8 +15,6 @@ spec:
       {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "postgresql") | nindent 6 }}
   template:
     metadata:
-      annotations:
-        {{- include "picsou.secretChecksum" . | nindent 8 }}
       labels:
         {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "postgresql") | nindent 8 }}
     spec:
@@ -51,10 +49,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "picsou.secretName" . }}
                   key: postgres-password
-            # A subdirectory, so initdb does not trip over lost+found at the
-            # root of a freshly formatted volume.
             - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata
+              value: {{ $pg.pgdata | quote }}
           readinessProbe:
             exec:
               command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1"]

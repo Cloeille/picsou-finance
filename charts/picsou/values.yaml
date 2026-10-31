@@ -323,6 +323,9 @@ sidecars:
 # and set postgresql.enabled=false with externalDatabase below.
 postgresql:
   enabled: true
+  # Subdirectory avoids lost+found on fresh volumes. For a Compose volume with
+  # PG_VERSION at its root, set /var/lib/postgresql/data before the first start.
+  pgdata: /var/lib/postgresql/data/pgdata
   image:
     repository: postgres
     tag: 16-alpine
@@ -356,6 +359,8 @@ externalDatabase:
   username: picsou
   # Secret and key holding the password. Empty means the chart's secret
   # (secrets.existingSecret or the generated one), key postgres-password.
+  # External databases require this Secret, secrets.existingSecret, or an explicit
+  # secrets.postgresPassword matching the existing database password.
   existingSecret: ""
   passwordKey: postgres-password
   # Appended to the JDBC URL.

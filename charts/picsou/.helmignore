@@ -4,6 +4,6 @@
 *.bak
 *.tmp
 *.orig
-ci/
+/ci/
 sync-sidecars.sh
-tests/
+/tests/

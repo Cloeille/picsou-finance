@@ -135,10 +135,15 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 SELECTOR = "changes"
 GATE = "ci-ok"
 PUBLISH = "docker"
+NON_BLOCKING = {"helm-chart"}
+
+
+def _selectable(jobs):
+    return set(jobs) - {SELECTOR, GATE, PUBLISH}
 
 
 def _gated(jobs):
-    return set(jobs) - {SELECTOR, GATE, PUBLISH}
+    return _selectable(jobs) - NON_BLOCKING
 
 
 def _flatten(patterns):
@@ -170,7 +175,7 @@ def _selected(jobs, path):
     return {
         name
         for name, patterns in _filters(jobs).items()
-        if name in _gated(jobs) and any(_glob_matches(pattern, path) for pattern in patterns)
+        if name in _selectable(jobs) and any(_glob_matches(pattern, path) for pattern in patterns)
     }
 
 
@@ -199,13 +204,13 @@ class CiJobSelectionTest(unittest.TestCase):
     def test_every_job_runs_only_when_the_selector_picks_it(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         outputs = jobs[SELECTOR]["outputs"]
-        self.assertEqual(set(outputs), _gated(jobs))
-        self.assertEqual(set(_filters(jobs)) - {"workflows"}, _gated(jobs))
+        self.assertEqual(set(outputs), _selectable(jobs))
+        self.assertEqual(set(_filters(jobs)) - {"workflows"}, _selectable(jobs))
         self.assertEqual(
             _filter_step(jobs)["if"],
             "github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000",
         )
-        for name in _gated(jobs):
+        for name in _selectable(jobs):
             with self.subTest(job=name):
                 self.assertEqual(jobs[name]["needs"], SELECTOR)
                 self.assertEqual(jobs[name]["if"], f"needs.changes.outputs.{name} == 'true'")
@@ -216,7 +221,7 @@ class CiJobSelectionTest(unittest.TestCase):
 
     def test_a_change_selects_the_jobs_it_can_affect(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
-        sidecars = {name for name in _gated(jobs) if name.endswith("-sidecar")}
+        sidecars = {name for name in _selectable(jobs) if name.endswith("-sidecar")}
         services = {"compose-sidecar-build", "workflow-inventory"}
         cases = {
             "docs/features/budget.md": set(),
@@ -241,8 +246,8 @@ class CiJobSelectionTest(unittest.TestCase):
             "services/sofidy-auth/main.py": {"sofidy-sidecar", "backend"} | services,
             "services/tr-auth/main.py": {"tr-auth-sidecar"} | services,
             "services/base/requirements.txt": sidecars | {"backend"} | services,
-            ".github/workflows/ci.yml": _gated(jobs),
-            ".github/tests/test_sidecar_workflows.py": _gated(jobs),
+            ".github/workflows/ci.yml": _selectable(jobs),
+            ".github/tests/test_sidecar_workflows.py": _selectable(jobs),
         }
         for path, expected in cases.items():
             with self.subTest(path=path):
@@ -251,18 +256,25 @@ class CiJobSelectionTest(unittest.TestCase):
     def test_each_sidecar_job_runs_for_its_own_service(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         tested = 0
-        for name in _gated(jobs):
+        for name in _selectable(jobs):
             for service in re.findall(r"docker build --tag picsou-([a-z-]+):test services/", _run_commands(jobs[name])):
                 with self.subTest(job=name, service=service):
                     tested += 1
                     self.assertIn(name, _selected(jobs, f"services/{service}/main.py"))
         self.assertEqual(tested, len(list((ROOT / "services").glob("*-auth/Dockerfile"))))
 
-    def test_the_gate_waits_for_every_job_and_publishing_waits_for_the_gate(self):
+    def test_the_gate_waits_for_every_blocking_job_and_publishing_waits_for_the_gate(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         self.assertEqual(jobs[GATE]["if"], "always()")
         self.assertEqual(set(jobs[GATE]["needs"]), _gated(jobs) | {SELECTOR})
         self.assertIn(GATE, jobs[PUBLISH]["needs"])
+
+    def test_helm_validation_does_not_block_ci_or_image_publishing(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        self.assertTrue(NON_BLOCKING <= _selectable(jobs))
+        for job in (GATE, PUBLISH):
+            with self.subTest(job=job):
+                self.assertTrue(NON_BLOCKING.isdisjoint(jobs[job]["needs"]))
 
     def test_the_gate_is_green_only_when_every_selected_job_succeeded(self):
         jobs = _gated(_load(CI_WORKFLOW)["jobs"])

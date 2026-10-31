@@ -102,6 +102,9 @@ Secret holding sidecar-api-key, postgres-password and the optional app secrets.
 {{- end }}
 
 {{- define "picsou.database.passwordSecret" -}}
+{{- if and (not .Values.postgresql.enabled) (not .Values.externalDatabase.existingSecret) (not .Values.secrets.existingSecret) (not .Values.secrets.postgresPassword) }}
+{{- fail "external database requires externalDatabase.existingSecret, secrets.existingSecret or secrets.postgresPassword when postgresql.enabled=false" }}
+{{- end }}
 {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.existingSecret }}
 {{- .Values.externalDatabase.existingSecret }}
 {{- else }}
@@ -122,7 +125,7 @@ Secret holding sidecar-api-key, postgres-password and the optional app secrets.
 {{- end }}
 
 {{/*
-Restarts every pod when secret values set through the chart change, so the app
+Restarts app and sidecar pods when secret values set through the chart change, so the app
 and the sidecars always share the same APP_SIDECAR_API_KEY. Hashes the values,
 not the rendered Secret: generated values are random on first render.
 */}}

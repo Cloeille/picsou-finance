@@ -55,11 +55,14 @@ known-broken wiring requires an explicit chart correction. `--check` remains war
 this run pushed the images, so a chart published from a fork runs that fork's images (nothing is
 committed back). The `helm-chart` job of `ci.yml`
 lints and renders the chart and runs `sync-sidecars.sh --check` on pull requests that touch the
-chart, the Compose file or the workflows; differences are warnings, a broken chart fails.
+chart, the Compose file or the workflows; differences are warnings, a broken chart fails
+that independent check. Neither `ci-ok` nor image publishing depends on `helm-chart`.
 The repository inventory test accepts exit codes 0 (in sync) and 2 (drift), but still fails
 on script errors. Synthetic fixtures test comparison and warning behavior. Rendered chart
 tests in `charts/picsou/tests` verify Revolut's volume permissions, existing-claim overrides,
-mandatory keys for ephemeral app storage and hostname-less exposure.
+mandatory keys for ephemeral app storage, hostname-less exposure, packaged health hooks,
+external database password sources, configurable PostgreSQL data layout and stable PostgreSQL
+pod templates across inline secret changes.
 
 ### Key files
 
@@ -102,6 +105,20 @@ helm upgrade
 
 ## Gotchas / Pitfalls
 
+- **External database credentials must be explicit.** With `postgresql.enabled=false`, provide
+  `externalDatabase.existingSecret`, `secrets.existingSecret` or `secrets.postgresPassword`.
+  Rendering fails without one instead of generating a password the external server does not know.
+  Both the app and the migration Job use the selected source.
+- **Existing PostgreSQL claims must match `postgresql.pgdata`.** The default
+  `/var/lib/postgresql/data/pgdata` avoids `lost+found` on fresh volumes. A Compose volume or
+  restore with `PG_VERSION` at the root needs `postgresql.pgdata=/var/lib/postgresql/data`
+  before the first start. Otherwise PostgreSQL initializes a separate empty database in `pgdata/`.
+  Back up first and use PostgreSQL 16-compatible data or restore a logical dump.
+- **Inline secret changes do not restart PostgreSQL.** Its pod has no secret checksum;
+  unrelated application key rotations must not cause database downtime. Updating the password
+  environment variable does not rotate credentials in an initialized database. Coordinate server
+  and Secret password changes and restart consumers as needed.
+
 - **GitOps renderers** (Argo CD) have no `lookup`: the generated Secret changes on every render.
   `secrets.existingSecret` is required there. Argo CD also maps `pre-upgrade` to PreSync, which
   runs on the first sync before the bundled PostgreSQL exists: disable `migrationJob` for that
@@ -134,15 +151,19 @@ helm upgrade
   otherwise send a number, which the API server rejects.
 - **A sidecar that is not standard** (volumes, networks, `init`, extra variables) is left out of
   the published chart until `values.yaml` and the templates support it; `sync-sidecars.sh --check`
-  lists it.
+  lists it. Known entries also report all nonstandard settings for manual review, in both
+  `--check` and `--apply`. The script does not infer equivalence between custom Compose and
+  Kubernetes settings, so supported custom settings remain visible as well.
 - **A checkout of the repository describes main** (`appVersion: nightly`, `version: 0.0.0-main`);
   only published charts carry a release version.
 
 ## Tests
 
 - `helm lint --strict charts/picsou` and two `helm template` renders (`helm-chart` CI job)
-- `.github/tests/test_helm_chart_sync.py` (run by the `helm-chart` job): the repository chart lists
-  every Compose sidecar; `--check` reports each kind of difference; `--apply` adds only standard
+- `.github/tests/test_helm_chart_sync.py` (run by the `helm-chart` job): the repository inventory
+  check accepts both in-sync and drift results and fails on script errors; synthetic fixtures
+  verify `--check` reports each kind of difference, including nonstandard settings on known
+  sidecars; `--apply` adds only standard
   sidecars, disables stale ones and keeps unrelated values byte for byte; a second `--apply`
   is a no-op; port and URL-variable mismatches fail `--apply`, including for custom sidecars;
   `--github` warns about everything but added sidecars
@@ -152,7 +173,10 @@ helm upgrade
 - `.github/tests` workflow tests, extended with the `helm-chart` selection cases
 - `helm template` of the default values and of a values set with external database, existing
   secrets, Ingress, HTTPRoute and disabled sidecars, validated with `kubeconform -strict`
-- `helm test` — `test-health` pod calls `/actuator/health` through the app Service
+- `charts/picsou/tests/test_review_regressions.py` packages the chart and verifies that the
+  rendered package retains the `test-health` hook while excluding local Python tests.
+- Manual cluster check: `helm test` runs the `test-health` pod, which calls `/actuator/health`
+  through the app Service. This requires a running release and is not run by the render tests.
 - Validated on 2026-10-31 on a Talos cluster (Kubernetes 1.37, Trident NFS, Traefik, cert-manager
   with an internal ACME CA): all pods ready in about two minutes, 114 migrations applied on first
   boot, HTTPS through the Ingress, sidecar key enforced (401 without it), two `helm upgrade` runs

@@ -115,6 +115,14 @@ for name in $compose_sidecars; do
       publish_error=true
       add_finding "$name" mismatch "Compose: $url_env on port $port, chart: $chart_env on port $chart_port"
     fi
+    # Kubernetes equivalents of custom Compose settings cannot be inferred from
+    # port/URL wiring. Keep them visible for manual review, even for known entries.
+    if [ -n "$extra_keys$extra_env" ]; then
+      detail="review custom chart settings:"
+      [ -n "$extra_keys" ] && detail="$detail keys ${extra_keys% }"
+      [ -n "$extra_env" ] && detail="$detail; variables ${extra_env% }"
+      add_finding "$name" special "$detail"
+    fi
     continue
   fi
 

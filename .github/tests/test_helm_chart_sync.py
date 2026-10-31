@@ -162,6 +162,28 @@ class SyncSidecarsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("mismatch", result.stdout)
 
+    def test_known_sidecars_report_nonstandard_compose_settings(self):
+        for setting in ('    volumes: [cache:/cache]\n',
+                        '    networks: [private]\n', '    init: true\n',
+                        '    environment:\n      EXTRA_MODE: synthetic\n'):
+            with self.subTest(setting=setting):
+                self.values.write_text(CHART_VALUES, encoding="utf-8")
+                self.compose.write_text(COMPOSE.replace(
+                    "  known-auth:\n    image: known\n    environment:\n"
+                    "      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}\n",
+                    "  known-auth:\n    image: known\n" + setting,
+                ), encoding="utf-8")
+                result = self.run_script("--check", "--github")
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn("::warning title=Helm chart: known-auth::", result.stdout)
+                self.assertIn("EXTRA_MODE" if "environment" in setting else setting.split(":")[0].strip(),
+                              result.stdout)
+                self.assertEqual(self.values.read_text(), CHART_VALUES)
+                result = self.run_script("--apply", "--json")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(any(f["sidecar"] == "known-auth" and f["kind"] == "special"
+                                    for f in json.loads(result.stdout)))
+
     def test_check_github_warns_about_missing_standard_sidecars_without_editing_values(self):
         result = self.run_script("--check", "--github")
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
