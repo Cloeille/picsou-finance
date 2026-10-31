@@ -290,6 +290,10 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          # All tags, to find the latest release without a network call (the
+          # checkout token is not persisted, so `git ls-remote` could not
+          # authenticate on a private repository).
+          fetch-depth: 0
 
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
@@ -300,7 +304,8 @@ jobs:
         id: version
         shell: bash
         run: |
-          semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          # semver.org: numeric pre-release identifiers have no leading zero.
+          semver='^[0-9]+\.[0-9]+\.[0-9]+(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
             app_version="$version"
@@ -308,8 +313,8 @@ jobs:
             # Next patch after the latest release, so it sorts above that release.
             # The short sha gets a letter prefix: a numeric pre-release identifier
             # cannot start with 0.
-            latest=$(git ls-remote --tags --refs origin \
-              | sed -n 's|.*refs/tags/v\{0,1\}\([0-9]*\.[0-9]*\.[0-9]*\)$|\1|p' | sort -V | tail -1)
+            latest=$(git tag --list \
+              | sed -n 's|^v\{0,1\}\([0-9]*\.[0-9]*\.[0-9]*\)$|\1|p' | sort -V | tail -1)
             IFS=. read -r major minor patch <<< "${latest:-0.0.0}"
             version="${major}.${minor}.$((patch + 1))-main.$(date -u +%Y%m%d%H%M%S).g${GITHUB_SHA::7}"
             app_version="sha-${GITHUB_SHA::7}"
