@@ -1,16 +1,16 @@
 import { LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { mockAccounts } from './accounts'
-import { daysBeforeToday, monthStartFromToday } from './dates'
+import { daysBeforeToday, isoDate, monthStartFromToday } from './dates'
 import { holdingsCostBasis, holdingsValue, mockHoldings } from './holdings'
 
-/** An account's holdings repriced on each month start, ending on their live value. */
+/** An account's holdings repriced on each of the last twelve month starts. */
 function holdingsHistory(accountId: number): number[] {
   return Array.from({ length: 12 }, (_, i) =>
-    holdingsValue([accountId], i === 11 ? 0 : daysBeforeToday(monthStartFromToday(i - 11))))
+    holdingsValue([accountId], daysBeforeToday(monthStartFromToday(i - 11))))
 }
 
-// Twelve month-start balances per demo account, oldest first. The last value is the account's
-// current balance, so every chart, the history totals and the dashboard end on the same figure.
+// Twelve month-start balances per demo account, oldest first, the last on the current month's
+// start. A cash account's last value is also its current balance.
 export const mockBalanceHistory: Record<number, number[]> = {
   // LEP: slow steady growth
   1: [6100, 6250, 6400, 6500, 6650, 6800, 6950, 7100, 7200, 7400, 7600, 7800],
@@ -42,24 +42,44 @@ export const mockBalanceHistory: Record<number, number[]> = {
   15: [174980, 174380, 173780, 173180, 172580, 171980, 171380, 170780, 170180, 169580, 168980, 168400],
 }
 
+/**
+ * The dates a history spans, oldest first: the last twelve month starts, then today, which
+ * HistoryService always ends on with its live point.
+ */
+function historyDates(): string[] {
+  const monthStarts = Array.from({ length: 12 }, (_, i) => monthStartFromToday(i - 11))
+  const today = isoDate(new Date())
+  return monthStarts[11] === today ? monthStarts : [...monthStarts, today]
+}
+
+/** An account's balance on each history date, ending on its live balance. */
+export function accountBalanceHistory(accountId: number): { date: string; balance: number }[] {
+  const balances = mockBalanceHistory[accountId]
+  if (!balances) return []
+  const live = accountId in mockHoldings ? holdingsValue([accountId]) : balances[11]
+  const dates = historyDates()
+  return dates.map((date, i) => ({ date, balance: i === dates.length - 1 ? live : balances[i] }))
+}
+
 interface PointValues { total: number; invested: number; pnl: number }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
 /**
- * Monthly net-worth points, mirroring HistoryService: a loan's outstanding capital is negated,
- * liabilities count nothing towards invested or pnl, and an account with holdings is invested
- * at their cost basis while every other asset is its own basis.
+ * Net-worth points on the last `months` month starts and today, mirroring HistoryService: a
+ * loan's outstanding capital is negated, liabilities count nothing towards invested or pnl, and
+ * an account with holdings is invested at their cost basis while every other asset is its own
+ * basis.
  */
 export function netWorthHistory(accountIds: number[], months: number, split: boolean) {
-  const count = Math.min(Math.max(months, 1), 12)
-  return Array.from({ length: count }, (_, i) => {
-    const index = 12 - count + i
+  const first = 12 - Math.min(Math.max(months, 1), 12)
+  const histories = new Map(accountIds.map(id => [id, accountBalanceHistory(id)]))
+  return historyDates().slice(first).map((date, i) => {
     const sums: PointValues = { total: 0, invested: 0, pnl: 0 }
     const accounts: Record<string, PointValues> = {}
     for (const id of accountIds) {
       const account = mockAccounts.find((a) => a.id === id)
-      const balance = mockBalanceHistory[id]?.[index] ?? 0
+      const balance = histories.get(id)?.[first + i]?.balance ?? 0
       const liability = account != null && LIABILITY_ACCOUNT_TYPES.includes(account.type)
       const total = account?.type === 'LOAN' ? -balance : balance
       const invested = liability ? 0 : id in mockHoldings ? holdingsCostBasis(id) : balance
@@ -70,7 +90,7 @@ export function netWorthHistory(accountIds: number[], months: number, split: boo
       if (split) accounts[String(id)] = { total, invested, pnl }
     }
     return {
-      date: monthStartFromToday(i - (count - 1)),
+      date,
       total: round2(sums.total),
       invested: round2(sums.invested),
       pnl: round2(sums.pnl),

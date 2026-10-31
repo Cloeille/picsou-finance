@@ -10,9 +10,9 @@ import {
 } from './data/analysis'
 import { mockDashboard } from './data/dashboard'
 import { mockGoalMonths, mockGoals } from './data/goals'
-import { mockBalanceHistory, netWorthHistory } from './data/history'
+import { accountBalanceHistory, netWorthHistory } from './data/history'
 import { daysBeforeToday, daysFromToday, hoursAgo, isoDate, monthStartFromToday } from './data/dates'
-import { holdingsValue, mockHoldings, quoteDaysAgo } from './data/holdings'
+import { holdingsValue, holdingsValueHoursAgo, mockHoldings, quoteDaysAgo, quoteHoursAgo } from './data/holdings'
 import { ageFromBirthDate, mockMemberProfile, netIncome } from './data/profile'
 import { mockTransactions } from './data/transactions'
 import { mockExchangeStatuses, mockWalletStatuses, mockRequisitions } from './data/sync-status'
@@ -26,13 +26,14 @@ import {
   mockCategories,
   mockCategoryDetail,
   mockFlow,
+  mockLedger,
   mockRecurring,
   mockRules,
   mockSpendingByCategory,
   mockUncategorized,
 } from './data/budget'
 import { mockUpcomingDividends } from './data/dividends'
-import type { CashflowPeriod, DebtInfo, LoanScheduleResponse, Transaction } from '@/types/api'
+import type { CashflowPeriod, DebtInfo, LoanScheduleResponse } from '@/types/api'
 
 function randomDelay(): number {
   return 200 + Math.random() * 400
@@ -315,10 +316,6 @@ handlers.set(key('GET', '/prices'), (config) => {
 })
 
 // Both series end exactly on the live quote, so the chart's last point matches the table.
-function demoQuote(price: number, drift: number): number {
-  return Number((price * (1 + drift)).toFixed(price < 10 ? 4 : 2))
-}
-
 handlers.set(key('GET', '/prices/:ticker/history'), (config, { ticker }) => {
   const price = demoPrices[ticker]
   if (price == null) return []
@@ -336,7 +333,7 @@ handlers.set(key('GET', '/prices/:ticker/intraday'), (_config, { ticker }) => {
     const back = 23 - i
     return {
       timestamp: hoursAgo(back),
-      priceEur: demoQuote(price, -0.004 * (back / 23) + 0.006 * Math.sin(back / 2.5)),
+      priceEur: quoteHoursAgo(price, back),
     }
   })
 })
@@ -590,13 +587,9 @@ function demoInsight(ticker: string) {
 
 handlers.set(key('GET', '/securities/:ticker/insight'), (_config, { ticker }) => demoInsight(ticker))
 
-// Account details: twelve month-start balances, from the fixture /history also sums.
+// Account details: month-start balances then today's, the same points /history sums.
 handlers.set(key('GET', '/accounts/:id/history'), (_config, { id }) =>
-  (mockBalanceHistory[Number(id)] ?? []).map((balance, i, balances) => ({
-    id: 100 + i,
-    date: monthStartFromToday(i - (balances.length - 1)),
-    balance,
-  })))
+  accountBalanceHistory(Number(id)).map((point, i) => ({ id: 100 + i, ...point })))
 
 // ─── Real estate ─────────────────────────────────────────────────────────────
 // Every route the property UI touches needs a handler: the demo adapter answers `{}` for
@@ -761,7 +754,7 @@ handlers.set(key('GET', '/history'), (config) => {
 const demoTopLevelIds = mockAccounts.filter(a => a.parentAccountId == null).map(a => a.id)
 handlers.set(key('GET', '/history/pnl'), (config) => {
   const ids = requestedAccountIds(config, demoTopLevelIds)
-  const { total, invested, pnl } = netWorthHistory(ids, 1, false)[0]
+  const { total, invested, pnl } = netWorthHistory(ids, 1, false).at(-1)!
   const live = { total, invested, pnl, pnlPercent: invested > 0 ? Math.round((pnl / invested) * 1000) / 10 : null }
   const from = config.params?.from
   // HistoryService returns the live figures alone without a range or a holding to price over it.
@@ -771,12 +764,15 @@ handlers.set(key('GET', '/history/pnl'), (config) => {
   return { ...live, valueAtFrom, rangePnl, rangePnlPercent: Math.round((rangePnl / valueAtFrom) * 1000) / 10 }
 })
 
-// Intraday net worth (24H dashboard range): one point per hour, mild noise, ending on today's.
+// Intraday net worth (24H dashboard range), as HistoryService builds it: the holdings repriced at
+// each hour's /prices/:ticker/intraday quote, every other account at its live balance all day.
 handlers.set(key('GET', '/history/net-worth/intraday'), (config) => {
-  const { total, invested } = netWorthHistory(requestedAccountIds(config, demoTopLevelIds), 1, false)[0]
+  const ids = requestedAccountIds(config, demoTopLevelIds)
+  const { total, invested } = netWorthHistory(ids, 1, false).at(-1)!
+  const withoutHoldings = total - holdingsValue(ids)
   return Array.from({ length: 24 }, (_, i) => {
     const back = 23 - i
-    return { timestamp: hoursAgo(back), total: r2(total - back * 25 + Math.sin(back / 2.5) * 180), invested }
+    return { timestamp: hoursAgo(back), total: r2(withoutHoldings + holdingsValueHoursAgo(ids, back)), invested }
   })
 })
 
@@ -1394,64 +1390,14 @@ handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categor
 handlers.set(key('GET', '/transactions/uncategorized'), () => mockUncategorized)
 handlers.set(key('PUT', '/transactions/:id/category'), () => ({}))
 
-// The cycle's ledger on the main checking account, assembled from the same fixtures as the
-// Spending drill and the review inbox, so the three pages list the same rows.
-function demoBudgetTransactions(): Transaction[] {
-  const account = _demoAccounts.find(a => a.id === 4)!
-  const onAccount = { accountId: account.id, accountName: account.name }
-  const salaryCategory = mockCategories.find(c => c.kind === 'INCOME')!
-  const now = new Date()
-  const salary: Transaction = {
-    id: salaryCategory.id * 100,
-    date: isoDate(new Date(now.getFullYear(), now.getMonth(), 1)),
-    description: 'EMPLOYEUR SAS',
-    amount: mockFlow('CYCLE').income,
-    type: null,
-    category: salaryCategory.name,
-    categoryId: salaryCategory.id,
-    nativeCurrency: 'EUR',
-    isManual: false,
-    txType: 'DEPOSIT',
-    ticker: null,
-    name: null,
-    quantity: null,
-    pricePerUnit: null,
-    merchantLabel: 'Employeur SAS',
-    merchantBrandId: null,
-    fees: null,
-  }
-  const spending = mockSpendingByCategory('CYCLE').categories
-    .flatMap(row => row.categoryId == null ? [] : mockCategoryDetail(row.categoryId, 'CYCLE').transactions
-      .map(tx => ({ ...tx, categoryId: row.categoryId })))
-  const toReview = mockUncategorized.map((tx): Transaction => ({
-    id: tx.id,
-    date: tx.date,
-    description: tx.description,
-    amount: tx.amount,
-    type: tx.type,
-    category: null,
-    categoryId: null,
-    nativeCurrency: tx.nativeCurrency,
-    isManual: tx.isManual,
-    txType: tx.txType,
-    ticker: tx.ticker,
-    name: null,
-    quantity: tx.quantity,
-    pricePerUnit: tx.pricePerUnit,
-    merchantLabel: tx.merchantLabel,
-    merchantBrandId: tx.merchantBrandId,
-    fees: null,
-  }))
-  return [salary, ...spending, ...toReview]
-    .map(tx => ({ ...tx, ...onAccount }))
-    .sort((a, b) => b.date.localeCompare(a.date))
-}
-
+// The budget ledger on the main checking account: the rows the Spending pages and the review
+// inbox summarize, so a search over any period lists what they count.
 handlers.set(key('GET', '/transactions'), (config) => {
   const { from, to, accountId, categoryId } = (config.params ?? {}) as {
     from?: string; to?: string; accountId?: number | string; categoryId?: number | string
   }
-  return demoBudgetTransactions().filter(tx =>
+  const account = _demoAccounts.find(a => a.id === 4)!
+  return mockLedger.map(tx => ({ ...tx, accountId: account.id, accountName: account.name })).filter(tx =>
     (from == null || tx.date >= from)
     && (to == null || tx.date <= to)
     && (accountId == null || tx.accountId === Number(accountId))

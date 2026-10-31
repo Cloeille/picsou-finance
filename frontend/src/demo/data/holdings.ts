@@ -162,12 +162,27 @@ export function quoteDaysAgo(price: number, daysAgo: number): number {
   return Number((price * factor).toFixed(price < 10 ? 4 : 2))
 }
 
+/** The demo quote `hoursAgo` hours back (0 to 23) for a ticker quoted `price` now. */
+export function quoteHoursAgo(price: number, hoursAgo: number): number {
+  const factor = 1 - 0.004 * (hoursAgo / 23) + 0.006 * Math.sin(hoursAgo / 2.5)
+  return Number((price * factor).toFixed(price < 10 ? 4 : 2))
+}
+
 const round2 = (n: number) => Math.round(n * 100) / 100
+
+function valueHoldings(accountIds: number[], quote: (price: number) => number): number {
+  return round2(accountIds.flatMap(id => mockHoldings[id] ?? [])
+    .reduce((sum, h) => sum + h.quantity * quote(h.currentPrice ?? 0), 0))
+}
 
 /** What the accounts' holdings were worth `daysAgo` days back, at today's quantities. */
 export function holdingsValue(accountIds: number[], daysAgo = 0): number {
-  return round2(accountIds.flatMap(id => mockHoldings[id] ?? [])
-    .reduce((sum, h) => sum + h.quantity * quoteDaysAgo(h.currentPrice ?? 0, daysAgo), 0))
+  return valueHoldings(accountIds, price => quoteDaysAgo(price, daysAgo))
+}
+
+/** What the accounts' holdings were worth `hoursAgo` hours back, at today's quantities. */
+export function holdingsValueHoursAgo(accountIds: number[], hoursAgo: number): number {
+  return valueHoldings(accountIds, price => quoteHoursAgo(price, hoursAgo))
 }
 
 export function holdingsCostBasis(accountId: number): number {

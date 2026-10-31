@@ -37,10 +37,15 @@ function daysFromNow(n: number): string {
   return isoDate(d)
 }
 
-/** `days` before today, but never before `from`: on a cycle's first day every row lands on it. */
+/** `days` before `to`, but never before `from`: on a cycle's first day every row lands on it. */
+function daysBeforeWithin(to: Date, days: number, from: string): string {
+  const d = new Date(to)
+  d.setDate(d.getDate() - days)
+  return isoDate(d) < from ? from : isoDate(d)
+}
+
 function daysAgoWithin(days: number, from: string): string {
-  const date = daysFromNow(-days)
-  return date < from ? from : date
+  return daysBeforeWithin(NOW, days, from)
 }
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -208,7 +213,7 @@ export function mockAllocation(period: CashflowPeriod): AllocationResponse {
   ]
   const totalStock = stock.reduce((a, s) => a + s.amount, 0)
   // YTD shows the accumulated transfers; CYCLE shows just this month's.
-  const factor = period === 'YTD' ? 6 : 1
+  const factor = cyclesIn(period)
   const contributions = [
     { accountId: 1, accountName: 'Livret A', assetClass: 'SAVINGS' as const, color: '#22c55e', amount: 300 * factor },
     { accountId: 7, accountName: 'LEP', assetClass: 'SAVINGS' as const, color: '#16a34a', amount: 150 * factor },
@@ -280,8 +285,9 @@ export function mockCalendar(horizonDays: number): RecurringOccurrence[] {
 }
 
 // ── Flow & spending (M2) ────────────────────────────────────────────────────────
-// One coherent dataset drives the Sankey, the ranked breakdown and the category drill,
-// so the three views always agree. YTD is just the cycle scaled ~6×. The flow is built
+// One dated ledger drives the Sankey, the ranked breakdown, the category drill and the
+// transaction search, so every view agrees over any period. Each cycle since January holds the
+// salary and the same spend; the current one also holds the review inbox. The flow is built
 // exactly like the backend (sources → hub → sinks: expenses, savings accounts, unspent/shortfall) so
 // the demo graph stays balanced the same way the real one is.
 
@@ -302,8 +308,6 @@ const SPEND_BASE: { cat: Category; amount: number }[] = [
   { cat: mockCategories[6], amount: 134.2 }, // Restaurants
   { cat: mockCategories[5], amount: 53.97 }, // Abonnements
 ]
-// The uncategorized spend is the review inbox, so the breakdown counts the rows the ledger lists.
-const UNCATEGORIZED_BASE = r2(mockUncategorized.reduce((acc, tx) => acc - tx.amount, 0))
 
 /** A couple of believable merchants per category, for the drill transaction list. */
 const MERCHANTS_BY_CATEGORY: Record<number, string[]> = {
@@ -317,12 +321,7 @@ const MERCHANTS_BY_CATEGORY: Record<number, string[]> = {
   11: ['EDF'], // Énergie (leaf under Logement)
 }
 
-/**
- * Single source of truth for how many transactions each category holds in the
- * period. Both the spending breakdown (`count`) and the per-category drill read
- * this, so the "N transactions" badge always matches the rows actually listed —
- * and the backend gives the same guarantee for free (detail count == size()).
- */
+/** How many transactions each category holds in one cycle of the ledger. */
 const TX_COUNT_BY_CATEGORY: Record<number, number> = {
   1: 1, // Salaire — single monthly inflow
   2: 9, // Courses — many small grocery trips
@@ -340,20 +339,102 @@ function periodRange(period: CashflowPeriod): { from: string; to: string } {
     : { from: isoDate(CYCLE_START), to: isoDate(CYCLE_END) }
 }
 
-export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
-  const factor = period === 'YTD' ? 6 : 1
-  const { from, to } = periodRange(period)
-  const income = r2(INCOME_BASE * factor)
+/** How many cycles a period spans: YTD holds every month since January. */
+function cyclesIn(period: CashflowPeriod): number {
+  return period === 'YTD' ? NOW.getMonth() + 1 : 1
+}
 
-  const expenseItems = [
-    ...SPEND_BASE.map((s) => ({
-      key: `cat:${s.cat.id}`,
-      label: s.cat.name as string | null,
-      color: s.cat.color,
-      amount: r2(s.amount * factor),
-    })),
-    { key: '__expense_uncat__', label: null, color: null, amount: r2(UNCATEGORIZED_BASE * factor) },
-  ].sort((a, b) => b.amount - a.amount)
+/**
+ * One cycle's transactions for a LEAF category. `totalAbs` is spread across the category's
+ * transactions with a deterministic, non-uniform split (so amounts look real rather than
+ * identical), and the last one absorbs rounding so the sum is exact. Spending is dated back from
+ * `to` and the salary lands on `from`, the cycle's first day. Ids are namespaced by cycle and
+ * category (`cycle*10000 + id*100 + i`) so the ledger never repeats one.
+ */
+function leafTransactions(cat: Category, totalAbs: number, cycle: number, from: string, to: Date): Transaction[] {
+  const merchants = MERCHANTS_BY_CATEGORY[cat.id] ?? ['Achat']
+  const isIncome = cat.kind === 'INCOME'
+  const n = TX_COUNT_BY_CATEGORY[cat.id] ?? merchants.length
+
+  const weights = Array.from({ length: n }, (_, i) => 1 + ((i * 37) % 13) / 12)
+  const wSum = weights.reduce((acc, w) => acc + w, 0)
+  let allocated = 0
+  const amounts = weights.map((w, i) => {
+    if (i === n - 1) return r2(totalAbs - allocated)
+    const a = r2((totalAbs * w) / wSum)
+    allocated = r2(allocated + a)
+    return a
+  })
+
+  return amounts.map((abs, i) => {
+    const merchant = merchants[i % merchants.length]
+    return {
+      id: cycle * 10000 + cat.id * 100 + i,
+      date: isIncome ? from : daysBeforeWithin(to, i * 3 + 2, from),
+      description: merchant.toUpperCase(),
+      amount: isIncome ? abs : -abs,
+      type: null,
+      category: cat.name,
+      categoryId: cat.id,
+      nativeCurrency: 'EUR',
+      isManual: false,
+      txType: isIncome ? 'DEPOSIT' : 'WITHDRAWAL',
+      ticker: null,
+      name: null,
+      quantity: null,
+      pricePerUnit: null,
+      merchantLabel: merchant,
+      merchantBrandId: null,
+      fees: null,
+    }
+  })
+}
+
+const inboxTransactions = mockUncategorized.map((tx): Transaction => ({
+  id: tx.id,
+  date: tx.date,
+  description: tx.description,
+  amount: tx.amount,
+  type: tx.type,
+  category: null,
+  categoryId: null,
+  nativeCurrency: tx.nativeCurrency,
+  isManual: tx.isManual,
+  txType: tx.txType,
+  ticker: tx.ticker,
+  name: null,
+  quantity: tx.quantity,
+  pricePerUnit: tx.pricePerUnit,
+  merchantLabel: tx.merchantLabel,
+  merchantBrandId: tx.merchantBrandId,
+  fees: null,
+}))
+
+/** Every transaction since January, newest first: one cycle per month, the current one up to today. */
+export const mockLedger: Transaction[] = Array.from({ length: NOW.getMonth() + 1 }, (_, cycle) => {
+  const from = isoDate(new Date(NOW.getFullYear(), NOW.getMonth() - cycle, 1))
+  const to = cycle === 0 ? NOW : new Date(NOW.getFullYear(), NOW.getMonth() - cycle + 1, 0)
+  return [
+    ...leafTransactions(mockCategories[0], INCOME_BASE, cycle, from, to),
+    ...SPEND_BASE.flatMap((s) => leafTransactions(s.cat, s.amount, cycle, from, to)),
+  ]
+}).flat().concat(inboxTransactions).sort((a, b) => b.date.localeCompare(a.date))
+
+function ledgerIn(period: CashflowPeriod): Transaction[] {
+  const { from, to } = periodRange(period)
+  return mockLedger.filter((tx) => tx.date >= from && tx.date <= to)
+}
+
+export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
+  const { from, to } = periodRange(period)
+  const income = r2(ledgerIn(period).reduce((acc, tx) => (tx.amount > 0 ? acc + tx.amount : acc), 0))
+
+  const expenseItems = mockSpendingByCategory(period).categories.map((c) => ({
+    key: c.categoryId == null ? '__expense_uncat__' : `cat:${c.categoryId}`,
+    label: c.name,
+    color: c.color,
+    amount: c.amount,
+  }))
 
   const totalExpense = r2(expenseItems.reduce((acc, e) => acc + e.amount, 0))
   const net = r2(income - totalExpense)
@@ -363,7 +444,7 @@ export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
   const savings = [...mockAllocation(period).contributions].sort((a, b) => b.amount - a.amount)
   const saved = r2(savings.reduce((acc, s) => acc + s.amount, 0))
   // A small transfer to an account Picsou doesn't see, to showcase the TRANSFER_OUT sink.
-  const transferredOut = r2(50 * factor)
+  const transferredOut = r2(50 * cyclesIn(period))
   const out = r2(totalExpense + saved + transferredOut)
   const shortfall = out > income ? r2(out - income) : 0
   const unspent = income > out ? r2(income - out) : 0
@@ -406,8 +487,12 @@ export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
 }
 
 export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCategoryResponse {
-  const factor = period === 'YTD' ? 6 : 1
   const { from, to } = periodRange(period)
+  const expenses = ledgerIn(period).filter((tx) => tx.amount < 0)
+  const spent = (categoryId: number | null) => {
+    const txns = expenses.filter((tx) => (tx.categoryId ?? null) === categoryId)
+    return { amount: r2(txns.reduce((acc, tx) => acc - tx.amount, 0)), count: txns.length }
+  }
 
   const rows = [
     ...SPEND_BASE.map((s) => {
@@ -420,8 +505,7 @@ export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCatego
         name: s.cat.name as string | null,
         color: s.cat.color,
         icon: null,
-        amount: r2(s.amount * factor),
-        count: TX_COUNT_BY_CATEGORY[s.cat.id] ?? 3,
+        ...spent(s.cat.id),
         parentId: parent?.id ?? null,
         parentName: parent?.name ?? null,
         parentColor: parent?.color ?? null,
@@ -433,8 +517,7 @@ export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCatego
       name: null,
       color: null,
       icon: null,
-      amount: r2(UNCATEGORIZED_BASE * factor),
-      count: mockUncategorized.length,
+      ...spent(null),
       parentId: null,
       parentName: null,
       parentColor: null,
@@ -448,57 +531,11 @@ export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCatego
   return { period, from, to, totalExpense, categories }
 }
 
-/**
- * Synthesize the transaction list for a single LEAF category over the period. The leaf's total
- * is spread across `n` transactions with a deterministic, non-uniform split (so amounts look
- * real rather than identical), and the last one absorbs rounding so the sum matches the breakdown
- * total exactly. Transaction ids are namespaced by category id (`id*100 + i`) so a parent drill
- * can concatenate several leaves' lists without colliding.
- */
-function leafTransactions(cat: Category, factor: number, from: string): Transaction[] {
-  const base = SPEND_BASE.find((s) => s.cat.id === cat.id)?.amount ?? 80
-  const merchants = MERCHANTS_BY_CATEGORY[cat.id] ?? ['Achat']
-  const isIncome = cat.kind === 'INCOME'
-  const n = TX_COUNT_BY_CATEGORY[cat.id] ?? merchants.length
-
-  const totalAbs = r2(base * factor)
-  const weights = Array.from({ length: n }, (_, i) => 1 + ((i * 37) % 13) / 12)
-  const wSum = weights.reduce((acc, w) => acc + w, 0)
-  let allocated = 0
-  const amounts = weights.map((w, i) => {
-    if (i === n - 1) return r2(totalAbs - allocated)
-    const a = r2((totalAbs * w) / wSum)
-    allocated = r2(allocated + a)
-    return a
-  })
-
-  return amounts.map((abs, i) => {
-    const merchant = merchants[i % merchants.length]
-    return {
-      id: cat.id * 100 + i,
-      date: daysAgoWithin(i * 3 + 2, from),
-      description: merchant.toUpperCase(),
-      amount: isIncome ? abs : -abs,
-      type: null,
-      category: cat.name,
-      nativeCurrency: 'EUR',
-      isManual: false,
-      txType: isIncome ? 'DEPOSIT' : 'WITHDRAWAL',
-      ticker: null,
-      name: null,
-      quantity: null,
-      pricePerUnit: null,
-      merchantLabel: merchant,
-      merchantBrandId: null,
-      fees: null,
-    }
-  })
-}
-
 export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): SpendingDetailResponse {
-  const factor = period === 'YTD' ? 6 : 1
   const { from, to } = periodRange(period)
   const cat = mockCategories.find((c) => c.id === categoryId)
+  const ledger = ledgerIn(period)
+  const filedUnder = (leafId: number) => ledger.filter((tx) => tx.categoryId === leafId)
 
   // A parent drill rolls up its (non-archived) children: the transaction list is the union of the
   // children's leaves, and `children` carries each child's signed subtotal + count. A leaf returns
@@ -509,7 +546,7 @@ export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): 
   let children: ChildSpend[]
   if (childCats.length > 0) {
     children = childCats.map((child) => {
-      const txns = leafTransactions(child, factor, from)
+      const txns = filedUnder(child.id)
       return {
         categoryId: child.id,
         name: child.name,
@@ -520,10 +557,10 @@ export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): 
       }
     })
     transactions = childCats
-      .flatMap((child) => leafTransactions(child, factor, from))
+      .flatMap((child) => filedUnder(child.id))
       .sort((a, b) => b.date.localeCompare(a.date)) // newest first across the whole subtree
   } else {
-    transactions = cat ? leafTransactions(cat, factor, from) : []
+    transactions = cat ? filedUnder(cat.id) : []
     children = []
   }
 
