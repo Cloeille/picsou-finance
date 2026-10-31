@@ -18,8 +18,14 @@ function centerActive(strip: HTMLElement) {
 /**
  * One-row horizontal scroller for a tab or filter strip that is wider than a phone screen.
  * The side that hides more items fades out, and the active item is scrolled into view on
- * mount, whenever `activeKey` changes and whenever the strip is resized, so a deep link to
- * the last tab does not land off-screen and a rotation or late font does not push it out.
+ * mount, whenever `activeKey` changes and whenever the strip changes width, so a deep link to
+ * the last tab does not land off-screen and a rotation does not push it out. When only the
+ * content changes size (a late font, a badge count arriving), the active item is revealed
+ * again only if the user has not swiped since, so a deliberate swipe is never undone.
+ *
+ * `activeKey` must change with the selection, so pass the controlled value, not a default.
+ * The strip pads itself by the 4px the global focus ring reaches outside a control (and
+ * cancels that with a negative margin), so the overflow never cuts a keyboard focus ring.
  */
 export function ScrollStrip({
   activeKey,
@@ -31,9 +37,14 @@ export function ScrollStrip({
   children: ReactNode
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  // Where the last reveal left the strip; any other offset means the user swiped since.
+  const revealedAt = useRef(0)
 
   useLayoutEffect(() => {
-    if (ref.current) centerActive(ref.current)
+    const strip = ref.current
+    if (!strip) return
+    centerActive(strip)
+    revealedAt.current = strip.scrollLeft
   }, [activeKey])
 
   useEffect(() => {
@@ -45,8 +56,14 @@ export function ScrollStrip({
       strip.style.setProperty('--fade-start', hiddenStart ? FADE : '0px')
       strip.style.setProperty('--fade-end', hiddenEnd ? FADE : '0px')
     }
+    let width = -1
     const observer = new ResizeObserver(() => {
-      centerActive(strip)
+      const resized = strip.clientWidth !== width
+      width = strip.clientWidth
+      if (resized || strip.scrollLeft === revealedAt.current) {
+        centerActive(strip)
+        revealedAt.current = strip.scrollLeft
+      }
       updateFade()
     })
     observer.observe(strip)
@@ -61,7 +78,7 @@ export function ScrollStrip({
   return (
     <div
       ref={ref}
-      className={cn('overflow-x-auto', className)}
+      className={cn('-m-1 overflow-x-auto p-1', className)}
       style={{
         maskImage:
           'linear-gradient(to right, transparent, #000 var(--fade-start, 0px), #000 calc(100% - var(--fade-end, 0px)), transparent)',

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -27,13 +28,14 @@ import { ActualBudgetTab } from './ActualBudgetTab'
 export function SyncPage() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
-  const defaultTab = searchParams.get('tab') ?? 'banks'
+  // Controlled so ScrollStrip sees every selection, not only the deep-linked one.
+  const [tab, setTab] = useState(() => searchParams.get('tab') ?? 'banks')
 
   return (
     <div className="space-y-6">
       <PageHeader title={t('sync.title')} />
-      <Tabs defaultValue={defaultTab}>
-        <ScrollStrip activeKey={defaultTab}>
+      <Tabs value={tab} onValueChange={setTab}>
+        <ScrollStrip activeKey={tab}>
           <TabsList className="w-max flex-nowrap justify-start md:w-full md:flex-wrap">
             <TabsTrigger value="banks" className="flex-none">{t('sync.banks.title')}</TabsTrigger>
             <TabsTrigger value="exchanges" className="flex-none">{t('sync.exchanges.title')}</TabsTrigger>

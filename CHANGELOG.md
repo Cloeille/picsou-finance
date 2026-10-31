@@ -225,8 +225,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   card toggles and the account Transactions buttons were cut at the card edge. Settings and
   sharing choices now stretch across the card, and card toggles move under the title. The
   Accounts filters and Sync providers sit on one row you can swipe instead of up to eight
-  ragged rows; that row, like the Budget sections, fades at the edge that hides more and opens
-  on the current section. Goal names and page titles wrap to a second line instead of being
+  ragged rows; that row, like the Budget sections, fades at the edge that hides more, opens
+  on the current section and brings a newly picked tab fully into view, without cutting the
+  keyboard focus ring or undoing a swipe when a count loads late. Goal names and page titles wrap to a second line instead of being
   cut with an ellipsis.
 - **Primary blue and chart strokes are readable in dark mode.** The dark theme's primary blue
   was darker than the light one, so blue text, badges ("This device", AI category

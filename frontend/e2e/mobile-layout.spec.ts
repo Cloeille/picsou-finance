@@ -112,4 +112,81 @@ test.describe('Phone layout (360px)', () => {
     await expect(tab).toHaveAttribute('aria-selected', 'true')
     await expect(tab).toBeInViewport({ ratio: 1 })
   })
+
+  test('a deep-linked sync tab stays in view when the phone turns upright', async ({ page }) => {
+    await page.setViewportSize({ width: 844, height: 390 })
+    await open(page, '/sync?tab=visibility')
+    const tab = page.getByRole('tab', { name: 'Comptes' })
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(tab).toBeInViewport({ ratio: 1 })
+  })
+
+  test('selecting a half-hidden sync tab brings it fully into view', async ({ page }) => {
+    await open(page, '/sync')
+    await expect(page.getByRole('tab').first()).toHaveAttribute('aria-selected', 'true')
+    const tabs = page.getByRole('tab')
+    const strip = page.getByRole('tablist').locator('xpath=..')
+    // Swipe so the first tab that does not fit shows only its first half at the right edge.
+    const stripBox = (await strip.boundingBox())!
+    const stripRight = stripBox.x + stripBox.width
+    const i = await tabs.evaluateAll((all, right) => all.findIndex((tab) => tab.getBoundingClientRect().right > right), stripRight)
+    const hidden = (await tabs.nth(i).boundingBox())!
+    const shift = Math.round(hidden.x + hidden.width / 2 - stripRight)
+    await strip.hover()
+    await page.mouse.wheel(shift, 0)
+    await expect.poll(() => strip.evaluate((s) => s.scrollLeft)).toBe(shift)
+    const box = (await tabs.nth(i).boundingBox())!
+    // A real pointer press on the visible half: Playwright's click() would scroll the tab into view itself.
+    await page.mouse.click(box.x + 8, box.y + box.height / 2)
+    const tab = tabs.nth(i)
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await expect(tab).toBeInViewport({ ratio: 1 })
+  })
+
+  test('content loading late does not undo a swipe on the budget sections', async ({ page }) => {
+    await open(page, '/budget/review')
+    await expect(page.getByRole('link', { name: /À catégoriser/ })).toBeInViewport({ ratio: 1 })
+    const nav = page.getByRole('main').locator('nav')
+    const strip = nav.locator('xpath=..')
+    await strip.hover()
+    await page.mouse.wheel(-2000, 0)
+    await expect.poll(() => strip.evaluate((s) => s.scrollLeft)).toBe(0)
+    // Stands in for a late response widening a section, like the review-count badge arriving.
+    await nav.evaluate((n) => { n.querySelector('a')!.append(' (12)') })
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
+    expect(await strip.evaluate((s) => s.scrollLeft)).toBe(0)
+  })
+
+  // The global focus ring is drawn 4px outside the control (index.css), so a strip's overflow
+  // must leave room for it above and below, or keyboard users lose sight of where they are.
+  const STRIP_ITEMS = [
+    ['/accounts', 'button', 'Actions & Fonds'],
+    ['/budget/review', 'link', /À catégoriser/],
+    ['/sync?tab=visibility', 'tab', 'Comptes'],
+  ] as const
+  for (const [path, role, name] of STRIP_ITEMS) {
+    test(`the focus ring of a ${role} in the ${path} strip is not cut`, async ({ page }) => {
+      await open(page, path)
+      const item = page.getByRole('main').getByRole(role, { name })
+      await item.focus()
+      const cut = await item.evaluate((el) => {
+        if (!el.matches(':focus-visible')) return ['not focus-visible']
+        const style = getComputedStyle(el)
+        const reach = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth)
+        const box = el.getBoundingClientRect()
+        const sides: string[] = []
+        for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+          const s = getComputedStyle(a)
+          if (s.overflowX === 'visible' && s.overflowY === 'visible') continue
+          const clip = a.getBoundingClientRect()
+          const top = clip.top + a.clientTop
+          if (box.top - reach < top - 0.5) sides.push(`top cut by ${a.tagName}`)
+          if (box.bottom + reach > top + a.clientHeight + 0.5) sides.push(`bottom cut by ${a.tagName}`)
+        }
+        return sides
+      })
+      expect(cut).toEqual([])
+    })
+  }
 })
