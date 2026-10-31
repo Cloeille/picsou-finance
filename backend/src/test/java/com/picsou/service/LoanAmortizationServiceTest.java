@@ -198,6 +198,8 @@ class LoanAmortizationServiceTest {
 
         assertThat(service.compute(debt, LocalDate.parse("2042-03-30")).summary().paidInstallments()).isZero();
         assertThat(service.compute(debt, LocalDate.parse("2042-03-31")).summary().paidInstallments()).isEqualTo(1);
+        assertThat(service.computeRemainingBalance(debt, LocalDate.parse("2042-03-30"))).isEqualByComparingTo("3000.00");
+        assertThat(service.computeRemainingBalance(debt, LocalDate.parse("2042-03-31"))).isEqualByComparingTo("2000.00");
     }
 
     @Test
@@ -206,6 +208,8 @@ class LoanAmortizationServiceTest {
 
         assertThat(service.compute(debt, LocalDate.parse("2042-02-14")).summary().paidInstallments()).isZero();
         assertThat(service.compute(debt, LocalDate.parse("2042-02-15")).summary().paidInstallments()).isEqualTo(1);
+        assertThat(service.computeRemainingBalance(debt, LocalDate.parse("2042-02-14"))).isEqualByComparingTo("3000.00");
+        assertThat(service.computeRemainingBalance(debt, LocalDate.parse("2042-02-15"))).isEqualByComparingTo("2000.00");
     }
 
     @Test
