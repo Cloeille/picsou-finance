@@ -23,6 +23,7 @@ cannot be read. Silently dropping an account would hide an incomplete sync.
 
 import html as html_module
 import re
+import unicodedata
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
@@ -86,10 +87,16 @@ def parse_amount(raw: str) -> Decimal:
     return -value if match.group("sign") == "-" else value
 
 
+def _fold(label: str) -> str:
+    """Upper case without diacritics or typographic apostrophes: "Plan d’Épargne" -> "PLAN D'EPARGNE"."""
+    decomposed = unicodedata.normalize("NFKD", label.replace("\u2019", "'"))
+    return "".join(char for char in decomposed if not unicodedata.combining(char)).upper()
+
+
 def account_type(category: str, label: str) -> AccountKind:
     if category == CHECKING_CATEGORY:
         return "CHECKING"
-    upper = label.upper()
+    upper = _fold(label)
     for pattern, kind in _SAVINGS_TYPES:
         if pattern.search(upper):
             return kind

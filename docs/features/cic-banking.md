@@ -31,6 +31,10 @@ balance.
 - **Backend**: `CicSyncService`, shaped like `CmesSyncService` (stored credentials, re-login with the
   previous session, daily source `cic`), balance-only accounts with `upsertSnapshot`. Migration
   V121 `cic_session`. `/api/cic/*`, `/api/cic/auth/complete` given 180 s in nginx.
+  `/auth/initiate` and `/auth/reconnect` share 5 password checks per IP per 15 min; `/auth/complete`
+  has its own 10, so retyped SMS codes do not use them up. An account a complete fetch no longer
+  lists is closed at zero (balance 0, zero snapshot), not soft-deleted, so it can come back.
+  Savings labels are typed with accents and typographic apostrophes folded.
 - **Frontend**: `CicPanel` (`SidecarSessionPanel` + app push / SMS), tab `cic` on `/sync`. While
   the user approves the push in the CIC app, iOS drops Safari's pending `/auth/complete` request; the
   backend finishes regardless. A completion lost without an answer (network error, 502/504) keeps the

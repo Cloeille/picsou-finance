@@ -34,6 +34,18 @@ class TypeTest(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertEqual(account_type("livrets et comptes d'épargne", label), expected)
 
+    def test_accented_labels_are_typed_like_plain_ones(self):
+        cases = {
+            "PLAN D'ÉPARGNE LOGEMENT": "PEL",
+            "Plan d\u2019épargne logement": "PEL",
+            "COMPTE ÉPARGNE LOGEMENT": "CEL",
+            "LIVRET DE DÉVELOPPEMENT DURABLE": "LDDS",
+            "LIVRET D'ÉPARGNE POPULAIRE": "LEP",
+        }
+        for label, expected in cases.items():
+            with self.subTest(label=label):
+                self.assertEqual(account_type("livrets et comptes d'épargne", label), expected)
+
     def test_the_current_accounts_category_is_checking(self):
         self.assertEqual(account_type("comptes courants", "COMPTE COURANT DU PERSONNEL"), "CHECKING")
 

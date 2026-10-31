@@ -482,9 +482,11 @@ public class CicSyncService {
             FamilyMember member = memberRepository.findById(job.memberId())
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             Instant syncedAt = Instant.now();
+            List<Account> imported = accountRepository.findAllByMemberIdAndProvider(job.memberId(), PROVIDER);
             for (PreparedAccount data : prepared) {
                 upsertAccount(data, member, job.memberId(), syncedAt);
             }
+            closeUnlistedAccounts(prepared, imported, job.memberId(), syncedAt);
 
             session.markSuccessful(syncedAt);
             sessionRepository.save(session);
@@ -521,6 +523,36 @@ public class CicSyncService {
         Account savedAccount = accountRepository.save(account);
         // No cost basis of its own: AccountService derives it as for every balance-only connector.
         accountService.upsertSnapshot(savedAccount, data.balanceEur(), LocalDate.now());
+    }
+
+    /**
+     * An account a complete fetch no longer lists (a closed livret) would keep
+     * its last balance and still count in the net worth. Only a complete read
+     * reaches this point ({@link #prepareAccounts} refuses a partial one). The
+     * account is closed at zero rather than soft deleted: a soft-deleted account
+     * reads as removed by the user and would never be imported again, while an
+     * account can come back.
+     */
+    private void closeUnlistedAccounts(List<PreparedAccount> prepared, List<Account> imported, Long memberId,
+                                       Instant syncedAt) {
+        Set<String> listed = new HashSet<>();
+        prepared.forEach(account -> listed.add(account.externalId()));
+        for (Account account : imported) {
+            String externalId = account.getExternalAccountId();
+            if (externalId == null || !externalId.startsWith(EXTERNAL_ID_PREFIX) || listed.contains(externalId)) {
+                continue;
+            }
+            if (account.getCurrentBalance() != null && account.getCurrentBalance().signum() == 0) {
+                continue;
+            }
+            log.info("CIC no longer lists an imported account, closing it at zero (member={}; account={})",
+                memberId, account.getId());
+            account.setCurrentBalance(BigDecimal.ZERO);
+            account.setCashBalance(null);
+            account.setLastSyncedAt(syncedAt);
+            Account saved = accountRepository.save(account);
+            accountService.upsertSnapshot(saved, BigDecimal.ZERO, LocalDate.now());
+        }
     }
 
     private void markFailed(SyncJob job, CicErrorCode code) {

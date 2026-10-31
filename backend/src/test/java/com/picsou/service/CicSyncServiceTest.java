@@ -588,6 +588,43 @@ class CicSyncServiceTest {
         assertThat(result.source()).isEqualTo("cic");
     }
 
+    @Test
+    void anAccountACompleteFetchNoLongerListsIsClosedAtZero() {
+        arrangeCommittableSync(accounts());
+        Account closedLivret = Account.builder()
+            .id(12L)
+            .externalAccountId("cic_1000000012345603")
+            .provider(CicSyncService.PROVIDER)
+            .currentBalance(new BigDecimal("800.00"))
+            .build();
+        Account listedLivret = Account.builder()
+            .id(13L)
+            .externalAccountId(LIVRET_ID)
+            .provider(CicSyncService.PROVIDER)
+            .currentBalance(new BigDecimal("4900.00"))
+            .build();
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CicSyncService.PROVIDER))
+            .thenReturn(List.of(closedLivret, listedLivret));
+
+        service.queueSync(7L);
+
+        assertThat(closedLivret.getCurrentBalance()).isEqualByComparingTo("0");
+        assertThat(closedLivret.getDeletedAt()).isNull();
+        verify(accountService).upsertSnapshot(closedLivret, BigDecimal.ZERO, LocalDate.now());
+        verify(accountService, never()).upsertSnapshot(eq(listedLivret), eq(BigDecimal.ZERO), any(LocalDate.class));
+    }
+
+    @Test
+    void aFailedFetchClosesNoAccount() {
+        arrangeQueuedSession(activeSession(member()));
+        when(port.fetchAccounts("plain-state"))
+            .thenThrow(new SyncException("partial", null, CicErrorCode.PORTFOLIO_INCOMPLETE.name()));
+
+        service.queueSync(7L);
+
+        verify(accountRepository, never()).findAllByMemberIdAndProvider(any(), any());
+    }
+
     private SyncException expired() {
         return new SyncException("expired", null, CicErrorCode.SESSION_EXPIRED.name());
     }
