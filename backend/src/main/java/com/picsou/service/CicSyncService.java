@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -76,7 +77,11 @@ public class CicSyncService {
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
+    private final Clock clock;
     private final Map<String, PendingCredentials> pendingCredentials = new ConcurrentHashMap<>();
+    // A disconnect revokes logins already waiting on the bank, including those without a process ID yet.
+    private final Map<Long, Long> authGenerations = new ConcurrentHashMap<>();
+    private final Object sessionWriteLock = new Object();
 
     public CicSyncService(
         CicPort port,
@@ -86,7 +91,8 @@ public class CicSyncService {
         AccountService accountService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
-        @Qualifier("cicSyncExecutor") Executor syncExecutor
+        @Qualifier("cicSyncExecutor") Executor syncExecutor,
+        Clock clock
     ) {
         this.port = port;
         this.sessionRepository = sessionRepository;
@@ -96,9 +102,11 @@ public class CicSyncService {
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
+        this.clock = clock;
     }
 
     public AuthInitResponse initiateAuth(String login, String password, Long memberId) {
+        long generation = authGenerations.getOrDefault(memberId, 0L);
         // A reconnection from the UI replays the remembered-device cookie too, so
         // reconnecting after an error does not ask for a confirmation again.
         CicPort.InitiateResult result = port.initiateAuth(login, password, previousPlainState(memberId));
@@ -106,11 +114,14 @@ public class CicSyncService {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
                 throw error(CicErrorCode.INVALID_DATA, "CIC did not return a session", null);
             }
-            storeSessionAndQueue(result.sessionState(), memberId, login, password);
+            storeSessionAndQueue(result.sessionState(), memberId, login, password, generation);
         } else if (result.processId() != null) {
-            pendingCredentials.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(Instant.now()));
-            pendingCredentials.put(result.processId(), new PendingCredentials(
-                login, password, Instant.now().plusSeconds(PENDING_CREDENTIALS_SECONDS), memberId));
+            pendingCredentials.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(clock.instant()));
+            synchronized (sessionWriteLock) {
+                requireGeneration(memberId, generation);
+                pendingCredentials.put(result.processId(), new PendingCredentials(
+                    login, password, clock.instant().plusSeconds(PENDING_CREDENTIALS_SECONDS), memberId, generation));
+            }
         }
         return new AuthInitResponse(result.processId(), result.mfaRequired(), result.mfaType());
     }
@@ -139,21 +150,32 @@ public class CicSyncService {
 
     /** {@code code} is the SMS code, or null for a mobile confirmation. */
     public SessionStatusResponse completeAuth(String processId, String code, Long memberId) {
-        PendingCredentials credentials = pendingCredentials.get(processId);
-        if (credentials != null && !credentials.memberId().equals(memberId)) {
-            throw error(CicErrorCode.AUTH_ATTEMPT_EXPIRED, "CIC authentication attempt expired", null);
+        PendingCredentials credentials;
+        synchronized (sessionWriteLock) {
+            credentials = pendingCredentials.get(processId);
+            if (credentials == null || !credentials.memberId().equals(memberId)
+                || !credentials.expiresAt().isAfter(clock.instant())) {
+                throw error(CicErrorCode.AUTH_ATTEMPT_EXPIRED, "CIC authentication attempt expired", null);
+            }
+            requireGeneration(memberId, credentials.generation());
         }
         // A wrong SMS code throws INVALID_OTP before the pending credentials are
         // dropped, so the saver's next try on the same attempt still stores them.
         String plainState = port.completeAuth(processId, code);
-        pendingCredentials.remove(processId);
         if (plainState == null || plainState.isBlank()) {
             throw error(CicErrorCode.INVALID_DATA, "CIC did not return a session", null);
         }
-        boolean credentialsValid = credentials != null && credentials.expiresAt().isAfter(Instant.now());
-        return storeSessionAndQueue(plainState, memberId,
-            credentialsValid ? credentials.login() : null,
-            credentialsValid ? credentials.password() : null);
+        SyncJob job;
+        synchronized (sessionWriteLock) {
+            requireGeneration(memberId, credentials.generation());
+            if (!credentials.expiresAt().isAfter(clock.instant())
+                || !pendingCredentials.remove(processId, credentials)) {
+                throw error(CicErrorCode.AUTH_ATTEMPT_EXPIRED, "CIC authentication attempt expired", null);
+            }
+            job = insertSession(plainState, memberId, credentials.login(), credentials.password());
+        }
+        submit(job);
+        return getStatus(memberId);
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
@@ -204,8 +226,25 @@ public class CicSyncService {
         }
     }
 
-    private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId, String login, String password) {
-        SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
+    private void requireGeneration(Long memberId, long generation) {
+        if (authGenerations.getOrDefault(memberId, 0L) != generation) {
+            throw error(CicErrorCode.AUTH_ATTEMPT_EXPIRED, "The CIC connection was removed during the login", null);
+        }
+    }
+
+    private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId, String login, String password,
+                                                       long generation) {
+        SyncJob job;
+        synchronized (sessionWriteLock) {
+            requireGeneration(memberId, generation);
+            job = insertSession(plainState, memberId, login, password);
+        }
+        submit(job);
+        return getStatus(memberId);
+    }
+
+    private SyncJob insertSession(String plainState, Long memberId, String login, String password) {
+        return requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
@@ -223,9 +262,6 @@ public class CicSyncService {
             CicSession stored = sessionRepository.saveAndFlush(newSession);
             return new SyncJob(stored.getId(), memberId, plainState);
         }));
-
-        submit(job);
-        return getStatus(memberId);
     }
 
     private void submit(SyncJob job) {
@@ -522,13 +558,15 @@ public class CicSyncService {
      * dropped too but does not count: it never became a connection.
      */
     public boolean clearSession(Long memberId) {
-        boolean removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
-            var session = sessionRepository.findByMemberIdForUpdate(memberId);
-            session.ifPresent(sessionRepository::delete);
-            return session.isPresent();
-        }));
-        pendingCredentials.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
-        return removed;
+        synchronized (sessionWriteLock) {
+            authGenerations.merge(memberId, 1L, Long::sum);
+            pendingCredentials.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
+            return Boolean.TRUE.equals(txTemplate.execute(status -> {
+                var session = sessionRepository.findByMemberIdForUpdate(memberId);
+                session.ifPresent(sessionRepository::delete);
+                return session.isPresent();
+            }));
+        }
     }
 
     public SourceSyncResult resyncReporting(Long memberId) {
@@ -616,7 +654,7 @@ public class CicSyncService {
     }
 
     private record Credentials(String login, String password) {}
-    private record PendingCredentials(String login, String password, Instant expiresAt, Long memberId) {}
+    private record PendingCredentials(String login, String password, Instant expiresAt, Long memberId, long generation) {}
     private record QueueDecision(SyncJob job, SessionStatusResponse status) {}
     private record SyncJob(Long sessionId, Long memberId, String plainState) {}
     private record PreparedAccount(String externalId, String name, AccountType type, BigDecimal balanceEur) {}

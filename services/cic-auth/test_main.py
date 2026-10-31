@@ -42,6 +42,7 @@ class FakeBank:
         self.requests: list[tuple[str, str]] = []
         self.final_fields: dict[str, list[str]] = {}
         self.cancelled = False
+        self.accounts_page = ACCOUNTS_PAGE
 
     def redirect(self, location: str, *cookies: str) -> httpx.Response:
         headers = [("location", location)] + [("set-cookie", cookie) for cookie in cookies]
@@ -76,6 +77,10 @@ class FakeBank:
             state = self.states.pop(0)
             if state == "UNREACHABLE":
                 raise httpx.ConnectError("polling endpoint unreachable", request=request)
+            if isinstance(state, int):
+                return httpx.Response(state, text="Polling failed")
+            if state == "MALFORMED":
+                return httpx.Response(200, text="Unknown polling response")
             return httpx.Response(200, text=transaction_state(state))
         if path == main.DEFAULT_CANCEL_PATH:
             self.cancelled = True
@@ -106,7 +111,7 @@ class FakeBank:
             self.authority_notice = False
             return self.redirect(HOME_PATH)
         if path in (HOME_PATH, main.ACCOUNTS_PATH):
-            return httpx.Response(200, text=ACCOUNTS_PAGE)
+            return httpx.Response(200, text=self.accounts_page)
         return httpx.Response(404)
 
 
@@ -202,6 +207,48 @@ class FlowTest(unittest.TestCase):
 
         self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_UNAVAILABLE"}))
         self.assertTrue(self.bank.cancelled)
+
+    def test_terminal_http_polling_failures_withdraw_and_classify_the_confirmation(self):
+        for status, expected_status, code in (
+            (500, 502, "UPSTREAM_UNAVAILABLE"),
+            (503, 502, "UPSTREAM_UNAVAILABLE"),
+            (429, 502, "UPSTREAM_UNAVAILABLE"),
+            (403, 410, "AUTH_ATTEMPT_EXPIRED"),
+            (302, 410, "AUTH_ATTEMPT_EXPIRED"),
+            (404, 502, "UPSTREAM_FORMAT_CHANGED"),
+        ):
+            with self.subTest(status=status):
+                self.bank.states = [status]
+                self.bank.cancelled = False
+                process = self.initiate().json()["processId"]
+
+                response = self.client.post("/complete", json={"processId": process}, headers=HEADERS)
+
+                self.assertEqual((response.status_code, response.json()), (expected_status, {"detail": code}))
+                self.assertTrue(self.bank.cancelled)
+                repeated = self.client.post("/complete", json={"processId": process}, headers=HEADERS)
+                self.assertEqual(repeated.status_code, 410)
+
+    def test_unreadable_polling_responses_withdraw_the_confirmation(self):
+        for state in ("MALFORMED", "UNKNOWN"):
+            with self.subTest(state=state):
+                self.bank.states = [state]
+                self.bank.cancelled = False
+                process = self.initiate().json()["processId"]
+
+                response = self.client.post("/complete", json={"processId": process}, headers=HEADERS)
+
+                self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
+                self.assertTrue(self.bank.cancelled)
+
+    def test_an_account_without_its_title_does_not_return_a_partial_snapshot(self):
+        session = self.confirm()
+        self.bank.accounts_page = ACCOUNTS_PAGE.replace('ei_sdsf_title _c1">LIVRET A', 'other _c1">LIVRET A')
+        self.assertNotEqual(self.bank.accounts_page, ACCOUNTS_PAGE)
+
+        response = self.client.post("/accounts", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
 
     def test_an_entity_encoded_skip_link_is_found(self):
         page = '<a href="/skip.html">Passer cette &eacute;tape</a>'

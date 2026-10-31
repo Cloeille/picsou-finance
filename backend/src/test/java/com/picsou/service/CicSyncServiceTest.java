@@ -25,6 +25,8 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -56,6 +58,7 @@ class CicSyncServiceTest {
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
+    @Mock Clock clock;
     @Captor ArgumentCaptor<Account> accountCaptor;
 
     CicSyncService service;
@@ -63,9 +66,10 @@ class CicSyncServiceTest {
     @BeforeEach
     void setUp() {
         executeTransactionsImmediately();
+        lenient().when(clock.instant()).thenReturn(Instant.parse("2026-10-31T12:00:00Z"));
         service = new CicSyncService(
             port, sessionRepository, accountRepository, memberRepository,
-            accountService, encryption, txTemplate, Runnable::run
+            accountService, encryption, txTemplate, Runnable::run, clock
         );
     }
 
@@ -153,6 +157,12 @@ class CicSyncServiceTest {
 
         assertThat(session.getLastSyncError()).isEqualTo(CicErrorCode.INVALID_CREDENTIALS);
         assertThat(session.getEncryptedCredentials()).isNull();
+        CicSyncService.SessionStatusResponse status = service.getStatus(7L);
+        assertThat(status.isActive()).isFalse();
+        assertThat(status.canReconnect()).isFalse();
+        assertThat(status.syncStatus()).isEqualTo(CicSyncStatus.FAILED);
+        assertThat(status.lastSyncError()).isEqualTo(CicErrorCode.INVALID_CREDENTIALS);
+        assertThat(service.resyncReporting(7L).status()).isEqualTo(SourceSyncResult.Status.NEEDS_REAUTH);
     }
 
     @Test
@@ -296,6 +306,130 @@ class CicSyncServiceTest {
             .isInstanceOfSatisfying(SyncException.class, error ->
                 assertThat(error.getCode()).isEqualTo(CicErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(port, never()).completeAuth(anyString(), any());
+    }
+
+    @Test
+    void anUnknownAttemptCannotCreateAConnection() {
+        assertAttemptExpired(() -> service.completeAuth("missing", null, 7L));
+
+        verify(port, never()).completeAuth(anyString(), any());
+        verify(sessionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void aClearedAttemptCannotCompleteEvenIfTheSidecarStillHasIt() {
+        initiatePendingAttempt();
+        service.clearSession(7L);
+
+        assertAttemptExpired(() -> service.completeAuth("pending", null, 7L));
+
+        verify(port, never()).completeAuth(anyString(), any());
+        verify(sessionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void anExpiredAttemptCannotReachTheSidecarOrStoreASession() {
+        initiatePendingAttempt();
+        when(clock.instant()).thenReturn(Instant.parse("2026-10-31T12:10:00Z"));
+
+        assertAttemptExpired(() -> service.completeAuth("pending", null, 7L));
+
+        verify(port, never()).completeAuth(anyString(), any());
+        verify(sessionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void disconnectDuringCompletionPreventsSessionPersistence() {
+        initiatePendingAttempt();
+        when(port.completeAuth("pending", null)).thenAnswer(invocation -> {
+            service.clearSession(7L);
+            return "cookies";
+        });
+
+        assertAttemptExpired(() -> service.completeAuth("pending", null, 7L));
+
+        verify(encryption, never()).encrypt(anyString());
+        verify(sessionRepository, never()).saveAndFlush(any());
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void expiryDuringCompletionPreventsSessionPersistence() {
+        initiatePendingAttempt();
+        when(port.completeAuth("pending", null)).thenAnswer(invocation -> {
+            when(clock.instant()).thenReturn(Instant.parse("2026-10-31T12:10:00Z"));
+            return "cookies";
+        });
+
+        assertAttemptExpired(() -> service.completeAuth("pending", null, 7L));
+
+        verify(sessionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void disconnectDuringInitiationPreventsRememberedDeviceSessionPersistence() {
+        when(port.initiateAuth("12345678", "secret", null)).thenAnswer(invocation -> {
+            service.clearSession(7L);
+            return new CicPort.InitiateResult(null, false, null, "cookies");
+        });
+
+        assertAttemptExpired(() -> service.initiateAuth("12345678", "secret", 7L));
+
+        verify(encryption, never()).encrypt(anyString());
+        verify(sessionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void disconnectDuringInitiationDoesNotRegisterALatePendingAttempt() {
+        when(port.initiateAuth("12345678", "secret", null)).thenAnswer(invocation -> {
+            service.clearSession(7L);
+            return new CicPort.InitiateResult("late", true, "APP_PUSH", null);
+        });
+
+        assertAttemptExpired(() -> service.initiateAuth("12345678", "secret", 7L));
+        assertAttemptExpired(() -> service.completeAuth("late", null, 7L));
+
+        verify(port, never()).completeAuth(anyString(), any());
+    }
+
+    @Test
+    void clearingAnotherMemberDoesNotCancelTheAttempt() {
+        initiatePendingAttempt();
+        service.clearSession(8L);
+        when(port.completeAuth("pending", "000000"))
+            .thenThrow(new SyncException("wrong", null, CicErrorCode.INVALID_OTP.name()));
+
+        assertThatThrownBy(() -> service.completeAuth("pending", "000000", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CicErrorCode.INVALID_OTP.name()));
+    }
+
+    @Test
+    void aNewLoginAfterDisconnectCanCompleteOnlyOnce() {
+        service.clearSession(7L);
+        initiatePendingAttempt();
+        when(port.completeAuth("pending", null)).thenReturn("cookies");
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(encryption.encrypt(anyString())).thenReturn("encrypted");
+        when(sessionRepository.saveAndFlush(any(CicSession.class)))
+            .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.completeAuth("pending", null, 7L);
+        assertAttemptExpired(() -> service.completeAuth("pending", null, 7L));
+
+        verify(port).completeAuth("pending", null);
+        verify(sessionRepository).saveAndFlush(any(CicSession.class));
+    }
+
+    private void initiatePendingAttempt() {
+        when(port.initiateAuth("12345678", "secret", null))
+            .thenReturn(new CicPort.InitiateResult("pending", true, "APP_PUSH", null));
+        service.initiateAuth("12345678", "secret", 7L);
+    }
+
+    private void assertAttemptExpired(org.assertj.core.api.ThrowableAssert.ThrowingCallable completion) {
+        assertThatThrownBy(completion).isInstanceOfSatisfying(SyncException.class, error ->
+            assertThat(error.getCode()).isEqualTo(CicErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
     }
 
     @Test

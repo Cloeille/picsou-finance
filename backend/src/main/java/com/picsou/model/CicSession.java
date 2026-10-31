@@ -120,9 +120,7 @@ public class CicSession extends AuditableEntity {
         syncStatus = CicSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
-        // Only an expired session needs re-authentication; a failed fetch leaves
-        // a usable session so the daily scheduler can simply retry.
-        if (error == CicErrorCode.SESSION_EXPIRED) {
+        if (error == CicErrorCode.SESSION_EXPIRED || error == CicErrorCode.INVALID_CREDENTIALS) {
             active = false;
         }
     }

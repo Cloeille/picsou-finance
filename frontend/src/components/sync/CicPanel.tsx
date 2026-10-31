@@ -24,6 +24,7 @@ export function CicPanel({ onConnected, autoReconnect, onAutoReconnectStarted }:
       fieldIdPrefix="cic"
       loginIcon={Landmark}
       appPush
+      otpRetryable
       useStatus={useCicStatus}
       useInitiateAuth={useInitiateCicAuth}
       useReconnect={useReconnectCic}

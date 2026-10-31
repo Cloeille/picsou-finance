@@ -305,6 +305,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     {
       type: 'cic' as const, name: 'CIC (livrets)', provider: 'CIC',
       active: cicStatus?.isActive ?? false, lastSyncedAt: cicStatus?.lastSyncCompletedAt ?? null,
+      hasSession: cicStatus != null && cicStatus.syncStatus !== 'IDLE',
       failed: cicStatus?.syncStatus === 'FAILED',
       canReconnect: cicStatus?.canReconnect === true,
     },

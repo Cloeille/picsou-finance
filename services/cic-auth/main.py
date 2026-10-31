@@ -644,17 +644,27 @@ async def _await_confirmation(client: httpx.AsyncClient, state: dict[str, Any]) 
             # reporting the failure.
             await _withdraw_confirmation(client, state)
             raise
-        match = _TRANSACTION_STATE_RE.search(response.text) if response.status_code == 200 else None
+        if response.status_code != 200:
+            await _withdraw_confirmation(client, state)
+            if response.status_code == 429 or response.status_code >= 500:
+                raise UpstreamError("UPSTREAM_UNAVAILABLE", "Confirmation polling is unavailable")
+            if response.is_redirect or response.status_code in (401, 403):
+                raise UpstreamError("AUTH_ATTEMPT_EXPIRED", "Confirmation request no longer exists")
+            raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "Unexpected confirmation polling response")
+        match = _TRANSACTION_STATE_RE.search(response.text)
         if match is None:
-            # Sent elsewhere (typically the login page): the request is gone.
+            await _withdraw_confirmation(client, state)
             log.info("CIC confirmation polling answered without a state (status=%s)", response.status_code)
-            raise UpstreamError("AUTH_ATTEMPT_EXPIRED", "Confirmation request no longer exists")
+            if LOGIN_PATH in _path(response.url) or LOGIN_FORM in response.text:
+                raise UpstreamError("AUTH_ATTEMPT_EXPIRED", "Confirmation request no longer exists")
+            raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "Unreadable confirmation polling response")
         current = match.group("state").upper()
         if current == "VALIDATED":
             return
         if current in ("CANCELLED", "NONE"):
             raise UpstreamError("APP_VALIDATION_CANCELLED", "Confirmation refused on the phone")
         if current != "PENDING":
+            await _withdraw_confirmation(client, state)
             log.warning("CIC confirmation polling returned an unknown state")
             raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "Unknown confirmation state")
         await asyncio.sleep(APP_VALIDATION_POLL_SECONDS)

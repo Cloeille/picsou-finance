@@ -59,6 +59,37 @@ class PageTest(unittest.TestCase):
         with self.assertRaises(AccountsFormatError):
             parse_accounts(accounts_table("Livrets et comptes d&#39;épargne", row))
 
+    def test_a_balance_row_without_its_title_fails_the_whole_page(self):
+        page = ACCOUNTS_PAGE.replace('ei_sdsf_title _c1">LIVRET A', 'other _c1">LIVRET A')
+        self.assertNotEqual(page, ACCOUNTS_PAGE)
+
+        with self.assertRaises(AccountsFormatError) as error:
+            parse_accounts(page)
+
+        self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_an_empty_account_title_fails_the_page(self):
+        page = ACCOUNTS_PAGE.replace('>LIVRET A</span>', '></span>')
+
+        with self.assertRaises(AccountsFormatError):
+            parse_accounts(page)
+
+    def test_a_balance_row_with_changed_markers_is_not_skipped_as_an_action(self):
+        row = account_row(0, "LIVRET A", "10000 000123456 02", "+1,00 EUR")
+        for marker in ("ei_sdsf_title", "doux", "ei_sdsf_montant", "ei_sdsf_solde"):
+            row = row.replace(marker, "other")
+
+        with self.assertRaises(AccountsFormatError):
+            parse_accounts(accounts_table("Livrets et comptes d&#39;épargne", row))
+
+    def test_header_and_action_rows_without_account_markers_are_skipped(self):
+        rows = '<tr><th>Compte</th><th>Solde</th></tr><tr><td><a href="/add">Ajouter un compte</a></td></tr>'
+        rows += account_row(0, "LIVRET A", "10000 000123456 02", "+1,00 EUR")
+
+        accounts, _ = parse_accounts(accounts_table("Livrets et comptes d&#39;épargne", rows))
+
+        self.assertEqual([account["id"] for account in accounts], ["1000000012345602"])
+
     def test_a_page_without_contract_table_is_a_format_change(self):
         with self.assertRaises(AccountsFormatError):
             parse_accounts("<html><body>Bienvenue</body></html>")

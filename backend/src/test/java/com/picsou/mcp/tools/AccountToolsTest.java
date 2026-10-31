@@ -173,6 +173,7 @@ class AccountToolsTest {
             accountRepository, accountServiceForConn, walletRepository, exchangeSessionRepository,
             requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService,
             mock(com.picsou.service.CmesSyncService.class),
+            mock(com.picsou.service.CicSyncService.class),
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
             fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService);
         return new RealServiceFixture(realService, accountRepository, accountServiceForConn,

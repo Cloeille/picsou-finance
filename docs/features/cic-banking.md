@@ -1,6 +1,6 @@
 # Feature: CIC online-banking sync (livrets)
 
-> Last updated: 2026-10-24
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -24,7 +24,8 @@ balance.
   "Livrets et comptes d'épargne" rows are typed from their label (Livret A, LDDS, LEP, Livret Jeune,
   PEL, CEL, else `SAVINGS`). Other categories (insurance, links to sister sites such as employee
   savings) carry no balance and are skipped by name. A balance-bearing row that cannot be read fails
-  the page. External id `cic_<account number digits>`.
+  the page, including one whose title marker is missing or whose label is empty. Header and action
+  rows without account or balance markers are skipped. External id `cic_<account number digits>`.
 - **Backend**: `CicSyncService`, shaped like `CmesSyncService` (stored credentials, re-login with the
   previous session, daily source `cic`), balance-only accounts with `upsertSnapshot`. Migration
   V121 `cic_session`. `/api/cic/*`, `/api/cic/auth/complete` given 180 s in nginx.
@@ -32,6 +33,31 @@ balance.
   the user approves the push in the CIC app, iOS drops Safari's pending `/auth/complete` request; the
   backend finishes regardless. A completion lost without an answer (network error, 502/504) keeps the
   waiting card and polls the session status for up to 150 s instead of reporting a failure.
+
+## Connection lifecycle
+
+Deleting the member's last `cic_` account removes the stored session and encrypted credentials.
+Another live CIC account keeps the shared connection. CMES accounts belong to a separate connection.
+Disconnect also revokes pending logins. A completion requires the same member's unexpired pending
+attempt, and checks revocation and expiry again after the bank answers. Session writes and
+disconnects share a lock, so an approval arriving after disconnect cannot recreate the connection.
+A new login started after disconnect can create a new connection.
+
+A rejected stored password is forgotten and makes the session inactive with `INVALID_CREDENTIALS`.
+The member must enter new credentials. `SESSION_EXPIRED` also makes the session inactive but keeps
+the credentials for reconnect. Other sync failures leave the session active for retry.
+
+An incorrect SMS code keeps the attempt and code form available, so the member can correct it
+without another login. An expired session stays in **Sync all** even when its first import created
+no accounts. Its reconnect action uses stored credentials when available.
+
+MCP `get_sync_status` reports CIC alongside full synchronization, including queued, running,
+completed, and failed imports. `SESSION_EXPIRED` and `INVALID_CREDENTIALS` report `NEEDS_REAUTH`.
+Transient upstream failures report `FAILED` without requiring another login.
+
+Terminal phone-confirmation polling failures withdraw the confirmation request. HTTP 429 and 5xx
+report `UPSTREAM_UNAVAILABLE`. Redirects and authentication errors report `AUTH_ATTEMPT_EXPIRED`.
+Unexpected responses or states report `UPSTREAM_FORMAT_CHANGED`.
 
 **Daily sync limit**: CIC asks its customers to confirm on the phone again every 24 hours, with
 no remembered device. The daily 08:00 re-login therefore only gets through within a day of the

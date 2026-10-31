@@ -55,6 +55,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   balances only. CIC asks for a mobile confirmation at least once every 24 hours, so the daily sync
   only goes through within a day of the last confirmation. It is listed in the dashboard's
   *Sync all* modal, which opens the CIC tab when the session has lapsed.
+  Deleting its last account removes the session and credentials and revokes pending logins,
+  including a confirmation already in progress. Unreadable account rows fail the whole import.
+  A wrong SMS code can be corrected without another login. Rejected credentials make the session
+  inactive, and expired sessions stay in *Sync all* before their first import. MCP `get_sync_status`
+  reports CIC progress and reconnection requirements. Terminal polling failures withdraw the phone
+  confirmation, with HTTP 429 and 5xx reported as upstream unavailability.
   See [docs](docs/features/cic-banking.md).
 - **Crédit Mutuel / CIC Épargne Salariale sync.** A browserless `cmes-auth` sidecar reads the
   saver's space (www.creditmutuel-ere.fr) and imports each plan (PEE, PEG, PERCOL) with its funds:

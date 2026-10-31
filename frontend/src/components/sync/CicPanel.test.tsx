@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 
@@ -42,6 +42,38 @@ async function startMobileConfirmation() {
   fireEvent.click(screen.getByRole('button', { name: 'sync.cic.connect' }))
   await screen.findByText('sync.cic.appValidationPrompt')
 }
+
+describe('CicPanel SMS confirmation', () => {
+  it('allows correcting a wrong code on the same attempt without logging in again', async () => {
+    let active = false
+    apiGet.mockReset().mockImplementation(async () => status(active))
+    apiPost.mockReset().mockImplementation(async (url: string, body?: { code?: string }) => {
+      if (url === '/cic/auth/initiate') return { data: { processId: 'sms1', mfaRequired: true, mfaType: 'SMS' } }
+      if (url === '/cic/auth/complete' && body?.code === '000000') {
+        throw { response: { status: 400, data: { code: 'INVALID_OTP' } } }
+      }
+      active = true
+      return status(active)
+    })
+    const onConnected = renderPanel()
+    fireEvent.change(await screen.findByLabelText('sync.cic.login'), { target: { value: '12345678' } })
+    fireEvent.change(screen.getByLabelText('sync.cic.password'), { target: { value: 'secret' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.cic.connect' }))
+    fireEvent.change(await screen.findByLabelText('sync.cic.otpCode'), { target: { value: '000000' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.cic.validate' }))
+
+    expect(await screen.findByText('sync.cic.errors.invalidCode')).toBeInTheDocument()
+    const otp = screen.getByLabelText('sync.cic.otpCode')
+    expect(otp).toHaveValue('')
+    fireEvent.change(otp, { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.cic.validate' }))
+
+    expect(await screen.findByText('sync.cic.sessionActive')).toBeInTheDocument()
+    await waitFor(() => expect(onConnected).toHaveBeenCalledOnce())
+    expect(apiPost.mock.calls.filter(([url]) => url === '/cic/auth/initiate')).toHaveLength(1)
+    expect(apiPost).toHaveBeenLastCalledWith('/cic/auth/complete', { processId: 'sms1', code: '123456' })
+  })
+})
 
 describe('CicPanel mobile confirmation', () => {
   let active: boolean

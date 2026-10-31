@@ -47,6 +47,7 @@ _NUMBER_RE = re.compile(r'class="[^"]*\bdoux\b[^"]*"[^>]*>(?P<number>.*?)</span>
 _AMOUNT_RE = re.compile(r'class="[^"]*\bei_sdsf_montant\b[^"]*"[^>]*>(?P<amount>.*?)</span>', re.DOTALL)
 _TAG_RE = re.compile(r"<[^>]+>")
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s.]*(?:,\d+)?)\s*(?P<currency>[A-Z]{3}|€)$")
+_BALANCE_RE = re.compile(r"\d[\d\s.,]*\s*(?:[A-Z]{3}\b|€)")
 
 # Ordered: the first match wins, so the specific products come before the
 # generic "livret".
@@ -121,13 +122,13 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
         for row in _ROW_RE.finditer(body):
             cells = row.group("row")
             title = _TITLE_RE.search(cells)
-            if title is None:
-                # The header row and the action menus carry no contract title.
-                continue
             number = _NUMBER_RE.search(cells)
             amount = _AMOUNT_RE.search(cells)
-            if number is None or amount is None:
-                raise AccountsFormatError(FORMAT_CHANGED, "An account row has no number or no balance")
+            if (title is None and number is None and amount is None
+                    and "ei_sdsf_solde" not in cells and not _BALANCE_RE.search(_text(cells))):
+                continue
+            if title is None or number is None or amount is None:
+                raise AccountsFormatError(FORMAT_CHANGED, "An account row has no title, number, or balance")
             account_id = re.sub(r"\D", "", _text(number.group("number")))
             if not account_id:
                 raise AccountsFormatError(FORMAT_CHANGED, "An account row has an empty number")
@@ -135,6 +136,8 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
                 raise AccountsFormatError(FORMAT_CHANGED, "The same account is listed twice")
             seen.add(account_id)
             label = _text(title.group("title"))
+            if not label:
+                raise AccountsFormatError(FORMAT_CHANGED, "An account row has an empty title")
             accounts.append({
                 "id": account_id,
                 "name": label.title(),

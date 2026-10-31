@@ -577,6 +577,26 @@ describe('SyncAllModal session providers', () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
+  it('keeps an expired CIC session without accounts and reconnects with stored credentials', async () => {
+    cicStatus = { ...AMUNDI_INACTIVE, syncStatus: 'FAILED', lastSyncError: 'SESSION_EXPIRED', canReconnect: true }
+    renderModal()
+
+    const title = await screen.findByText('CIC (livrets)')
+    const row = title.closest('[data-slot="card"]')
+    if (!(row instanceof HTMLElement)) throw new Error('Missing CIC connection card')
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cic&reconnect=1'))
+    expect(apiPost).not.toHaveBeenCalledWith('/cic/sync')
+  })
+
+  it('hides CIC with no stored session and no account', async () => {
+    renderModal()
+
+    expect(await screen.findByText('Trade Republic')).toBeInTheDocument()
+    expect(screen.queryByText('CIC (livrets)')).not.toBeInTheDocument()
+  })
+
   /** CIC asks for a confirmation in its app at least once a day, which only its tab can wait for. */
   it('keeps an expired CIC (livrets) row with its accounts and routes to its tab', async () => {
     accountsFixture = [TR_ACCOUNT, CIC_ACCOUNT]
