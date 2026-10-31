@@ -333,8 +333,8 @@ class InstanceStatusServiceTest {
                 tuple("amundi-auth", "sidecar-chromium"),
                 tuple("fortuneo-auth", "sidecar-chromium"),
                 tuple("corum-auth", "sidecar-chromium"),
-                tuple("amex-auth", null),
-                tuple("revolut-auth", null));
+                tuple("amex-auth", "sidecar-camoufox"),
+                tuple("revolut-auth", "sidecar-camoufox"));
 
         assertThat(byName(wired, "bourso-auth").url().get()).isEqualTo("http://setup-bourso");
         when(settings.findByKey(SetupService.KEY_BOURSO_AUTH_URL)).thenReturn(Optional.of(setting("  ")));

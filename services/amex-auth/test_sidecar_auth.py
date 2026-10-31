@@ -24,11 +24,23 @@ class SidecarAuthenticationTest(unittest.TestCase):
         self.client = TestClient(main.app)
 
     def test_health_is_accessible_without_a_key(self):
-        with self.client as client:
-            response = client.get("/health")
+        with patch.dict(os.environ):
+            os.environ.pop("PICSOU_SIDECAR_BASE", None)
+            with self.client as client:
+                response = client.get("/health")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_health_reports_the_shared_camoufox_base(self):
+        with patch.dict(os.environ, {"PICSOU_SIDECAR_BASE": "sidecar-camoufox"}):
+            with self.client as client:
+                response = client.get("/health")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(), {"status": "ok", "base": "sidecar-camoufox"}
+        )
 
     def test_unauthenticated_and_invalid_key_requests_are_challenged(self):
         with self.client as client:

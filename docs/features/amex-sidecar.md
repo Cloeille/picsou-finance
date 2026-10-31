@@ -1,6 +1,6 @@
 # Feature: American Express France sidecar
 
-> Last updated: 2026-10-07
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -15,6 +15,20 @@ The current card balance is inferred from the servicing balances. When `remainin
 `/accounts` has one account contract: `amountDue` (positive number or null), `dueDate` (ISO date or null), and `rewardPoints` (integer or null). `amountDue` comes from `remaining_statement_balance_amount`; `dueDate` comes from `GET /api/servicing/v1/financials/payments?status=scheduled` (`direct_debit_date`, falling back to `payment_due_date`), then captured date enrichment. `rewardPoints` is the `EARNED` total from `ReadLoyaltyTransactions.v3` for period index 0: miles earned during the current AMEX statement period. It is not the Flying Blue balance; that balance is unavailable from the current sidecar. AMEX returns this only in the logged-in browser; it is captured during SMS login and refreshed on each SMS login. The backend preserves the latest non-null value. Logs contain URL paths without queries, key/type shape, and numeric non-zero/zero flags only—never response values.
 
 Backend sync persists these optional fields on `account`, exposes them through account responses (`paymentDueAmount`, `paymentDueDate`, `rewardPoints`), and produces a one-off negative budget occurrence when amount is positive and due date is in range. Missing values preserve the latest known enrichment.
+
+### Shared browser image
+
+AMEX and Revolut inherit the same `camoufox` target from `services/base`, passed
+by immutable digest when published. It provides the common FastAPI/uvicorn pins,
+Playwright 1.55.0, Camoufox 0.4.11, pinned Firefox 152.0.4-beta.30, GeoIP, addons
+and Xvfb. The shared installer selects the x86_64 or arm64 release for the target
+CPU. Browser assets are read from `/opt/camoufox-cache/camoufox` by the existing
+non-root `amex` user, without a second download in the service layer.
+
+`services/base/entrypoint.sh` retains port 8001, display :98 and screen
+1366x768x24. It removes stale display locks and fails before starting the API if
+Xvfb does not become ready. Login and OTP code are unchanged. See
+[docker-deployment.md](./docker-deployment.md#shared-sidecar-bases--servicesbasedockerfile).
 
 ### History recovery
 
@@ -67,6 +81,13 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 - Debt is shown signed (negative) like every other liability in Picsou; the amount to pay is shown as a positive amount to settle.
 
 ## Tests
+
+- `services/base/test_pin_camoufox.py` covers release pinning, both CPU architectures,
+  architecture aliases, unsupported architectures and direct GeoIP downloads.
+- `services/base/test_entrypoint.py` covers both service configurations, stale-lock
+  restart and explicit display-start failures using synthetic subprocesses.
+- `services/base/smoke_camoufox.py` launches headless and headful Firefox against
+  offline HTML. CI runs it in both non-root service images on native ARM64.
 
 - `AmexSyncServiceTest`, `AmexAdapterTest`, `AmexControllerTest`
 - `RecurringSeriesServiceTest`, `HistoryServiceTest`, `AccountServiceTest` (card sign)

@@ -1,10 +1,10 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-10-31 (CI release image build reuses the GitHub Actions layer cache)
+> Last updated: 2026-10-31 (shared Camoufox base and architecture-aware browser startup)
 
 ## Context
 
-Picsou deploys as the app and twelve authentication sidecars orchestrated by `docker/docker-compose.yml`:
+Picsou deploys as the app and thirteen authentication sidecars orchestrated by `docker/docker-compose.yml`:
 - **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
@@ -14,14 +14,15 @@ Picsou deploys as the app and twelve authentication sidecars orchestrated by `do
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
 - **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (Compose sets `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
+- **`cic-auth`** — browserless CIC online-banking sidecar on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`; see [`cic-banking.md`](cic-banking.md).
 - **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
 - **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
 
 All sidecars use the Docker workflow's shared `linux/amd64,linux/arm64` platforms
-and tag strategy. AMEX pins Camoufox `152.0.4-beta.30` and selects the Linux
-archive matching the container architecture (`x86_64` or `arm64`).
-AMEX and Revolut (each through its `pin_camoufox.py`) download the GeoIP
-database from the upstream release's direct `GeoLite2-City.mmdb` asset URL,
+and tag strategy. The shared AMEX/Revolut base pins Camoufox `152.0.4-beta.30`
+and selects the Linux archive matching the container architecture (`x86_64` or
+`arm64`). Its `services/base/pin_camoufox.py` downloads the GeoIP database once
+from the upstream release's direct `GeoLite2-City.mmdb` asset URL,
 without querying the unauthenticated GitHub releases API, whose per-IP quota
 shared CI runners exhaust. Download failures still fail the build; no token is
 baked into the image and GeoIP support is retained.
@@ -76,20 +77,36 @@ the legacy builder rejects the empty `$BUILDPLATFORM`.
 
 ### Shared sidecar bases — `services/base/Dockerfile`
 
-Every sidecar except amex-auth and revolut-auth (Camoufox) builds `FROM` one of
-two shared bases, built from one pin set (`services/base/requirements*.txt`):
-`python` (Python 3.12 slim bookworm, fastapi, uvicorn, pydantic, httpx) and
-`chromium` (the same plus Playwright 1.52 and Chromium in
-`/opt/playwright-browsers`). A sidecar Dockerfile only adds its user and code.
-The publish workflow pushes `sidecar-python` and `sidecar-chromium` first and
-builds every sidecar from them by digest, so a pull stores Chromium once. With
-`docker compose up --build`, the build-only services `sidecar-python` and
-`sidecar-chromium` (`scale: 0`, never started) are built first; this
-needs Compose v2.33+ (`additional_contexts: service:`), tested on 5.6.0.
-`docker compose pull` needs no particular version. It also pulls the two bases
-by name (`ghcr.io/cloeille/picsou-finance/sidecar-*:latest`); their layers are
-the ones the published sidecars are built from, so nothing is downloaded twice. See
+Every sidecar builds `FROM` one of three shared bases, built from one common pin
+set (`services/base/requirements*.txt`): `python` (Python 3.12 slim bookworm,
+fastapi, uvicorn, pydantic, httpx), `chromium` (the same plus Playwright 1.52 and
+Chromium in `/opt/playwright-browsers`), and `camoufox` (the same Python base plus
+Playwright 1.55.0, Camoufox 0.4.11, Firefox 152.0.4-beta.30 and Xvfb).
+AMEX and Revolut use `camoufox`, including the target CPU's x86_64 or arm64 browser.
+Their shared browser/addons live in `/opt/camoufox-cache/camoufox`, readable by
+both service users; GeoIP is downloaded once into the Camoufox package directory.
+A sidecar Dockerfile only adds its user and code.
+
+The publish workflow pushes `sidecar-python`, `sidecar-chromium` and
+`sidecar-camoufox` first, then passes their immutable digests to the sidecar
+builds. AMEX and Revolut therefore share exactly the same base layers. With
+`docker compose up --build`, the three build-only base services (`scale: 0`,
+never started) are built first; this needs Compose v2.33+
+(`additional_contexts: service:`), tested on 5.6.0. `docker compose pull` needs
+no particular version and also pulls the bases by name
+(`ghcr.io/cloeille/picsou-finance/sidecar-*:latest`); their layers are already
+shared with the sidecars. The new `sidecar-camoufox` package must be public on
+GHCR after its first publication, as must the other bases. See
 [ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md).
+
+The Camoufox entrypoint preserves AMEX's port 8001/display :98/screen 1366x768x24
+and Revolut's port 8002/display :99/screen 1280x1024x24, with a 65-second keep-alive.
+It clears stale display locks on restart and fails explicitly if Xvfb exits or
+has not become ready within five seconds. Revolut profiles still persist on the
+`revolut_profiles` volume. Native ARM64 CI runs both derived images as non-root
+and starts headless/headful Firefox against offline HTML without network access;
+login compatibility requires a separate release check.
+
 A sidecar whose base is missing, or still on a pre-base image, is reported to the admin
 by the [instance-status alert](./admin-instance-status.md).
 

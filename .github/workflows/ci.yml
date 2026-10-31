@@ -40,6 +40,7 @@ jobs:
       revolut-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.revolut-auth-sidecar == 'true' }}
       cmes-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.cmes-auth-sidecar == 'true' }}
       cic-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.cic-auth-sidecar == 'true' }}
+      camoufox-arm64-smoke: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.camoufox-arm64-smoke == 'true' }}
       compose-sidecar-build: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.compose-sidecar-build == 'true' }}
       workflow-inventory: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.workflow-inventory == 'true' }}
       e2e: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.e2e == 'true' }}
@@ -123,6 +124,11 @@ jobs:
               - *workflows
               - 'services/base/**'
               - 'services/cic-auth/**'
+            camoufox-arm64-smoke:
+              - *workflows
+              - 'services/base/**'
+              - 'services/amex-auth/**'
+              - 'services/revolut-auth/**'
             compose-sidecar-build:
               - *workflows
               - 'services/**'
@@ -463,16 +469,26 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared Camoufox sidecar base
+        run: docker build --target camoufox --tag picsou-sidecar-camoufox services/base
+      - name: Test architecture-aware Camoufox pinning in the base image
+        run: >-
+          docker run --rm
+          --entrypoint python
+          --env PYTHONPATH=/opt/sidecar-base
+          --volume "${{ github.workspace }}/services/base:/tests:ro"
+          --workdir /tests
+          picsou-sidecar-camoufox
+          -m unittest discover -s /tests -p 'test_*.py' -v
       - name: Build the AMEX sidecar image
         run: docker build --tag picsou-amex-auth:test services/amex-auth
-      - name: Run sidecar authentication and browser pinning tests in the image
+      - name: Run sidecar authentication tests in the image
         run: >-
           docker run --rm
           --entrypoint python
           --env PYTHONPATH=/app
           --env APP_SIDECAR_API_KEY=test-key
           --volume "${{ github.workspace }}/services/amex-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
-          --volume "${{ github.workspace }}/services/amex-auth/test_pin_camoufox.py:/tests/test_pin_camoufox.py:ro"
           --workdir /tests
           picsou-amex-auth:test
           -m unittest discover -v
@@ -593,6 +609,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared Camoufox sidecar base
+        run: docker build --target camoufox --tag picsou-sidecar-camoufox services/base
       - name: Build the Revolut sidecar image
         run: docker build --tag picsou-revolut-auth:test services/revolut-auth
       # The async tests need pytest-asyncio, a test-only dependency the image does not ship.
@@ -606,6 +624,34 @@ jobs:
           picsou-revolut-auth:test
           -c "python -m pip install --user --no-cache-dir --no-warn-script-location pytest==8.4.2 pytest-asyncio==1.2.0
           && python -m pytest -p no:cacheprovider -p no:logging --asyncio-mode=auto -v tests"
+
+  camoufox-arm64-smoke:
+    needs: changes
+    if: needs.changes.outputs.camoufox-arm64-smoke == 'true'
+    # A native runner proves the image contains an ARM Firefox binary. QEMU can
+    # build the manifest but cannot provide this runtime guarantee.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Verify the runner architecture
+        run: test "$(uname -m)" = aarch64
+      - name: Build the shared Camoufox sidecar base
+        run: docker build --target camoufox --tag picsou-sidecar-camoufox services/base
+      - name: Build both derived sidecars on native ARM64
+        run: |
+          docker build --tag picsou-amex-auth:arm64-smoke services/amex-auth
+          docker build --tag picsou-revolut-auth:arm64-smoke services/revolut-auth
+      - name: Start Camoufox headful in both non-root sidecars
+        run: |
+          for image in picsou-amex-auth:arm64-smoke picsou-revolut-auth:arm64-smoke; do
+            docker run --rm --network none --entrypoint sh "$image" \
+              -c 'test "$(id -u)" -ne 0'
+            docker run --rm --network none --entrypoint sh "$image" \
+              /opt/sidecar-base/entrypoint.sh \
+              python /opt/sidecar-base/smoke_camoufox.py
+          done
 
   compose-sidecar-build:
     needs: changes
@@ -624,7 +670,7 @@ jobs:
           docker compose version
           docker compose -f docker/docker-compose.yml config --quiet
       - name: Build one sidecar per base through Compose
-        run: docker compose -f docker/docker-compose.yml build tr-auth bourso-auth
+        run: docker compose -f docker/docker-compose.yml build tr-auth bourso-auth amex-auth
       - name: The sidecars run on their base
         run: >-
           docker compose -f docker/docker-compose.yml run --rm --no-deps
@@ -711,6 +757,7 @@ jobs:
       - revolut-auth-sidecar
       - cmes-auth-sidecar
       - cic-auth-sidecar
+      - camoufox-arm64-smoke
       - compose-sidecar-build
       - workflow-inventory
     runs-on: ubuntu-latest
@@ -750,6 +797,7 @@ jobs:
       - revolut-auth-sidecar
       - cmes-auth-sidecar
       - cic-auth-sidecar
+      - camoufox-arm64-smoke
       - compose-sidecar-build
       - workflow-inventory
     if: github.event_name == 'push'

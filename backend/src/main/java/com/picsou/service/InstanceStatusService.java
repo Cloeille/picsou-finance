@@ -54,6 +54,7 @@ public class InstanceStatusService {
     static final Duration OVERALL_DEADLINE = Duration.ofSeconds(3);
     private static final String BASE_PYTHON = "sidecar-python";
     private static final String BASE_CHROMIUM = "sidecar-chromium";
+    private static final String BASE_CAMOUFOX = "sidecar-camoufox";
 
     private final List<SidecarTarget> sidecars;
     private final ReleaseCheckService releaseCheck;
@@ -319,9 +320,9 @@ public class InstanceStatusService {
                 () -> propertyUrl(env, "fortuneo-auth"), fortuneoSessions::count),
             new SidecarTarget("corum-auth", BASE_CHROMIUM,
                 () -> propertyUrl(env, "corum-auth"), corumSessions::count),
-            new SidecarTarget("amex-auth", null,
+            new SidecarTarget("amex-auth", BASE_CAMOUFOX,
                 () -> propertyUrl(env, "amex-auth"), amexSessions::count),
-            new SidecarTarget("revolut-auth", null,
+            new SidecarTarget("revolut-auth", BASE_CAMOUFOX,
                 () -> propertyUrl(env, "revolut-auth"), revolutSessions::count)
         );
     }

@@ -63,10 +63,24 @@ def test_unauthenticated_and_invalid_key_requests_are_challenged_before_routing(
 
 @_with_key(TEST_KEY)
 def test_health_is_accessible_without_a_key():
-    with TestClient(main.app) as client:
-        response = client.get("/health")
+    with patch.dict(os.environ):
+        os.environ.pop("PICSOU_SIDECAR_BASE", None)
+        with TestClient(main.app) as client:
+            response = client.get("/health")
     assert response.status_code == 200, response.status_code
     assert response.json() == {"status": "ok"}, response.json()
+
+
+@_with_key(TEST_KEY)
+def test_health_reports_the_shared_camoufox_base():
+    with patch.dict(os.environ, {"PICSOU_SIDECAR_BASE": "sidecar-camoufox"}):
+        with TestClient(main.app) as client:
+            response = client.get("/health")
+    assert response.status_code == 200, response.status_code
+    assert response.json() == {
+        "status": "ok",
+        "base": "sidecar-camoufox",
+    }, response.json()
 
 
 @_with_key(TEST_KEY)
@@ -131,6 +145,7 @@ def _run():
     tests = [
         test_unauthenticated_and_invalid_key_requests_are_challenged_before_routing,
         test_health_is_accessible_without_a_key,
+        test_health_reports_the_shared_camoufox_base,
         test_authorized_request_reaches_request_validation_without_a_challenge,
         test_non_ascii_key_authenticates_as_utf8_wire_bytes,
         test_startup_refuses_a_missing_or_blank_key,

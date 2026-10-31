@@ -103,10 +103,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   phone, so a late approval stores nothing. A plan deleted under its new id stays deleted
   even while an account from an earlier id is still there.
   See [docs](docs/features/cmes-epargne-salariale.md).
-- **Shared sidecar base images.** Nine sidecars now build on two shared images,
-  `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
+- **Shared sidecar base images.** All sidecars now build on three shared images,
+  `sidecar-python`, `sidecar-chromium` and `sidecar-camoufox` (`services/base`),
+  from one common pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per
-  sidecar. Amex and Revolut keep their own image (Camoufox). See
+  sidecar. AMEX and Revolut share the Camoufox base. See
   [ADR](docs/decisions/2026-10-21-shared-sidecar-base-image.md).
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
   the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
@@ -306,6 +307,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Building `docker/Dockerfile` yourself now needs BuildKit (`docker buildx`).
 
 ### Fixed
+
+- **Shared Camoufox images for AMEX and Revolut.** Both sidecars now inherit the
+  same published browser base digest and common FastAPI/uvicorn pins. Revolut's
+  ARM64 image downloads the ARM64 Firefox build instead of the x86_64 archive.
+  Browser/Playwright versions, service users, ports and profile storage are
+  preserved. Their shared Xvfb startup clears stale locks and refuses to start
+  without a ready display. The admin status check detects older Camoufox images.
+  CI adds offline browser smoke checks on native ARM64;
+  bank login compatibility remains unverified. Dependabot now covers Maven,
+  bun, shared pip requirements, all Dockerfile directories and Compose images weekly.
 
 - **The demo no longer looks broken.** Every page now gets an answer from the demo build:
   holdings on every account, prices, connected apps, the status of each provider, the budget's
