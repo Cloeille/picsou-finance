@@ -17,6 +17,7 @@ import { ageFromBirthDate, mockMemberProfile, netIncome } from './data/profile'
 import { mockTransactions } from './data/transactions'
 import { mockExchangeStatuses, mockWalletStatuses, mockRequisitions } from './data/sync-status'
 import {
+  categorizeDemoTransaction,
   mockActivity,
   mockAllocation,
   mockBudgetSettings,
@@ -32,10 +33,9 @@ import {
   mockSpendingByCategory,
   mockTransactionSearch,
   mockUncategorized,
-  recategorizeMockTransaction,
 } from './data/budget'
 import { mockUpcomingDividends } from './data/dividends'
-import type { CashflowPeriod } from '@/types/api'
+import type { CashflowPeriod, CategorizeRequest } from '@/types/api'
 import { demoLoanSchedule } from './data/loans'
 
 function randomDelay(): number {
@@ -1322,7 +1322,8 @@ handlers.set(key('POST', '/finary/api-sync/execute'), () => ({
 
 // ── Budget module ─────────────────────────────────────────────────────────────
 // Read endpoints serve the mock fixtures; mutations echo a plausible object so the
-// optimistic UI flows. Demo state is not persisted — refetches return the fixtures.
+// optimistic UI flows. Demo state is not persisted — refetches return the fixtures — except
+// categorizing a transaction, which edits the ledger the Spending pages and the inbox read.
 
 // Categories
 handlers.set(key('GET', '/categories'), () => mockCategories)
@@ -1363,9 +1364,10 @@ handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categor
 
 // To-categorize inbox
 handlers.set(key('GET', '/transactions/uncategorized'), () => mockUncategorized())
+// Unknown transaction or category IDs leave the ledger unchanged. The adapter returns {}.
 handlers.set(key('PUT', '/transactions/:id/category'), (config, { id }) => {
-  const { categoryId } = JSON.parse(config.data || '{}')
-  recategorizeMockTransaction(Number(id), categoryId)
+  const { categoryId } = JSON.parse(config.data || '{}') as CategorizeRequest
+  categorizeDemoTransaction(Number(id), categoryId)
   return {}
 })
 

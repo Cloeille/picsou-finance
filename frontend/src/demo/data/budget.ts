@@ -473,6 +473,22 @@ function isTransfer(tx: Transaction): boolean {
   return mockCategories.find((category) => category.id === tx.categoryId)?.kind === 'TRANSFER'
 }
 
+const categoryById = (id: number | null | undefined): Category | undefined =>
+  id == null ? undefined : mockCategories.find((c) => c.id === id)
+
+/**
+ * Files a transaction under a category as `PUT /transactions/{id}/category` does: the ledger row
+ * takes the category and leaves the review inbox, so every view that reads the ledger follows.
+ * The ledger and changed row are replaced, so previous query responses stay unchanged. An unknown
+ * transaction or category changes nothing and returns false.
+ */
+export function categorizeDemoTransaction(id: number, categoryId: number): boolean {
+  const category = categoryById(categoryId)
+  if (!category || !mockLedger.some((tx) => tx.id === id)) return false
+  mockLedger = mockLedger.map((tx) => (tx.id === id ? { ...tx, category: category.name, categoryId: category.id } : tx))
+  return true
+}
+
 function ledgerIn(period: CashflowPeriod): Transaction[] {
   const { from, to } = periodRange(period)
   return mockLedger.filter((tx) => tx.date >= from && tx.date <= to)
@@ -550,8 +566,8 @@ export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCatego
     grouped.set(categoryId, rows)
   }
   const rows = [...grouped].map(([categoryId, transactions]) => {
-    const cat = mockCategories.find((category) => category.id === categoryId)
-    const parent = mockCategories.find((category) => category.id === cat?.parentId)
+    const cat = categoryById(categoryId)
+    const parent = categoryById(cat?.parentId)
     return {
       categoryId,
       slug: null,
@@ -575,33 +591,26 @@ export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCatego
 
 export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): SpendingDetailResponse {
   const { from, to } = periodRange(period)
-  const cat = mockCategories.find((c) => c.id === categoryId)
+  const cat = categoryById(categoryId)
   const ledger = ledgerIn(period)
-  const filedUnder = (leafId: number) => ledger.filter((tx) => tx.categoryId === leafId)
 
-  // Parent totals include direct assignments as well as the children's rows.
+  // A drill spans the category's subtree, as CashflowFlowService.categoryDetail does: the rows
+  // filed under it plus every (non-archived) child's, newest first as the ledger is. `children`
+  // carries each child's signed subtotal + count, and is empty for a leaf.
   const childCats = mockCategories.filter((c) => c.parentId === categoryId && !c.archived)
-
-  let transactions: Transaction[]
-  let children: ChildSpend[]
-  if (childCats.length > 0) {
-    children = childCats.map((child) => {
-      const txns = filedUnder(child.id)
-      return {
-        categoryId: child.id,
-        name: child.name,
-        color: child.color,
-        icon: child.icon,
-        total: r2(txns.reduce((acc, t) => acc + t.amount, 0)),
-        count: txns.length,
-      }
-    })
-    transactions = [...filedUnder(categoryId), ...childCats.flatMap((child) => filedUnder(child.id))]
-      .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
-  } else {
-    transactions = cat ? filedUnder(cat.id) : []
-    children = []
-  }
+  const subtree = new Set([categoryId, ...childCats.map((c) => c.id)])
+  const transactions = ledger.filter((tx) => tx.categoryId != null && subtree.has(tx.categoryId))
+  const children: ChildSpend[] = childCats.map((child) => {
+    const txns = ledger.filter((tx) => tx.categoryId === child.id)
+    return {
+      categoryId: child.id,
+      name: child.name,
+      color: child.color,
+      icon: child.icon,
+      total: r2(txns.reduce((acc, t) => acc + t.amount, 0)),
+      count: txns.length,
+    }
+  })
 
   const total = r2(transactions.reduce((acc, t) => acc + t.amount, 0))
 
@@ -619,14 +628,6 @@ export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): 
     transactions,
     children,
   }
-}
-
-export function recategorizeMockTransaction(id: number, categoryId: unknown): void {
-  const category = mockCategories.find((cat) => cat.id === categoryId)
-  if (!category || !mockLedger.some((tx) => tx.id === id)) return
-  mockLedger = mockLedger.map((tx) => tx.id === id
-    ? { ...tx, categoryId: category.id, category: category.name }
-    : tx)
 }
 
 export function mockBudgetSummaries(): Budget[] {

@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Caisse d'Epargne in *Sync all*.** The dashboard's *Sync all* modal lists Caisse d'Epargne
   like the other session connectors: a live session syncs in place, an expired one opens the
   Caisse d'Epargne tab, where the keypad and Sécur'Pass login run, and *Sync all* skips it.
+  Caisse d'Epargne tab, where the keypad and Sécur'Pass login run.
 - **Reconnect from stored credentials.** A session panel can offer a *Reconnect* button that
   logs in again with the credentials stored at the last login, then runs the second factor
   as after a typed login, with the user there to approve it. CIC uses it: its daily

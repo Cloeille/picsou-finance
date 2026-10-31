@@ -73,6 +73,8 @@ New page `BudgetTransactionsPage`.
 
 **Results:** `TransactionsList` with `onCategorize` wired, or an `EmptyState` when the period has no transactions. In demo mode `GET /transactions` is served by `mockTransactionSearch` (`demo/data/budget.ts`), which filters the shared ledger like the repository query. The ledger covers every month since January, including salary, categorized spending, and the current cycle's review inbox. Date bounds are inclusive, account and category filters are exact, and results are sorted newest first. A category picked through the demo `PUT /transactions/:id/category` stays visible in transaction searches for the rest of the session. `TransactionRow` shows account name as a sub-text line (absent in per-account views, useful here to identify origin).
 
+Every demo ledger row belongs to the main checking account. Its account view uses the same search, so it agrees with the global results and the spending breakdown. `categorizeDemoTransaction` replaces the ledger row, and the review inbox derives its rows from the updated ledger. Categorization therefore appears in both transaction views and budget summaries after a refetch, while previous responses stay unchanged.
+
 **Navigation:**
 - New "Transactions" tab in budget nav (`budget-nav.ts`), icon `Receipt`, route `/budget/transactions`
 - `SpendingPage` gets a "View all transactions" link that navigates to `/budget/transactions` pre-filled with the current period
