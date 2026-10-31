@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ChevronRight } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'

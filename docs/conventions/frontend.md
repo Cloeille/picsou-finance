@@ -17,7 +17,7 @@
 | Recharts | v3 | Charts |
 | react-hook-form + Zod | latest | Form handling + validation |
 | Sonner | latest | Toast notifications |
-| next-themes | latest | Dark/light mode |
+| Root `.dark` class + `useDarkTheme` | — | Dark/light/system mode |
 
 ## Directory structure
 
@@ -152,6 +152,9 @@ When `VITE_DEMO_MODE=true` (or runtime toggle via `app-store.ts`), a request int
 
 React Router v7 with `lazy()` per page:
 
+Routing APIs, including `RouterProvider`, come from `react-router`. The app entry
+point adapts `ReactDOM.flushSync` to the provider's callback contract to retain its DOM integration.
+
 ```typescript
 const DashboardPage = lazy(() =>
   import('@/pages/dashboard/DashboardPage').then(m => ({ default: m.DashboardPage }))
@@ -266,6 +269,9 @@ Size a new or touched money Y axis with `yAxisWidth(values, money.tick)` (`lib/c
 A new native `<select>` goes through `NativeSelect` (`components/shared/NativeSelect.tsx`), which shares `Input`'s 40px height, border and fill. About ten older selects still use `SELECT_CONTROL_CLASS` or `rounded-xl` classes of their own. A date field goes through `DateInput`, which displays the user's date format. A range input takes the `range-input` class and sets `--range-fill` to its value's percentage.
 
 ## Scripts
+
+Build tools and compiled CSS inputs (`@tailwindcss/vite`, `tailwindcss`,
+`tw-animate-css`, and the `shadcn` CLI) live in `devDependencies`.
 
 ```bash
 bun run dev          # Dev server on :5173, proxies /api/* to localhost:8080

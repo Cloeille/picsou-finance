@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { toast } from 'sonner'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {

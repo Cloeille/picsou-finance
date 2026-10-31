@@ -23,7 +23,7 @@ vi.mock('react-i18next', () => ({
     i18n: { resolvedLanguage: 'fr', language: 'fr' },
   }),
 }))
-vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }))
+vi.mock('react-router', () => ({ useNavigate: () => vi.fn() }))
 vi.mock('./PeriodNavigator', () => ({ PeriodNavigator: () => null }))
 vi.mock('./BudgetPeriodContext', () => ({
   useBudgetPeriod: () => ({ anchor: undefined, setAnchor: vi.fn() }),

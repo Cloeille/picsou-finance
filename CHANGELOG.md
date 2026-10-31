@@ -307,6 +307,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Toasts follow the selected theme.** Notifications use the app's light or dark palette
+  even when it differs from the OS preference, and update when the theme changes (#327).
 - **The demo no longer looks broken.** Every page now gets an answer from the demo build:
   holdings on every account, prices, connected apps, the status of each provider, the budget's
   transactions and the fourth goal no longer leave a card loading forever or a table empty. Its

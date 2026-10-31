@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom'
+import { Navigate } from 'react-router'
 import { useSetupStatus } from './hooks'
 import { RouteSpinner } from '@/components/shared/RouteFallback'
 import { useAppStore } from '@/stores/app-store'

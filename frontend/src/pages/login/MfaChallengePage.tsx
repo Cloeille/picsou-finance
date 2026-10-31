@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useVerifyMfa } from '@/features/mfa/hooks'
 import { safeRedirect, isOAuthAuthorizeRedirect } from '@/lib/utils'

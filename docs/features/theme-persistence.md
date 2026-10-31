@@ -1,6 +1,6 @@
 # Feature: Theme persistence + theme-adaptive rendering (dark / light / system)
 
-> Last updated: 2026-06-02
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -14,6 +14,8 @@ Theme is stored in `localStorage` under the key `'theme'` (`'light' | 'dark' | '
 
 - `frontend/index.html` + `frontend/public/theme-init.js` — pre-paint script that applies the `.dark` class immediately on load
 - `frontend/src/lib/theme.ts` — **the live applier**: shared helpers `getStoredTheme`, `applyTheme`, `initSystemThemeListener`
+- `frontend/src/hooks/use-dark-theme.ts` — observes the root `.dark` class for components that need the applied palette in JavaScript
+- `frontend/src/components/ui/sonner.tsx` — passes the applied palette to Sonner through `useDarkTheme()`
 - `frontend/src/main.tsx` — calls `initSystemThemeListener()` + `applyTheme(getStoredTheme())` once at startup
 - `frontend/src/pages/settings/SettingsPage.tsx` — UI toggle, reads/writes via `lib/theme`
 - `frontend/src/index.css` — CSS variables under `:root` (light, `@custom-variant dark (&:is(.dark *))`) and `.dark` (dark)
@@ -41,10 +43,11 @@ User changes theme (SettingsPage)
 
 ### Theme-adaptive rendering
 
-Two classes of UI need explicit handling beyond the `.dark` token swap:
+Some UI needs explicit handling beyond the `.dark` token swap:
 
 - **The Picsou logo.** The SVG assets (`frontend/src/assets/horizontal-white-picsou.svg`, `picsou_logo_white.svg`) bake in a near-white fill (`#DEDEDE`) and are loaded as `<img src=…>`, so CSS cannot recolor their paths. They are made theme-adaptive with the Tailwind filter `brightness-0 dark:invert`: `brightness(0)` collapses any source colour to pure black (light mode); `dark:invert` then flips that to pure white (dark mode). Applied to all four logo placements (sidebar, mobile bottom-nav, ConnectionGuard, ErrorBoundary).
 - **Dropdown popover panel.** `DropdownMenuContent`/`DropdownMenuSubContent` must *not* hardcode a `dark` class — Radix portals the panel under `<html>`, which already carries `.dark` in dark mode, so the panel inherits the correct palette automatically.
+- **Toast notifications.** The Toaster uses `useDarkTheme()` to pass an explicit `dark` or `light` theme to Sonner. The hook observes the root class with `useSyncExternalStore` and a `MutationObserver`, so existing toasts follow Settings changes and system-mode updates without remounting. Reading the applied class keeps toasts consistent when the selected theme differs from the OS. No separate theme provider is needed.
 
 ## Technical choices
 
@@ -54,6 +57,7 @@ Two classes of UI need explicit handling beyond the `.dark` token swap:
 | Shared `frontend/src/lib/theme.ts` | Single, app-wide source of truth for applyTheme logic | Keep helpers in SettingsPage (breaks on other pages); a React `ThemeProvider` context (a duplicate `theme-provider.tsx` was tried, left unwired, and removed in 1.0.0) |
 | System listener in `main.tsx` | Active on all pages, not just Settings | Listener inside SettingsPage (stopped working when page unmounted) |
 | CSS classes on `<html>` + Tailwind variables | Standard Tailwind dark mode approach | Zustand-stored theme driving conditional class props (complex, no FOUC protection) |
+| `useDarkTheme()` for Sonner | Reuses the applied palette and follows root-class changes | An independent OS-based theme or a second theme provider, which can disagree with Settings |
 | Logo via `brightness-0 dark:invert` filter | Recolors an `<img>` SVG that CSS can't reach inside; source-colour-agnostic (true black/white) | Plain `invert` (only reaches `#212121` grey); shipping separate black/white assets; inlining the SVG |
 
 ## Gotchas / Pitfalls
@@ -67,7 +71,16 @@ Two classes of UI need explicit handling beyond the `.dark` token swap:
 
 ## Tests
 
-No automated tests — purely DOM/localStorage/CSS. Manual verification:
+`frontend/src/components/shared/Toaster.test.tsx` renders the real Sonner Toaster and checks:
+
+- Dark app theme with a light OS preference.
+- Light app theme with a dark OS preference.
+- Live changes between light, dark, and system themes while a notification is visible.
+
+Run with `cd frontend && bun run test src/components/shared/Toaster.test.tsx`.
+
+Manual verification for persistence and the remaining theme-adaptive UI:
+
 1. Set Dark → refresh → stays dark on any page
 2. Set System → toggle OS dark mode → page reacts without reload
 3. In **light** mode: the Picsou logo is black (sidebar, mobile nav, connection/error screens) and the My Account dropdown panel is light
