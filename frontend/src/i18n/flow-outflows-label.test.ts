@@ -12,4 +12,8 @@ describe('flow outflows wording', () => {
     expect(flow.outflows).not.toEqual(cashflow.expense)
     expect(flow.outflows).not.toEqual(flow.breakdown)
   })
+
+  it.each(Object.entries({ fr, de, es }))('%s translates the title instead of keeping the English one', (_, locale) => {
+    expect(locale.budget.flow.outflows).not.toEqual(en.budget.flow.outflows)
+  })
 })

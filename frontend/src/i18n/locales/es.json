@@ -2601,7 +2601,7 @@
       "diagram": "This cycle's flow",
       "breakdown": "Where your money goes",
       "inflows": "In",
-      "outflows": "Income allocation",
+      "outflows": "Distribución de ingresos",
       "empty": "No flow to show for this period.",
       "error": "Could not load the flow diagram.",
       "ariaSummary": "Flow diagram: {{income}} in, {{expense}} out, net {{net}}.",

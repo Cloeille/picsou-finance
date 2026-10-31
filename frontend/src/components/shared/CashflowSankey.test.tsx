@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { TFunction } from 'i18next'
 import { mockFlow } from '@/demo/data/budget'
+import { makeMoneyFormatter } from '@/lib/money'
+import { localeFromLanguage } from '@/lib/utils'
 import { CashflowSankey } from './CashflowSankey'
 import { flowNodeLabel, flowSides } from './flow-utils'
 
@@ -39,6 +41,7 @@ vi.stubGlobal(
 describe('CashflowSankey', () => {
   const flow = mockFlow('CYCLE')
   const { sinks } = flowSides(flow)
+  const money = makeMoneyFormatter({ hidden: false, locale: localeFromLanguage('fr') })
 
   beforeEach(() => {
     boxWidth = 960
@@ -63,7 +66,7 @@ describe('CashflowSankey', () => {
       const name = flowNodeLabel(sink.node, t).slice(0, 12)
       const row = rows.find((r) => r.text.startsWith(name))
       expect(row, `label for ${name}`).toBeDefined()
-      expect(row!.text).toMatch(/\d/)
+      expect(row!.text.endsWith(money.amount(sink.value)), `amount for ${name}`).toBe(true)
     }
   })
 

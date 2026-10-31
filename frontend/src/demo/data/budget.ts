@@ -30,6 +30,11 @@ function iso(d: Date): string {
   return d.toISOString().split('T')[0]
 }
 
+// The transactions page filters on local calendar days; `iso` goes through UTC and can shift them.
+function localIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 const NOW = new Date()
 const CYCLE_START = new Date(NOW.getFullYear(), NOW.getMonth(), 1)
 const CYCLE_END = new Date(NOW.getFullYear(), NOW.getMonth() + 1, 0)
@@ -472,7 +477,8 @@ function leafTransactions(cat: Category, factor: number): Transaction[] {
     const merchant = merchants[i % merchants.length]
     return {
       id: cat.id * 100 + i,
-      date: daysFromNow(-(i * 3 + 2)),
+      // Clamped to the 1st so the rows stay inside the current month on any day of it.
+      date: localIso(new Date(NOW.getFullYear(), NOW.getMonth(), Math.max(1, NOW.getDate() - (i * 3 + 2)))),
       description: merchant.toUpperCase(),
       amount: isIncome ? abs : -abs,
       type: null,
@@ -541,10 +547,18 @@ export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): 
   }
 }
 
+// Categories picked through the demo's PUT /transactions/:id/category, by transaction id.
+const recategorized = new Map<number, number>()
+
+export function recategorizeMockTransaction(id: number, categoryId: number): void {
+  recategorized.set(id, categoryId)
+}
+
 /**
- * `GET /transactions`: the current cycle's leaf-category transactions, all booked on the main
- * checking account, filtered like `TransactionRepository.searchByMember` (inclusive dates, exact
- * account and category) and sorted newest first.
+ * `GET /transactions`: the current cycle's transactions for the categories that carry demo
+ * spend (the same ones as the spending breakdown), all booked on the main checking account,
+ * filtered like `TransactionRepository.searchByMember` (inclusive dates, exact account and
+ * category) and sorted newest first.
  */
 export function mockTransactionSearch(params: {
   from?: string
@@ -553,14 +567,17 @@ export function mockTransactionSearch(params: {
   categoryId?: number | string
 }): Transaction[] {
   const checking = mockAccounts.find((a) => a.type === 'CHECKING')!
-  const leaves = mockCategories.filter((c) => !c.archived && !mockCategories.some((child) => child.parentId === c.id))
-  return leaves
-    .flatMap((cat) => leafTransactions(cat, 1).map((tx) => ({
-      ...tx,
-      categoryId: cat.id,
-      accountId: checking.id,
-      accountName: checking.name,
-    })))
+  return SPEND_BASE
+    .flatMap(({ cat }) => leafTransactions(cat, 1).map((tx) => {
+      const categoryId = recategorized.get(tx.id) ?? cat.id
+      return {
+        ...tx,
+        categoryId,
+        category: mockCategories.find((c) => c.id === categoryId)?.name ?? tx.category,
+        accountId: checking.id,
+        accountName: checking.name,
+      }
+    }))
     .filter((tx) =>
       (!params.from || tx.date >= params.from) &&
       (!params.to || tx.date <= params.to) &&

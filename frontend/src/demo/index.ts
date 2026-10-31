@@ -29,6 +29,7 @@ import {
   mockSpendingByCategory,
   mockTransactionSearch,
   mockUncategorized,
+  recategorizeMockTransaction,
 } from './data/budget'
 import { mockUpcomingDividends } from './data/dividends'
 import type { CashflowPeriod } from '@/types/api'
@@ -1322,7 +1323,11 @@ handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categor
 
 handlers.set(key('GET', '/transactions'), (config) => mockTransactionSearch(config.params ?? {}))
 for (const tx of mockTransactionSearch({})) {
-  handlers.set(key('PUT', `/transactions/${tx.id}/category`), () => ({}))
+  handlers.set(key('PUT', `/transactions/${tx.id}/category`), (config) => {
+    const { categoryId } = JSON.parse(config.data || '{}')
+    recategorizeMockTransaction(tx.id, categoryId)
+    return {}
+  })
 }
 
 // To-categorize inbox
