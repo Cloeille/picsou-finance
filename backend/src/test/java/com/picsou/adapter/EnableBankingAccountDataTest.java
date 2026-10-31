@@ -135,9 +135,9 @@ class EnableBankingAccountDataTest {
             """);
         responses.put("/accounts/uid-operations/balances", """
             {"balances": [
-              {"name": "Other balance", "balance_type": "%s",
+              {"name": " Bank balance ", "balance_type": "%s",
                "balance_amount": {"currency": "GBP", "amount": "44.10"}},
-              {"name": "Preferred balance", "balance_type": "%s",
+              {"name": "BANK BALANCE", "balance_type": "%s",
                "balance_amount": {"currency": "GBP", "amount": "-12.34"}}
             ]}
             """.formatted(other, preferred));
@@ -147,6 +147,54 @@ class EnableBankingAccountDataTest {
             assertThat(account.iban()).isEqualTo("GB00SYNTHETIC");
             assertThat(account.currency()).isEqualTo("GBP");
             assertThat(account.balance()).isEqualByComparingTo("-12.34");
+        });
+    }
+
+    @Test
+    void fetchBalances_unnamedAccountBalances_usesIsoTypePriority() {
+        responses.put("/accounts/uid-operations/details", "{}");
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"balance_type": "XPCD", "balance_amount": {"currency": "EUR", "amount": "44.10"}},
+              {"name": "  ", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "-12.34"}}
+            ]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement()
+            .satisfies(account -> assertThat(account.balance()).isEqualByComparingTo("-12.34"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"details", "product", "name"})
+    void fetchBalances_oversizedDisplayName_fitsTheAccountNameColumn(String field) {
+        responses.put("/accounts/uid-operations/details", "{\"%s\":\"%s\"}".formatted(field, "A".repeat(101)));
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [{"balance_type": "CLBD", "balance_amount": {"currency": "EUR", "amount": "24.60"}}]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.name()).isEqualTo("A".repeat(100));
+            assertThat(account.balance()).isEqualByComparingTo("24.60");
+        });
+    }
+
+    @Test
+    void fetchBalances_oversizedDescription_matchesTheFullLabelBeforeTruncatingTheDisplayName() {
+        String prefix = "A".repeat(100);
+        responses.put("/accounts/uid-operations/details", "{\"details\":\"%s Operations\"}".formatted(prefix));
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name": "%s Reserve", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "41.75"}},
+              {"name": "%s Operations", "balance_type": "XPCD",
+               "balance_amount": {"currency": "EUR", "amount": "903.20"}}
+            ]}
+            """.formatted(prefix, prefix));
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.name()).isEqualTo(prefix);
+            assertThat(account.balance()).isEqualByComparingTo("903.20");
         });
     }
 
@@ -213,6 +261,46 @@ class EnableBankingAccountDataTest {
             .hasMessageContaining("ambiguous");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "{\"details\":\"Unmatched wallet\"}",
+        "{}",
+        "{\"details\":\"  \"}",
+        "{\"product\":\"Operations wallet\",\"name\":\"Operations wallet\"}"
+    })
+    void fetchBalances_unmatchedSharedListWithDifferentTypes_failsBeforeRankingBalances(String details) {
+        responses.put("/accounts/uid-operations/details", details);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name": "Operations wallet", "balance_type": "XPCD",
+               "balance_amount": {"currency": "EUR", "amount": "903.20"}},
+              {"name": "Reserve wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "41.75"}}
+            ]}
+            """);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
+    }
+
+    @Test
+    void fetchBalances_distinctGenericLabelsWithoutAnAccountMatch_failsInsteadOfAssumingAccountScope() {
+        responses.put("/accounts/uid-operations/details", "{\"details\":\"Everyday account\"}");
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name": "Other balance", "balance_type": "XPCD",
+               "balance_amount": {"currency": "GBP", "amount": "44.10"}},
+              {"name": "Preferred balance", "balance_type": "CLBD",
+               "balance_amount": {"currency": "GBP", "amount": "-12.34"}}
+            ]}
+            """);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
+    }
+
     @Test
     void fetchBalances_duplicateMatchingLabels_failsWhenTheBestBalanceIsStillAmbiguous() {
         responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations wallet\"}");
@@ -269,7 +357,7 @@ class EnableBankingAccountDataTest {
             {"balances": [
               {"name": "Reserve wallet", "balance_type": "CLBD",
                "balance_amount": {"currency": "EUR", "amount": "41.75"}},
-              {"name": "Operations wallet", "balance_type": "CLBD",
+              {"name": "Operations wallet", "balance_type": "XPCD",
                "balance_amount": {"currency": "EUR", "amount": "903.20"}}
             ]}
             """;

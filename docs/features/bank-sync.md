@@ -68,6 +68,9 @@ Picsou now handles this with a two-pronged strategy:
 The adapter reads the IBAN from `account_id.iban`. The display name is the first
 nonblank value in `details`, `product`, and `name`, with `Account` as the fallback.
 `name` identifies the holder, so it is less useful than the account description.
+After balance selection, the adapter truncates the display name to 100 characters
+to fit `account.name`. Balance matching always uses the full account description,
+so descriptions that share the first 100 characters remain distinct matching keys.
 Existing-account names remain unchanged on sync to preserve user edits. An existing
 generic `Account` label can be renamed in the account form. Balances and IBANs refresh
 through the usual upsert path, including IBAN-first matching after a uid rotation.
@@ -87,9 +90,14 @@ Within that set, the adapter prefers the following
 4. `ITAV`, interim available.
 5. `CLAV`, closing available.
 
-Other or missing types have lower priority. When no balance name matches, the adapter
-uses the same type ordering across the response. This preserves single-account banks
-that label balances by kind, such as `Booked balance`, rather than by account.
+Other or missing types have lower priority. When no balance name matches, type-based
+selection is allowed only for a single entry or a list whose labels are all the same
+after trimming and case normalization. Null and blank labels form one unnamed group.
+This preserves generic-label fallback, such as repeated `Booked balance` labels, and
+wholly unnamed responses. Distinct labels require a positive account-description match
+before type ranking. This also rejects differently labeled generic balances when the
+response cannot be distinguished from a shared list. A unique best type does not prove
+that the balance belongs to the requested account.
 Several entries at the best priority are ambiguous and cause a `SyncException`, even
 when their names match. The adapter never adds balances together or chooses an arbitrary
 entry from a tie. An absent balance, null entry, or missing selected amount also fails
@@ -103,8 +111,9 @@ the account-details currency, then `EUR`.
 `EnableBankingAccountDataTest` serves synthetic responses over loopback HTTP and calls
 `fetchBalances` through the production WebClient and JSON decoder. It covers shared
 balance lists, flat details, type priorities, ordinary single-account responses,
-ambiguous or missing data, and per-account failure isolation. Live bank behavior remains
-unverified.
+unmatched lists with different balance types, oversized display names, full-description
+matching before truncation, ambiguous or missing data, and per-account failure isolation.
+Live bank behavior remains unverified.
 
 ### Country selection
 

@@ -54,6 +54,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     /** {@code transaction.description} is VARCHAR(255) and {@code category} VARCHAR(100). */
     private static final int MAX_DESCRIPTION_LENGTH = 255;
     private static final int MAX_CATEGORY_LENGTH = 100;
+    /** {@code account.name} is VARCHAR(100). */
+    private static final int MAX_ACCOUNT_NAME_LENGTH = 100;
     private static final List<String> BALANCE_TYPE_PRIORITY = List.of("CLBD", "XPCD", "ITBD", "ITAV", "CLAV");
 
     private final EnableBankingConfigProvider configProvider;
@@ -654,7 +656,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         String iban = details != null && details.accountId() != null
             ? firstNonBlank(details.accountId().iban()) : null;
 
-        return new AccountData(accountId, name, iban, currency, balance);
+        return new AccountData(accountId, truncate(name, MAX_ACCOUNT_NAME_LENGTH), iban, currency, balance);
     }
 
     private static BalancesResponse.BalanceItem selectBalance(BalancesResponse response, String accountLabel) {
@@ -671,6 +673,10 @@ public class EnableBankingBankConnector implements BankConnectorPort {
                 .toList();
             // Some ASPSPs return an organization-wide list. Scope it before ranking types.
             if (!matching.isEmpty()) candidates = matching;
+        }
+        String balanceLabel = nullToEmpty(candidates.getFirst().name()).trim();
+        if (candidates.stream().anyMatch(item -> !balanceLabel.equalsIgnoreCase(nullToEmpty(item.name()).trim()))) {
+            throw new SyncException("Enable Banking returned ambiguous account balances; cannot establish account scope");
         }
 
         var selected = candidates.stream().min(Comparator.comparingInt(EnableBankingBankConnector::balancePriority))
