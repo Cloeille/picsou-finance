@@ -35,9 +35,9 @@ A prior change (#39) added HTTPS to the Vite dev server via mkcert/basic-ssl, bu
    `X-Forwarded-For` with the real peer address; verified by sending a spoofed
    `X-Forwarded-For: 10.0.0.99` through this config and observing only the peer address reach the
    upstream. Stating it explicitly is redundant and makes Caddy log
-   `Unnecessary header_up X-Forwarded-For` on every start. This matters because
-   `forward-headers-strategy: framework` makes `getRemoteAddr()` return `XFF[0]`, which
-   `AuthController.getClientIp()` uses as the login rate-limit key.
+   `Unnecessary header_up X-Forwarded-For` on every start. Client addresses now pass through
+   nginx real-IP resolution and Tomcat's native forwarding with explicit proxy peers; see the
+   [trusted proxy address ADR](./2026-10-31-trusted-proxy-client-address.md).
 
 ## Alternatives considered
 
@@ -122,8 +122,8 @@ the old configuration would have bricked exactly the users this change is meant 
   (README 3f).
 - **Backend change required for HSTS.** `SecurityConfig` now gates its `Strict-Transport-Security`
   writer on `app.hsts-enabled` (`${HSTS_ENABLED:false}`). Spring Security's `HstsHeaderWriter` fires
-  whenever `isSecure()` is true, which `forward-headers-strategy: framework` derives from
-  `X-Forwarded-Proto: https` — so gating nginx alone left every `/api/*` response still pinning the
+  whenever `isSecure()` is true, which native forwarding derives from
+  `X-Forwarded-Proto: https` sent by a configured proxy — so gating nginx alone left every `/api/*` response still pinning the
   policy, defeating the whole change. Proxying itself needed no backend change: Caddy's default
   `X-Forwarded-*` headers already satisfy the `map` block in `nginx.conf`.
 - **`HSTS_ENABLED` is parsed leniently on both sides** (`true|1|yes|on`, surrounding whitespace

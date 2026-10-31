@@ -307,6 +307,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Client addresses behind trusted proxies.** The bundled TLS proxy now preserves separate
+  per-client login limits. nginx and Tomcat resolve forwarded addresses only from configured
+  proxy peers, and rate limiters and audit logs use the same resolved address. Direct client
+  headers do not replace the connection address. Public HTTP and HTTPS ports remain available
+  to same-origin checks.
+
 - **The demo no longer looks broken.** Every page now gets an answer from the demo build:
   holdings on every account, prices, connected apps, the status of each provider, the budget's
   transactions and the fourth goal no longer leave a card loading forever or a table empty. Its
