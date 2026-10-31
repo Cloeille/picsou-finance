@@ -1,9 +1,12 @@
 import { AxiosHeaders } from 'axios'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PnlData, IntradayPoint } from '@/features/dashboard/api'
 import type {
   Account,
+  Budget,
   BudgetSettings,
+  CashflowResponse,
+  LoanScheduleResponse,
   CashflowFlowResponse,
   HoldingResponse,
   DashboardData,
@@ -167,6 +170,8 @@ describe.each([
   ['the last day of a month', 'CYCLE', new Date(2026, 9, 31, 18)],
   ['the first day of a month', 'YTD', new Date(2026, 10, 1, 9)],
   ['the last day of a month', 'YTD', new Date(2026, 9, 31, 18)],
+  ['the first day of a year', 'CYCLE', new Date(2027, 0, 1, 9)],
+  ['the first day of a year', 'YTD', new Date(2027, 0, 1, 9)],
 ] as const)('demo budget on %s over the %s period', (_label, period, today) => {
   let get: Get
   let settings: BudgetSettings
@@ -217,8 +222,156 @@ describe.each([
     expect(ledgerUncategorized.map(tx => tx.id).sort()).toEqual(inbox.map(tx => tx.id).sort())
   })
 
+  it('derives cashflow totals and every bucket from the dated ledger', async () => {
+    const cashflow = await get<CashflowResponse>('/cashflow', { period })
+    const income = sum(ledger.filter(tx => tx.amount > 0).map(tx => tx.amount))
+    expect(cashflow.from).toBe(spending.from)
+    expect(cashflow.to).toBe(spending.to)
+    expect(cashflow.income).toBe(income)
+    expect(cashflow.expense).toBe(spending.totalExpense)
+    expect(cashflow.net).toBe(sum([income, -spending.totalExpense]))
+    expect(cashflow.series.length).toBeGreaterThan(0)
+    for (const bucket of cashflow.series) {
+      expect(bucket.start >= cashflow.from && bucket.end <= cashflow.to).toBe(true)
+      const rows = ledger.filter(tx => tx.date >= bucket.start && tx.date <= bucket.end)
+      expect(bucket.income, bucket.start).toBe(sum(rows.filter(tx => tx.amount > 0).map(tx => tx.amount)))
+      expect(bucket.expense, bucket.start).toBe(sum(rows.filter(tx => tx.amount < 0).map(tx => -tx.amount)))
+      expect(bucket.net, bucket.start).toBe(sum([bucket.income, -bucket.expense]))
+    }
+    for (const tx of ledger) {
+      expect(cashflow.series.filter(b => tx.date >= b.start && tx.date <= b.end), String(tx.id)).toHaveLength(1)
+    }
+    expect(sum(cashflow.series.map(b => b.income))).toBe(cashflow.income)
+    expect(sum(cashflow.series.map(b => b.expense))).toBe(cashflow.expense)
+  })
+
+  it('serves the same checking-account transactions in global and account views', async () => {
+    const range = { from: spending.from, to: spending.to }
+    const global = await get<Transaction[]>('/transactions', { ...range, accountId: 4 })
+    const account = await get<Transaction[]>('/accounts/4/transactions', range)
+    expect(global.length).toBeGreaterThan(0)
+    expect(global.some(tx => tx.amount === 3200)).toBe(true)
+    expect(account.map(tx => [tx.id, tx.amount, tx.categoryId])).toEqual(global.map(tx => [tx.id, tx.amount, tx.categoryId]))
+    expect(account.every(tx => tx.date >= range.from && tx.date <= range.to)).toBe(true)
+    expect(await get('/accounts/4/transactions', { from: '2000-01-01', to: '2000-01-31' })).toEqual([])
+  })
+
   it('dates no ledger row after today', () => {
     const todayIso = today.toLocaleDateString('sv-SE')
     for (const tx of ledger) expect(tx.date <= todayIso, tx.description).toBe(true)
+  })
+})
+
+describe.each([
+  ['October 31', new Date(2026, 9, 31, 12)],
+  ['November 1', new Date(2026, 10, 1, 12)],
+  ['January 1', new Date(2027, 0, 1, 12)],
+])('demo loan history on %s', (_label, today) => {
+  it('matches every dated installment in the account and net-worth histories', async () => {
+    const get = await demoAt(today)
+    const loans = (await get<Account[]>('/accounts')).filter(a => a.type === 'LOAN')
+    expect(loans.length).toBeGreaterThan(0)
+    for (const loan of loans) {
+      const { schedule } = await get<LoanScheduleResponse>(`/accounts/${loan.id}/loan-summary`)
+      const history = await get<{ date: string; balance: number }[]>(`/accounts/${loan.id}/history`)
+      const netWorth = await get<{ date: string; total: number }[]>('/history', { accountIds: String(loan.id), months: 12 })
+      expect(history.length).toBeGreaterThan(1)
+      for (const point of history) {
+        const installment = schedule.filter(row => row.date <= point.date).at(-1)
+        expect(installment, point.date).toBeDefined()
+        expect(point.balance, `${loan.id} on ${point.date}`).toBe(installment?.remainingBalance)
+        expect(netWorth.find(row => row.date === point.date)?.total).toBe(-point.balance)
+      }
+    }
+  })
+})
+
+async function categorize(id: number | string, categoryId: unknown) {
+  const { createDemoAdapter } = await import('./index')
+  await createDemoAdapter()({
+    method: 'PUT', url: `/transactions/${id}/category`, headers: new AxiosHeaders(),
+    data: JSON.stringify({ categoryId, createRule: false }),
+  })
+}
+
+describe('demo categorization updates every budget view', () => {
+  let get: Get
+
+  beforeEach(async () => {
+    get = await demoAt(new Date(2026, 9, 31, 12))
+  })
+
+  it.each([7, 12, 3, 8])('files an inbox row under category %i across every endpoint', async categoryId => {
+    const before = await get<UncategorizedTransaction[]>('/transactions/uncategorized')
+    const row = before.find(tx => tx.id === 9001)
+    expect(row).toBeDefined()
+    if (!row) throw new Error('Expected demo inbox row 9001')
+    const range = { from: '2026-10-01', to: '2026-10-31' }
+    const initialLedger = await get<Transaction[]>('/transactions', range)
+    const previous = initialLedger.find(tx => tx.id === row.id)
+    const category = (await get<{ id: number; name: string }[]>('/categories')).find(c => c.id === categoryId)
+    expect(category).toBeDefined()
+
+    await categorize(row.id, categoryId)
+
+    const inbox = await get<UncategorizedTransaction[]>('/transactions/uncategorized')
+    expect(inbox).not.toBe(before)
+    expect(inbox).toEqual(before.filter(tx => tx.id !== row.id))
+    expect(before).toContain(row)
+    expect(previous?.categoryId).toBeNull()
+    const ledger = await get<Transaction[]>('/transactions', range)
+    expect(ledger.find(tx => tx.id === row.id)).toMatchObject({ categoryId, category: category?.name })
+    expect((await get<Transaction[]>('/accounts/4/transactions', range)).find(tx => tx.id === row.id))
+      .toMatchObject({ categoryId, category: category?.name })
+
+    for (const period of ['CYCLE', 'YTD']) {
+      const spending = await get<SpendingByCategoryResponse>('/spending/by-category', { period })
+      const transactions = await get<Transaction[]>('/transactions', { from: spending.from, to: spending.to })
+      const expenses = transactions.filter(tx => tx.amount < 0 && tx.categoryId !== 8)
+      expect(spending.totalExpense).toBe(sum(expenses.map(tx => -tx.amount)))
+      expect(spending.categories.find(c => c.categoryId == null)?.amount).toBe(sum(inbox.map(tx => -tx.amount)))
+      expect(spending.categories.find(c => c.categoryId == null)?.count).toBe(inbox.length)
+      const assigned = expenses.filter(tx => tx.categoryId === categoryId)
+      const summary = spending.categories.find(c => c.categoryId === categoryId)
+      if (categoryId === 8) {
+        expect(summary).toBeUndefined()
+      } else {
+        expect(summary?.amount).toBe(sum(assigned.map(tx => -tx.amount)))
+        expect(summary?.count).toBe(assigned.length)
+      }
+      const drill = await get<SpendingDetailResponse>(`/spending/category/${categoryId}`, { period })
+      const expected = transactions.filter(tx => tx.categoryId === categoryId ||
+        (categoryId === 3 && (tx.categoryId === 10 || tx.categoryId === 11)))
+      expect(drill.transactions.map(tx => tx.id).sort()).toEqual(expected.map(tx => tx.id).sort())
+      expect(drill.count).toBe(expected.length)
+      expect(drill.total).toBe(sum(expected.map(tx => tx.amount)))
+      const flow = await get<CashflowFlowResponse>('/cashflow/flow', { period })
+      const cashflow = await get<CashflowResponse>('/cashflow', { period })
+      expect(flow.expense).toBe(spending.totalExpense)
+      expect(cashflow.expense).toBe(spending.totalExpense)
+      const nodeIndex = flow.nodes.findIndex(n => n.key === `cat:${categoryId}` && n.type === 'EXPENSE')
+      if (categoryId === 8) expect(nodeIndex).toBe(-1)
+      else expect(sum(flow.links.filter(link => link.target === nodeIndex).map(link => link.value)))
+        .toBe(summary?.amount)
+    }
+
+    const budgets = await get<Budget[]>('/budgets')
+    const cycleExpenses = ledger.filter(tx => tx.amount < 0 && tx.categoryId !== 8)
+    for (const budget of budgets) {
+      const rows = cycleExpenses.filter(tx => tx.categoryId === budget.categoryId ||
+        (budget.categoryId === 3 && (tx.categoryId === 10 || tx.categoryId === 11)))
+      expect(budget.spent).toBe(sum(rows.map(tx => -tx.amount)))
+      expect(budget.remaining).toBe(sum([budget.monthlyLimit, -budget.spent]))
+    }
+  }, 15_000)
+
+  it.each([
+    [999999, 7], ['invalid', 7], [9001, 999999], [9001, null], [9001, '7'],
+  ] as const)('leaves the ledger unchanged for invalid transaction %s or category %s', async (id, categoryId) => {
+    const before = await get<Transaction[]>('/transactions')
+    const inbox = await get<UncategorizedTransaction[]>('/transactions/uncategorized')
+    await categorize(id, categoryId)
+    expect(await get('/transactions')).toEqual(before)
+    expect(await get('/transactions/uncategorized')).toEqual(inbox)
   })
 })

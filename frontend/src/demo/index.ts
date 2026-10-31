@@ -21,6 +21,7 @@ import {
   mockAllocation,
   mockBudgetSettings,
   mockBudgets,
+  mockBudgetSummaries,
   mockCalendar,
   mockCashflow,
   mockCategories,
@@ -34,7 +35,8 @@ import {
   recategorizeMockTransaction,
 } from './data/budget'
 import { mockUpcomingDividends } from './data/dividends'
-import type { CashflowPeriod, DebtInfo, LoanScheduleResponse } from '@/types/api'
+import type { CashflowPeriod } from '@/types/api'
+import { demoLoanSchedule } from './data/loans'
 
 function randomDelay(): number {
   return 200 + Math.random() * 400
@@ -346,7 +348,10 @@ handlers.set(key('GET', '/prices/:ticker/intraday'), (_config, { ticker }) => {
 
 // Account details: transactions for all accounts
 for (let i = 1; i <= mockAccounts.length; i++) {
-  handlers.set(key('GET', `/accounts/${i}/transactions`), () => mockTransactions[i] ?? [])
+  handlers.set(key('GET', `/accounts/${i}/transactions`), (config) =>
+    i === mockAccounts.find((account) => account.type === 'CHECKING')?.id
+      ? mockTransactionSearch({ ...config.params, accountId: i })
+      : mockTransactions[i] ?? [])
 }
 
 // Pocket rename (accounts 9 and 10) — re-uses the standard PUT /accounts/:id shape.
@@ -448,83 +453,6 @@ handlers.set(key('GET', '/accounts/:id/realized-pnl'), () => ({
 }))
 
 const r2 = (n: number): number => Math.round(n * 100) / 100
-
-// Port of the backend's LoanAmortizationService.compute, so the schedule is whatever the stored
-// debt block yields in production rather than figures that could drift from it. An account
-// without a debt block (or without dates) gets the backend's empty schedule.
-function demoLoanSchedule(debt: DebtInfo | undefined): LoanScheduleResponse {
-  const principal = debt?.borrowedAmount ?? 0
-  const monthlyRate = (debt?.interestRate ?? 0) / 12
-  const insurance = debt?.insuranceMonthly ?? 0
-  const fileFees = debt?.fileFees ?? 0
-  const startDate = debt?.startDate ?? null
-  const endDate = debt?.endDate ?? null
-  const monthIndex = (iso: string) => Number(iso.slice(0, 4)) * 12 + Number(iso.slice(5, 7)) - 1
-  const total = startDate && endDate && endDate > startDate
-    ? Math.max(monthIndex(endDate) - monthIndex(startDate), 0)
-    : 0
-  const today = isoDate(new Date())
-  const paid = startDate && total > 0 && today > startDate
-    ? Math.min(Math.max(monthIndex(today) - monthIndex(startDate), 0), total)
-    : 0
-  const annuity = total <= 0 ? 0
-    : monthlyRate === 0 ? principal / total
-    : principal * monthlyRate / (1 - (1 + monthlyRate) ** -total)
-  const monthlyPayment = debt?.monthlyPayment ?? annuity + insurance
-
-  const schedule: LoanScheduleResponse['schedule'] = []
-  let remaining = principal
-  let totalInterest = 0
-  let capitalRepaid = 0
-  let interestRepaid = 0
-  for (let i = 1; i <= total; i++) {
-    const interest = r2(remaining * monthlyRate)
-    let capital = monthlyPayment - insurance - interest
-    if (i === total || capital > remaining) capital = remaining
-    remaining = Math.max(remaining - capital, 0)
-    const [y, m, d] = startDate!.split('-').map(Number)
-    schedule.push({
-      number: i,
-      date: isoDate(new Date(y, m - 1 + i, d)),
-      capital: r2(capital),
-      interest,
-      insurance: r2(insurance),
-      totalPayment: r2(capital + interest + insurance),
-      remainingBalance: r2(remaining),
-    })
-    totalInterest += interest
-    if (i <= paid) {
-      capitalRepaid += capital
-      interestRepaid += interest
-    }
-  }
-
-  const reference = schedule[Math.max(paid, 1) - 1]
-  return {
-    summary: {
-      totalInstallments: total,
-      paidInstallments: paid,
-      remainingInstallments: Math.max(total - paid, 0),
-      endDate,
-      monthlyPayment: r2(monthlyPayment),
-      monthlyCapital: reference?.capital ?? 0,
-      monthlyInterest: reference?.interest ?? 0,
-      monthlyInsurance: r2(insurance),
-      totalCost: r2(principal + totalInterest + insurance * total + fileFees),
-      totalCapitalCost: r2(principal),
-      totalInterestCost: r2(totalInterest),
-      totalInsuranceCost: r2(insurance * total),
-      fileFees: r2(fileFees),
-      totalRepaid: r2(r2(capitalRepaid) + r2(interestRepaid) + r2(insurance * paid)),
-      capitalRepaid: r2(capitalRepaid),
-      interestRepaid: r2(interestRepaid),
-      insuranceRepaid: r2(insurance * paid),
-      remainingBalance: paid === 0 ? principal : paid >= total ? 0 : schedule[paid - 1].remainingBalance,
-      capitalRepaidPct: principal === 0 ? 0 : r2(r2(capitalRepaid) * 100 / principal),
-    },
-    schedule,
-  }
-}
 
 handlers.set(key('GET', '/accounts/:id/loan-summary'), (_config, { id }) =>
   demoLoanSchedule(_demoAccounts.find(a => a.id === Number(id))?.debt))
@@ -1414,7 +1342,7 @@ for (const r of mockRules) {
 handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categorized: 4 }))
 
 // To-categorize inbox
-handlers.set(key('GET', '/transactions/uncategorized'), () => mockUncategorized)
+handlers.set(key('GET', '/transactions/uncategorized'), () => mockUncategorized())
 handlers.set(key('PUT', '/transactions/:id/category'), (config, { id }) => {
   const { categoryId } = JSON.parse(config.data || '{}')
   recategorizeMockTransaction(Number(id), categoryId)
@@ -1434,7 +1362,7 @@ handlers.set(key('GET', '/transactions/categorize-ai/status'), () => ({
 }))
 
 // Envelopes
-handlers.set(key('GET', '/budgets'), () => mockBudgets)
+handlers.set(key('GET', '/budgets'), () => mockBudgetSummaries())
 handlers.set(key('POST', '/budgets'), (config) => {
   const body = JSON.parse(config.data || '{}')
   const cat = mockCategories.find((c) => c.id === body.categoryId)
@@ -1449,9 +1377,10 @@ handlers.set(key('POST', '/budgets'), (config) => {
 for (const b of mockBudgets) {
   handlers.set(key('PUT', `/budgets/${b.id}`), (config) => {
     const body = JSON.parse(config.data || '{}')
-    const limit = body.monthlyLimit ?? b.monthlyLimit
-    return { ...b, monthlyLimit: limit, remaining: Math.round((limit - b.spent) * 100) / 100,
-      percent: limit > 0 ? Math.round((b.spent / limit) * 100) : 0, overBudget: b.spent > limit }
+    const current = mockBudgetSummaries().find((budget) => budget.id === b.id)!
+    const limit = body.monthlyLimit ?? current.monthlyLimit
+    return { ...current, monthlyLimit: limit, remaining: Math.round((limit - current.spent) * 100) / 100,
+      percent: limit > 0 ? Math.round((current.spent / limit) * 100) : 0, overBudget: current.spent > limit }
   })
   handlers.set(key('DELETE', `/budgets/${b.id}`), () => ({}))
 }

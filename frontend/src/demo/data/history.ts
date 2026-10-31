@@ -3,6 +3,7 @@ import type { Account } from '@/types/api'
 import { mockAccounts } from './accounts'
 import { daysBeforeToday, isoDate, monthStartFromToday } from './dates'
 import { holdingsCostBasis, holdingsValue, mockHoldings } from './holdings'
+import { demoLoanSchedule } from './loans'
 
 /** An account's holdings repriced on each of the last twelve month starts. */
 function holdingsHistory(accountId: number): number[] {
@@ -37,10 +38,11 @@ export const mockBalanceHistory: Record<number, number[]> = {
   12: [-640, -910, -720, -1050, -830, -1180, -760, -990, -1120, -870, -1030.5, -1284.6],
   // SCPI: withdrawal price easing
   13: [9100, 9100, 9050, 9050, 9000, 9000, 8950, 8950, 8900, 8900, 8850, 8800],
-  // Car loan: outstanding capital repaid month after month
-  14: [10700, 10500, 10300, 10100, 9900, 9700, 9500, 9300, 9100, 8900, 8700, 8500],
-  // Mortgage: about 600 of capital repaid each month
-  15: [174980, 174380, 173780, 173180, 172580, 171980, 171380, 170780, 170180, 169580, 168980, 168400],
+  ...Object.fromEntries(mockAccounts.filter((account) => account.type === 'LOAN').map((account) => [
+    account.id,
+    Array.from({ length: 12 }, (_, i) =>
+      demoLoanSchedule(account.debt, monthStartFromToday(i - 11)).summary.remainingBalance),
+  ])),
 }
 
 /**

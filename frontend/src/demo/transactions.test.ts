@@ -43,13 +43,14 @@ describe('demo cross-account transaction search', () => {
     expect(rows.every((r) => r.accountId != null && r.accountName)).toBe(true)
     expect(rows.every((r) => r.categoryId == null || mockCategories.some((c) => c.id === r.categoryId))).toBe(true)
     expect(rows.filter((r) => r.categoryId == null).map((r) => r.id).sort()).toEqual(
-      mockUncategorized.filter((r) => r.date >= from && r.date <= to).map((r) => r.id).sort(),
+      mockUncategorized().filter((r) => r.date >= from && r.date <= to).map((r) => r.id).sort(),
     )
   })
 
   it('filters by category, by account, and returns nothing outside the period', async () => {
     const all = await search({ from, to })
-    const categoryId = all[0].categoryId!
+    const categoryId = all.find((row) => row.categoryId != null)?.categoryId
+    expect(categoryId).toBeDefined()
     const byCategory = await search({ from, to, categoryId })
     expect(byCategory.length).toBeGreaterThan(0)
     expect(byCategory.every((r) => r.categoryId === categoryId)).toBe(true)
@@ -75,6 +76,9 @@ describe('demo cross-account transaction search', () => {
     ['the 1st, just after midnight', new Date(2026, 2, 1, 0, 30)],
     ['the 2nd', new Date(2026, 2, 2, 0, 30)],
     ['the last evening of the month', new Date(2026, 0, 31, 23, 30)],
+    ['October 31', new Date(2026, 9, 31, 12)],
+    ['November 1', new Date(2026, 10, 1, 12)],
+    ['January 1', new Date(2027, 0, 1, 12)],
   ])('on %s', (_, clock) => {
     afterEach(() => {
       vi.useRealTimers()
@@ -93,6 +97,11 @@ describe('demo cross-account transaction search', () => {
 
       expect(rows.length).toBeGreaterThan(0)
       expect(rows.every((r) => r.date >= range.from && r.date <= localDay(clock))).toBe(true)
+      const categoryId = rows.find((row) => row.categoryId != null)?.categoryId
+      expect(categoryId).toBeDefined()
+      const filtered = await searchWith(createAtClock())({ ...range, categoryId })
+      expect(filtered.length).toBeGreaterThan(0)
+      expect(filtered.every((row) => row.categoryId === categoryId)).toBe(true)
     })
   })
 

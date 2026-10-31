@@ -91,7 +91,7 @@ export const mockRules: CategorizationRule[] = [
 
 // ── To-categorize inbox ───────────────────────────────────────────────────────
 
-export const mockUncategorized: UncategorizedTransaction[] = [
+const inboxSeed: UncategorizedTransaction[] = [
   {
     id: 9001, date: daysAgoWithin(2, CYCLE_FROM), description: 'AMAZON EU SARL', amount: -42.9, type: null,
     category: null, nativeCurrency: 'EUR', createdAt: daysAgoWithin(2, CYCLE_FROM), isManual: false,
@@ -169,44 +169,29 @@ export const mockBudgetSettings: BudgetSettings = {
 const MONTH_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
 
 export function mockCashflow(period: CashflowPeriod): CashflowResponse {
-  if (period === 'YTD') {
-    const series: CashflowBucket[] = []
-    let income = 0
-    let expense = 0
-    for (let m = 0; m <= NOW.getMonth(); m++) {
-      const inc = 3200 + ((m * 37) % 250)
-      const exp = 1950 + ((m * 53) % 600)
-      income += inc
-      expense += exp
-      series.push({
-        start: isoDate(new Date(NOW.getFullYear(), m, 1)),
-        end: isoDate(new Date(NOW.getFullYear(), m + 1, 0)),
-        label: MONTH_LABELS[m],
-        income: inc,
-        expense: exp,
-        net: inc - exp,
-      })
-    }
-    return { period, from: isoDate(new Date(NOW.getFullYear(), 0, 1)), to: isoDate(NOW), income, expense, net: income - expense, series }
+  const { from, to } = periodRange(period)
+  const ledger = ledgerIn(period).filter((tx) => !isTransfer(tx))
+  const totals = (rows: Transaction[]) => {
+    const income = r2(rows.reduce((sum, tx) => sum + Math.max(tx.amount, 0), 0))
+    const expense = r2(rows.reduce((sum, tx) => sum - Math.min(tx.amount, 0), 0))
+    return { income, expense, net: r2(income - expense) }
   }
-
-  // CYCLE — four weekly buckets within the current month.
-  const weekly = [
-    { label: 'S1', income: 3200, expense: 720 },
-    { label: 'S2', income: 0, expense: 540 },
-    { label: 'S3', income: 0, expense: 610 },
-    { label: 'S4', income: 0, expense: 387 },
-  ]
-  const series: CashflowBucket[] = weekly.map((w, i) => {
-    const s = new Date(CYCLE_START)
-    s.setDate(1 + i * 7)
-    const e = new Date(CYCLE_START)
-    e.setDate(Math.min(7 + i * 7, CYCLE_END.getDate()))
-    return { start: isoDate(s), end: isoDate(e), label: w.label, income: w.income, expense: w.expense, net: w.income - w.expense }
-  })
-  const income = weekly.reduce((a, w) => a + w.income, 0)
-  const expense = weekly.reduce((a, w) => a + w.expense, 0)
-  return { period, from: isoDate(CYCLE_START), to: isoDate(CYCLE_END), income, expense, net: income - expense, series }
+  const ranges = period === 'YTD'
+    ? Array.from({ length: NOW.getMonth() + 1 }, (_, month) => ({
+      start: isoDate(new Date(NOW.getFullYear(), month, 1)),
+      end: month === NOW.getMonth() ? to : isoDate(new Date(NOW.getFullYear(), month + 1, 0)),
+      label: MONTH_LABELS[month],
+    }))
+    : Array.from({ length: Math.ceil(CYCLE_END.getDate() / 7) }, (_, week) => ({
+      start: isoDate(new Date(NOW.getFullYear(), NOW.getMonth(), 1 + week * 7)),
+      end: isoDate(new Date(NOW.getFullYear(), NOW.getMonth(), Math.min(7 + week * 7, CYCLE_END.getDate()))),
+      label: `S${week + 1}`,
+    }))
+  const series: CashflowBucket[] = ranges.map((range) => ({
+    ...range,
+    ...totals(ledger.filter((tx) => tx.date >= range.start && tx.date <= range.end)),
+  }))
+  return { period, from, to, ...totals(ledger), series }
 }
 
 // ── Allocation ────────────────────────────────────────────────────────────────
@@ -340,10 +325,7 @@ const r2 = (n: number): number => Math.round(n * 100) / 100
 
 const INCOME_BASE = 3200
 
-// Spend is recorded against LEAF categories only — exactly like the backend, where a
-// transaction never attaches to a parent. Logement is now a parent, so its 1100 is split
-// across its two children: Loyer (900) + Énergie (200) = 1100, leaving every aggregate
-// total identical to before. The client rolls these back up under Logement via `parentId`.
+// Seed housing under its children so the demo shows their rollup under Logement.
 const SPEND_BASE: { cat: Category; amount: number }[] = [
   { cat: LOYER, amount: 900 }, // Loyer (child of Logement)
   { cat: ENERGIE, amount: 200 }, // Énergie (child of Logement)
@@ -435,7 +417,7 @@ function leafTransactions(cat: Category, totalAbs: number, cycle: number, from: 
   })
 }
 
-const inboxTransactions = mockUncategorized.map((tx): Transaction => ({
+const inboxTransactions = inboxSeed.map((tx): Transaction => ({
   id: tx.id,
   date: tx.date,
   description: tx.description,
@@ -455,15 +437,41 @@ const inboxTransactions = mockUncategorized.map((tx): Transaction => ({
   fees: null,
 }))
 
+const checkingAccount = mockAccounts.find((account) => account.type === 'CHECKING')!
+
 /** Every transaction since January, newest first: one cycle per month, the current one up to today. */
-export const mockLedger: Transaction[] = Array.from({ length: NOW.getMonth() + 1 }, (_, cycle) => {
+export let mockLedger: Transaction[] = Array.from({ length: NOW.getMonth() + 1 }, (_, cycle) => {
   const from = isoDate(new Date(NOW.getFullYear(), NOW.getMonth() - cycle, 1))
   const to = cycle === 0 ? NOW : new Date(NOW.getFullYear(), NOW.getMonth() - cycle + 1, 0)
   return [
     ...leafTransactions(mockCategories[0], INCOME_BASE, cycle, from, to),
     ...SPEND_BASE.flatMap((s) => leafTransactions(s.cat, s.amount, cycle, from, to)),
   ]
-}).flat().concat(inboxTransactions).sort((a, b) => b.date.localeCompare(a.date))
+}).flat().concat(inboxTransactions).map((tx) => ({
+  ...tx, accountId: checkingAccount.id, accountName: checkingAccount.name,
+})).sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+
+export function mockUncategorized(): UncategorizedTransaction[] {
+  return mockLedger.filter((tx) => tx.categoryId == null).map((tx) => {
+    const seed = inboxSeed.find((row) => row.id === tx.id)
+    return {
+      ...tx,
+      createdAt: tx.date,
+      txType: tx.txType ?? null,
+      categoryId: null,
+      categoryName: null,
+      counterparty: tx.description,
+      merchantLabel: tx.merchantLabel ?? null,
+      merchantBrandId: tx.merchantBrandId ?? null,
+      aiSuggestedCategoryId: seed?.aiSuggestedCategoryId ?? null,
+      aiConfidence: seed?.aiConfidence ?? null,
+    }
+  })
+}
+
+function isTransfer(tx: Transaction): boolean {
+  return mockCategories.find((category) => category.id === tx.categoryId)?.kind === 'TRANSFER'
+}
 
 function ledgerIn(period: CashflowPeriod): Transaction[] {
   const { from, to } = periodRange(period)
@@ -472,7 +480,7 @@ function ledgerIn(period: CashflowPeriod): Transaction[] {
 
 export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
   const { from, to } = periodRange(period)
-  const income = r2(ledgerIn(period).reduce((acc, tx) => (tx.amount > 0 ? acc + tx.amount : acc), 0))
+  const income = r2(ledgerIn(period).filter((tx) => !isTransfer(tx)).reduce((acc, tx) => (tx.amount > 0 ? acc + tx.amount : acc), 0))
 
   const expenseItems = mockSpendingByCategory(period).categories.map((c) => ({
     key: c.categoryId == null ? '__expense_uncat__' : `cat:${c.categoryId}`,
@@ -533,41 +541,30 @@ export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
 
 export function mockSpendingByCategory(period: CashflowPeriod): SpendingByCategoryResponse {
   const { from, to } = periodRange(period)
-  const expenses = ledgerIn(period).filter((tx) => tx.amount < 0)
-  const spent = (categoryId: number | null) => {
-    const txns = expenses.filter((tx) => (tx.categoryId ?? null) === categoryId)
-    return { amount: r2(txns.reduce((acc, tx) => acc - tx.amount, 0)), count: txns.length }
+  const expenses = ledgerIn(period).filter((tx) => tx.amount < 0 && !isTransfer(tx))
+  const grouped = new Map<number | null, Transaction[]>()
+  for (const tx of expenses) {
+    const categoryId = tx.categoryId ?? null
+    const rows = grouped.get(categoryId) ?? []
+    rows.push(tx)
+    grouped.set(categoryId, rows)
   }
-
-  const rows = [
-    ...SPEND_BASE.map((s) => {
-      // Leaf rows carry their parent's identity so the client can fold them under a group
-      // header — the aggregation itself stays strictly leaf-scoped (no double-counting).
-      const parent = s.cat.parentId != null ? mockCategories.find((c) => c.id === s.cat.parentId) : null
-      return {
-        categoryId: s.cat.id as number | null,
-        slug: null,
-        name: s.cat.name as string | null,
-        color: s.cat.color,
-        icon: null,
-        ...spent(s.cat.id),
-        parentId: parent?.id ?? null,
-        parentName: parent?.name ?? null,
-        parentColor: parent?.color ?? null,
-      }
-    }),
-    {
-      categoryId: null,
+  const rows = [...grouped].map(([categoryId, transactions]) => {
+    const cat = mockCategories.find((category) => category.id === categoryId)
+    const parent = mockCategories.find((category) => category.id === cat?.parentId)
+    return {
+      categoryId,
       slug: null,
-      name: null,
-      color: null,
-      icon: null,
-      ...spent(null),
-      parentId: null,
-      parentName: null,
-      parentColor: null,
-    },
-  ]
+      name: cat?.name ?? null,
+      color: cat?.color ?? null,
+      icon: cat?.icon ?? null,
+      amount: r2(transactions.reduce((sum, tx) => sum - tx.amount, 0)),
+      count: transactions.length,
+      parentId: parent?.id ?? null,
+      parentName: parent?.name ?? null,
+      parentColor: parent?.color ?? null,
+    }
+  })
   const totalExpense = r2(rows.reduce((acc, r) => acc + r.amount, 0))
   const categories: CategorySpend[] = rows
     .map((r) => ({ ...r, share: totalExpense > 0 ? Math.round((r.amount / totalExpense) * 1e4) / 1e4 : 0 }))
@@ -582,9 +579,7 @@ export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): 
   const ledger = ledgerIn(period)
   const filedUnder = (leafId: number) => ledger.filter((tx) => tx.categoryId === leafId)
 
-  // A parent drill rolls up its (non-archived) children: the transaction list is the union of the
-  // children's leaves, and `children` carries each child's signed subtotal + count. A leaf returns
-  // its own transactions with an empty `children` — mirroring CashflowFlowService.categoryDetail.
+  // Parent totals include direct assignments as well as the children's rows.
   const childCats = mockCategories.filter((c) => c.parentId === categoryId && !c.archived)
 
   let transactions: Transaction[]
@@ -601,9 +596,8 @@ export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): 
         count: txns.length,
       }
     })
-    transactions = childCats
-      .flatMap((child) => filedUnder(child.id))
-      .sort((a, b) => b.date.localeCompare(a.date)) // newest first across the whole subtree
+    transactions = [...filedUnder(categoryId), ...childCats.flatMap((child) => filedUnder(child.id))]
+      .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
   } else {
     transactions = cat ? filedUnder(cat.id) : []
     children = []
@@ -627,10 +621,21 @@ export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): 
   }
 }
 
-const recategorized = new Map<number, number>()
+export function recategorizeMockTransaction(id: number, categoryId: unknown): void {
+  const category = mockCategories.find((cat) => cat.id === categoryId)
+  if (!category || !mockLedger.some((tx) => tx.id === id)) return
+  mockLedger = mockLedger.map((tx) => tx.id === id
+    ? { ...tx, categoryId: category.id, category: category.name }
+    : tx)
+}
 
-export function recategorizeMockTransaction(id: number, categoryId: number): void {
-  recategorized.set(id, categoryId)
+export function mockBudgetSummaries(): Budget[] {
+  return mockBudgets.map((budget) => {
+    const cat = mockCategories.find((category) => category.id === budget.categoryId)!
+    const expenses = mockCategoryDetail(cat.id, 'CYCLE').transactions.filter((tx) => tx.amount < 0 && !isTransfer(tx))
+    const spent = r2(expenses.reduce((sum, tx) => sum - tx.amount, 0))
+    return envelope(budget.id, cat, budget.monthlyLimit, spent, budget.rollup)
+  })
 }
 
 // Search the shared ledger so the cycle, YTD, salary and review inbox keep their rows.
@@ -640,18 +645,7 @@ export function mockTransactionSearch(params: {
   accountId?: number | string
   categoryId?: number | string
 }): Transaction[] {
-  const checking = mockAccounts.find((a) => a.type === 'CHECKING')!
   return mockLedger
-    .map((tx) => {
-      const categoryId = recategorized.get(tx.id) ?? tx.categoryId
-      return {
-        ...tx,
-        categoryId,
-        category: mockCategories.find((c) => c.id === categoryId)?.name ?? tx.category,
-        accountId: checking.id,
-        accountName: checking.name,
-      }
-    })
     .filter((tx) =>
       (!params.from || tx.date >= params.from) &&
       (!params.to || tx.date <= params.to) &&
