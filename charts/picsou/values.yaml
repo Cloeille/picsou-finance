@@ -8,6 +8,10 @@ nameOverride: ""
 fullnameOverride: ""
 
 global:
+  # Where the Picsou images live: the app image is this repository, a sidecar's is
+  # <this>/<sidecar>. CI sets it to the repository that publishes the chart, so a
+  # published chart always points at the registry its images were pushed to.
+  imageRepository: ghcr.io/cloeille/picsou-finance
   # Tag applied to every Picsou image (app and sidecars) unless an image sets its
   # own. Empty means the chart's appVersion: a published chart pins the images it
   # was built with (a release, or one commit of main).
@@ -44,7 +48,8 @@ secrets:
 # ── Application (frontend + backend in one image) ──────────────────────────
 app:
   image:
-    repository: ghcr.io/cloeille/picsou-finance
+    # Empty means global.imageRepository.
+    repository: ""
     tag: ""
     pullPolicy: ""
 
@@ -290,7 +295,8 @@ sidecars:
     urlEnv: CIC_AUTH_URL
     port: 8001
 
-# Any sidecar entry also accepts: image.repository, image.tag, image.pullPolicy,
+# Any sidecar entry also accepts: image.repository (default
+# <global.imageRepository>/<sidecar>), image.tag, image.pullPolicy,
 # resources, env (map), extraEnv, podAnnotations, nodeSelector, tolerations and
 # affinity, overriding sidecarDefaults.
 

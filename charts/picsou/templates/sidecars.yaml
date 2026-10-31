@@ -6,7 +6,7 @@
 {{- $resources := mergeOverwrite (deepCopy ($d.resources | default dict)) ($sc.resources | default dict) }}
 {{- $podSec := mergeOverwrite (deepCopy ($d.podSecurityContext | default dict)) ($sc.podSecurityContext | default dict) }}
 {{- $sec := mergeOverwrite (deepCopy ($d.securityContext | default dict)) ($sc.securityContext | default dict) }}
-{{- $image := merge (dict) ($sc.image | default dict) (dict "repository" (printf "ghcr.io/cloeille/picsou-finance/%s" $name)) }}
+{{- $image := merge (dict) ($sc.image | default dict) (dict "repository" (printf "%s/%s" $.Values.global.imageRepository $name)) }}
 ---
 apiVersion: apps/v1
 kind: Deployment

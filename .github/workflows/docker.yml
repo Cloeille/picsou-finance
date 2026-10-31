@@ -332,6 +332,16 @@ jobs:
         if: steps.version.outputs.publish == 'true'
         run: charts/picsou/sync-sidecars.sh --apply --github
 
+      # The images above were pushed to ghcr.io/<this repository>: point the chart
+      # there, so a chart published from a fork runs that fork's images.
+      - name: Point the chart at this repository's images
+        if: steps.version.outputs.publish == 'true'
+        shell: bash
+        run: |
+          repository="${REGISTRY}/${GITHUB_REPOSITORY,,}"
+          sed -i "s|^  imageRepository: .*|  imageRepository: ${repository}|" charts/picsou/values.yaml
+          [ "$(yq -r .global.imageRepository charts/picsou/values.yaml)" = "$repository" ]
+
       - name: Package
         if: steps.version.outputs.publish == 'true'
         env:

@@ -62,7 +62,8 @@ Image reference. Call with (dict "ctx" $ "image" .Values.app.image).
 */}}
 {{- define "picsou.image" -}}
 {{- $tag := .image.tag | default .ctx.Values.global.imageTag | default .ctx.Chart.AppVersion }}
-{{- printf "%s:%s" .image.repository (toString $tag) }}
+{{- $repository := .image.repository | default .ctx.Values.global.imageRepository }}
+{{- printf "%s:%s" $repository (toString $tag) }}
 {{- end }}
 
 {{- define "picsou.pullPolicy" -}}

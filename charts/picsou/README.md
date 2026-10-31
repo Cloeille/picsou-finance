@@ -219,6 +219,7 @@ See [`values.yaml`](values.yaml), every key is commented. The main ones:
 
 | Key | Default | Description |
 |---|---|---|
+| `global.imageRepository` | `ghcr.io/cloeille/picsou-finance` | App image; sidecars use `<this>/<sidecar>`. Set by CI to the publishing repository |
 | `global.imageTag` | `""` (appVersion) | Tag for every Picsou image |
 | `secrets.existingSecret` | `""` | Secret with the keys above; required with GitOps |
 | `app.env` | `SPRING_PROFILES_ACTIVE: prod` | Extra environment variables for the app |

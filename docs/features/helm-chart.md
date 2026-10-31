@@ -41,7 +41,9 @@ and publishes to `oci://ghcr.io/<owner>/charts/picsou`:
   commit.
 
 Before packaging, `sync-sidecars.sh --apply` adds to the packaged copy the standard sidecars that
-`values.yaml` does not list yet (nothing is committed back). The `helm-chart` job of `ci.yml`
+`values.yaml` does not list yet, and `global.imageRepository` is set to `ghcr.io/<repository>`, where
+this run pushed the images, so a chart published from a fork runs that fork's images (nothing is
+committed back). The `helm-chart` job of `ci.yml`
 lints and renders the chart and runs `sync-sidecars.sh --check` on pull requests that touch the
 chart, the Compose file or the workflows; differences are warnings, a broken chart fails.
 
