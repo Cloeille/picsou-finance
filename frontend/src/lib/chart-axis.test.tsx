@@ -37,8 +37,8 @@ describe('yAxisWidth', () => {
   it.each([
     ['PnL barely below zero', [-1, 10_000], pnlTick],
     ['an all-negative PnL', [-480, -120], pnlTick],
-    ['an account peaking at 9 600 €', [2_000, 9_600], thousandsTwoDecimals],
-    ['a net worth peaking at 999 €', [0, 999], (v: number) => v.toFixed(0)],
+    ['an account peaking at 9 600', [2_000, 9_600], thousandsTwoDecimals],
+    ['a net worth peaking at 999', [0, 999], (v: number) => v.toFixed(0)],
     ['a deep loss', [-180_000, 40_000], signedThousands],
   ])('fits every tick Recharts draws for %s', (_, values, format) => {
     const ticks = renderedTicks(values, format)
