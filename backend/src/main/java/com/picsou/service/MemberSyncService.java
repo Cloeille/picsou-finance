@@ -51,6 +51,7 @@ public class MemberSyncService {
     private final WalletSyncService walletSyncService;
     private final FinaryApiSyncService finaryApiSyncService;
     private final DegiroSyncService degiroSyncService;
+    private final ReceivedDividendClassifier dividendClassifier;
 
     public MemberSyncService(
             RevolutSyncService revolutSyncService,
@@ -66,7 +67,8 @@ public class MemberSyncService {
             CryptoExchangeSyncService cryptoExchangeSyncService,
             WalletSyncService walletSyncService,
             FinaryApiSyncService finaryApiSyncService,
-            DegiroSyncService degiroSyncService) {
+            DegiroSyncService degiroSyncService,
+            ReceivedDividendClassifier dividendClassifier) {
         this.revolutSyncService = revolutSyncService;
         this.syncService = syncService;
         this.trSyncService = trSyncService;
@@ -81,6 +83,7 @@ public class MemberSyncService {
         this.walletSyncService = walletSyncService;
         this.finaryApiSyncService = finaryApiSyncService;
         this.degiroSyncService = degiroSyncService;
+        this.dividendClassifier = dividendClassifier;
     }
 
     public List<SourceSyncResult> resyncScheduled(Long memberId) {
@@ -94,6 +97,7 @@ public class MemberSyncService {
             SourceSyncResult r = executeSource(source, memberId);
             results.add(r);
         }
+        dividendClassifier.afterImport(memberId);
         return results;
     }
 
@@ -103,6 +107,7 @@ public class MemberSyncService {
             SourceSyncResult r = executeSource(source, memberId);
             results.add(r);
         }
+        dividendClassifier.afterImport(memberId);
         return results;
     }
 
@@ -114,6 +119,7 @@ public class MemberSyncService {
                 results.add(r);
             }
         }
+        dividendClassifier.afterImport(memberId);
         return results;
     }
 

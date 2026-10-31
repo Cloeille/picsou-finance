@@ -7,6 +7,8 @@ import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
+import com.picsou.model.Category;
+import com.picsou.model.CategoryKind;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.repository.AccountRepository;
@@ -16,6 +18,7 @@ import com.picsou.service.budget.CategorizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -173,6 +176,63 @@ class ManualTransactionServiceTest {
         verify(transactionRepository, never()).sumAmountByAccountId(any());
         verify(accountRepository, never()).save(any());
         verify(finaryPersistenceHelper, never()).reconstructSnapshotsFromDb(any());
+    }
+
+    @Test
+    void addTransaction_explicitCategory_isMarkedManualSoAutomaticPassesKeepIt() {
+        Account account = syncedCheckingAccount();
+        Category chosen = Category.builder().id(55L).slug("autres-revenus").kind(CategoryKind.INCOME).build();
+        TransactionRequest req = new TransactionRequest(
+            LocalDate.of(2026, 10, 10), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"),
+            TransactionType.DEPOSIT, null, null, null, null, "EUR", 55L
+        );
+        when(accountRepository.findByIdAndMemberId(3L, 10L)).thenReturn(Optional.of(account));
+        when(categoryRepository.findByIdAndMemberId(55L, 10L)).thenReturn(Optional.of(chosen));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        manualTransactionService.addTransaction(3L, 10L, req);
+
+        ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(saved.capture());
+        assertThat(saved.getValue().getCategoryRef()).isSameAs(chosen);
+        assertThat(saved.getValue().isCategoryManual()).isTrue();
+    }
+
+    @Test
+    void addTransaction_noCategory_leavesTheAutomaticPipelineInCharge() {
+        Account account = syncedCheckingAccount();
+        TransactionRequest req = new TransactionRequest(
+            LocalDate.of(2026, 10, 10), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"),
+            TransactionType.DEPOSIT, null, null, null, null, "EUR"
+        );
+        when(accountRepository.findByIdAndMemberId(3L, 10L)).thenReturn(Optional.of(account));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        manualTransactionService.addTransaction(3L, 10L, req);
+
+        ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(saved.capture());
+        assertThat(saved.getValue().isCategoryManual()).isFalse();
+    }
+
+    @Test
+    void updateTransaction_explicitCategory_isMarkedManual() {
+        Account account = syncedCheckingAccount();
+        Transaction tx = syncedManualTransaction(account);
+        Category chosen = Category.builder().id(55L).slug("autres-revenus").kind(CategoryKind.INCOME).build();
+        TransactionRequest req = new TransactionRequest(
+            LocalDate.of(2026, 10, 10), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"),
+            TransactionType.DEPOSIT, null, null, null, null, "EUR", 55L
+        );
+        when(accountRepository.findByIdAndMemberId(3L, 10L)).thenReturn(Optional.of(account));
+        when(transactionRepository.findByIdAndAccountId(7L, 3L)).thenReturn(Optional.of(tx));
+        when(categoryRepository.findByIdAndMemberId(55L, 10L)).thenReturn(Optional.of(chosen));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        manualTransactionService.updateTransaction(3L, 7L, 10L, req);
+
+        assertThat(tx.getCategoryRef()).isSameAs(chosen);
+        assertThat(tx.isCategoryManual()).isTrue();
     }
 
     @Test
