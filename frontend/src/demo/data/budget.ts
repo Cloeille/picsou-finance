@@ -25,8 +25,11 @@ import type {
 // Demo data is generated relative to "today" so the Budget section always looks
 // alive. The payday cycle is the calendar month here (cycleStartDay = 1).
 
+// Local calendar date, not toISOString(): that is UTC and moves local midnight to the
+// previous day anywhere east of Greenwich.
 function iso(d: Date): string {
-  return d.toISOString().split('T')[0]
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 const NOW = new Date()

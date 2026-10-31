@@ -220,6 +220,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Demo budget dates are no longer one day early east of UTC.** In Paris the demo showed the
+  current cycle as 30/09 to 30/10 on 31 October, opened the budget pages on September, and
+  listed every upcoming recurring charge a day before its series' next date. The demo now
+  writes local calendar dates, so the cycle is 01/10 to 31/10 and both recurring cards agree
+  in every timezone (#280).
 - **American Express no longer stores a second copy of a charge AMEX re-describes.** A
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
   `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its
