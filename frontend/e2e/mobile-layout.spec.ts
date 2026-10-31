@@ -105,4 +105,11 @@ test.describe('Phone layout (360px)', () => {
     await open(page, '/budget/review')
     await expect(page.getByRole('link', { name: /À catégoriser/ })).toBeInViewport({ ratio: 1 })
   })
+
+  test('a deep link to the last sync tab shows that tab', async ({ page }) => {
+    await open(page, '/sync?tab=visibility')
+    const tab = page.getByRole('tab', { name: 'Comptes' })
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await expect(tab).toBeInViewport({ ratio: 1 })
+  })
 })

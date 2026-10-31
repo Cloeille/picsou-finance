@@ -4,11 +4,22 @@ import { cn } from '@/lib/utils'
 const ACTIVE_ITEM = '[aria-current="page"], [aria-selected="true"], [aria-pressed="true"]'
 const FADE = '1.5rem'
 
+/** Centers the active item, but only when it is outside the strip, so it never fights a visible one. */
+function centerActive(strip: HTMLElement) {
+  const active = strip.querySelector<HTMLElement>(ACTIVE_ITEM)
+  if (!active) return
+  const box = strip.getBoundingClientRect()
+  const item = active.getBoundingClientRect()
+  if (item.left < box.left || item.right > box.right) {
+    strip.scrollLeft += item.left - box.left - (box.width - item.width) / 2
+  }
+}
+
 /**
  * One-row horizontal scroller for a tab or filter strip that is wider than a phone screen.
  * The side that hides more items fades out, and the active item is scrolled into view on
- * mount and whenever `activeKey` changes, so a deep link to the last tab does not land
- * off-screen.
+ * mount, whenever `activeKey` changes and whenever the strip is resized, so a deep link to
+ * the last tab does not land off-screen and a rotation or late font does not push it out.
  */
 export function ScrollStrip({
   activeKey,
@@ -22,14 +33,7 @@ export function ScrollStrip({
   const ref = useRef<HTMLDivElement>(null)
 
   useLayoutEffect(() => {
-    const strip = ref.current
-    const active = strip?.querySelector<HTMLElement>(ACTIVE_ITEM)
-    if (!strip || !active) return
-    const box = strip.getBoundingClientRect()
-    const item = active.getBoundingClientRect()
-    if (item.left < box.left || item.right > box.right) {
-      strip.scrollLeft += item.left - box.left - (box.width - item.width) / 2
-    }
+    if (ref.current) centerActive(ref.current)
   }, [activeKey])
 
   useEffect(() => {
@@ -41,7 +45,10 @@ export function ScrollStrip({
       strip.style.setProperty('--fade-start', hiddenStart ? FADE : '0px')
       strip.style.setProperty('--fade-end', hiddenEnd ? FADE : '0px')
     }
-    const observer = new ResizeObserver(updateFade)
+    const observer = new ResizeObserver(() => {
+      centerActive(strip)
+      updateFade()
+    })
     observer.observe(strip)
     if (strip.firstElementChild) observer.observe(strip.firstElementChild)
     strip.addEventListener('scroll', updateFade, { passive: true })
