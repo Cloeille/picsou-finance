@@ -7,7 +7,7 @@ FROM ${SIDECAR_BASE}
 
 RUN groupadd -r cic && useradd -r -g cic cic
 
-COPY main.py forms.py accounts_parser.py ./
+COPY main.py accounts_parser.py ./
 
 RUN chown -R cic:cic /app
 USER cic
