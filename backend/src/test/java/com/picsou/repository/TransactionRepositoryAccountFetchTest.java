@@ -98,6 +98,8 @@ class TransactionRepositoryAccountFetchTest {
         // Asking for the hidden account by id still lists its rows (account detail views).
         assertThat(transactionRepository.searchByMember(1L, from, to, 4L, null))
             .extracting(Transaction::getDescription).containsExactly("hidden-transfer", "hidden-copy");
+        assertThat(transactionRepository.searchByMember(1L, from, to, 4L, 11L))
+            .extracting(Transaction::getDescription).containsExactly("hidden-copy");
     }
 
     private void persist(long accountId, long categoryId, LocalDate date, String description) {
