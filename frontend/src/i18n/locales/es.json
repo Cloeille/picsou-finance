@@ -59,8 +59,7 @@
     "hideAmounts": "Ocultar importes",
     "showAmounts": "Mostrar importes",
     "budget": "Budget",
-    "budget.desc": "Spending & cashflow",
-    "switchLanguage": "Switch language"
+    "budget.desc": "Spending & cashflow"
   },
   "auth": {
     "login": "Iniciar sesión",
@@ -831,6 +830,7 @@
         "invalidTan": "El código de verificación es incorrecto o ha caducado. Usa el último código recibido o reinicia el paso para recibir uno nuevo.",
         "authenticationFailed": "Fallo de autenticación con Trade Republic.",
         "serviceUnavailable": "El servicio local de Trade Republic no está disponible. Reinicia los servidores e inténtalo de nuevo.",
+        "temporarilyBlocked": "Trade Republic ha bloqueado la solicitud. Inténtalo de nuevo en un minuto.",
         "serverError": "Error del servidor de Trade Republic. Inténtalo de nuevo.",
         "phoneNumberRequired": "El número de teléfono es obligatorio.",
         "pinRequired": "El PIN es obligatorio.",
@@ -1076,7 +1076,11 @@
       "transactionsImported": "Transacciones importadas",
       "transactionsSkipped": "Transacciones omitidas",
       "done": "Hecho",
-      "errors": { "invalidPreview": "La respuesta de vista previa no es válida.", "previewFailed": "No se pudo previsualizar el archivo HomeBank.", "importFailed": "Falló la importación de HomeBank." }
+      "errors": {
+        "invalidPreview": "La respuesta de vista previa no es válida.",
+        "previewFailed": "No se pudo previsualizar el archivo HomeBank.",
+        "importFailed": "Falló la importación de HomeBank."
+      }
     },
     "all": {
       "title": "Sincronizar cuentas",
@@ -1257,6 +1261,42 @@
         "formatChanged": "El formato del sitio de Amundi ha cambiado. Se han conservado sus datos existentes.",
         "invalidData": "Amundi devolvió datos incoherentes. Se han conservado sus datos existentes.",
         "serverError": "No se puede contactar con Amundi. Inténtelo de nuevo."
+      }
+    },
+    "cmes": {
+      "title": "Crédit Mutuel / CIC Ahorro salarial",
+      "login": "Usuario",
+      "password": "Contraseña",
+      "otpCode": "Código recibido por SMS",
+      "otpPrompt": "Introduce el código de confirmación que recibiste por SMS.",
+      "appValidationPrompt": "Abre la app de tu banco y confirma el inicio de sesión (confirmación móvil).",
+      "appValidationHint": "Esta página se actualiza sola en cuanto confirmes. Después, Picsou vuelve a iniciar sesión por sí mismo mientras el sitio recuerde el dispositivo.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "validate": "Enviar código",
+      "validating": "Validando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Planes de ahorro sincronizados.",
+      "clearSession": "Desconectar",
+      "noSession": "Ninguna sesión activa",
+      "sessionActive": "Sesión activa",
+      "scope": "Sincroniza tus planes de ahorro salarial de Crédit Mutuel o CIC (PEE, PEG, PERCOL) y los fondos que contienen: participaciones, valor liquidativo y plusvalía.",
+      "errors": {
+        "tooManyAttempts": "Demasiados intentos. Espera antes de volver a intentarlo.",
+        "invalidCredentials": "Usuario o contraseña incorrectos.",
+        "actionRequired": "El sitio necesita que hagas algo primero (aceptar condiciones, completar tus datos de contacto). Inicia sesión una vez en el sitio web y vuelve a intentarlo.",
+        "mfaTypeUnsupported": "El sitio pidió un Digipass o Safetrans, que Picsou no puede gestionar. Elige la confirmación móvil o el SMS en tus ajustes de seguridad.",
+        "appValidationTimeout": "La confirmación móvil no se aprobó a tiempo. Vuelve a empezar.",
+        "appValidationCancelled": "La confirmación móvil se rechazó en la app.",
+        "authAttemptExpired": "El intento de autenticación ha caducado. Vuelve a empezar.",
+        "sessionExpired": "La sesión ha caducado y el sitio pide una nueva confirmación. Vuelve a conectarte.",
+        "portfolioIncomplete": "El sitio devolvió planes incompletos. Se conservaron tus datos existentes.",
+        "formatChanged": "El formato del sitio web ha cambiado. Se conservaron tus datos existentes.",
+        "invalidData": "El sitio devolvió datos incoherentes. Se conservaron tus datos existentes.",
+        "serverError": "No se pudo acceder al sitio de ahorro salarial. Inténtalo de nuevo.",
+        "invalidCode": "Código SMS incorrecto. Compruébalo y vuelve a escribirlo."
       }
     },
     "amex": {

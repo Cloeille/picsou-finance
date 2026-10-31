@@ -104,8 +104,55 @@ def generate_device_info() -> str:
     return base64.b64encode(json.dumps({"stableDeviceId": device_id}).encode()).decode()
 
 
+# A cold container often settles the page before the WAF challenge has set its
+# token, so a second browser attempt runs when the first gets none or fails.
+WAF_TOKEN_ATTEMPTS = 2
+WAF_PAGE_LOAD_TIMEOUT_MS = 15000
+WAF_CHALLENGE_WAIT_MS = 8000
+WAF_POLL_INTERVAL_MS = 500
+
+# The backend and nginx give up on /initiate and /complete after 60 s. Every
+# token attempt, browser startup included, shares one budget that leaves the TR
+# call its whole timeout, plus a margin, inside that wait.
+CALLER_TIMEOUT_S = 60
+TR_REQUEST_TIMEOUT_S = 15
+WAF_TOKEN_BUDGET_S = CALLER_TIMEOUT_S - TR_REQUEST_TIMEOUT_S - 5
+
+# Details sent to the backend when the login failed for a reason other than the
+# user's credentials: AWS WAF refused it, TR did not answer (timeout or transport
+# error), or the headless browser could not run.
+WAF_BLOCKED = "TR_WAF_BLOCKED"
+TR_UNREACHABLE = "TR_UNREACHABLE"
+BROWSER_FAILED = "TR_BROWSER_FAILED"
+
+
 async def get_waf_token() -> Optional[str]:
-    """Loads app.traderepublic.com in headless Chromium and retrieves the AWS WAF token."""
+    """Retrieves the AWS WAF token, with a fresh browser when an attempt gets none
+    or fails, and gives up once WAF_TOKEN_BUDGET_S has passed. A failure on the
+    last attempt is a browser_failed() error."""
+    try:
+        async with asyncio.timeout(WAF_TOKEN_BUDGET_S):
+            for attempt in range(1, WAF_TOKEN_ATTEMPTS + 1):
+                try:
+                    waf_token = await load_waf_token()
+                except Exception as error:
+                    if attempt == WAF_TOKEN_ATTEMPTS:
+                        log.error("AWS WAF token attempt %d/%d failed",
+                                  attempt, WAF_TOKEN_ATTEMPTS, exc_info=True)
+                        raise browser_failed() from error
+                    log.warning("AWS WAF token attempt %d/%d failed",
+                                attempt, WAF_TOKEN_ATTEMPTS, exc_info=True)
+                    continue
+                if waf_token:
+                    return waf_token
+                log.warning("No AWS WAF token on attempt %d/%d", attempt, WAF_TOKEN_ATTEMPTS)
+    except TimeoutError:
+        log.warning("No AWS WAF token within %d s", WAF_TOKEN_BUDGET_S)
+    return None
+
+
+async def load_waf_token() -> Optional[str]:
+    """Loads app.traderepublic.com in headless Chromium and waits for the AWS WAF token."""
     log.info("Launching headless browser to obtain AWS WAF token...")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
@@ -119,35 +166,56 @@ async def get_waf_token() -> Optional[str]:
         )
 
         try:
-            await page.goto(TR_APP, wait_until="networkidle", timeout=20000)
-        except Exception:
-            await page.wait_for_timeout(5000)
-
-        # Try JS API first
-        waf_token = None
-        try:
-            waf_token = await page.evaluate(
-                "window.AWSWafIntegration ? window.AWSWafIntegration.getToken() : null"
-            )
-            if waf_token:
-                log.info("Got WAF token via AWSWafIntegration.getToken()")
+            await page.goto(TR_APP, wait_until="networkidle", timeout=WAF_PAGE_LOAD_TIMEOUT_MS)
         except Exception:
             pass
 
-        # Fallback: cookies
-        if not waf_token:
-            cookies = await context.cookies()
-            for cookie in cookies:
-                if "aws-waf-token" in cookie.get("name", "").lower():
-                    waf_token = cookie["value"]
-                    log.info("Got WAF token from cookie")
-                    break
+        waf_token = await read_waf_token(page, context)
+        for _ in range(WAF_CHALLENGE_WAIT_MS // WAF_POLL_INTERVAL_MS):
+            if waf_token:
+                break
+            await page.wait_for_timeout(WAF_POLL_INTERVAL_MS)
+            waf_token = await read_waf_token(page, context)
 
         await browser.close()
-
-        if not waf_token:
-            log.warning("Could not obtain AWS WAF token — request may fail with 403")
         return waf_token
+
+
+async def read_waf_token(page, context) -> Optional[str]:
+    # Try JS API first
+    try:
+        waf_token = await page.evaluate(
+            "window.AWSWafIntegration ? window.AWSWafIntegration.getToken() : null"
+        )
+        if waf_token:
+            log.info("Got WAF token via AWSWafIntegration.getToken()")
+            return waf_token
+    except Exception:
+        pass
+
+    # Fallback: cookies
+    for cookie in await context.cookies():
+        if "aws-waf-token" in cookie.get("name", "").lower():
+            log.info("Got WAF token from cookie")
+            return cookie["value"]
+    return None
+
+
+def is_waf_rejection(resp: httpx.Response) -> bool:
+    # TR's own errors carry a JSON body; AWS WAF answers with an empty one.
+    return resp.status_code in (403, 405) and not resp.text.strip()
+
+
+def waf_blocked() -> HTTPException:
+    return HTTPException(status_code=503, detail=WAF_BLOCKED)
+
+
+def tr_unreachable() -> HTTPException:
+    return HTTPException(status_code=504, detail=TR_UNREACHABLE)
+
+
+def browser_failed() -> HTTPException:
+    return HTTPException(status_code=503, detail=BROWSER_FAILED)
 
 
 def tr_headers(waf_token: Optional[str]) -> dict:
@@ -227,21 +295,32 @@ def login_complete_url(process_id: str, tan: str) -> str:
 @app.post("/initiate")
 async def initiate(req: InitiateRequest):
     waf_token = await get_waf_token()
+    if not waf_token:
+        raise waf_blocked()
     phone = normalise_phone(req.phoneNumber)
     log.info("Initiating TR auth for %s", safe(mask_phone(phone)))
 
-    async with httpx.AsyncClient(timeout=15) as client:
-        try:
-            resp = await client.post(
-                f"{TR_API}/api/v1/auth/web/login",
-                json={"phoneNumber": phone, "pin": req.pin},
-                headers=tr_headers(waf_token),
-            )
-            log.info("TR /login → %d", resp.status_code)
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            raise HTTPException(status_code=e.response.status_code,
-                                detail=f"TR rejected request: {e.response.text[:200]}")
+    # asyncio.timeout raises the builtin TimeoutError; httpx's own timeouts and
+    # connection failures are TransportErrors. Neither is a credentials error.
+    try:
+        async with asyncio.timeout(TR_REQUEST_TIMEOUT_S), \
+                httpx.AsyncClient(timeout=TR_REQUEST_TIMEOUT_S) as client:
+            try:
+                resp = await client.post(
+                    f"{TR_API}/api/v1/auth/web/login",
+                    json={"phoneNumber": phone, "pin": req.pin},
+                    headers=tr_headers(waf_token),
+                )
+                log.info("TR /login → %d", resp.status_code)
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                if is_waf_rejection(e.response):
+                    raise waf_blocked()
+                raise HTTPException(status_code=e.response.status_code,
+                                    detail=f"TR rejected request: {e.response.text[:200]}")
+    except (TimeoutError, httpx.TransportError):
+        log.warning("TR /login did not answer", exc_info=True)
+        raise tr_unreachable()
 
     data = resp.json()
     process_id = data.get("processId")
@@ -254,23 +333,33 @@ async def initiate(req: InitiateRequest):
 
 @app.post("/complete")
 async def complete(req: CompleteRequest):
+    pending_sessions.pop(req.processId, None)  # clean up, whatever happens next
+
     # Always fetch a fresh WAF token — the one from /initiate may have expired
     # by the time the user reads and types the 2FA code.
     waf_token = await get_waf_token()
-    pending_sessions.pop(req.processId, None)  # clean up
+    if not waf_token:
+        raise waf_blocked()
 
-    async with httpx.AsyncClient(timeout=15) as client:
-        try:
-            resp = await client.post(
-                login_complete_url(req.processId, req.tan),
-                headers=tr_headers(waf_token),
-            )
-            log.info("TR /login/complete → %d  set-cookie names: %s",
-                     resp.status_code, cookie_names(resp.headers))
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            raise HTTPException(status_code=e.response.status_code,
-                                detail=f"TR rejected 2FA: {e.response.text[:200]}")
+    try:
+        async with asyncio.timeout(TR_REQUEST_TIMEOUT_S), \
+                httpx.AsyncClient(timeout=TR_REQUEST_TIMEOUT_S) as client:
+            try:
+                resp = await client.post(
+                    login_complete_url(req.processId, req.tan),
+                    headers=tr_headers(waf_token),
+                )
+                log.info("TR /login/complete → %d  set-cookie names: %s",
+                         resp.status_code, cookie_names(resp.headers))
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                if is_waf_rejection(e.response):
+                    raise waf_blocked()
+                raise HTTPException(status_code=e.response.status_code,
+                                    detail=f"TR rejected 2FA: {e.response.text[:200]}")
+    except (TimeoutError, httpx.TransportError):
+        log.warning("TR /login/complete did not answer", exc_info=True)
+        raise tr_unreachable()
 
     # Session token is in Set-Cookie: tr_session=<value>
     # Use resp.cookies (httpx parses all Set-Cookie headers correctly).

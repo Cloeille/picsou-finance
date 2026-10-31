@@ -101,7 +101,7 @@ public class LoanAmortizationService {
             BigDecimal totalPayment = capitalPart.add(interestPart).add(insurance);
             BigDecimal newRemaining = remaining.subtract(capitalPart).max(BigDecimal.ZERO);
             LocalDate installmentDate = startDate != null
-                ? startDate.plusMonths(i)
+                ? installmentDate(startDate, endDate, i)
                 : asOf.plusMonths(i - paidInstallments);
             schedule.add(new LoanInstallment(
                 i,
@@ -220,6 +220,21 @@ public class LoanAmortizationService {
         if (startDate == null || endDate == null || !endDate.isAfter(startDate)) return 0;
         long months = ChronoUnit.MONTHS.between(YearMonth.from(startDate), YearMonth.from(endDate));
         return (int) Math.max(months, 0);
+    }
+
+    /**
+     * Installment i falls i months after startDate, on the due day clamped to its own month.
+     * A startDate on the last day of its month may be a clamp itself (a loan due on the 31st
+     * anchored on 28 February): when endDate falls on a later day, that day is the due day.
+     * Chaining plusMonths from the clamped day would date every installment on the 28th.
+     */
+    private static LocalDate installmentDate(LocalDate startDate, LocalDate endDate, int i) {
+        int dueDay = startDate.getDayOfMonth() == startDate.lengthOfMonth()
+            && endDate.getDayOfMonth() > startDate.getDayOfMonth()
+            ? endDate.getDayOfMonth()
+            : startDate.getDayOfMonth();
+        YearMonth month = YearMonth.from(startDate).plusMonths(i);
+        return month.atDay(Math.min(dueDay, month.lengthOfMonth()));
     }
 
     private static int computePaidInstallments(LocalDate startDate, LocalDate asOf, int totalInstallments) {

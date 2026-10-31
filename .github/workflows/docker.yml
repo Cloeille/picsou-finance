@@ -194,6 +194,12 @@ jobs:
             dockerfile: services/degiro-auth/Dockerfile
             base: python
             versioned: false
+          - name: cmes-auth
+            image: ${{ github.repository }}/cmes-auth
+            context: services/cmes-auth
+            dockerfile: services/cmes-auth/Dockerfile
+            base: python
+            versioned: false
 
     steps:
       - name: Checkout
