@@ -91,10 +91,10 @@ cheap while a unique `key_prefix` gives O(1) lookup before a constant-time compa
 
 ## Trade-offs accepted
 
-- **HTTP+SSE, not Streamable HTTP.** The pinned **Spring AI 1.0.3 / MCP SDK 0.10.0** (kept on 1.0.x
-  because 1.1.x targets Boot 3.5 / Spring 6.3 and conflicts with our `tomcat`/`netty`/`security`
-  pins) ships only the HTTP+SSE transport. Clients connect via the `mcp-remote` bridge. Revisit when
-  the platform can move to a Spring AI line that offers Streamable HTTP.
+- **HTTP+SSE, not Streamable HTTP.** The original pin, **Spring AI 1.0.3 / MCP SDK 0.10.0**, shipped
+  only the HTTP+SSE transport. Clients connect via the `mcp-remote` bridge. Since the bump to Spring AI
+  1.1.8 / Boot 3.5.16 ([2026-10-27 ADR](./2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md)),
+  Streamable HTTP is available but not switched on: deployed clients stay on SSE.
 - **`tools/list` advertises all tool names regardless of scope** (names + schemas only, never data).
   A missing-scope call fails clearly at invocation. Scope-filtered advertisement is a later option.
 - **In-memory rate-limit buckets** (per key, per member) — correct for a single-instance self-host,
