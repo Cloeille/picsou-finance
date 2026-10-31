@@ -218,6 +218,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Accounts you created yourself, and accounts created for another Actual budget, only ever
   gain new transactions. Loan accounts can't receive an Actual import.
 
+### Changed
+
+- **Pull requests go green sooner.** CI runs only the jobs a pull request's changed paths can
+  affect, a new push cancels the stale run, and the demo Playwright suite runs once instead of
+  twice. Pushes to `main` and tags still run every job, and a new `ci-ok` check fails when a
+  selected job did not pass. The app image builds its frontend and backend once, natively,
+  instead of once per platform, and a version bump no longer reinstalls the dependencies.
+  Building `docker/Dockerfile` yourself now needs BuildKit (`docker buildx`).
+
 ### Fixed
 
 - **First Trade Republic login after a fresh start.** On a cold `tr-auth` container the first

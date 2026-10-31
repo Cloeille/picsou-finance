@@ -10,9 +10,10 @@ on:
 permissions:
   contents: read
 
+# Same shape as ci.yml: only a pull request's stale run is cancelled.
 concurrency:
-  group: codeql-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:

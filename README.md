@@ -481,6 +481,8 @@ push to `main` or a version tag:
 - Playwright e2e in demo mode
 - Bourse Direct sidecar unit tests
 
+A pull request runs only the jobs its changed paths can affect, and a new push
+cancels its stale run; the `ci-ok` job is green only when every selected job passed.
 Docker images are published to GHCR **only after that suite is green**, and only
 on a push to `main` or a version tag — not on pull requests.
 
