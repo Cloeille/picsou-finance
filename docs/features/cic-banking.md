@@ -29,11 +29,16 @@ balance.
   normalized category and the product title when available. Balance detection uses amount and
   balance class tokens on actual elements or plain-text money with a trailing currency code or a
   `€`, `$`, or `£` symbol on either side of the amount. A symbol before the amount requires cents.
+  Alphabetic currency tokens must belong to the local ISO 4217 code set, taken from
+  [SIX List One](https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml)
+  published on 2026-09-17. Ordinary text such as `© 2026 CIC` does not count as money. Scanning
+  continues after nonmonetary text, so a later visible balance still fails the page.
   Script and style bodies are removed before table discovery and marker detection. JavaScript
   replacement strings such as `"$1"`, `"$1$2"`, and `"$1 $2"`, CSS selectors, and markup inside these
-  bodies cannot be mistaken for accounts or balances. Balance marker names in text, unrelated
-  attributes, or comments do not count as element classes. This detection still rejects visible
-  balances and account markers outside recognized contract tables rather than silently dropping them.
+  bodies cannot be mistaken for accounts or balances. Account titles, account numbers, and balances
+  are detected outside contract tables through parsed element class tokens. Marker names in text,
+  unrelated attributes, partial class names, or comments do not count as element classes.
+  Visible balances and actual account markers outside recognized contract tables still fail the page.
   Supported categories still require each account row's title, number, and readable euro balance,
   including when only a title remains. Header and action rows without account or balance markers
   are skipped. External id `cic_<account number digits>`.

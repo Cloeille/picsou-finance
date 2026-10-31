@@ -53,9 +53,21 @@ _SCRIPT_STYLE_RE = re.compile(
 )
 _TAG_RE = re.compile(r"<[^>]+>")
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s.]*(?:,\d+)?)\s*(?P<currency>[A-Z]{3}|€)$")
+# ISO 4217 List One (SIX, 2026-09-17). Words such as "CIC" are not currencies.
+_CURRENCY_CODES = frozenset((
+    "AED AFN ALL AMD AOA ARS AUD AWG AZN BAM BBD BDT BHD BIF BMD BND BOB BOV BRL BSD "
+    "BTN BWP BYN BZD CAD CDF CHE CHF CHW CLF CLP CNY COP COU CRC CUP CVE CZK DJF DKK "
+    "DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL HTG HUF "
+    "IDR ILS INR IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP "
+    "LKR LRD LSL LYD MAD MDL MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN MXV MYR MZN NAD "
+    "NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD "
+    "SCR SDG SEK SGD SHP SLE SOS SRD SSP STN SVC SYP SZL THB TJS TMT TND TOP TRY TTD "
+    "TWD TZS UAH UGX USD USN UYI UYU UYW UZS VED VES VND VUV WST XAD XAF XAG XAU XBA "
+    "XBB XBC XBD XCD XCG XDR XOF XPD XPF XPT XSU XTS XUA XXX YER ZAR ZMW ZWG"
+).split())
 # Symbol-first amounts need cents to distinguish balances from references like "$1".
 _BALANCE_RE = re.compile(
-    r"\d[\d\s.,]*\s*(?:[A-Z]{3}\b|[€$£])|[€$£]\s*[+-]?\s*\d[\d\s.,]*[.,]\d{2}\b"
+    r"\d[\d\s.,]*\s*(?:(?P<currency>[A-Z]{3})\b|[€$£])|[€$£]\s*[+-]?\s*\d[\d\s.,]*[.,]\d{2}\b"
 )
 
 # Ordered: the first match wins, so the specific products come before the
@@ -76,14 +88,15 @@ class AccountsFormatError(Exception):
         self.code = code
 
 
-class _BalanceMarkerParser(HTMLParser):
-    def __init__(self):
+class _ClassMarkerParser(HTMLParser):
+    def __init__(self, markers: set[str]):
         super().__init__()
+        self.markers = markers
         self.found = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         classes = next((value for name, value in attrs if name == "class"), None)
-        self.found |= bool(classes and {"ei_sdsf_montant", "ei_sdsf_solde"}.intersection(classes.split()))
+        self.found |= bool(classes and self.markers.intersection(classes.split()))
 
 
 def _text(fragment: str) -> str:
@@ -123,14 +136,21 @@ def _category(table: str) -> str:
     return match.group("name").strip().lower().replace("’", "'") if match else ""
 
 
-def _has_balance(fragment: str) -> bool:
-    marker = _BalanceMarkerParser()
+def _has_class_marker(fragment: str, markers: set[str]) -> bool:
+    marker = _ClassMarkerParser(markers)
     marker.feed(fragment)
-    return marker.found or bool(_BALANCE_RE.search(_text(fragment)))
+    return marker.found
+
+
+def _has_balance(fragment: str) -> bool:
+    return _has_class_marker(fragment, {"ei_sdsf_montant", "ei_sdsf_solde"}) or any(
+        match.group("currency") is None or match.group("currency") in _CURRENCY_CODES
+        for match in _BALANCE_RE.finditer(_text(fragment))
+    )
 
 
 def _has_account_data(fragment: str) -> bool:
-    return bool(_TITLE_RE.search(fragment) or _NUMBER_RE.search(fragment) or _has_balance(fragment))
+    return _has_class_marker(fragment, {"ei_sdsf_title", "doux"}) or _has_balance(fragment)
 
 
 def parse_accounts(page: str) -> tuple[list[dict], list[str]]:

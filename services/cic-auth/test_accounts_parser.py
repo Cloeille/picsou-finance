@@ -53,6 +53,30 @@ class PageTest(unittest.TestCase):
         )
         self.assertEqual(skipped, ["autres contrats liés"])
 
+    def test_nonmonetary_footer_text_keeps_all_accounts(self):
+        for text in ("© 2026 CIC", "3 ANS", "2 SMS", "2026 EUROPE"):
+            page = ACCOUNTS_PAGE.replace("</body>", f"<footer>{text}</footer></body>")
+
+            with self.subTest(text=text):
+                self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
+
+    def test_plain_text_currency_balances_still_fail_in_every_location(self):
+        for currency in ("EUR", "USD", "GBP", "CHF", "JPY", "AED", "XCG", "ZWG"):
+            amount = f"12,34 {currency}"
+            row = f"<tr><td>{amount}</td></tr>"
+            for fragment in (
+                f"<footer>© 2026 CIC | {amount}</footer>",
+                f'<table class="ei_comptescontrats">{row}</table>',
+                accounts_table("Livrets et comptes d&#39;épargne", row),
+            ):
+                page = ACCOUNTS_PAGE.replace("</body>", f"{fragment}</body>")
+
+                with self.subTest(currency=currency, fragment=fragment):
+                    with self.assertRaises(AccountsFormatError) as error:
+                        parse_accounts(page)
+
+                    self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
     def test_an_account_row_without_balance_fails_the_page(self):
         row = account_row(0, "LIVRET A", "10000 000123456 02", "+1,00 EUR").replace("ei_sdsf_montant", "other")
 
@@ -183,6 +207,38 @@ class PageTest(unittest.TestCase):
             ):
                 with self.subTest(fragment=fragment):
                     self.assertEqual(parse_accounts(ACCOUNTS_PAGE + fragment), parse_accounts(ACCOUNTS_PAGE))
+
+    def test_commented_title_and_number_markers_keep_all_accounts(self):
+        for marker, text in (("ei_sdsf_title", "LIVRET A"), ("doux", "10000 000999999 01")):
+            comment = f'<!-- <span class="{marker}">{text}</span> -->'
+            page = ACCOUNTS_PAGE.replace("</body>", f"{comment}</body>")
+
+            with self.subTest(marker=marker):
+                self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
+
+    def test_title_and_number_marker_references_are_not_element_classes(self):
+        for marker in ("ei_sdsf_title", "doux"):
+            for fragment in (
+                f'<span class="prefix-{marker}-suffix">Aide</span>',
+                f'<div title=\'class="{marker}">Aide</span>\'>Aide</div>',
+            ):
+                page = ACCOUNTS_PAGE.replace("</body>", f"{fragment}</body>")
+
+                with self.subTest(marker=marker, fragment=fragment):
+                    self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
+
+    def test_actual_title_and_number_class_tokens_outside_tables_fail_the_page(self):
+        for marker in ("ei_sdsf_title", "doux"):
+            for tag in ("span", "div"):
+                for classes in (f'"nowrap {marker}"', f"'nowrap {marker}'", marker):
+                    fragment = f"<{tag} class={classes}>N/A</{tag}>"
+                    page = ACCOUNTS_PAGE.replace("</body>", f"{fragment}</body>")
+
+                    with self.subTest(marker=marker, tag=tag, classes=classes):
+                        with self.assertRaises(AccountsFormatError) as error:
+                            parse_accounts(page)
+
+                        self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
     def test_plain_text_money_between_scripts_still_fails_the_page(self):
         table = (

@@ -69,7 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and pound symbols, and account data outside recognized tables cannot be silently dropped.
   Symbol-first amounts require cents. Script and style bodies are excluded before table and
   marker detection, so JavaScript replacement strings, class references, and CSS selectors do not
-  block imports. Balance markers must be class tokens on actual elements.
+  block imports. Alphabetic currency tokens are checked against ISO 4217 codes, so footer text
+  such as `© 2026 CIC` does not block imports. Account and balance markers must be class tokens
+  on actual elements; commented markup, attribute text, and partial class names are ignored.
   Savings captions accept typographic apostrophes. A wrong SMS code can be corrected
   without another login, and expired attempts have their pending passwords cleared every minute.
   Rejected credentials make the session inactive and require credential entry, including after an
