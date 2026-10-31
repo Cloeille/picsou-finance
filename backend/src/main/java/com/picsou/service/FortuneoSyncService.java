@@ -67,6 +67,7 @@ public class FortuneoSyncService {
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
+    private final ReceivedDividendClassifier dividendClassifier;
 
     public FortuneoSyncService(
         FortuneoPort port,
@@ -82,7 +83,8 @@ public class FortuneoSyncService {
         OpenFigiIsinConverter isinConverter,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
-        @Qualifier("fortuneoSyncExecutor") Executor syncExecutor
+        @Qualifier("fortuneoSyncExecutor") Executor syncExecutor,
+        ReceivedDividendClassifier dividendClassifier
     ) {
         this.port = port;
         this.sessionRepository = sessionRepository;
@@ -98,6 +100,7 @@ public class FortuneoSyncService {
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
+        this.dividendClassifier = dividendClassifier;
     }
 
     public AuthInitResponse initiateAuth(String login, String password, Long memberId) {
@@ -210,6 +213,8 @@ public class FortuneoSyncService {
             backfillPrices(prepared);
             if (commitPortfolio(job, prepared)) {
                 log.info("Fortuneo sync completed (member={})", job.memberId());
+                // New rows arrive untyped, so each job classifies again.
+                dividendClassifier.afterImport(job.memberId());
             } else {
                 log.info("Discarded stale Fortuneo sync result (member={})", job.memberId());
             }
@@ -741,6 +746,8 @@ public class FortuneoSyncService {
                 obsolete.add(row);
             }
         }
+        // An obsolete row is often the same payment re-sent with an id it lacked before.
+        DividendReceiptService.Recognitions recognised = DividendReceiptService.Recognitions.of(obsolete);
 
         List<Transaction> upserts = new ArrayList<>(reported.size());
         for (Map.Entry<String, FortuneoPort.Transaction> entry : reported.entrySet()) {
@@ -764,7 +771,9 @@ public class FortuneoSyncService {
                     .fees(tx.fees())
                     .nativeCurrency("EUR")
                     .build();
+                recognised.restoreOn(row);
             } else {
+                DividendReceiptService.Recognition recognition = DividendReceiptService.Recognition.of(row);
                 row.setDate(tx.date());
                 row.setDescription(description);
                 row.setAmount(tx.amount());
@@ -776,6 +785,9 @@ public class FortuneoSyncService {
                 row.setQuantity(tx.quantity());
                 row.setPricePerUnit(tx.unitPrice());
                 row.setFees(tx.fees());
+                if (recognition != null) {
+                    recognition.restoreOn(row);
+                }
             }
             upserts.add(row);
         }
@@ -804,9 +816,16 @@ public class FortuneoSyncService {
         // window, and inserting it all while deleting only inside the window appends a
         // fresh copy of every older row on each sync, as reproduced by the
         // regression test below.
-        List<Transaction> toInsert = transactions.stream()
-            .filter(tx -> !tx.date().isBefore(cutoff))
-            .map(tx -> Transaction.builder()
+        DividendReceiptService.Recognitions recognised = DividendReceiptService.Recognitions.of(
+            transactionRepository.findByAccountIdAndIsManualFalse(account.getId()).stream()
+                .filter(stored -> stored.getDate() != null && !stored.getDate().isBefore(cutoff))
+                .toList());
+        List<Transaction> toInsert = new ArrayList<>();
+        for (FortuneoPort.Transaction tx : transactions) {
+            if (tx.date().isBefore(cutoff)) {
+                continue;
+            }
+            Transaction row = Transaction.builder()
                 .account(account)
                 .date(tx.date())
                 .description(limit(tx.label(), 255, "Fortuneo transaction"))
@@ -820,8 +839,10 @@ public class FortuneoSyncService {
                 .pricePerUnit(tx.unitPrice())
                 .fees(tx.fees())
                 .nativeCurrency("EUR")
-                .build())
-            .toList();
+                .build();
+            recognised.restoreOn(row);
+            toInsert.add(row);
+        }
         transactionWriter.replaceRecentTransactions(account.getId(), cutoff, toInsert);
     }
 

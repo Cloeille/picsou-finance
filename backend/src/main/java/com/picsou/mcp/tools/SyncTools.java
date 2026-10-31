@@ -23,9 +23,9 @@ import java.util.Set;
  * Every trigger goes through {@link MemberSyncService}, the same owner as the 08:00 scheduler.
  * They never open a new connection or re-authenticate.
  *
- * <p>The bean name is set explicitly because Spring AI's {@code McpServerAutoConfiguration} defines a
- * {@code @Bean} factory method named {@code syncTools}. A default {@code syncTools} name collides
- * with it.
+ * <p>The bean name is set explicitly because Spring AI's {@code ToolCallbackConverterAutoConfiguration}
+ * defines a {@code @Bean} factory method named {@code syncTools}. A default {@code syncTools} name
+ * collides with it.
  */
 @Component("picsouSyncTools")
 public class SyncTools {

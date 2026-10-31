@@ -1,8 +1,11 @@
 package com.picsou.finary;
 
+import com.picsou.exception.SyncException;
 import com.picsou.model.*;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.DividendReceiptService;
+import com.picsou.service.PriceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -23,11 +26,32 @@ public class FinaryPersistenceHelper {
 
     private final BalanceSnapshotRepository balanceSnapshotRepository;
     private final TransactionRepository transactionRepository;
+    private final PriceService priceService;
 
     public FinaryPersistenceHelper(BalanceSnapshotRepository balanceSnapshotRepository,
-                                   TransactionRepository transactionRepository) {
+                                   TransactionRepository transactionRepository,
+                                   PriceService priceService) {
         this.balanceSnapshotRepository = balanceSnapshotRepository;
         this.transactionRepository = transactionRepository;
+        this.priceService = priceService;
+    }
+
+    /**
+     * Snapshots are EUR (the history sums them as such), while a balance or a transaction may be
+     * in any currency, so each is converted before it is written or walked back. A missing rate
+     * aborts: {@link PriceService#toEur} would hand the amount back unconverted, engraving it
+     * into the history as if it were EUR.
+     */
+    BigDecimal toEurOrFail(BigDecimal amount, String currency) {
+        if (amount == null || currency == null || currency.isBlank() || "EUR".equalsIgnoreCase(currency)) {
+            return amount;
+        }
+        BigDecimal rate = priceService.getFxRateEur(currency.toUpperCase(Locale.ROOT));
+        if (rate == null) {
+            throw new SyncException("No EUR rate for " + currency
+                + " -- cannot rebuild the balance history, try again once the rate is available");
+        }
+        return amount.multiply(rate);
     }
 
     /**
@@ -62,6 +86,8 @@ public class FinaryPersistenceHelper {
             .sorted(Comparator.comparing(ParsedFinaryTransaction::date).reversed())
             .toList();
 
+        BigDecimal anchor = toEurOrFail(finaryAcc.balance(), finaryAcc.currency());
+
         if (accountTx.isEmpty()) {
             // No transactions; just create a snapshot for today
             LocalDate today = LocalDate.now();
@@ -71,10 +97,22 @@ public class FinaryPersistenceHelper {
             balanceSnapshotRepository.save(BalanceSnapshot.builder()
                 .account(account)
                 .date(today)
-                .balance(finaryAcc.balance())
-                .investedAmount(finaryAcc.balance())
+                .balance(anchor)
+                .investedAmount(anchor)
                 .build());
             return 1;
+        }
+
+        // Walk backwards through transactions before touching the stored history, so a missing
+        // rate leaves it as it was.
+        BigDecimal runningBalance = anchor;
+        Map<LocalDate, BigDecimal> snapshots = new LinkedHashMap<>();
+        // Newest first: when a day's latest transaction comes up, runningBalance is the balance
+        // at the end of that day. Record it before subtracting, and only once per day, or the
+        // snapshot dated D holds the balance before D's transactions, one day's movements off.
+        for (ParsedFinaryTransaction tx : accountTx) {
+            snapshots.putIfAbsent(tx.date(), runningBalance);
+            runningBalance = runningBalance.subtract(toEurOrFail(tx.amount(), tx.currency()));
         }
 
         // Delete existing snapshots for this account (batch delete executes immediately)
@@ -82,27 +120,16 @@ public class FinaryPersistenceHelper {
         balanceSnapshotRepository.deleteAllInBatch(existing);
 
         int count = 0;
-        BigDecimal runningBalance = finaryAcc.balance();
 
         // Anchor point: today with current balance
         LocalDate today = LocalDate.now();
         balanceSnapshotRepository.save(BalanceSnapshot.builder()
             .account(account)
             .date(today)
-            .balance(runningBalance)
-            .investedAmount(runningBalance)
+            .balance(anchor)
+            .investedAmount(anchor)
             .build());
         count++;
-
-        // Walk backwards through transactions
-        Map<LocalDate, BigDecimal> snapshots = new LinkedHashMap<>();
-        // Newest first: when a day's latest transaction comes up, runningBalance is the balance
-        // at the end of that day. Record it before subtracting, and only once per day, or the
-        // snapshot dated D holds the balance before D's transactions, one day's movements off.
-        for (ParsedFinaryTransaction tx : accountTx) {
-            snapshots.putIfAbsent(tx.date(), runningBalance);
-            runningBalance = runningBalance.subtract(tx.amount());
-        }
 
         // Remove today to avoid duplicate with the anchor point above
         snapshots.remove(today);
@@ -126,6 +153,9 @@ public class FinaryPersistenceHelper {
      */
     public int importTransactions(Account account, ParsedFinaryAccount finaryAcc,
                                   List<ParsedFinaryTransaction> allTransactions) {
+        // The recreated rows come back untyped, and classification only revisits recent ones.
+        DividendReceiptService.Recognitions recognised = DividendReceiptService.Recognitions.of(
+            transactionRepository.findByAccountIdAndIsManualFalse(account.getId()));
         // Delete existing transactions for this account
         transactionRepository.deleteByAccountIdAndIsManualFalse(account.getId());
 
@@ -148,6 +178,7 @@ public class FinaryPersistenceHelper {
                 .nativeCurrency(tx.currency())
                 .build())
             .collect(Collectors.toList());
+        toInsert.forEach(recognised::restoreOn);
 
         transactionRepository.saveAll(toInsert);
         return toInsert.size();
@@ -159,7 +190,7 @@ public class FinaryPersistenceHelper {
      */
     public int reconstructSnapshotsFromDb(Account account) {
         List<Transaction> accountTx = transactionRepository.findByAccountIdOrderByDateDesc(account.getId());
-        BigDecimal currentBalance = account.getCurrentBalance();
+        BigDecimal currentBalance = toEurOrFail(account.getCurrentBalance(), account.getCurrency());
 
         if (accountTx.isEmpty()) {
             LocalDate today = LocalDate.now();
@@ -175,31 +206,32 @@ public class FinaryPersistenceHelper {
             return 1;
         }
 
+        // Walk backwards through transactions before touching the stored history, so a missing
+        // rate leaves it as it was.
+        Map<LocalDate, BigDecimal> snapshots = new LinkedHashMap<>();
+        BigDecimal runningBalance = currentBalance;
+        // Same rule as reconstructSnapshots: the end-of-day balance, recorded once per day
+        // before that day's transactions are walked back.
+        for (Transaction tx : accountTx) {
+            snapshots.putIfAbsent(tx.getDate(), runningBalance);
+            runningBalance = runningBalance.subtract(toEurOrFail(tx.getAmount(), tx.getNativeCurrency()));
+        }
+
         // Delete existing snapshots for this account (batch delete executes immediately)
         List<BalanceSnapshot> existing = balanceSnapshotRepository.findRecentByAccountId(account.getId(), LocalDate.of(2000, 1, 1));
         balanceSnapshotRepository.deleteAllInBatch(existing);
 
         int count = 0;
-        BigDecimal runningBalance = currentBalance;
 
         // Anchor: today with current balance
         LocalDate today = LocalDate.now();
         balanceSnapshotRepository.save(BalanceSnapshot.builder()
             .account(account)
             .date(today)
-            .balance(runningBalance)
-            .investedAmount(runningBalance)
+            .balance(currentBalance)
+            .investedAmount(currentBalance)
             .build());
         count++;
-
-        // Walk backwards through transactions
-        Map<LocalDate, BigDecimal> snapshots = new LinkedHashMap<>();
-        // Same rule as reconstructSnapshots: the end-of-day balance, recorded once per day
-        // before that day's transactions are walked back.
-        for (Transaction tx : accountTx) {
-            snapshots.putIfAbsent(tx.getDate(), runningBalance);
-            runningBalance = runningBalance.subtract(tx.getAmount());
-        }
 
         // Remove today to avoid duplicate with anchor
         snapshots.remove(today);
