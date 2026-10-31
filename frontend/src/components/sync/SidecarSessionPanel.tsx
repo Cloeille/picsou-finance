@@ -115,6 +115,11 @@ export interface SidecarSessionPanelProps<
   loginIcon: LucideIcon
   /** Whether the provider can answer the second factor with a mobile app push. */
   appPush?: boolean
+  /**
+   * The sidecar keeps the attempt after a wrong SMS code (Crédit Mutuel Épargne Salariale), so
+   * the panel stays on the code form for another try instead of starting over.
+   */
+  otpRetryable?: boolean
   /** An extra login-form choice merged into the initiate payload (e.g. AMEX's SMS/e-mail pick). */
   extraField?: SidecarExtraField
   useStatus: () => UseQueryResult<TStatus>
@@ -146,6 +151,7 @@ export function SidecarSessionPanel<
   fieldIdPrefix,
   loginIcon: LoginIcon,
   appPush = false,
+  otpRetryable = false,
   extraField,
   useStatus,
   useInitiateAuth,
@@ -213,9 +219,13 @@ export function SidecarSessionPanel<
         },
         onError: (value) => {
           setError(formatError(value))
+          setCode("")
+          if (otpRetryable && getErrorCode(value) === "INVALID_OTP") {
+            setAuthState("AWAITING_OTP")
+            return
+          }
           setAuthState("ERROR")
           setProcessId(null)
-          setCode("")
         },
       }
     )

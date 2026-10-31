@@ -453,6 +453,39 @@ describe('SyncAllModal session providers', () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
+  it('includes a live Crédit Mutuel / CIC Épargne Salariale session in "Sync all"', async () => {
+    cmesStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    amundiStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: cmesStatus })
+    renderModal()
+
+    await screen.findByText('Crédit Mutuel / CIC Épargne Salariale')
+    await screen.findByText('Amundi')
+    const syncAll = screen.getByRole('button', { name: /sync\.all\.syncAll/ })
+    await waitFor(() => expect(syncAll).toBeEnabled())
+    fireEvent.click(syncAll)
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/cmes/sync'))
+    expect(apiPost).toHaveBeenCalledWith('/amundi/sync')
+  })
+
+  /** A first sync that expired before importing anything leaves a session but no account. */
+  it('keeps an expired Crédit Mutuel / CIC Épargne Salariale session that has no account yet', async () => {
+    cmesStatus = { ...AMUNDI_INACTIVE, syncStatus: 'FAILED', lastSyncError: 'SESSION_EXPIRED' }
+    renderModal()
+
+    const row = (await screen.findByText('Crédit Mutuel / CIC Épargne Salariale')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cmes'))
+    expect(apiPost).not.toHaveBeenCalledWith('/cmes/sync')
+  })
+
+  it('hides Crédit Mutuel / CIC Épargne Salariale with no session and no account', async () => {
+    renderModal()
+
+    expect(await screen.findByText('Trade Republic')).toBeInTheDocument()
+    expect(screen.queryByText('Crédit Mutuel / CIC Épargne Salariale')).not.toBeInTheDocument()
+  })
+
   /** Its login can need a code by SMS or a confirmation in the app, which only its tab can take. */
   it('keeps an expired Crédit Mutuel / CIC Épargne Salariale row with its accounts and routes to its tab', async () => {
     accountsFixture = [TR_ACCOUNT, CMES_ACCOUNT]

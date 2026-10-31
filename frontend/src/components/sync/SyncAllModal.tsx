@@ -280,6 +280,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     {
       type: 'cmes' as const, name: 'Crédit Mutuel / CIC Épargne Salariale', provider: 'Crédit Mutuel Épargne Salariale',
       active: cmesStatus?.isActive ?? false, lastSyncedAt: cmesStatus?.lastSyncCompletedAt ?? null,
+      // A stored session is never IDLE (it is queued as it is created): an expired one is kept
+      // even before its first sync created an account, so the saver can reconnect from here.
+      hasSession: cmesStatus != null && cmesStatus.syncStatus !== 'IDLE',
       failed: cmesStatus?.syncStatus === 'FAILED',
     },
   ], [cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
@@ -385,7 +388,8 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       const hasAccount = accounts?.some(a =>
         (provider.provider !== undefined && a.provider === provider.provider)
         || ('ownsAccount' in provider && provider.ownsAccount?.(a) === true)) ?? false
-      if (!provider.active && !hasAccount) continue
+      const hasSession = 'hasSession' in provider && provider.hasSession === true
+      if (!provider.active && !hasSession && !hasAccount) continue
       list.push({
         id: provider.type,
         providerType: provider.type,

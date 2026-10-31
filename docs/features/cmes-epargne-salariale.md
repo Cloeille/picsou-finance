@@ -1,6 +1,6 @@
 # Feature: Crédit Mutuel / CIC Épargne Salariale sync
 
-> Last updated: 2026-10-24
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -29,7 +29,9 @@ speaks HTTPS with `httpx`, on the shared `sidecar-python` base.
    `otp_password`. `/initiate` answers `mfaType: "SMS"`, `/complete` posts the code with the
    page's hidden fields and no button (the page's buttons ask for another channel or a new
    code). A wrong code brings the same form back with an error: `INVALID_OTP`, and the attempt
-   stays open for another try. Digipass and Safetrans answer `MFA_TYPE_UNSUPPORTED`.
+   stays open for another try (if the pending pool is full it cannot be kept, and is disposed of).
+   Digipass and Safetrans answer `MFA_TYPE_UNSUPPORTED`. A polling request that fails withdraws
+   the confirmation from the phone before reporting the error, like the timeout does.
 3. **Remembered device**: once the second factor is passed, the site sets `auth_client_state`,
    which spares the confirmation for a while (90 days on the banking sites of the same platform).
    `/initiate` accepts the previous session and replays that cookie only, so a re-login with
@@ -40,7 +42,12 @@ speaks HTTPS with `httpx`, on the shared `sidecar-python` base.
    `_FID_GoFundSummary_selectedFundIndex:<n>` button lands on its "Synthèse" tab
    (`synthese-du-support.html`, which carries the fund code, usually no ISIN), whose "Mon épargne"
    tab (`epargne-sur-le-support.html`) holds the rest. Each fund starts from a fresh situation page,
-   since the form carries the page state.
+   since the form carries the page state, and the button is sent with the value it was served
+   with. A fund page that lands on the login or strong-authentication page reads as
+   `SESSION_EXPIRED`, so the backend logs in again.
+5. **Plan ids**: `cmes_<saver number>_<KIND>` (PEE, PEG, PERCOL…). When several plans of one
+   fetch share a kind (two PEG from two employers), each gets `cmes_<number>_<KIND>-<name slug>`;
+   a plan without a known kind uses its name slug.
 
 Every read is reconciled: the funds must add up to the plan total, units × unit value must give
 the fund value, and the fund page must agree with the situation page. Anything else fails the
@@ -55,7 +62,22 @@ sync whose session expired logs in again with them, passing the previous session
 remembered-device cookie. The site's sessions last minutes, so this is the normal path of the
 daily 08:00 sync (`MemberSyncService`, source `cmes`). Only when the site asks for a new
 confirmation does the session turn inactive and the UI ask the saver to reconnect; the credentials
-are kept for that reconnection. A rejected password clears them, so it is not replayed daily.
+are kept for that reconnection. A rejected password clears them, so it is not replayed daily, and
+turns the session inactive too.
+
+During a second factor the password waits in memory (`pendingCredentials`, 10 min) until the
+attempt completes; expired entries are evicted every minute. `/auth/complete` is refused with
+`AUTH_ATTEMPT_EXPIRED` when no live entry exists for the attempt (expired, or lost to a backend
+restart), so it can never replace the stored session and its credentials with a session that
+could not log in again. Rate limits per IP: `/auth/initiate` 5 per 15 min (each call sends the
+password to the site, which locks an access after a few failures); `/auth/complete` has its own
+budget of 10 per 15 min.
+
+A plan that a complete fetch no longer lists (closed or transferred) is closed at zero: balance
+0, holdings removed, a zero snapshot for the day. It is not soft-deleted, since a soft-deleted
+account reads as removed by the user and is never imported again; a plan that reappears is
+updated normally. Only complete fetches get there: an empty list or a plan flagged incomplete
+fails the sync first.
 
 Fund tickers are the ISIN when there is one, else `CMES-<fund code>`, else the label slug. They are
 not priced by Yahoo: the provider is in `AccountService.PROVIDER_VALUED`, so the holdings keep
@@ -65,6 +87,11 @@ the site's valuation.
 
 `CmesPanel` is a `SidecarSessionPanel` with `appPush`: login form, then either a waiting state
 while the saver confirms on the phone or a field for the SMS code, depending on `mfaType`. Tab `cmes` on `/sync`.
+With `otpRetryable`, a wrong SMS code keeps the attempt and the panel stays on the code form.
+
+The "Sync all" modal lists CMES: a live session syncs in place (`POST /cmes/sync`), also from
+the "Sync all" button. An expired session routes to the `cmes` tab, including one whose first
+sync expired before any account was created (a stored session is never `IDLE`).
 
 ## Key files
 
@@ -79,4 +106,4 @@ while the saver confirms on the phone or a field for the SMS code, depending on 
 ## Not covered yet
 
 - Operations history, and the per-maturity breakdown (availability dates) of each fund.
-- The "Sync all" modal and the account-page disconnect action do not list this source yet.
+- The account-page disconnect action does not list this source yet.

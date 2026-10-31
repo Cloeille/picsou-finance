@@ -20,6 +20,7 @@ export function CmesPanel({ onConnected }: CmesPanelProps = {}) {
       fieldIdPrefix="cmes"
       loginIcon={Briefcase}
       appPush
+      otpRetryable
       useStatus={useCmesStatus}
       useInitiateAuth={useInitiateCmesAuth}
       useCompleteAuth={useCompleteCmesAuth}
