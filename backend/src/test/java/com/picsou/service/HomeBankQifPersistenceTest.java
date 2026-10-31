@@ -10,7 +10,6 @@ import com.picsou.model.CategoryKind;
 import com.picsou.model.FamilyMember;
 import com.picsou.repository.*;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -36,6 +35,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 /** Synthetic QIF import against a throwaway PostgreSQL started by Testcontainers. Runs in CI. */
 @DataJpaTest(showSql = false)
@@ -70,10 +70,10 @@ class HomeBankQifPersistenceTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class Configuration {
-        // FinaryPersistenceHelper only asks for an FX rate on non-EUR amounts; these fixtures are EUR.
+        /** The fixtures are EUR, so FinaryPersistenceHelper never asks for an FX rate. */
         @Bean
         PriceService priceService() {
-            return Mockito.mock(PriceService.class);
+            return mock(PriceService.class);
         }
 
         @Bean

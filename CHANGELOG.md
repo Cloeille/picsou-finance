@@ -261,7 +261,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
   the card's corner could still hit delete). They now stay visible on touch screens and when
   keyboard focus is inside the card.
-
+- **MCP calls no longer time out after a few idle minutes.** The MCP SSE stream stayed silent
+  between two replies, so clients dropped it as idle (Claude Code after about 6 minutes, the
+  Python MCP SDK after 300 s) and the next call timed out. The server now pings every open
+  session every 60 s (`MCP_KEEP_ALIVE_INTERVAL`). This moves the backend to Spring AI 1.1.8 and
+  Spring Boot 3.5.16; the transport stays HTTP+SSE on `/mcp`. See
+  [ADR](docs/decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md).
 - **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
