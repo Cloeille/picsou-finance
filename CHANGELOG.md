@@ -247,6 +247,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Phone layout: page margins, the end of each page, and Family.** On a phone, pages ran 4 px
+  from the screen edge while the bottom bar sat 16 px in, and the last card of every page
+  touched the bar. Pages now keep the bar's 16 px margin on every side and end 16 px above it.
+  Family, missing from the bottom bar, now has its own entry
+  and is highlighted on its page. The FR/EN switch made room for it and left the bar; the
+  language stays available in Settings, with all four languages.
 - **First Trade Republic login after a fresh start.** On a cold `tr-auth` container the first
   login often failed with "please check your credentials" although the phone number and PIN
   were right: the headless browser had not yet received the AWS WAF token, so Trade Republic's
