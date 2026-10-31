@@ -1,3 +1,6 @@
+{{- if gt (int .Values.app.replicaCount) 1 }}
+{{- fail "app.replicaCount must be 0 or 1: Flyway and the ReadWriteOnce /data volume allow a single app pod" }}
+{{- end }}
 {{- $secret := include "picsou.secretName" . }}
 apiVersion: apps/v1
 kind: Deployment
@@ -23,7 +26,8 @@ spec:
         {{- end }}
       labels:
         {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "app") | nindent 8 }}
-        {{- with .Values.app.podLabels }}
+        {{- /* The selector labels above are immutable and select this pod: user labels cannot override them. */}}
+        {{- with omit (.Values.app.podLabels | default dict) "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:

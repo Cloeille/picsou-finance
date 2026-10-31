@@ -112,12 +112,10 @@ app:
   # /actuator/health covers the database too, so it gates readiness but not
   # liveness: a database outage must not restart the app in a loop. supervisord
   # already restarts the JVM if it dies.
-  startupProbe:
-    httpGet:
-      path: /actuator/health
-      port: http
-    periodSeconds: 10
-    failureThreshold: 30
+  # No startup probe: liveness is a TCP check on nginx, which answers at once,
+  # and readiness already holds traffic back until /actuator/health is up. One on
+  # /actuator/health would restart the pod when the database is down at startup.
+  startupProbe: {}
   readinessProbe:
     httpGet:
       path: /actuator/health
@@ -131,6 +129,8 @@ app:
     failureThreshold: 3
 
   podAnnotations: {}
+  # Extra pod labels. The selector labels (app.kubernetes.io/name, instance and
+  # component) are ignored: they are fixed by the chart.
   podLabels: {}
   nodeSelector: {}
   tolerations: []

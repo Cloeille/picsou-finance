@@ -55,6 +55,14 @@ spec:
             # root of a freshly formatted volume.
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
+          # Crash recovery after an unclean stop can outlast the liveness window
+          # (30s initial delay, 5 failures every 30s); liveness only starts once
+          # this succeeds, for up to 10 minutes.
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1"]
+            periodSeconds: 10
+            failureThreshold: 60
           readinessProbe:
             exec:
               command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1"]

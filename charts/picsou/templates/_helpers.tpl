@@ -9,17 +9,26 @@ Chart name, truncated to fit a DNS label.
 Fully qualified release name. Kept to 40 characters so that
 "<fullname>-caisse-epargne-auth" still fits in a 63-character DNS label: the
 backend only accepts plain HTTP to a sidecar on a single-label host name.
+A longer name is cut to 33 characters plus a hash of the whole name, because
+plain truncation would give two releases that share their first 40 characters
+the same resource names.
 */}}
 {{- define "picsou.fullname" -}}
+{{- $full := "" }}
 {{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 40 | trimSuffix "-" }}
+{{- $full = .Values.fullnameOverride }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 40 | trimSuffix "-" }}
+{{- $full = .Release.Name }}
 {{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 40 | trimSuffix "-" }}
+{{- $full = printf "%s-%s" .Release.Name $name }}
 {{- end }}
+{{- end }}
+{{- if le (len $full) 40 }}
+{{- $full | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" ($full | trunc 33 | trimSuffix "-") (sha256sum $full | trunc 6) }}
 {{- end }}
 {{- end }}
 
@@ -125,6 +134,10 @@ Secret holding sidecar-api-key, postgres-password and the optional app secrets.
 Restarts every pod when secret values set through the chart change, so the app
 and the sidecars always share the same APP_SIDECAR_API_KEY. Hashes the values,
 not the rendered Secret: generated values are random on first render.
+It covers only the values set through the chart. With secrets.existingSecret, or
+a Secret rotated outside the chart, no pod restarts: after rotating
+sidecar-api-key, restart the app and every sidecar together, e.g.
+`kubectl rollout restart deployment -l app.kubernetes.io/instance=<release>`.
 */}}
 {{- define "picsou.secretChecksum" -}}
 checksum/secret: {{ .Values.secrets | toYaml | sha256sum }}
