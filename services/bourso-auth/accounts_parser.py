@@ -848,7 +848,13 @@ _LI_ROW_RE = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.DOTALL)
 _LI_CELL_RE = re.compile(r"<td\b[^>]*>(?P<cell>.*?)</td>", re.DOTALL)
 _LI_LABEL_RE = re.compile(r'class="c-link__label[^"]*">(?P<label>.*?)</span>', re.DOTALL)
 _LI_MENTION_RE = re.compile(r'class="c-table__mention[^"]*">(?P<mention>.*?)</span>', re.DOTALL)
-_LI_SYMBOL_RE = re.compile(r'href="[^"]*/cours/(?P<symbol>[^/"?]+)/?"')
+# A quote link is told apart from its symbol: a link whose symbol cannot be read
+# (a query string, a new URL shape) must still count as a quote link, or a quoted
+# fund without units would pass for the euro fund.
+_LI_QUOTE_LINK_MARK = "/cours/"
+_LI_SYMBOL_RE = re.compile(
+    r"""href=(?P<q>["'])[^"']*/cours/(?P<symbol>[^/"'?#]+)/?(?:[?#][^"']*)?(?P=q)"""
+)
 _LI_ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}\d$")
 # The euro fund carries no unit and no ISIN; its label is what names it. "Euro"
 # must be a whole word: "Fonds Europe Actions" is a unit-linked fund, not cash.
@@ -926,8 +932,8 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
     Cours, Montant, +/- latentes, +/- %. A unit-linked line becomes a position;
     the euro fund, which has no ISIN, no quote link, no price and no units (or "0,0000"),
     becomes the cash leg, the slot Picsou keeps for it on a life-insurance account. Any
-    other row shape, or a cell that does not parse, is refused rather than guessed, and
-    the lines must add up to the valuation.
+    other row shape, or a cell or quote link that does not parse, is refused rather than
+    guessed, and the lines must add up to the valuation.
     """
     valuation = _LI_VALUATION_RE.search(html)
     table = _LI_TABLE_RE.search(html)
@@ -955,6 +961,10 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
         if isin and not _LI_ISIN_RE.match(isin):
             isin = None
         symbol = _LI_SYMBOL_RE.search(cells[0])
+        if symbol is None and _LI_QUOTE_LINK_MARK in cells[0]:
+            # Guessing would also move the ticker to the ISIN or label, and the
+            # backend keys holdings by ticker.
+            raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has a quote link without a readable symbol")
         value = _li_amount(cells[5], "amount")
         quantity = _li_amount(cells[2], "quantity", required=False)
         price = _li_amount(cells[4], "price", required=False)

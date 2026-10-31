@@ -564,8 +564,11 @@ Boursorama symbol from the quote link, quantity, buying price, price, amount, la
 unit-linked line becomes a position; the euro fund becomes `cashBalance`. A row is the euro fund
 only when it has no units (blank or `0,0000`), no ISIN, no quote link, no price (blank or `0,00 €`)
 and a label naming the euro as a whole word: "Euro Stoxx 50" with a quote link or a price is a
-fund, and without units it is refused, not read as cash. A blank or dash cell is an absent value;
-any other text that does not parse as an amount (`n/a`) is refused as `FORMAT_CHANGED`, so an
+fund, and without units it is refused, not read as cash. Any `/cours/` link in the label cell counts
+as a quote link, even one whose symbol cannot be read; the symbol is read from the URL path, so a
+query string (`/cours/1rTXYZ/?foo=1`) does not hide it, and a link without a readable symbol is
+refused as `FORMAT_CHANGED` rather than given a guessed ticker. A blank or dash cell is an absent
+value; any other text that does not parse as an amount (`n/a`) is refused as `FORMAT_CHANGED`, so an
 unreadable quantity can never pass for the euro fund's empty one. Any other row shape is refused.
 
 The lines must reconcile with the valuation within a cent per line (floor 0.05 €), in the sidecar

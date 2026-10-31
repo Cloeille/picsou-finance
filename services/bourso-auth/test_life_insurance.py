@@ -110,9 +110,33 @@ class LifeInsurancePageTest(unittest.TestCase):
 
     def test_a_quoted_unitless_line_naming_the_euro_is_not_the_euro_fund(self):
         # Without units, a quote link or a price is enough to show this is a fund, not cash.
-        for symbol, price in (("1rTXYZ", ""), (None, "120,00 €")):
+        # A query string on the quote link must not hide it.
+        for symbol, price in (("1rTXYZ", ""), ("1rTXYZ/?foo=1", ""), ("1rTXYZ?foo=1", ""),
+                              (None, "120,00 €")):
             with self.subTest(symbol=symbol, price=price):
                 rows = life_insurance_row("Euro Stoxx 50", None, symbol, "", "", price, "3 300,00 €", "")
+
+                with self.assertRaises(AccountsFormatError) as raised:
+                    parse_life_insurance(life_insurance_page(rows))
+
+                self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+    def test_a_quote_link_with_a_query_string_keeps_its_symbol_as_the_ticker(self):
+        rows = life_insurance_row("iShares MSCI World SRI UCITS ETF", "IE00BYX2JD69", "1rASUSW/?foo=1&amp;bar=2",
+                                  "100,0000", "10,00 €", "12,00 €", "1 200,00 €", "200,00 €")
+
+        position, = parse_life_insurance(life_insurance_page(rows, valuation="1 200,00 €"))["positions"]
+
+        self.assertEqual(position["symbol"], "1rASUSW")
+
+    def test_a_quote_link_without_a_readable_symbol_is_a_format_change(self):
+        # Neither cash nor a position under a guessed ticker: the row is refused.
+        for symbol, quantity in (("1rTXYZ/extra", ""), ("", ""), ("1rTXYZ/extra", "100,0000")):
+            with self.subTest(symbol=symbol, quantity=quantity):
+                rows = life_insurance_row("Fonds Euro", None, None, quantity, "", "", "3 300,00 €", "")
+                rows = rows.replace('<span class="c-link__label ">',
+                                    f'<a href="//bourse.boursobank.com/cours/{symbol}">'
+                                    '<span class="c-link__label ">', 1)
 
                 with self.assertRaises(AccountsFormatError) as raised:
                     parse_life_insurance(life_insurance_page(rows))
