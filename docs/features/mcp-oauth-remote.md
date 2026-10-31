@@ -35,7 +35,10 @@ feature is that design. See the ADR [2026-07-12 remote-MCP OAuth](../decisions/2
      - authenticated → redirect to the SPA consent page /consent
      - user ticks scopes, Approve → auth code → redirect to https://claude.ai/api/mcp/auth_callback
 6. POST /oauth2/token (code + PKCE verifier)   → { access_token: <MCP JWT>, refresh_token }
-7. GET /mcp  Authorization: Bearer <MCP JWT>    → scoped MCP session; tools run under the granted scopes
+7. Authorization: Bearer <MCP JWT> on every /mcp request  → scoped MCP session; tools run under the granted scopes
+     - SSE (default): GET /mcp opens the session stream
+     - MCP_PROTOCOL=STREAMABLE: POST /mcp `initialize` starts the session, then JSON-RPC is POSTed to /mcp
+       (GET /mcp is only the optional server stream)
 ```
 
 ### Token model — the load-bearing security decision
@@ -126,7 +129,7 @@ For `mcp-picsou.patato.es` (→ `192.168.1.149`) the front reverse-proxy on the 
 ### Manual e2e check (once up + exposed)
 
 For clients requesting protocol `2025-11-25`, first set `MCP_PROTOCOL=STREAMABLE` in the app
-environment and restart it. With production Compose, set it in `docker/.env` and run
+environment and recreate it. With production Compose, set it in `docker/.env` and run
 `docker compose up -d --force-recreate app` from `docker/`. Update other MCP clients to
 Streamable HTTP at the same `/mcp` URL. See [transport selection](./mcp-server.md#use-protocol-2025-11-25-with-a-hosted-connector)
 for the HTTP client config and rollback. SSE remains the default for existing installations.

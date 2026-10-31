@@ -22,8 +22,9 @@ member-scoped services, so member isolation is automatic.
 
 ### Use protocol 2025-11-25 with a hosted connector
 
-Set `MCP_PROTOCOL=STREAMABLE` in the app's environment and restart the backend. With the
-production Compose stack, set it in `docker/.env` and recreate the app container from `docker/`:
+Set `MCP_PROTOCOL=STREAMABLE` in the app's environment and recreate the app container; a plain
+`docker compose restart` keeps the old environment. With the production Compose stack, set it in
+`docker/.env` and run, from `docker/`:
 
 ```bash
 docker compose up -d --force-recreate app
@@ -290,7 +291,7 @@ sessions/credentials as the documented side effect of deleting a connection's la
   `ToolCallbackConverterAutoConfiguration` already defines a bean named `syncTools` (the SYNC server's tool-spec
   list). A `@Component` defaulting to `syncTools` collides with it and aborts the context
   (bean-definition overriding is disabled). The other tool components use unreserved default names.
-- **Transport selection requires a restart.** SSE uses `GET /mcp` and `POST /mcp/message`.
+- **Transport selection requires recreating the app container.** SSE uses `GET /mcp` and `POST /mcp/message`.
   Streamable HTTP uses `POST`, `GET`, and `DELETE /mcp`. Switching modes requires updating SSE-only
   clients. Both stay under `/mcp/**` so Property A's prefix check covers them.
 - **Nginx must proxy `/mcp`, not only `/api`.** The all-in-one image and the split-stack frontend
