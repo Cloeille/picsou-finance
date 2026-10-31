@@ -39,7 +39,8 @@ import java.util.List;
  * their history cascades with them. Databases that skipped V47 are the 1.0.x line, which never
  * enforced that key; the operator resolves the duplicates first (upgrade note below). That check
  * commits before any migration runs, while the old instance may still be syncing, so it runs again
- * in V47's own transaction with account writes locked out until V47 commits.
+ * in V47's own transaction with account writes locked out until V47 commits. A Flyway target
+ * below V47 means V47 will not run, so the check is skipped.
  *
  * <p>Spring Boot registers every {@link Callback} bean with the auto-configured Flyway. Flyway
  * runs the callback in a transaction. Operator upgrade path: docs/features/docker-deployment.md.
@@ -176,19 +177,25 @@ public class LegacyMigrationRenumberingCallback implements Callback {
     /** Groups V47 would collapse, or 0 when V47 will not run or the account columns are not there yet. */
     private static int duplicateGroupsBeforeV47(Connection connection, Configuration configuration)
             throws SQLException {
+        MigrationVersion target = configuration.getTarget();
+        if (target != null && !target.isPredefined() && target.compareTo(V47) < 0) {
+            return 0;
+        }
         String schema = historySchema(connection, configuration);
         if (!tableExists(connection, schema, configuration.getTable())
                 || !columnExists(connection, schema, "account", "external_account_id")) {
             return 0;
         }
         String history = quote(schema) + "." + quote(configuration.getTable());
-        // A baseline at or above V47 means Flyway never runs it.
+        // Flyway reads '47' and '47.0' as one version; a baseline at or above V47 means it never runs.
         try (PreparedStatement applied = connection.prepareStatement(
-                "SELECT 1 FROM " + history + " WHERE \"version\" = '47' OR CASE WHEN \"type\" = 'BASELINE'"
-                    + " AND \"version\" ~ '^[0-9]+$' THEN \"version\"::int >= 47 ELSE false END");
+                "SELECT \"version\", \"type\" FROM " + history + " WHERE \"version\" IS NOT NULL");
              ResultSet rows = applied.executeQuery()) {
-            if (rows.next()) {
-                return 0;
+            while (rows.next()) {
+                MigrationVersion version = MigrationVersion.fromVersion(rows.getString(1));
+                if (version.equals(V47) || ("BASELINE".equals(rows.getString(2)) && version.compareTo(V47) >= 0)) {
+                    return 0;
+                }
             }
         }
         return duplicateGroups(connection, schema);
