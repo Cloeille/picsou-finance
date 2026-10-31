@@ -2,6 +2,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import time
@@ -234,6 +235,10 @@ def test_nginx_leaves_the_forwarded_port_empty_for_scheme_default(nginx_proxy):
 
 
 def test_compose_assigns_the_same_exact_address_to_caddy_and_nginx():
+    # Any other upstream would reach nginx from an untrusted address and merge all TLS clients.
+    caddyfile = (REPO / "docker/Caddyfile").read_text(encoding="utf-8")
+    assert re.findall(r"^\s*reverse_proxy\s+(\S+)", caddyfile, re.MULTILINE) == ["app-tls:8080"]
+
     proxy_ip = "172.30.254.2"
     proxy_subnet = "172.30.254.0/29"
     proxy_ip_range = "172.30.254.4/30"
