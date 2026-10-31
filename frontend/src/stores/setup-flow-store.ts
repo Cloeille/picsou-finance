@@ -22,10 +22,12 @@ export const ALL_INTEGRATIONS: IntegrationKey[] = [
   'crypto',
 ]
 
+export type EnableBankingKeyMode = 'import' | 'generate'
+
 interface EnableBankingDraft {
   applicationId: string
   redirectUri: string
-  publicKeyPem: string | null
+  keyPair: { mode: EnableBankingKeyMode; publicKeyPem: string } | null
   tested: boolean
 }
 
@@ -50,7 +52,7 @@ interface SetupFlowState {
 const blankEbDraft: EnableBankingDraft = {
   applicationId: '',
   redirectUri: '',
-  publicKeyPem: null,
+  keyPair: null,
   tested: false,
 }
 
