@@ -23,11 +23,17 @@ balance.
   captioned "Liste des comptes liés à la catégorie : …". "Comptes courants" rows are `CHECKING`;
   "Livrets et comptes d'épargne" rows are typed from their label (Livret A, LDDS, LEP, Livret Jeune,
   PEL, CEL, else `SAVINGS`). Category names accept straight and typographic apostrophes. Tables
-  outside these categories are skipped only when their rows contain no account or balance data,
-  such as links to employee savings. An unnamed or unrecognized table with account data fails the
-  whole page. A balance-bearing row that cannot be read also fails the page, including one whose
-  title marker is missing or whose label is empty. Header and action rows without account or
-  balance markers are skipped. External id `cic_<account number digits>`.
+  outside these categories are skipped only when their rows contain no balance data. A product
+  title alone, such as "Vos contrats et nos offres", can be a contract link without a balance.
+  An unnamed or unrecognized table with a balance fails the whole page. Its error names the
+  normalized category and the product title when available. Balance detection uses amount and
+  balance markers or plain-text money with a trailing currency code or a `€`, `$`, or `£` symbol
+  on either side of the amount. A symbol before the amount requires cents, so an inline JavaScript
+  replacement string such as `"$1"` in a layout table is not mistaken for money. This detection
+  also rejects account data outside recognized contract tables rather than silently dropping it.
+  Supported categories still require each account row's title, number, and readable euro balance,
+  including when only a title remains. Header and action rows without account or balance markers
+  are skipped. External id `cic_<account number digits>`.
 - **Backend**: `CicSyncService`, shaped like `CmesSyncService` (stored credentials, re-login with the
   previous session, daily source `cic`), balance-only accounts with `upsertSnapshot`. Migration
   V121 `cic_session`. `/api/cic/*`, `/api/cic/auth/complete` given 180 s in nginx.

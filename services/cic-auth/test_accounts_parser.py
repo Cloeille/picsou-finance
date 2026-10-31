@@ -86,6 +86,100 @@ class PageTest(unittest.TestCase):
             parse_accounts(page)
 
         self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+        self.assertIn("nouveaux comptes", str(error.exception))
+        self.assertIn("LIVRET A", str(error.exception))
+
+    def test_title_only_contract_links_in_unsupported_tables_are_skipped(self):
+        rows = '<tr><td><span class="ei_sdsf_title">Vos contrats et nos offres</span></td></tr>'
+        cases = {
+            "unnamed": f'<table class="ei_comptescontrats">{rows}</table>',
+            "autres contrats liés": accounts_table("Autres contrats liés", rows),
+        }
+
+        for category, table in cases.items():
+            with self.subTest(category=category):
+                accounts, skipped = parse_accounts(ACCOUNTS_PAGE + table)
+
+                self.assertEqual(accounts, parse_accounts(ACCOUNTS_PAGE)[0])
+                self.assertEqual(skipped, ["autres contrats liés", category])
+
+    def test_a_captionless_row_with_a_plain_text_symbol_amount_fails_the_page(self):
+        for amount in ("$12.34", "12.34 $", "£12.34", "12.34 £", "€12,34", "12,34 €"):
+            for title in ("", '<span class="ei_sdsf_title">NOUVEAU COMPTE</span>'):
+                row = f"<tr><td>{title}</td><td>{amount}</td></tr>"
+                table = f'<table class="ei_comptescontrats">{row}</table>'
+
+                with self.subTest(amount=amount, title=bool(title)):
+                    with self.assertRaises(AccountsFormatError) as error:
+                        parse_accounts(ACCOUNTS_PAGE + table)
+
+                    self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_a_supported_row_with_plain_text_symbol_balance_is_not_skipped(self):
+        for amount in ("$12.34", "12.34 $", "£12.34", "12.34 £"):
+            table = accounts_table("Livrets et comptes d&#39;épargne", f"<tr><td>{amount}</td></tr>")
+
+            with self.subTest(amount=amount):
+                with self.assertRaises(AccountsFormatError) as error:
+                    parse_accounts(ACCOUNTS_PAGE + table)
+
+                self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_script_text_in_a_layout_table_is_not_mistaken_for_money(self):
+        page = (
+            '<table class="layout"><tr><td><script>'
+            'const accountLabel = name.replace(/(.*)/, "$1");'
+            f"</script>{ACCOUNTS_PAGE}</td></tr></table>"
+        )
+
+        accounts, _ = parse_accounts(page)
+
+        self.assertEqual(len(accounts), 4)
+
+    def test_account_data_outside_contract_tables_fails_the_page(self):
+        marked_row = account_row(9, "LIVRET A", "10000 000999999 01", "+12,34 EUR")
+        plain_euro_row = marked_row
+        for marker in ("ei_sdsf_title", "doux", "ei_sdsf_montant", "ei_sdsf_solde"):
+            plain_euro_row = plain_euro_row.replace(marker, "other")
+        plain_symbol_row = plain_euro_row.replace("+12,34 EUR", "£12.34")
+        lost_table = accounts_table("Livrets et comptes d&#39;épargne", marked_row).replace(
+            "ei_comptescontrats", "layout"
+        )
+        cases = {
+            "marked row before": marked_row + ACCOUNTS_PAGE,
+            "marked row after": ACCOUNTS_PAGE + marked_row,
+            "plain euro in layout table": f'<table class="layout">{plain_euro_row}</table>' + ACCOUNTS_PAGE,
+            "plain symbol in layout table": ACCOUNTS_PAGE + f'<table class="layout">{plain_symbol_row}</table>',
+            "contract table lost its class": ACCOUNTS_PAGE + lost_table,
+        }
+
+        for name, page in cases.items():
+            with self.subTest(name=name):
+                with self.assertRaises(AccountsFormatError) as error:
+                    parse_accounts(page)
+
+                self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_account_markers_outside_contract_tables_fail_even_without_money(self):
+        for cells in (
+            '<td><span class="ei_sdsf_title">LIVRET A</span></td>',
+            '<td><span class="doux">10000 000999999 01</span></td>',
+            '<td><span class="ei_sdsf_montant">N/A</span></td>',
+            '<td class="ei_sdsf_solde"></td>',
+        ):
+            with self.subTest(cells=cells):
+                with self.assertRaises(AccountsFormatError) as error:
+                    parse_accounts(ACCOUNTS_PAGE + f"<table><tr>{cells}</tr></table>")
+
+                self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_a_title_only_row_in_a_supported_table_remains_a_format_change(self):
+        rows = '<tr><td><span class="ei_sdsf_title">LIVRET A</span></td></tr>'
+
+        with self.assertRaises(AccountsFormatError) as error:
+            parse_accounts(accounts_table("Livrets et comptes d&#39;épargne", rows))
+
+        self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
     def test_an_unnamed_table_without_account_data_is_skipped(self):
         page = ACCOUNTS_PAGE + '<table class="ei_comptescontrats"><tr><td>Aide</td></tr></table>'

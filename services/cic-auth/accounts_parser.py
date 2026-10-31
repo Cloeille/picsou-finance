@@ -16,9 +16,10 @@ table per category, each with an invisible caption naming it:
         ...
 
 Only current accounts and savings accounts are in scope. Other tables are
-skipped only when their rows contain no account data. An unrecognized category
-with account data fails the whole page, as does a balance-bearing row that
-cannot be read. Silently dropping an account would hide an incomplete sync.
+skipped only when their rows contain no balance data. A title alone can be a
+contract link. An unrecognized category with a balance fails the whole page,
+as does account data outside the contract tables or an unreadable account row
+in a supported category. Silently dropping an account would hide an incomplete sync.
 """
 
 import html as html_module
@@ -47,7 +48,10 @@ _NUMBER_RE = re.compile(r'class="[^"]*\bdoux\b[^"]*"[^>]*>(?P<number>.*?)</span>
 _AMOUNT_RE = re.compile(r'class="[^"]*\bei_sdsf_montant\b[^"]*"[^>]*>(?P<amount>.*?)</span>', re.DOTALL)
 _TAG_RE = re.compile(r"<[^>]+>")
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s.]*(?:,\d+)?)\s*(?P<currency>[A-Z]{3}|€)$")
-_BALANCE_RE = re.compile(r"\d[\d\s.,]*\s*(?:[A-Z]{3}\b|€)")
+# Symbol-first amounts need cents so script replacement strings like "$1" are not money.
+_BALANCE_RE = re.compile(
+    r"\d[\d\s.,]*\s*(?:[A-Z]{3}\b|[€$£])|[€$£]\s*[+-]?\s*\d[\d\s.,]*[.,]\d{2}\b"
+)
 
 # Ordered: the first match wins, so the specific products come before the
 # generic "livret".
@@ -104,11 +108,21 @@ def _category(table: str) -> str:
     return match.group("name").strip().lower().replace("’", "'") if match else ""
 
 
+def _has_balance(fragment: str) -> bool:
+    return bool(_AMOUNT_RE.search(fragment) or "ei_sdsf_solde" in fragment or _BALANCE_RE.search(_text(fragment)))
+
+
+def _has_account_data(fragment: str) -> bool:
+    return bool(_TITLE_RE.search(fragment) or _NUMBER_RE.search(fragment) or _has_balance(fragment))
+
+
 def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
     """Return the in-scope accounts and the names of the categories skipped."""
     tables = list(_TABLE_RE.finditer(page))
     if not tables:
         raise AccountsFormatError(FORMAT_CHANGED, "No contract table on the accounts page")
+    if _has_account_data(_TABLE_RE.sub("", page)):
+        raise AccountsFormatError(FORMAT_CHANGED, "Account data outside the contract tables")
 
     accounts: list[dict] = []
     skipped: list[str] = []
@@ -122,11 +136,17 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
             title = _TITLE_RE.search(cells)
             number = _NUMBER_RE.search(cells)
             amount = _AMOUNT_RE.search(cells)
-            if (title is None and number is None and amount is None
-                    and "ei_sdsf_solde" not in cells and not _BALANCE_RE.search(_text(cells))):
-                continue
             if not supported:
-                raise AccountsFormatError(FORMAT_CHANGED, "An account table has an unrecognized category")
+                if _has_balance(cells):
+                    label = _text(title.group("title")) if title else ""
+                    product = f", product {label!r}" if label else ""
+                    raise AccountsFormatError(
+                        FORMAT_CHANGED,
+                        f"An account table has an unrecognized category {category or 'unnamed'!r}{product}",
+                    )
+                continue
+            if title is None and number is None and not _has_balance(cells):
+                continue
             if title is None or number is None or amount is None:
                 raise AccountsFormatError(FORMAT_CHANGED, "An account row has no title, number, or balance")
             account_id = re.sub(r"\D", "", _text(number.group("number")))

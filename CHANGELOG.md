@@ -63,8 +63,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   *Sync all* modal, which opens the CIC tab when the session has lapsed.
   Deleting its last account removes the session and credentials and revokes pending logins,
   including a confirmation already in progress or a stored-credentials reconnect still reading
-  its password. Unreadable account rows and unrecognized tables containing account data fail the
-  whole import. Savings captions accept typographic apostrophes. A wrong SMS code can be corrected
+  its password. Unreadable account rows and unrecognized tables containing balances fail the
+  whole import. Contract links without balances are skipped in unnamed or unsupported tables.
+  Unknown-category errors name the category and product. Plain-text balances, including dollar
+  and pound symbols, and account data outside recognized tables cannot be silently dropped.
+  Symbol-first amounts require cents so JavaScript replacement strings do not block imports.
+  Savings captions accept typographic apostrophes. A wrong SMS code can be corrected
   without another login, and expired attempts have their pending passwords cleared every minute.
   Rejected credentials make the session inactive and require credential entry, including after an
   explicit reconnect, without erasing a newer login's password. Expired sessions stay in *Sync all*
