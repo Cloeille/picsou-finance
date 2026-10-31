@@ -224,7 +224,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A page that loads quickly now appears directly. A slower one shows a page title and
   one block in its place, not a dashboard-shaped placeholder that the real page then
   replaces. The 404, 403 and 500 pages appear inside the sidebar and navigation when
-  you are signed in. Each offers "Back to dashboard" and "Back". Session checks and
+  you are signed in, including after a browser restart with "Remember Me". A server
+  error inside that sidebar no longer reloads the error page in a loop. Each error page
+  offers "Back to dashboard" and "Back". Session checks and
   the setup wizard show a centred spinner rather than a full-screen dashboard
   placeholder or an empty screen.
 

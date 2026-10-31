@@ -161,7 +161,7 @@ const DashboardPage = lazy(() =>
 - Auth-protected routes wrapped in `<RequireAuth>` guard.
 - Public-only routes (login) wrapped in `<PublicOnly>`.
 - `SuspensePage` wrapper with a `<RouteFallback />` fallback: a page-header bar and one block, shown only after 200 ms. Routes outside the app shell (guards, setup wizard) use `<RouteSpinner />` instead. `LoadingSkeleton` is the dashboard's own data-loading placeholder, not a route fallback.
-- Error routes (`*`, `/error/403`, `/error/500`) sit under `ErrorLayout`, which renders the app shell for a signed-in user and a bare full-screen page otherwise.
+- Error routes (`*`, `/error/403`, `/error/500`) sit under `ErrorLayout`, which renders the app shell for a signed-in user and a bare full-screen page otherwise. It probes the cookie session like `RequireAuth`, so a Remember Me user keeps the shell. On `/error/*` the API client never redirects to another error page, because the shell's own queries could fail there and reload the page forever.
 - Vite path aliases: `@/` maps to `src/`.
 
 ## Styling
