@@ -11,8 +11,9 @@ Nothing listens on the published port outside a hand-off. Each hand-off gets a f
 password; it is written to a 0600 file that x11vnc deletes as it reads it, so it never shows in a
 process list, and it leaves the sidecar only through `/progress/{member}` (API-key protected).
 
-One display means one viewer: a second hand-off while one is open is refused, and the caller
-falls back to the plain HUMAN_VERIFICATION_REQUIRED error.
+The view shares the whole display, so it must only ever show one member's browser: main.py runs
+one headful login at a time (`_display_lock`). A second hand-off while one is open is refused all
+the same, and the caller falls back to the plain HUMAN_VERIFICATION_REQUIRED error.
 """
 
 import asyncio

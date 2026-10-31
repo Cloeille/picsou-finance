@@ -60,6 +60,12 @@ describe('revolutViewerUrl', () => {
     expect(revolutViewerUrl(handOff, '::1')).toMatch(/^http:\/\/\[::1\]:6080\//)
   })
 
+  it('keeps the brackets of an IPv6 hostname as the browser reports it', () => {
+    const url = new URL(revolutViewerUrl(handOff, new URL('http://[::1]:8080').hostname)!)
+
+    expect(url.host).toBe('[::1]:6080')
+  })
+
   it('offers nothing outside a hand-off or without the view\'s port and password', () => {
     expect(revolutViewerUrl(undefined, 'h')).toBeNull()
     expect(revolutViewerUrl({ ...handOff, phase: 'AWAITING_APPROVAL' }, 'h')).toBeNull()

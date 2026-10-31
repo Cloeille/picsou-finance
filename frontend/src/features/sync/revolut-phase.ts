@@ -35,7 +35,9 @@ export function revolutPhaseLabel(t: TFunction, progress: SyncProgress | undefin
 export function revolutViewerUrl(progress: SyncProgress | undefined, host: string): string | null {
   if (progress?.phase !== 'AWAITING_HUMAN' || !progress.viewerPort || !progress.viewerPassword) return null
   const options = new URLSearchParams({ autoconnect: 'true', resize: 'scale', password: progress.viewerPassword })
-  return `http://${host.includes(':') ? `[${host}]` : host}:${progress.viewerPort}/vnc.html#${options}`
+  // `location.hostname` already brackets an IPv6 literal; only a bare one needs them.
+  const urlHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+  return `http://${urlHost}:${progress.viewerPort}/vnc.html#${options}`
 }
 
 const ERROR_KEYS: Record<string, string> = {

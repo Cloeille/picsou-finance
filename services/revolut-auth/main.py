@@ -887,6 +887,12 @@ async def _fill_passcode(page, passcode: str) -> bool:
 # uvicorn worker (one event loop), so an in-process asyncio.Lock per member suffices.
 _member_locks: Dict[str, asyncio.Lock] = {}
 
+# Every headful browser draws on the one virtual display, and the captcha remote view
+# (viewer.py) shares that whole display: while two members' logins overlap, the view opened for
+# one would show and control the other's banking session. So at most one headful login runs at a
+# time, across members; the headless session reuse never draws on the display and is not held.
+_display_lock = asyncio.Lock()
+
 # Live sync progress, keyed identically to _member_locks (_profile_key(member_id)). Read by
 # GET /progress/{member_id} so the backend can poll phase/countdown/accounts-found while the
 # blocking POST /sync call is in flight -- same single-uvicorn-worker/single-event-loop safety
@@ -1000,13 +1006,16 @@ async def sync(req: SyncRequest):
             log.warning("member %s: a login already failed today, not trying again until tomorrow",
                         safe(req.memberId))
             return login_paced()
+        if _display_lock.locked():
+            log.info("member %s: another member's login holds the display -- rejecting", safe(req.memberId))
+            return sync_in_progress()
         log.info("member %s: no reusable session (%.1fs), starting fresh login",
                   req.memberId, time.monotonic() - t0)
 
         _set_progress(req.memberId, "LOGGING_IN")
         t0 = time.monotonic()
         try:
-            async with _open_camoufox(req.memberId, headless=False, recover_profile=True) as ctx:
+            async with _display_lock, _open_camoufox(req.memberId, headless=False, recover_profile=True) as ctx:
                 page = await ctx.new_page()
                 handoff = _CaptchaHandoff(page, req.memberId)
                 try:

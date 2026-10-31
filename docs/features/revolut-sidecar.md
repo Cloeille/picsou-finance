@@ -227,8 +227,9 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   URL fragment, which no server or proxy ever sees). The budget is 240 s per login, shared by every
   captcha that login meets; the approval window is not charged for the time spent on the captcha.
   Each hand-off has a fresh random password in a 0600 file that x11vnc deletes as it reads it; nothing
-  listens on `6080` outside a hand-off, and one display means one hand-off at a time (a second login
-  meeting a captcha meanwhile gets `403` at once). If the view cannot start (missing binary, no display) or
+  listens on `6080` outside a hand-off. The view shares the whole display, so only one headful login
+  runs at a time across members (`_display_lock`): a fresh login asked for while another member's is on
+  the display gets `409 SYNC_IN_PROGRESS` at once, opens no browser and is not paced. If the view cannot start (missing binary, no display) or
   nobody solves the captcha in time, the sidecar answers a flat `403 HUMAN_VERIFICATION_REQUIRED`; the
   progress phase never reaches `AWAITING_APPROVAL` for a push that was not sent. The session the member
   unlocks is saved in the persistent profile like any login, so later syncs reuse it.

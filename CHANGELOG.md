@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   while you solve it yourself. Picsou never solves a captcha for you. The sidecar now keeps the
   same browser identity for each member, to make the challenge rarer, and does not start a new
   automatic login the same day after one has failed (`LOGIN_PACED`; the scheduled sync only
-  reuses a live session). The Revolut sidecar publishes port 6080 for that window. See
+  reuses a live session). The Revolut sidecar publishes port 6080 for that window. That window
+  shows the sidecar's whole screen, so only one member's Revolut login runs at a time: another
+  member asking for a new login meanwhile is told to wait and try again. See
   [ADR](docs/decisions/2026-10-21-revolut-captcha-hand-off.md) and
   [feature note](docs/features/revolut-sidecar.md).
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in

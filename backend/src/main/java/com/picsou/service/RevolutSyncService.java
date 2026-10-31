@@ -335,8 +335,8 @@ public class RevolutSyncService {
             case "UPSTREAM_FORMAT_CHANGED" ->
                 "The Revolut sign-in didn't go through. Check your phone number and try again.";
             case "SYNC_IN_PROGRESS" ->
-                "A Revolut sync is already running for this account. Please wait for it to finish " +
-                    "before starting another.";
+                "A Revolut sync is already running for this account, or another member is signing " +
+                    "in to Revolut. Please wait for it to finish before starting another.";
             case "BROWSER_LAUNCH_FAILED" ->
                 "The Revolut browser service could not start. Please try again after restarting " +
                     "the connector.";

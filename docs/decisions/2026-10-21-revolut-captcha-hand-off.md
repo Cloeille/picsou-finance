@@ -65,8 +65,10 @@ checkbox and a parked challenge); presence alone says nothing.
   plain HTTP/WebSocket (like Picsou's own port 8080 without the optional `tls` profile): a member who
   exposes Picsou beyond the home network must put the port behind the same reverse proxy or not use
   the hand-off remotely.
-- One display, so one hand-off at a time; a second member meeting a captcha meanwhile gets the plain
-  `HUMAN_VERIFICATION_REQUIRED`.
+- One display, and the view shares all of it: a second member's browser on that display would be seen
+  and controlled from the first member's view. So one headful login runs at a time across members; a
+  second member's fresh login meanwhile gets `409 SYNC_IN_PROGRESS` without a browser and tries again
+  later. Session reuse (headless) is not affected.
 - A failed login blocks fresh logins for that member until the next day (Europe/Paris), even if the
   cause was a wrong attempt. Deleting `<member>.login-failed` lifts it.
 - The pinned fingerprint cannot be proven to lower the captcha rate from the code; it removes one known

@@ -464,6 +464,44 @@ async def test_the_view_is_closed_even_when_the_wait_is_cancelled(monkeypatch):
     assert (fake.opened, fake.closed) == (1, 1)
 
 
+async def test_another_members_login_never_runs_on_the_display_a_captcha_view_shares(monkeypatch):
+    """The view shares the whole virtual display: while it is open for member 1, member 2's
+    browser must not be on that display, or member 1 sees and controls member 2's bank session."""
+    import asyncio
+    fake = FakeViewer()
+    in_handoff, release = asyncio.Event(), asyncio.Event()
+    first = FakePage({2: _show_captcha})
+    scripted_wait = first.wait_for_timeout
+
+    async def wait(ms):
+        if fake.opened > fake.closed and not release.is_set():
+            in_handoff.set()
+            await release.wait()
+            _solve_captcha(first)
+            _show_phone(first)
+        await scripted_wait(ms)
+
+    first.wait_for_timeout = wait
+    task = asyncio.create_task(_run_sync(monkeypatch, first, [], start_viewer=fake.start))
+    await asyncio.wait_for(in_handoff.wait(), 5)
+    launches = []
+    second = FakePage({2: _show_passcode})
+    monkeypatch.setattr(main, "_open_camoufox",
+                        lambda member_id, **_k: launches.append(member_id) or _fake_camoufox(second))
+    other = main.SyncRequest(phoneNumber="0611111111", passcode="654321", memberId="2")
+
+    blocked = await main.sync(other)
+
+    assert launches == [], "no second headful browser while member 1's captcha view is open"
+    assert blocked.status_code == 409
+    assert json.loads(blocked.body) == {"error": "SYNC_IN_PROGRESS"}
+    assert not main.member_state.login_failed_on(main._member_file("2", "login-failed"), main._today()), \
+        "member 2 tried no login, so it is not paced"
+    release.set()
+    assert await asyncio.wait_for(task, 5) == {"accounts": []}
+    assert await main.sync(other) == {"accounts": []} and launches == ["2"], "the display is free again"
+
+
 async def test_without_a_remote_view_a_captcha_is_reported_at_once_and_the_failure_is_remembered(monkeypatch):
     page = FakePage({2: _show_captcha})
 
