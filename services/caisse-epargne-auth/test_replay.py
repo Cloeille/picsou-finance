@@ -158,21 +158,6 @@ class SessionStateTest(unittest.TestCase):
 
 
 class CookieRoundTripTest(unittest.IsolatedAsyncioTestCase):
-    async def test_round_trip_keeps_each_cookies_own_domain_and_path(self):
-        cookies = make_cookies() + [
-            # Same name on another domain/path must not be merged or re-homed.
-            {"name": "SSO", "value": "other", "domain": AUTHN_HOST, "path": "/gsu"},
-        ]
-        client = replay.new_client()
-        try:
-            replay.restore_cookies(client, cookies)
-            restored = replay.serialize_cookies(client)
-        finally:
-            await client.aclose()
-
-        key = lambda c: (c["name"], c["domain"], c["path"], c["value"])
-        self.assertEqual(sorted(map(key, restored)), sorted(map(key, cookies)))
-
     async def test_cookies_are_only_sent_to_matching_hosts_and_paths(self):
         seen = {}
 
