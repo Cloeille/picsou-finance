@@ -427,7 +427,24 @@ jobs:
   # Images are only published after every CI job is green, and only on a push
   # to main or a version tag — not on pull requests.
   docker:
-    needs: [backend, frontend, e2e, tr-auth-sidecar, bourse-direct-sidecar, bourso-sidecar, amundi-sidecar]
+    needs:
+      - release-deployment
+      - docker-entrypoint
+      - backend
+      - frontend
+      - e2e
+      - bourse-direct-sidecar
+      - fortuneo-sidecar
+      - bourso-sidecar
+      - caisse-epargne-sidecar
+      - corum-sidecar
+      - sofidy-sidecar
+      - amundi-sidecar
+      - amex-auth-sidecar
+      - degiro-auth-sidecar
+      - tr-auth-sidecar
+      - compose-sidecar-build
+      - workflow-inventory
     if: github.event_name == 'push'
     uses: ./.github/workflows/docker.yml
     secrets: inherit

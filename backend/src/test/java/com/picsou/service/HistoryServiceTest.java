@@ -856,10 +856,15 @@ class HistoryServiceTest {
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(fondsEuros));
         List<NetWorthIntradayPoint> afterImport = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
 
-        assertThat(beforeImport).isNotEmpty();
-        assertThat(beforeImport).allSatisfy(p -> assertThat(p.total()).isEqualByComparingTo("21376.93"));
-        assertThat(afterImport).isNotEmpty();
-        assertThat(afterImport).allSatisfy(p -> assertThat(p.total()).isEqualByComparingTo("21376.93"));
+        // The split-out cash is worth what it cost, so capital invested holds still too.
+        assertThat(beforeImport).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("21376.93");
+            assertThat(p.invested()).isEqualByComparingTo("21376.93");
+        });
+        assertThat(afterImport).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("21376.93");
+            assertThat(p.invested()).isEqualByComparingTo("21376.93");
+        });
     }
 
     @Test
