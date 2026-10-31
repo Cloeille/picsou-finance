@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['[0-9]*', 'v[0-9]*']
 
 permissions:
   contents: read
@@ -350,12 +351,33 @@ jobs:
           --volume "${{ github.workspace }}/services/tr-auth/main.py:/tests/main.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_complete_url.py:/tests/test_complete_url.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_log_safety.py:/tests/test_log_safety.py:ro"
+          --volume "${{ github.workspace }}/services/tr-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_mask_phone.py:/tests/test_mask_phone.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_refresh_method.py:/tests/test_refresh_method.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
           --workdir /tests
           picsou-tr-auth:test
           -m unittest discover -v
+
+  revolut-auth-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the Revolut sidecar image
+        run: docker build --tag picsou-revolut-auth:test services/revolut-auth
+      # The async tests need pytest-asyncio, a test-only dependency the image does not ship.
+      - name: Run sidecar tests in the image
+        run: >-
+          docker run --rm
+          --entrypoint sh
+          --env PYTHONDONTWRITEBYTECODE=1
+          --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/revolut-auth/tests:/app/tests:ro"
+          picsou-revolut-auth:test
+          -c "python -m pip install --user --no-cache-dir --no-warn-script-location pytest==8.4.2 pytest-asyncio==1.2.0
+          && python -m pytest -p no:cacheprovider -p no:logging --asyncio-mode=auto -v tests"
 
   compose-sidecar-build:
     # The Compose wiring (build-only bases, `additional_contexts: service:`)
@@ -394,3 +416,63 @@ jobs:
         run: python -m pip install PyYAML==6.0.3
       - name: Check sidecar workflow inventory
         run: python -m unittest discover -s .github/tests -v
+
+  e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+      - name: Run Playwright E2E (demo mode)
+        env:
+          VITE_DEMO_MODE: 'true'
+        run: bun run test:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
+  # Images are only published after every CI job is green, and only on a push
+  # to main or a version tag — not on pull requests.
+  docker:
+    needs:
+      - release-deployment
+      - docker-entrypoint
+      - backend
+      - frontend
+      - e2e
+      - bourse-direct-sidecar
+      - fortuneo-sidecar
+      - bourso-sidecar
+      - caisse-epargne-sidecar
+      - corum-sidecar
+      - sofidy-sidecar
+      - amundi-sidecar
+      - amex-auth-sidecar
+      - degiro-auth-sidecar
+      - tr-auth-sidecar
+      - revolut-auth-sidecar
+      - compose-sidecar-build
+      - workflow-inventory
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/docker.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write

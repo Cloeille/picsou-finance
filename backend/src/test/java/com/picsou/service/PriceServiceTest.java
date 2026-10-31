@@ -133,7 +133,7 @@ class PriceServiceTest {
     @Test
     void quote_carriesTheRecordedDate_andSaysItIsNotLive() {
         LocalDate yesterday = LocalDate.now().minusDays(1);
-        when(priceProvider.supports("SOL")).thenReturn(true);
+        when(priceProvider.supportsCrypto("SOL")).thenReturn(true);
         when(priceProvider.getPricesEur(Set.of("SOL"))).thenReturn(Map.of());
         when(priceSnapshotRepository.findRecentByTickers(eq(Set.of("SOL")), any(), any()))
             .thenReturn(List.of(snapshot("SOL", yesterday, "63.20")));
@@ -149,7 +149,7 @@ class PriceServiceTest {
 
     @Test
     void quote_fromTheProvider_isLiveAndDatedToday() {
-        when(priceProvider.supports("BTC")).thenReturn(true);
+        when(priceProvider.supportsCrypto("BTC")).thenReturn(true);
         when(priceProvider.getPricesEur(Set.of("BTC"))).thenReturn(Map.of("BTC", new BigDecimal("54619")));
 
         PriceService.Quote quote = priceService.getCryptoQuote("BTC");
@@ -190,7 +190,7 @@ class PriceServiceTest {
     @Test
     void aSetOfTickersCostsOneProviderCall() {
         Set<String> tickers = Set.of("BTC", "ETH", "SOL");
-        tickers.forEach(t -> when(priceProvider.supports(t)).thenReturn(true));
+        tickers.forEach(t -> when(priceProvider.supportsCrypto(t)).thenReturn(true));
         when(priceProvider.getPricesEur(any())).thenReturn(Map.of(
             "BTC", new BigDecimal("54619"),
             "ETH", new BigDecimal("1619"),
@@ -203,7 +203,7 @@ class PriceServiceTest {
 
     @Test
     void cryptoLookupOfAnUnmappedTicker_neverReachesTheRecordedPrices() {
-        when(priceProvider.supports("STX")).thenReturn(false);
+        when(priceProvider.supportsCrypto("STX")).thenReturn(false);
 
         assertThat(priceService.getCryptoQuote("STX")).isNull();
 
@@ -214,9 +214,19 @@ class PriceServiceTest {
     }
 
     @Test
+    void cryptoBackfillOfAnUnmappedTicker_neverFetchesTheHistoryOfTheStockOfThatName() {
+        when(priceProvider.supportsCrypto("REG")).thenReturn(false);
+
+        priceService.backfillHistoricalPrices(Set.of("REG"), LocalDate.now().minusDays(30), true);
+
+        verify(priceProvider, org.mockito.Mockito.never()).getHistoricalPricesEur(any(), any(), any());
+        verify(priceSnapshotRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
     void refreshCryptoQuotes_valuesFromTheRecordedPrice_withoutRerecordingItAsToday() {
         LocalDate yesterday = LocalDate.now().minusDays(1);
-        when(priceProvider.supports("ATOM")).thenReturn(true);
+        when(priceProvider.supportsCrypto("ATOM")).thenReturn(true);
         when(priceProvider.getPricesEur(any())).thenReturn(Map.of());
         when(priceSnapshotRepository.findRecentByTickers(eq(Set.of("ATOM")), any(), any()))
             .thenReturn(List.of(snapshot("ATOM", yesterday, "1.065")));
