@@ -54,8 +54,12 @@ import {
   useInitiateTrAuth,
   useCompleteTrAuth,
   useSyncBourso,
+  useCaisseEpargneSessionStatus,
+  useSyncCaisseEpargne,
   useCmesStatus,
   useSyncCmes,
+  useCicStatus,
+  useSyncCic,
   useAmundiStatus,
   useSyncAmundi,
   useFortuneoStatus,
@@ -89,13 +93,15 @@ type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
-    | 'amex' | 'corum' | 'sofidy' | 'cmes'
+    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'cmes' | 'cic'
   name: string
   status: string
   lastSyncedAt: string | null
   syncId?: number
   /** Session-based providers open their tab to re-authenticate instead of firing a doomed sync. */
   needsReauth?: boolean
+  /** Its tab can log in again from stored credentials, so the row asks it to start at once. */
+  canReconnect?: boolean
 }
 
 
@@ -116,7 +122,9 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   amex: CreditCard,
   corum: Building2,
   sofidy: Building2,
+  'caisse-epargne': Landmark,
   cmes: PiggyBank,
+  cic: PiggyBank,
 }
 
 /** Which Sync-page tab each provider re-authenticates on. */
@@ -131,7 +139,9 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   amex: 'amex',
   corum: 'corum',
   sofidy: 'sofidy',
+  'caisse-epargne': 'caisse-epargne',
   cmes: 'cmes',
+  cic: 'cic',
   finary: 'finary',
 }
 
@@ -185,6 +195,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: wallets, isLoading: walletsLoading } = useCryptoWallets()
   const { data: trStatus } = useTrSessionStatus()
   const { data: boursoStatus } = useBoursoSessionStatus()
+  const { data: caisseEpargneStatus } = useCaisseEpargneSessionStatus()
   const { data: revolutStatus } = useRevolutStatus()
   const { data: finaryStatus } = useFinaryConnectionStatus()
   const { data: amundiStatus } = useAmundiStatus()
@@ -197,6 +208,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: corumStatus } = useCorumStatus()
   const { data: sofidyStatus } = useSofidyStatus()
   const { data: cmesStatus } = useCmesStatus()
+  const { data: cicStatus } = useCicStatus()
   const { data: accounts } = useAccounts()
 
   // Show TR in modal if: there are active TR accounts, the session is active, or the session
@@ -235,6 +247,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       type: 'bourso' as const, name: 'BoursoBank', provider: 'BoursoBank',
       active: boursoStatus?.isActive ?? false, lastSyncedAt: boursoStatus?.lastSyncCompletedAt ?? null,
       failed: boursoStatus?.syncStatus === 'FAILED',
+    },
+    {
+      type: 'caisse-epargne' as const, name: "Caisse d'Epargne", provider: "Caisse d'Epargne",
+      active: caisseEpargneStatus?.isActive ?? false, lastSyncedAt: caisseEpargneStatus?.lastSyncCompletedAt ?? null,
+      failed: caisseEpargneStatus?.syncStatus === 'FAILED',
     },
     {
       type: 'bourse-direct' as const, name: 'Bourse Direct', provider: 'Bourse Direct',
@@ -285,7 +302,14 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       hasSession: cmesStatus != null && cmesStatus.syncStatus !== 'IDLE',
       failed: cmesStatus?.syncStatus === 'FAILED',
     },
-  ], [cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
+    {
+      type: 'cic' as const, name: 'CIC (livrets)', provider: 'CIC',
+      active: cicStatus?.isActive ?? false, lastSyncedAt: cicStatus?.lastSyncCompletedAt ?? null,
+      hasSession: cicStatus != null && cicStatus.syncStatus !== 'IDLE',
+      failed: cicStatus?.syncStatus === 'FAILED',
+      canReconnect: cicStatus?.canReconnect === true,
+    },
+  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -295,6 +319,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const initiateTrMutation   = useInitiateTrAuth()
   const completeTrMutation   = useCompleteTrAuth()
   const syncBoursoMutation   = useSyncBourso()
+  const syncCaisseEpargneMutation = useSyncCaisseEpargne()
   const syncAmundiMutation       = useSyncAmundi()
   const syncFortuneoMutation     = useSyncFortuneo()
   const syncBourseDirectMutation = useSyncBourseDirect()
@@ -307,6 +332,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncCorumMutation        = useSyncCorum()
   const syncSofidyMutation       = useSyncSofidy()
   const syncCmesMutation = useSyncCmes()
+  const syncCicMutation = useSyncCic()
 
   // Track syncing state per connection
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set())
@@ -403,6 +429,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         // clears on its own -- so a failed-but-live session keeps its retry button. Only a
         // session that is gone, or one the provider explicitly flags, goes to its tab.
         needsReauth: !provider.active || provider.reauth === true,
+        canReconnect: provider.canReconnect,
       })
     }
     if (hasRevolutAccount) {
@@ -482,6 +509,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'bourso':
         syncBoursoMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'caisse-epargne':
+        syncCaisseEpargneMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'amundi':
         syncAmundiMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -511,6 +541,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         break
       case 'cmes':
         syncCmesMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
+      case 'cic':
+        syncCicMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
       case 'revolut':
         // Remembered credentials: a blank body makes the backend fall back to them. The spinner
@@ -544,6 +577,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncWalletMutation,
     syncTrMutation,
     syncBoursoMutation,
+    syncCaisseEpargneMutation,
     syncAmundiMutation,
     syncFortuneoMutation,
     syncBourseDirectMutation,
@@ -555,6 +589,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncCorumMutation,
     syncSofidyMutation,
     syncCmesMutation,
+    syncCicMutation,
     queryClient,
     t,
   ])
@@ -613,7 +648,10 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     // those flows need multi-step forms or a mobile approval, and firing a sync would only 401.
     const tab = ownTab(connection, revolutStatus?.remembered === true)
     if (tab) {
-      navigate(`/sync?tab=${tab}`)
+      // A lapsed session with stored credentials only needs the phone confirmation: the tab
+      // starts that reconnect on arrival instead of showing the login form.
+      const reconnect = connection.needsReauth && connection.canReconnect ? '&reconnect=1' : ''
+      navigate(`/sync?tab=${tab}${reconnect}`)
       onOpenChange(false)
       return
     }
@@ -768,7 +806,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                                   : isRevolut
                                     ? t('sync.revolut.notConnected')
                                     : t('sync.all.sessionExpired')
-                                : connection.status}
+                                : t(`sync.connectionStatus.${connection.status}`, { defaultValue: connection.status })}
                             </Badge>
                             {isTr && (
                               <Tooltip>
@@ -792,7 +830,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {t('sync.all.lastSync')}: {formatTimeAgo(connection.lastSyncedAt)}
+                            {t('common.labelColon', { label: t('sync.all.lastSync') })} {formatTimeAgo(connection.lastSyncedAt)}
                           </p>
                           {rowErrors[connection.id] && (
                             <p className="flex items-center gap-1.5 text-xs text-destructive">

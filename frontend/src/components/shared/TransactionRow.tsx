@@ -41,12 +41,12 @@ export function TransactionRow({ transaction: tx, logoUrlFor, onClick, index = 0
             </p>
             {tx.isManual && (
               <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0">
-                Manuel
+                {t('accounts.manual')}
               </span>
             )}
           </div>
           {(tx.accountName || tx.category) && (
-            <p className="text-xs text-muted-foreground px-1.5 py-0.5">
+            <p className="text-xs text-muted-foreground py-0.5">
               {[tx.accountName, tx.category].filter(Boolean).join(' — ')}
             </p>
           )}
@@ -55,6 +55,7 @@ export function TransactionRow({ transaction: tx, logoUrlFor, onClick, index = 0
       <CurrencyDisplay
         value={tx.amount}
         currency={tx.nativeCurrency}
+        showSign={tx.amount !== 0}
         className={cn(
           'ml-4 text-base font-semibold tabular-nums shrink-0',
           tx.amount >= 0 ? 'text-emerald-500' : 'text-foreground',

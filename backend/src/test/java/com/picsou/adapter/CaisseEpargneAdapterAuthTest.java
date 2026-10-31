@@ -164,7 +164,7 @@ class CaisseEpargneAdapterAuthTest {
             root.detachAppender(appender);
             root.setLevel(previous);
         }
-        assertThat(appender.list).isNotEmpty().allSatisfy(event -> {
+        assertThat(snapshot(appender)).isNotEmpty().allSatisfy(event -> {
             assertThat(event.getFormattedMessage()).doesNotContain(CUSTOMER_ID);
             assertThat(String.valueOf(event.getThrowableProxy() == null ? ""
                 : ch.qos.logback.classic.spi.ThrowableProxyUtil.asString(event.getThrowableProxy())))
@@ -526,7 +526,7 @@ class CaisseEpargneAdapterAuthTest {
             root.detachAppender(appender);
             root.setLevel(previous);
         }
-        assertThat(appender.list).allSatisfy(event -> {
+        assertThat(snapshot(appender)).allSatisfy(event -> {
             assertThat(event.getFormattedMessage()).doesNotContain(POSITIONS_JSON).doesNotContain("[7, 3");
             assertThat(String.valueOf(event.getThrowableProxy() == null ? ""
                 : ch.qos.logback.classic.spi.ThrowableProxyUtil.asString(event.getThrowableProxy())))
@@ -608,6 +608,19 @@ class CaisseEpargneAdapterAuthTest {
     }
 
     // -- helpers ------------------------------------------------------------
+
+    /**
+     * Copies what the root appender caught. Other threads (Spring contexts left by earlier test
+     * classes in the same JVM) keep logging into it, even after the detach: a thread that already
+     * read the appender list still appends. {@code ListAppender.list} is a plain ArrayList written
+     * under the appender's monitor ({@code AppenderBase.doAppend} is synchronized), so the copy
+     * takes that monitor instead of iterating the live list.
+     */
+    private static List<ILoggingEvent> snapshot(ListAppender<ILoggingEvent> appender) {
+        synchronized (appender) {
+            return List.copyOf(appender.list);
+        }
+    }
 
     private static CaisseEpargneAdapter adapterOf(ExchangeFunction exchange) {
         return new CaisseEpargneAdapter(WebClient.builder().exchangeFunction(exchange).build(), new ObjectMapper());

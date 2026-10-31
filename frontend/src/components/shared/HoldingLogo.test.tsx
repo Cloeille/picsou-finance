@@ -26,14 +26,36 @@ describe('HoldingLogo', () => {
     expect(container.querySelector('img')).toHaveAttribute('alt', 'BTC')
   })
 
-  it('renders an empty mark when there is no logo', () => {
+  it("shows the name's initials when there is no logo", () => {
     // A share whose mark was never stored. The caller renders the ticker as text beside this, so
     // the fallback must not repeat it.
-    const { container } = render(<HoldingLogo logoUrl={null} ticker="AAPL" />)
+    const { container } = render(<HoldingLogo logoUrl={null} ticker="IWDA" name="iShares Core MSCI World" />)
 
     expect(container.querySelector('img')).not.toBeInTheDocument()
+    expect(container.textContent).toBe('IC')
+    expect(container.textContent).not.toContain('IWDA')
+  })
+
+  it('keeps an empty disc when there is neither a logo nor a name', () => {
+    // An exchange coin line: its only initials would be the ticker's, printed right beside it.
+    const { container } = render(<HoldingLogo logoUrl={null} ticker="BTC" />)
+
     expect(container.textContent).toBe('')
-    // The disc is still there, so the column does not jump when a mark is missing.
+    expect(container.querySelector('[data-slot="avatar-fallback"]')).toBeInTheDocument()
+  })
+
+  it('keeps an empty disc when the name is blank', () => {
+    const { container } = render(<HoldingLogo logoUrl={null} ticker="BTC" name="   " />)
+
+    expect(container.textContent).toBe('')
+    expect(container.querySelector('[data-slot="avatar-fallback"]')).toBeInTheDocument()
+  })
+
+  it('keeps an empty disc when the name is only the ticker', () => {
+    // A dividend without a known name: the backend fills the name with the ticker.
+    const { container } = render(<HoldingLogo logoUrl={null} ticker="IWDA" name="iwda" />)
+
+    expect(container.textContent).toBe('')
     expect(container.querySelector('[data-slot="avatar-fallback"]')).toBeInTheDocument()
   })
 

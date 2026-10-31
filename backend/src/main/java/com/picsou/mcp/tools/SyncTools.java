@@ -21,7 +21,9 @@ import java.util.Set;
 /**
  * MCP tools that refresh the authenticated member's existing connections.
  * Every trigger goes through {@link MemberSyncService}, the same owner as the 08:00 scheduler.
- * They never open a new connection or re-authenticate.
+ * They never open a new connection. BoursoBank and Crédit Mutuel / CIC Épargne Salariale log in
+ * again with their stored credentials when the session has expired; no source completes a new
+ * second factor, so one that asks for it is reported as needing reauthentication.
  *
  * <p>The bean name is set explicitly because Spring AI's {@code ToolCallbackConverterAutoConfiguration}
  * defines a {@code @Bean} factory method named {@code syncTools}. A default {@code syncTools} name
@@ -57,7 +59,9 @@ public class SyncTools {
     @Tool(name = "trigger_full_sync",
         description = "Refresh every existing connector for the authenticated member, in the same order "
             + "as the 08:00 scheduler. DEGIRO is included because this call is user-initiated. "
-            + "Does not connect a new source or re-authenticate. Returns one status line per source; "
+            + "Does not connect a new source. BoursoBank and Crédit Mutuel / CIC Épargne Salariale log in "
+            + "again with their stored credentials when the session has expired; no source completes a new "
+            + "second factor. Returns one status line per source; "
             + "a failure or a source that needs reauthentication is named, not hidden. "
             + SHARED_COOLDOWN_DESCRIPTION)
     @RequiresScope(Scopes.SYNC_TRIGGER)
@@ -78,7 +82,9 @@ public class SyncTools {
     @Tool(name = "trigger_broker_sync",
         description = "Refresh the authenticated member's existing broker connections: Trade Republic, "
             + "BoursoBank, Bourse Direct, Amundi, Crédit Mutuel / CIC Épargne Salariale, Fortuneo, American Express, IBKR, and DEGIRO when the session is "
-            + "still active. Does not re-authenticate. Returns one status line per source." + SHARED_COOLDOWN_DESCRIPTION)
+            + "still active. Does not connect a new source. BoursoBank and Crédit Mutuel / CIC Épargne Salariale "
+            + "log in again with their stored credentials when the session has expired; no source completes a "
+            + "new second factor. Returns one status line per source." + SHARED_COOLDOWN_DESCRIPTION)
     @RequiresScope(Scopes.SYNC_TRIGGER)
     public String triggerBrokerSync() {
         return trigger(BROKER_SOURCES);

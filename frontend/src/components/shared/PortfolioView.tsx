@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { formatApiError } from '@/lib/errors'
-import { cn } from '@/lib/utils'
+import { cn, formatPercent } from '@/lib/utils'
 import { accountTypeLabelKey } from '@/lib/constants'
 import { Search } from 'lucide-react'
 
@@ -57,7 +57,7 @@ function PortfolioItem({ line }: { line: PortfolioLine }) {
           <div className="flex flex-col items-end gap-0.5">
             <span className="text-sm text-muted-foreground">{t('portfolio.pnl')}</span>
             <span className={cn('text-sm font-medium tabular-nums', isPositive ? 'text-emerald-500' : 'text-red-500')}>
-              {isPositive ? '+' : ''}{line.pnlPercent?.toFixed(1)}%
+              {line.pnlPercent != null ? formatPercent(line.pnlPercent, { signed: true }) : '—'}
             </span>
           </div>
         )}

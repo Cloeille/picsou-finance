@@ -40,6 +40,7 @@ services:
       AMEX_AUTH_URL: http://amex-auth:8001
       DEGIRO_AUTH_URL: http://degiro-auth:8001
       CMES_AUTH_URL: http://cmes-auth:8001
+      CIC_AUTH_URL: http://cic-auth:8001
       CORUM_AUTH_URL: http://corum-auth:8001
       SOFIDY_AUTH_URL: http://sofidy-auth:8001
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -58,6 +59,8 @@ services:
       degiro-auth:
         condition: service_started
       cmes-auth:
+        condition: service_started
+      cic-auth:
         condition: service_started
       amundi-auth:
         condition: service_started
@@ -260,6 +263,20 @@ services:
   cmes-auth:
     build:
       context: ./services/cmes-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    networks:
+      - picsou-net
+
+  cic-auth:
+    build:
+      context: ./services/cic-auth
       dockerfile: Dockerfile
       args:
         SIDECAR_BASE: sidecar-python

@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { TrendingUp, TrendingDown, Loader2 } from 'lucide-react'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
+import { formatPercent } from '@/lib/utils'
 
 interface GoalDetailModalProps {
   goalId: number | null
@@ -156,7 +157,7 @@ export function GoalDetailModal({ goalId, onClose }: GoalDetailModalProps) {
               <div className="grid grid-cols-4 gap-4 pt-4 border-t">
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">{t('goals.progress')}</p>
-                  <p className="text-sm font-semibold">{Math.round(goal.percentComplete ?? 0)}%</p>
+                  <p className="text-sm font-semibold">{formatPercent(goal.percentComplete ?? 0, { fractionDigits: 0 })}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">{t('goals.monthsLeft')}</p>

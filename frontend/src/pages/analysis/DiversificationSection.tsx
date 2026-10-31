@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { OTHERS_SLICE_COLOR, SLICE_PALETTE } from '@/lib/chart-palette'
-import { cn } from '@/lib/utils'
+import { cn, formatDecimal, formatPercent } from '@/lib/utils'
 import { useRefreshSecurityProfiles } from '@/features/analysis/hooks'
 import { HoldingClassificationModal } from './HoldingClassificationModal'
 import { SliceContributors } from './SliceContributors'
@@ -111,7 +111,7 @@ function BreakdownBar({
           </span>
           <span className="text-xs text-muted-foreground">
             {t('analysis.diversification.effective', {
-              value: breakdown.effectiveCount.toFixed(1),
+              value: formatDecimal(breakdown.effectiveCount, 1),
               target: breakdown.targetCount,
             })}
           </span>
@@ -161,7 +161,7 @@ function BreakdownBar({
                     aria-hidden="true"
                   />
                   <span className="text-foreground">{item.label}</span>
-                  <span className="text-muted-foreground">{item.percent.toFixed(1)}%</span>
+                  <span className="text-muted-foreground">{formatPercent(item.percent)}</span>
                 </button>
               </li>
             ))}
@@ -308,7 +308,7 @@ export function DiversificationSection({ data }: { data: Diversification }) {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4">
+      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <CardTitle>{t('analysis.diversification.title')}</CardTitle>
         {hasHoldings && (
           <div className="flex gap-1">
@@ -356,7 +356,7 @@ export function DiversificationSection({ data }: { data: Diversification }) {
             <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
               <span>
                 {t('analysis.diversification.coverage', {
-                  value: data.coveragePercent.toFixed(0),
+                  value: formatPercent(data.coveragePercent, { fractionDigits: 0 }),
                 })}
               </span>
               {data.unclassifiedValueEur > 0 && (

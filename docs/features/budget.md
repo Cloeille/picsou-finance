@@ -39,7 +39,7 @@ A single `BudgetLayout` (segmented sub-nav on desktop, bottom bar on mobile — 
 | Route | Page | Content |
 |-------|------|---------|
 | `/budget` (index) | `BudgetOverviewPage` | Hero "left to spend", mini-flow, Review banner (only if items), upcoming subscriptions, top categories |
-| `/budget/spending` | `SpendingPage` | Cashflow **flow diagram**: Sankey ≥ `md`, Flow Bars < `md` |
+| `/budget/spending` | `SpendingPage` | Cashflow **flow diagram**: Sankey in a card ≥ 640px, Flow Bars below |
 | `/budget/spending/:categoryId` | `CategoryDetailPage` | Per-category drill: transactions with `MerchantAvatar` |
 | `/budget/subscriptions` | `SubscriptionsPage` | Recurring series **v2**: auto-confirm + runtime/price badges (`SubscriptionCard`), "what changed" feed + undo (`ActivityFeed`), upcoming agenda |
 | `/budget/envelopes` | `EnvelopesPage` | Envelopes + allocation; a parent envelope rolls up its whole subtree (M4) |
@@ -168,10 +168,18 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
   - `GET /api/cashflow/flow?period=` → `CashflowFlowResponse` (nodes + links) — `CashflowController`.
   - `GET /api/spending/by-category?period=` → ranked expense list — `SpendingController`.
   - `GET /api/spending/category/{categoryId}?period=` → per-category drill — `SpendingController`.
-- **Frontend**: `CashflowSankey` (Recharts `Sankey`, OKLCH `--chart-*` tokens) ≥ `md`; `FlowBars`
-  (envelope-style progress bars) < `md`. They swap by **conditional mount** (not CSS hide) because
-  Recharts `ResponsiveContainer` measures 0×0 inside `display:none`. Pure mapping logic lives in
+- **Frontend**: `CashflowSankey` measures its card with a `ResizeObserver` and draws the Recharts
+  `Sankey` (OKLCH `--chart-*` tokens) only when it is at least 640px wide: two 200px label columns
+  plus a 240px diagram. A narrower card (phones, or a 768px window with the sidebar open, about
+  392px) gets `FlowBars` (envelope-style progress bars) instead; with less room than the label
+  columns Recharts would lay the columns out right to left. Pure mapping logic lives in
   `components/shared/flow-utils.ts` (unit-tested), keeping the component files Fast-Refresh-clean.
+  Every Sankey node except the hub carries its name and amount. Recharts sizes nodes by
+  `(height − (n−1)·nodePadding) / total`, so the padding stays fixed at one label line (18px) and the
+  diagram grows 30px per node in its busiest column past a 360px minimum: a long sink list can't
+  squeeze the nodes, and the labels, to nothing. The `FlowBars` sink list is titled "Income allocation"
+  ("Répartition du revenu"), not "Out": it also holds savings, transfers and money left unspent, so it
+  must not share a label with the expense KPI.
 - **`MerchantAvatar`** (`components/shared/MerchantAvatar.tsx`) — initial-monogram with a
   **deterministic colour derived from the name**, fully offline; switches to a proxied `<img>` only
   when `logo_fetch_enabled` (M5). Used across every transaction list.
@@ -404,7 +412,7 @@ Enable Banking sync ─▶ SyncService.fetchTransactions ─▶ dedup ─▶ per
 | Category **tree** (`parent_id`) + `slug` | Sub-categories; stable join key between global brands and member categories | Flat category list / match on names |
 | **Leaf-only** spend aggregation + client-side parent grouping | One row per leaf can't double-count under both parent and child; the client groups and ranks by rolled-up total | Server-side subtree rollups for the breakdown |
 | Nested-route IA (`BudgetLayout`) | Clean, scalable navigation; Review becomes contextual | Single 7-tab page |
-| Sankey ≥ `md`, Flow Bars < `md` (conditional mount) | Sankey is unreadable on phones; `ResponsiveContainer` is 0×0 under `display:none` | One chart for all sizes / CSS hide |
+| Sankey from a 640px card, Flow Bars below (by measured card width) | The Sankey needs its two label columns plus a readable diagram; a viewport breakpoint misses the sidebar eating the width | One chart for all sizes / CSS hide / viewport `md` breakpoint |
 | Configurable `cycleStartDay` (1–28) | Budgets track the pay cycle, not the calendar month | Fixed calendar month |
 | `CategoryKind` pivot (INCOME/EXPENSE/TRANSFER) | Transfers between own accounts must not count as spend/income | Single flat list |
 | **Silent auto-confirm** of high-confidence recurring series | Zero-config "grandmother" UX — nothing to triage in the ideal case | Always leave detections as `SUGGESTED` for manual review |

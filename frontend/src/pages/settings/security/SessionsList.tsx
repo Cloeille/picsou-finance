@@ -83,7 +83,7 @@ function SessionRow({
       <div className="flex-1 min-w-0 space-y-0.5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium truncate">
-            {prettyUserAgent(session.userAgent) || 'Unknown device'}
+            {prettyUserAgent(session.userAgent, t('settings.sessionsBrowser')) || t('settings.sessionsUnknownDevice')}
           </span>
           {session.current && (
             <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
@@ -100,7 +100,7 @@ function SessionRow({
         <p className="text-xs text-muted-foreground">
           {session.ipPrefix && <span className="font-mono">{session.ipPrefix}*</span>}
           {session.ipPrefix && ' · '}
-          {t('settings.sessionsLastUsed')}: {formatDate(session.lastUsedAt, locale)}
+          {t('common.labelColon', { label: t('settings.sessionsLastUsed') })} {formatDate(session.lastUsedAt, locale)}
         </p>
       </div>
       {!session.current && (
@@ -135,14 +135,14 @@ function isProbablyMobile(ua: string | null): boolean {
  * rabbit hole — we extract just enough for "is this my phone or my laptop?"
  * recognition. The full UA is intentionally not shown (noisy + low value).
  */
-function prettyUserAgent(ua: string | null): string {
+function prettyUserAgent(ua: string | null, unknownBrowser: string): string {
   if (!ua) return ''
   const browser =
     /Edg\//.test(ua) ? 'Edge' :
     /Chrome\//.test(ua) && !/Chromium/.test(ua) ? 'Chrome' :
     /Firefox\//.test(ua) ? 'Firefox' :
     /Safari\//.test(ua) && !/Chrome\//.test(ua) ? 'Safari' :
-    'Browser'
+    unknownBrowser
   const os =
     /Windows/.test(ua) ? 'Windows' :
     /Mac OS X|Macintosh/.test(ua) ? 'macOS' :

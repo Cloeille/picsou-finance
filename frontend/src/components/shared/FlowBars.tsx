@@ -2,12 +2,13 @@ import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import type { CashflowFlowResponse } from '@/types/api'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { formatPercent } from '@/lib/utils'
 import { type FlowBar, flowNodeColor, flowNodeLabel, flowSides } from './flow-utils'
 
 /**
- * Mobile (<md) fallback for `CashflowSankey`: the same flow data as two stacked,
- * largest-first proportion-bar lists (money in, money out). A Sankey is unreadable on a
- * narrow phone, so we trade the crossing ribbons for plain bars that still rank each
+ * Narrow-container fallback that `CashflowSankey` renders: the same flow data as two stacked,
+ * largest-first proportion-bar lists (money in, money out). A Sankey is unreadable without
+ * room for its label columns, so we trade the crossing ribbons for plain bars that still rank each
  * source/sink by share of its side. No width measurement needed — pure CSS widths.
  */
 
@@ -36,7 +37,7 @@ function FlowBarRow({ bar, sideTotal, t }: { bar: FlowBar; sideTotal: number; t:
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
-        aria-valuetext={`${percent}%`}
+        aria-valuetext={formatPercent(percent, { fractionDigits: 0 })}
       >
         <div
           className="h-full rounded-full transition-all"

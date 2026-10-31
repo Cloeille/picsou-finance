@@ -40,21 +40,22 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picsou}
       # application.yml reads SPRING_DATASOURCE_PASSWORD, not POSTGRES_PASSWORD.
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
-      TR_AUTH_URL: http://tr-auth:8001
+      TR_AUTH_URL: ${TR_AUTH_URL:-http://tr-auth:8001}
       # Opt-in anonymous telemetry: empty DSN = feature fully inactive (docs/features/telemetry.md)
       APP_TELEMETRY_DSN: ${APP_TELEMETRY_DSN:-}
       APP_TELEMETRY_ENVIRONMENT: ${APP_TELEMETRY_ENVIRONMENT:-production}
-      REVOLUT_AUTH_URL: http://revolut-auth:8002
-      BOURSO_AUTH_URL: http://bourso-auth:8001
-      CAISSE_EPARGNE_AUTH_URL: http://caisse-epargne-auth:8001
-      BOURSE_DIRECT_AUTH_URL: http://bourse-direct-auth:8001
-      AMUNDI_AUTH_URL: http://amundi-auth:8001
-      FORTUNEO_AUTH_URL: http://fortuneo-auth:8001
-      CORUM_AUTH_URL: http://corum-auth:8001
-      SOFIDY_AUTH_URL: http://sofidy-auth:8001
-      AMEX_AUTH_URL: http://amex-auth:8001
-      DEGIRO_AUTH_URL: http://degiro-auth:8001
-      CMES_AUTH_URL: http://cmes-auth:8001
+      REVOLUT_AUTH_URL: ${REVOLUT_AUTH_URL:-http://revolut-auth:8002}
+      BOURSO_AUTH_URL: ${BOURSO_AUTH_URL:-http://bourso-auth:8001}
+      CAISSE_EPARGNE_AUTH_URL: ${CAISSE_EPARGNE_AUTH_URL:-http://caisse-epargne-auth:8001}
+      BOURSE_DIRECT_AUTH_URL: ${BOURSE_DIRECT_AUTH_URL:-http://bourse-direct-auth:8001}
+      AMUNDI_AUTH_URL: ${AMUNDI_AUTH_URL:-http://amundi-auth:8001}
+      FORTUNEO_AUTH_URL: ${FORTUNEO_AUTH_URL:-http://fortuneo-auth:8001}
+      CORUM_AUTH_URL: ${CORUM_AUTH_URL:-http://corum-auth:8001}
+      SOFIDY_AUTH_URL: ${SOFIDY_AUTH_URL:-http://sofidy-auth:8001}
+      AMEX_AUTH_URL: ${AMEX_AUTH_URL:-http://amex-auth:8001}
+      DEGIRO_AUTH_URL: ${DEGIRO_AUTH_URL:-http://degiro-auth:8001}
+      CMES_AUTH_URL: ${CMES_AUTH_URL:-http://cmes-auth:8001}
+      CIC_AUTH_URL: ${CIC_AUTH_URL:-http://cic-auth:8001}
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     depends_on:
       - db
@@ -70,6 +71,7 @@ services:
       - amex-auth
       - degiro-auth
       - cmes-auth
+      - cic-auth
     networks:
       - default
       - fortuneo-auth-net
@@ -277,6 +279,19 @@ services:
     image: ghcr.io/cloeille/picsou-finance/cmes-auth:latest
     build:
       context: ../services/cmes-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+
+  cic-auth:
+    image: ghcr.io/cloeille/picsou-finance/cic-auth:latest
+    build:
+      context: ../services/cic-auth
       dockerfile: Dockerfile
       args:
         SIDECAR_BASE: sidecar-python

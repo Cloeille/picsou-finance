@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useGoal, useGoalMonths, useSetMonthOverride, useDeleteMonthOverride, useSetManualContribution, useDeleteManualContribution, useExtendGoalHistory, useExtendGoalHistoryByMonth } from '@/features/goals/hooks'
@@ -15,7 +15,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
 import { ArrowLeft, Calendar, LayoutGrid, Clock, Loader2, Plus } from 'lucide-react'
-import { cn, localeFromLanguage, parseAmount } from '@/lib/utils'
+import { cn, formatPercent, localeFromLanguage, parseAmount } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import type { GoalMonthEntry } from '@/types/api'
 
@@ -27,6 +27,11 @@ function isPastOrCurrent(ym: string): boolean {
   const now = new Date()
   const [y, m] = ym.split('-').map(Number)
   return y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth() + 1)
+}
+
+function currentYearMonth(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
 function monthDate(ym: string): Date {
@@ -70,6 +75,7 @@ const COLORS = {
   destructive: 'oklch(from var(--destructive) calc(l + 0.15) c h)',
   muted: 'var(--muted)',
   mutedFg: 'var(--muted-foreground)',
+  overshoot: '#818cf8',
 } as const
 
 function ProgressRing({ pct, color, size = 80, stroke = 9 }: {
@@ -94,7 +100,7 @@ function ProgressRing({ pct, color, size = 80, stroke = 9 }: {
       {isOverflow && (
         <circle
           cx={size / 2} cy={size / 2} r={r} fill="none"
-          stroke="#818cf8" strokeWidth={stroke + 3}
+          stroke={COLORS.overshoot} strokeWidth={stroke}
           strokeDasharray={`${bonusFilled} ${circ}`}
           strokeLinecap={bonusIsFullCircle ? 'butt' : 'round'}
         />
@@ -108,9 +114,10 @@ function getProgressColor(entry: GoalMonthEntry, isPast: boolean): { color: stri
   if (entry.effective == null) return { color: COLORS.muted, pct: 0, label: '–', textColor: COLORS.mutedFg }
   const obj = entry.objective ?? 0
   const ratio = obj > 0 ? entry.effective / obj : 1
-  if (ratio >= 1) return { color: COLORS.success, pct: ratio, label: `${Math.round(ratio * 100)}%`, textColor: COLORS.success }
-  if (ratio >= 0.6) return { color: COLORS.warning, pct: ratio, label: `${Math.round(ratio * 100)}%`, textColor: COLORS.warning }
-  return { color: COLORS.destructive, pct: ratio, label: `${Math.round(ratio * 100)}%`, textColor: COLORS.destructive }
+  const label = formatPercent(ratio * 100, { fractionDigits: 0 })
+  if (ratio >= 1) return { color: COLORS.success, pct: ratio, label, textColor: COLORS.success }
+  if (ratio >= 0.6) return { color: COLORS.warning, pct: ratio, label, textColor: COLORS.warning }
+  return { color: COLORS.destructive, pct: ratio, label, textColor: COLORS.destructive }
 }
 
 
@@ -125,9 +132,17 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
   const { t, i18n } = useTranslation()
   const money = useMoney()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
-  const currency = 'EUR'
+  // Whole euros everywhere in the grid: one unit for every ring and objective, and the
+  // widest realistic monthly amount ("12 345 €") still fits inside the 80px ring.
+  const wholeEuros = (value: number) => money.amount(value, 'EUR', { maximumFractionDigits: 0 })
   const years = useMemo(() => groupByYear((months ?? []).filter(e => isPastOrCurrent(e.yearMonth))), [months])
   const earliestYear = years[0]?.year
+  const currentYm = currentYearMonth()
+  const currentMonthRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    currentMonthRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [])
 
   return (
     <div className="space-y-4">
@@ -137,82 +152,97 @@ function YearGridView({ months, selectedYm, onSelect, onAddPreviousMonth, isAddi
             <CardTitle className="text-xs font-bold tracking-wider uppercase text-muted-foreground">{year}</CardTitle>
           </CardHeader>
           <CardContent className="pb-4 pt-3 px-4">
-            <div className="overflow-x-auto">
-              <div className="flex gap-3 min-w-max">
-                {year === earliestYear && (
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] gap-3">
+              {year === earliestYear && (
+                <button
+                  type="button"
+                  onClick={onAddPreviousMonth}
+                  disabled={isAddingMonth}
+                  title={t('goals.addPreviousMonth')}
+                  aria-label={t('goals.addPreviousMonth')}
+                  className="flex flex-col items-center justify-center gap-[9px] rounded-xl border border-dashed border-border px-2 py-3 transition-colors cursor-pointer text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isAddingMonth
+                    ? <Loader2 className="size-5 animate-spin" />
+                    : <Plus className="size-5" />}
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.1em] leading-tight text-center">
+                    {t('goals.addPreviousMonth')}
+                  </span>
+                </button>
+              )}
+              {entries.map(entry => {
+                const isSelected = selectedYm === entry.yearMonth
+                const isCurrent = entry.yearMonth === currentYm
+                const hasOverride = entry.override != null
+                const hasManual = entry.manualActual != null
+                const { color, pct, textColor } = getProgressColor(entry, true)
+                const effectiveText = entry.effective != null ? wholeEuros(entry.effective) : null
+                const percentLabel = effectiveText != null
+                  ? (pct > 1
+                    ? `+${formatPercent((pct - 1) * 100, { fractionDigits: 0 }, locale)}`
+                    : formatPercent(pct * 100, { fractionDigits: 0 }, locale))
+                  : null
+
+                return (
                   <button
-                    type="button"
-                    onClick={onAddPreviousMonth}
-                    disabled={isAddingMonth}
-                    title={t('goals.addPreviousMonth')}
-                    aria-label={t('goals.addPreviousMonth')}
-                    className="flex flex-col items-center justify-center gap-[9px] rounded-xl border border-dashed border-border px-2 py-3 transition-colors cursor-pointer min-w-[90px] text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+                    key={entry.yearMonth}
+                    ref={isCurrent ? currentMonthRef : undefined}
+                    aria-current={isCurrent ? 'date' : undefined}
+                    onClick={() => onSelect(entry.yearMonth)}
+                    className={`flex flex-col items-center gap-[9px] rounded-xl border px-2 py-3 transition-colors cursor-pointer scroll-mb-28 ${
+                      isSelected ? 'border-primary bg-accent' : 'border-border hover:bg-accent/50'
+                    }`}
                   >
-                    {isAddingMonth
-                      ? <Loader2 className="size-5 animate-spin" />
-                      : <Plus className="size-5" />}
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.1em] leading-tight text-center">
-                      {t('goals.addPreviousMonth')}
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground leading-none">
+                      {monthAbbr(entry.yearMonth, locale)}
+                    </span>
+                    <div className="relative">
+                      {hasOverride && !hasManual && (
+                        <div className="absolute top-[3px] right-[3px] z-10 w-[9px] h-[9px] rounded-full bg-violet-600 border-2 border-background" />
+                      )}
+                      {hasManual && (
+                        <div className="absolute top-[3px] right-[3px] z-10 w-[9px] h-[9px] rounded-full bg-blue-500 border-2 border-background" />
+                      )}
+                      <ProgressRing pct={pct} color={color} />
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-1">
+                        {effectiveText != null ? (
+                          <>
+                            <span className="text-xs font-bold leading-none tabular-nums text-foreground">
+                              {effectiveText}
+                            </span>
+                            <span className="text-[11px] font-semibold leading-none tabular-nums" style={{ color: textColor }}>
+                              {percentLabel}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-[13px] font-bold leading-none" style={{ color: COLORS.mutedFg }}>
+                            –
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-[11px] text-muted-foreground leading-none tabular-nums">
+                      obj.&nbsp;{wholeEuros(entry.objective)}
                     </span>
                   </button>
-                )}
-                {entries.map(entry => {
-                  const isSelected = selectedYm === entry.yearMonth
-                  const hasOverride = entry.override != null
-                  const hasManual = entry.manualActual != null
-                  const { color, pct, textColor } = getProgressColor(entry, true)
-                  const effectiveText = entry.effective != null ? money.compact(entry.effective, { currency }) : null
-                  const percentLabel = effectiveText != null
-                    ? (pct > 1 ? `+${Math.round((pct - 1) * 100)}%` : `${Math.round(pct * 100)}%`)
-                    : null
-
-                  return (
-                    <button
-                      key={entry.yearMonth}
-                      onClick={() => onSelect(entry.yearMonth)}
-                      className={`flex flex-col items-center gap-[9px] rounded-xl border px-2 py-3 transition-colors cursor-pointer min-w-[90px] ${
-                        isSelected ? 'border-primary bg-accent' : 'border-border hover:bg-accent/50'
-                      }`}
-                    >
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground leading-none">
-                        {monthAbbr(entry.yearMonth, locale)}
-                      </span>
-                      <div className="relative">
-                        {hasOverride && !hasManual && (
-                          <div className="absolute top-[3px] right-[3px] z-10 w-[9px] h-[9px] rounded-full bg-violet-600 border-2 border-background" />
-                        )}
-                        {hasManual && (
-                          <div className="absolute top-[3px] right-[3px] z-10 w-[9px] h-[9px] rounded-full bg-blue-500 border-2 border-background" />
-                        )}
-                        <ProgressRing pct={pct} color={color} />
-                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-[2px]">
-                          {effectiveText != null ? (
-                            <>
-                              <span className="text-[11px] font-bold leading-none" style={{ color: textColor }}>
-                                {effectiveText}
-                              </span>
-                              <span className="text-[9px] leading-none" style={{ color: textColor }}>
-                                {percentLabel}
-                              </span>
-                            </>
-                          ) : (
-                            <span className="text-[13px] font-bold leading-none" style={{ color: COLORS.mutedFg }}>
-                              –
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-[10px] text-muted-foreground leading-none">
-                        obj.&nbsp;{money.compact(entry.objective, { currency })}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
+                )
+              })}
             </div>
           </CardContent>
         </Card>
       ))}
+      {years.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-1 text-xs text-muted-foreground">
+          <span className="flex items-center gap-2">
+            <ProgressRing pct={0.7} color={COLORS.mutedFg} size={16} stroke={3} />
+            {t('goals.legendProgress')}
+          </span>
+          <span className="flex items-center gap-2">
+            <ProgressRing pct={1.3} color={COLORS.mutedFg} size={16} stroke={3} />
+            {t('goals.legendOvershoot')}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -252,7 +282,7 @@ function TimelineView({ months, selectedYm, onSelect }: {
                 <div className={`h-full rounded-full transition-[width] ${barClass}`} style={{ width: `${pct}%` }} />
               </div>
               <span className="w-12 shrink-0 text-sm font-bold text-right">
-                {entry.effective != null ? `${Math.round(pct)}%` : '—'}
+                {entry.effective != null ? formatPercent(pct, { fractionDigits: 0 }, locale) : '—'}
               </span>
               <span className="w-20 shrink-0 text-right text-sm text-muted-foreground">
                 {entry.effective != null ? <CurrencyDisplay value={entry.effective} /> : ''}
@@ -381,7 +411,7 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
           <div className="space-y-3">
             <Label>{t('goals.monthlyObjective')}</Label>
             <p className="text-sm text-muted-foreground">
-              {t('goals.calculatedObjective')}: <CurrencyDisplay value={entry.objective} />
+              {t('common.labelColon', { label: t('goals.calculatedObjective') })} <CurrencyDisplay value={entry.objective} />
             </p>
             <div className="relative">
               <NumericInput
@@ -429,7 +459,7 @@ function MonthDetailPanel({ goalId, entry, onClose, className }: {
           <div className="space-y-3">
             <Label>{t('goals.actual')}</Label>
             <p className="text-sm text-muted-foreground">
-              {t('goals.fromAccounts')}: {entry.actual != null ? <CurrencyDisplay value={entry.actual} /> : t('goals.noData')}
+              {t('common.labelColon', { label: t('goals.fromAccounts') })} {entry.actual != null ? <CurrencyDisplay value={entry.actual} /> : t('goals.noData')}
             </p>
             <div className="relative">
               <NumericInput
@@ -525,16 +555,14 @@ export function GoalCalendarPage() {
         <Skeleton className="h-9 w-72" />
         <Card>
           <CardContent className="pb-4 pt-3 px-4">
-            <div className="overflow-x-auto">
-              <div className="flex gap-3 min-w-max">
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <div key={i} className="flex flex-col items-center gap-[9px] rounded-xl border border-border px-2 py-3 min-w-[90px]">
-                    <Skeleton className="h-2.5 w-8" />
-                    <Skeleton className="size-[80px] rounded-full" />
-                    <Skeleton className="h-2.5 w-14" />
-                  </div>
-                ))}
-              </div>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] gap-3">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-center gap-[9px] rounded-xl border border-border px-2 py-3">
+                  <Skeleton className="h-2.5 w-8" />
+                  <Skeleton className="size-[80px] rounded-full" />
+                  <Skeleton className="h-2.5 w-14" />
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -559,7 +587,8 @@ export function GoalCalendarPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={t('goals.calendarTitle', { name: goal.name })}
+        surtitle={t('goals.calendar')}
+        title={goal.name}
         actions={
           <Button variant="outline" size="sm" onClick={() => navigate('/goals')}>
             <ArrowLeft className="size-4" />
@@ -571,7 +600,7 @@ export function GoalCalendarPage() {
       {/* Summary bar */}
       <div className="flex items-center gap-3 text-sm">
         <span className="text-muted-foreground">
-          {t('goals.monthlyObjective')}: <CurrencyDisplay value={goal.monthlyNeeded ?? 0} />
+          {t('common.labelColon', { label: t('goals.monthlyObjective') })} <CurrencyDisplay value={goal.monthlyNeeded ?? 0} />
         </span>
         {pastMonths.length > 0 && (
           <Badge variant="secondary">

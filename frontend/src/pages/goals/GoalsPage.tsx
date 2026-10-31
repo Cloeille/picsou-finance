@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { DateInput } from '@/components/shared/DateInput'
-import { formatDate, parseAmount } from '@/lib/utils'
+import { formatDate, formatPercent, parseAmount } from '@/lib/utils'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
@@ -521,7 +521,7 @@ function RecurringPlanCard({
                   {/* A share, so it survives privacy mode; the amount beside it does not. */}
                   {monthlyAmount > 0 && (
                     <span className="text-muted-foreground tabular-nums">
-                      {((line.monthlyAmount / monthlyAmount) * 100).toFixed(0)} %
+                      {formatPercent((line.monthlyAmount / monthlyAmount) * 100, { fractionDigits: 0 })}
                     </span>
                   )}
                   <CurrencyDisplay value={line.monthlyAmount} className="font-medium" />
@@ -592,8 +592,8 @@ function GoalCard({ goal, onEdit, onDelete, onCalendar, onOpenDetail }: GoalCard
       <CardContent className="p-4">
         {/* Header: name + status + actions */}
         <div className="flex items-start justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="cn-font-heading truncate text-sm font-semibold text-foreground">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="cn-font-heading line-clamp-2 break-words text-sm font-semibold text-foreground">
               {goal.name}
             </span>
             {statusBadge}
@@ -632,7 +632,7 @@ function GoalCard({ goal, onEdit, onDelete, onCalendar, onOpenDetail }: GoalCard
         {/* Footer: percent + target */}
         <div className="flex items-center justify-between mt-3">
           <span className="text-sm text-muted-foreground">
-            {Math.round(goal.percentComplete ?? 0)}% {t('dashboard.achieved')}
+            {formatPercent(goal.percentComplete ?? 0, { fractionDigits: 0 })} {t('dashboard.achieved')}
           </span>
           <CurrencyDisplay
             value={goal.targetAmount ?? 0}

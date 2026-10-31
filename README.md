@@ -369,6 +369,7 @@ cp docker/.env.example docker/.env
 | `BOURSE_DIRECT_AUTH_URL` | Custom sidecar | Defaults to `http://bourse-direct-auth:8001` |
 | `FORTUNEO_AUTH_URL` | Custom sidecar | Defaults to `http://fortuneo-auth:8001` |
 | `CMES_AUTH_URL` | Custom sidecar | Defaults to `http://cmes-auth:8001`. Set it to reach a `cmes-auth` sidecar run elsewhere (Crédit Mutuel / CIC Épargne Salariale) |
+| `CIC_AUTH_URL` | Custom sidecar | Defaults to `http://cic-auth:8001`. Set it to reach a `cic-auth` sidecar run elsewhere (CIC online banking) |
 | `PICSOU_DOMAIN` | TLS profile | Hostname Caddy serves — see [step 3](#3-https-decide-before-the-first-launch) |
 | `HSTS_ENABLED` | Trusted cert | `true` only with a publicly-trusted certificate |
 
@@ -483,6 +484,9 @@ push to `main` or a version tag:
 - Playwright e2e in demo mode
 - Bourse Direct sidecar unit tests
 
+A pull request runs only the jobs its changed paths can affect, unless it changes
+3,000 or more files; then it runs every job. A new push cancels its stale run; the
+`ci-ok` job is green only when every selected job passed.
 Docker images are published to GHCR **only after that suite is green**, and only
 on a push to `main` or a version tag — not on pull requests.
 

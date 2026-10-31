@@ -69,7 +69,7 @@ describe('AccountDividendsSection', () => {
     expect(fr.accounts.dividends.title).toBe('Dividendes à venir')
     expect(fr.accounts.dividends.exDate).toBe('Détachement')
     expect(fr.accounts.dividends.paymentDate).toBe('Versement')
-    expect(fr.accounts.dividends.paymentUnknown).toBe('Date de versement inconnue')
+    expect(fr.accounts.dividends.paymentUnknown).toBe('Date inconnue')
     expect(fr.accounts.dividends.estimated).toBe('estimée')
     expect(fr.accounts.dividends.announced).toBe('Annoncé')
     expect(fr.accounts.dividends.estimatedBasis).toBe('Estimé')

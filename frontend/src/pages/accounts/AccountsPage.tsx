@@ -15,11 +15,12 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Download } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatPercent } from '@/lib/utils'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/accounts/pnl'
 import { useAppStore } from '@/stores/app-store'
@@ -231,7 +232,7 @@ export function AccountsPage() {
     if (!hasObservation || hasUnknownBasis) {
       return { pnl: null, pnlPct: null, totalInvested: null }
     }
-    const pct = inv > 0 ? ((pnlSum / inv) * 100).toFixed(1) : null
+    const pct = inv > 0 ? (pnlSum / inv) * 100 : null
     return { pnl: pnlSum, pnlPct: pct, totalInvested: inv }
   }, [historyData, filteredNonPockets])
 
@@ -478,22 +479,25 @@ export function AccountsPage() {
 
       {hasAnyAccounts && (
         <>
-          <div className="flex flex-wrap items-center gap-1">
-            {FILTER_KEYS.map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={cn(
-                  'inline-flex h-10 min-w-32 items-center justify-center rounded-md px-6 text-sm font-medium transition-[background-color,color]',
-                  filter === f
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                )}
-              >
-                {t(`accounts.filters.${f}`)}
-              </button>
-            ))}
-          </div>
+          <ScrollStrip activeKey={filter}>
+            <div className="flex w-max items-center gap-1 md:w-auto md:flex-wrap">
+              {FILTER_KEYS.map((f) => (
+                <button
+                  key={f}
+                  aria-pressed={filter === f}
+                  onClick={() => setFilter(f)}
+                  className={cn(
+                    'inline-flex h-10 min-w-32 items-center justify-center rounded-md px-6 text-sm font-medium transition-[background-color,color]',
+                    filter === f
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                >
+                  {t(`accounts.filters.${f}`)}
+                </button>
+              ))}
+            </div>
+          </ScrollStrip>
 
           {/* Summary card */}
           <Card>
@@ -509,7 +513,7 @@ export function AccountsPage() {
                     <CurrencyDisplay value={pnl} showSign />
                     {pnlPct !== null && (
                       <span className="ml-1 font-normal text-muted-foreground">
-                        ({pnlPositive ? '+' : ''}{pnlPct}%)
+                        ({formatPercent(pnlPct, { signed: true })})
                       </span>
                     )}
                   </span>

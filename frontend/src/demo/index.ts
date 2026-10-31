@@ -27,7 +27,9 @@ import {
   mockRecurring,
   mockRules,
   mockSpendingByCategory,
+  mockTransactionSearch,
   mockUncategorized,
+  recategorizeMockTransaction,
 } from './data/budget'
 import { mockUpcomingDividends } from './data/dividends'
 import type { CashflowPeriod } from '@/types/api'
@@ -1336,6 +1338,15 @@ for (const r of mockRules) {
   handlers.set(key('DELETE', `/categorization-rules/${r.id}`), () => ({}))
 }
 handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categorized: 4 }))
+
+handlers.set(key('GET', '/transactions'), (config) => mockTransactionSearch(config.params ?? {}))
+for (const tx of mockTransactionSearch({})) {
+  handlers.set(key('PUT', `/transactions/${tx.id}/category`), (config) => {
+    const { categoryId } = JSON.parse(config.data || '{}')
+    recategorizeMockTransaction(tx.id, categoryId)
+    return {}
+  })
+}
 
 // To-categorize inbox
 handlers.set(key('GET', '/transactions/uncategorized'), () => mockUncategorized)

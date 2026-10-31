@@ -7,7 +7,7 @@ import type { Account, RealEstateMetadata } from '@/types/api'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, opts?: { label?: string }) => (key === 'common.labelColon' ? `${opts?.label}:` : key),
     i18n: { language: 'en', resolvedLanguage: 'en' },
   }),
 }))

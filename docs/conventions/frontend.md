@@ -160,7 +160,8 @@ const DashboardPage = lazy(() =>
 
 - Auth-protected routes wrapped in `<RequireAuth>` guard.
 - Public-only routes (login) wrapped in `<PublicOnly>`.
-- `SuspensePage` wrapper with `<LoadingSkeleton />` fallback.
+- `SuspensePage` wrapper with a `<RouteFallback />` fallback: a page-header bar and one block, shown only after 200 ms. Routes outside the app shell (guards, setup wizard) use `<RouteSpinner />` instead. `LoadingSkeleton` is the dashboard's own data-loading placeholder, not a route fallback.
+- Error routes (`*`, `/error/403`, `/error/500`) sit under `ErrorLayout`, which renders the app shell for a signed-in user and a bare full-screen page otherwise. It probes the cookie session like `RequireAuth`, so a Remember Me user keeps the shell. On `/error/*` the API client never redirects to another error page, because the shell's own queries could fail there and reload the page forever.
 - Vite path aliases: `@/` maps to `src/`.
 
 ## Styling
@@ -186,6 +187,8 @@ Text inputs, text buttons, tabs, dropdown menus, segmented controls, and pill fi
 - Shape: **follow the shadcn theme radius, all derived from `--radius` in `index.css`.** Interactive text controls are `rounded-md` (buttons, filter chips, tabs/segmented items, menu items); their containers (segmented control, dropdown menu, popover) are `rounded-lg`. Never hardcode `rounded-full`, `rounded-xl`, or `rounded-2xl` on a text control or its container — a pill button next to `rounded-lg` cards reads as a foreign design system. `rounded-full` is reserved for avatars, switches, badges, and status dots; larger radii (`rounded-xl`/`rounded-2xl`/`rounded-4xl`) belong to cards and large surfaces only.
 
 Avoid local `h-6`, `h-7`, `h-8`, `h-9`, `text-xs`, or narrow `px-2` overrides for text controls, and never re-pill a control with a `rounded-full` className that overrides the shadcn `Button`/`Tabs` primitive. OTP slots should follow the same readable `h-10` control rhythm unless a dense, space-constrained surface has a documented reason to shrink them. Reserve smaller sizing for pure icon buttons, badges, dense table data, chart labels, and non-interactive metadata.
+
+On phones (below `sm`), nothing may be wider than the card that holds it; `e2e/mobile-layout.spec.ts` checks the main pages at 360px. A segmented control stretches to the full width with equal items (`flex-1 basis-0 px-4`), with its label above it, until its card is wide enough for the desktop row. Key that switch to the card's width with a container query (`@container` + `@xl:flex-none @xl:px-8`, as on the Settings page), not to the viewport: from 768px the sidebar takes a third of the screen. A card header with toggles or buttons uses `flex-wrap` so they drop under the title. A tab or filter strip that does not fit stays on one row inside `ScrollStrip` (`components/shared/ScrollStrip.tsx`), which fades the edge that hides more items and scrolls the active one (`aria-selected`, `aria-current` or `aria-pressed`) into view. Pass it the live selection as `activeKey` (control the `Tabs` value; a `defaultValue` never changes), and do not strip its built-in `-m-1 p-1`: that is the room the 4px focus ring needs inside the overflow. The strip re-reveals the active item when it changes width, but not after a swipe when only its content grows. Titles wrap (`line-clamp-2`) rather than `truncate` when the name is what the user came to read.
 
 `Label` and `CardDescription` are app-wide readable primitives (`text-sm`). Do not shrink form labels or section descriptions locally unless the element is truly dense metadata rather than an input label.
 
@@ -241,6 +244,9 @@ Use icons from `lucide-react` as direct JSX components (e.g., `<Pencil className
 - Supported languages live in the `SUPPORTED_LOCALES` registry (`frontend/src/i18n/locales.ts`); selectors and `Intl` formatting derive from it — never hardcode language lists in components. Normalize raw tags with `resolveLocale()`.
 - Flat keys with feature-based grouping.
 - All user-visible text must use `useTranslation()` — no hardcoded strings in any language.
+- A label followed by a value renders through `t('common.labelColon', { label: t('…') })`, never `{t('…')}:`. French needs a space before the colon.
+- Counts use i18next plurals: the base key holds the singular, `_other` the plural, and the caller passes `count`.
+- French copy uses "vous", including imperatives ("Saisissez", "Réessayez").
 - Date/number formatting via `Intl.*` through the `frontend/src/lib/utils.ts` helpers (`formatDate`…), which resolve the active locale via `getLocale()`.
 - **Amounts go through `<CurrencyDisplay>` or `useMoney()` (`frontend/src/hooks/use-money.ts`), never through `Intl` directly.** Privacy mode blanks every amount on screen, so a figure formatted outside that path stays legible during a demo. The raw formatter is private for that reason, and `frontend/src/lib/money-guard.test.ts` fails the build on a hand-built currency format, a `€` in JSX, or an amount-shaped value printed bare. See [`docs/features/privacy-mode.md`](../features/privacy-mode.md).
 - Full details: [`docs/features/i18n.md`](../features/i18n.md).
@@ -252,6 +258,12 @@ Use icons from `lucide-react` as direct JSX components (e.g., `<Pencil className
 ## Charts
 
 Recharts v3 for all data visualizations. Chart color tokens (`--chart-1` through `--chart-5`) are defined in the Tailwind theme.
+
+Size a new or touched money Y axis with `yAxisWidth(values, money.tick)` (`lib/chart-axis.ts`), passing the same `money.tick` formatter the axis uses, rather than a fixed `width`. A fixed width clips the longer labels, such as "-250.000 €" (German). `NetWorthChart` and `AccountsStackedChart` use it. `LoanAmortizationChart`, `PropertyValuationChart`, `BalanceHistoryChart`, `ProjectionSection` and `CashflowTab` use the fixed `MONEY_AXIS_WIDTH`; `AllocationTrajectory` is a percent axis.
+
+## Form controls
+
+A new native `<select>` goes through `NativeSelect` (`components/shared/NativeSelect.tsx`), which shares `Input`'s 40px height, border and fill. About ten older selects still use `SELECT_CONTROL_CLASS` or `rounded-xl` classes of their own. A date field goes through `DateInput`, which displays the user's date format. A range input takes the `range-input` class and sets `--range-fill` to its value's percentage.
 
 ## Scripts
 

@@ -59,6 +59,14 @@ PostgreSQL 16 and the optional Caddy TLS proxy use upstream images.
 2. **`backend-build`** — `maven:3.9-eclipse-temurin-21-alpine`. `mvn dependency:go-offline` (layer cache), then `mvn package -DskipTests`. Output: fat JAR.
 3. **Runtime** — `eclipse-temurin:21-jre-jammy`. Installs Nginx + supervisor + openssl. Copies `dist/` and JAR from build stages plus `docker/{nginx.conf,supervisord.conf,entrypoint.sh}`.
 
+The two build stages run on `--platform=$BUILDPLATFORM`: `dist/` and the JAR are the same on
+every architecture, so the multi-platform publish builds them once, natively, and only the
+runtime stage runs per target (arm64 under QEMU). `APP_VERSION` and `VITE_*` are declared after
+the dependency installs, so a new `APP_VERSION` reuses the bun, Maven and apt layers (an edit to
+`frontend/package.json` still reinstalls the bun dependencies). The
+Dockerfile therefore needs BuildKit (the default builder once `docker buildx` is installed);
+the legacy builder rejects the empty `$BUILDPLATFORM`.
+
 `supervisord` manages **two** processes in the main container:
 
 | Process | Port | Role |
@@ -331,9 +339,15 @@ docker load < picsou-release.tar.gz
 The app and all twelve sidecar images are published by `.github/workflows/docker.yml`
 (matrix build, one entry per image) **only after CI is green**: backend tests, frontend
 lint/typecheck/unit, Playwright e2e, every sidecar's image tests, the Compose sidecar build
-and the workflow inventory. `ci.yml` calls that workflow on a successful `push` to `main` or a
+and the workflow inventory, then the `ci-ok` gate. `ci.yml` calls that workflow on a successful `push` to `main` or a
 version tag — not on pull requests, so a failing test never produces `nightly` / `latest` /
 semver. `docker.yml` has no `workflow_dispatch`: a manual run would publish without that gate.
+
+On a pull request, the `changes` job selects only the jobs the changed paths can affect
+(`dorny/paths-filter`; any `.github/**` change selects all of them), and a new push cancels
+the stale run. Pushes to `main`, tags and pull requests of 3000 files or more run every job.
+`ci-ok` fails when a selected job did not succeed or when any job failed or was cancelled,
+so it is the one check branch protection needs.
 
 To deploy from the registry instead of building or loading a tar.gz:
 
@@ -366,7 +380,10 @@ Merging main into 1.1.0 (1906d3a) moved migrations that the 1.0.11–1.0.18 rele
 applied: V38 to V94, V54–V63 to V56–V65, V64 to V96. It also added comments to V51 and V55–V58,
 which changes their checksum but not their SQL. The 1.1.0 image then stopped at boot with
 `Migration checksum mismatch` on up to 13 versions
-([#265](https://github.com/Cloeille/picsou-finance/issues/265)).
+([#265](https://github.com/Cloeille/picsou-finance/issues/265)). Release 1.0.6 had applied today's
+V36 `transaction security name` as V33 (1.0.7 renamed it, see the CHANGELOG entry for 1.0.7);
+today's V33 is `budget foundation`, so a 1.0.6 database failed validation too. It is handled the
+same way.
 
 The same callback as below now handles these rows. It moves each one to its new version and, for
 the five edited files, stores the new checksum. A row moves only when its old version,
@@ -411,8 +428,10 @@ you want to keep its own `external_account_id`. Renaming an account does not hel
 V47, ignore the name. Re-run the query and upgrade only once it returns no rows. Rehearse on a
 restored copy.
 
-Covered: every 1.0.x release tag. `nightly` images of main between two tags are matched row by
-row, so a build between 1.0.15 and 1.0.16 that applied only one of V51 and V64 is handled too.
+Covered: every 1.0.x release, including 1.0.6, whose V33 is moved to V36 (1.0.6 has no git tag;
+1.0.2–1.0.5 applied no migration beyond 1.0.1's V32). `nightly` images of main between two tags
+are matched row by row, so a build between 1.0.15 and 1.0.16 that applied only one of V51 and
+V64 is handled too.
 Builds of main from before cfc70930 shipped two V57 files and could not boot, so they left no
 history to repair. A row whose checksum matches no released file is left alone, and Flyway still
 rejects it.
@@ -525,11 +544,13 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - Backend unit tests run separately via `./mvnw test` (not in Docker build — skipped with `-DskipTests`).
 - `LegacyMigrationRenumberingTest` (Testcontainers) upgrades databases built under the old V80–V88
   numbering and a fresh database to head, and checks that a second start changes nothing. It also
-  builds 1.0.18 and 1.0.11 databases from those releases' files (the five comment-edited 1.0.18
-  files are kept verbatim under `src/test/resources/db/legacy-1.0.18`), upgrades them, and
-  compares the resulting schema with a fresh database, and checks that a 1.0.18 database with
-  duplicate external account ids stops before V47 without losing an account, also when a second
-  connection commits the duplicate after the first check, and that account writes wait for V47.
+  builds 1.0.18, 1.0.15, 1.0.11 and 1.0.6 databases from those releases' files (the five
+  comment-edited 1.0.18 files are kept verbatim under `src/test/resources/db/legacy-1.0.18`),
+  upgrades them, and compares the resulting schema with a fresh database. It also checks that a
+  1.0.18 database with duplicate external account ids stops before V47 without losing an account,
+  also when a second connection commits the duplicate after the first check, and that account
+  writes wait for V47. With a Flyway target below V47, or a baseline at or above V47 (`47.0`
+  included), the check is skipped.
 
 ## Links
 

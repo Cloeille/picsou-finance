@@ -29,6 +29,7 @@
     "today": "Hoy",
     "currency": "EUR",
     "done": "Hecho",
+    "labelColon": "{{label}}:",
     "errorTitle": "Error",
     "skipToContent": "Skip to main content",
     "locale": "en-US",
@@ -58,8 +59,7 @@
     "hideAmounts": "Ocultar importes",
     "showAmounts": "Mostrar importes",
     "budget": "Budget",
-    "budget.desc": "Spending & cashflow",
-    "switchLanguage": "Switch language"
+    "budget.desc": "Spending & cashflow"
   },
   "auth": {
     "login": "Iniciar sesión",
@@ -132,7 +132,8 @@
     "newGoal": "Nuevo objetivo",
     "achieved": "conseguido",
     "goalsSummary": "Sigue tu progreso hacia tus objetivos financieros.",
-    "otherGoals": "{{count}} objetivos más",
+    "otherGoals": "{{count}} objetivo más",
+    "otherGoals_other": "{{count}} objetivos más",
     "holdings": "Posiciones",
     "holdingsDescription": "Tu cartera de un vistazo",
     "searchHoldings": "Buscar posiciones o tickers...",
@@ -153,6 +154,7 @@
     "portfolioPerformance": "portfolio performance",
     "liabilities": "Pasivos",
     "monthlyPayment": "Cuota mensual",
+    "perMonthSuffix": "/mes",
     "loanParamsUnconfigured": "Parámetros no configurados",
     "amountDue": "Importe a pagar",
     "dueOn": "Vence el {{date}}"
@@ -171,6 +173,7 @@
     "neverSynced": "Nunca sincronizada",
     "holdings": "Posiciones",
     "transactions": "Transacciones",
+    "noTransactions": "No hay transacciones en esta cuenta.",
     "addTransaction": "Añadir transacción",
     "editTransaction": "Editar transacción",
     "transactionDate": "Fecha",
@@ -191,6 +194,7 @@
     "syncStale": "Sincronizado {{time}}",
     "syncStaleTooltip": "Esta cuenta no se ha sincronizado recientemente. Inicia una sincronización o vuelve a conectar el proveedor.",
     "history": "Historial",
+    "valueAndInvested": "Valor y capital invertido",
     "manual": "Manual",
     "allTypes": "Todos los tipos",
     "accountName": "Nombre de la cuenta",
@@ -222,7 +226,7 @@
       "next": "Dividendos siguientes",
       "exDate": "Fecha ex-dividendo",
       "paymentDate": "Pago",
-      "paymentUnknown": "Fecha de pago desconocida",
+      "paymentUnknown": "Fecha desconocida",
       "estimated": "estimada",
       "announced": "Anunciado",
       "estimatedBasis": "Estimado",
@@ -287,7 +291,7 @@
     "editTargets": "Mis objetivos",
     "error": "No se pudo cargar el análisis",
     "points": "pts",
-    "targetShort": "objetivo {{value}}%",
+    "targetShort": "objetivo {{value}}",
     "empty": {
       "title": "Nada que analizar todavía",
       "description": "Añade cuentas para que Picsou pueda valorar cómo está construido tu patrimonio."
@@ -306,14 +310,14 @@
       "cryptoPenalty": "Penalización cripto",
       "leverageBonus": "Bonus de apalancamiento",
       "notRated": "sin evaluar",
-      "misplaced": "El {{value}}% de tu patrimonio tendría que moverse para alcanzar tus objetivos.",
+      "misplaced": "El {{value}} de tu patrimonio tendría que moverse para alcanzar tus objetivos.",
       "safetyNetUnknownHint": "Indica tus gastos mensuales obligatorios para que se evalúe el colchón de seguridad.",
       "notRatedYet": "Aún sin puntuación: indique sus gastos mensuales o invierta más allá de su colchón."
     },
     "safetyNet": {
       "title": "Colchón de seguridad y reparto",
       "ofTarget": "sobre un objetivo de",
-      "short": "{{value}}% del objetivo",
+      "short": "{{value}} del objetivo",
       "covered": "Cubierto",
       "excess": "Excedente",
       "excessHint": "Lo que supera el objetivo es liquidez por recolocar: no entra en el reparto de abajo.",
@@ -333,7 +337,7 @@
       "useSuggestion": "Usar",
       "months": "Meses de gastos a cubrir",
       "allocation": "Reparto objetivo del resto",
-      "sum": "Total {{value}}% / 100%",
+      "sum": "Total {{value}} / {{max}}",
       "allocationHint": "Los cuatro porcentajes deben sumar 100%."
     },
     "targetAmount": "objetivo",
@@ -342,7 +346,7 @@
       "sectors": "Sectores",
       "countries": "Regiones",
       "effective": "{{value}} posiciones efectivas / {{target}} previstas",
-      "coverage": "Calculado sobre el {{value}} % de la bolsa de acciones y ETF",
+      "coverage": "Calculado sobre el {{value}} de la bolsa de acciones y ETF",
       "unclassified": "sin clasificar",
       "noData": "No hay datos de reparto disponibles",
       "noHoldings": "No hay línea de acciones o ETF que analizar.",
@@ -361,10 +365,10 @@
       "nothingToProject": "Define una inversión mensual en Objetivos para ver una proyección.",
       "disclaimer": "Proyectado a partir de tus aportaciones recurrentes, capitalizado mensualmente. Excluye inmuebles, préstamos y activos alternativos. No es una previsión.",
       "scenarios": {
-        "PESSIMISTIC": "Pesimista ({{value}} %)",
-        "CAUTIOUS": "Prudente ({{value}} %)",
-        "REFERENCE": "Referencia ({{value}} %)",
-        "OPTIMISTIC": "Optimista ({{value}} %)"
+        "PESSIMISTIC": "Pesimista ({{value}})",
+        "CAUTIOUS": "Prudente ({{value}})",
+        "REFERENCE": "Referencia ({{value}})",
+        "OPTIMISTIC": "Optimista ({{value}})"
       },
       "contributed": "Sus aportaciones",
       "views": {
@@ -405,7 +409,7 @@
       "hint": "Seleccione una porción para ver de qué se compone."
     },
     "alerts": {
-      "SINGLE_ASSET_CONCENTRATION": "{{label}} representa el {{percent}} % de su patrimonio: un solo activo concentra el riesgo.",
+      "SINGLE_ASSET_CONCENTRATION": "{{label}} representa el {{percent}} de su patrimonio: un solo activo concentra el riesgo.",
       "EMPTY_TIER": "Nada en {{label}}: esta bolsa está vacía, no solo por debajo del objetivo.",
       "CUSHION_OVERFUNDED": "{{value}} por encima de su objetivo de colchón: dinero disponible para colocar.",
       "title": "A tener en cuenta"
@@ -537,7 +541,7 @@
     "interestAndInsurance": "Intereses y seguro",
     "paidInstallments": "Cuotas pagadas",
     "remainingInstallments": "Cuotas restantes",
-    "capitalRepaidPct": "Has amortizado el {{pct}} % del capital del préstamo",
+    "capitalRepaidPct": "Has amortizado el {{pct}} del capital del préstamo",
     "summary": "Resumen",
     "totalCost": "Coste total del préstamo",
     "totalRepaid": "Total amortizado",
@@ -678,7 +682,8 @@
     "noGoals": "Sin objetivos definidos",
     "waiting": "En curso",
     "calendar": "Calendario",
-    "calendarTitle": "Calendario de {{name}}",
+    "legendProgress": "Parte del objetivo del mes alcanzada (p. ej. 94\u00a0%)",
+    "legendOvershoot": "Por encima del objetivo (p. ej. +8\u00a0%)",
     "viewGrid": "Cuadrícula anual",
     "viewTimeline": "Cronología",
     "viewCalendar": "Calendario",
@@ -739,7 +744,7 @@
       "title": "Tasa de ahorro",
       "perMonth": "al mes",
       "benchmarkLabel": "Sobre la media francesa",
-      "benchmark": "La tasa de ahorro media de los hogares en Francia se sitúa en torno al {{rate}} % de su renta bruta disponible",
+      "benchmark": "La tasa de ahorro media de los hogares en Francia se sitúa en torno al {{rate}} de su renta bruta disponible",
       "needsIncome": "Indica tu neto mensual antes de impuestos y tu tipo de retención para ver tu tasa de ahorro.",
       "goToSettings": "Ir a ajustes"
     }
@@ -777,6 +782,16 @@
   },
   "sync": {
     "title": "Sincronización",
+    "connectionStatus": {
+      "CREATED": "Pendiente",
+      "LINKED": "Conectado",
+      "CONNECTED": "Conectado",
+      "active": "Conectado",
+      "EXPIRED": "Caducado",
+      "FAILED": "Fallido",
+      "ERROR": "Error",
+      "TOTP_REQUIRED": "Código 2FA requerido"
+    },
     "banks": {
       "title": "Bancos",
       "search": "Buscar un banco",
@@ -1287,6 +1302,44 @@
         "invalidCode": "Código SMS incorrecto. Compruébalo y vuelve a escribirlo."
       }
     },
+    "cic": {
+      "title": "CIC (livrets)",
+      "login": "Customer number",
+      "password": "Password",
+      "otpCode": "Code received by SMS",
+      "otpPrompt": "Enter the confirmation code you received by SMS.",
+      "appValidationPrompt": "Open the CIC app and confirm the sign-in (mobile confirmation).",
+      "appValidationHint": "This page updates on its own as soon as you confirm. CIC asks for a new confirmation at least every 24 hours.",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "reconnect": "Reconnect",
+      "reconnectHint": "Your credentials are stored: CIC will send a confirmation request to your phone.",
+      "validate": "Submit code",
+      "validating": "Validating…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Accounts synced.",
+      "clearSession": "Disconnect",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your CIC current and savings accounts (Livret A, LDDS, PEL…), which the PSD2 bank connection does not return. Balances only.",
+      "errors": {
+        "tooManyAttempts": "Too many attempts. Please wait before retrying.",
+        "invalidCredentials": "Invalid CIC customer number or password.",
+        "actionRequired": "The site needs you to act first (terms to accept, contact details to complete). Sign in once on the website, then retry.",
+        "mfaTypeUnsupported": "The site asked for a Digipass or Safetrans, which Picsou cannot handle. Choose mobile confirmation or SMS in your security settings.",
+        "appValidationTimeout": "The mobile confirmation was not approved in time. Please start over.",
+        "appValidationCancelled": "The mobile confirmation was refused in the app.",
+        "authAttemptExpired": "The authentication attempt expired. Please start over.",
+        "sessionExpired": "The session expired and the site asks for a new mobile confirmation. Please reconnect.",
+        "portfolioIncomplete": "CIC returned an incomplete account list. Your existing data was kept.",
+        "formatChanged": "The CIC website format changed. Your existing data was kept.",
+        "invalidData": "CIC returned inconsistent data. Your existing data was kept.",
+        "serverError": "Could not reach the CIC website. Please try again.",
+        "invalidCode": "Wrong SMS code. Check it and type it again."
+      }
+    },
     "amex": {
       "title": "American Express",
       "login": "Identificador",
@@ -1538,6 +1591,8 @@
     "sessionsEmpty": "Sin dispositivos de confianza — tendrás que iniciar sesión en cada visita.",
     "sessionsCurrent": "Este dispositivo",
     "sessionsTrusted": "2FA de confianza",
+    "sessionsUnknownDevice": "Dispositivo desconocido",
+    "sessionsBrowser": "Navegador",
     "sessionsLastUsed": "Último uso",
     "sessionsCreated": "Creada",
     "sessionsExpires": "Caduca",
@@ -1562,14 +1617,14 @@
       },
       "taxHouseholdParts": "Partes fiscales",
       "dependents": "Personas a cargo",
-      "annualGrossIncome": "Ingresos brutos anuales",
+      "annualGrossIncome": "Ingresos brutos anuales (€)",
       "incomeHint": "El importe bruto de tu nómina. Contexto fiscal — la tasa de ahorro se calcula sobre el neto de abajo.",
       "netPay": "Lo que llega realmente a la cuenta",
       "netPayHint": "Ambas cifras están en tu nómina. El bruto no basta: primero se descuentan las cotizaciones sociales, a un tipo que depende de tu situación.",
-      "monthlyNetBeforeTax": "Neto mensual antes de impuestos",
+      "monthlyNetBeforeTax": "Neto mensual antes de impuestos (€)",
       "withholdingTaxRate": "Tipo de retención (%)",
       "netIncomeDerived": "Neto mensual percibido:",
-      "savingsCapacity": "Capacidad de ahorro mensual",
+      "savingsCapacity": "Capacidad de ahorro mensual (€)",
       "riskProfile": "Perfil de riesgo",
       "risk": {
         "PRUDENT": "Prudente",
@@ -2322,7 +2377,7 @@
       "costBasis": "Coste total",
       "currentValue": "Valor actual",
       "gain": "Plusvalía",
-      "coOwnedNote": "Posees el {{percent}} % de este inmueble. Los totales solo cuentan tu parte."
+      "coOwnedNote": "Posees el {{percent}} de este inmueble. Los totales solo cuentan tu parte."
     },
     "valuation": {
       "title": "Valoración",
@@ -2364,7 +2419,7 @@
       "gross": "Valor bruto",
       "debt": "Capital pendiente",
       "net": "Valor neto",
-      "equityShare": "El {{pct}} % del inmueble es realmente tuyo"
+      "equityShare": "El {{pct}} del inmueble es realmente tuyo"
     },
     "summary": {
       "title": "Patrimonio inmobiliario",
@@ -2372,7 +2427,7 @@
       "debt": "Deuda",
       "net": "Neto",
       "gain": "Plusvalía",
-      "loanToValue": "Ratio de endeudamiento: {{pct}} % del valor de los inmuebles",
+      "loanToValue": "Ratio de endeudamiento: {{pct}} del valor de los inmuebles",
       "rentalIncome": "Ingresos por alquiler mensuales:"
     },
     "ownership": {
@@ -2380,7 +2435,7 @@
       "hint": "Indica la parte de cada miembro. Cada uno solo cuenta su parte en su patrimonio.",
       "total": "Total asignado",
       "overAllocated": "La suma supera el 100 %.",
-      "unassigned": "El {{percent}} % no está asignado a nadie: esa parte se considera fuera de Picsou y no cuenta en el patrimonio de nadie.",
+      "unassigned": "El {{percent}} no está asignado a nadie: esa parte se considera fuera de Picsou y no cuenta en el patrimonio de nadie.",
       "saveError": "No se pudo guardar el reparto"
     },
     "chart": {
@@ -2641,7 +2696,7 @@
       "diagram": "This cycle's flow",
       "breakdown": "Where your money goes",
       "inflows": "In",
-      "outflows": "Out",
+      "outflows": "Distribución de ingresos",
       "empty": "No flow to show for this period.",
       "error": "Could not load the flow diagram.",
       "ariaSummary": "Flow diagram: {{income}} in, {{expense}} out, net {{net}}.",
@@ -2696,6 +2751,8 @@
       "emptyHint": "Create an envelope to track spending by category.",
       "error": "Could not load envelopes.",
       "deleteTitle": "Delete envelope",
+      "remaining": "{{amount}} restantes · {{percent}}",
+      "overspent": "{{amount}} de exceso · {{percent}}",
       "deleteDescription": "Delete the \"{{name}}\" envelope? Transactions are kept."
     },
     "recurring": {
@@ -2717,7 +2774,7 @@
       "noCategory": "No category",
       "formHint": "Manually add a recurring payment.",
       "variable": "Variable amount",
-      "autoConfirmedConfident": "Auto-confirmed · {{percent}}% confidence",
+      "autoConfirmedConfident": "Confirmado automáticamente · {{percent}} de confianza",
       "priceFromTo": "{{from}} → {{to}}",
       "undo": "Undo",
       "status": {
@@ -2732,7 +2789,7 @@
       },
       "activity": {
         "title": "What changed",
-        "autoConfirmed": "Auto-confirmed",
+        "autoConfirmed": "Confirmado automáticamente",
         "priceChange": "Price change",
         "autoConfirmedDesc": "Detected and confirmed automatically",
         "priceChangeDesc": "Price went from {{from}} to {{to}}",
@@ -2744,7 +2801,7 @@
       "subtitle": "Assign a category to unclassified transactions.",
       "recategorize": "Re-categorize",
       "categorizeAi": "Categorize with AI",
-      "aiSuggested": "AI: {{name}} · {{confidence}}%",
+      "aiSuggested": "IA: {{name}} · {{confidence}}",
       "selectCategory": "Pick a category",
       "learnRule": "Remember a rule",
       "assign": "Assign",
@@ -2856,8 +2913,8 @@
     "error": "Could not revoke access. Please try again."
   },
   "pockets": {
-    "subAccountsCount": "{{count}} pocket",
-    "subAccountsCount_other": "{{count}} pockets"
+    "subAccountsCount": "{{count}} subcuenta",
+    "subAccountsCount_other": "{{count}} subcuentas"
   },
   "savings": {
     "configSection": "Savings configuration",
@@ -2868,11 +2925,11 @@
       "LEP": "LEP",
       "COMMERCIAL": "Commercial savings account"
     },
-    "annualRate": "Annual rate (%)",
+    "annualRate": "Tipo anual (%)",
     "rateBasis": "Rate basis",
     "gross": "Gross",
     "net": "Net",
-    "taxRate": "Withholding tax (%)",
+    "taxRate": "Retención fiscal (%)",
     "taxRateHint": "PFU: 30% (flat tax)",
     "ceiling": "Legal ceiling (€)",
     "ceilingOptional": "Optional",
