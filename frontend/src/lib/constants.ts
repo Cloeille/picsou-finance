@@ -23,6 +23,15 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
 ]
 
 /**
+ * Mirrors `AccountType.isLedger()` on the backend: these types are not cash ledgers. Investment
+ * accounts derive their balance from positions; SCPI, property and employee savings are valued.
+ * A ledger import cannot target them, and a manual transaction never rewrites their balance.
+ */
+export const NON_LEDGER_ACCOUNT_TYPES: AccountType[] = [
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI',
+]
+
+/**
  * Account types whose value comes from `account_holding` lines rather than a stored
  * balance — the client-side mirror of the backend's `AccountType.isInvestment()`, plus
  * `EMPLOYEE_SAVINGS`, whose FCPE lines arrive from the Amundi sync rather than from

@@ -1,6 +1,6 @@
 # Feature: Actual Budget import
 
-> Last updated: 2026-10-04
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -108,8 +108,9 @@ A budget is single-currency. When the file records no currency, the wizard asks 
 ### Mapping
 
 - **Accounts**: `CREATE_NEW` (manual account, `externalAccountId = actual_<id>`),
-  `MAP_EXISTING` (the member's ledger account in the same currency), or `SKIP`. Investment,
-  property and **loan** accounts are refused as targets, whether created or mapped. Picsou
+  `MAP_EXISTING` (the member's ledger account in the same currency), or `SKIP`. Non-ledger
+  accounts (`AccountType.isLedger()` false: investment, SCPI, property, employee savings) and
+  **loan** accounts are refused as targets, whether created or mapped. Picsou
   stores a loan as the positive amount owed and negates it in totals (`signedLiveBalanceEur`,
   [loans.md](loans.md)), so an Actual mortgage at -150 000 would count as +150 000 of wealth.
   The wizard leaves `LOAN` out of the type list and the mapping targets. An account an Actual
