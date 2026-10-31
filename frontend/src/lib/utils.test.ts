@@ -6,6 +6,7 @@ import {
   formatDecimal,
   formatNumber,
   formatPercent,
+  formatQuantity,
   freshnessLevel,
   isOAuthAuthorizeRedirect,
   localeFromLanguage,
@@ -97,6 +98,13 @@ describe('formatNumber', () => {
     expect(formatNumber(1_234.5, 'fr-FR')).toBe('1\u00a0234,5')
     expect(formatNumber(1_234.5, 'de-DE')).toBe('1.234,5')
     expect(formatNumber(1_234.5, 'en-US')).toBe('1,234.5')
+  })
+})
+
+describe('formatQuantity', () => {
+  it('keeps a small holding quantity precise instead of rounding it to 0', () => {
+    expect(formatQuantity(0.0001, 'fr-FR')).toBe('0,0001')
+    expect(formatQuantity(1_234.5, 'en-US')).toBe('1,234.5')
   })
 })
 

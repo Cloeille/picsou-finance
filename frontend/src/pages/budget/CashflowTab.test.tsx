@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { cloneElement, type ReactElement } from 'react'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AXIS_MASK } from '@/lib/money'
 import { useAppStore } from '@/stores/app-store'
@@ -57,11 +57,16 @@ const { CashflowTab } = await import('./CashflowTab')
 
 describe('CashflowTab chart in privacy mode', () => {
   beforeEach(() => {
-    useAppStore.getState().setHideAmounts(true)
+    useAppStore.getState().setHideAmounts(false)
   })
 
-  it('masks the axis scale and the hovered amount', () => {
+  it('masks the axis scale and the hovered amount once the toggle is switched on', () => {
     render(<CashflowTab />)
+
+    expect(screen.getByTestId('y-ticks').textContent).toMatch(/\d/)
+    expect(screen.getByTestId('tooltip').textContent).toMatch(/\d/)
+
+    act(() => { useAppStore.getState().setHideAmounts(true) })
 
     expect(screen.getByTestId('y-ticks')).toHaveTextContent(AXIS_MASK)
     expect(screen.getByTestId('y-ticks').textContent).not.toMatch(/\d/)

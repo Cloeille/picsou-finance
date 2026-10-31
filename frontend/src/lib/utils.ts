@@ -169,6 +169,11 @@ export function formatNumber(value: number, locale = getLocale()): string {
   return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale)).format(value))
 }
 
+/** A holding quantity, up to eight decimals so a small crypto position such as 0.0001 does not show as 0. */
+export function formatQuantity(value: number, locale = getLocale()): string {
+  return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale), { maximumFractionDigits: 8 }).format(value))
+}
+
 function capitalizeFirstCharacter(value: string, locale = getLocale()): string {
   const [first = '', ...rest] = Array.from(value)
   return first.toLocaleUpperCase(normalizeIntlLocale(locale)) + rest.join('')

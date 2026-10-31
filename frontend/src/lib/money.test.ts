@@ -130,12 +130,15 @@ describe('tick', () => {
   })
 
   it('fits the widest label, German "-250.000 €", inside the axis gutter', () => {
-    // jsdom cannot measure text, so the label width is the one measured in Chromium with Geist at
-    // 12px (#286 review). Recharts anchors the label at width − tickMargin − tickSize, and keeps
-    // the 6px tick size even with tickLine={false}: 76px put the minus sign at x = −4.
-    const GERMAN_LABEL_PX = 66, TICK_MARGIN = 8, TICK_SIZE = 6
+    // jsdom cannot measure text, so the label widths are the ones measured in Chromium with Geist
+    // Variable at 12px (#286 review): "-250.000 €" is 66px, "-1,25 Mio. €" is 65px. Recharts anchors
+    // the label at width − tickMargin − tickSize, and keeps the 6px tick size even with
+    // tickLine={false}: 76px put the minus sign at x = −4.
+    const GERMAN_LABEL_PX = 66, GERMAN_MILLION_LABEL_PX = 65, TICK_MARGIN = 8, TICK_SIZE = 6
     expect(tick('de-DE', -250_000)).toBe('-250.000 €')
+    expect(tick('de-DE', -1_250_000)).toBe('-1,25 Mio. €')
     expect(MONEY_AXIS_WIDTH - TICK_MARGIN - TICK_SIZE - GERMAN_LABEL_PX).toBeGreaterThanOrEqual(4)
+    expect(MONEY_AXIS_WIDTH - TICK_MARGIN - TICK_SIZE - GERMAN_MILLION_LABEL_PX).toBeGreaterThanOrEqual(4)
   })
 })
 

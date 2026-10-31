@@ -85,7 +85,7 @@ describe('nothing bypasses the masked formatter', () => {
   // Checked element by element: a file-level "uses tickFormatter somewhere" let the cashflow axis,
   // which had no formatter at all, print raw euros in privacy mode.
   const elements = (source: string, tag: string) =>
-    source.match(new RegExp(`<${tag}\\b[\\s\\S]*?/>`, 'g')) ?? []
+    source.match(new RegExp(`<${tag}\\b[\\s\\S]*?(?:/>|</${tag}>)`, 'g')) ?? []
   // Their scale and tooltip are a share of the portfolio, in percent: there is no magnitude to hide.
   const percentCharts = ['src/pages/analysis/AllocationTrajectory.tsx']
 

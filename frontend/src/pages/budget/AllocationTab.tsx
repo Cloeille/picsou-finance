@@ -109,7 +109,7 @@ export function AllocationTab() {
                         <ColorDot color={s.color} />
                         <span className="truncate">{s.name}</span>
                         <span className="ml-auto tabular-nums text-muted-foreground">
-                          {formatPercent(s.percent)}
+                          {formatPercent(s.percent, { fractionDigits: 2 })}
                         </span>
                         <span className="w-24 text-right tabular-nums">
                           <CurrencyDisplay value={s.amount} />

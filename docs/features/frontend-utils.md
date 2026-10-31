@@ -29,6 +29,7 @@ Shared formatting functions used across the frontend. Centralised in one file to
 | `formatLocalDate` | `(dateStr, locale=getLocale())` | `"8 avril 2026"` (long month) |
 | `formatPercent` | `(points, { fractionDigits=1, signed=false }, locale=getLocale())` | `8.3` → `"8,3 %"` (fr), `"8.3%"` (en); `signed` → `"+8,3 %"`, never on zero |
 | `formatDecimal` | `(value, fractionDigits, locale=getLocale())` | `4.7` → `"4,7"` (fr) — a plain number beside a unit that is not a percentage |
+| `formatQuantity` | `(value, locale=getLocale())` | `0.0001` → `"0,0001"` (fr) — a holding quantity, up to eight decimals so a small crypto position never reads as 0 |
 | `withDrawableSpaces` | `(formatted) => string` | Replaces U+202F with U+00A0; applied by every number formatter here and in `money.ts` |
 | `formatTimeAgo` | `(dateStr, locale=getLocale())` | `"il y a 3 heures"` via `Intl.RelativeTimeFormat` |
 | `ageAt` | `(birthDate, at) => number \| null` | `('1998-09-20', '2042-08-31')` → `43`; completed years between two `yyyy-MM-dd` dates |
@@ -128,4 +129,4 @@ Wired into the four date fields: `AddTransactionModal` (transaction date),
 
 ## Tests
 
-- `frontend/src/lib/utils.test.ts` — covers `cn`, `formatCurrency` including invalid currency/locale fallback, `formatDate`, `formatPercent` and `formatDecimal` in fr/de/es/en, and `parseDate` (dd/mm vs mm/dd ordering, iso mode, mixed separators, 2-digit years, impossible-date rejection, malformed input, and the `formatDate`∘`parseDate` round-trip across both formats × both locales).
+- `frontend/src/lib/utils.test.ts` — covers `cn`, `formatCurrency` including invalid currency/locale fallback, `formatDate`, `formatPercent` and `formatDecimal` in fr/de/es/en, `formatQuantity` keeping a 0.0001 holding, and `parseDate` (dd/mm vs mm/dd ordering, iso mode, mixed separators, 2-digit years, impossible-date rejection, malformed input, and the `formatDate`∘`parseDate` round-trip across both formats × both locales).

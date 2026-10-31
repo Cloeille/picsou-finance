@@ -104,6 +104,8 @@ Placeholders in the goal calendar *are* masked: they are display-only, unlike a 
 - `money-guard.test.ts` — six lexical rules over the source tree (raw formatter allowlist, no
   hand-built currency format, no `€` in JSX, every `<YAxis>` passes `tickFormatter={money.tick}`,
   every `<ChartTooltipContent>` passes a `formatter`, no amount-shaped identifier printed bare).
+  Percent charts are exempt from the `<YAxis>` and `<ChartTooltipContent>` rules:
+  `AllocationTrajectory.tsx`.
   The axis and tooltip rules check each element, not the file: a file-level check let the
   cashflow axis print raw euros because it had no formatter at all. Its docstring states what it
   cannot catch
