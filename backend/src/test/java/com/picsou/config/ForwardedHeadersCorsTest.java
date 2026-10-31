@@ -8,11 +8,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.filter.ForwardedHeaderFilter;
+import org.apache.catalina.connector.Connector;
+import org.apache.catalina.connector.Request;
+import org.apache.catalina.connector.Response;
+import org.apache.catalina.valves.RemoteIpValve;
+import org.apache.catalina.valves.ValveBase;
 
 import java.util.Optional;
 
@@ -20,21 +23,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 /**
- * Regression test for the "403 over HTTPS behind a reverse proxy" bug.
- *
- * <p>Picsou serves the SPA and the API from the same origin, so login/setup requests are
- * genuinely same-origin and must never be subject to CORS. Spring's
- * {@link org.springframework.web.cors.CorsUtils#isCorsRequest} decides same-vs-cross origin by
- * comparing the {@code Origin} header's scheme/host/port against {@code request.getScheme()/
- * getServerName()/getServerPort()}. Behind a TLS-terminating proxy the browser sends
- * {@code Origin: https://host} while the backend connection is plain HTTP, so without
- * {@code server.forward-headers-strategy=framework} the scheme mismatches, the request is
- * treated as cross-origin, and the fail-closed allow-list rejects it with 403.
- *
- * <p>These tests run the real {@link ForwardedHeaderFilter} + {@link DynamicCorsConfigurationSource}
- * + {@link LoggingCorsProcessor} the application wires in production. The allow-list deliberately
- * holds only the {@code http://} origin (the value persisted when setup is run over HTTP), which is
- * the exact state in which users hit the bug.
+ * CORS regression through native Tomcat forwarding, including HTTPS behind a trusted proxy.
+ * The production valve configuration and untrusted-peer behavior are covered separately by
+ * {@link TrustedProxyClientIpTest}.
  */
 @ExtendWith(MockitoExtension.class)
 class ForwardedHeadersCorsTest {
@@ -99,6 +90,7 @@ class ForwardedHeadersCorsTest {
         req.setServerName("127.0.0.1");
         req.setServerPort(9090);
         req.addHeader("Host", PUBLIC_HOST);
+        req.addHeader("X-Forwarded-Host", PUBLIC_HOST);
         req.addHeader("Origin", HTTPS_ORIGIN);
         if (forwardedProto != null) {
             req.addHeader("X-Forwarded-Proto", forwardedProto);
@@ -106,18 +98,37 @@ class ForwardedHeadersCorsTest {
         return req;
     }
 
-    /** Run the production filter + CORS processing chain and return the response. */
+    /** Native container processing precedes the application's CORS processing. */
     private MockHttpServletResponse process(MockHttpServletRequest req) throws Exception {
-        MockFilterChain chain = new MockFilterChain();
-        new ForwardedHeaderFilter().doFilter(req, new MockHttpServletResponse(), chain);
-        HttpServletRequest effective = (HttpServletRequest) chain.getRequest();
-
-        DynamicCorsConfigurationSource source =
-            new DynamicCorsConfigurationSource(settingRepository, "");
-        CorsConfiguration config = source.getCorsConfiguration(effective);
-
         MockHttpServletResponse response = new MockHttpServletResponse();
-        new LoggingCorsProcessor().processRequest(config, effective, response);
+        RemoteIpValve valve = new RemoteIpValve();
+        valve.setInternalProxies("127\\.0\\.0\\.1");
+        valve.setProtocolHeader("X-Forwarded-Proto");
+        valve.setHostHeader("X-Forwarded-Host");
+        valve.setPortHeader("X-Forwarded-Port");
+        valve.setNext(new ValveBase() {
+            @Override
+            public void invoke(Request request, Response ignored) throws java.io.IOException {
+                HttpServletRequest effective = request.getRequest();
+                DynamicCorsConfigurationSource source =
+                    new DynamicCorsConfigurationSource(settingRepository, "");
+                CorsConfiguration config = source.getCorsConfiguration(effective);
+                new LoggingCorsProcessor().processRequest(config, effective, response);
+            }
+        });
+        Request request = new Request(new Connector());
+        org.apache.coyote.Request coyote = new org.apache.coyote.Request();
+        request.setCoyoteRequest(coyote);
+        request.setRemoteAddr(req.getRemoteAddr());
+        request.setRemoteHost(req.getRemoteAddr());
+        coyote.scheme().setString(req.getScheme());
+        coyote.serverName().setString(req.getServerName());
+        coyote.setServerPort(req.getServerPort());
+        coyote.method().setString(req.getMethod());
+        coyote.requestURI().setString(req.getRequestURI());
+        req.getHeaderNames().asIterator().forEachRemaining(name ->
+            coyote.getMimeHeaders().addValue(name).setString(req.getHeader(name)));
+        valve.invoke(request, new Response());
         return response;
     }
 }
