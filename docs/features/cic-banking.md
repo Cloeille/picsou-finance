@@ -22,12 +22,14 @@ balance.
 - **Accounts**: `/fr/banque/comptes-et-contrats.html`, one `table.ei_comptescontrats` per category,
   captioned "Liste des comptes liés à la catégorie : …". "Comptes courants" rows are `CHECKING`;
   "Livrets et comptes d'épargne" rows are typed from their label (Livret A, LDDS, LEP, Livret Jeune,
-  PEL, CEL, else `SAVINGS`). Category names accept straight and typographic apostrophes. Tables
-  outside these categories are skipped only when their rows contain no account or balance data,
-  such as links to employee savings. An unnamed or unrecognized table with account data fails the
-  whole page. A balance-bearing row that cannot be read also fails the page, including one whose
-  title marker is missing or whose label is empty. Header and action rows without account or
-  balance markers are skipped. Before certifying `snapshotComplete`, the parser also checks
+  PEL, CEL, else `SAVINGS`). Category names accept straight and typographic apostrophes. In a
+  contract table (`table.ei_comptescontrats`) outside these categories, a row that is only a
+  product title (a contract or offer link, such as the captionless "Vos contrats et nos offres"
+  block) is skipped. A row with an account number, a balance marker, a non-empty balance cell, or
+  an amount outside its title fails the whole page. A balance-bearing row that cannot be read
+  also fails the page, including one whose title marker is missing or whose label is empty.
+  Header and action rows without account or balance markers are skipped. Before certifying
+  `snapshotComplete`, the parser also checks
   tables and rows outside its recognized selectors. Account or balance data in a renamed table,
   an orphan row, or unparsed markup inside a contract table fails the fetch with
   `UPSTREAM_FORMAT_CHANGED`. Every recognized contract table must have a closing tag, even if the

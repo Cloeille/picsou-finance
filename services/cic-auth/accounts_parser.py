@@ -16,9 +16,10 @@ table per category, each with an invisible caption naming it:
         ...
 
 Only current accounts and savings accounts are in scope. Other tables are
-skipped unless a row carries a balance: the page also lists contract links with
-a title and no amount, such as the captionless "Vos contrats et nos offres"
-block. An unrecognized category with a balance fails the whole page, as does a
+skipped only when every row is a bare contract or offer link (a title, nothing
+else), such as the captionless "Vos contrats et nos offres" block. A row with an
+account number, a balance marker, a non-empty balance cell, or an amount outside
+its title in an unrecognized or unnamed table fails the whole page, as does a
 balance-bearing row that cannot be read. Silently dropping an account would hide
 an incomplete sync.
 """
@@ -56,12 +57,26 @@ _AMOUNT_RE = re.compile(r'class="[^"]*\bei_sdsf_montant\b[^"]*"[^>]*>(?P<amount>
 _ACCOUNT_MARKER_RE = re.compile(r'class="[^"]*\b(?:ei_sdsf_title|doux|ei_sdsf_montant)\b')
 _TAG_RE = re.compile(r"<[^>]+>")
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s.]*(?:,\d+)?)\s*(?P<currency>[A-Z]{3}|€)$")
-# Money in text: a number then a three-letter code or a currency symbol, or a symbol then
-# a number with cents. No code before the number: a title such as "PEL 2024" would match.
-# A symbol-first number needs cents so script text such as "$1" does not match.
-_BALANCE_RE = re.compile(r"\d[\d\s.,]*\s*(?:[A-Z]{3}\b|[€$£])|[€$£]\s*\d[\d\s.,]*[.,]\d{2}\b")
-# A whole product-title span: a title is a name ("Contrat 2024 PEL"), never an amount.
-_TITLE_SPAN_RE = re.compile(r'<span\b[^>]*class="[^"]*\bei_sdsf_title\b[^"]*"[^>]*>.*?</span>', re.DOTALL)
+# The lookbehind and possessive quantifiers keep it linear on long digit runs.
+_BALANCE_RE = re.compile(r"(?<![\d\s.,])[\s.,]*+\d[\d\s.,]*+(?:[A-Z]{3}\b|€)")
+# Class markers only an account row carries: its number or its balance span.
+_ROW_MARKER_RE = re.compile(r'class=["\'][^"\']*\b(?:doux|ei_sdsf_montant)\b')
+# A balance cell: the offers link has one, empty, so only its content tells.
+_SOLDE_CELL_RE = re.compile(
+    r'<td\b[^>]*class=["\'][^"\']*\bei_sdsf_solde\b[^"\']*["\'][^>]*>(?P<balance>.*?)</td>',
+    re.DOTALL | re.IGNORECASE,
+)
+# Script and style text is code, not money: "f(1, $(x))" reads as an amount.
+_SCRIPT_RE = re.compile(r"<(script|style)\b.*?(?:</\1\s*>|\Z)", re.DOTALL | re.IGNORECASE)
+# A title's own text is a name ("Contrat 2024 USD"), never an amount. Markup nested in it stays.
+_TITLE_TEXT_RE = re.compile(r'<span\b[^>]*class=["\'][^"\']*\bei_sdsf_title\b[^"\']*["\'][^>]*>[^<]*')
+# Money in row text: a number then a code or symbol, or EUR or a symbol then a number. The
+# number branch starts only at the beginning of a run of digits, spaces, dots and commas (the
+# lookbehind), skips the run's leading separators, then takes the rest possessively: linear.
+_ROW_MONEY_RE = re.compile(
+    r"(?:(?i:\bEUR)|€|\$|£)\s*[+-]?\d"
+    r"|(?<![\d\s.,])[\s.,]*+\d[\d\s.,]*+(?:[A-Z]{3}\b|(?i:EUR\b)|€|\$|£)"
+)
 
 # Ordered: the first match wins, so the specific products come before the
 # generic "livret".
@@ -124,9 +139,13 @@ def _category(table: str) -> str:
     return match.group("name").strip().lower().replace("’", "'") if match else ""
 
 
-def _has_balance(fragment: str) -> bool:
-    """An amount in the row: a balance span, or money in its text outside the product title."""
-    return bool(_AMOUNT_RE.search(fragment) or _BALANCE_RE.search(_text(_TITLE_SPAN_RE.sub(" ", fragment))))
+def _is_account_row(cells: str) -> bool:
+    """A row of an unsupported table that carries more than a bare product title."""
+    if _ROW_MARKER_RE.search(cells):
+        return True
+    if any(_text(cell.group("balance")) for cell in _SOLDE_CELL_RE.finditer(cells)):
+        return True
+    return bool(_ROW_MONEY_RE.search(_text(_TITLE_TEXT_RE.sub(" ", _SCRIPT_RE.sub(" ", cells)))))
 
 
 def _has_account_data(fragment: str) -> bool:
@@ -183,13 +202,12 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
             number = _NUMBER_RE.search(cells)
             amount = _AMOUNT_RE.search(cells)
             if not supported:
-                # A title without an amount is a link to a contract or an offer,
-                # not a balance this sync would drop.
-                if _has_balance(cells):
+                # A bare title is a link to a contract or an offer, not an account this sync would drop.
+                if _is_account_row(cells):
                     product = _text(title.group("title"))[:60] if title else None
                     raise AccountsFormatError(
                         FORMAT_CHANGED,
-                        f"An account table has an unrecognized category: {category or 'unnamed'!r} "
+                        f"An account table has an unrecognized category: {(category or 'unnamed')[:60]!r} "
                         f"(product {product!r})",
                     )
                 continue
