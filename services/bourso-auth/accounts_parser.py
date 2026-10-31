@@ -18,6 +18,7 @@ is ever skipped to "recover": a card that looks like an account but does not
 parse fails the whole sync, so the last known-good data survives.
 """
 
+import hashlib
 import re
 import unicodedata
 from datetime import date
@@ -854,6 +855,34 @@ _LI_ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}\d$")
 _LI_EURO_FUND_RE = re.compile(r"\bEUROS?\b", re.IGNORECASE)
 # The backend refuses an unresolved ticker longer than this (BoursoSyncService.MAX_TICKER_LENGTH).
 _LI_MAX_FALLBACK_SYMBOL = 30
+# Room left for the label once "-" and the digest are appended.
+_LI_DIGEST_LENGTH = 8
+_LI_LABEL_PREFIX = _LI_MAX_FALLBACK_SYMBOL - _LI_DIGEST_LENGTH - 1
+
+
+def _li_symbol(quote_symbol: str | None, isin: str | None, label: str) -> str:
+    """Pick the ticker of an assurance-vie support, never longer than the backend accepts.
+
+    Order: the Boursorama quote-link symbol, then the ISIN, then the label itself when it
+    fits, and finally a shortened label followed by a digest of the full label.
+
+    The ticker must be stable: the backend keys holdings by ticker, so one that changes
+    between two syncs would drop the old holding and create a new one. That is why nothing
+    depends on the position in the list (a support added or reordered would renumber the
+    others); the digest depends on the label alone. It also keeps two labels that only
+    share a prefix apart. Two identical labels still collide on purpose, and
+    guard_symbol_collisions refuses them instead of merging two holdings into one.
+
+    A quote-link symbol longer than the limit is dropped, as the backend would reject it.
+    """
+    if quote_symbol and len(quote_symbol) <= _LI_MAX_FALLBACK_SYMBOL:
+        return quote_symbol
+    if isin:
+        return isin
+    if len(label) <= _LI_MAX_FALLBACK_SYMBOL:
+        return label.rstrip()
+    digest = hashlib.sha256(label.encode()).hexdigest()[:_LI_DIGEST_LENGTH]
+    return f"{label[:_LI_LABEL_PREFIX].rstrip()}-{digest}"
 
 
 def _li_amount(cell: str, field: str, *, required: bool = True) -> Decimal | None:
@@ -913,10 +942,7 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
                 raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no units and is not a euro fund")
         positions.append({
             "isin": isin,
-            # Two supports whose labels share these first characters are refused by
-            # guard_symbol_collisions, never merged.
-            "symbol": (symbol.group("symbol") if symbol else None) or isin
-            or label[:_LI_MAX_FALLBACK_SYMBOL].rstrip(),
+            "symbol": _li_symbol(symbol.group("symbol") if symbol else None, isin, label),
             "label": label,
             "quantity": quantity,
             "buyingPriceEur": _li_amount(cells[3], "buying price", required=False),

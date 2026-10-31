@@ -5,7 +5,14 @@ from decimal import Decimal
 
 import httpx
 
-from accounts_parser import FORMAT_CHANGED, INCOMPLETE, AccountsFormatError, parse_dashboard, parse_life_insurance
+from accounts_parser import (
+    FORMAT_CHANGED,
+    INCOMPLETE,
+    AccountsFormatError,
+    guard_symbol_collisions,
+    parse_dashboard,
+    parse_life_insurance,
+)
 from fixtures import (
     LIFE_INSURANCE_HTML,
     LIFE_INSURANCE_ID,
@@ -104,11 +111,56 @@ class LifeInsurancePageTest(unittest.TestCase):
             life_insurance_row(label, None, None, "10,0000", "300,00 €", "330,00 €", "3 300,00 €", "300,00 €")
         )
 
-        position, = parse_life_insurance(life_insurance_page(rows))["positions"]
+        page = life_insurance_page(rows)
 
-        self.assertEqual(position["symbol"], label[:30].rstrip())
+        position, = parse_life_insurance(page)["positions"]
+        again, = parse_life_insurance(page)["positions"]
+
         self.assertLessEqual(len(position["symbol"]), 30)
+        self.assertTrue(position["symbol"].startswith(label[:21].rstrip() + "-"))
+        # The backend keys holdings by ticker: it must not change from one sync to the next.
+        self.assertEqual(position["symbol"], again["symbol"])
         self.assertEqual(position["label"], label)
+
+    def test_two_labels_sharing_their_first_30_characters_get_distinct_tickers(self):
+        prefix = "Support en unités de compte A"
+        rows = (
+            life_insurance_row(prefix + " première variante", None, None,
+                               "10,0000", "50,00 €", "60,00 €", "600,00 €", "100,00 €")
+            + life_insurance_row(prefix + " seconde variante", None, None,
+                                 "10,0000", "50,00 €", "60,00 €", "600,00 €", "100,00 €")
+        )
+
+        contract = parse_life_insurance(life_insurance_page(rows, valuation="1 200,00 €"))
+
+        first, second = contract["positions"]
+        self.assertEqual(first["label"][:30], second["label"][:30])
+        self.assertNotEqual(first["symbol"], second["symbol"])
+        self.assertLessEqual(len(first["symbol"]), 30)
+        self.assertLessEqual(len(second["symbol"]), 30)
+        guard_symbol_collisions(contract["positions"])
+
+    def test_a_quote_link_symbol_over_the_backend_limit_gives_way_to_the_isin(self):
+        long_symbol = "1r" + "A" * 30
+        rows = (
+            life_insurance_row("iShares MSCI World SRI UCITS ETF", "IE00BYX2JD69", long_symbol,
+                               "100,0000", "10,00 €", "12,00 €", "1 200,00 €", "200,00 €")
+        )
+
+        position, = parse_life_insurance(life_insurance_page(rows, valuation="1 200,00 €"))["positions"]
+
+        self.assertGreaterEqual(len(long_symbol), 31)
+        self.assertEqual(position["symbol"], "IE00BYX2JD69")
+
+    def test_a_short_label_without_isin_or_quote_link_is_kept_as_the_ticker(self):
+        rows = (
+            life_insurance_row("Support sans code", None, None,
+                               "10,0000", "50,00 €", "60,00 €", "600,00 €", "100,00 €")
+        )
+
+        position, = parse_life_insurance(life_insurance_page(rows, valuation="600,00 €"))["positions"]
+
+        self.assertEqual(position["symbol"], "Support sans code")
 
     def test_a_missing_support_on_a_large_contract_is_not_hidden_by_a_relative_tolerance(self):
         rows = (

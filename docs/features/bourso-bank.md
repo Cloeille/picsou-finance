@@ -568,5 +568,10 @@ The lines must reconcile with the valuation within a cent per line (floor 0.05 â
 (`lines_close`) and again in `BoursoSyncService` (`linesClose`, counting the euro fund as a line).
 Each support amount is rounded to the cent, so that is all the rounding can add up to. The 0.1 %
 tolerance of the other envelopes is deliberately not used: it scales with the valuation, so a
-support missing from a large contract would pass inside it. A position without an ISIN or a quote
-link falls back to its label as ticker, cut to 30 characters (the backend's ticker limit).
+support missing from a large contract would pass inside it. A position's ticker is, in order: the
+quote-link symbol (dropped if over 30 characters, the backend's ticker limit), the ISIN, the label
+when it fits in 30 characters, else the first 21 characters of the label, a dash and the first 8
+hex digits of the SHA-256 of the full label. The digest depends on the label alone, never on the
+position in the list, so the ticker is the same at every sync (the backend keys holdings by ticker)
+and two labels sharing only a prefix stay apart. Two identical labels are still refused by
+`guard_symbol_collisions`.
