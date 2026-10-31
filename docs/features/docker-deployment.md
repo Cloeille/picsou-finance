@@ -300,10 +300,11 @@ Do not use a shared Docker subnet or all private networks as a trust list.
 
 When upgrading an existing bundled TLS deployment, use the
 [release deployment script](./release-deployment.md). After checking the new app container,
-it force-recreates the existing `proxy` without recreating dependencies, preserving Caddy's
-certificate volumes. This applies the new `tls-proxy` attachment and loads the `app-tls`
-upstream before the public API readiness probe. Restarting Caddy alone does not apply Compose
-network changes. Migration or app cutover failures leave the proxy untouched.
+it force-recreates `proxy` only if it was running when deployment started. Recreation uses
+`--no-deps` and preserves Caddy's certificate volumes. This applies the new `tls-proxy` attachment
+and loads the `app-tls` upstream before the public API readiness probe. Restarting Caddy alone
+does not apply Compose network changes. Stopped or absent proxies remain untouched, even when
+the `tls` profile is enabled. Migration or app cutover failures leave the proxy untouched.
 
 The root split Compose stack uses a separate `picsou-ingress` bridge (`172.30.254.0/29`). nginx
 is `172.30.254.2`, the backend is `172.30.254.3`, and the ingress-only `ingress-backend` alias

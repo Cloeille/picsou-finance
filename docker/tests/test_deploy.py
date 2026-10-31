@@ -22,6 +22,10 @@ args="$*"
 if [[ "$args" == *" ps -aq db"* ]]; then [[ -n "${MOCK_NO_DB:-}" ]] || echo db-container; exit 0; fi
 if [[ "$args" == *" ps -aq app"* ]]; then [[ -n "${MOCK_NO_APP:-}" ]] || echo old-app-container; exit 0; fi
 if [[ "$args" == *" ps -aq proxy"* ]]; then printf '%s\n' "${MOCK_PROXY_CONTAINER:-}"; exit 0; fi
+if [[ "$args" == *" ps -q --status running proxy"* ]]; then
+  [[ "${MOCK_PROXY_RUNNING:-true}" == true ]] && printf '%s\n' "${MOCK_PROXY_CONTAINER:-}"
+  exit 0
+fi
 if [[ "$args" == *" ps -q db"* ]]; then echo db-container; exit 0; fi
 if [[ "$args" == *" ps -q app"* ]]; then [[ -n "${MOCK_CUTOVER_NO_APP:-}" ]] || echo new-app-container; exit 0; fi
 if [[ "$1" == inspect ]]; then
@@ -127,7 +131,7 @@ def test_candidate_and_live_migrations_precede_pinned_app_cutover(fake_tools, tm
 
 
 @pytest.mark.parametrize("flags", [("--profile", "tls"), ()], ids=["cli-profile", "env-profile"])
-def test_existing_tls_proxy_is_recreated_after_app_cutover_before_probe(fake_tools, tmp_path, flags):
+def test_running_tls_proxy_is_recreated_after_app_cutover_before_probe(fake_tools, tmp_path, flags):
     result, commands, _ = run_deploy(
         fake_tools, tmp_path, *flags, MOCK_PROXY_CONTAINER="old-proxy-container",
         COMPOSE_PROFILES="" if flags else "tls",
@@ -140,6 +144,26 @@ def test_existing_tls_proxy_is_recreated_after_app_cutover_before_probe(fake_too
     assert "<--force-recreate>" in commands[proxy_recreate]
     assert "<--no-deps>" in commands[proxy_recreate]
     assert "<app>" not in commands[proxy_recreate]
+
+
+@pytest.mark.parametrize(
+    "flags, compose_profiles",
+    [
+        ((), ""),
+        (("--profile", "tls"), ""),
+        ((), "tls"),
+    ],
+    ids=["no-profile", "cli-profile", "env-profile"],
+)
+def test_stopped_tls_proxy_is_not_started(fake_tools, tmp_path, flags, compose_profiles):
+    result, commands, _ = run_deploy(
+        fake_tools, tmp_path, *flags, MOCK_PROXY_CONTAINER="stopped-proxy-container",
+        MOCK_PROXY_RUNNING="false", COMPOSE_PROFILES=compose_profiles,
+    )
+    assert result.returncode == 0, result.stderr
+    assert any("<up>" in line and "<app>" in line for line in commands)
+    assert any(line.startswith("curl") for line in commands)
+    assert not any("<up>" in line and "<proxy>" in line for line in commands)
 
 
 def test_absent_tls_proxy_is_not_started(fake_tools, tmp_path):

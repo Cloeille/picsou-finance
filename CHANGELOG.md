@@ -314,8 +314,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to same-origin checks. Caddy's configurable static address stays outside the TLS bridge's
   automatic allocation range, allowing fresh startup and repeat deployment migrations
   alongside the running app without address conflicts. The release deployment script
-  recreates an existing bundled TLS proxy after the app cutover, applying the new network
-  and upstream while preserving certificates, so upgrades also receive the fix.
+  recreates a running bundled TLS proxy after the app cutover, applying the new network
+  and upstream while preserving certificates, so upgrades also receive the fix. Stopped proxies
+  remain stopped, even when the `tls` profile is enabled.
   **Upgrade note:** the app always joins the new `tls-proxy` bridge (`172.30.253.0/29`),
   including on non-TLS installs. If it overlaps an existing Docker network,
   `docker compose up -d` and `deploy.sh` fail with `networks have overlapping IPv4`.

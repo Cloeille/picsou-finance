@@ -83,14 +83,14 @@ such as `/var/backups/picsou`, not a shared directory like `/var/backups` or `$H
    and the existing narrowly matched legacy-renumbering callback. No baseline, clean, or broad
    history repair is attempted.
 5. Recreate `app` with the pinned image. Require that this project's `app` container is
-   running the candidate image ID. If the project already has a bundled TLS `proxy` container,
+   running the candidate image ID. If a bundled TLS `proxy` was running when deployment started,
    force-recreate it with `--no-deps` to apply its current networks and Caddyfile without
    replacing the pinned app again. This migrates older, default-network-only Caddy containers
    to `tls-proxy`, where `app-tls` resolves and Caddy uses nginx's trusted peer address.
-   Certificate and configuration volumes are preserved. A project without a proxy container
-   does not start one. Then probe `/api/auth/me` without credentials. A bounded wait
-   must receive HTTP **401**. Static HTML 200, redirects, gateway 502, and connection failure never
-   report success.
+   Certificate and configuration volumes are preserved. Stopped or absent proxies remain
+   untouched, even when the `tls` profile is enabled. Then probe `/api/auth/me` without credentials.
+   A bounded wait must receive HTTP **401**. Static HTML 200, redirects, gateway 502, and connection
+   failure never report success.
 
 On every exit, success or failure, an `EXIT` trap drops the temporary database and removes the
 temporary credentials/configuration. The backup is retained. A `SIGKILL` or power loss skips the
@@ -175,9 +175,10 @@ container. Do not put passwords in command arguments or print `compose config` i
 - `python3 -m pytest docker/tests/test_deploy.py -v`: real shell script exercised against command
   doubles, checking ordering, failure isolation, cleanup, image pinning, real API readiness gates,
   refusal of an unknown Compose project, the post-cutover image check, the backup-directory mode,
-  the previous-image record, and the free-space check. It also checks that an existing TLS proxy
+  the previous-image record, and the free-space check. It also checks that a running TLS proxy
   is recreated after the app check and before the API probe, while migration or cutover failures
-  leave it untouched and a proxy recreation failure returns nonzero.
+  leave it untouched and a proxy recreation failure returns nonzero. Absent proxies are not started.
+  Stopped proxies stay stopped with no TLS profile, `--profile tls`, or `COMPOSE_PROFILES=tls`.
   CI also runs `shellcheck -x docker/deploy.sh`.
 - `ReleaseMigrationCliConfigurationTest` (no Docker): Spring Boot naming-strategy parity, the
   discovered named enums, and redaction of an unreachable connection.
