@@ -103,6 +103,7 @@ single_container() {
 # otherwise create, back up and migrate an empty database in another Compose project.
 existing_db=$(docker_compose ps -aq db)
 existing_app=$(docker_compose ps -aq app)
+existing_proxy=$(docker_compose ps -aq proxy)
 if (( ! fresh )) && ! { single_container "$existing_db" && single_container "$existing_app"; }; then
     echo 'No existing db and app container in the addressed Compose project.' >&2
     echo 'Pass the production project name (-p or COMPOSE_PROJECT_NAME) and the same Compose flags,' >&2
@@ -252,6 +253,11 @@ app_state=$(docker inspect --format '{{.State.Running}} {{.Image}}' "$app_contai
 if [[ "$app_state" != "true $candidate_image" ]]; then
     echo 'The app container is not running the candidate image after cutover.' >&2
     exit 1
+fi
+
+# A restart reloads the Caddyfile but leaves old Compose network attachments intact.
+if [[ -n "$existing_proxy" ]]; then
+    docker_compose up -d --no-deps --force-recreate proxy
 fi
 
 probe_url="$api_base/api/auth/me"

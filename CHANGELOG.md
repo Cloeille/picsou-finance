@@ -313,7 +313,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   headers do not replace the connection address. Public HTTP and HTTPS ports remain available
   to same-origin checks. Caddy's configurable static address stays outside the TLS bridge's
   automatic allocation range, allowing fresh startup and repeat deployment migrations
-  alongside the running app without address conflicts.
+  alongside the running app without address conflicts. The release deployment script
+  recreates an existing bundled TLS proxy after the app cutover, applying the new network
+  and upstream while preserving certificates, so upgrades also receive the fix.
 
 - **The demo no longer looks broken.** Every page now gets an answer from the demo build:
   holdings on every account, prices, connected apps, the status of each provider, the budget's

@@ -291,6 +291,13 @@ runs with `PICSOU_PROXY_IP` unset trust no upstream client-address header.
 For a custom proxy, set it to that proxy's exact address as seen by nginx and recreate the app.
 Do not use a shared Docker subnet or all private networks as a trust list.
 
+When upgrading an existing bundled TLS deployment, use the
+[release deployment script](./release-deployment.md). After checking the new app container,
+it force-recreates the existing `proxy` without recreating dependencies, preserving Caddy's
+certificate volumes. This applies the new `tls-proxy` attachment and loads the `app-tls`
+upstream before the public API readiness probe. Restarting Caddy alone does not apply Compose
+network changes. Migration or app cutover failures leave the proxy untouched.
+
 The root split Compose stack uses a separate `picsou-ingress` bridge (`172.30.254.0/29`). nginx
 is `172.30.254.2`, the backend is `172.30.254.3`, and the ingress-only `ingress-backend` alias
 ensures the backend connection uses that path. Only the frontend's exact address is in
@@ -313,6 +320,9 @@ the `app-tls` upstream. It also runs a one-off app container alongside the live 
 repeat deployments. The nginx fixtures create explicit randomized subnets for static test
 addresses, retrying subnet overlaps for compatibility with Docker versions used in CI.
 The Compose tests publish no host ports and remove their test containers and volumes.
+`docker/tests/test_deploy_integration.py` also upgrades a running Caddy from the old
+default-network-only layout and verifies the new network, active upstream, preserved CA
+and HTTPS API response through the deployment script.
 
 ### Key files
 
