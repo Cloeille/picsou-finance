@@ -286,6 +286,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AI categorization works with Anthropic.** Every call to Claude failed with
+  `400 max_tokens: Field required`, so no transaction was ever categorized with that
+  provider. Picsou now sends the token limit the Anthropic API requires.
+
 - **Caisse d'Epargne loan insurance rounding.** Personal and home loans now
   retain the correct cent-rounded insurance at exact half-cent annuity boundaries
   and extremely small positive nominal rates. Directed Decimal bounds certify
