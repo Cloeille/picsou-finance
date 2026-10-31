@@ -92,6 +92,16 @@ class CicAdapterTest {
     }
 
     @Test
+    void anUnparsedAccountsPageFailsTheFetch() {
+        CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.BAD_GATEWAY,
+            "{\"detail\":\"UPSTREAM_FORMAT_CHANGED\"}");
+
+        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CicErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
+    }
+
+    @Test
     void springSelectsTheProductionConstructor() {
         new ApplicationContextRunner()
             .withPropertyValues("app.cic-auth.url=http://cic-auth:8001", "app.sidecar.api-key=test-key")

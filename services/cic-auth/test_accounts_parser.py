@@ -91,6 +91,52 @@ class PageTest(unittest.TestCase):
 
         self.assertEqual([account["type"] for account in accounts], ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
 
+    def test_an_unparsed_savings_table_fails_the_whole_page(self):
+        prefix, remaining = ACCOUNTS_PAGE.split("ei_comptescontrats", 1)
+        for replacement in ("ei_savingscontracts", ""):
+            with self.subTest(replacement=replacement):
+                page = prefix + "ei_comptescontrats" + remaining.replace("ei_comptescontrats", replacement, 1)
+
+                with self.assertRaises(AccountsFormatError) as error:
+                    parse_accounts(page)
+
+                self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_an_unknown_table_with_changed_account_markers_still_fails(self):
+        row = account_row(0, "LIVRET A", "10000 000123456 02", "+1,00 EUR")
+        for marker in ("ei_sdsf_title", "doux", "ei_sdsf_montant", "ei_sdsf_solde"):
+            row = row.replace(marker, "other")
+
+        for tag in ("table", "TABLE"):
+            with self.subTest(tag=tag), self.assertRaises(AccountsFormatError):
+                parse_accounts(ACCOUNTS_PAGE + f'<{tag} class="new_accounts">{row}</{tag}>')
+
+    def test_account_data_outside_a_parsed_row_fails_the_whole_page(self):
+        row = account_row(0, "LIVRET A", "10000 000123456 02", "+1,00 EUR")
+        unparsed_row = row.replace("<tr ", "<div ").replace("</tr>", "</div>")
+        for index, page in enumerate((
+            ACCOUNTS_PAGE + row,
+            ACCOUNTS_PAGE + row.replace("<tr ", "<TR ").replace("</tr>", "</TR>"),
+            ACCOUNTS_PAGE + accounts_table("Livrets et comptes d&#39;épargne", unparsed_row),
+        )):
+            with self.subTest(index=index), self.assertRaises(AccountsFormatError):
+                parse_accounts(page)
+
+    def test_a_missing_row_end_cannot_merge_two_accounts_into_one(self):
+        rows = account_row(0, "LIVRET A", "10000 000123456 02", "+1,00 EUR")
+        rows += account_row(1, "LDDS", "10000 000123456 03", "+2,00 EUR")
+
+        with self.assertRaises(AccountsFormatError):
+            parse_accounts(accounts_table("Livrets et comptes d&#39;épargne", rows.replace("</tr>", "", 1)))
+
+    def test_unrelated_tables_and_summary_amounts_do_not_hide_accounts(self):
+        page = ACCOUNTS_PAGE + '<p>Total : 10 135,06 EUR</p><table class="help"><tr><td>Aide</td></tr></table>'
+
+        accounts, skipped = parse_accounts(page)
+
+        self.assertEqual(len(accounts), 4)
+        self.assertEqual(skipped, ["autres contrats liés"])
+
     def test_an_unknown_category_with_account_data_fails_the_whole_page(self):
         page = ACCOUNTS_PAGE.replace("Livrets et comptes d&#39;épargne", "Nouveaux comptes")
 

@@ -27,7 +27,14 @@ balance.
   such as links to employee savings. An unnamed or unrecognized table with account data fails the
   whole page. A balance-bearing row that cannot be read also fails the page, including one whose
   title marker is missing or whose label is empty. Header and action rows without account or
-  balance markers are skipped. External id `cic_<account number digits>`.
+  balance markers are skipped. Before certifying `snapshotComplete`, the parser also checks
+  tables and rows outside its recognized selectors. Account or balance data in a renamed table,
+  an orphan row, or unparsed markup inside a contract table fails the fetch with
+  `UPSTREAM_FORMAT_CHANGED`. Existing balances and snapshots remain unchanged. Unrelated tables
+  without account data and summary amounts outside tables or rows are ignored.
+  Each account row must have one title, number, and balance; malformed row boundaries cannot merge
+  multiple accounts into a single parsed record.
+  External id `cic_<account number digits>`.
 - **Backend**: `CicSyncService`, shaped like `CmesSyncService` (stored credentials, re-login with the
   previous session, daily source `cic`), balance-only accounts with `upsertSnapshot`. Migration
   V121 `cic_session`. `/api/cic/*`, `/api/cic/auth/complete` given 180 s in nginx.
@@ -83,3 +90,12 @@ reconnecting now and then is enough.
 
 The current account also comes from Enable Banking when that connection exists: hide one of the
 two in Settings → Accounts.
+
+## Regression coverage
+
+- `services/cic-auth/test_accounts_parser.py` and `test_main.py` reject incomplete markup before
+  `/accounts` can return a certified snapshot.
+- `CicAdapterTest` preserves the format-change error across the sidecar boundary.
+  `CicSyncServiceTest` checks that a failed fetch leaves existing balances and snapshots untouched.
+- `CicControllerTest` exercises the shared initiate/reconnect quota and independent completion
+  quota through HTTP. `RateLimitConfigCicTest` checks both capacities and their 15-minute refill.

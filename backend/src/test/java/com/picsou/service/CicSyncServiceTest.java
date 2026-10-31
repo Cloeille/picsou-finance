@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -614,15 +615,30 @@ class CicSyncServiceTest {
         verify(accountService, never()).upsertSnapshot(eq(listedLivret), eq(BigDecimal.ZERO), any(LocalDate.class));
     }
 
-    @Test
-    void aFailedFetchClosesNoAccount() {
-        arrangeQueuedSession(activeSession(member()));
+    @ParameterizedTest
+    @EnumSource(value = CicErrorCode.class, names = {"PORTFOLIO_INCOMPLETE", "UPSTREAM_FORMAT_CHANGED"})
+    void aFailedFetchPreservesExistingBalancesAndSnapshots(CicErrorCode code) {
+        CicSession session = activeSession(member());
+        arrangeQueuedSession(session);
+        Account checking = Account.builder()
+            .id(12L).externalAccountId("cic_1000000012345601")
+            .provider(CicSyncService.PROVIDER).currentBalance(new BigDecimal("1234.56")).build();
+        Account livret = Account.builder()
+            .id(13L).externalAccountId(LIVRET_ID)
+            .provider(CicSyncService.PROVIDER).currentBalance(new BigDecimal("5000.00")).build();
+        lenient().when(accountRepository.findAllByMemberIdAndProvider(7L, CicSyncService.PROVIDER))
+            .thenReturn(List.of(checking, livret));
         when(port.fetchAccounts("plain-state"))
-            .thenThrow(new SyncException("partial", null, CicErrorCode.PORTFOLIO_INCOMPLETE.name()));
+            .thenThrow(new SyncException("partial", null, code.name()));
 
         service.queueSync(7L);
 
+        assertThat(checking.getCurrentBalance()).isEqualByComparingTo("1234.56");
+        assertThat(livret.getCurrentBalance()).isEqualByComparingTo("5000.00");
+        assertThat(session.getSyncStatus()).isEqualTo(CicSyncStatus.FAILED);
         verify(accountRepository, never()).findAllByMemberIdAndProvider(any(), any());
+        verify(accountRepository, never()).save(any());
+        verify(accountService, never()).upsertSnapshot(any(Account.class), any(BigDecimal.class), any(LocalDate.class));
     }
 
     private SyncException expired() {

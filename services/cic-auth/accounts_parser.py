@@ -40,9 +40,10 @@ _TABLE_RE = re.compile(
     r'<table\b[^>]*class="[^"]*\bei_comptescontrats\b[^"]*"[^>]*>(?P<body>.*?)</table>',
     re.DOTALL,
 )
+_ANY_TABLE_RE = re.compile(r"<table\b[^>]*>(?P<body>.*?)</table>", re.DOTALL | re.IGNORECASE)
 _CAPTION_RE = re.compile(r"<caption\b[^>]*>(?P<text>.*?)</caption>", re.DOTALL)
 _CATEGORY_RE = re.compile(r"cat[ée]gorie\s*:\s*(?P<name>.+)$", re.IGNORECASE)
-_ROW_RE = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.DOTALL)
+_ROW_RE = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.DOTALL | re.IGNORECASE)
 _TITLE_RE = re.compile(r'class="[^"]*\bei_sdsf_title\b[^"]*"[^>]*>(?P<title>.*?)</span>', re.DOTALL)
 _NUMBER_RE = re.compile(r'class="[^"]*\bdoux\b[^"]*"[^>]*>(?P<number>.*?)</span>', re.DOTALL)
 _AMOUNT_RE = re.compile(r'class="[^"]*\bei_sdsf_montant\b[^"]*"[^>]*>(?P<amount>.*?)</span>', re.DOTALL)
@@ -111,11 +112,24 @@ def _category(table: str) -> str:
     return match.group("name").strip().lower().replace("’", "'") if match else ""
 
 
+def _has_account_data(fragment: str) -> bool:
+    return bool(
+        _TITLE_RE.search(fragment) or _NUMBER_RE.search(fragment) or _AMOUNT_RE.search(fragment)
+        or "ei_sdsf_solde" in fragment or _BALANCE_RE.search(_text(fragment))
+    )
+
+
 def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
     """Return the in-scope accounts and the names of the categories skipped."""
     tables = list(_TABLE_RE.finditer(page))
     if not tables:
         raise AccountsFormatError(FORMAT_CHANGED, "No contract table on the accounts page")
+
+    # A certified partial page would zero accounts the backend no longer sees.
+    remainder = _TABLE_RE.sub("", page)
+    for pattern in (_ANY_TABLE_RE, _ROW_RE):
+        if any(_has_account_data(match.group(1)) for match in pattern.finditer(remainder)):
+            raise AccountsFormatError(FORMAT_CHANGED, "Account data outside a recognized contract table")
 
     accounts: list[dict] = []
     skipped: list[str] = []
@@ -124,18 +138,20 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
         body = table.group("body")
         category = _category(body)
         supported = category in (CHECKING_CATEGORY, SAVINGS_CATEGORY)
+        if _has_account_data(_ROW_RE.sub("", body)):
+            raise AccountsFormatError(FORMAT_CHANGED, "Account data outside a recognized account row")
         for row in _ROW_RE.finditer(body):
             cells = row.group("row")
             title = _TITLE_RE.search(cells)
             number = _NUMBER_RE.search(cells)
             amount = _AMOUNT_RE.search(cells)
-            if (title is None and number is None and amount is None
-                    and "ei_sdsf_solde" not in cells and not _BALANCE_RE.search(_text(cells))):
+            if not _has_account_data(cells):
                 continue
             if not supported:
                 raise AccountsFormatError(FORMAT_CHANGED, "An account table has an unrecognized category")
-            if title is None or number is None or amount is None:
-                raise AccountsFormatError(FORMAT_CHANGED, "An account row has no title, number, or balance")
+            if (title is None or number is None or amount is None
+                    or any(len(pattern.findall(cells)) > 1 for pattern in (_TITLE_RE, _NUMBER_RE, _AMOUNT_RE))):
+                raise AccountsFormatError(FORMAT_CHANGED, "An account row has no unique title, number, or balance")
             account_id = re.sub(r"\D", "", _text(number.group("number")))
             if not account_id:
                 raise AccountsFormatError(FORMAT_CHANGED, "An account row has an empty number")

@@ -58,7 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Deleting its last account removes the session and credentials and revokes pending logins,
   including a confirmation already in progress or a stored-credentials reconnect still reading
   its password. Unreadable account rows and unrecognized tables containing account data fail the
-  whole import. Savings captions accept typographic apostrophes. A wrong SMS code can be corrected
+  whole import, including renamed tables and rows outside the parser's selectors, preserving
+  existing balances and snapshots. Completion has its own 10-attempt quota per IP per 15 minutes,
+  separate from the five password checks shared by initiate and reconnect.
+  Savings captions accept typographic apostrophes. A wrong SMS code can be corrected
   without another login, and expired attempts have their pending passwords cleared every minute.
   Rejected credentials make the session inactive and require credential entry, including after an
   explicit reconnect, without erasing a newer login's password. Expired sessions stay in *Sync all*
