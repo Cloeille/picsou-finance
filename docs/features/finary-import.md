@@ -47,13 +47,15 @@ On execute / auto-sync, `FinaryHoldingsImporter` reads positions already nested 
 | `fonds_euro`, `generic_assets`, `scpis`, `precious_metals` | holding; ticker `FINARY_<sanitized name>` |
 | `fiats` + "Solde Espèces" | `account.cash_balance`, not a holding |
 
-Each holding stores Finary's `display_current_value` and `display_unrealized_pnl` (securities: `display_current_upnl`) as `provider_value_eur` / `provider_pnl_eur`, so unlisted instruments still value on the dashboard. Native amounts never stand in for a missing display amount: their currency is not in the payload. When two lines resolve to one ticker and either has no value, the merged holding has no provider value either.
+Each holding stores Finary's `display_current_value` and `display_unrealized_pnl` (securities: `display_current_upnl`) as `provider_value_eur` / `provider_pnl_eur`, so unlisted instruments still value on the dashboard. Native amounts never stand in for a missing display amount: their currency is not in the payload. When two lines resolve to one ticker and either has no value or no buying value, the merged holding has no provider value or no average cost either.
 
-A payload that omits every position list keeps the account's holdings and cash as they are. Sending any list, even an empty one, is the whole snapshot and replaces them.
+Holdings and cash are replaced only from a complete snapshot: a payload carrying every list Finary always sends on a portfolio account (`securities`, `cryptos`, `fonds_euro`, `fiats`), even empty. A payload missing any of them cannot tell an emptied group from an omitted one, so the account's holdings and cash are kept as they are.
 
-**Display currency.** `display_*` amounts are in the display currency the user picks in Finary, which the payload does not name. `FinaryApiSyncService.displayCurrencyIsEur` proves it is EUR when every EUR account with a non-zero balance has `display_balance == balance`. Once proven, an account stores `display_balance` in EUR and its holdings are imported. Otherwise every account stores its native `balance` in its native currency (the dashboard converts it), and holdings are left untouched. Preview shows the same amount/currency pair execute stores. Transactions in another currency than the stored balance are converted with `PriceService` before the history is rebuilt.
+**Display currency.** `display_*` amounts are in the display currency the user picks in Finary, which the payload does not name. `FinaryApiSyncService.displayCurrencyIsEur` proves it is EUR when every EUR account with a non-zero balance has `display_balance == balance` (to the cent) and at least one of them holds €1,000 or more. A small balance proves nothing: €0.01 also reads $0.01 once rounded. Once proven, an account stores `display_balance` in EUR and its holdings are imported. Otherwise every account stores its native `balance` in its native currency (the dashboard converts it), and holdings are left untouched. Preview shows the same amount/currency pair execute stores. Transactions are stored in their own currency. The rebuilt history is in EUR, like every snapshot: the anchor balance and each transaction, retained manual ones included, are converted with `PriceService` first. A missing rate aborts the import instead of writing an unconverted amount as EUR.
 
-**Accounts owned by another connector** (not manual, with an external id: Trade Republic, Bourso…) are never suggested by name. An explicit `MAP_EXISTING` onto one updates its balance but keeps its external id and holdings, so that connector still finds it. Two rows mapped onto one Picsou account are rejected before anything is written.
+**Accounts owned by another connector** (not manual, with an external id: Trade Republic, Bourso…) are never suggested by name. An explicit `MAP_EXISTING` onto one updates its balance but keeps its external id and holdings, so that connector still finds it. Two rows written into one Picsou account are rejected before anything is written. That covers a `CREATE_NEW` row whose external id already belongs to the account another row maps onto, and the XLSX import.
+
+**Suggestion order.** Every row's external-id match is reserved before any row is matched by name, so an earlier same-name row never takes the account a later row is linked to. The wizard keeps the backend's suggestion for every row it sent one for, `CREATE_NEW` included; its own name match runs only for rows without one, and only against manual accounts.
 
 ### Cache and session management
 
@@ -160,10 +162,10 @@ FinaryApiSyncService.execute(syncToken + mappings)
         |
         +-- Retrieve cached session
         +-- Apply mappings
-        +-- Reject two rows mapped onto one Picsou account
+        +-- Reject two rows written into one Picsou account (explicit targets and upserts)
         +-- Store display_balance in EUR once the display currency is proven EUR, native balance otherwise
         +-- Persist holdings (ISIN → OpenFIGI ticker, crypto code as ticker), not on accounts another connector owns
-        +-- Import transactions (converted into the stored balance's currency)
+        +-- Import transactions (in their own currency), rebuild the history in EUR
         +-- Remove from cache
         +-- Return result
 
@@ -223,13 +225,13 @@ POST /api/finary/api-sync/auto
 ## Tests
 
 - `FinaryImportServiceTest` -- unit tests for xlsx parsing, type suggestion, mapping
-- `FinaryAccountMatcherTest` -- external-id vs name+type, duplicate names, Fortuneo AV vs fonds euros
+- `FinaryAccountMatcherTest` -- external-id vs name+type, external ids reserved before name matches, duplicate names, Fortuneo AV vs fonds euros
 - `FinaryApiSyncServiceTest` -- unit tests for API sync flow, incl. loans appearing in the preview and being created as LOAN accounts on execute
 - `FinaryLoanDtoTest` -- unit tests for parsing the `/loans` payload (snake_case + camelCase aliases)
-- `FinaryHoldingsImporterTest` -- securities / crypto / fonds-euro mapping, cash skip, ticker sanitizing, omitted vs empty snapshot, unproven display currency, null lines, partial merged values
+- `FinaryHoldingsImporterTest` -- securities / crypto / fonds-euro mapping, cash skip, ticker sanitizing, omitted, partial vs empty snapshot, unproven display currency, null lines, partial merged values and costs
 - `FinaryAccountHoldingsDtoTest` -- Jackson parse of `display_balance` + nested positions
-- `FinaryApiSyncServiceTest` -- preview and execute agree on the balance with and without a proven EUR display currency, foreign-currency transactions are converted, connector-owned accounts keep their id and holdings, shared targets are rejected, `autoSync` stays transactional
-- `FinaryPersistenceHelperTest` -- rebuilt history records each day's end-of-day balance
+- `FinaryApiSyncServiceTest` -- preview and execute agree on the balance with and without a proven EUR display currency (a too-small EUR witness proves nothing), transactions keep their own currency, connector-owned accounts keep their id and holdings, shared targets are rejected (upserts included), `autoSync` stays transactional
+- `FinaryPersistenceHelperTest` -- rebuilt history records each day's end-of-day balance, in EUR, and aborts on a missing rate
 - Manual integration testing with real Finary accounts
 
 ## Links

@@ -24,7 +24,6 @@ import com.picsou.model.FinarySession;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.FinarySessionRepository;
-import com.picsou.service.PriceService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -57,7 +56,6 @@ class FinaryApiSyncServiceTest {
     @Mock FinarySessionRepository finarySessionRepository;
     @Mock FinaryPersistenceHelper persistenceHelper;
     @Mock FinaryHoldingsImporter holdingsImporter;
-    @Mock PriceService priceService;
 
     @InjectMocks FinaryApiSyncService service;
 
@@ -305,18 +303,17 @@ class FinaryApiSyncServiceTest {
     }
 
     @Test
-    void execute_convertsTransactionsIntoTheStoredBalanceCurrency() {
+    void execute_handsTransactionsOverInTheirOwnCurrency_forTheHistoryToConvert() {
         FinaryAccountDto usdChecking = new FinaryAccountDto(
             "usd-1", "US checking", null, 1000.0, 1000.0, null,
             new FinaryAccountCurrency("USD", "$"), false,
             900.0, null, null, null, null, null, null, null);
-        stubPreview(Map.of("checkings", List.of(usdChecking, eurChecking(50.0, 50.0))),
+        stubPreview(Map.of("checkings", List.of(usdChecking, eurChecking(5000.0, 5000.0))),
             List.of(), Map.of("checkings", List.of(tx("usd-1", "2026-10-30T10:00:00Z", 100.0, "USD"))), List.of());
         Account target = existingAccount(7L, "US checking", AccountType.CHECKING);
         when(accountRepository.findByIdAndMemberId(7L, 1L)).thenReturn(Optional.of(target));
         when(familyMemberRepository.findById(1L)).thenReturn(Optional.of(FamilyMember.builder().id(1L).build()));
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(priceService.toEur(new java.math.BigDecimal("100.0"), "USD", null)).thenReturn(new java.math.BigDecimal("90.0"));
 
         FinaryPreviewResponse preview = service.preview(null, 1L);
         service.execute(preview.fileToken(), List.of(mapExisting("usd-1", "checkings", 7L)), 1L);
@@ -324,11 +321,38 @@ class FinaryApiSyncServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<FinaryPersistenceHelper.ParsedFinaryTransaction>> txs = ArgumentCaptor.forClass(List.class);
         verify(persistenceHelper).importTransactions(eq(target), any(), txs.capture());
+        verify(persistenceHelper).reconstructSnapshotsFromDb(target);
         assertThat(target.getCurrency()).isEqualTo("EUR");
         assertThat(txs.getValue()).singleElement().satisfies(parsed -> {
-            assertThat(parsed.amount()).isEqualByComparingTo("90.0");
-            assertThat(parsed.currency()).isEqualTo("EUR");
+            assertThat(parsed.amount()).isEqualByComparingTo("100.0");
+            assertThat(parsed.currency()).isEqualTo("USD");
         });
+    }
+
+    @Test
+    void previewAndExecute_keepTheNativeBalance_whenTheOnlyEurWitnessIsTooSmallToProveTheDisplayCurrency() {
+        // €0.01 also reads $0.01 once rounded, so it cannot tell a EUR display from a USD one.
+        stubPreview(Map.of("checkings", List.of(eurChecking(0.01, 0.01)), "cryptos", List.of(usdWallet())),
+            List.of(), Map.of(), List.of());
+        when(familyMemberRepository.findById(1L)).thenReturn(Optional.of(FamilyMember.builder().id(1L).build()));
+        when(accountRepository.findByExternalAccountIdAndMemberId(anyString(), eq(1L))).thenReturn(Optional.empty());
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        FinaryPreviewResponse preview = service.preview(null, 1L);
+        FinaryAccountPreview wallet = preview.accounts().stream()
+            .filter(a -> "w1".equals(a.finaryId())).findFirst().orElseThrow();
+        assertThat(wallet.currentBalance()).isEqualTo(9179.30);
+        assertThat(wallet.nativeCurrency()).isEqualTo("USD");
+
+        service.execute(preview.fileToken(), List.of(new FinaryAccountMapping(
+            "w1", "Bitcoin bridge wallet", "cryptos", FinaryMappingAction.CREATE_NEW, null,
+            new NewAccountDetails("Wallet", AccountType.CRYPTO, "Finary", "EUR", null))), 1L);
+
+        ArgumentCaptor<Account> saved = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository, atLeastOnce()).save(saved.capture());
+        assertThat(saved.getValue().getCurrentBalance()).isEqualByComparingTo("9179.30");
+        assertThat(saved.getValue().getCurrency()).isEqualTo("USD");
+        verify(holdingsImporter).importHoldings(any(Account.class), any(), eq(false));
     }
 
     @Test
@@ -367,6 +391,32 @@ class FinaryApiSyncServiceTest {
             .hasMessageContaining("7");
         verify(accountRepository, never()).save(any());
         verify(holdingsImporter, never()).importHoldings(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    @Test
+    void execute_rejectsACreateNewRowWhoseUpsertTargetIsAlsoMappedExplicitly_beforeChangingAnything() {
+        FinaryAccountDto a = FinaryAccountDto.withoutHoldings(
+            "a", "PEA", null, 100.0, 100.0, null, new FinaryAccountCurrency("EUR", "€"), false);
+        FinaryAccountDto b = FinaryAccountDto.withoutHoldings(
+            "b", "CTO", null, 200.0, 200.0, null, new FinaryAccountCurrency("EUR", "€"), false);
+        stubPreview(Map.of("investments", List.of(a, b)), List.of(), Map.of(), List.of());
+        Account ownsA = existingAccount(7L, "PEA", AccountType.PEA);
+        ownsA.setExternalAccountId("finary_investments_a");
+        when(accountRepository.findByExternalAccountIdAndMemberId("finary_investments_a", 1L))
+            .thenReturn(Optional.of(ownsA));
+
+        FinaryPreviewResponse preview = service.preview(null, 1L);
+        List<FinaryAccountMapping> clash = List.of(
+            new FinaryAccountMapping("a", "PEA", "investments", FinaryMappingAction.CREATE_NEW, null,
+                new NewAccountDetails("PEA", AccountType.PEA, "Finary", "EUR", null)),
+            mapExisting("b", "investments", 7L));
+
+        assertThatThrownBy(() -> service.execute(preview.fileToken(), clash, 1L))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("7");
+        verify(accountRepository, never()).save(any());
+        verify(holdingsImporter, never()).importHoldings(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(persistenceHelper, never()).importTransactions(any(), any(), any());
     }
 
     @Test

@@ -1,10 +1,12 @@
 package com.picsou.finary;
 
+import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.BalanceSnapshot;
 import com.picsou.model.Transaction;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.PriceService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -19,7 +21,10 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -34,6 +39,7 @@ class FinaryPersistenceHelperTest {
 
     @Mock BalanceSnapshotRepository balanceSnapshotRepository;
     @Mock TransactionRepository transactionRepository;
+    @Mock PriceService priceService;
 
     @InjectMocks FinaryPersistenceHelper helper;
 
@@ -87,5 +93,55 @@ class FinaryPersistenceHelperTest {
         assertThat(byDate.get(today)).isEqualByComparingTo("1000");
         assertThat(byDate.get(yesterday)).isEqualByComparingTo("1000");
         assertThat(byDate.get(twoDaysAgo)).isEqualByComparingTo("1050");
+    }
+
+    @Test
+    void reconstructSnapshotsFromDb_writesTheHistoryInEur_convertingTheBalanceAndEveryTransaction() {
+        LocalDate today = LocalDate.now();
+        LocalDate yesterday = today.minusDays(1);
+        LocalDate twoDaysAgo = today.minusDays(2);
+        LocalDate threeDaysAgo = today.minusDays(3);
+        Account account = Account.builder().id(1L).name("US checking").currency("USD")
+            .currentBalance(new BigDecimal("1000")).build();
+        // A synced USD row, then a retained manual one in GBP.
+        when(transactionRepository.findByAccountIdOrderByDateDesc(1L)).thenReturn(List.of(
+            Transaction.builder().account(account).date(yesterday).amount(new BigDecimal("100"))
+                .nativeCurrency("USD").build(),
+            Transaction.builder().account(account).date(twoDaysAgo).amount(new BigDecimal("10"))
+                .nativeCurrency("GBP").isManual(true).build(),
+            Transaction.builder().account(account).date(threeDaysAgo).amount(BigDecimal.ONE)
+                .nativeCurrency("EUR").build()));
+        when(balanceSnapshotRepository.findRecentByAccountId(1L, LocalDate.of(2000, 1, 1))).thenReturn(List.of());
+        when(priceService.getPriceEur("USD")).thenReturn(new BigDecimal("0.9"));
+        when(priceService.getPriceEur("GBP")).thenReturn(new BigDecimal("1.2"));
+
+        helper.reconstructSnapshotsFromDb(account);
+
+        ArgumentCaptor<BalanceSnapshot> saved = ArgumentCaptor.forClass(BalanceSnapshot.class);
+        verify(balanceSnapshotRepository, atLeastOnce()).save(saved.capture());
+        Map<LocalDate, BigDecimal> byDate = saved.getAllValues().stream()
+            .collect(Collectors.toMap(BalanceSnapshot::getDate, BalanceSnapshot::getBalance));
+        assertThat(byDate.get(today)).isEqualByComparingTo("900");
+        assertThat(byDate.get(yesterday)).isEqualByComparingTo("900");
+        // Before yesterday's $100 (€90).
+        assertThat(byDate.get(twoDaysAgo)).isEqualByComparingTo("810");
+        // Before the manual £10 (€12).
+        assertThat(byDate.get(threeDaysAgo)).isEqualByComparingTo("798");
+    }
+
+    @Test
+    void reconstructSnapshotsFromDb_aborts_ratherThanWritingAnUnconvertedAmountAsEur() {
+        Account account = Account.builder().id(1L).name("Checking").currency("EUR")
+            .currentBalance(new BigDecimal("1000")).build();
+        when(transactionRepository.findByAccountIdOrderByDateDesc(1L)).thenReturn(List.of(
+            Transaction.builder().account(account).date(LocalDate.now().minusDays(1))
+                .amount(new BigDecimal("100")).nativeCurrency("USD").build()));
+        when(priceService.getPriceEur("USD")).thenReturn(null);
+
+        assertThatThrownBy(() -> helper.reconstructSnapshotsFromDb(account))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("USD");
+        verify(balanceSnapshotRepository, never()).deleteAllInBatch(any());
+        verify(balanceSnapshotRepository, never()).save(any(BalanceSnapshot.class));
     }
 }

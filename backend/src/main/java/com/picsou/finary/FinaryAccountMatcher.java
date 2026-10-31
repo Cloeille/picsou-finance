@@ -24,19 +24,46 @@ public final class FinaryAccountMatcher {
 
     public record Suggestion(Account account, String reason) {}
 
+    /**
+     * Every row's external-id match is reserved before any row is matched by name: otherwise an
+     * earlier row with the same name takes an account a later row is already linked to.
+     */
     public static List<Optional<Suggestion>> suggestAll(
             List<FinaryRow> rows, List<Account> existing) {
         Set<Long> claimed = new HashSet<>();
         List<Optional<Suggestion>> out = new ArrayList<>(rows.size());
         for (FinaryRow row : rows) {
-            Optional<Suggestion> hit = matchOne(row, existing, claimed);
+            Optional<Suggestion> hit = byLinkedId(row, existing, claimed);
             hit.ifPresent(s -> claimed.add(s.account().getId()));
             out.add(hit);
+        }
+        for (int i = 0; i < rows.size(); i++) {
+            if (out.get(i).isEmpty()) {
+                Optional<Suggestion> hit = byName(rows.get(i), existing, claimed);
+                hit.ifPresent(s -> claimed.add(s.account().getId()));
+                out.set(i, hit);
+            }
         }
         return out;
     }
 
+    /** The first Picsou account two of these targets share, or null when every target is distinct. */
+    public static Long sharedTarget(List<Long> targetAccountIds) {
+        Set<Long> seen = new HashSet<>();
+        for (Long id : targetAccountIds) {
+            if (id != null && !seen.add(id)) {
+                return id;
+            }
+        }
+        return null;
+    }
+
     static Optional<Suggestion> matchOne(FinaryRow row, List<Account> existing, Set<Long> claimed) {
+        Optional<Suggestion> linked = byLinkedId(row, existing, claimed);
+        return linked.isPresent() ? linked : byName(row, existing, claimed);
+    }
+
+    private static Optional<Suggestion> byLinkedId(FinaryRow row, List<Account> existing, Set<Long> claimed) {
         String currentId = externalId(row.category(), row.finaryId());
         Optional<Suggestion> byCurrent = byExternalId(currentId, existing, claimed, "externalId");
         if (byCurrent.isPresent()) {
@@ -50,7 +77,10 @@ public final class FinaryAccountMatcher {
                 return bySlug;
             }
         }
+        return Optional.empty();
+    }
 
+    private static Optional<Suggestion> byName(FinaryRow row, List<Account> existing, Set<Long> claimed) {
         String needle = normalize(row.name());
         if (needle.isEmpty()) {
             return Optional.empty();

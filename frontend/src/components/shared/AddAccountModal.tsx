@@ -226,7 +226,7 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
         {/* sm:max-w-xl, not just max-w-xl: DialogContent's own `sm:max-w-sm` is a different
             Tailwind variant, so tailwind-merge keeps it and an unprefixed max-w-xl silently has
             no effect above 640px — which is what squeezed this wizard into 24rem. */}
-        <DialogContent className="max-w-xl sm:max-w-xl">
+        <DialogContent className="max-w-xl sm:max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {step === 'selector' ? t('addAccount.title') : t(`sync.${step === 'tr' ? 'tr' : step}.title`)}

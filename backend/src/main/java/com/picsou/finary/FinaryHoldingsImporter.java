@@ -28,9 +28,11 @@ import java.util.regex.Pattern;
  * Maps Finary account positions (securities, cryptos, fonds euro, …) onto
  * {@link AccountHolding} rows and records leftover cash on the account.
  *
- * <p>A payload that omits every position list says nothing about the portfolio, so the
- * existing holdings and cash are kept; one that sends any list (even empty) is the whole
- * snapshot. Values are stored as EUR only from {@code display_*} fields, and only once the
+ * <p>Holdings and cash are replaced wholesale, so only a complete snapshot may replace them: one
+ * that carries every list Finary always sends on a portfolio account ({@code securities},
+ * {@code cryptos}, {@code fonds_euro}, {@code fiats}), even empty. A payload missing any of them
+ * cannot tell an emptied group from an omitted one, so the existing holdings and cash are kept.
+ * Values are stored as EUR only from {@code display_*} fields, and only once the
  * caller has proven the display currency is EUR; otherwise nothing is changed. Cash-like
  * lines (fiats, "Solde Espèces") are not persisted as holdings — they go into
  * {@code account.cashBalance}.
@@ -51,7 +53,9 @@ public class FinaryHoldingsImporter {
     private final OpenFigiIsinConverter isinConverter;
 
     public int importHoldings(Account account, FinaryAccountDto finaryAcc, boolean displayIsEur) {
-        if (!suppliesPositions(finaryAcc)) {
+        if (!isCompleteSnapshot(finaryAcc)) {
+            log.warn("Keeping the holdings of account {}: Finary's payload omits a position list",
+                account.getId());
             return 0;
         }
         if (!displayIsEur) {
@@ -96,7 +100,7 @@ public class FinaryHoldingsImporter {
             deduped.merge(
                 instrument.ticker(),
                 new HoldingDedup.HoldingAgg(qty, avgBuyIn, priceEur, instrument.name()),
-                HoldingDedup::vwapMerge);
+                FinaryHoldingsImporter::mergeLines);
             providerByTicker.merge(
                 instrument.ticker(),
                 new ProviderVal(valueEur, pnlEur),
@@ -130,10 +134,19 @@ public class FinaryHoldingsImporter {
         return saved;
     }
 
-    static boolean suppliesPositions(FinaryAccountDto acc) {
-        return acc.securities() != null || acc.cryptos() != null || acc.fondsEuro() != null
-            || acc.fiats() != null || acc.genericAssets() != null || acc.scpis() != null
-            || acc.preciousMetals() != null;
+    static boolean isCompleteSnapshot(FinaryAccountDto acc) {
+        return acc.securities() != null && acc.cryptos() != null && acc.fondsEuro() != null
+            && acc.fiats() != null;
+    }
+
+    // HoldingDedup reads an unknown average as zero, which would turn one line of unknown cost
+    // into free units and halve the merged cost basis. One unknown line leaves it unknown.
+    static HoldingDedup.HoldingAgg mergeLines(HoldingDedup.HoldingAgg a, HoldingDedup.HoldingAgg b) {
+        HoldingDedup.HoldingAgg merged = HoldingDedup.vwapMerge(a, b);
+        if (a.averageBuyIn() != null && b.averageBuyIn() != null) {
+            return merged;
+        }
+        return new HoldingDedup.HoldingAgg(merged.quantity(), null, merged.currentPrice(), merged.name());
     }
 
     static List<FinaryPositionDto> collectPositions(FinaryAccountDto acc) {

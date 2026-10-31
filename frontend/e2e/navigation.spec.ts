@@ -9,13 +9,13 @@ test.describe('Sidebar navigation', () => {
   test('should navigate to Comptes', async ({ page }) => {
     await page.getByRole('link', { name: 'Comptes' }).click()
     await page.waitForURL('**/accounts')
-    await expect(page.getByText('Comptes', { exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: 'Comptes' })).toBeVisible()
   })
 
   test('should navigate to Objectifs', async ({ page }) => {
     await page.getByRole('link', { name: 'Objectifs' }).click()
     await page.waitForURL('**/goals')
-    await expect(page.getByText('Objectifs', { exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: 'Objectifs' })).toBeVisible()
   })
 
   // Sync is no longer a sidebar entry (reached from the dashboard
@@ -34,6 +34,6 @@ test.describe('Sidebar navigation', () => {
     // Go back to dashboard
     await page.getByRole('link', { name: 'Tableau de bord' }).click()
     await page.waitForURL('/')
-    await expect(page.getByText('Tableau de bord')).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: 'Tableau de bord' })).toBeVisible()
   })
 })

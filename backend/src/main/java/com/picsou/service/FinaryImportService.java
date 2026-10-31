@@ -150,12 +150,20 @@ public class FinaryImportService {
                 (a, b) -> a
             ));
 
+        // Two rows mapped onto one account would each replace its balance and history, the last
+        // one silently winning. CREATE_NEW always creates here, so only explicit targets count.
+        Long shared = FinaryAccountMatcher.sharedTarget(req.mappings().stream()
+            .filter(m -> m.action() == FinaryMappingAction.MAP_EXISTING
+                && finaryByKey.containsKey(mappingKey(m)))
+            .map(FinaryAccountMapping::targetAccountId)
+            .toList());
+        if (shared != null) {
+            throw new IllegalArgumentException("Two Finary accounts are mapped onto the same Picsou account "
+                + shared + " -- pick a different account for one of them");
+        }
+
         for (FinaryAccountMapping mapping : req.mappings()) {
-            FinaryPersistenceHelper.ParsedFinaryAccount finaryAcc = finaryByKey.get(
-                mapping.finaryId() != null
-                    ? mapping.finaryId()
-                    : buildParsedAccountKey(mapping.finaryCategory(), mapping.finaryName())
-            );
+            FinaryPersistenceHelper.ParsedFinaryAccount finaryAcc = finaryByKey.get(mappingKey(mapping));
             if (finaryAcc == null) continue;
 
             Account account = null;
@@ -306,6 +314,12 @@ public class FinaryImportService {
             case NUMERIC -> String.valueOf((long) cell.getNumericCellValue());
             default -> null;
         };
+    }
+
+    private String mappingKey(FinaryAccountMapping mapping) {
+        return mapping.finaryId() != null
+            ? mapping.finaryId()
+            : buildParsedAccountKey(mapping.finaryCategory(), mapping.finaryName());
     }
 
     private String buildParsedAccountKey(String category, String name) {

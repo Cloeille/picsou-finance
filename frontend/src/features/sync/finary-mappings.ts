@@ -43,57 +43,67 @@ function finaryKey(row: { finaryCategory: string; finaryId: string }): string {
 }
 
 /**
- * Prefers backend suggestedMappings (external-id or name match). Falls back to a
- * unique name+type match against existing Picsou accounts. Unmatched rows stay
- * CREATE_NEW so a single new Finary account no longer resets the whole wizard.
- * A Picsou account is assigned to at most one row: the backend rejects two Finary
- * accounts mapped onto the same target.
+ * A backend suggestedMapping is final: its matcher knows which accounts another
+ * connector owns, which the frontend cannot fully see. Only rows the backend gave
+ * no suggestion fall back to a unique name+type match against manual Picsou
+ * accounts. Unmatched rows stay CREATE_NEW so a single new Finary account no
+ * longer resets the whole wizard. A Picsou account is assigned to at most one row:
+ * the backend rejects two Finary accounts mapped onto the same target.
  */
 export function initialFinaryMappings(preview: FinaryPreviewResponse): FinaryAccountMapping[] {
-  const claimed = new Set<number>()
   const suggestedByKey = new Map(
     (preview.suggestedMappings ?? [])
       .filter((m) => m.finaryId)
       .map((m) => [finaryKey(m), m]),
   )
-  const existing = preview.existingPicsouAccounts ?? []
+  const suggestions = preview.accounts.map((account) => suggestedByKey.get(finaryKey(account)))
 
-  return preview.accounts.map((account, i) => {
-    const suggested = suggestedByKey.get(finaryKey(account))
-    if (
-      suggested?.action === 'MAP_EXISTING' &&
-      suggested.targetAccountId != null &&
-      !claimed.has(suggested.targetAccountId)
-    ) {
-      claimed.add(suggested.targetAccountId)
-      return {
-        ...suggested,
-        finaryId: account.finaryId,
-        finaryName: account.finaryName,
-        finaryCategory: account.finaryCategory,
-      }
+  // Reserved before any name fallback, so an earlier unsuggested row cannot take
+  // the account a later row's suggestion maps onto.
+  const claimed = new Set<number>()
+  const backendTargets = suggestions.map((s) => {
+    if (s?.action !== 'MAP_EXISTING' || s.targetAccountId == null || claimed.has(s.targetAccountId)) {
+      return undefined
     }
-
-    const needle = account.finaryName.trim().toLowerCase()
-    const nameHits = existing.filter(
-      (acc) =>
-        !claimed.has(acc.id) &&
-        acc.name.trim().toLowerCase() === needle &&
-        typesCompatible(account.finaryCategory, acc.type),
-    )
-    if (nameHits.length === 1) {
-      claimed.add(nameHits[0].id)
-      return {
-        finaryId: account.finaryId,
-        finaryName: account.finaryName,
-        finaryCategory: account.finaryCategory,
-        action: 'MAP_EXISTING',
-        targetAccountId: nameHits[0].id,
-      }
-    }
-
-    return createNewMapping(account, i)
+    claimed.add(s.targetAccountId)
+    return s.targetAccountId
   })
+
+  const existing = preview.existingPicsouAccounts ?? []
+  return preview.accounts.map((account, i) => {
+    const target = suggestions[i] ? backendTargets[i] : nameMatch(account, existing, claimed)
+    if (target == null) return createNewMapping(account, i)
+    return {
+      finaryId: account.finaryId,
+      finaryName: account.finaryName,
+      finaryCategory: account.finaryCategory,
+      action: 'MAP_EXISTING',
+      targetAccountId: target,
+    }
+  })
+}
+
+/**
+ * Claims the single unclaimed manual account whose name and type match the row.
+ * Non-manual accounts are skipped: they may belong to another connector, and the
+ * backend name tier refuses those (the frontend has no externalAccountId to tell).
+ */
+function nameMatch(
+  account: FinaryPreviewResponse['accounts'][number],
+  existing: Account[],
+  claimed: Set<number>,
+): number | undefined {
+  const needle = account.finaryName.trim().toLowerCase()
+  const hits = existing.filter(
+    (acc) =>
+      acc.isManual &&
+      !claimed.has(acc.id) &&
+      acc.name.trim().toLowerCase() === needle &&
+      typesCompatible(account.finaryCategory, acc.type),
+  )
+  if (hits.length !== 1) return undefined
+  claimed.add(hits[0].id)
+  return hits[0].id
 }
 
 /**

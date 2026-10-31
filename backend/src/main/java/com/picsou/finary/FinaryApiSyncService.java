@@ -17,7 +17,6 @@ import com.picsou.model.AccountType;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.FinarySessionRepository;
-import com.picsou.service.PriceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -25,7 +24,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -63,7 +61,6 @@ public class FinaryApiSyncService {
     private final FinarySessionRepository finarySessionRepository;
     private final FinaryPersistenceHelper persistenceHelper;
     private final FinaryHoldingsImporter holdingsImporter;
-    private final PriceService priceService;
 
     private final ConcurrentHashMap<String, SyncSessionData> cache = new ConcurrentHashMap<>();
 
@@ -299,7 +296,13 @@ public class FinaryApiSyncService {
         if (session == null) {
             throw new SyncException("Sync session expired or invalid -- please start a new sync");
         }
-        rejectSharedTargets(mappings);
+        Map<String, FinaryAccountDto> finaryByKey = session.allAccounts().stream()
+            .collect(Collectors.toMap(
+                categorizedAcc -> buildAccountKey(categorizedAcc.category(), categorizedAcc.account().id()),
+                CategorizedFinaryAccount::account,
+                (a, b) -> a
+            ));
+        rejectSharedTargets(mappings, finaryByKey, memberId);
         cache.remove(syncToken);
 
         FamilyMember member = familyMemberRepository.findById(memberId)
@@ -312,12 +315,6 @@ public class FinaryApiSyncService {
         List<ImportedAccountSummary> imported = new ArrayList<>();
 
         boolean displayIsEur = displayCurrencyIsEur(session.allAccounts());
-        Map<String, FinaryAccountDto> finaryByKey = session.allAccounts().stream()
-            .collect(Collectors.toMap(
-                categorizedAcc -> buildAccountKey(categorizedAcc.category(), categorizedAcc.account().id()),
-                CategorizedFinaryAccount::account,
-                (a, b) -> a
-            ));
 
         for (FinaryAccountMapping mapping : mappings) {
             FinaryAccountDto finaryAcc = finaryByKey.get(buildAccountKey(mapping.finaryCategory(), mapping.finaryId()));
@@ -403,13 +400,11 @@ public class FinaryApiSyncService {
                             finalAccount.getName(),
                             Instant.parse(tx.date()).atZone(ZoneOffset.UTC).toLocalDate(),
                             tx.displayName() != null ? tx.displayName() : tx.name(),
-                            inAccountCurrency(
-                                BigDecimal.valueOf(tx.value() != null ? tx.value() : 0),
-                                tx.currency() != null ? tx.currency().code() : null,
-                                finalAccount.getCurrency()),
+                            BigDecimal.valueOf(tx.value() != null ? tx.value() : 0),
                             tx.transactionType(),
                             tx.category() != null ? tx.category().name() : "",
-                            finalAccount.getCurrency()
+                            tx.currency() != null && tx.currency().code() != null
+                                ? tx.currency().code() : finalAccount.getCurrency()
                         ))
                         .collect(Collectors.toList());
 
@@ -509,18 +504,30 @@ public class FinaryApiSyncService {
     }
 
     /**
-     * Two Finary rows mapped onto one Picsou account would each replace its balance and holdings,
-     * the last one silently winning. Checked before anything is written.
+     * Two Finary rows written into one Picsou account would each replace its balance and holdings,
+     * the last one silently winning. A CREATE_NEW row writes into the account already holding its
+     * external id (the upsert below), so that account counts as its target too. Checked before
+     * anything is written.
      */
-    static void rejectSharedTargets(List<FinaryAccountMapping> mappings) {
-        Set<Long> targets = new HashSet<>();
+    private void rejectSharedTargets(List<FinaryAccountMapping> mappings,
+                                     Map<String, FinaryAccountDto> finaryByKey, Long memberId) {
+        List<Long> targets = new ArrayList<>();
         for (FinaryAccountMapping mapping : mappings) {
-            if (mapping.action() == FinaryMappingAction.MAP_EXISTING
-                    && mapping.targetAccountId() != null
-                    && !targets.add(mapping.targetAccountId())) {
-                throw new SyncException("Two Finary accounts are mapped onto the same Picsou account "
-                    + mapping.targetAccountId() + " -- pick a different account for one of them");
+            if (!finaryByKey.containsKey(buildAccountKey(mapping.finaryCategory(), mapping.finaryId()))) {
+                continue;
             }
+            if (mapping.action() == FinaryMappingAction.MAP_EXISTING) {
+                targets.add(mapping.targetAccountId());
+            } else if (mapping.action() == FinaryMappingAction.CREATE_NEW) {
+                String externalId = "finary_" + mapping.finaryCategory() + "_" + mapping.finaryId();
+                accountRepository.findByExternalAccountIdAndMemberId(externalId, memberId)
+                    .ifPresent(existing -> targets.add(existing.getId()));
+            }
+        }
+        Long shared = FinaryAccountMatcher.sharedTarget(targets);
+        if (shared != null) {
+            throw new SyncException("Two Finary accounts are mapped onto the same Picsou account "
+                + shared + " -- pick a different account for one of them");
         }
     }
 
@@ -528,10 +535,12 @@ public class FinaryApiSyncService {
 
     /**
      * Finary's {@code display_*} amounts are in the user's display currency, which the payload
-     * does not name and which the user can change. It is proven EUR when every EUR account with a
-     * non-zero balance shows a display balance equal to its native one: in any other display
-     * currency those two would differ by the exchange rate. Without that proof, nothing
-     * display-denominated is stored as EUR.
+     * does not name and which the user can change. Every EUR account with a non-zero balance must
+     * show a display balance equal to its native one, and at least one of them must be large enough
+     * for the match to mean something: once rounded to the cent, €0.01 also reads $0.01, while a
+     * €1,000 balance matching to the cent pins the display rate to within
+     * 0.002% of 1:1, which no other currency is. Without that proof, nothing display-denominated is
+     * stored as EUR.
      */
     static boolean displayCurrencyIsEur(List<CategorizedFinaryAccount> accounts) {
         boolean proven = false;
@@ -544,10 +553,12 @@ public class FinaryApiSyncService {
             if (Math.abs(acc.displayBalance() - acc.balance()) > 0.01) {
                 return false;
             }
-            proven = true;
+            proven |= Math.abs(acc.balance()) >= MIN_EUR_WITNESS;
         }
         return proven;
     }
+
+    static final double MIN_EUR_WITNESS = 1000;
 
     /**
      * The amount and the currency it is in, as one pair: the EUR display balance once the display
@@ -569,22 +580,6 @@ public class FinaryApiSyncService {
         Balance balance = balanceOf(acc, displayIsEur, account.getCurrency());
         account.setCurrentBalance(balance.amount());
         account.setCurrency(balance.currency());
-    }
-
-    /**
-     * Snapshot reconstruction walks back from the stored balance by subtracting transactions, so
-     * a transaction in another currency (a USD wallet stored at its EUR display balance) is
-     * converted into the balance's currency first.
-     */
-    private BigDecimal inAccountCurrency(BigDecimal amount, String txCurrency, String accountCurrency) {
-        if (txCurrency == null || txCurrency.equalsIgnoreCase(accountCurrency)) {
-            return amount;
-        }
-        BigDecimal eur = priceService.toEur(amount, txCurrency, null);
-        if ("EUR".equalsIgnoreCase(accountCurrency)) {
-            return eur;
-        }
-        return eur.divide(priceService.toEur(BigDecimal.ONE, accountCurrency, null), 8, RoundingMode.HALF_UP);
     }
 
     /**

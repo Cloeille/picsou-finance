@@ -47,6 +47,24 @@ class FinaryAccountMatcherTest {
     }
 
     @Test
+    void anEarlierNameMatchNeverTakesTheAccountALaterRowIsLinkedTo() {
+        Account joint = account(7L, "Joint", AccountType.CHECKING, "finary_checkings_old");
+
+        List<Optional<FinaryAccountMatcher.Suggestion>> hits = FinaryAccountMatcher.suggestAll(
+            List.of(
+                new FinaryAccountMatcher.FinaryRow("new", "Joint", "checkings", null),
+                new FinaryAccountMatcher.FinaryRow("old", "Joint", "checkings", null)
+            ),
+            List.of(joint)
+        );
+
+        assertThat(hits.get(0)).isEmpty();
+        assertThat(hits.get(1)).isPresent();
+        assertThat(hits.get(1).get().account().getId()).isEqualTo(7L);
+        assertThat(hits.get(1).get().reason()).isEqualTo("externalId");
+    }
+
+    @Test
     void doesNotMapSamePicsouAccountTwice() {
         Account only = account(1L, "Coinbase", AccountType.CRYPTO, null);
 

@@ -17,7 +17,7 @@ function preview(partial: Partial<FinaryPreviewResponse>): FinaryPreviewResponse
   }
 }
 
-function account(id: number, name: string, type: Account['type']): Account {
+function account(id: number, name: string, type: Account['type'], isManual = true): Account {
   return {
     id,
     name,
@@ -25,6 +25,7 @@ function account(id: number, name: string, type: Account['type']): Account {
     currency: 'EUR',
     currentBalance: 0,
     provider: 'Finary',
+    isManual,
   } as Account
 }
 
@@ -81,7 +82,7 @@ describe('initialFinaryMappings', () => {
     expect(mappings[0].targetAccountId).toBe(42)
   })
 
-  it('falls back to unique name+type when backend sent CREATE_NEW', () => {
+  it('keeps a backend CREATE_NEW over a same-name existing account', () => {
     const mappings = initialFinaryMappings(
       preview({
         accounts: [
@@ -107,8 +108,35 @@ describe('initialFinaryMappings', () => {
         ],
       }),
     )
-    expect(mappings[0].action).toBe('MAP_EXISTING')
-    expect(mappings[0].targetAccountId).toBe(7)
+    expect(mappings[0].action).toBe('CREATE_NEW')
+    expect(mappings[0].targetAccountId).toBeUndefined()
+  })
+
+  it('does not let an unsuggested row take a later row backend target', () => {
+    const mappings = initialFinaryMappings(
+      preview({
+        accounts: [
+          finaryAccount('checkings', 'new', 'Joint'),
+          finaryAccount('checkings', 'old', 'Joint'),
+        ],
+        existingPicsouAccounts: [account(7, 'Joint', 'CHECKING')],
+        suggestedMappings: [mapExisting('checkings', 'old', 'Joint', 7)],
+      }),
+    )
+    expect(mappings.map((m) => [m.finaryId, m.action, m.targetAccountId])).toEqual([
+      ['new', 'CREATE_NEW', undefined],
+      ['old', 'MAP_EXISTING', 7],
+    ])
+  })
+
+  it('never name-matches an unsuggested row onto a non-manual account', () => {
+    const mappings = initialFinaryMappings(
+      preview({
+        accounts: [finaryAccount('investments', 'tr', 'Trade Republic')],
+        existingPicsouAccounts: [account(5, 'Trade Republic', 'COMPTE_TITRES', false)],
+      }),
+    )
+    expect(mappings[0].action).toBe('CREATE_NEW')
   })
 
   it('does not reset every row to CREATE_NEW when one Finary account is new', () => {
