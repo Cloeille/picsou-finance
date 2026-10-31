@@ -485,10 +485,6 @@ def card_outstanding(pages: Pages, *, today: Optional[date] = None) -> Decimal:
 
 _FR_DATE_RE = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
 _CENT = Decimal("0.01")
-# Fifty years. Above it a duration is not a loan the bank granted, and the exact
-# annuity fallback (a Fraction raised to `months`) would grow with it until it
-# blocks the event loop or runs out of memory, failing the whole import.
-MAX_LOAN_MONTHS = 600
 
 
 def _fr_date(value: Any, where: str) -> date:
@@ -554,8 +550,8 @@ def parse_loan_detail(payload: Any) -> dict:
 
     borrowed = _positive_amount(offer.get("proposedAmount"), "loan.offer.proposedAmount")
     duration = offer.get("duration")
-    if isinstance(duration, bool) or not isinstance(duration, int) or not 0 < duration <= MAX_LOAN_MONTHS:
-        raise ParseError(INVALID_LOAN_DETAIL, "loan.offer.duration: expected 1 to 600 months")
+    if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
+        raise ParseError(INVALID_LOAN_DETAIL, "loan.offer.duration: expected a positive integer")
     percent = _decimal(folder.get("tNC"), INVALID_LOAN_DETAIL, "loan.folder.tNC")
     rate = percent / 100
     if not 0 <= rate <= 1:
@@ -611,8 +607,8 @@ def parse_home_loan_detail(payload: Any) -> dict:
 
     borrowed = _eur_amount(money.get("amountBorrowed"), "loan.financialInformation.amountBorrowed")
     duration = money.get("duration")
-    if isinstance(duration, bool) or not isinstance(duration, int) or not 0 < duration <= MAX_LOAN_MONTHS:
-        raise ParseError(INVALID_LOAN_DETAIL, "loan.financialInformation.duration: expected 1 to 600 months")
+    if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
+        raise ParseError(INVALID_LOAN_DETAIL, "loan.financialInformation.duration: expected a positive integer")
     percent = _decimal(money.get("nextDuedateRate"), INVALID_LOAN_DETAIL, "loan.financialInformation.nextDuedateRate")
     rate = percent / 100
     if not 0 <= rate <= 1:

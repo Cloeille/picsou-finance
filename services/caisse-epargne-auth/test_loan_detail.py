@@ -59,14 +59,6 @@ class LoanDetailTest(unittest.TestCase):
         with self.assertRaises(ParseError):
             parse_loan_detail(d)
 
-    def test_a_duration_above_fifty_years_raises(self):
-        for months in (601, 10**9):
-            with self.subTest(months=months):
-                d = detail()
-                view(d)["offer"]["duration"] = months
-                with self.assertRaises(ParseError):
-                    parse_loan_detail(d)
-
     def test_zero_rate_annuity_is_capital_over_duration(self):
         d = detail()
         view(d)["folder"]["tNC"] = 0

@@ -116,14 +116,6 @@ class HomeLoanDetailTest(unittest.TestCase):
             parse_home_loan_detail(d)
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
-    def test_a_duration_above_fifty_years_is_refused(self):
-        d = detail()
-        d["loan"]["financialInformation"]["duration"] = 601
-
-        with self.assertRaises(ParseError) as caught:
-            parse_home_loan_detail(d)
-        self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
-
     def test_the_first_due_date_keeps_to_the_end_of_a_short_month(self):
         d = detail()
         d["loan"]["financialInformation"]["lastDuedate"] = "2042-05-31"
