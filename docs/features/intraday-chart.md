@@ -28,7 +28,8 @@ HistoryService.buildIntradayHistory()
         |       PriceService.getIntradayPricesEur(ticker, from, to)
         |         -> CoinGecko.getIntradayPricesEur() for crypto
         |         -> YahooFinance.getIntradayPricesEur() for stocks
-        |       Portfolio value at hour H = qty × price_at_H (forward-filled)
+        |       Portfolio value at hour H = cash + Σ qty × price_at_H (forward-filled)
+        |     A holding with no price at H counts at its providerValueEur, if any
         |
         v
 List<NetWorthIntradayPoint> — ~24 hourly points
@@ -82,6 +83,7 @@ DashboardPage renders NetWorthChart with intraday prop
 - **No new scheduled jobs or DB tables**: Intraday data is fetched live from external APIs on each request. This means the 24H chart triggers external API calls every time it's loaded.
 - **External API rate limits**: CoinGecko free tier has rate limits. If a user has many tickers, the 24H view could trigger many API calls. The `PriceService` 15-min cache helps for repeated views.
 - **Forward-fill behavior**: If a ticker has no price at a given hour (e.g., stock market closed), `floorEntry()` uses the last known price. Crypto prices are available 24/7; stock prices stop after market close.
+- **Provider-valued holdings are flat intraday**: A holding no price provider can quote (a Finary fonds euros or SCPI line, a synthetic `FINARY_*` ticker) counts at the `providerValueEur` its connector stored at the last sync, the same fallback `AccountService.valuation` uses. Without it, importing holdings into an account made its value drop to zero on the 24H chart. A holding with neither an intraday price nor a provider value still adds nothing. The account's `cashBalance` is added on top, as in the daily valuation.
 - **Bank account balances are constant intraday**: Only the daily `BalanceSnapshot` is used for non-investment accounts. Real-time bank balance changes won't appear until the next sync.
 - **Loans are negated**: Same logic as the daily history — loan balances are subtracted from total net worth.
 - **`intraday` prop is optional on NetWorthChart**: Other pages (AccountDetail, GoalDetail) use NetWorthChart without intraday data. When `intraday` is not provided, the 24H range still works but shows empty data.

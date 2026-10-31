@@ -490,4 +490,35 @@ class HistoryServiceTest {
             assertThat(point.invested()).isEqualByComparingTo("2000");
         }
     }
+
+    @Test
+    void buildIntradayHistory_importingUnlistedHoldings_keepsTheAccountValue() {
+        Account account = brokerage(1L, "Assurance vie");
+        account.setCurrentBalance(new BigDecimal("21376.93"));
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(account));
+        when(snapshotRepository.findByAccountIdAndDate(eq(1L), any(LocalDate.class))).thenReturn(Optional.empty());
+        stubValuationLenient(account, "21376.93", "21376.93");
+        lenient().when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
+
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
+        List<NetWorthIntradayPoint> beforeImport = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        // What the Finary import leaves behind: the cash split out, and a fonds euros line whose
+        // synthetic ticker no price provider accepts, valued by Finary itself.
+        account.setCashBalance(new BigDecimal("500"));
+        AccountHolding fondsEuros = AccountHolding.builder()
+            .account(account)
+            .ticker("FINARY_FDS_EUROS_SURAVENIR_RENDEMENT")
+            .quantity(BigDecimal.ONE)
+            .averageBuyIn(new BigDecimal("20876.93"))
+            .providerValueEur(new BigDecimal("20876.93"))
+            .build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(fondsEuros));
+        List<NetWorthIntradayPoint> afterImport = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        assertThat(beforeImport).isNotEmpty();
+        assertThat(beforeImport).allSatisfy(p -> assertThat(p.total()).isEqualByComparingTo("21376.93"));
+        assertThat(afterImport).isNotEmpty();
+        assertThat(afterImport).allSatisfy(p -> assertThat(p.total()).isEqualByComparingTo("21376.93"));
+    }
 }

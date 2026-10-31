@@ -236,7 +236,8 @@ public class HistoryService {
     /**
      * Build hourly net worth history for the last 24 hours.
      *
-     * For investment accounts (PEA, CT, Crypto): portfolio value = sum(holding.qty × intraday price at each hour).
+     * For investment accounts (PEA, CT, Crypto): portfolio value = cash + sum(holding.qty × intraday price at each hour),
+     * a holding with no intraday price counting at its last provider valuation when the connector reported one.
      * For bank/savings accounts: use today's balance snapshot (constant throughout the day).
      * For loans: negate the balance.
      */
@@ -250,10 +251,11 @@ public class HistoryService {
         LocalDateTime from = now.minusHours(24);
 
         // Collect all tickers and group holdings
-        record HoldingData(String ticker, BigDecimal quantity, BigDecimal avgBuyEur) {}
+        record HoldingData(String ticker, BigDecimal quantity, BigDecimal avgBuyEur, BigDecimal providerValueEur) {}
 
         Map<Long, List<HoldingData>> accountHoldings = new HashMap<>();
         Map<Long, BigDecimal> accountHoldingsInvested = new HashMap<>();
+        Map<Long, BigDecimal> accountCash = new HashMap<>();
         Map<Long, BigDecimal> accountBankBalance = new HashMap<>(); // non-investment account balances
         Set<String> allTickers = new HashSet<>();
         Set<Long> loanIds = new HashSet<>();
@@ -289,12 +291,15 @@ public class HistoryService {
                     BigDecimal avgBuy = h.getAverageBuyIn() != null ? h.getAverageBuyIn() : BigDecimal.ZERO;
                     BigDecimal avgBuyEur = priceService.toEur(avgBuy, account.getCurrency(), null);
                     String ticker = h.getTicker() != null ? h.getTicker().toUpperCase() : null;
-                    holdingDataList.add(new HoldingData(ticker, qty, avgBuyEur));
+                    holdingDataList.add(new HoldingData(ticker, qty, avgBuyEur, h.getProviderValueEur()));
                     invested = invested.add(qty.multiply(avgBuyEur));
                     if (ticker != null) allTickers.add(ticker);
                 }
 
                 accountHoldings.put(accId, holdingDataList);
+                if (account.getCashBalance() != null) {
+                    accountCash.put(accId, account.getCashBalance());
+                }
                 accountHoldingsInvested.put(accId, weigh(invested, shares, accId));
             }
         }
@@ -336,16 +341,19 @@ public class HistoryService {
                         aggInvested = aggInvested.add(value);
                     }
                 } else {
-                    // Investment account: compute market value at this hour
-                    BigDecimal marketValue = BigDecimal.ZERO;
+                    // Investment account: cash plus the market value of its holdings at this hour
+                    BigDecimal marketValue = accountCash.getOrDefault(accId, BigDecimal.ZERO);
                     for (HoldingData hd : holdings) {
-                        if (hd.ticker == null) continue;
-                        NavigableMap<LocalDateTime, BigDecimal> priceMap = intradayPricesByTicker.get(hd.ticker);
-                        if (priceMap != null) {
-                            var entry = priceMap.floorEntry(ts);
-                            if (entry != null) {
-                                marketValue = marketValue.add(hd.quantity.multiply(entry.getValue()));
-                            }
+                        NavigableMap<LocalDateTime, BigDecimal> priceMap =
+                            hd.ticker == null ? null : intradayPricesByTicker.get(hd.ticker);
+                        var entry = priceMap == null ? null : priceMap.floorEntry(ts);
+                        if (entry != null) {
+                            marketValue = marketValue.add(hd.quantity.multiply(entry.getValue()));
+                        } else if (hd.providerValueEur != null) {
+                            // No market price for this hour (fonds euros, SCPI, a symbol Yahoo
+                            // rejects), but the connector valued the line at its last sync. Hold it
+                            // flat at that value, the same fallback AccountService.valuation uses.
+                            marketValue = marketValue.add(hd.providerValueEur);
                         }
                     }
 
@@ -353,7 +361,6 @@ public class HistoryService {
                     // keeps this consistent with the daily chart's per-account weighting.
                     marketValue = weigh(marketValue, shares, accId);
 
-                    // If no intraday price found, account has zero market value at that hour (skip)
                     if (loanIds.contains(accId)) {
                         aggTotal = aggTotal.subtract(marketValue);
                     } else {
