@@ -266,16 +266,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Enable Banking account balances and details.** Accounts in a shared balance list,
   such as Qonto business accounts, now select entries matching the account description
-  before applying ISO balance-type priority. Unmatched lists with distinct labels fail
-  even when one balance type has higher priority. Missing or unmatched descriptions
-  cannot use entries claimed by another session account, and accounts sharing a
+  before applying ISO balance-type priority. For Qonto or an unknown ASPSP, unmatched lists
+  with distinct labels fail even when one balance type has higher priority. Missing or unmatched
+  descriptions cannot use entries claimed by another session account, and accounts sharing a
   description cannot select its balances. Other accounts keep syncing. Generic-label
   fallback requires a single unclaimed entry or consistent unclaimed labels. Overlapping
   fallback labels are ambiguous for Qonto and unknown ASPSPs even when both responses have
   one label, so shared lists cannot assign the same preferred balance to several accounts.
-  Other named ASPSPs retain account-scoped generic fallback, including overlapping labels
-  and independent zero balances, unless the response contains distinct labels or names a
-  known sibling. Unique description matches still sync zero balances.
+  Other named ASPSPs retain account-scoped type ranking, including distinct balance-type labels,
+  overlapping labels and independent zero balances, unless the response names a known sibling.
+  Unique description matches still sync zero balances.
   Ownership never depends on amounts or changes between requests. Competing
   fallback accounts all fail safely. Unavailable sibling details prevent shared-description
   matches as well as fallback. Invalid sibling balance responses prevent shared fallback

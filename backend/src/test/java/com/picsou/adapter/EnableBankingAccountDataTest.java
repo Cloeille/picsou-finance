@@ -286,8 +286,10 @@ class EnableBankingAccountDataTest {
             .hasMessageContaining("ambiguous");
     }
 
-    @Test
-    void fetchBalances_distinctGenericLabelsWithoutAnAccountMatch_failsInsteadOfAssumingAccountScope() {
+    @ParameterizedTest
+    @ValueSource(strings = {"", ",\"aspsp\":{\"name\":\"Qonto\"}"})
+    void fetchBalances_sharedOrUnknownProviderWithDistinctLabels_failsInsteadOfAssumingAccountScope(String provider) {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-operations\"]" + provider + "}");
         responses.put("/accounts/uid-operations/details", "{\"details\":\"Everyday account\"}");
         responses.put("/accounts/uid-operations/balances", """
             {"balances": [
@@ -565,6 +567,79 @@ class EnableBankingAccountDataTest {
             """;
         responses.put("/accounts/uid-current/balances", balances.formatted("90", "100"));
         responses.put("/accounts/uid-savings/balances", balances.formatted("190", "200"));
+
+        var accounts = connector.fetchBalances("session");
+
+        assertThat(accounts).extracting(AccountData::externalId).containsExactly("uid-current", "uid-savings");
+        assertThat(accounts.get(0).balance()).isEqualByComparingTo("100");
+        assertThat(accounts.get(1).balance()).isEqualByComparingTo("200");
+    }
+
+    @Test
+    void fetchBalances_namedBankWithDistinctBalanceTypeLabels_selectsClosingBookedBalance() {
+        responses.put("/sessions/session", """
+            {"accounts":["uid-operations"], "aspsp":{"name":"Synthetic Bank"}}
+            """);
+        responses.put("/accounts/uid-operations/details", "{\"details\":\"Compte courant\"}");
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name":"Solde instantane", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"90.00"}},
+              {"name":"Solde comptable", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"100.00"}}
+            ]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.externalId()).isEqualTo("uid-operations");
+            assertThat(account.name()).isEqualTo("Compte courant");
+            assertThat(account.currency()).isEqualTo("EUR");
+            assertThat(account.balance()).isEqualByComparingTo("100.00");
+        });
+    }
+
+    @Test
+    void fetchBalances_namedBankWithDistinctBalanceTypeLabels_ranksEachEndpointIndependently() {
+        responses.put("/sessions/session", """
+            {"accounts":["uid-current","uid-savings"], "aspsp":{"name":"Synthetic Bank"}}
+            """);
+        responses.put("/accounts/uid-current/details", "{\"details\":\"Current account\"}");
+        responses.put("/accounts/uid-savings/details", "{\"details\":\"Savings account\"}");
+        String balances = """
+            {"balances": [
+              {"name":"Solde instantane", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"%s"}},
+              {"name":"Solde comptable", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"%s"}}
+            ]}
+            """;
+        responses.put("/accounts/uid-current/balances", balances.formatted("90", "100"));
+        responses.put("/accounts/uid-savings/balances", balances.formatted("190", "200"));
+
+        var accounts = connector.fetchBalances("session");
+
+        assertThat(accounts).extracting(AccountData::externalId).containsExactly("uid-current", "uid-savings");
+        assertThat(accounts.get(0).balance()).isEqualByComparingTo("100");
+        assertThat(accounts.get(1).balance()).isEqualByComparingTo("200");
+    }
+
+    @Test
+    void fetchBalances_namedBankWithSiblingClaim_excludesSiblingBeforeRanking() {
+        responses.put("/sessions/session", """
+            {"accounts":["uid-current","uid-savings"], "aspsp":{"name":"Synthetic Bank"}}
+            """);
+        responses.put("/accounts/uid-current/details", "{\"details\":\"Current account\"}");
+        responses.put("/accounts/uid-savings/details", "{\"details\":\"Savings account\"}");
+        String balances = """
+            {"balances": [
+              {"name":"Solde instantane", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"100"}},
+              {"name":"Savings account", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"200"}}
+            ]}
+            """;
+        responses.put("/accounts/uid-current/balances", balances);
+        responses.put("/accounts/uid-savings/balances", balances);
 
         var accounts = connector.fetchBalances("session");
 

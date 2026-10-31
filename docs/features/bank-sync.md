@@ -93,11 +93,13 @@ organization's balances for every account uid. The adapter fetches each session 
 details and balances once before selecting balances. The same session response supplies
 the ASPSP name. Enable Banking documents the balance endpoint as account-scoped and
 uses `Booked balance` as an example generic label. A named ASPSP other than Qonto follows
-that contract when its response has one normalized label and does not name a known sibling.
-Those responses rank balances independently, so generic labels can overlap across accounts,
-including independent zero balances. Qonto is treated as shared regardless of country.
-Missing or blank ASPSP metadata leaves scope unproven. Distinct labels or a known sibling's
-description also keep the shared-response safeguards, even for another named ASPSP.
+that contract unless its response names a known sibling. Balance labels can describe types,
+such as `Solde comptable` for `CLBD` and `Solde instantane` for `ITAV`; they need not match
+each other or the account description. Those responses rank balances independently, so
+generic labels can overlap across accounts, including independent zero balances.
+Qonto is treated as shared regardless of country. Missing or blank ASPSP metadata leaves
+scope unproven. Without a unique description match, a known sibling's description keeps
+the shared-response safeguards, even for another named ASPSP.
 
 For shared or unproven responses, the adapter trims descriptions and counts them without
 case sensitivity. A matching `details` description establishes ownership only when every
@@ -141,18 +143,15 @@ responses. A missing or structurally invalid sibling balance response prevents f
 but its successfully fetched description still claims its entries. Such a balance failure
 does not block another account's unique description match. Established account-scoped
 responses can still sync after a sibling request fails.
-Type-based selection then requires a single entry or remaining labels that are all the
-same after trimming and case normalization. Null and blank labels form one unnamed group.
+Shared or unproven fallback then requires a single entry or remaining labels that are all
+the same after trimming and case normalization. Null and blank labels form one unnamed group.
 This preserves generic-label fallback, such as repeated `Booked balance` labels, and
-wholly unnamed responses when account scope is established or their candidates do not
-compete across scopes. Distinct labels
-require a positive account-description match before type ranking. This also rejects differently
-labeled generic balances when the response cannot be distinguished from a shared list.
-A unique best type does not prove
-that the balance belongs to the requested account.
+wholly unnamed responses when their candidates do not compete across scopes. Distinct labels
+require established account scope or a positive account-description match before type ranking.
+A unique best type cannot establish account ownership for shared or unknown responses.
 With only one linked uid, no sibling descriptions are available to identify another
 account's entries in an organization-wide list. A previously unknown ASPSP that violates
-the account endpoint contract with a shared, single-label response cannot be distinguished
+the account endpoint contract with a shared response cannot be distinguished
 from an ordinary account-scoped response using labels or amounts alone.
 Without an account identifier on balance entries, non-overlapping fallback labels also cannot
 prove ownership of balances belonging to accounts outside the linked session.
@@ -168,7 +167,8 @@ the account-details currency, then `EUR`.
 
 `EnableBankingAccountDataTest` serves synthetic responses over loopback HTTP and calls
 `fetchBalances` through the production WebClient and JSON decoder. It covers shared
-balance lists, flat details, type priorities, ordinary single-account responses,
+balance lists, flat details, type priorities, ordinary single-account and multi-account
+responses with distinct balance-type labels, named-bank responses containing sibling claims,
 unmatched lists with different balance types, missing or unmatched descriptions with only
 sibling-claimed balances, unclaimed fallback, duplicate session descriptions with different
 balance types, competing fallback assignments with changing amounts, shared lists with one

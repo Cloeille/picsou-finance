@@ -721,8 +721,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         if (matchedDescription) {
             return new AccountBalanceCandidates(details, matching, BalanceSelection.DESCRIPTION);
         }
+        // Account-scoped responses may name each balance type rather than the account.
         if (accountLabels.responseScope() == BalanceResponseScope.ACCOUNT_SCOPED
-            && hasOneNormalizedLabel(candidates)
             && !containsSiblingClaim(candidates, accountLabel, accountLabels.claims())) {
             return new AccountBalanceCandidates(details, candidates, BalanceSelection.ACCOUNT_SCOPED);
         }
@@ -762,12 +762,6 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             throw new SyncException("Enable Banking returned ambiguous account balances; cannot establish fallback ownership");
         }
         return preferredBalance(candidates);
-    }
-
-    private static boolean hasOneNormalizedLabel(List<BalancesResponse.BalanceItem> candidates) {
-        String first = nullToEmpty(candidates.getFirst().name()).trim();
-        return candidates.stream()
-            .allMatch(item -> first.equalsIgnoreCase(nullToEmpty(item.name()).trim()));
     }
 
     private static boolean containsSiblingClaim(List<BalancesResponse.BalanceItem> candidates, String accountLabel,
