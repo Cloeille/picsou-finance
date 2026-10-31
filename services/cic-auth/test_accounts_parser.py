@@ -282,6 +282,37 @@ class PageTest(unittest.TestCase):
 
         self.assertEqual(len(accounts), 4)
 
+    def test_script_text_in_an_unsupported_contract_row_is_not_mistaken_for_money(self):
+        # Inside a selected contract table, so _has_balance itself reads the script.
+        extra = ('<table class="ei_comptescontrats"><tr><td>'
+                 '<script>s.replace(/x/, "$1")</script></td></tr></table>')
+        page = ACCOUNTS_PAGE.replace('</form>', extra + '</form>')
+
+        accounts, skipped = parse_accounts(page)
+
+        self.assertEqual(len(accounts), 4)
+        self.assertEqual(skipped, ["autres contrats liés", "unnamed"])
+
+    def test_a_year_before_a_product_name_is_not_an_amount(self):
+        extra = ('<table class="ei_comptescontrats"><tr><td>'
+                 '<span class="ei_sdsf_title">Contrat 2024 PEL</span></td></tr></table>')
+        page = ACCOUNTS_PAGE.replace('</form>', extra + '</form>')
+
+        accounts, skipped = parse_accounts(page)
+
+        self.assertEqual(len(accounts), 4)
+        self.assertEqual(skipped, ["autres contrats liés", "unnamed"])
+
+    def test_a_whole_euro_amount_in_an_unsupported_row_still_fails_the_page(self):
+        extra = ('<table class="ei_comptescontrats"><tr><td>'
+                 '<span class="ei_sdsf_title">Nouveau produit</span> 1 234 EUR</td></tr></table>')
+        page = ACCOUNTS_PAGE.replace('</form>', extra + '</form>')
+
+        with self.assertRaises(AccountsFormatError) as error:
+            parse_accounts(page)
+
+        self.assertIn("'Nouveau produit'", str(error.exception))
+
     def test_an_unknown_category_with_a_balance_is_named_in_the_error(self):
         page = ACCOUNTS_PAGE.replace("Livrets et comptes d&#39;épargne", "Nouveaux comptes")
 
