@@ -69,6 +69,16 @@ checkbox and a parked challenge); presence alone says nothing.
   and controlled from the first member's view. So one headful login runs at a time across members; a
   second member's fresh login meanwhile gets `409 SYNC_IN_PROGRESS` without a browser and tries again
   later. Session reuse (headless) is not affected.
+- The member drives a general-purpose browser, and every browser runs as the one `revoauth` user that
+  owns all members' profiles: a file picker or a `file:` URL would hand one member another's Revolut
+  cookies. Per-member operating-system isolation (a uid or a container per member) was weighed and not
+  taken: switching uids needs `CAP_SETUID` in the sidecar, which makes it root in all but name; Docker's
+  default seccomp profile refuses the user namespaces an unprivileged sandbox needs; a container per
+  member changes the deployment and the backend routing. Instead the browser is locked out of the
+  local filesystem by Firefox enterprise policies set in the image (`lock_browser.py`: no file picker,
+  `file:` blocked, no devtools, no `about:config`, no printing), which the browser UI cannot undo. This
+  also keeps the sidecar's own code and environment out of the member's reach, which a per-member uid
+  alone would not. It relies on Firefox enforcing its policies; a regression test drives both paths.
 - A failed login blocks fresh logins for that member until the next day (Europe/Paris), even if the
   cause was a wrong attempt. Deleting `<member>.login-failed` lifts it.
 - The pinned fingerprint cannot be proven to lower the captcha rate from the code; it removes one known
@@ -76,8 +86,8 @@ checkbox and a parked challenge); presence alone says nothing.
 
 ## Consequences
 
-- `services/revolut-auth`: new `captcha.py`, `member_state.py`, `viewer.py`, `fetch_novnc.py`; image adds
-  `x11vnc`, `websockify`, noVNC; Xvfb now 1600×900.
+- `services/revolut-auth`: new `captcha.py`, `member_state.py`, `viewer.py`, `fetch_novnc.py`,
+  `lock_browser.py`; image adds `x11vnc`, `websockify`, noVNC; Xvfb now 1600×900.
 - Backend: `AWAITING_HUMAN` phase, `SyncProgress.viewerPort/viewerPassword`, `LOGIN_PACED` mapping,
   adapter timeout 480 s → 840 s.
 - Frontend: a link to the view while the phase is `AWAITING_HUMAN`; two new messages in four locales.

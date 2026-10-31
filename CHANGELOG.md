@@ -18,7 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   automatic login the same day after one has failed (`LOGIN_PACED`; the scheduled sync only
   reuses a live session). The Revolut sidecar publishes port 6080 for that window. That window
   shows the sidecar's whole screen, so only one member's Revolut login runs at a time: another
-  member asking for a new login meanwhile is told to wait and try again. See
+  member asking for a new login meanwhile is told to wait and try again. The browser in that
+  window cannot open any local file (no file picker, no `file:` address, no developer tools,
+  no printing), so whoever solves the captcha cannot reach another member's saved session. See
   [ADR](docs/decisions/2026-10-21-revolut-captcha-hand-off.md) and
   [feature note](docs/features/revolut-sidecar.md).
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in

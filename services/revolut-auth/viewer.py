@@ -13,7 +13,9 @@ process list, and it leaves the sidecar only through `/progress/{member}` (API-k
 
 The view shares the whole display, so it must only ever show one member's browser: main.py runs
 one headful login at a time (`_display_lock`). A second hand-off while one is open is refused all
-the same, and the caller falls back to the plain HUMAN_VERIFICATION_REQUIRED error.
+the same, and the caller falls back to the plain HUMAN_VERIFICATION_REQUIRED error. The browser it
+shows runs as the user that owns every member's profile, so the image locks it out of the local
+filesystem (lock_browser.py).
 """
 
 import asyncio

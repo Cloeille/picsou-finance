@@ -45,6 +45,10 @@ USER revoauth
 # breaks the AMEX login (UnknownProperty). Reuse the package's fetcher with a fixed release.
 COPY pin_camoufox.py .
 RUN python pin_camoufox.py
+# A member drives this browser by hand during a captcha hand-off: lock it out of the local
+# filesystem, where every member's profile is readable (lock_browser.py).
+COPY lock_browser.py .
+RUN python lock_browser.py && rm lock_browser.py
 
 COPY --chown=revoauth:revoauth main.py captcha.py logsafe.py member_state.py viewer.py entrypoint.sh ./
 

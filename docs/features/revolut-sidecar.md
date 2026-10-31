@@ -229,7 +229,15 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   Each hand-off has a fresh random password in a 0600 file that x11vnc deletes as it reads it; nothing
   listens on `6080` outside a hand-off. The view shares the whole display, so only one headful login
   runs at a time across members (`_display_lock`): a fresh login asked for while another member's is on
-  the display gets `409 SYNC_IN_PROGRESS` at once, opens no browser and is not paced. If the view cannot start (missing binary, no display) or
+  the display gets `409 SYNC_IN_PROGRESS` at once, opens no browser and is not paced. The member drives
+  a full Firefox in the view, running as the one `revoauth` user that owns every member's profile, so
+  the image's Camoufox is locked out of the local filesystem by enterprise policies added to its
+  `distribution/policies.json` at build (`lock_browser.py`): file pickers disabled
+  (`widget.disable_file_pickers`, locked), `file:` URLs blocked (`WebsiteFilter`, also through
+  `view-source:`), developer tools, `about:config`, `about:profiles`, `about:support` and printing off.
+  This applies to every Camoufox the sidecar launches; none of them needs a local file.
+  `tests/test_browser_confinement.py` opens member 1's headful browser beside member 2's profile and
+  checks that neither a `file:` URL nor an upload form reaches it. If the view cannot start (missing binary, no display) or
   nobody solves the captcha in time, the sidecar answers a flat `403 HUMAN_VERIFICATION_REQUIRED`; the
   progress phase never reaches `AWAITING_APPROVAL` for a push that was not sent. The session the member
   unlocks is saved in the persistent profile like any login, so later syncs reuse it.
