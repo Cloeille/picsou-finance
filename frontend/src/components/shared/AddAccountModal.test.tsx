@@ -1,6 +1,11 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { makeMoneyFormatter } from '@/lib/money'
+import { localeFromLanguage } from '@/lib/utils'
+import type { FinaryAccountMapping, FinaryPreviewResponse } from '@/types/api'
+
+const enMoney = makeMoneyFormatter({ hidden: false, locale: localeFromLanguage('en') })
 
 const { createAccount, updateDebtMetadata } = vi.hoisted(() => ({
   createAccount: vi.fn(),
@@ -20,6 +25,13 @@ const { institutionSearch } = vi.hoisted(() => ({
   },
 }))
 
+const { finaryStatus, previewFinaryApi, importFinary, executeFinaryApiSync } = vi.hoisted(() => ({
+  finaryStatus: { current: { data: { connected: false } } as { data: { connected: boolean } } },
+  previewFinaryApi: vi.fn(),
+  importFinary: vi.fn(),
+  executeFinaryApiSync: vi.fn(),
+}))
+
 vi.mock('@/features/accounts/hooks', () => ({
   useCreateAccount: () => ({ mutateAsync: createAccount, isPending: false }),
   useUpdateDebtMetadata: () => ({ mutateAsync: updateDebtMetadata, isPending: false }),
@@ -33,18 +45,19 @@ vi.mock('@/features/sync/hooks', () => ({
   useCompleteTrAuth: () => ({ mutate: completeTrAuth, isPending: false }),
   useAddCryptoExchange: () => ({ mutate: addCryptoExchange, isPending: false }),
   useAddCryptoWallet: () => ({ mutate: vi.fn(), isPending: false }),
-  useFinaryConnectionStatus: () => ({ data: { connected: false } }),
+  useFinaryConnectionStatus: () => finaryStatus.current,
   useFinaryLogin: () => ({ mutate: vi.fn(), isPending: false }),
   usePreviewFinaryFile: () => ({ mutate: vi.fn(), isPending: false }),
-  usePreviewFinaryApi: () => ({ mutate: vi.fn(), isPending: false }),
-  useImportFinary: () => ({ mutate: vi.fn(), isPending: false }),
-  useExecuteFinaryApiSync: () => ({ mutate: vi.fn(), isPending: false }),
+  usePreviewFinaryApi: () => ({ mutate: previewFinaryApi, isPending: false }),
+  useImportFinary: () => ({ mutate: importFinary, isPending: false }),
+  useExecuteFinaryApiSync: () => ({ mutate: executeFinaryApiSync, isPending: false }),
   useCheckFinaryTotp: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,
+    i18n: { language: 'en', resolvedLanguage: 'en' },
   }),
 }))
 
@@ -291,6 +304,96 @@ describe('AddAccountModal Bourse Direct wizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'bourse-direct-wizard' }))
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('AddAccountModal Finary wizard', () => {
+  const suggested: FinaryAccountMapping[] = [
+    { finaryId: 'w1', finaryName: 'Ledger', finaryCategory: 'cryptos', action: 'MAP_EXISTING', targetAccountId: 10 },
+  ]
+
+  function preview(autoMapped: boolean): FinaryPreviewResponse {
+    return {
+      accounts: [
+        {
+          finaryId: 'w1',
+          finaryName: 'Ledger',
+          finaryInstitution: 'Ledger',
+          finaryCategory: 'cryptos',
+          suggestedType: 'CRYPTO',
+          currentBalance: 1234.5,
+          nativeCurrency: 'USD',
+          transactionCount: 0,
+        },
+        {
+          finaryId: 'c1',
+          finaryName: 'Compte courant',
+          finaryInstitution: 'LBP',
+          finaryCategory: 'checkings',
+          suggestedType: 'CHECKING',
+          currentBalance: 50,
+          nativeCurrency: 'EUR',
+          transactionCount: 0,
+        },
+      ],
+      existingPicsouAccounts: [
+        { id: 10, name: 'Ledger', type: 'CRYPTO', currency: 'EUR', currentBalance: 0 },
+        { id: 20, name: 'Courant', type: 'CHECKING', currency: 'EUR', currentBalance: 0 },
+      ] as FinaryPreviewResponse['existingPicsouAccounts'],
+      totalTransactionCount: 0,
+      fileToken: 'sync-token',
+      autoMapped,
+      suggestedMappings: suggested,
+    }
+  }
+
+  function syncWithPreview(data: FinaryPreviewResponse) {
+    previewFinaryApi.mockImplementation((_totp, options: { onSuccess: (d: FinaryPreviewResponse) => void }) => {
+      options.onSuccess(data)
+    })
+    render(<AddAccountModal open onOpenChange={vi.fn()} />)
+    fireEvent.click(screen.getByText('sync.finary.title'))
+    fireEvent.click(screen.getByRole('button', { name: 'sync.finary.sync' }))
+  }
+
+  beforeEach(() => {
+    finaryStatus.current = { data: { connected: true } }
+    previewFinaryApi.mockReset()
+    importFinary.mockReset()
+    executeFinaryApiSync.mockReset()
+  })
+
+  afterEach(() => {
+    finaryStatus.current = { data: { connected: false } }
+  })
+
+  it('executes an auto-mapped API sync through the API endpoint, not the XLSX import', () => {
+    syncWithPreview(preview(true))
+
+    expect(executeFinaryApiSync).toHaveBeenCalledWith(
+      { syncToken: 'sync-token', mappings: suggested },
+      expect.any(Object),
+    )
+    expect(importFinary).not.toHaveBeenCalled()
+  })
+
+  it('shows each Finary balance in the currency the preview reports', () => {
+    syncWithPreview(preview(false))
+
+    expect(screen.getByText(enMoney.amount(1234.5, 'USD'))).toBeInTheDocument()
+    expect(screen.queryByText(enMoney.amount(1234.5, 'EUR'))).not.toBeInTheDocument()
+  })
+
+  it('does not offer a Picsou account that another Finary row already maps onto', () => {
+    syncWithPreview(preview(false))
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'sync.finary.mapExisting' })[1])
+
+    const [ledgerPicker, courantPicker] = screen.getAllByRole('combobox') as HTMLSelectElement[]
+    const offered = (select: HTMLSelectElement) =>
+      Array.from(select.options).map((o) => o.value).filter(Boolean)
+    expect(offered(ledgerPicker)).toEqual(['10', '20'])
+    expect(offered(courantPicker)).toEqual(['20'])
   })
 })
 

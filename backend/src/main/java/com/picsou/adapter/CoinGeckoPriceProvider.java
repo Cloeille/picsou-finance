@@ -148,6 +148,11 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
         return ticker != null && TICKER_TO_ID.containsKey(ticker.toUpperCase(Locale.ROOT));
     }
 
+    @Override
+    public boolean supportsCrypto(String ticker) {
+        return supports(ticker);
+    }
+
     /**
      * A human-readable display name for a known crypto {@code ticker}, derived from its
      * CoinGecko coin id (e.g. BTC &rarr; "Bitcoin", MATIC &rarr; "Matic Network"), or
