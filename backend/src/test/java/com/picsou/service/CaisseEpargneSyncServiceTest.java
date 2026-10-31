@@ -1246,7 +1246,7 @@ class CaisseEpargneSyncServiceTest {
         arrangeCommittableSync(f.withLoan(f.loan(), f.loanDetails("FR7600000000000000000000099")));
         when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
         Account elsewhere = Account.builder().id(500L).build();
-        when(accountRepository.findByIbanAndMemberId("FR7600000000000000000000099", 7L))
+        when(accountRepository.findByIbanAndCurrencyAndMemberId("FR7600000000000000000000099", "EUR", 7L))
             .thenReturn(Optional.of(elsewhere));
 
         service.queueSync(7L);
@@ -1260,7 +1260,7 @@ class CaisseEpargneSyncServiceTest {
         Fixture f = new Fixture();
         arrangeCommittableSync(f.current(), f.withLoan(f.loan(), f.loanDetails("FR7600000000000000000000099")));
         when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
-        when(accountRepository.findByIbanAndMemberId("FR7600000000000000000000099", 7L))
+        when(accountRepository.findByIbanAndCurrencyAndMemberId("FR7600000000000000000000099", "EUR", 7L))
             .thenReturn(Optional.empty());
 
         service.queueSync(7L);
@@ -1275,7 +1275,7 @@ class CaisseEpargneSyncServiceTest {
         CaisseEpargnePort.AccountData current = f.current();
         arrangeCommittableSync(f.ambiguousIban(current), f.withLoan(f.loan(), f.loanDetails(current.iban())));
         when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
-        lenient().when(accountRepository.findByIbanAndMemberId(current.iban(), 7L))
+        lenient().when(accountRepository.findByIbanAndCurrencyAndMemberId(current.iban(), "EUR", 7L))
             .thenReturn(Optional.of(Account.builder().id(500L).build()));
 
         service.queueSync(7L);
