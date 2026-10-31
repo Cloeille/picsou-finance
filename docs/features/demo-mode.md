@@ -24,7 +24,7 @@ VITE_DEMO_MODE=true
 
 ### Auth guard
 
-`RequireAuth` (in `frontend/src/features/auth/guards.tsx`) reads `demoMode` from the store. In demo mode, it renders the app at once without waiting for `isAuthenticated`, and still runs the session probe: the demo adapter answers `POST /auth/refresh` with the demo admin (`demo`, member 1), so pages that read the signed-in user (the Settings username row, `RequireAdmin`) get one. `PublicOnly` (login) redirects to `/` if `demoMode` is active.
+`RequireAuth` (in `frontend/src/features/auth/guards.tsx`) reads `demoMode` from the store. In demo mode, it renders the app at once without waiting for `isAuthenticated`, and still runs the session probe. The demo adapter answers `POST /auth/refresh` with the demo admin (`demo`, member 1), so Settings shows the signed-in username. When no user is set, `RequireAdmin` waits for that shared probe and for `RequireAuth` to populate the store before checking the role. A direct `/admin` visit in a fresh demo tab therefore stays on the requested page. A restored member still goes to `/error/403`. A failed probe redirects through `/login` to `/`, because `PublicOnly` (login) redirects to `/` if `demoMode` is active.
 
 ### State management
 
@@ -36,7 +36,8 @@ VITE_DEMO_MODE=true
 - `frontend/src/lib/api-client.ts` — mock adapter injection
 - `frontend/src/demo/index.ts` — `createDemoAdapter()`, route handler table
 - `frontend/src/demo/data/` — mock data (accounts, goals, dashboard, transactions, holdings, sync-status, analysis)
-- `frontend/src/demo/data/history.ts` — twelve month-start balances per account plus today's live one, the one source for account charts, `/history`, the dashboard and the goal calendars. The dates are fixed at load with the balances; the live point is the account's current balance, so an edit (an SCPI position) shows in its history
+- `frontend/src/demo/data/history.ts` — twelve month-start balances per account plus today's live one, the one source for account charts, `/history`, the dashboard and the goal calendars. The dates and past balances are fixed at load. Aggregate history receives the editable accounts, so an SCPI edit updates the live point in account history, aggregate history, P&L and the intraday series
+- `frontend/src/demo/data/dashboard.ts` — builds each dashboard response from the editable accounts, including net worth, distribution percentages, liabilities and history
 - `frontend/src/demo/data/loans.ts` — the amortization calculation shared by loan summaries and historical outstanding balances
 - `frontend/src/demo/data/dates.ts` — local-date helpers; every fixture date is relative to today
 - `frontend/src/stores/app-store.ts` — `demoMode` state, not persisted
@@ -50,6 +51,7 @@ VITE_DEMO_MODE=true
 | `partialize` to exclude `demoMode` from persist | The env var must always win; without this, a stale localStorage value overwrites `VITE_DEMO_MODE` | Persisting `demoMode`: broke demo mode if the app had previously run with `false` |
 | Shared checking-account ledger with localized display labels | Account transactions, global search, and budget views keep the same rows after categorization. Other accounts' synthetic transaction labels use French, matching the demo fixtures | Restoring a separate checking-account fixture while translating its labels |
 | One categorization function with a derived review inbox | `categorizeDemoTransaction` replaces the ledger and changed row. The inbox and budget views read that ledger, so previous responses stay unchanged and refetches agree | Keeping separate mutable inbox state or two categorization functions |
+| Explicit account snapshot for history and dashboard calculations | Every request reads `_demoAccounts`, so session edits reach each live total without changing past monthly points or previous responses | Mutating the fixed fixtures or keeping a dashboard object computed at import time |
 
 ## Gotchas / Pitfalls
 
@@ -70,7 +72,7 @@ VITE_DEMO_MODE=true
 ## Tests
 
 From `frontend/`, run `bun run typecheck` and `bun run lint` alongside the demo
-tests (`bunx vitest run src/demo src/features/auth/guards.test.tsx`). Vitest
+tests (`bunx vitest run src/demo src/features/auth/guards.test.tsx src/features/accounts/hooks.test.tsx`). Vitest
 transpiles TypeScript without checking for unused imports. An unused import in
 `src/demo/index.ts` fails both checks and blocks `bun run build`, including the
 demo build used by the Docker image.
@@ -78,12 +80,15 @@ demo build used by the Docker image.
 - `frontend/src/demo/cic.test.ts` checks all six CIC session routes through the adapter, including authentication, reconnect, sync, and deletion response shapes.
 - `frontend/src/demo/coverage.test.ts` scans the source for every `api.get('/...')` call, expands each path parameter over every demo account, goal and category id, and fails on any URL the demo adapter has no handler for. Mutations are not checked: an unhandled one still answers `200 {}` by design.
 - `frontend/src/demo/fixtures.test.ts` freezes the clock before the fixtures load and checks that they agree across pages (dashboard against Accounts, allocation stock against the accounts, an account's history against its edited balance, family against accounts and goals, goal badge against its calendar), that the calendar is identical between loads, and that the budget opens on the current month in a UTC+ zone. Categorization checks cover invalid IDs, removal from the inbox, ledger and spending updates, previously unused categories, and TRANSFER exclusion.
+- `frontend/src/demo/scpi.test.ts` checks repeated SCPI edits through the adapter on the first day of the month and mid-month. Account history, split aggregate history, P&L, intraday values, dashboard totals and distribution agree after refetch. Past history and previous responses stay unchanged.
+- `frontend/src/features/auth/guards.test.tsx` checks fresh `/admin` navigation with a pending probe, restored admin and member roles, and failed probes in demo and production modes. Ordinary demo pages still render immediately.
+- `frontend/src/features/accounts/hooks.test.tsx` checks that an SCPI save invalidates history, P&L and intraday queries containing the edited account, while unrelated aggregate queries stay cached.
 - `frontend/src/demo/consistency.test.ts` rebuilds the fixtures on fixed dates (the first and last day of a month) and checks that P&L and the 24H series follow the dashboard's `accountIds`, that the investment accounts' balances, history, P&L and every hour of the 24H series equal their holdings repriced through `/prices`, that the live point is dated today, and that over CYCLE and YTD the ledger, the spending breakdown, its drill, the Sankey and the review inbox list the same rows. It compares cashflow totals and every bucket with the dated ledger, checks the checking account against global search, and compares every loan-history point with its dated installment. Categorization regressions cover inbox removal, immutable responses, parent and previously unused category assignments, TRANSFER exclusion, envelopes, cashflow, Sankey, and invalid IDs.
 - `frontend/src/demo/data/budget.test.ts` checks local cycle dates and every projected recurring due date in Paris, Tokyo, and Los Angeles, including DST changes, month ends, and year ends.
 - `frontend/src/demo/transactions.test.ts` checks date, account, and category filters, newest-first order, spending amounts and counts including the review inbox, and session recategorization through the adapter. Category filters select an explicitly categorized row, including on October 31, November 1, and January 1.
 
 The Playwright suite (`frontend/e2e/*.spec.ts`, `bun run test:e2e`) runs entirely against demo mode — it is the de-facto regression net for the handler table. `playwright.config.ts` forces `VITE_DEMO_MODE=true` on the Vite dev server it starts, so a missing `frontend/.env` still runs the suite in demo mode. The specs find demo data by its displayed text (a goal or account name, a label), so renaming a fixture means updating the specs that name it: `e2e/mobile-layout.spec.ts` still looked for the goal "Vacances été 2025" after it became "Voyage au Japon". The same holds for counts that follow from a fixture's relative dates: `e2e/goals.spec.ts` counts goal 2's calendar months, which is its `createdMonthsAgo` + 1 (12) on any date.
 
-The goals E2E test waits for each named savings goal and its progress bar, including "Voyage au Japon". Navigation alone does not establish readiness because route fallbacks wait 200 ms before appearing. The demo session probe still sets the signed-in user while `RequireAuth` renders immediately; the loading spinner only applies outside that bypass.
+The goals E2E test waits for each named savings goal and its progress bar, including "Voyage au Japon". Navigation alone does not establish readiness because route fallbacks wait 200 ms before appearing. The demo session probe still sets the signed-in user while `RequireAuth` renders immediately. The admin guard waits for the user before checking the role and uses the same delayed loading spinner as other guards.
 
 CI (`.github/workflows/ci.yml` job `e2e`) installs Chromium, runs the same command, and uploads `playwright-report/` on failure. A red e2e job blocks the Docker publish job.

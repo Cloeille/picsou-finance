@@ -60,6 +60,11 @@ export function PublicOnly({
 
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
   const user = useAuthStore(s => s.user)
+  const demoMode = useAppStore(s => s.demoMode)
+  const shouldProbe = demoMode && !user
+  const probe = useSessionProbe(shouldProbe)
+
+  if (shouldProbe && (probe.isPending || probe.isSuccess)) return <RouteSpinner />
   if (!user) return <Navigate to="/login" replace />
   if (user.role !== 'ADMIN') return <Navigate to="/error/403" replace />
   return <>{children}</>

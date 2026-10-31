@@ -311,10 +311,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   each dated amortization installment. Goal calendars no longer change on every
   reload, and a goal's badge matches its calendar. Dates follow today, so the card's next debit
   and the goal deadlines are ahead of you, and the budget opens on the current month instead of
-  the previous one in France. Settings shows the demo user's name (#277).
-- **Monthly payments read "/mois" in French.** The debts card printed a hard-coded English
-  "/mo" after each payment, and the dashboard said "1 autres objectifs" when one goal was left
-  off the summary (#277).
+  the previous one in France. Settings shows the demo user's name, and opening `/admin` in a
+  fresh demo tab waits for that user's role. SCPI edits update the dashboard, aggregate history,
+  P&L and 24-hour chart during the same session (#277).
 - **Enable Banking setup guidance.** Registration now lists the required application fields,
   explains email-link sign-in and account-linked activation, and describes restricted-mode
   limits. Key import is the default. Server key generation requires an explicit action.

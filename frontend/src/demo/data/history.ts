@@ -76,10 +76,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100
  * an account with holdings is invested at their cost basis while every other asset is its own
  * basis.
  */
-export function netWorthHistory(accountIds: number[], months: number, split: boolean) {
+export function netWorthHistory(accountIds: number[], months: number, split: boolean, accounts: Account[]) {
   const first = 12 - Math.min(Math.max(months, 1), 12)
   const rows = accountIds.map((id) => {
-    const account = mockAccounts.find((a) => a.id === id)
+    const account = accounts.find((a) => a.id === id)
     return { id, account, history: account ? accountBalanceHistory(account) : [] }
   })
   return HISTORY_DATES.slice(first).map((date, i) => {

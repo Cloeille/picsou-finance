@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { act, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 function memoryStorage(): Storage {
@@ -22,7 +22,7 @@ vi.stubGlobal('sessionStorage', memoryStorage())
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }))
 vi.mock('@/features/auth/api', () => ({ authApi: { refresh } }))
 
-const { PublicOnly, RequireAuth } = await import('./guards')
+const { PublicOnly, RequireAuth, RequireAdmin } = await import('./guards')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { useAppStore } = await import('@/stores/app-store')
 
@@ -125,5 +125,63 @@ describe('RequireAuth in demo mode', () => {
 
     expect(screen.getByText('app')).toBeInTheDocument()
     await waitFor(() => expect(useAuthStore.getState().user).toEqual(USER))
+  })
+})
+
+describe.each([true, false])('fresh admin navigation with demoMode=%s', (demoMode) => {
+  beforeEach(() => {
+    refresh.mockReset()
+    useAuthStore.setState({ user: null, isAuthenticated: false })
+    useAppStore.setState({ demoMode })
+  })
+
+  function renderAdmin() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    return render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/admin']}>
+          <Routes>
+            <Route path="/admin" element={<RequireAuth><RequireAdmin><div>admin-page</div></RequireAdmin></RequireAuth>} />
+            <Route path="/login" element={<PublicOnly><div>login-form</div></PublicOnly>} />
+            <Route path="/" element={<div>dashboard-page</div>} />
+            <Route path="/error/403" element={<div>forbidden-page</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+  }
+
+  it('waits for the session and keeps an admin on the requested page', async () => {
+    let resolve!: (user: typeof USER) => void
+    refresh.mockReturnValue(new Promise<typeof USER>((done) => { resolve = done }))
+
+    renderAdmin()
+
+    expect(await screen.findByRole('status')).toHaveAccessibleName('common.loading')
+    expect(screen.queryByText('admin-page')).not.toBeInTheDocument()
+    expect(screen.queryByText('dashboard-page')).not.toBeInTheDocument()
+    await act(async () => { resolve(USER) })
+    expect(await screen.findByText('admin-page')).toBeInTheDocument()
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(useAuthStore.getState().user).toEqual(USER)
+  })
+
+  it('denies admin access when the restored user is a member', async () => {
+    refresh.mockResolvedValue({ ...USER, role: 'MEMBER' })
+
+    renderAdmin()
+
+    expect(await screen.findByText('forbidden-page')).toBeInTheDocument()
+    expect(screen.queryByText('admin-page')).not.toBeInTheDocument()
+  })
+
+  it('leaves the admin route if the session probe fails', async () => {
+    refresh.mockRejectedValue(new Error('401'))
+
+    renderAdmin()
+
+    expect(await screen.findByText(demoMode ? 'dashboard-page' : 'login-form')).toBeInTheDocument()
+    expect(screen.queryByText('admin-page')).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 })

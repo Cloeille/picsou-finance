@@ -153,7 +153,7 @@ handlers.set(key('GET', '/family/members'), () => [
 ])
 
 // Dashboard
-handlers.set(key('GET', '/dashboard'), () => mockDashboard)
+handlers.set(key('GET', '/dashboard'), () => mockDashboard(_demoAccounts))
 
 // Analysis
 handlers.set(key('GET', '/analysis/pyramid'), () => mockWealthPyramid)
@@ -682,6 +682,7 @@ handlers.set(key('GET', '/history'), (config) => {
     requestedAccountIds(config, mockAccounts.map(a => a.id)),
     Number(params.months ?? 12),
     String(params.split) === 'true',
+    _demoAccounts,
   )
 })
 
@@ -691,7 +692,7 @@ handlers.set(key('GET', '/history'), (config) => {
 const demoTopLevelIds = mockAccounts.filter(a => a.parentAccountId == null).map(a => a.id)
 handlers.set(key('GET', '/history/pnl'), (config) => {
   const ids = requestedAccountIds(config, demoTopLevelIds)
-  const { total, invested, pnl } = netWorthHistory(ids, 1, false).at(-1)!
+  const { total, invested, pnl } = netWorthHistory(ids, 1, false, _demoAccounts).at(-1)!
   const live = { total, invested, pnl, pnlPercent: invested > 0 ? Math.round((pnl / invested) * 1000) / 10 : null }
   const from = config.params?.from
   // HistoryService returns the live figures alone without a range or a holding to price over it.
@@ -705,7 +706,7 @@ handlers.set(key('GET', '/history/pnl'), (config) => {
 // each hour's /prices/:ticker/intraday quote, every other account at its live balance all day.
 handlers.set(key('GET', '/history/net-worth/intraday'), (config) => {
   const ids = requestedAccountIds(config, demoTopLevelIds)
-  const { total, invested } = netWorthHistory(ids, 1, false).at(-1)!
+  const { total, invested } = netWorthHistory(ids, 1, false, _demoAccounts).at(-1)!
   const withoutHoldings = total - holdingsValue(ids)
   return Array.from({ length: 24 }, (_, i) => {
     const back = 23 - i
@@ -719,7 +720,7 @@ const demoGoal = (id: string) => mockGoals.find(g => g.id === Number(id))
 handlers.set(key('GET', '/goals/:id'), (_config, { id }) => demoGoal(id))
 handlers.set(key('GET', '/goals/:id/months'), (_config, { id }) => mockGoalMonths[Number(id)] ?? [])
 handlers.set(key('GET', '/goals/:id/history'), (_config, { id }) =>
-  netWorthHistory(demoGoal(id)?.accounts.map(a => a.id) ?? [], 12, false))
+  netWorthHistory(demoGoal(id)?.accounts.map(a => a.id) ?? [], 12, false, _demoAccounts))
 handlers.set(key('POST', '/goals/:id/history/extend'), (_config, { id }) => demoGoal(id))
 handlers.set(key('POST', '/goals/:id/history/extend/month'), (_config, { id }) => demoGoal(id))
 /** The holding name behind a ticker in a demo account, for the split's display. */
