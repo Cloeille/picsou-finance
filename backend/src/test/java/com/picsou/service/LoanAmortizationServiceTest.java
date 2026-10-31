@@ -208,6 +208,17 @@ class LoanAmortizationServiceTest {
         assertThat(service.compute(debt, LocalDate.parse("2042-02-15")).summary().paidInstallments()).isEqualTo(1);
     }
 
+    @Test
+    void paidInstallments_reachTheTotalOnTheEndDateEvenBeforeTheLastDueDay() {
+        // Due on the 15th, but the loan ends on 1 April: repaid from the end date, not from 15 April.
+        Debt debt = debt("3000", "0", "1000", "2042-01-15", "2042-04-01");
+
+        assertThat(service.compute(debt, LocalDate.parse("2042-03-31")).summary().paidInstallments()).isEqualTo(2);
+        var onEndDate = service.compute(debt, LocalDate.parse("2042-04-01")).summary();
+        assertThat(onEndDate.paidInstallments()).isEqualTo(3);
+        assertThat(onEndDate.remainingBalance()).isEqualByComparingTo("0");
+    }
+
     private static Debt debt(String borrowed, String rate, String monthly, String start, String end) {
         return Debt.builder()
             .borrowedAmount(new BigDecimal(borrowed))

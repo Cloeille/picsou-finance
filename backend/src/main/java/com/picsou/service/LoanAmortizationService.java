@@ -242,6 +242,9 @@ public class LoanAmortizationService {
         LocalDate startDate, LocalDate endDate, LocalDate asOf, int totalInstallments
     ) {
         if (startDate == null || asOf == null || totalInstallments == 0) return 0;
+        // From the end date on, the loan is repaid, even when the end date falls before the due
+        // day of the last month (a 15 January start ending on 1 April).
+        if (endDate != null && !asOf.isBefore(endDate)) return totalInstallments;
         int paid = 0;
         while (paid < totalInstallments && !installmentDate(startDate, endDate, paid + 1).isAfter(asOf)) {
             paid++;
