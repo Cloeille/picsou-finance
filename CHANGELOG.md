@@ -291,6 +291,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   limits. Key import is the default. Server key generation requires an explicit action.
   The success screen distinguishes application configuration from connecting bank accounts,
   and network failures show a translated Picsou connection message in all four languages.
+- **Caisse d'Epargne loan insurance rounding.** Personal and home loans now
+  retain the correct cent-rounded insurance at exact half-cent annuity boundaries
+  and extremely small positive nominal rates. Directed Decimal bounds certify
+  the rounded annuity, with an exact rational fallback when the bounds disagree.
+  This prevents an extra cent of insurance from reducing the capital repaid in
+  the amortization schedule.
 
 - **Trade Republic crypto is valued at its market price again.** The connector guessed the
   venue of each price subscription (`TRD0` for crypto). Trade Republic refused that guess, and
