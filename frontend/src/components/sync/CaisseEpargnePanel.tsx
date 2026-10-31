@@ -63,6 +63,23 @@ interface KeypadPad {
 /** The sidecar waits this long for the human to approve on the phone (COMPLETE_WAIT_SECONDS). */
 const HUMAN_WAIT_SECONDS = 150
 
+/**
+ * How long the panel keeps polling the session once the completion request is lost:
+ * the backend's own window (170 s, the human wait plus collecting the session) and a margin.
+ */
+const LOST_COMPLETION_WAIT_MS = 180_000
+const LOST_COMPLETION_POLL_MS = 3_000
+
+/**
+ * The completion request got no answer from the backend: iOS drops it while Safari sits
+ * in the background, which is exactly when the user approves Sécur'Pass in the bank's app
+ * on the same phone. The backend carries on and stores the session regardless.
+ */
+function isLostRequest(value: unknown) {
+  const httpStatus = getErrorStatus(value)
+  return httpStatus === undefined || httpStatus === 502 || httpStatus === 504
+}
+
 const KNOWN_CODES = new Set([
   "INVALID_CREDENTIALS",
   "KEYPAD_CHANGED",
@@ -122,6 +139,8 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   const [error, setError] = useState<string | null>(null)
   const [secondsLeft, setSecondsLeft] = useState(0)
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
+  // When the completion request was lost: the waiting card stays and the session is polled.
+  const [lostCompletionAt, setLostCompletionAt] = useState<number | null>(null)
   // Synchronous guard: state updates are async, so a fast double click could
   // otherwise reach the bank twice.
   const submitting = useRef(false)
@@ -234,31 +253,63 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
     setAuthState("IDLE")
   }
 
+  // A fresh session holds no account yet, and the bank lets it live a few minutes only:
+  // queue the first sync once (never retried), and tell the caller only when it succeeded.
+  const startFirstSync = () => {
+    setAuthState("IDLE")
+    setCustomerId("")
+    void status.refetch()
+    sync.mutate(undefined, {
+      onSuccess: () => {
+        notifyConnectedOnSuccess.current = true
+      },
+      onError: (value) => setError(formatError(value)),
+    })
+  }
+
   const awaitSecurPass = (processId: string) => {
-    // One call, no polling: the backend holds it open while the human approves.
+    // One call: the backend holds it open while the human approves.
     completeMutate(
       { processId },
       {
-        onSuccess: () => {
-          setAuthState("IDLE")
-          setCustomerId("")
-          void status.refetch()
-          // A fresh session holds no account yet: queue the first sync once (never
-          // retried), and tell the caller only when it succeeded.
-          sync.mutate(undefined, {
-            onSuccess: () => {
-              notifyConnectedOnSuccess.current = true
-            },
-            onError: (value) => setError(formatError(value)),
-          })
-        },
+        onSuccess: startFirstSync,
         onError: (value) => {
+          if (isLostRequest(value)) {
+            // Keep the waiting card: the session status tells whether it went through.
+            setLostCompletionAt(Date.now())
+            return
+          }
           setError(formatError(value))
           setAuthState("ERROR")
         },
       }
     )
   }
+
+  const { refetch: refetchStatus } = status
+  // The poll below outlives renders: it reads the latest startFirstSync through this ref.
+  const startFirstSyncRef = useRef(startFirstSync)
+  useEffect(() => {
+    startFirstSyncRef.current = startFirstSync
+  })
+  useEffect(() => {
+    if (lostCompletionAt === null) return
+    const timer = setInterval(() => {
+      if (Date.now() - lostCompletionAt >= LOST_COMPLETION_WAIT_MS) {
+        setLostCompletionAt(null)
+        setError(t("sync.caisseEpargne.errors.appValidationTimeout"))
+        setAuthState("ERROR")
+        return
+      }
+      void refetchStatus().then(({ data }) => {
+        // The form only shows without a live session, so a live one now is this login.
+        if (!data?.isActive) return
+        setLostCompletionAt(null)
+        startFirstSyncRef.current()
+      })
+    }, LOST_COMPLETION_POLL_MS)
+    return () => clearInterval(timer)
+  }, [lostCompletionAt, refetchStatus, t])
 
   const submit = async () => {
     if (submitting.current) return

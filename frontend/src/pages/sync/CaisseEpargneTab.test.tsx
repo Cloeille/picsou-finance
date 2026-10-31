@@ -284,6 +284,66 @@ describe('CaisseEpargneTab', () => {
       ])
     })
 
+    it('keeps waiting when the completion is lost, then queues the first sync once the session is live', async () => {
+      // iOS drops Safari's pending request while the user approves Sécur'Pass in the bank's app.
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' })
+      let live = false
+      apiGet.mockImplementation(async () => ({
+        data: live ? { ...DISCONNECTED, isActive: true } : DISCONNECTED,
+      }))
+      apiPost.mockImplementation(async (url: string) => {
+        if (url === '/caisse-epargne/auth/initiate') return { data: INITIATED }
+        if (url === '/caisse-epargne/auth/keypad') return { data: KEYPAD_DONE }
+        if (url === '/caisse-epargne/auth/complete') throw NETWORK_ERROR
+        return { data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } }
+      })
+      renderTab()
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(4, 0, 9, 9, 2, 7)
+      fireEvent.click(validateButton())
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }))
+
+      // Lost: no error, the Sécur'Pass card stays.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+      expect(screen.getByText('sync.caisseEpargne.securPassPrompt')).toBeInTheDocument()
+      expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
+
+      // The backend stored the session: the next poll sees it and queues the first sync.
+      live = true
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
+      expect(apiPost.mock.calls.filter(c => c[0] === '/caisse-epargne/sync')).toHaveLength(1)
+    })
+
+    it('reports a timeout when a lost completion never brings a session', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' })
+      apiPost.mockImplementation(async (url: string) => {
+        if (url === '/caisse-epargne/auth/initiate') return { data: INITIATED }
+        if (url === '/caisse-epargne/auth/keypad') return { data: KEYPAD_DONE }
+        throw NETWORK_ERROR
+      })
+      renderTab()
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(4, 0, 9, 9, 2, 7)
+      fireEvent.click(validateButton())
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(183_000)
+      })
+
+      expect(await screen.findByText('sync.caisseEpargne.errors.appValidationTimeout')).toBeInTheDocument()
+      expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
+    })
+
     it('ignores a second Validate click while the keypad call is out', async () => {
       apiPost
         .mockResolvedValueOnce({ data: INITIATED })
