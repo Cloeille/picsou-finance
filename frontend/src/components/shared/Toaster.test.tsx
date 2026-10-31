@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
-import { Toaster } from '@/components/ui/sonner'
+import { Toaster } from '@/components/shared/Toaster'
 import { applyTheme } from '@/lib/theme'
 
 function setOsDarkMode(dark: boolean) {
