@@ -353,6 +353,13 @@ sleeve alone and the dashboard would book the rest as a loss.
 
 Two positions collapsing onto the same fallback symbol are refused
 (`INVALID_DATA`) instead of merging two different instruments into one holding.
+`BoursoSyncService` applies the same rule after ticker resolution: lines that
+land on one ticker merge only when they carry the same ISIN. Two ISINs on one
+ticker (OpenFIGI giving two share classes the same symbol), or an ISIN-less line
+whose symbol equals another line's resolved ticker, fail the sync with
+`INVALID_DATA` and keep the last good portfolio. Merged, the holding would be
+recorded under only one of the ISINs, so fund facts and composition would
+describe the wrong fund for part of it.
 
 ### Asynchronous import
 

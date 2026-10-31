@@ -448,7 +448,18 @@ public class BoursoSyncService {
                     null
                 );
             }
-            String ticker = resolveTicker(position, isinByTicker);
+            String isin = normalizeIsin(position.isin());
+            String ticker = resolveTicker(position, isin);
+            // Only lines of one instrument may merge. Two ISINs on one ticker (OpenFIGI
+            // giving two share classes the same symbol, or an ISIN-less symbol equal to
+            // another line's ticker) would become one holding filed under a single ISIN,
+            // and fund facts and composition would then be looked up for the wrong fund.
+            if (positions.containsKey(ticker) && !Objects.equals(isinByTicker.get(ticker), isin)) {
+                throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned two instruments under one ticker", null);
+            }
+            if (isin != null) {
+                isinByTicker.put(ticker, isin);
+            }
             PreparedPosition resolved = new PreparedPosition(
                 ticker,
                 limit(position.label(), 100, ticker),
@@ -476,9 +487,8 @@ public class BoursoSyncService {
      * by Yahoo, and {@code AccountService.PROVIDER_VALUED} then falls back to
      * BoursoBank's own valuation instead of reading the line as zero.
      */
-    private String resolveTicker(BoursoPort.Position position, Map<String, String> isinByTicker) {
+    private String resolveTicker(BoursoPort.Position position, String isin) {
         String ticker = clean(position.symbol());
-        String isin = normalizeIsin(position.isin());
         if (isin != null) {
             OpenFigiIsinConverter.TickerResult resolved = isinConverter.resolve(isin);
             if (resolved != null && resolved.ticker() != null && !resolved.ticker().isBlank()) {
@@ -491,9 +501,6 @@ public class BoursoSyncService {
         }
         if (ticker == null || ticker.length() > MAX_TICKER_LENGTH) {
             throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned an invalid instrument identifier", null);
-        }
-        if (isin != null) {
-            isinByTicker.put(ticker, isin);
         }
         return ticker;
     }
@@ -511,7 +518,7 @@ public class BoursoSyncService {
     }
 
     /**
-     * Merges two lines that resolved to the same ticker.
+     * Merges two lines that resolved to the same ticker and carry the same ISIN.
      *
      * <p>Not {@code HoldingDedup.vwapMerge}: that helper carries no provider
      * valuation, and dropping {@code providerValueEur}/{@code providerPnlEur}

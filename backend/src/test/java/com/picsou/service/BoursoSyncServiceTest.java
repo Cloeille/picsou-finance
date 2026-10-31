@@ -402,6 +402,50 @@ class BoursoSyncServiceTest {
         });
     }
 
+    /**
+     * Two share classes OpenFIGI files under one ticker are two instruments: merged,
+     * the holding would keep only the last ISIN and fund facts would describe the
+     * wrong fund for part of it (#302).
+     */
+    @Test
+    void queueSync_refusesTwoIsinsResolvingToTheSameTicker() {
+        BoursoSession session = activeSession(member());
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(
+            account(PEA_ID, "PEA DOE", AccountType.PEA, "20000.00", "0",
+                position("IE00B4L5Y983", "1rTCW8", "iShares Acc", "100", "100.00", "150.00", "15000.00", "5000.00"),
+                position("IE00BKM4GZ66", "1rTEMIM", "iShares Dist", "50", "80.00", "100.00", "5000.00", "1000.00"))
+        ));
+        when(isinConverter.resolve(anyString()))
+            .thenReturn(new OpenFigiIsinConverter.TickerResult("IWDA.AS", "iShares"));
+
+        service.queueSync(7L);
+
+        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_DATA);
+        verify(identityService, never()).record(any());
+        verify(holdingRepository, never()).saveAll(any());
+    }
+
+    /** An ISIN-less line whose symbol equals another line's resolved ticker is not that instrument. */
+    @Test
+    void queueSync_refusesAnIsinLessLineLandingOnAResolvedTicker() {
+        BoursoSession session = activeSession(member());
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(
+            account(PEA_ID, "PEA DOE", AccountType.PEA, "20000.00", "0",
+                position("IE00B4L5Y983", "1rTCW8", "iShares", "100", "100.00", "150.00", "15000.00", "5000.00"),
+                position(null, "IWDA.AS", "Unknown", "50", "80.00", "100.00", "5000.00", "1000.00"))
+        ));
+        when(isinConverter.resolve("IE00B4L5Y983"))
+            .thenReturn(new OpenFigiIsinConverter.TickerResult("IWDA.AS", "iShares"));
+
+        service.queueSync(7L);
+
+        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_DATA);
+        verify(identityService, never()).record(any());
+        verify(holdingRepository, never()).saveAll(any());
+    }
+
     @Test
     void queueSync_doesNotResurrectAnAccountTheUserDeleted() {
         FamilyMember member = member();
