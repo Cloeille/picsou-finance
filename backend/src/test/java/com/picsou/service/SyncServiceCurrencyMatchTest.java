@@ -156,6 +156,41 @@ class SyncServiceCurrencyMatchTest {
         assertSnapshot(gbp, "240");
     }
 
+    @Test
+    void resyncAll_legacyMisparsedCurrencies_reconcilesBeforeSnapshotsAndRepeatedSync() {
+        Account eur = persistAccount("uid-eur", "EUR", null);
+        Account gbp = persistAccount("uid-gbp", "EUR", null);
+        for (Account account : List.of(eur, gbp)) {
+            account.setIban(null);
+            account.setCurrentBalance(new BigDecimal("100"));
+            accountService.upsertSnapshotFromNative(account, new BigDecimal("100"), LocalDate.now());
+        }
+        entityManager.flush();
+        entityManager.clear();
+        when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(
+            data("uid-eur", "EUR", "100"), data("uid-gbp", "GBP", "200")));
+
+        for (int sync = 0; sync < 2; sync++) {
+            syncAndReload();
+
+            List<Account> accounts = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId());
+            assertThat(accounts).extracting(Account::getCurrency).containsExactlyInAnyOrder("EUR", "GBP");
+            Account updatedEur = accountInCurrency(accounts, "EUR");
+            Account updatedGbp = accountInCurrency(accounts, "GBP");
+            assertThat(updatedEur.getId()).isEqualTo(eur.getId());
+            assertThat(updatedGbp.getId()).isEqualTo(gbp.getId());
+            assertThat(updatedEur.getExternalAccountId()).isEqualTo("uid-eur");
+            assertThat(updatedGbp.getExternalAccountId()).isEqualTo("uid-gbp");
+            assertThat(updatedEur.getIban()).isEqualTo(IBAN);
+            assertThat(updatedGbp.getIban()).isEqualTo(IBAN);
+            assertThat(updatedEur.getCurrentBalance()).isEqualByComparingTo("100");
+            assertThat(updatedGbp.getCurrentBalance()).isEqualByComparingTo("200");
+            assertThat(snapshotRepository.count()).isEqualTo(2);
+            assertSnapshot(updatedEur, "100");
+            assertSnapshot(updatedGbp, "240");
+        }
+    }
+
     @ParameterizedTest
     @NullSource
     @ValueSource(strings = "EUR")

@@ -46,10 +46,15 @@ Picsou now handles this with a two-pronged strategy:
    `uid` and member when no IBAN match exists or the IBAN is absent. Different currency
    subaccounts can share an IBAN, so IBAN alone does not identify an account. On a successful
    IBAN and currency match, the stored `uid` is refreshed in place. A missing currency defaults
-   to `EUR` before matching and account creation. The soft-delete guard uses the same IBAN,
+   to `EUR` before matching, account creation, and updates. The soft-delete guard uses the same IBAN,
    currency, and member key alongside the exact uid check. Deleting one currency subaccount
    does not block another currency sharing its IBAN. Each account keeps its native balance;
    its snapshot is converted to EUR using that account's currency.
+   Updates reconcile the stored currency with the incoming balance currency before saving
+   and converting the snapshot. This repairs legacy accounts found by uid whose currency
+   was misparsed before IBANs were imported. Their original rows remain separate on later
+   syncs, and the current day's snapshot is corrected using the reconciled currency.
+   Historical snapshots remain unchanged because the provider supplies only the current balance.
    Revolut discovery, persistence, and IBAN-based deletion checks use the same currency-aware
    identity when matching accounts previously imported by Enable Banking.
    - New column: `account.iban VARCHAR(34)`, added by `V46__account_iban.sql`.
@@ -124,6 +129,9 @@ matching before truncation, ambiguous or missing data, and per-account failure i
 against an isolated H2 database. Synthetic EUR and GBP accounts sharing one IBAN stay
 separate across repeated syncs and uid rotation. Snapshot conversion uses a fixed synthetic
 FX rate. Currency-specific soft deletion and the missing-currency EUR default are also covered.
+The legacy-upgrade regression starts with two EUR accounts without IBANs and same-day EUR 100
+snapshots. Two successive syncs preserve their ids, reconcile the GBP account's currency and
+shared IBAN, and replace its snapshot with EUR 240 for a GBP 200 balance at a fixed 1.20 rate.
 Live bank behavior remains unverified.
 
 ### Country selection

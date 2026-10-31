@@ -506,6 +506,7 @@ public class SyncService {
         Account account;
         if (existing.isPresent()) {
             account = existing.get();
+            account.setCurrency(currency);
             account.setCurrentBalance(data.balance());
             account.setLastSyncedAt(Instant.now());
             // Refresh uid in case the provider rotated it (EB v0.16.4 Boursorama case)
