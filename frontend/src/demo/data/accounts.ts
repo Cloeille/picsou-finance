@@ -1,5 +1,6 @@
 import type { Account } from '@/types/api'
 import { daysFromToday, hoursAgo, monthStartFromToday } from './dates'
+import { holdingsValue } from './holdings'
 
 export const mockAccounts: Account[] = [
   {
@@ -25,8 +26,8 @@ export const mockAccounts: Account[] = [
     type: 'PEA',
     provider: 'BoursoBank',
     currency: 'EUR',
-    currentBalance: 12450.5,
-    currentBalanceEur: 12450.5,
+    currentBalance: holdingsValue([2]),
+    currentBalanceEur: holdingsValue([2]),
     lastSyncedAt: hoursAgo(3),
     isManual: false,
     color: '#6366f1',
@@ -45,8 +46,8 @@ export const mockAccounts: Account[] = [
     type: 'COMPTE_TITRES',
     provider: 'Degiro',
     currency: 'EUR',
-    currentBalance: 8320.75,
-    currentBalanceEur: 8320.75,
+    currentBalance: holdingsValue([3]),
+    currentBalanceEur: holdingsValue([3]),
     lastSyncedAt: hoursAgo(3),
     isManual: false,
     color: '#8b5cf6',
@@ -96,8 +97,8 @@ export const mockAccounts: Account[] = [
     type: 'CRYPTO',
     provider: 'Ledger',
     currency: 'EUR',
-    currentBalance: 4250.0,
-    currentBalanceEur: 4250.0,
+    currentBalance: holdingsValue([6]),
+    currentBalanceEur: holdingsValue([6]),
     lastSyncedAt: hoursAgo(4),
     isManual: false,
     color: '#f97316',

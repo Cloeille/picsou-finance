@@ -1,22 +1,27 @@
 import { LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { mockAccounts } from './accounts'
-import { monthStartFromToday } from './dates'
+import { daysBeforeToday, monthStartFromToday } from './dates'
+import { holdingsCostBasis, holdingsValue, mockHoldings } from './holdings'
+
+/** An account's holdings repriced on each month start, ending on their live value. */
+function holdingsHistory(accountId: number): number[] {
+  return Array.from({ length: 12 }, (_, i) =>
+    holdingsValue([accountId], i === 11 ? 0 : daysBeforeToday(monthStartFromToday(i - 11))))
+}
 
 // Twelve month-start balances per demo account, oldest first. The last value is the account's
 // current balance, so every chart, the history totals and the dashboard end on the same figure.
 export const mockBalanceHistory: Record<number, number[]> = {
   // LEP: slow steady growth
   1: [6100, 6250, 6400, 6500, 6650, 6800, 6950, 7100, 7200, 7400, 7600, 7800],
-  // PEA: moderate growth with some dips
-  2: [8200, 8600, 9100, 8800, 9400, 9900, 10200, 10800, 11200, 11600, 12000, 12450.5],
-  // Compte Titres: more volatile
-  3: [5800, 6200, 6700, 6400, 6900, 7200, 7500, 7100, 7600, 7900, 8100, 8320.75],
+  // PEA, Compte Titres, Crypto: their holdings, so the charts, P&L and /prices agree
+  2: holdingsHistory(2),
+  3: holdingsHistory(3),
   // Checking BNP: fluctuates around the salary cycle
   4: [1200, 2800, 1500, 3100, 1800, 2600, 1400, 2900, 1700, 2500, 2100, 2340.2],
   // Checking BoursoBank: smaller balance, fluctuates
   5: [800, 1100, 950, 1300, 1050, 1200, 900, 1350, 1100, 1250, 1400, 1580.9],
-  // Crypto: volatile, strong upward trend
-  6: [1800, 2100, 2400, 1900, 2600, 2800, 3100, 2700, 3400, 3600, 3900, 4250],
+  6: holdingsHistory(6),
   // Livret A: slow steady growth
   7: [4200, 4320, 4440, 4560, 4620, 4740, 4800, 4920, 4980, 5040, 5080, 5120],
   // Revolut wallet
@@ -37,20 +42,14 @@ export const mockBalanceHistory: Record<number, number[]> = {
   15: [174980, 174380, 173780, 173180, 172580, 171980, 171380, 170780, 170180, 169580, 168980, 168400],
 }
 
-/** Cost basis of the investment accounts; every other asset is its own basis. */
-const mockInvestedBasis: Record<number, number> = {
-  2: 8200,
-  3: 5800,
-  6: 1800,
-}
-
 interface PointValues { total: number; invested: number; pnl: number }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
 /**
  * Monthly net-worth points, mirroring HistoryService: a loan's outstanding capital is negated,
- * and liabilities count nothing towards invested or pnl.
+ * liabilities count nothing towards invested or pnl, and an account with holdings is invested
+ * at their cost basis while every other asset is its own basis.
  */
 export function netWorthHistory(accountIds: number[], months: number, split: boolean) {
   const count = Math.min(Math.max(months, 1), 12)
@@ -63,7 +62,7 @@ export function netWorthHistory(accountIds: number[], months: number, split: boo
       const balance = mockBalanceHistory[id]?.[index] ?? 0
       const liability = account != null && LIABILITY_ACCOUNT_TYPES.includes(account.type)
       const total = account?.type === 'LOAN' ? -balance : balance
-      const invested = liability ? 0 : mockInvestedBasis[id] ?? balance
+      const invested = liability ? 0 : id in mockHoldings ? holdingsCostBasis(id) : balance
       const pnl = liability ? 0 : total - invested
       sums.total += total
       sums.invested += invested

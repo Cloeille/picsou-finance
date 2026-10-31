@@ -14,6 +14,14 @@ export function daysFromToday(days: number): string {
   return isoDate(d)
 }
 
+/** How many days before today the `YYYY-MM-DD` date `iso` is. */
+export function daysBeforeToday(iso: string): number {
+  const [year, month, day] = iso.split('-').map(Number)
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.round((today.getTime() - new Date(year, month - 1, day).getTime()) / 86_400_000)
+}
+
 /** The first day of the month `months` away from the current one. */
 export function monthStartFromToday(months: number): string {
   const now = new Date()

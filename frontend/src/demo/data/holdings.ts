@@ -152,3 +152,24 @@ export const mockHoldings: Record<number, HoldingResponse[]> = {
     },
   ],
 }
+
+/**
+ * The demo quote `daysAgo` days back for a ticker quoted `price` today: about 18% lower a year
+ * ago, with a mild wobble. Price charts, account balances and range P&L all read it.
+ */
+export function quoteDaysAgo(price: number, daysAgo: number): number {
+  const factor = 0.82 ** (daysAgo / 365) * (1 + 0.03 * Math.sin(daysAgo / 9))
+  return Number((price * factor).toFixed(price < 10 ? 4 : 2))
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+/** What the accounts' holdings were worth `daysAgo` days back, at today's quantities. */
+export function holdingsValue(accountIds: number[], daysAgo = 0): number {
+  return round2(accountIds.flatMap(id => mockHoldings[id] ?? [])
+    .reduce((sum, h) => sum + h.quantity * quoteDaysAgo(h.currentPrice ?? 0, daysAgo), 0))
+}
+
+export function holdingsCostBasis(accountId: number): number {
+  return round2((mockHoldings[accountId] ?? []).reduce((sum, h) => sum + (h.costBasisEur ?? 0), 0))
+}

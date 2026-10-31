@@ -224,7 +224,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   holdings on every account, prices, connected apps, the status of each provider, the budget's
   transactions and the fourth goal no longer leave a card loading forever or a table empty. Its
   figures agree from page to page: the dashboard's net worth and portfolio performance match the
-  Accounts total, the family view shows the same accounts, and the car loan and the house's
+  Accounts total, an investment account is worth its holdings at the quotes shown and its
+  performance over a range follows those quotes, the family view shows the same accounts, and the car loan and the house's
   mortgage are real accounts under French names. Performance and the 24-hour chart cover the
   accounts the dashboard selects, and the budget's transaction list holds the same expenses as
   the spending breakdown, even on the first day of the month. Goal calendars no longer change on every

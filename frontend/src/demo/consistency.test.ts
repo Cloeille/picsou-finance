@@ -2,7 +2,9 @@ import { AxiosHeaders } from 'axios'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { PnlData, IntradayPoint } from '@/features/dashboard/api'
 import type {
+  Account,
   BudgetSettings,
+  HoldingResponse,
   DashboardData,
   SpendingByCategoryResponse,
   SpendingDetailResponse,
@@ -78,6 +80,51 @@ describe('demo dashboard figures follow the selected accounts', () => {
     const grossWealth = sum(dashboard.distribution.map(d => d.balanceEur))
     const intraday = await get<IntradayPoint[]>('/history/net-worth/intraday', { accountIds: grossIds.join(',') })
     expect(intraday[intraday.length - 1].total).toBeCloseTo(grossWealth, 2)
+  })
+})
+
+describe('demo investment accounts are valued from their holdings', () => {
+  const investmentIds = [2, 3, 6]
+  const from = '2026-10-01'
+  let get: Get
+  let holdings: HoldingResponse[][]
+  let quotes: Record<string, number>
+  let quotesAtFrom: Record<string, number>
+
+  beforeAll(async () => {
+    get = await demoAt(new Date(2026, 10, 1, 9))
+    holdings = await Promise.all(investmentIds.map(id => get<HoldingResponse[]>(`/accounts/${id}/holdings`)))
+    const tickers = [...new Set(holdings.flat().map(h => h.ticker))]
+    quotes = await get<Record<string, number>>('/prices', { tickers: tickers.join(',') })
+    const series = await Promise.all(tickers.map(t =>
+      get<{ date: string; priceEur: number }[]>(`/prices/${t}/history`, { months: 2 })))
+    quotesAtFrom = Object.fromEntries(tickers.map((t, i) => [t, series[i].find(p => p.date === from)!.priceEur]))
+  })
+
+  const valueAt = (lines: HoldingResponse[], prices: Record<string, number>) =>
+    sum(lines.map(h => h.quantity * prices[h.ticker]))
+
+  it('reports each account balance and its history as its holdings repriced', async () => {
+    const accounts = await get<Account[]>('/accounts')
+    for (const [i, id] of investmentIds.entries()) {
+      const live = valueAt(holdings[i], quotes)
+      expect(accounts.find(a => a.id === id)!.currentBalanceEur, `account ${id}`).toBeCloseTo(live, 2)
+      const history = await get<{ date: string; balance: number }[]>(`/accounts/${id}/history`)
+      expect(history[history.length - 1].balance, `account ${id} latest`).toBeCloseTo(live, 2)
+      expect(history.find(p => p.date === from)!.balance, `account ${id} on ${from}`)
+        .toBeCloseTo(valueAt(holdings[i], quotesAtFrom), 2)
+    }
+  })
+
+  it('reports P&L over the range from the same holdings and quotes', async () => {
+    const pnl = await get<PnlData>('/history/pnl', { accountIds: investmentIds.join(','), from })
+    const live = valueAt(holdings.flat(), quotes)
+    const atFrom = valueAt(holdings.flat(), quotesAtFrom)
+    expect(pnl.total).toBeCloseTo(live, 2)
+    expect(pnl.invested).toBeCloseTo(sum(holdings.flat().map(h => h.costBasisEur ?? 0)), 2)
+    expect(pnl.valueAtFrom).toBeCloseTo(atFrom, 2)
+    expect(pnl.rangePnl).toBeCloseTo(live - atFrom, 2)
+    expect(pnl.rangePnlPercent).toBe(Math.round(((live - atFrom) / atFrom) * 1000) / 10)
   })
 })
 

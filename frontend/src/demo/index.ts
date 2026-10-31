@@ -11,8 +11,8 @@ import {
 import { mockDashboard } from './data/dashboard'
 import { mockGoalMonths, mockGoals } from './data/goals'
 import { mockBalanceHistory, netWorthHistory } from './data/history'
-import { daysFromToday, hoursAgo, isoDate, monthStartFromToday } from './data/dates'
-import { mockHoldings } from './data/holdings'
+import { daysBeforeToday, daysFromToday, hoursAgo, isoDate, monthStartFromToday } from './data/dates'
+import { holdingsValue, mockHoldings, quoteDaysAgo } from './data/holdings'
 import { ageFromBirthDate, mockMemberProfile, netIncome } from './data/profile'
 import { mockTransactions } from './data/transactions'
 import { mockExchangeStatuses, mockWalletStatuses, mockRequisitions } from './data/sync-status'
@@ -325,10 +325,7 @@ handlers.set(key('GET', '/prices/:ticker/history'), (config, { ticker }) => {
   const days = Math.round((Number(config.params?.months) || 12) * 30.4)
   return Array.from({ length: days + 1 }, (_, i) => {
     const back = days - i
-    return {
-      date: daysFromToday(-back),
-      priceEur: demoQuote(price, -0.18 * (back / days) + 0.03 * Math.sin(back / 9)),
-    }
+    return { date: daysFromToday(-back), priceEur: quoteDaysAgo(price, back) }
   })
 })
 
@@ -759,18 +756,19 @@ handlers.set(key('GET', '/history'), (config) => {
 })
 
 // PnL summary (dashboard header + account detail)
-// Live figures from the history the chart draws. The range is the holdings' own price move,
-// which the demo has no price snapshots for: a fixed 8.3% on their live value.
+// Live figures from the history the chart draws. The range reprices the holdings at the quote
+// /prices/:ticker/history gives for `from`, as HistoryService does with its price snapshots.
 const demoTopLevelIds = mockAccounts.filter(a => a.parentAccountId == null).map(a => a.id)
 handlers.set(key('GET', '/history/pnl'), (config) => {
   const ids = requestedAccountIds(config, demoTopLevelIds)
   const { total, invested, pnl } = netWorthHistory(ids, 1, false)[0]
   const live = { total, invested, pnl, pnlPercent: invested > 0 ? Math.round((pnl / invested) * 1000) / 10 : null }
-  const holdingsValue = ids.flatMap(id => mockHoldings[id] ?? []).reduce((sum, h) => sum + (h.currentValueEur ?? 0), 0)
-  // HistoryService returns the live figures alone when no holding can be priced over the range.
-  if (holdingsValue === 0) return { ...live, valueAtFrom: null, rangePnl: null, rangePnlPercent: null }
-  const valueAtFrom = r2(holdingsValue / 1.083)
-  return { ...live, valueAtFrom, rangePnl: r2(holdingsValue - valueAtFrom), rangePnlPercent: 8.3 }
+  const from = config.params?.from
+  // HistoryService returns the live figures alone without a range or a holding to price over it.
+  if (!from || holdingsValue(ids) === 0) return { ...live, valueAtFrom: null, rangePnl: null, rangePnlPercent: null }
+  const valueAtFrom = holdingsValue(ids, daysBeforeToday(String(from)))
+  const rangePnl = r2(holdingsValue(ids) - valueAtFrom)
+  return { ...live, valueAtFrom, rangePnl, rangePnlPercent: Math.round((rangePnl / valueAtFrom) * 1000) / 10 }
 })
 
 // Intraday net worth (24H dashboard range): one point per hour, mild noise, ending on today's.
