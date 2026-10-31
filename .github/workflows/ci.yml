@@ -248,7 +248,7 @@ jobs:
       - name: Build the shared chromium sidecar base
         run: docker build --target chromium --tag picsou-sidecar-chromium services/base
       - name: Build the Chromium-only sidecar image
-        run: docker build --tag picsou-corum-auth:test services/corum-auth
+        run: docker build --tag picsou-corum-auth:test --file services/corum-auth/Dockerfile services
       - name: Run parser, navigation and live-contract tests
         run: >-
           docker run --rm --ipc=host
@@ -259,8 +259,32 @@ jobs:
           --volume "${{ github.workspace }}/services/corum-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
           --volume "${{ github.workspace }}/services/corum-auth/test_navigation_security.py:/tests/test_navigation_security.py:ro"
           --volume "${{ github.workspace }}/services/corum-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --volume "${{ github.workspace }}/services/corum-auth/test_browser_pilot.py:/tests/test_browser_pilot.py:ro"
           --workdir /tests
           picsou-corum-auth:test
+          python -m unittest discover -v
+
+  browser-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the shared chromium sidecar base
+        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
+      - name: Build the shared browser image
+        run: docker build --tag picsou-browser-service:test --file services/browser-service/Dockerfile services
+      - name: Run browser-service and shared client tests
+        run: >-
+          docker run --rm --ipc=host --init
+          --env PYTHONPATH=/app
+          --env APP_SIDECAR_API_KEY=test-key
+          --env BROWSER_SERVICE_E2E=1
+          --volume "${{ github.workspace }}/services/browser-service/test_browser_service.py:/tests/test_browser_service.py:ro"
+          --volume "${{ github.workspace }}/services/shared/test_picsou_browser.py:/tests/test_picsou_browser.py:ro"
+          --volume "${{ github.workspace }}/services/corum-auth:/src/corum-auth:ro"
+          --workdir /tests
+          picsou-browser-service:test
           python -m unittest discover -v
 
   sofidy-sidecar:

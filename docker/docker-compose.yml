@@ -229,8 +229,8 @@ services:
   corum-auth:
     image: ghcr.io/cloeille/picsou-finance/corum-auth:latest
     build:
-      context: ../services/corum-auth
-      dockerfile: Dockerfile
+      context: ../services
+      dockerfile: corum-auth/Dockerfile
       args:
         SIDECAR_BASE: sidecar-chromium
       additional_contexts:

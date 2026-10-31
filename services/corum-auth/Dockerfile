@@ -7,7 +7,9 @@ FROM ${SIDECAR_BASE}
 
 RUN groupadd -r corum && useradd -r -g corum corum
 
-COPY main.py positions_parser.py ./
+# Build context is services/ so picsou_browser can be copied next to the code.
+COPY shared/picsou_browser /app/picsou_browser
+COPY corum-auth/main.py corum-auth/positions_parser.py /app/
 
 USER corum
 EXPOSE 8001

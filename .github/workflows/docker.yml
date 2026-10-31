@@ -174,7 +174,7 @@ jobs:
             versioned: false
           - name: corum-auth
             image: ${{ github.repository }}/corum-auth
-            context: services/corum-auth
+            context: services
             dockerfile: services/corum-auth/Dockerfile
             base: chromium
             versioned: false

@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no printing), so whoever solves the captcha cannot reach another member's saved session. See
   [ADR](docs/decisions/2026-10-21-revolut-captcha-hand-off.md) and
   [feature note](docs/features/revolut-sidecar.md).
+
+- **Shared browser service for the desktop app (draft, not used by Docker).** A new
+  `browser-service` owns the only Chromium binary and starts one fresh Chromium process
+  per login or sync, wiped when it ends. It rebuilds, outside Docker, what Docker already
+  gives a Compose install: one copy of Chromium on disk and one owner for every browser
+  process. It runs on the same pins and Chromium as the shared sidecar base. The Docker
+  install does not start it and no sidecar uses it there. Groundwork
+  for the desktop app (#235). See [ADR](docs/decisions/2026-10-18-shared-browser-service.md) and
+  [feature note](docs/features/browser-service.md).
+
 - **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
   Picsou matches it to the dividend history it already holds, marks it as a dividend and files
   it under capital income. `GET /api/dividends/received` lists them, with the same id as the

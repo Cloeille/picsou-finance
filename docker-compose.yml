@@ -170,8 +170,8 @@ services:
 
   corum-auth:
     build:
-      context: ./services/corum-auth
-      dockerfile: Dockerfile
+      context: ./services
+      dockerfile: corum-auth/Dockerfile
       args:
         SIDECAR_BASE: sidecar-chromium
       additional_contexts:
