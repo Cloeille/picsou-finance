@@ -25,6 +25,7 @@ import type {
   Transaction,
   UncategorizedTransaction,
 } from '@/types/api'
+import { mockAccounts } from './accounts'
 import { isoDate } from './dates'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -296,6 +297,12 @@ export const mockActivity: RecurringActivity[] = [
   { seriesId: 4, label: 'Salaire', type: 'AUTO_CONFIRMED', occurredOn: daysFromNow(-5), expectedAmount: 3200, previousAmount: null, cadence: 'MONTHLY', categoryId: 1, categoryName: 'Salaire', categoryColor: '#10b981', categoryIcon: null },
 ]
 
+// Clamp monthly dates like LocalDate.plusMonths(1), so October 31 does not skip November.
+function nextMonth(d: Date): Date {
+  const lastDayOfNextMonth = new Date(d.getFullYear(), d.getMonth() + 2, 0).getDate()
+  return new Date(d.getFullYear(), d.getMonth() + 1, Math.min(d.getDate(), lastDayOfNextMonth))
+}
+
 /** Project upcoming occurrences from the confirmed/suggested series across the horizon. */
 export function mockCalendar(horizonDays: number): RecurringOccurrence[] {
   const occ: RecurringOccurrence[] = []
@@ -316,9 +323,7 @@ export function mockCalendar(horizonDays: number): RecurringOccurrence[] {
         categoryColor: s.categoryColor,
         categoryIcon: s.categoryIcon,
       })
-      // monthly cadence step (all demo series are monthly)
-      due = new Date(due)
-      due.setMonth(due.getMonth() + 1)
+      due = nextMonth(due)
     }
   }
   return occ.sort((a, b) => a.dueDate.localeCompare(b.dueDate))
@@ -620,4 +625,37 @@ export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): 
     transactions,
     children,
   }
+}
+
+const recategorized = new Map<number, number>()
+
+export function recategorizeMockTransaction(id: number, categoryId: number): void {
+  recategorized.set(id, categoryId)
+}
+
+// Search the shared ledger so the cycle, YTD, salary and review inbox keep their rows.
+export function mockTransactionSearch(params: {
+  from?: string
+  to?: string
+  accountId?: number | string
+  categoryId?: number | string
+}): Transaction[] {
+  const checking = mockAccounts.find((a) => a.type === 'CHECKING')!
+  return mockLedger
+    .map((tx) => {
+      const categoryId = recategorized.get(tx.id) ?? tx.categoryId
+      return {
+        ...tx,
+        categoryId,
+        category: mockCategories.find((c) => c.id === categoryId)?.name ?? tx.category,
+        accountId: checking.id,
+        accountName: checking.name,
+      }
+    })
+    .filter((tx) =>
+      (!params.from || tx.date >= params.from) &&
+      (!params.to || tx.date <= params.to) &&
+      (params.accountId == null || tx.accountId === Number(params.accountId)) &&
+      (params.categoryId == null || tx.categoryId === Number(params.categoryId)))
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
 }

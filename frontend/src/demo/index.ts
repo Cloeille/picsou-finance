@@ -26,11 +26,12 @@ import {
   mockCategories,
   mockCategoryDetail,
   mockFlow,
-  mockLedger,
   mockRecurring,
   mockRules,
   mockSpendingByCategory,
+  mockTransactionSearch,
   mockUncategorized,
+  recategorizeMockTransaction,
 } from './data/budget'
 import { mockUpcomingDividends } from './data/dividends'
 import type { CashflowPeriod, DebtInfo, LoanScheduleResponse } from '@/types/api'
@@ -1414,21 +1415,15 @@ handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categor
 
 // To-categorize inbox
 handlers.set(key('GET', '/transactions/uncategorized'), () => mockUncategorized)
-handlers.set(key('PUT', '/transactions/:id/category'), () => ({}))
+handlers.set(key('PUT', '/transactions/:id/category'), (config, { id }) => {
+  const { categoryId } = JSON.parse(config.data || '{}')
+  recategorizeMockTransaction(Number(id), categoryId)
+  return {}
+})
 
 // The budget ledger on the main checking account: the rows the Spending pages and the review
 // inbox summarize, so a search over any period lists what they count.
-handlers.set(key('GET', '/transactions'), (config) => {
-  const { from, to, accountId, categoryId } = (config.params ?? {}) as {
-    from?: string; to?: string; accountId?: number | string; categoryId?: number | string
-  }
-  const account = _demoAccounts.find(a => a.id === 4)!
-  return mockLedger.map(tx => ({ ...tx, accountId: account.id, accountName: account.name })).filter(tx =>
-    (from == null || tx.date >= from)
-    && (to == null || tx.date <= to)
-    && (accountId == null || tx.accountId === Number(accountId))
-    && (categoryId == null || tx.categoryId === Number(categoryId)))
-})
+handlers.set(key('GET', '/transactions'), (config) => mockTransactionSearch(config.params ?? {}))
 // Optional AI categorizer over the inbox (legacy sync shape).
 handlers.set(key('POST', '/transactions/categorize-ai'), () => ({
   running: false, total: 0, processed: 0, applied: 0, suggested: 0, done: true, error: null,
