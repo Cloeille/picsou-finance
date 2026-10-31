@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { ColorPicker } from '@/components/shared/ColorPicker'
 import { ErrorState } from '@/components/shared/ErrorState'
+import { NativeSelect } from '@/components/shared/NativeSelect'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
@@ -38,8 +39,6 @@ import { KIND_META } from './budget-meta'
 const KINDS: CategoryKind[] = ['INCOME', 'EXPENSE', 'TRANSFER']
 const MATCH_TYPES: RuleMatchType[] = ['COUNTERPARTY', 'KEYWORD']
 const AI_MODES: AiCategorizationMode[] = ['SUGGEST', 'AUTO_HIGH_CONFIDENCE', 'AUTO_ALL']
-const SELECT_CLS =
-  'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus:border-ring'
 
 // ─── Payday cycle ──────────────────────────────────────────────────────────
 
@@ -123,6 +122,7 @@ function LogoSettingsCard() {
             </Label>
             <Switch
               id="logo-fetch"
+              className="dark:data-unchecked:bg-muted-foreground/50"
               checked={data.logoFetchEnabled}
               disabled={update.isPending}
               onCheckedChange={(checked) =>
@@ -205,17 +205,16 @@ function AiCategorizationCard() {
               <>
                 <div className="space-y-2">
                   <Label htmlFor="ai-mode">{t('budget.settings.aiModeLabel')}</Label>
-                  <select
+                  <NativeSelect
                     id="ai-mode"
                     value={data.aiMode}
                     disabled={update.isPending}
                     onChange={(e) => save({ aiMode: e.target.value as AiCategorizationMode })}
-                    className={SELECT_CLS}
                   >
                     {AI_MODES.map((m) => (
                       <option key={m} value={m}>{t(`budget.settings.aiModeOption.${m}`)}</option>
                     ))}
-                  </select>
+                  </NativeSelect>
                   <p className="text-xs text-muted-foreground">
                     {t(`budget.settings.aiModeHint.${data.aiMode}`)}
                   </p>
@@ -239,7 +238,8 @@ function AiCategorizationCard() {
                       onPointerUp={() => save({ aiConfidenceThreshold: threshold })}
                       onKeyUp={() => save({ aiConfidenceThreshold: threshold })}
                       onBlur={() => save({ aiConfidenceThreshold: threshold })}
-                      className="w-full accent-primary"
+                      className="range-input w-full"
+                      style={{ '--range-fill': `${threshold}%` } as React.CSSProperties}
                     />
                     <p className="text-xs text-muted-foreground">
                       {t('budget.settings.aiThresholdHint')}
@@ -306,27 +306,25 @@ function CategoryForm({ open, onOpenChange, editing }: {
           </div>
           <div className="space-y-2">
             <Label htmlFor="cat-kind">{t('budget.category.kind')}</Label>
-            <select id="cat-kind" value={kind} disabled={editing != null}
+            <NativeSelect id="cat-kind" value={kind} disabled={editing != null}
               onChange={(e) => {
                 setKind(e.target.value as CategoryKind)
                 setParentId('') // a parent must share the child's kind — drop a now-invalid choice
-              }}
-              className={`${SELECT_CLS} disabled:opacity-60`}>
+              }}>
               {KINDS.map((k) => (
                 <option key={k} value={k}>{t(KIND_META[k].labelKey)}</option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
           <div className="space-y-2">
             <Label htmlFor="cat-parent">{t('budget.category.parent')}</Label>
-            <select id="cat-parent" value={parentId} disabled={hasChildren}
-              onChange={(e) => setParentId(e.target.value === '' ? '' : Number(e.target.value))}
-              className={`${SELECT_CLS} disabled:opacity-60`}>
+            <NativeSelect id="cat-parent" value={parentId} disabled={hasChildren}
+              onChange={(e) => setParentId(e.target.value === '' ? '' : Number(e.target.value))}>
               <option value="">{t('budget.category.parentNone')}</option>
               {parentOptions.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
-            </select>
+            </NativeSelect>
             <p className="text-xs text-muted-foreground">
               {hasChildren ? t('budget.category.parentLocked') : t('budget.category.parentHint')}
             </p>
@@ -376,22 +374,24 @@ function CategoriesCard() {
       <div key={c.id} className={`flex items-center gap-3 py-2.5 ${child ? 'pl-5 sm:pl-7' : ''}`}>
         {child && <span aria-hidden className="-ml-2 text-muted-foreground/50">↳</span>}
         <ColorDot color={c.color} className="size-3 shrink-0 rounded-full" />
-        <span className={`truncate ${c.archived ? 'text-muted-foreground line-through' : ''}`}>
-          {c.name}
-        </span>
-        {child ? (
-          <Badge variant="ghost" className="text-muted-foreground">{t('budget.category.subcategory')}</Badge>
-        ) : (
-          <Badge variant="outline" className={KIND_META[c.kind].tone}>
-            {t(KIND_META[c.kind].labelKey)}
-          </Badge>
-        )}
-        {c.isDefault && (
-          <Badge variant="ghost" className="text-muted-foreground">
-            {t('budget.category.default')}
-          </Badge>
-        )}
-        <div className="ml-auto flex items-center gap-1">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+          <span className={`max-w-full truncate ${c.archived ? 'text-muted-foreground line-through' : ''}`}>
+            {c.name}
+          </span>
+          {child ? (
+            <Badge variant="ghost" className="text-muted-foreground">{t('budget.category.subcategory')}</Badge>
+          ) : (
+            <Badge variant="outline" className={KIND_META[c.kind].tone}>
+              {t(KIND_META[c.kind].labelKey)}
+            </Badge>
+          )}
+          {c.isDefault && (
+            <Badge variant="ghost" className="text-muted-foreground">
+              {t('budget.category.default')}
+            </Badge>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
           <Button size="icon" variant="ghost" onClick={() => open(c)}
             aria-label={t('budget.a11y.edit', { name: c.name })}>
             <Pencil className="size-4" />
@@ -416,7 +416,7 @@ function CategoriesCard() {
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
+      <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
         <div>
           <CardTitle className="text-base">{t('budget.category.title')}</CardTitle>
           <CardDescription>{t('budget.category.hint')}</CardDescription>
@@ -478,12 +478,12 @@ function RuleForm({ open, onOpenChange }: {
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="rule-match">{t('budget.rule.matchType')}</Label>
-            <select id="rule-match" value={matchType}
-              onChange={(e) => setMatchType(e.target.value as RuleMatchType)} className={SELECT_CLS}>
+            <NativeSelect id="rule-match" value={matchType}
+              onChange={(e) => setMatchType(e.target.value as RuleMatchType)}>
               {MATCH_TYPES.map((m) => (
                 <option key={m} value={m}>{t(`budget.rule.match.${m.toLowerCase()}`)}</option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
           <div className="space-y-2">
             <Label htmlFor="rule-pattern">{t('budget.rule.pattern')}</Label>
@@ -492,14 +492,13 @@ function RuleForm({ open, onOpenChange }: {
           </div>
           <div className="space-y-2">
             <Label htmlFor="rule-cat">{t('budget.rule.category')}</Label>
-            <select id="rule-cat" value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}
-              className={SELECT_CLS}>
+            <NativeSelect id="rule-cat" value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}>
               <option value="">{t('budget.categorize.selectCategory')}</option>
               {(categories ?? []).filter((c) => !c.archived).map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
         </div>
         <DialogFooter>
@@ -524,7 +523,7 @@ function RulesCard() {
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
+      <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
         <div>
           <CardTitle className="text-base">{t('budget.rule.title')}</CardTitle>
           <CardDescription>{t('budget.rule.hint')}</CardDescription>

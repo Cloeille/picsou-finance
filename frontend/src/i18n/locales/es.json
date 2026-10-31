@@ -190,6 +190,7 @@
     "syncStale": "Sincronizado {{time}}",
     "syncStaleTooltip": "Esta cuenta no se ha sincronizado recientemente. Inicia una sincronización o vuelve a conectar el proveedor.",
     "history": "Historial",
+    "valueAndInvested": "Valor y capital invertido",
     "manual": "Manual",
     "allTypes": "Todos los tipos",
     "accountName": "Nombre de la cuenta",
@@ -221,7 +222,7 @@
       "next": "Dividendos siguientes",
       "exDate": "Fecha ex-dividendo",
       "paymentDate": "Pago",
-      "paymentUnknown": "Fecha de pago desconocida",
+      "paymentUnknown": "Fecha desconocida",
       "estimated": "estimada",
       "announced": "Anunciado",
       "estimatedBasis": "Estimado",
@@ -2696,6 +2697,8 @@
       "emptyHint": "Create an envelope to track spending by category.",
       "error": "Could not load envelopes.",
       "deleteTitle": "Delete envelope",
+      "remaining": "{{amount}} restantes · {{percent}}",
+      "overspent": "{{amount}} de exceso · {{percent}}",
       "deleteDescription": "Delete the \"{{name}}\" envelope? Transactions are kept."
     },
     "recurring": {

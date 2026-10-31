@@ -20,6 +20,11 @@ describe('MerchantAvatar', () => {
     expect(screen.queryByText('CA')).not.toBeInTheDocument()
   })
 
+  it('truncates an explicit monogram by character, not UTF-16 unit', () => {
+    render(<MerchantAvatar label="Pizzeria" monogram="🍕🍔🍟" />)
+    expect(screen.getByText('🍕🍔')).toBeInTheDocument()
+  })
+
   it('falls back to a neutral glyph when the label is empty', () => {
     render(<MerchantAvatar label={null} />)
     expect(screen.getByText('•')).toBeInTheDocument()
