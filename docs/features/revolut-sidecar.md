@@ -315,6 +315,9 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   Frames with sub-pixel layout size and their own scale, and clips over a rotated frame's quad or
   only its bounding-box corner, cover the content-quad geometry.
   The tests route all browser requests to local fixture responses and never contact Revolut or hCaptcha.
+  The fixture browser excludes Camoufox's bundled uBlock Origin (`exclude_addons=[DefaultAddons.UBO]`):
+  its blocking `webRequest` listener intermittently stalls http(s) requests, sometimes for the
+  browser's remaining life, which made `Page.set_content` time out waiting for the iframe's load event.
   Human challenge completion and the proposed Camofox runtime evaluation remain follow-up work.
 - **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `403`/`424` to
   `SyncException` with the code as both message and `getCode()`; `RevolutSyncService.friendly()` turns

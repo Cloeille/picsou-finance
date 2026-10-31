@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from camoufox import DefaultAddons
 from camoufox.async_api import AsyncCamoufox
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -18,8 +19,13 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def browser():
+    # Camoufox bundles uBlock Origin, whose blocking webRequest listener intermittently stalls
+    # http(s) requests, sometimes for the rest of the browser's life. A stalled iframe request
+    # never reaches Playwright's route handler, so set_content never sees the load event. These
+    # offline fixtures serve every request themselves and need no content blocker.
     async with AsyncCamoufox(
-            headless=True, firefox_user_prefs={"layout.css.getBoxQuads.enabled": True}) as instance:
+            headless=True, exclude_addons=[DefaultAddons.UBO],
+            firefox_user_prefs={"layout.css.getBoxQuads.enabled": True}) as instance:
         yield instance
 
 
