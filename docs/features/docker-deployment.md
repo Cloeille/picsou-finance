@@ -365,7 +365,9 @@ never run, V47 `account external unique` deletes every active account that share
 `external_account_id` and member with another active account, keeping the highest id, whatever
 their provider and even for manual accounts. Their holdings, transactions and snapshots go with
 them (`ON DELETE CASCADE`). V72 narrows the index to provider and non-manual accounts afterwards,
-too late for the rows V47 deleted. 1.0.x never enforced this, so check before upgrading:
+too late for the rows V47 deleted. 1.0.x never enforced this. The backend refuses to migrate
+while V47 is pending and this query returns rows (`N group(s) of active accounts share an
+external_account_id and member`), and nothing is changed. Check before upgrading:
 
 ```sql
 SELECT member_id, external_account_id, count(*)
@@ -375,8 +377,11 @@ GROUP BY member_id, external_account_id
 HAVING count(*) > 1;
 ```
 
-An empty result means V47 deletes nothing. Otherwise, rename or soft-delete the duplicates you
-want to keep apart before upgrading, and rehearse on a restored copy.
+An empty result means V47 deletes nothing. Otherwise, in each group, soft-delete the accounts
+you no longer need (`UPDATE account SET deleted_at = now() WHERE id = ...`), or give each account
+you want to keep its own `external_account_id`. Renaming an account does not help: the query, and
+V47, ignore the name. Re-run the query and upgrade only once it returns no rows. Rehearse on a
+restored copy.
 
 Covered: every 1.0.x release tag. `nightly` images of main between two tags are matched row by
 row, so a build between 1.0.15 and 1.0.16 that applied only one of V51 and V64 is handled too.
@@ -494,7 +499,8 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
   numbering and a fresh database to head, and checks that a second start changes nothing. It also
   builds 1.0.18 and 1.0.11 databases from those releases' files (the five comment-edited 1.0.18
   files are kept verbatim under `src/test/resources/db/legacy-1.0.18`), upgrades them, and
-  compares the resulting schema with a fresh database.
+  compares the resulting schema with a fresh database, and checks that a 1.0.18 database with
+  duplicate external account ids stops before V47 without losing an account.
 
 ## Links
 

@@ -2,6 +2,7 @@ package com.picsou.migration;
 
 import com.picsou.config.LegacyMigrationRenumberingCallback;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.exception.FlywayValidateException;
 import org.flywaydb.core.api.output.MigrateResult;
 import org.junit.jupiter.api.Test;
@@ -254,6 +255,34 @@ class LegacyMigrationRenumberingTest {
         // V55 -> V57 is blocked by the unknown row still holding V57, so it stays where it was.
         assertThat(query(url, "SELECT version FROM flyway_schema_history "
             + "WHERE description = 'wallet evm account name'")).containsExactly("55");
+    }
+
+    @Test
+    void aRelease1018DatabaseWithDuplicateExternalIdsStopsBeforeV47() throws Exception {
+        String url = createDatabase("release_duplicates");
+        migrateRelease(url, RELEASE_1_0_18_UNCHANGED, RELEASE_1_0_18_MOVED, RELEASE_1_0_18_EDITED);
+        // A manual account and a synced one sharing an external id: 1.0.x allowed it, V47 does not.
+        execute(url, "INSERT INTO family_member (display_name) VALUES ('Test')");
+        execute(url, "INSERT INTO account (name, provider, external_account_id, is_manual, member_id) VALUES "
+            + "('Manual', NULL, 'ext-1', true, (SELECT min(id) FROM family_member)), "
+            + "('Synced', 'TRADE_REPUBLIC', 'ext-1', false, (SELECT min(id) FROM family_member))");
+        String history = "SELECT installed_rank || ' ' || version || ' ' || checksum "
+            + "FROM flyway_schema_history ORDER BY installed_rank";
+        List<String> before = query(url, history);
+
+        assertThatThrownBy(() -> upgrade(url).migrate())
+            .isInstanceOf(FlywayException.class)
+            .hasMessageContaining("1 group(s) of active accounts share an external_account_id");
+
+        // Nothing ran and nothing was deleted; the renumbering rolled back with the transaction.
+        assertThat(query(url, history)).isEqualTo(before);
+        assertThat(query(url, "SELECT name FROM account ORDER BY id")).containsExactly("Manual", "Synced");
+
+        execute(url, "UPDATE account SET deleted_at = now() WHERE name = 'Manual'");
+        upgrade(url).migrate();
+
+        assertThat(upgrade(url).info().pending()).isEmpty();
+        assertThat(query(url, "SELECT name FROM account ORDER BY id")).containsExactly("Manual", "Synced");
     }
 
     @Test

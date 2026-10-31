@@ -32,6 +32,11 @@ import java.util.List;
  * identifies nothing. A row is left alone when another row already holds its new version, which
  * makes the callback a no-op on fresh and already-renumbered databases.
  *
+ * <p>It also stops the migration while V47 is pending and active accounts share an
+ * {@code external_account_id} and member. V47 deletes all but the newest of each such group, and
+ * their history cascades with them. Databases that skipped V47 are the 1.0.x line, which never
+ * enforced that key; the operator resolves the duplicates first (upgrade note below).
+ *
  * <p>Spring Boot registers every {@link Callback} bean with the auto-configured Flyway. Flyway
  * runs the callback in a transaction. Operator upgrade path: docs/features/docker-deployment.md.
  */
@@ -95,10 +100,25 @@ public class LegacyMigrationRenumberingCallback implements Callback {
 
     @Override
     public void handle(Event event, Context context) {
+        int duplicateGroups;
         try {
             renumber(context.getConnection(), context.getConfiguration());
+            duplicateGroups = duplicateGroupsBeforeV47(context.getConnection(), context.getConfiguration());
         } catch (SQLException e) {
             throw new FlywayException("Could not renumber the legacy schema-history rows", e);
+        }
+        if (duplicateGroups > 0) {
+            throw new DuplicateExternalAccountsException(duplicateGroups);
+        }
+    }
+
+    /** Fixed text and a count only, so the release CLI can print it without leaking data. */
+    public static final class DuplicateExternalAccountsException extends FlywayException {
+        DuplicateExternalAccountsException(int groups) {
+            super(groups + " group(s) of active accounts share an external_account_id and member."
+                + " Pending migration V47 would delete all but the newest account of each group, with its"
+                + " history. Soft-delete the extra accounts or change their external_account_id, then start"
+                + " again. See docs/features/docker-deployment.md#upgrading-a-10x-database-to-110");
         }
     }
 
@@ -109,7 +129,7 @@ public class LegacyMigrationRenumberingCallback implements Callback {
 
     private static void renumber(Connection connection, Configuration configuration) throws SQLException {
         String schema = historySchema(connection, configuration);
-        if (!historyTableExists(connection, schema, configuration.getTable())) {
+        if (!tableExists(connection, schema, configuration.getTable())) {
             return;
         }
         String table = quote(schema) + "." + quote(configuration.getTable());
@@ -139,6 +159,37 @@ public class LegacyMigrationRenumberingCallback implements Callback {
         }
     }
 
+    /** Groups V47 would collapse, or 0 when V47 will not run or the account columns are not there yet. */
+    private static int duplicateGroupsBeforeV47(Connection connection, Configuration configuration)
+            throws SQLException {
+        String schema = historySchema(connection, configuration);
+        if (!tableExists(connection, schema, configuration.getTable())
+                || !columnExists(connection, schema, "account", "external_account_id")) {
+            return 0;
+        }
+        String history = quote(schema) + "." + quote(configuration.getTable());
+        // A baseline at or above V47 means Flyway never runs it.
+        try (PreparedStatement applied = connection.prepareStatement(
+                "SELECT 1 FROM " + history + " WHERE \"version\" = '47' OR CASE WHEN \"type\" = 'BASELINE'"
+                    + " AND \"version\" ~ '^[0-9]+$' THEN \"version\"::int >= 47 ELSE false END");
+             ResultSet rows = applied.executeQuery()) {
+            if (rows.next()) {
+                return 0;
+            }
+        }
+        // Before V20 (member_id) and V30 (deleted_at) every account is one member's and active.
+        String member = columnExists(connection, schema, "account", "member_id") ? ", member_id" : "";
+        String active = columnExists(connection, schema, "account", "deleted_at") ? " AND deleted_at IS NULL" : "";
+        try (PreparedStatement duplicates = connection.prepareStatement(
+                "SELECT count(*) FROM (SELECT 1 FROM " + quote(schema) + ".account"
+                    + " WHERE external_account_id IS NOT NULL" + active
+                    + " GROUP BY external_account_id" + member + " HAVING count(*) > 1) d");
+             ResultSet rows = duplicates.executeQuery()) {
+            rows.next();
+            return rows.getInt(1);
+        }
+    }
+
     private static String historySchema(Connection connection, Configuration configuration) throws SQLException {
         if (configuration.getDefaultSchema() != null) {
             return configuration.getDefaultSchema();
@@ -149,9 +200,16 @@ public class LegacyMigrationRenumberingCallback implements Callback {
         return connection.getSchema();
     }
 
-    private static boolean historyTableExists(Connection connection, String schema, String table) throws SQLException {
+    private static boolean tableExists(Connection connection, String schema, String table) throws SQLException {
         try (ResultSet tables = connection.getMetaData().getTables(null, schema, table, null)) {
             return tables.next();
+        }
+    }
+
+    private static boolean columnExists(Connection connection, String schema, String table, String column)
+            throws SQLException {
+        try (ResultSet columns = connection.getMetaData().getColumns(null, schema, table, column)) {
+            return columns.next();
         }
     }
 

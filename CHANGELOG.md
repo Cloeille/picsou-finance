@@ -239,9 +239,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   migrations to new versions, and edited comments in five of them. Before Flyway validates, the
   backend now moves each of those history rows to its new version, so nothing re-runs, and then
   applies the 1.1.0 migrations the database never ran
-  ([#265](https://github.com/Cloeille/picsou-finance/issues/265)). No action needed: do not run
-  `flyway repair`, and keep Flyway enabled. See
-  [upgrade note](docs/features/docker-deployment.md#upgrading-a-10x-database-to-110).
+  ([#265](https://github.com/Cloeille/picsou-finance/issues/265)). Before upgrading, run the
+  duplicate-account check in the
+  [upgrade note](docs/features/docker-deployment.md#upgrading-a-10x-database-to-110): these
+  databases now run V47, which deletes active accounts sharing an external id and member, so the
+  backend refuses to migrate while such duplicates exist. Do not run `flyway repair`, and keep
+  Flyway enabled.
 - **Account edit and delete buttons on touch screens.** On the Accounts page these buttons
   only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
   the card's corner could still hit delete). They now stay visible on touch screens and when
