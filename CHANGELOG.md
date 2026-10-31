@@ -220,6 +220,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Primary blue and chart strokes are readable in dark mode.** The dark theme's primary blue
+  was darker than the light one, so blue text, badges ("This device", AI category
+  suggestions) and progress bars sat at about 2:1 on the dark cards, and the dashed "Capital
+  invested" line kept its light-mode dark green. Dark mode now uses a lighter blue with navy
+  labels on blue buttons, and a lighter chart ramp; every primary text, badge and bar clears
+  WCAG AA. Light mode is unchanged. The demo's Revolut accounts now use the indigo a real
+  Revolut sync assigns (#275).
 - **American Express no longer stores a second copy of a charge AMEX re-describes.** A
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
   `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its

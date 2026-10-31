@@ -229,7 +229,7 @@ export function AppSidebar() {
                   <AvatarFallback
                     className={cn(
                       'text-sm font-bold',
-                      activeMember ? 'text-primary-foreground' : 'bg-muted text-muted-foreground',
+                      activeMember ? 'text-white' : 'bg-muted text-muted-foreground',
                     )}
                     style={activeMember ? { backgroundColor: activeMember.avatarColor } : undefined}
                   >
@@ -305,7 +305,7 @@ export function AppSidebar() {
                     <AvatarFallback
                       className={cn(
                         'text-sm font-bold',
-                        activeMember ? 'text-primary-foreground' : 'bg-muted text-muted-foreground',
+                        activeMember ? 'text-white' : 'bg-muted text-muted-foreground',
                       )}
                       style={activeMember ? { backgroundColor: activeMember.avatarColor } : undefined}
                     >
