@@ -30,6 +30,8 @@ import type {
   AmundiAuthInitResponse,
   CmesSessionStatus,
   CmesAuthInitResponse,
+  CicSessionStatus,
+  CicAuthInitResponse,
   AmexSessionStatus,
   AmexAuthInitResponse,
   AmexOtpMethod,
@@ -347,6 +349,36 @@ export const cmesApi = {
       .then(r => r.data),
 
   clearSession: () => api.delete('/cmes/session'),
+}
+
+// --- CIC online banking (livrets the PSD2 connection does not expose) ---
+
+export const cicApi = {
+  initiateAuth: (login: string, password: string) =>
+    api
+      .post<CicAuthInitResponse>('/cic/auth/initiate', { login, password })
+      .then(r => r.data),
+
+  // Logs in again from the credentials stored at the last login.
+  reconnect: () =>
+    api.post<CicAuthInitResponse>('/cic/auth/reconnect').then(r => r.data),
+
+  // `code` is the SMS code, omitted for a mobile confirmation.
+  completeAuth: (processId: string, code?: string) =>
+    api
+      .post<CicSessionStatus>('/cic/auth/complete', { processId, code })
+      .then(r => r.data),
+
+  sync: () => api.post<CicSessionStatus>('/cic/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<CicSessionStatus>('/cic/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete('/cic/session'),
 }
 
 // --- American Express ---
