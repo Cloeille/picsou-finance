@@ -20,6 +20,9 @@ import com.picsou.repository.SofidySessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -85,14 +88,35 @@ class InstanceStatusServiceTest {
         }
     }
 
-    @Test
-    void amexWithBase_isNotAnIssue() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"amex-auth", "revolut-auth"})
+    void camoufoxSidecarOnCamoufoxBase_isNotAnIssue(String sidecar) throws Exception {
         AtomicInteger hits = new AtomicInteger();
-        HttpServer server = health(hits, 200, "{\"status\":\"ok\",\"base\":\"sidecar-chromium\"}");
+        HttpServer server = health(hits, 200, "{\"status\":\"ok\",\"base\":\"sidecar-camoufox\"}");
         try {
-            var response = service(target("amex-auth", null, url(server), 1)).status();
+            var response = service(target(sidecar, "sidecar-camoufox", url(server), 1)).status();
             assertThat(hits).hasValue(1);
             assertThat(response.issues()).isEmpty();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+        amex-auth    | {"status":"ok"}
+        amex-auth    | {"status":"ok","base":"sidecar-chromium"}
+        revolut-auth | {"status":"ok"}
+        revolut-auth | {"status":"ok","base":"sidecar-chromium"}
+        """)
+    void camoufoxSidecarWithoutCamoufoxBase_isOutdated(String sidecar, String health) throws Exception {
+        AtomicInteger hits = new AtomicInteger();
+        HttpServer server = health(hits, 200, health);
+        try {
+            var response = service(target(sidecar, "sidecar-camoufox", url(server), 1)).status();
+            assertThat(hits).hasValue(1);
+            assertThat(response.issues()).containsExactly(
+                new SidecarIssue(SidecarIssueCode.SIDECAR_OUTDATED, sidecar, "sidecar-camoufox"));
         } finally {
             server.stop(0);
         }
