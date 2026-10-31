@@ -213,10 +213,12 @@ export const caisseEpargneApi = {
       .then(r => r.data),
 
   // No code: the user approves the Sécur'Pass push on their phone and the
-  // request stays open until they do (the backend waits up to 170 s).
+  // request stays open until they do (the backend waits up to 170 s). Bounded a little
+  // above that: a request that never answers then rejects without a status, which the
+  // panel treats as a lost answer and recovers from by polling the session.
   completeAuth: (processId: string) =>
     api
-      .post<CaisseEpargneAuthCompleteResponse>('/caisse-epargne/auth/complete', { processId })
+      .post<CaisseEpargneAuthCompleteResponse>('/caisse-epargne/auth/complete', { processId }, { timeout: 180_000 })
       .then(r => r.data),
 
   sync: () =>

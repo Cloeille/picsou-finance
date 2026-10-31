@@ -114,7 +114,8 @@ Polling stops after 180 seconds. A read sent before that deadline can still conf
 the session within its 10-second limit and clear the timeout message.
 Responses from expired reads, an earlier login attempt, or an unmounted panel
 cannot queue a sync.
-The approval countdown still reflects the sidecar's 150-second human wait.
+The approval countdown starts at the sidecar's 150-second human wait. If the
+completion response is lost, it restarts at 180 seconds to show the recovery window.
 
 ### Sidecar to backend error mapping
 

@@ -274,7 +274,7 @@ describe('CaisseEpargneTab', () => {
       await waitFor(() =>
         expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', {
           processId: 'p1',
-        }),
+        }, { timeout: 180_000 }),
       )
       expect(apiPost.mock.calls.map(c => c[0])).toEqual([
         '/caisse-epargne/auth/initiate',
@@ -305,13 +305,14 @@ describe('CaisseEpargneTab', () => {
       await screen.findByTestId('caisse-epargne-keypad-grid')
       pressKeys(4, 0, 9, 9, 2, 7)
       fireEvent.click(validateButton())
-      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }))
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }, { timeout: 180_000 }))
 
-      // Lost: no error, the Sécur'Pass card stays.
+      // Lost: no error, the Sécur'Pass card stays, counting down the recovery window.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(3_000)
       })
       expect(screen.getByText('sync.caisseEpargne.securPassPrompt')).toBeInTheDocument()
+      expect(screen.getByText(/^2:5\d$/)).toBeInTheDocument()
       expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
 
       // The backend stored the session: the next poll sees it and queues the first sync.
@@ -358,7 +359,7 @@ describe('CaisseEpargneTab', () => {
       await screen.findByTestId('caisse-epargne-keypad-grid')
       pressKeys(4, 0, 9, 9, 2, 7)
       fireEvent.click(validateButton())
-      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }))
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }, { timeout: 180_000 }))
 
       slow = true
       live = true
@@ -368,6 +369,8 @@ describe('CaisseEpargneTab', () => {
 
       await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
       expect(apiPost.mock.calls.filter(c => c[0] === '/caisse-epargne/sync')).toHaveLength(1)
+      // Each read is bounded, so one that never answers cannot hold the recovery.
+      expect(apiGet).toHaveBeenCalledWith('/caisse-epargne/status', expect.objectContaining({ timeout: 10_000 }))
     })
 
     it('drops the timeout message when a check sent before it brings the session', async () => {
@@ -394,7 +397,7 @@ describe('CaisseEpargneTab', () => {
       await screen.findByTestId('caisse-epargne-keypad-grid')
       pressKeys(4, 0, 9, 9, 2, 7)
       fireEvent.click(validateButton())
-      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }))
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }, { timeout: 180_000 }))
 
       // The check sent at 177 s is still out when the 180 s window closes.
       await act(async () => {
@@ -427,7 +430,7 @@ describe('CaisseEpargneTab', () => {
       await screen.findByTestId('caisse-epargne-keypad-grid')
       pressKeys(4, 0, 9, 9, 2, 7)
       fireEvent.click(validateButton())
-      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }))
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }, { timeout: 180_000 }))
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(183_000)
@@ -594,7 +597,7 @@ describe('CaisseEpargneTab', () => {
       await waitFor(() =>
         expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', {
           processId: 'p1',
-        }),
+        }, { timeout: 180_000 }),
       )
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5 * 60_000)

@@ -325,6 +325,8 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
         onError: (value) => {
           if (isLostRequest(value)) {
             // Keep the waiting card: the session status tells whether it went through.
+            // Recovery gets a full window even if the approval countdown already elapsed.
+            setSecondsLeft(LOST_COMPLETION_WAIT_MS / 1_000)
             setLostCompletionAt(Date.now())
             return
           }
