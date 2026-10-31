@@ -41,8 +41,9 @@ import shutil
 import time
 from collections import Counter
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from camoufox.async_api import AsyncCamoufox
 from fastapi import FastAPI, HTTPException, Request
@@ -50,31 +51,10 @@ from fastapi.responses import JSONResponse
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 from pydantic import BaseModel
 
-# C0/C1 controls (CR, LF, ESC, NEL...) and the Unicode line/paragraph separators.
-_LOG_UNSAFE = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
-
-
-class SafeFormatter(logging.Formatter):
-    """Escapes line breaks and control characters in the whole formatted record,
-    traceback included, so a logged value cannot forge a log line."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        return _LOG_UNSAFE.sub(
-            lambda m: m.group().encode("unicode_escape").decode("ascii"),
-            super().format(record),
-        )
-
-
-def safe(value: object, limit: int = 500) -> str:
-    """An outside-controlled value made safe for a log line: truncated, line
-    breaks and control characters replaced with '?'. SafeFormatter already
-    covers the handler; this keeps the call site safe on its own."""
-    text = str(value)
-    if len(text) > limit:
-        text = text[:limit] + "..."
-    text = text.replace("\r\n", "?").replace("\n", "?")
-    return _LOG_UNSAFE.sub("?", text)
-
+import captcha
+import member_state
+import viewer
+from logsafe import SafeFormatter, safe
 
 _log_handler = logging.StreamHandler()
 _log_handler.setFormatter(SafeFormatter(logging.BASIC_FORMAT))
@@ -121,6 +101,12 @@ ENROLMENT_APPROVE_WAIT_S = 300
 POLL_MS = 3000
 LOGIN_SCREEN_WAIT_S = 30
 LOGIN_SCREEN_POLL_MS = 300
+# How long, in total over one login, the sidecar keeps its browser open for the user to solve a
+# captcha in the remote view. RevolutAdapter.SYNC_TIMEOUT covers it on top of the approval wait.
+HUMAN_WAIT_S = 240
+HUMAN_POLL_MS = 1500
+# "Same day" for the login pacing is the user's day, like the fixed Europe/Paris browser identity.
+PACING_TZ = ZoneInfo("Europe/Paris")
 MAX_TRANSACTION_PAGES = 20
 TRANSACTION_WINDOW_DAYS = 90
 CAMOUFOX_LAUNCH_TIMEOUT_S = float(os.environ.get("CAMOUFOX_LAUNCH_TIMEOUT_S", "60"))
@@ -154,6 +140,23 @@ def _has_profile(member_id: str) -> bool:
     return os.path.isdir(path) and bool(os.listdir(path))
 
 
+def _member_file(member_id: str, name: str) -> str:
+    """Per-member state kept next to the profile directory, not in it (see member_state.py).
+
+    The one place a member id becomes the path of a file member_state reads, writes or removes.
+    `_profile_key` already leaves no separator in the name; the normalized path is still checked
+    to sit under PROFILES_ROOT so that stays true if `name` or the key ever change."""
+    root = os.path.normpath(PROFILES_ROOT)
+    path = os.path.normpath(os.path.join(root, f"{_profile_key(member_id)}.{name}"))
+    if not path.startswith(root + os.sep):
+        raise ValueError(f"member state file {safe(path)} is outside the profiles directory")
+    return path
+
+
+def _today() -> date:
+    return datetime.now(PACING_TZ).date()
+
+
 # Firefox writes these into a profile to guard against two instances opening it at
 # once. A browser that exits uncleanly (killed mid-login, container restart, OOM)
 # leaves them behind, and Firefox then refuses to open the profile forever after with
@@ -180,13 +183,17 @@ def _clear_stale_locks(member_id: str) -> None:
 
 
 def _camoufox(member_id: str, headless: bool):
-    """A persistent Camoufox context bound to the member's profile dir. os=linux +
-    geoip keep the fingerprint consistent with the host; humanize adds human-like
-    cursor motion. Camoufox manages UA/navigator/canvas/WebGL itself. Stale profile
-    locks are cleared first so a previously-killed browser doesn't wedge this launch."""
+    """A persistent Camoufox context bound to the member's profile dir, with the member's
+    pinned browser identity (member_state.launch_kwargs: os=linux, locale fr-FR, one fixed
+    fingerprint and screen, generated once and reused by every launch -- a fingerprint that
+    changes between launches looks like a new device to Revolut). geoip keeps timezone and
+    WebRTC consistent with the host's IP (Europe/Paris for a French home IP); humanize adds
+    human-like cursor motion. Stale profile locks are cleared first so a previously-killed
+    browser doesn't wedge this launch."""
     _clear_stale_locks(member_id)
-    return AsyncCamoufox(headless=headless, humanize=True, os="linux", geoip=True,
-                         persistent_context=True, user_data_dir=_profile_dir(member_id))
+    return AsyncCamoufox(headless=headless, humanize=True, geoip=True,
+                         persistent_context=True, user_data_dir=_profile_dir(member_id),
+                         **member_state.launch_kwargs(_member_file(member_id, "fingerprint.json")))
 
 
 def _quarantine_profile(member_id: str) -> Optional[str]:
@@ -338,9 +345,15 @@ def login_screen_timeout() -> JSONResponse:
 
 
 def human_verification_required() -> JSONResponse:
-    """Flat 403 when Revolut serves an hCaptcha challenge the sidecar cannot solve: no passcode
-    screen follows, so no mobile push is ever sent."""
+    """Flat 403 when Revolut serves an hCaptcha challenge that nobody cleared: the sidecar never
+    solves one itself, and no mobile push is sent while it stands."""
     return JSONResponse(status_code=403, content={"error": "HUMAN_VERIFICATION_REQUIRED"})
+
+
+def login_paced() -> JSONResponse:
+    """Flat 429 when a login already failed today for this member: logging in again the same day
+    is what earns captchas, so the sidecar refuses until tomorrow (docs: login pacing)."""
+    return JSONResponse(status_code=429, content={"error": "LOGIN_PACED"})
 
 
 def upstream_format_changed() -> JSONResponse:
@@ -735,8 +748,6 @@ async def _logged_in(page) -> bool:
 _PHONE_INPUT = "input[name='phoneNumber'], input[inputmode='tel'], input[type='tel']"
 # Single-field fallbacks when the passcode is not rendered as 6 separate boxes.
 _PASSCODE_FIELD_INPUTS = ("input[type='password']", "input[inputmode='numeric']")
-# :visible, because hCaptcha also parks hidden iframes on pages where no challenge is shown.
-_HCAPTCHA_FRAME = "iframe[src*='hcaptcha.com']:visible"
 
 
 async def _click_continue(page) -> None:
@@ -772,20 +783,100 @@ async def _wait_for_login_screen(page, *, phone: bool = True) -> Optional[str]:
     its inputs are rendered: the SPA switches the route (`/passcode`) before the passcode boxes
     exist, so the URL is never trusted and polling simply continues until the inputs show up.
     Returns None if nothing appeared in time.
-    `phone=False` waits for the passcode screen only (the step after submitting the phone):
-    the phone field stays on screen under a captcha, so the captcha is what ends that wait.
-    A visible captcha is checked before the phone input for the same reason on the first screen:
-    a profile challenged last time shows the phone field with the challenge on top.
+    `phone=False` waits for the passcode screen only (the step after submitting the phone).
+    A shown captcha is checked first, before any input: the phone and passcode fields stay on the
+    page under a challenge, and typing behind it would only waste a login attempt.
     """
     for _ in range(LOGIN_SCREEN_WAIT_S * 1000 // LOGIN_SCREEN_POLL_MS):
+        if await captcha.visible(page):
+            return "captcha"
         if await _passcode_inputs_present(page):
             return "passcode"
-        if await page.locator(_HCAPTCHA_FRAME).count():
-            return "captcha"
         if phone and await page.locator(_PHONE_INPUT).count():
             return "phone"
         await page.wait_for_timeout(LOGIN_SCREEN_POLL_MS)
     return None
+
+
+class _CaptchaHandoff:
+    """Gives the user the browser while a captcha is on screen.
+
+    The sidecar never solves a captcha (no solver service, no AI). It opens the remote view of
+    its virtual display (viewer.py), publishes the view's port and one-time password through the
+    progress channel (phase AWAITING_HUMAN, relayed by the backend to the UI) and waits until the
+    challenge is gone. One instance per login: its budget (HUMAN_WAIT_S, counted in polls like the
+    approval wait) is shared by every captcha that login meets, so a challenge that keeps coming
+    back cannot hold the browser forever.
+    """
+
+    def __init__(self, page, member_id: str):
+        self._page = page
+        self._member_id = member_id
+        self._polls_left = HUMAN_WAIT_S * 1000 // HUMAN_POLL_MS
+
+    async def clear(self) -> bool:
+        """True once the captcha is gone; False when the budget is spent or no view can be opened."""
+        if self._polls_left <= 0:
+            return False
+        try:
+            session = await viewer.start()
+        except viewer.ViewerUnavailable as exc:
+            log.warning("member %s: captcha on screen but the remote view is unavailable: %s",
+                        safe(self._member_id), safe(exc))
+            return False
+        log.warning("member %s: Revolut asks for a captcha -- remote view open for up to %ss",
+                    safe(self._member_id), self._polls_left * HUMAN_POLL_MS // 1000)
+        try:
+            quiet_polls = 0
+            while self._polls_left > 0:
+                self._polls_left -= 1
+                _set_progress(self._member_id, "AWAITING_HUMAN",
+                              remainingSeconds=self._polls_left * HUMAN_POLL_MS // 1000,
+                              viewerPort=viewer.PORT, viewerPassword=session.password)
+                await self._page.wait_for_timeout(HUMAN_POLL_MS)
+                # Two quiet polls in a row: a wrong answer swaps the challenge for a new one, and
+                # that gap must not be mistaken for a solved captcha.
+                quiet_polls = 0 if await captcha.visible(self._page) else quiet_polls + 1
+                if quiet_polls >= 2:
+                    log.info("member %s: the captcha is gone", safe(self._member_id))
+                    return True
+            log.warning("member %s: the captcha was not solved in time", safe(self._member_id))
+            return False
+        finally:
+            await session.stop()
+            _set_progress(self._member_id, "LOGGING_IN")  # drops the view's port and password
+
+
+async def _wait_for_screen_or_human(page, handoff: _CaptchaHandoff, *, phone: bool = True) -> Optional[str]:
+    """`_wait_for_login_screen`, but a captcha goes to the user first: "captcha" comes back only
+    when nobody cleared it; otherwise the wait carries on for the screen behind it."""
+    while True:
+        screen = await _wait_for_login_screen(page, phone=phone)
+        if screen != "captcha" or not await handoff.clear():
+            return screen
+
+
+async def _await_approval(page, member_id: str, handoff: _CaptchaHandoff) -> str:
+    """Wait for the mobile approval: "approved", "timeout", or "captcha" (shown, nobody cleared it).
+
+    Revolut can ask for the captcha only AFTER the passcode, and then sends no push until it is
+    answered -- so the page is checked on every poll, not just before the passcode. The time the
+    user spends on the captcha is not charged to the approval window (only polls spent waiting for
+    the push count), and the hand-off has its own bounded budget, so the whole wait stays bounded."""
+    polls = ENROLMENT_APPROVE_WAIT_S * 1000 // POLL_MS
+    i = 0
+    while i < polls:
+        _set_progress(member_id, "AWAITING_APPROVAL", elapsedSeconds=i * POLL_MS // 1000,
+                      remainingSeconds=ENROLMENT_APPROVE_WAIT_S - i * POLL_MS // 1000)
+        if await _logged_in(page):
+            return "approved"
+        if await captcha.visible(page):
+            if not await handoff.clear():
+                return "captcha"
+            continue
+        await page.wait_for_timeout(POLL_MS)
+        i += 1
+    return "timeout"
 
 
 async def _fill_phone(page, phone: str) -> None:
@@ -826,6 +917,12 @@ async def _fill_passcode(page, passcode: str) -> bool:
 # uvicorn worker (one event loop), so an in-process asyncio.Lock per member suffices.
 _member_locks: Dict[str, asyncio.Lock] = {}
 
+# Every headful browser draws on the one virtual display, and the captcha remote view
+# (viewer.py) shares that whole display: while two members' logins overlap, the view opened for
+# one would show and control the other's banking session. So at most one headful login runs at a
+# time, across members; the headless session reuse never draws on the display and is not held.
+_display_lock = asyncio.Lock()
+
 # Live sync progress, keyed identically to _member_locks (_profile_key(member_id)). Read by
 # GET /progress/{member_id} so the backend can poll phase/countdown/accounts-found while the
 # blocking POST /sync call is in flight -- same single-uvicorn-worker/single-event-loop safety
@@ -851,6 +948,12 @@ def _member_lock(member_id: str) -> asyncio.Lock:
 def sync_in_progress() -> JSONResponse:
     """Flat 409 the backend parses (mirrors session_expired()'s flat 401)."""
     return JSONResponse(status_code=409, content={"error": "SYNC_IN_PROGRESS"})
+
+
+def _login_failed(member_id: str, response: JSONResponse) -> JSONResponse:
+    """Remember today's failed login (pacing, see `sync`) and hand back its error response."""
+    member_state.record_login_failure(_member_file(member_id, "login-failed"), _today())
+    return response
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -927,56 +1030,66 @@ async def sync(req: SyncRequest):
             log.info("member %s: no reusable session (%.1fs), fresh login disabled",
                      req.memberId, time.monotonic() - t0)
             return session_expired()
+        if member_state.login_failed_on(_member_file(req.memberId, "login-failed"), _today()):
+            # Pacing: a login that failed today (captcha left unsolved, approval never given) is
+            # not retried before tomorrow -- repeated logins are what earns captchas.
+            log.warning("member %s: a login already failed today, not trying again until tomorrow",
+                        safe(req.memberId))
+            return login_paced()
+        if _display_lock.locked():
+            log.info("member %s: another member's login holds the display -- rejecting", safe(req.memberId))
+            return sync_in_progress()
         log.info("member %s: no reusable session (%.1fs), starting fresh login",
                   req.memberId, time.monotonic() - t0)
 
         _set_progress(req.memberId, "LOGGING_IN")
         t0 = time.monotonic()
         try:
-            async with _open_camoufox(req.memberId, headless=False, recover_profile=True) as ctx:
+            async with _display_lock, _open_camoufox(req.memberId, headless=False, recover_profile=True) as ctx:
                 page = await ctx.new_page()
+                handoff = _CaptchaHandoff(page, req.memberId)
                 try:
                     await page.goto(APP_URL, wait_until="domcontentloaded", timeout=45000)
-                    screen = await _wait_for_login_screen(page)
+                    screen = await _wait_for_screen_or_human(page, handoff)
                     if screen is None:
                         log.warning("member %s: no login screen after %ss (url=%s)",
                                     safe(req.memberId), LOGIN_SCREEN_WAIT_S, safe(page.url.split("?")[0]))
                         return login_screen_timeout()
                     if screen == "phone":
                         await _fill_phone(page, req.phoneNumber)
-                        screen = await _wait_for_login_screen(page, phone=False)
+                        screen = await _wait_for_screen_or_human(page, handoff, phone=False)
                     submitted = screen == "passcode" and await _fill_passcode(page, req.passcode)
                 except PlaywrightTimeout as exc:
                     log.warning("member %s: login step timed out (url=%s): %s", safe(req.memberId),
                                 safe(page.url.split("?")[0]), safe(exc))
                     return upstream_format_changed()
                 if screen == "captcha":
-                    log.warning("member %s: Revolut served an hCaptcha challenge, no mobile "
+                    log.warning("member %s: the hCaptcha challenge was not cleared, no mobile "
                                 "approval will be sent", safe(req.memberId))
-                    return human_verification_required()
+                    return _login_failed(req.memberId, human_verification_required())
                 if not submitted:
-                    log.warning("member %s: login did not reach a submitted passcode (screen=%s, url=%s)",
-                                safe(req.memberId), screen, safe(page.url.split("?")[0]))
+                    log.warning("member %s: login did not reach a submitted passcode (screen=%s, url=%s, "
+                                "hcaptcha frames: %s)", safe(req.memberId), screen,
+                                safe(page.url.split("?")[0]), safe(await captcha.describe(page)))
                     return upstream_format_changed()
 
                 log.info("member %s: login form submitted in %.1fs, waiting up to %ss for mobile approval",
                           req.memberId, time.monotonic() - t0, ENROLMENT_APPROVE_WAIT_S)
                 t0 = time.monotonic()
-                approved = False
-                for i in range(ENROLMENT_APPROVE_WAIT_S * 1000 // POLL_MS):
-                    _set_progress(req.memberId, "AWAITING_APPROVAL",
-                                  elapsedSeconds=i * POLL_MS // 1000,
-                                  remainingSeconds=ENROLMENT_APPROVE_WAIT_S - i * POLL_MS // 1000)
-                    if await _logged_in(page):
-                        approved = True
-                        break
-                    await page.wait_for_timeout(POLL_MS)
-                if not approved:
-                    log.warning("member %s: mobile approval timed out after %.1fs",
-                                 req.memberId, time.monotonic() - t0)
-                    return JSONResponse(status_code=408, content={"error": "APPROVAL_TIMEOUT"})
+                outcome = await _await_approval(page, req.memberId, handoff)
+                if outcome == "captcha":
+                    log.warning("member %s: the hCaptcha challenge after the passcode was not cleared, "
+                                "no mobile approval will be sent", safe(req.memberId))
+                    return _login_failed(req.memberId, human_verification_required())
+                if outcome == "timeout":
+                    log.warning("member %s: mobile approval timed out after %.1fs (url=%s, "
+                                "hcaptcha frames: %s)", safe(req.memberId), time.monotonic() - t0,
+                                safe(page.url.split("?")[0]), safe(await captcha.describe(page)))
+                    return _login_failed(req.memberId, JSONResponse(
+                        status_code=408, content={"error": "APPROVAL_TIMEOUT"}))
                 log.info("member %s: mobile approval received after %.1fs",
                           req.memberId, time.monotonic() - t0)
+                member_state.clear_login_failure(_member_file(req.memberId, "login-failed"))
 
                 device_id = await _device_id(ctx)
                 await _settle(page)

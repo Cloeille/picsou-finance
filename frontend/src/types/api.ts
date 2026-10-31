@@ -1543,6 +1543,10 @@ export interface SyncProgress {
   error: string | null
   /** Stable code for `error` when the UI translates it (e.g. `HUMAN_VERIFICATION_REQUIRED`). */
   errorCode: string | null
+  /** Revolut, phase `AWAITING_HUMAN`: port of the sidecar's remote view where the user solves a captcha. */
+  viewerPort: number | null
+  /** One-time password of that view; only present while the hand-off is open. */
+  viewerPassword: string | null
   discovered: DiscoveredRevolutAccount[]
 }
 

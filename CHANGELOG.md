@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Revolut: a captcha is solved by you, in a window Picsou opens.** When Revolut shows its
+  "prove you are human" challenge during a sync, Picsou no longer waits five minutes for a phone
+  approval that is never sent: it detects the challenge (also when it appears only after the
+  passcode), shows a link, "Open the captcha window", and keeps the browser open for four minutes
+  while you solve it yourself. Picsou never solves a captcha for you. The sidecar now keeps the
+  same browser identity for each member, to make the challenge rarer, and does not start a new
+  automatic login the same day after one has failed (`LOGIN_PACED`; the scheduled sync only
+  reuses a live session). The Revolut sidecar publishes port 6080 for that window. That window
+  shows the sidecar's whole screen, so only one member's Revolut login runs at a time: another
+  member asking for a new login meanwhile is told to wait and try again. The browser in that
+  window cannot open any local file (no file picker, no `file:` address, no developer tools,
+  no printing), so whoever solves the captcha cannot reach another member's saved session. See
+  [ADR](docs/decisions/2026-10-21-revolut-captcha-hand-off.md) and
+  [feature note](docs/features/revolut-sidecar.md).
+
 - **Shared browser service for the desktop app (draft, not used by Docker).** A new
   `browser-service` owns the only Chromium binary and starts one fresh Chromium process
   per login or sync, wiped when it ends. It rebuilds, outside Docker, what Docker already

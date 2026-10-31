@@ -5,6 +5,7 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.CategoryKind;
 import com.picsou.service.sync.SyncProgressService;
+import com.picsou.service.sync.SyncProvider;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
 
 class RevolutAdapterTest {
 
@@ -94,6 +98,59 @@ class RevolutAdapterTest {
     }
 
     @Test
+    void sync_mapsARefusedPacedLoginToACodedSyncException() throws Exception {
+        try (TestServer server = TestServer.start(exchange ->
+            respond(exchange, 429, "{\"error\":\"LOGIN_PACED\"}"))) {
+            RevolutAdapter adapter = adapter(server);
+
+            assertThatThrownBy(() -> adapter.sync("+336****0000", "123456", 5L))
+                .isInstanceOfSatisfying(SyncException.class, error -> {
+                    assertThat(error).hasMessage("LOGIN_PACED");
+                    assertThat(error.getCode()).isEqualTo("LOGIN_PACED");
+                });
+        }
+    }
+
+    /**
+     * While Revolut asks for a captcha the sidecar publishes the remote view's port and one-time
+     * password on {@code /progress}; the adapter hands both to the progress registry so the UI can
+     * offer the link. The progress poll starts 1s after the call, so the sync is held for 1.5s.
+     */
+    @Test
+    void sync_relaysTheCaptchaViewerOfTheSidecarToTheProgressService() throws Exception {
+        SyncProgressService progress = mock(SyncProgressService.class);
+        try (TestServer server = TestServer.start(exchange -> {
+            sleep(1500);
+            respond(exchange, 200, "{\"accounts\":[]}");
+        }, "{\"phase\":\"AWAITING_HUMAN\",\"remainingSeconds\":200,\"viewerPort\":6080,\"viewerPassword\":\"Ab3dEf9Z\"}")) {
+            RevolutAdapter adapter = new RevolutAdapter(
+                new SidecarWebClientFactory("test-key"), server.baseUrl(), progress);
+
+            adapter.sync("+33600000000", "123456", 5L);
+
+            verify(progress, timeout(2000)).phase(eq(5L), eq(SyncProvider.REVOLUT), eq("AWAITING_HUMAN"),
+                eq(200), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull());
+            verify(progress, timeout(2000)).viewer(5L, SyncProvider.REVOLUT, 6080, "Ab3dEf9Z");
+        }
+    }
+
+    @Test
+    void sync_clearsTheViewerWhenTheSidecarReportsNone() throws Exception {
+        SyncProgressService progress = mock(SyncProgressService.class);
+        try (TestServer server = TestServer.start(exchange -> {
+            sleep(1500);
+            respond(exchange, 200, "{\"accounts\":[]}");
+        }, "{\"phase\":\"LOGGING_IN\"}")) {
+            RevolutAdapter adapter = new RevolutAdapter(
+                new SidecarWebClientFactory("test-key"), server.baseUrl(), progress);
+
+            adapter.sync("+33600000000", "123456", 5L);
+
+            verify(progress, timeout(2000)).viewer(5L, SyncProvider.REVOLUT, null, null);
+        }
+    }
+
+    @Test
     void sync_mapsAnUnrecognisedLoginPageToACodedSyncException() throws Exception {
         try (TestServer server = TestServer.start(exchange ->
             respond(exchange, 424, "{\"error\":\"UPSTREAM_FORMAT_CHANGED\"}"))) {
@@ -145,6 +202,14 @@ class RevolutAdapterTest {
             new SidecarWebClientFactory("test-key"), server.baseUrl(), mock(SyncProgressService.class));
     }
 
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private static String readBody(HttpExchange exchange) {
         try {
             return new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
@@ -177,9 +242,15 @@ class RevolutAdapterTest {
         }
 
         static TestServer start(Handler handler) throws IOException {
+            return start(handler, "{\"phase\":null}");
+        }
+
+        static TestServer start(Handler handler, String progressBody) throws IOException {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/sync", handler::handle);
-            server.createContext("/progress/5", exchange -> respond(exchange, 200, "{\"phase\":null}"));
+            server.createContext("/progress/5", exchange -> respond(exchange, 200, progressBody));
+            // The default executor is single-threaded: a /sync held open would starve /progress.
+            server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
             server.start();
             return new TestServer(server);
         }
@@ -191,6 +262,7 @@ class RevolutAdapterTest {
         @Override
         public void close() {
             server.stop(0);
+            ((java.util.concurrent.ExecutorService) server.getExecutor()).shutdownNow();
         }
     }
 }

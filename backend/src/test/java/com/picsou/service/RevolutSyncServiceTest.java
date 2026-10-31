@@ -689,6 +689,20 @@ class RevolutSyncServiceTest {
     }
 
     @Test
+    void discover_reportsAPacedLoginWithItsCodeAndAFriendlyMessage() {
+        when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID)).thenThrow(new SyncException(
+            "LOGIN_PACED", null, "LOGIN_PACED"));
+
+        service.discover(MEMBER_ID, PHONE, PASSCODE);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(progressService).error(
+            eq(MEMBER_ID), eq(SyncProvider.REVOLUT), message.capture(), eq("LOGIN_PACED"));
+        assertThat(message.getValue()).contains("already failed today").doesNotContain("LOGIN_PACED");
+        verify(progressService, never()).done(anyLong(), any());
+    }
+
+    @Test
     void sync_keepsTheCodeAndFriendlyMessageForAnUnrecognisedLoginPage() {
         when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID)).thenThrow(new SyncException(
             "UPSTREAM_FORMAT_CHANGED", null, "UPSTREAM_FORMAT_CHANGED"));

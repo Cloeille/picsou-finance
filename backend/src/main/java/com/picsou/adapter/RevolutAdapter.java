@@ -33,14 +33,19 @@ import java.util.concurrent.TimeoutException;
  *
  * On-demand model: a single {@code POST /sync} call either reuses a still-live per-member browser
  * profile (no login) or performs a fresh automated login (mobile push approval) before harvesting.
- * The reactive timeout below must comfortably exceed the sidecar's own ~300s approval-wait budget.
+ * The reactive timeout below must comfortably exceed the sidecar's own approval-wait and captcha
+ * hand-off budgets.
  */
 @Component
 public class RevolutAdapter implements RevolutPort {
 
     private static final Logger log = LoggerFactory.getLogger(RevolutAdapter.class);
 
-    private static final Duration SYNC_TIMEOUT = Duration.ofSeconds(480);
+    /**
+     * Above the sidecar's own worst case: two browser launches (~120s), the login-screen waits
+     * (~60s), the 240s hand-off window when Revolut asks for a captcha, and the 300s approval wait.
+     */
+    private static final Duration SYNC_TIMEOUT = Duration.ofSeconds(840);
 
     private final WebClient sidecarClient;
     private final SyncProgressService progressService;
@@ -97,6 +102,10 @@ public class RevolutAdapter implements RevolutPort {
                         log.warn("revolut-auth sidecar reports Revolut asked for a human verification (403) for member {}", memberId);
                         return Mono.error(new SyncException(
                             "HUMAN_VERIFICATION_REQUIRED", null, "HUMAN_VERIFICATION_REQUIRED"));
+                    }
+                    if (ex.getStatusCode().value() == 429) {
+                        log.warn("revolut-auth sidecar refuses a new login, one already failed today (429) for member {}", memberId);
+                        return Mono.error(new SyncException("LOGIN_PACED", null, "LOGIN_PACED"));
                     }
                     if (ex.getStatusCode().value() == 424) {
                         log.warn("revolut-auth sidecar reports an unrecognised login page (424) for member {}", memberId);
@@ -187,6 +196,9 @@ public class RevolutAdapter implements RevolutPort {
             node.hasNonNull("remainingSeconds") ? node.get("remainingSeconds").asInt() : null,
             node.hasNonNull("elapsedSeconds") ? node.get("elapsedSeconds").asInt() : null,
             node.hasNonNull("accountsFound") ? node.get("accountsFound").asInt() : null);
+        progressService.viewer(memberId, SyncProvider.REVOLUT,
+            node.hasNonNull("viewerPort") ? node.get("viewerPort").asInt() : null,
+            node.hasNonNull("viewerPassword") ? node.get("viewerPassword").asText() : null);
     }
 
     private static String textOrNull(JsonNode node, String field) {

@@ -1,0 +1,4 @@
+# Test-only dependencies; the sidecar image itself ships without them (CI installs them on top).
+pytest==8.3.5
+pytest-asyncio==0.26.0
+python-xlib==0.33

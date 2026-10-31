@@ -1123,14 +1123,17 @@
       "approvalTimeout": "Approbation non reçue. Réessaie.",
       "notConnected": "Non connecté",
       "syncSuccess": "Tes comptes sont à jour.",
+      "openViewer": "Ouvrir la fenêtre du captcha",
       "phase": {
         "checkingSession": "Vérification de ta session Revolut…",
         "loggingIn": "Connexion à Revolut…",
+        "awaitingHuman": "Revolut demande un captcha : ouvre la fenêtre du captcha et résous-le toi-même… ({{remaining}} s restantes)",
         "awaitingApproval": "Approuve la connexion sur ton app Revolut… ({{remaining}} s restantes)",
         "harvesting": "Récupération de tes comptes… ({{count}} trouvés)"
       },
       "errors": {
-        "humanVerificationRequired": "Revolut te demande de prouver que tu es humain (captcha), ce que Picsou ne peut pas faire à ta place. Aucune approbation n'a été envoyée sur ton téléphone. Réessaie plus tard.",
+        "humanVerificationRequired": "Le captcha demandé par Revolut n'a pas été résolu à temps, aucune approbation n'a été envoyée sur ton téléphone. Picsou n'essaiera pas de se reconnecter avant demain : réessaie demain.",
+        "loginPaced": "Une connexion à Revolut a déjà échoué aujourd'hui. Picsou attend demain avant de réessayer, car des connexions répétées font réapparaître le captcha.",
         "upstreamFormatChanged": "La connexion n'a pas abouti. Vérifie ton numéro de téléphone et réessaie."
       },
       "selection": {

@@ -109,6 +109,28 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
                         self.assertIn(mount, commands)
 
 
+    def test_revolut_sidecar_job_runs_its_pytest_suite_in_the_image(self):
+        job = _load(CI_WORKFLOW)["jobs"]["revolut-sidecar"]
+        commands = _run_commands(job)
+
+        self.assertIn("docker build --tag picsou-revolut-auth:test services/revolut-auth", commands)
+        self.assertIn("python -m pytest", commands)
+        self.assertIn("services/revolut-auth:/src:ro", commands)
+        self.assertIn("-r requirements-test.txt", commands)
+        self.assertIn("--env APP_SIDECAR_API_KEY=test-key", commands)
+        self.assertTrue((ROOT / "services/revolut-auth/requirements-test.txt").is_file())
+
+    def test_revolut_sidecar_publishes_the_captcha_view_port_and_nothing_else(self):
+        for path in (ROOT_COMPOSE, DOCKER_COMPOSE):
+            with self.subTest(compose_file=path.relative_to(ROOT)):
+                service = _load(path)["services"]["revolut-auth"]
+                self.assertEqual(service["ports"], ["6080:6080"])
+        dockerfile = (ROOT / "services/revolut-auth/Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("EXPOSE 8002 6080", dockerfile)
+        for module in ("main.py", "captcha.py", "logsafe.py", "member_state.py", "viewer.py"):
+            self.assertIn(module, dockerfile)  # a module missing from the image only fails at runtime
+
+
 def _sidecar_base(service):
     """The base target a sidecar Dockerfile builds on, or None for its own base."""
     text = (ROOT / "services" / service / "Dockerfile").read_text(encoding="utf-8")

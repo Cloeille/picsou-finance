@@ -150,6 +150,11 @@ services:
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+    # Remote view of the sidecar's browser, for the rare hCaptcha Revolut asks a human to solve.
+    # Nothing listens on it outside such a hand-off, and each hand-off has its own one-time
+    # password. The member's browser opens it directly (same host as Picsou, port 6080).
+    ports:
+      - "6080:6080"
     volumes:
       - revolut_profiles:/data/revolut-profiles
 

@@ -1295,14 +1295,17 @@
       "approvalTimeout": "Approval not received. Try again.",
       "notConnected": "Not connected",
       "syncSuccess": "Your accounts are up to date.",
+      "openViewer": "Captcha-Fenster öffnen",
       "phase": {
         "checkingSession": "Checking your Revolut session…",
         "loggingIn": "Logging in to Revolut…",
+        "awaitingHuman": "Revolut verlangt ein Captcha: Öffne das Captcha-Fenster und löse es selbst… (noch {{remaining}} s)",
         "awaitingApproval": "Approve the connection in your Revolut app… ({{remaining}}s left)",
         "harvesting": "Fetching your accounts… ({{count}} found)"
       },
       "errors": {
-        "humanVerificationRequired": "Revolut verlangt einen Menschlichkeitsnachweis (Captcha), den Picsou nicht für dich erledigen kann. Es wurde keine Freigabe an dein Telefon gesendet. Versuche es später erneut.",
+        "humanVerificationRequired": "Das von Revolut verlangte Captcha wurde nicht rechtzeitig gelöst, und es wurde keine Freigabe an dein Telefon gesendet. Picsou meldet sich vor morgen nicht erneut an: Versuche es morgen noch einmal.",
+        "loginPaced": "Eine Anmeldung bei Revolut ist heute bereits fehlgeschlagen. Picsou wartet bis morgen, bevor es erneut versucht, weil wiederholte Anmeldungen das Captcha zurückbringen.",
         "upstreamFormatChanged": "Die Anmeldung hat nicht geklappt. Prüfe deine Telefonnummer und versuche es erneut."
       },
       "selection": {

@@ -274,7 +274,7 @@ fixed at create time, so the new value is never seen.
 docker compose -f docker/docker-compose.yml up
   → picsou:latest  (nginx:8080 → backend:9090)
   → docker-tr-auth (uvicorn:8001)
-  → revolut-auth (uvicorn:8002, internal only)
+  → revolut-auth (uvicorn:8002, internal only; :6080 published for the captcha hand-off, see revolut-sidecar.md)
   → bourse-direct-auth (uvicorn:8001, internal only)
   → amundi-auth (uvicorn:8001, internal only)
   → bourso-auth (uvicorn:8001, internal only)
