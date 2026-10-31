@@ -1,5 +1,9 @@
 package com.picsou.service;
 
+import com.picsou.adapter.CoinGeckoPriceProvider;
+import com.picsou.adapter.CompositePriceProvider;
+import com.picsou.adapter.YahooFinancePriceProvider;
+import com.picsou.adapter.YahooFinanceStubs;
 import com.picsou.dto.AccountRequest;
 import com.picsou.dto.AccountResponse;
 import com.picsou.dto.DebtRequest;
@@ -21,6 +25,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.DebtRepository;
+import com.picsou.repository.PriceSnapshotRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
 import com.picsou.repository.SavingsInterestConfigRepository;
@@ -46,6 +51,7 @@ import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -766,6 +772,47 @@ class AccountServiceTest {
         assertThat(valuation.investedEur()).isEqualByComparingTo("800");
     }
 
+    /**
+     * A Finary USD crypto portfolio stored in its native currency, with one line Finary valued
+     * but gave no cost for. The neutral baseline is the balance in EUR: the raw $1,000 read as
+     * €1,000 against the €900 the line is worth invents a €100 loss.
+     */
+    @Test
+    void valuation_convertsANativeBalanceUsedAsTheBaselineForAnUnknownCost() {
+        Account account = Account.builder()
+            .id(1L).name("Wallet").type(AccountType.CRYPTO)
+            .currency("USD").currentBalance(new BigDecimal("1000")).build();
+        AccountHolding unknownCost = AccountHolding.builder()
+            .ticker("XYZ").quantity(BigDecimal.ONE)
+            .providerValueEur(new BigDecimal("900")).build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(unknownCost));
+        when(priceService.getCryptoQuotes(any())).thenReturn(Map.of());
+        when(priceService.getFxRateEur("USD")).thenReturn(new BigDecimal("0.9"));
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("900");
+        assertThat(valuation.investedEur()).isEqualByComparingTo("900");
+    }
+
+    @Test
+    void valuation_fallsBackToTheLiveValueAsTheBaseline_whenTheBalanceHasNoEurRate() {
+        Account account = Account.builder()
+            .id(1L).name("Wallet").type(AccountType.CRYPTO)
+            .currency("USD").currentBalance(new BigDecimal("1000")).build();
+        AccountHolding unknownCost = AccountHolding.builder()
+            .ticker("XYZ").quantity(BigDecimal.ONE)
+            .providerValueEur(new BigDecimal("900")).build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(unknownCost));
+        when(priceService.getCryptoQuotes(any())).thenReturn(Map.of());
+        when(priceService.getFxRateEur("USD")).thenReturn(null);
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("900");
+        assertThat(valuation.investedEur()).isEqualByComparingTo("900");
+    }
+
     @Test
     void liveBalanceEur_cashAccount_convertsStoredBalance() {
         Account cash = Account.builder()
@@ -1097,6 +1144,34 @@ class AccountServiceTest {
         assertThat(valuation.liveEur()).isEqualByComparingTo("35.139");   // 33.15 × 1.06
         assertThat(valuation.investedEur()).isEqualByComparingTo("35.139"); // and only that line
         assertThat(valuation.allPriced()).isFalse();
+    }
+
+    @Test
+    void anImportedTokenSharingAStockSymbol_keepsItsProviderValue_notTheSharePrice() {
+        // REG is RealToken's governance token and Regency Centers on Nasdaq. CoinGecko's catalogue
+        // does not map it, and Yahoo quotes the company at 60 EUR a share.
+        YahooFinancePriceProvider yahoo = YahooFinanceStubs.provider(url -> url.contains("/chart/REG")
+            ? """
+              {"chart":{"result":[{"meta":{"regularMarketPrice":60.0,"currency":"EUR"}}]}}"""
+            : null);
+        PriceService realPrices = new PriceService(
+            new CompositePriceProvider(new CoinGeckoPriceProvider(), yahoo), mock(PriceSnapshotRepository.class));
+        AccountService service = new AccountService(accountRepository, snapshotRepository, holdingRepository,
+            transactionRepository, realEstateMetadataRepository, propertyValuationRepository, debtRepository,
+            savingsInterestConfigRepository, realPrices, loanAmortizationService, accessResolver,
+            bankLogoResolver, cryptoLogoService, instrumentLogoService, scpiPositionRepository, scpiFundService);
+        // What a verified-EUR Finary crypto snapshot stores: 10 REG that Finary values at 10 EUR.
+        Account account = Account.builder().id(9L).name("Finary wallet").type(AccountType.CRYPTO)
+            .currency("EUR").currentBalance(BigDecimal.TEN).build();
+        AccountHolding reg = AccountHolding.builder()
+            .ticker("REG").quantity(BigDecimal.TEN)
+            .averageBuyIn(BigDecimal.ONE).providerValueEur(BigDecimal.TEN).build();
+        when(holdingRepository.findByAccount_Id(9L)).thenReturn(List.of(reg));
+
+        AccountService.Valuation valuation = service.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("10");
+        assertThat(realPrices.refreshCryptoQuotes(Set.of("REG"))).isEmpty();
     }
 
     @Test

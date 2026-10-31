@@ -281,6 +281,7 @@ public class HistoryService {
      *
      * For investment accounts (PEA, CT, Crypto): portfolio value = sum(holding.qty × intraday price at each hour)
      * plus the cash pocket held in the envelope, which also counts as invested (it is worth what it cost).
+     * A holding with no intraday price counts at its last provider valuation when the connector reported one.
      * For bank/savings accounts: use today's balance snapshot (constant throughout the day).
      * For loans: negate the balance.
      */
@@ -294,7 +295,10 @@ public class HistoryService {
         LocalDateTime from = now.minusHours(24);
 
         // Collect all tickers and group holdings
-        record HoldingData(String ticker, BigDecimal quantity, BigDecimal avgBuyEur) {}
+        // A crypto account's ticker is a coin, never the stock trading under the same symbol, so
+        // the two get separate series, as quotesFor keeps them apart for the daily chart.
+        record Series(String ticker, boolean crypto) {}
+        record HoldingData(Series series, BigDecimal quantity, BigDecimal providerValueEur) {}
 
         Map<Long, List<HoldingData>> accountHoldings = new HashMap<>();
         Map<Long, BigDecimal> accountHoldingsInvested = new HashMap<>();
@@ -303,7 +307,7 @@ public class HistoryService {
         Map<Long, NavigableMap<LocalDate, BalanceSnapshot>> caisseEpargnePerSnapshots = new HashMap<>();
         Map<Long, BigDecimal> caisseEpargnePerLiveBalance = new HashMap<>();
         Map<Long, BigDecimal> caisseEpargnePerLiveInvested = new HashMap<>();
-        Set<String> allTickers = new HashSet<>();
+        Set<Series> allSeries = new HashSet<>();
         Set<Long> loanIds = new HashSet<>();
         Set<Long> liabilityIds = new HashSet<>();
         Set<Long> caisseEpargnePerIds = new HashSet<>();
@@ -357,15 +361,23 @@ public class HistoryService {
             } else {
                 List<HoldingData> holdingDataList = new ArrayList<>();
                 BigDecimal invested = BigDecimal.ZERO;
+                boolean anyCostUnknown = false;
+                boolean crypto = account.getType() == AccountType.CRYPTO;
 
                 for (AccountHolding h : holdings) {
                     BigDecimal qty = h.getQuantity();
-                    BigDecimal avgBuy = h.getAverageBuyIn() != null ? h.getAverageBuyIn() : BigDecimal.ZERO;
-                    BigDecimal avgBuyEur = priceService.toEur(avgBuy, account.getCurrency(), null);
-                    String ticker = h.getTicker() != null ? h.getTicker().toUpperCase() : null;
-                    holdingDataList.add(new HoldingData(ticker, qty, avgBuyEur));
-                    invested = invested.add(qty.multiply(avgBuyEur));
-                    if (ticker != null) allTickers.add(ticker);
+                    // Already EUR whatever the account currency, as valuation() reads it: a Finary
+                    // wallet back in USD keeps the EUR averages its earlier import stored.
+                    BigDecimal avgBuyEur = h.getAverageBuyIn() != null ? h.getAverageBuyIn() : BigDecimal.ZERO;
+                    Series series = h.getTicker() != null ? new Series(h.getTicker().toUpperCase(), crypto) : null;
+                    holdingDataList.add(new HoldingData(series, qty, h.getProviderValueEur()));
+                    // The provider's own EUR cost first, as valuation() takes it for the daily
+                    // chart: a Finary line without a buying value has no average buy-in, and
+                    // charging it zero printed its whole value as an intraday gain.
+                    BigDecimal providerCost = AccountService.providerCostBasisEur(h);
+                    if (providerCost == null && h.getAverageBuyIn() == null) anyCostUnknown = true;
+                    invested = invested.add(providerCost != null ? providerCost : qty.multiply(avgBuyEur));
+                    if (series != null) allSeries.add(series);
                 }
 
                 // The cash pocket sits in the envelope next to the positions and is worth exactly
@@ -376,7 +388,11 @@ public class HistoryService {
                 BigDecimal cash = account.getCashBalance() != null ? account.getCashBalance() : BigDecimal.ZERO;
                 accountCash.put(accId, cash);
                 accountHoldings.put(accId, holdingDataList);
-                accountHoldingsInvested.put(accId, weigh(invested.add(cash), shares, accId));
+                // A line with no cost at all would count as free units. valuation() then pairs
+                // the account with its own balance, and the 24H chart takes that same baseline.
+                accountHoldingsInvested.put(accId, anyCostUnknown
+                    ? weigh(accountService.valuation(account).investedEur(), shares, accId)
+                    : weigh(invested.add(cash), shares, accId));
             }
         }
 
@@ -384,15 +400,17 @@ public class HistoryService {
         // expected upstream failures and return an empty map, so anything thrown here is a bug
         // -- but letting it escape would 500 the whole intraday chart over one bad ticker.
         // Log it loudly, drop that ticker's series, and still render the rest.
-        Map<String, NavigableMap<LocalDateTime, BigDecimal>> intradayPricesByTicker = new HashMap<>();
-        for (String ticker : allTickers) {
+        Map<Series, NavigableMap<LocalDateTime, BigDecimal>> intradayPricesBySeries = new HashMap<>();
+        for (Series series : allSeries) {
             try {
-                Map<LocalDateTime, BigDecimal> prices = priceService.getIntradayPricesEur(ticker, from, now);
+                Map<LocalDateTime, BigDecimal> prices = series.crypto()
+                    ? priceService.getCryptoIntradayPricesEur(series.ticker(), from, now)
+                    : priceService.getIntradayPricesEur(series.ticker(), from, now);
                 if (!prices.isEmpty()) {
-                    intradayPricesByTicker.put(ticker, new TreeMap<>(prices));
+                    intradayPricesBySeries.put(series, new TreeMap<>(prices));
                 }
             } catch (Exception ex) {
-                log.error("Intraday price fetch failed for {} -- omitting it from the chart", ticker, ex);
+                log.error("Intraday price fetch failed for {} -- omitting it from the chart", series.ticker(), ex);
             }
         }
 
@@ -460,13 +478,16 @@ public class HistoryService {
                     // Investment account: compute market value at this hour
                     BigDecimal marketValue = BigDecimal.ZERO;
                     for (HoldingData hd : holdings) {
-                        if (hd.ticker == null) continue;
-                        NavigableMap<LocalDateTime, BigDecimal> priceMap = intradayPricesByTicker.get(hd.ticker);
-                        if (priceMap != null) {
-                            var entry = priceMap.floorEntry(ts);
-                            if (entry != null) {
-                                marketValue = marketValue.add(hd.quantity.multiply(entry.getValue()));
-                            }
+                        NavigableMap<LocalDateTime, BigDecimal> priceMap =
+                            hd.series == null ? null : intradayPricesBySeries.get(hd.series);
+                        var entry = priceMap == null ? null : priceMap.floorEntry(ts);
+                        if (entry != null) {
+                            marketValue = marketValue.add(hd.quantity.multiply(entry.getValue()));
+                        } else if (hd.providerValueEur != null) {
+                            // No market price for this hour (fonds euros, SCPI, a symbol Yahoo
+                            // rejects), but the connector valued the line at its last sync. Hold it
+                            // flat at that value, the same fallback AccountService.valuation uses.
+                            marketValue = marketValue.add(hd.providerValueEur);
                         }
                     }
 
@@ -477,8 +498,6 @@ public class HistoryService {
                     marketValue = weigh(
                         marketValue.add(accountCash.getOrDefault(accId, BigDecimal.ZERO)), shares, accId);
 
-                    // If no intraday price found, the positions are worth zero at that hour and
-                    // only the cash pocket remains (skip)
                     if (loanIds.contains(accId)) {
                         aggTotal = aggTotal.subtract(marketValue);
                     } else {
@@ -493,7 +512,7 @@ public class HistoryService {
         }
 
         log.info("buildIntradayHistory: {} hourly points, {} accounts, {} tickers",
-            result.size(), accounts.size(), allTickers.size());
+            result.size(), accounts.size(), allSeries.size());
 
         return result;
     }

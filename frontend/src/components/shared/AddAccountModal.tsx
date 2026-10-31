@@ -88,6 +88,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox'
 import { formatApiError } from '@/lib/errors'
 import type { ExchangeType, ChainType, AccountRequest, FinaryPreviewResponse, FinaryAccountMapping, FinaryMappingAction, FinaryImportResultResponse, AccountType } from '@/types/api'
+import { availableTargets, initialFinaryMappings } from '@/features/sync/finary-mappings'
 import { SUPPORTED_CHAINS, SUPPORTED_EXCHANGES, exchangeRequiresApiSecret } from '@/types/api'
 
 // ---------------------------------------------------------------------------
@@ -1165,7 +1166,7 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
         setTotpCode('')
 
         if (data.autoMapped && data.suggestedMappings) {
-          executeWithMappings(data.fileToken, data.suggestedMappings)
+          executeWithMappings(data.fileToken, data.suggestedMappings, true)
         } else {
           setStep(2)
         }
@@ -1204,7 +1205,9 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
     })
   }
 
-  function executeWithMappings(token: string, mappingsToUse: FinaryAccountMapping[]) {
+  // The mode is a parameter, not read from isApiSync: handleSync calls this in the
+  // same tick it calls setIsApiSync(true), when the closure still holds the old value.
+  function executeWithMappings(token: string, mappingsToUse: FinaryAccountMapping[], apiSync: boolean) {
     setLoading(true)
     setError(null)
     const onSuccess = (data: FinaryImportResultResponse) => {
@@ -1217,7 +1220,7 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
       setError(err instanceof Error ? err.message : t('common.retry'))
     }
 
-    if (isApiSync) {
+    if (apiSync) {
       executeApiMutation.mutate({ syncToken: token, mappings: mappingsToUse }, { onSuccess, onError })
     } else {
       importMutation.mutate({ fileToken: token, mappings: mappingsToUse }, { onSuccess, onError })
@@ -1245,20 +1248,7 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
   }
 
   function initMappings(preview: FinaryPreviewResponse) {
-    setMappings(preview.accounts.map((account, i) => ({
-      finaryId: account.finaryId,
-      finaryName: account.finaryName,
-      finaryCategory: account.finaryCategory,
-      action: 'CREATE_NEW' as FinaryMappingAction,
-      targetAccountId: undefined,
-      newAccount: {
-        name: account.finaryName,
-        type: account.suggestedType,
-        provider: account.finaryInstitution,
-        currency: account.nativeCurrency,
-        color: ACCOUNT_COLORS[i % ACCOUNT_COLORS.length],
-      },
-    })))
+    setMappings(initialFinaryMappings(preview))
   }
 
   function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1306,7 +1296,7 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
 
   function handleImport() {
     if (!previewData) return
-    executeWithMappings(previewData.fileToken, mappings)
+    executeWithMappings(previewData.fileToken, mappings, isApiSync)
   }
 
   const hasSkipAll = mappings.every((m) => m.action === 'SKIP')
@@ -1467,7 +1457,7 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
                     <p className="text-xs text-muted-foreground">{account.finaryInstitution} &middot; {account.finaryCategory}</p>
                   </div>
                   <div className="text-right shrink-0 ml-2">
-                    <CurrencyDisplay value={account.currentBalance} />
+                    <CurrencyDisplay value={account.currentBalance} currency={account.nativeCurrency} />
                     <p className="text-xs text-muted-foreground">{account.transactionCount} tx</p>
                   </div>
                 </div>
@@ -1497,7 +1487,7 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
                     }}
                   >
                     <option value="" disabled>{t('sync.finary.mapExisting')}...</option>
-                    {previewData.existingPicsouAccounts.map((acc) => (
+                    {availableTargets(previewData.existingPicsouAccounts, mappings, index).map((acc) => (
                       <option key={acc.id} value={acc.id}>{acc.name} ({acc.type})</option>
                     ))}
                   </select>
