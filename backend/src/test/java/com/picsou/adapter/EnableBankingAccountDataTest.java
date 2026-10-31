@@ -453,6 +453,93 @@ class EnableBankingAccountDataTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"\"Booked balance\"", "\" BOOKED BALANCE \"", "null", "\"  \""})
+    void fetchBalances_independentResponsesWithGenericLabels_keepsEachAccountsOwnBalance(String label) {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-current\",\"uid-savings\"]}");
+        responses.put("/accounts/uid-current/details", "{\"details\":\"Current account\"}");
+        responses.put("/accounts/uid-savings/details", "{\"details\":\"Savings account\"}");
+        responses.put("/accounts/uid-current/balances", """
+            {"balances": [{"name":%s, "balance_type":"CLBD",
+              "balance_amount":{"currency":"EUR", "amount":"100"}}]}
+            """.formatted(label));
+        responses.put("/accounts/uid-savings/balances", """
+            {"balances": [{"name":%s, "balance_type":"CLBD",
+              "balance_amount":{"currency":"EUR", "amount":"200"}}]}
+            """.formatted(label));
+
+        var accounts = connector.fetchBalances("session");
+
+        assertThat(accounts).extracting(AccountData::externalId).containsExactly("uid-current", "uid-savings");
+        assertThat(accounts.get(0)).satisfies(account -> {
+            assertThat(account.name()).isEqualTo("Current account");
+            assertThat(account.currency()).isEqualTo("EUR");
+            assertThat(account.balance()).isEqualByComparingTo("100");
+        });
+        assertThat(accounts.get(1)).satisfies(account -> {
+            assertThat(account.name()).isEqualTo("Savings account");
+            assertThat(account.currency()).isEqualTo("EUR");
+            assertThat(account.balance()).isEqualByComparingTo("200");
+        });
+    }
+
+    @Test
+    void fetchBalances_independentGenericScopes_ranksBalancesWithinEachResponse() {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-operations\",\"uid-reserve\"]}");
+        responses.put("/accounts/uid-operations/details", "{}");
+        responses.put("/accounts/uid-reserve/details", "{}");
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name":"Booked balance", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"90"}},
+              {"name":" BOOKED BALANCE ", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"100"}}
+            ]}
+            """);
+        responses.put("/accounts/uid-reserve/balances", """
+            {"balances": [
+              {"name":"Booked balance", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"200"}},
+              {"name":"Booked balance", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"190"}}
+            ]}
+            """);
+
+        var accounts = connector.fetchBalances("session");
+
+        assertThat(accounts).extracting(AccountData::externalId).containsExactly("uid-operations", "uid-reserve");
+        assertThat(accounts.get(0).balance()).isEqualByComparingTo("100");
+        assertThat(accounts.get(1).balance()).isEqualByComparingTo("200");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"90", "90.00", "9E+1"})
+    void fetchBalances_partiallySharedGenericScopes_rejectsBothBeforeRanking(String sharedAmount) {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-operations\",\"uid-reserve\"]}");
+        responses.put("/accounts/uid-operations/details", "{}");
+        responses.put("/accounts/uid-reserve/details", "{}");
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name":"Booked balance", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"100"}},
+              {"name":"Booked balance", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"90"}}
+            ]}
+            """);
+        responses.put("/accounts/uid-reserve/balances", """
+            {"balances": [
+              {"name":"Booked balance", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"200"}},
+              {"name":" BOOKED BALANCE ", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"%s"}}
+            ]}
+            """.formatted(sharedAmount));
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {
         "[\"uid-missing\",\"uid-unlabelled\"]",
         "[\"uid-unlabelled\",\"uid-missing\"]"

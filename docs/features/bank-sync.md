@@ -109,11 +109,18 @@ Other or missing types have lower priority. When the description is missing, sha
 matches no balance, fallback first excludes entries claimed by any session description.
 This includes entries with a shared description and claims from accounts whose balance
 request fails. If no entry remains, that account fails with a `SyncException`.
-Before selecting any fallback, the adapter counts every account that could use each
-remaining label. An account with a unique description match does not compete for fallback.
-Two or more fallback contenders for the same label all fail, regardless of session order,
-amount, currency, or balance type. Candidates still count when their account later fails
-because its labels, preferred types, or amounts are ambiguous or invalid.
+Before selecting any fallback, the adapter retains each uid's remaining candidates as a
+separate response scope. Equal generic labels, such as `Booked balance`, do not identify
+a shared balance. Valid responses with different candidates remain independent and rank
+their own balance types. Two fallback scopes compete when any candidate has the same
+normalized name, type, currency, and numeric amount, including a shared lower-priority
+candidate. Numeric formatting differences such as `90` and `90.00` do not establish
+independence. Every contender fails, regardless of session order. An account with a
+unique description match does not compete for fallback.
+An ambiguous or invalid scope still claims its labels, so its later failure cannot grant
+ownership to a sibling. This conservatively blocks fallback with an overlapping label
+when either scope has inconsistent labels, tied preferred types, or an invalid selected
+amount, even if their candidates otherwise differ.
 Fallback also requires complete session ownership information. If any account's details
 are unavailable, or its balance response is missing or structurally invalid, other accounts can
 only use positive description matches. A failed sibling request cannot make its balances
@@ -121,8 +128,8 @@ available to an unlabelled account.
 Type-based selection then requires a single entry or remaining labels that are all the
 same after trimming and case normalization. Null and blank labels form one unnamed group.
 This preserves generic-label fallback, such as repeated `Booked balance` labels, and
-wholly unnamed responses when only one account can claim that group. Distinct labels require
-a positive account-description match before type ranking. This also rejects differently
+wholly unnamed responses when their candidates do not compete across scopes. Distinct labels
+require a positive account-description match before type ranking. This also rejects differently
 labeled generic balances when the response cannot be distinguished from a shared list.
 A unique best type does not prove
 that the balance belongs to the requested account.

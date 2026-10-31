@@ -27,9 +27,9 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -197,7 +197,6 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         Map<String, AccountDetailsResponse> detailsByAccount = new LinkedHashMap<>();
         Map<String, Integer> labelClaims = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         Map<String, AccountBalanceCandidates> candidatesByAccount = new LinkedHashMap<>();
-        Map<String, Integer> fallbackClaims = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         // A uid's balances may include its siblings. Collect every description before selection.
         for (String accountId : accounts) {
             try {
@@ -216,19 +215,15 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             try {
                 var candidates = fetchAccountCandidates(accountId, entry.getValue(), labelClaims);
                 candidatesByAccount.put(accountId, candidates);
-                if (!candidates.matchedDescription()) {
-                    var labels = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
-                    for (var item : candidates.balances()) labels.add(nullToEmpty(item.name()).trim());
-                    for (String label : labels) fallbackClaims.merge(label, 1, Integer::sum);
-                }
             } catch (SyncException ex) {
                 log.warn("Failed to fetch account balances {} from Enable Banking; skipping it for this sync",
                     LogSanitizer.fingerprint(accountId), ex);
                 if (firstFailure == null) firstFailure = ex;
             }
         }
-        // Record every contender before ranking or parsing amounts: a later failure cannot grant ownership.
-        var ownership = new BalanceOwnership(fallbackClaims, candidatesByAccount.size() == accounts.size()
+        // Keep every response scope: a generic label alone is not a shared balance identity,
+        // and a later account failure cannot grant ownership to a sibling.
+        var ownership = new BalanceOwnership(candidatesByAccount, candidatesByAccount.size() == accounts.size()
             && detailsByAccount.values().stream().allMatch(details -> details != null));
         for (var entry : candidatesByAccount.entrySet()) {
             String accountId = entry.getKey();
@@ -675,7 +670,9 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     record AccountBalanceCandidates(AccountDetailsResponse details, List<BalancesResponse.BalanceItem> balances,
                                     boolean matchedDescription) {}
 
-    record BalanceOwnership(Map<String, Integer> fallbackClaims, boolean complete) {}
+    record BalanceOwnership(Map<String, AccountBalanceCandidates> candidatesByAccount, boolean complete) {}
+
+    private record BalanceIdentity(String label, String type, String currency, String amount) {}
 
     AccountBalanceCandidates fetchAccountCandidates(String accountId, AccountDetailsResponse details,
                                                     Map<String, Integer> labelClaims) {
@@ -716,7 +713,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     }
 
     AccountData fetchAccountData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
-        var selected = selectBalance(response, ownership);
+        var selected = selectBalance(accountId, response, ownership);
         AccountDetailsResponse details = response.details();
         BigDecimal balance = new BigDecimal(selected.balanceAmount().amount().trim());
         String currency = firstNonBlank(selected.balanceAmount().currency(),
@@ -729,9 +726,20 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         return new AccountData(accountId, truncate(name, MAX_ACCOUNT_NAME_LENGTH), iban, currency, balance);
     }
 
-    private static BalancesResponse.BalanceItem selectBalance(AccountBalanceCandidates response,
+    private static BalancesResponse.BalanceItem selectBalance(String accountId, AccountBalanceCandidates response,
                                                              BalanceOwnership ownership) {
         List<BalancesResponse.BalanceItem> candidates = response.balances();
+        String balanceLabel = balanceLabel(candidates);
+        if (!response.matchedDescription()
+            && (!ownership.complete() || ownership.candidatesByAccount().entrySet().stream()
+                .anyMatch(entry -> !entry.getKey().equals(accountId) && !entry.getValue().matchedDescription()
+                    && competingFallbacks(candidates, entry.getValue().balances(), balanceLabel)))) {
+            throw new SyncException("Enable Banking returned ambiguous account balances; cannot establish fallback ownership");
+        }
+        return preferredBalance(candidates);
+    }
+
+    private static String balanceLabel(List<BalancesResponse.BalanceItem> candidates) {
         if (candidates.isEmpty()) {
             throw new SyncException("Enable Banking returned no unclaimed account balances");
         }
@@ -739,11 +747,10 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         if (candidates.stream().anyMatch(item -> !balanceLabel.equalsIgnoreCase(nullToEmpty(item.name()).trim()))) {
             throw new SyncException("Enable Banking returned ambiguous account balances; cannot establish account scope");
         }
-        if (!response.matchedDescription()
-            && (!ownership.complete() || ownership.fallbackClaims().getOrDefault(balanceLabel, 0) != 1)) {
-            throw new SyncException("Enable Banking returned ambiguous account balances; cannot establish fallback ownership");
-        }
+        return balanceLabel;
+    }
 
+    private static BalancesResponse.BalanceItem preferredBalance(List<BalancesResponse.BalanceItem> candidates) {
         var selected = candidates.stream().min(Comparator.comparingInt(EnableBankingBankConnector::balancePriority))
             .orElseThrow(() -> new SyncException("Enable Banking returned no account balances"));
         long preferredCount = candidates.stream()
@@ -756,6 +763,36 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             throw new SyncException("Enable Banking returned an account balance without an amount");
         }
         return selected;
+    }
+
+    private static boolean competingFallbacks(List<BalancesResponse.BalanceItem> candidates,
+                                              List<BalancesResponse.BalanceItem> other, String label) {
+        if (other.stream().noneMatch(item -> label.equalsIgnoreCase(nullToEmpty(item.name()).trim()))) return false;
+        try {
+            balanceLabel(other);
+            new BigDecimal(preferredBalance(candidates).balanceAmount().amount().trim());
+            new BigDecimal(preferredBalance(other).balanceAmount().amount().trim());
+        } catch (SyncException | NumberFormatException ex) {
+            // An invalid scope cannot prove independence; its failure is reported during account selection.
+            return true;
+        }
+        var identities = candidates.stream().map(EnableBankingBankConnector::balanceIdentity).collect(Collectors.toSet());
+        return other.stream().map(EnableBankingBankConnector::balanceIdentity).anyMatch(identities::contains);
+    }
+
+    private static BalanceIdentity balanceIdentity(BalancesResponse.BalanceItem item) {
+        var value = item.balanceAmount();
+        String amount = value != null ? firstNonBlank(value.amount()) : null;
+        if (amount != null) {
+            try {
+                amount = new BigDecimal(amount).stripTrailingZeros().toString();
+            } catch (NumberFormatException ex) {
+                // Nonselected malformed amounts still participate in shared-candidate detection.
+            }
+        }
+        return new BalanceIdentity(nullToEmpty(item.name()).trim().toUpperCase(Locale.ROOT),
+            nullToEmpty(item.balanceType()).trim().toUpperCase(Locale.ROOT),
+            value != null ? nullToEmpty(value.currency()).trim().toUpperCase(Locale.ROOT) : "", amount);
     }
 
     private static int balancePriority(BalancesResponse.BalanceItem balance) {
