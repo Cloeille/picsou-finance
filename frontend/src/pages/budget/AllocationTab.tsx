@@ -6,9 +6,9 @@ import {
   type ChartConfig,
   ChartContainer,
   ChartTooltip,
-  ChartTooltipContent,
 } from '@/components/ui/chart'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
 import { formatPercent } from '@/lib/utils'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -74,7 +74,7 @@ export function AllocationTab() {
                 <>
                   <ChartContainer config={chartConfig} className="mx-auto h-[220px] w-full">
                     <PieChart>
-                      <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                      <ChartTooltip content={<MoneyChartTooltip config={chartConfig} hideLabel />} />
                       <Pie data={stockData} dataKey="amount" nameKey="name"
                         cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={2}
                         strokeWidth={0}>

@@ -35,7 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Upload } from 'lucide-react'
-import { formatLocalDate, formatPercent, localeFromLanguage } from '@/lib/utils'
+import { formatLocalDate, formatNumber, formatPercent, localeFromLanguage } from '@/lib/utils'
 import { accountTypeLabelKey, HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { HoldingResponse, Transaction } from '@/types/api'
@@ -294,7 +294,7 @@ export function AccountDetailPage() {
               <CardNatureField nature={account.cardNature} />
               {account.rewardPoints != null && <div>
                 <p className="mb-1 text-xs text-muted-foreground">{t('accounts.amex.miles')}</p>
-                <p className="text-xl font-semibold tabular-nums">{new Intl.NumberFormat(locale).format(account.rewardPoints)}</p>
+                <p className="text-xl font-semibold tabular-nums">{formatNumber(account.rewardPoints, locale)}</p>
               </div>}
             </div>
           ) : <>

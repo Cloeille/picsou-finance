@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { useRefreshValuation } from '@/features/accounts/hooks'
 import { formatApiError } from '@/lib/errors'
-import { formatDecimal, formatPercent, localeFromLanguage } from '@/lib/utils'
+import { formatDecimal, formatNumber, formatPercent, localeFromLanguage } from '@/lib/utils'
 import type { PropertyValuation, RealEstateMetadata, ValuationConfidence } from '@/types/api'
 
 interface PropertyValuationCardProps {
@@ -101,7 +101,7 @@ export function PropertyValuationCard({ accountId, metadata, currentValue }: Pro
               )}
               {result.sampleSize != null && (
                 <Fact label={t('property.valuation.sampleSize')}
-                      value={result.sampleSize.toLocaleString(locale)} />
+                      value={formatNumber(result.sampleSize, locale)} />
               )}
               {result.sourceYear != null && (
                 <Fact label={t('property.valuation.sourceYear')} value={String(result.sourceYear)} />

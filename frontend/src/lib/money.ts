@@ -15,10 +15,12 @@ export const AXIS_MASK = '***'
 
 /**
  * The YAxis gutter for {@link MoneyFormatter.tick}. German does not compact thousands, so its
- * "-250.000 €" is the widest label (66px in Geist at 12px) plus the 8px tick margin. Fixed rather
- * than Recharts' `width="auto"`, which dropped the net-worth axis entirely in Recharts 3.8.
+ * "-250.000 €" is the widest label: 66px in Geist at 12px. Recharts anchors the label at
+ * `width − tickMargin (8) − tickSize (6)`, the tick size being reserved even with
+ * `tickLine={false}`, so 80px leaves no slack and 76px cut the minus sign off. 84 keeps 4px.
+ * Fixed rather than Recharts' `width="auto"`, which dropped the net-worth axis entirely in 3.8.
  */
-export const MONEY_AXIS_WIDTH = 76
+export const MONEY_AXIS_WIDTH = 84
 
 export interface MoneyFormatter {
   /** True when amounts are hidden — for the few places that need to branch on more than a string. */

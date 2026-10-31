@@ -23,7 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Search, TrendingUp, TrendingDown } from 'lucide-react'
-import { cn, formatPercent } from '@/lib/utils'
+import { cn, formatNumber, formatPercent } from '@/lib/utils'
 import { accountTypeLabelKey } from '@/lib/constants'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { formatApiError } from '@/lib/errors'
@@ -61,7 +61,7 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => 
         <ItemTitle>{displayName}</ItemTitle>
         <ItemDescription className="text-sm">
           {line.quantity > 0
-            ? `${money.quantity(line.quantity.toLocaleString())} ${t('dashboard.shares')} · ${line.accountName}`
+            ? `${money.quantity(formatNumber(line.quantity))} ${t('dashboard.shares')} · ${line.accountName}`
             : line.accountName}
         </ItemDescription>
       </ItemContent>

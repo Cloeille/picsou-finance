@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AMOUNT_MASK, AXIS_MASK, formatCurrencyUnmasked, makeMoneyFormatter } from './money'
+import { AMOUNT_MASK, AXIS_MASK, MONEY_AXIS_WIDTH, formatCurrencyUnmasked, makeMoneyFormatter } from './money'
 
 const visible = makeMoneyFormatter({ hidden: false, locale: 'fr-FR' })
 const masked = makeMoneyFormatter({ hidden: true, locale: 'fr-FR' })
@@ -127,6 +127,15 @@ describe('tick', () => {
 
   it('is masked wholesale so no scale can be read off the grid', () => {
     expect(masked.tick(350_000)).toBe(AXIS_MASK)
+  })
+
+  it('fits the widest label, German "-250.000 €", inside the axis gutter', () => {
+    // jsdom cannot measure text, so the label width is the one measured in Chromium with Geist at
+    // 12px (#286 review). Recharts anchors the label at width − tickMargin − tickSize, and keeps
+    // the 6px tick size even with tickLine={false}: 76px put the minus sign at x = −4.
+    const GERMAN_LABEL_PX = 66, TICK_MARGIN = 8, TICK_SIZE = 6
+    expect(tick('de-DE', -250_000)).toBe('-250.000 €')
+    expect(MONEY_AXIS_WIDTH - TICK_MARGIN - TICK_SIZE - GERMAN_LABEL_PX).toBeGreaterThanOrEqual(4)
   })
 })
 

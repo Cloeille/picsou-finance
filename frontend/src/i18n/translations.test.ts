@@ -30,4 +30,23 @@ describe('translations', () => {
     expect((await translatorFor('fr'))('common.labelColon', { label })).toBe('Objectif mensuel\u00a0:')
     expect((await translatorFor('en'))('common.labelColon', { label })).toBe('Objectif mensuel:')
   })
+
+  it.each([
+    ['de', 'Automatisch bestätigt · 95 % Sicherheit', 'KI: Lebensmittel · 80 %', 'Jahreszins (%)', 'Quellensteuer (%)'],
+    ['es', 'Confirmado automáticamente · 95 % de confianza', 'IA: Lebensmittel · 80 %', 'Tipo anual (%)', 'Retención fiscal (%)'],
+  ] as const)('%s no longer shows the English subscription, AI and savings labels', async (lng, auto, ai, rate, tax) => {
+    const t = await translatorFor(lng)
+    expect(t('budget.recurring.autoConfirmedConfident', { percent: '95 %' })).toBe(auto)
+    // The same badge without a confidence figure.
+    expect(auto.startsWith(t('budget.recurring.activity.autoConfirmed'))).toBe(true)
+    expect(t('budget.categorize.aiSuggested', { name: 'Lebensmittel', confidence: '80 %' })).toBe(ai)
+    expect(t('savings.annualRate')).toBe(rate)
+    expect(t('savings.taxRate')).toBe(tax)
+  })
+
+  it('addresses the French member as "vous" and names crypto platforms one way', async () => {
+    const t = await translatorFor('fr')
+    expect(t('budget.settings.aiHint')).toMatch(/^Laissez un modèle /)
+    expect(t('setup.integrations.cards.crypto.title')).toBe(t('sync.exchanges.title'))
+  })
 })

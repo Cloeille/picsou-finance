@@ -223,13 +223,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Numbers and labels follow the interface language.** Percentages are formatted by the
   locale everywhere ("8,3 %" in French, "8.3%" in English) instead of a dot and a hand-placed
   sign. Every amount axis uses one compact format ("60 k €", "1,25 M €") instead of "60.0k",
-  in a gutter wide enough for a negative tick. French thousands separators are visible again
+  in a gutter wide enough for the widest negative tick, German "-250.000 €". The cashflow
+  chart's axis and tooltip, and the allocation donut's tooltip, are now hidden in privacy mode
+  like every other amount. French thousands separators are visible again
   in large amounts: the bundled font has no narrow no-break space, so "51 646,95 €" used to
-  read as "51646,95 €". In French, English leftovers are translated ("/mo", "Browser",
+  read as "51646,95 €". Holding quantities, the average buy-in, card reward points and the
+  valuation sample size follow the interface language rather than the browser's.
+  In French, English leftovers are translated ("/mo", "Browser",
   "Timeline", "YTD", "Exchanges", "Wallets", "pockets", the raw `LINKED` connection status),
   "1 autre objectif" takes the singular, labels take a space before the colon, and the
-  settings and Revolut texts that said "tu" now say "vous". The profile form shows its
-  amounts in the member's notation with their unit (#274).
+  settings and Revolut texts that said "tu" now say "vous". German and Spanish translate the
+  auto-confirmed subscription badge, the AI suggestion and the savings rate labels. The
+  profile form shows its amounts in the member's notation with their unit (#274).
 - **Primary blue and chart strokes are readable in dark mode.** The dark theme's primary blue
   was darker than the light one, so blue text, badges ("This device", AI category
   suggestions) and progress bars sat at about 2:1 on the dark cards, and the dashed "Capital

@@ -164,6 +164,11 @@ export function formatDecimal(value: number, fractionDigits: number, locale = ge
   }).format(value))
 }
 
+/** A count or a quantity at Intl's default precision (up to three decimals), grouped by the locale. */
+export function formatNumber(value: number, locale = getLocale()): string {
+  return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale)).format(value))
+}
+
 function capitalizeFirstCharacter(value: string, locale = getLocale()): string {
   const [first = '', ...rest] = Array.from(value)
   return first.toLocaleUpperCase(normalizeIntlLocale(locale)) + rest.join('')

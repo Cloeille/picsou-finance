@@ -1013,7 +1013,7 @@
       "logoHint": "Récupère les logos des marques en ligne pour les afficher à la place des monogrammes. Désactivé par défaut, purement cosmétique — n'influence jamais la catégorisation.",
       "logoFetchLabel": "Afficher les logos en ligne",
       "aiTitle": "Catégorisation par IA",
-      "aiHint": "Laisse un modèle proposer une catégorie pour les marchands que vos règles et la liste de marques ne reconnaissent pas. Désactivé par défaut ; ne traite que les transactions restées non catégorisées.",
+      "aiHint": "Laissez un modèle proposer une catégorie pour les marchands que vos règles et la liste de marques ne reconnaissent pas. Désactivé par défaut ; ne traite que les transactions restées non catégorisées.",
       "aiEnableLabel": "Activer les suggestions IA",
       "aiModeLabel": "Ce que l'IA fait de sa réponse",
       "aiModeOption": {
@@ -2331,7 +2331,7 @@
           "description": "Importez vos holdings et synchronisez avec votre compte Finary. Le TOTP est géré à l'ajout."
         },
         "crypto": {
-          "title": "Échanges crypto",
+          "title": "Plateformes crypto",
           "description": "Suivez Binance et consorts via des clés API en lecture seule, chiffrées au repos."
         },
         "fortuneo": {

@@ -18,7 +18,7 @@ import { TrendingUp, TrendingDown, Loader2, Tags } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { HoldingClassificationModal } from '@/pages/analysis/HoldingClassificationModal'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
-import { formatDate, formatPercent } from '@/lib/utils'
+import { formatDate, formatDecimal, formatNumber, formatPercent } from '@/lib/utils'
 import { accountTypeLabelKey } from '@/lib/constants'
 
 type ChartMode = 'holding' | 'price'
@@ -189,7 +189,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 pt-4 border-t">
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">{t('holdings.quantity')}</p>
-                  <p className="text-sm font-semibold tabular-nums">{money.quantity(line.quantity.toLocaleString())}</p>
+                  <p className="text-sm font-semibold tabular-nums">{money.quantity(formatNumber(line.quantity))}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">{t('holdings.capitalInvested')}</p>
@@ -198,7 +198,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
                       <CurrencyDisplay value={line.costBasisEur} className="text-sm font-semibold tabular-nums" />
                       {line.averageBuyIn != null && (
                         <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
-                          {line.averageBuyIn.toFixed(2)} {t('holdings.perShare')}
+                          {formatDecimal(line.averageBuyIn, 2)} {t('holdings.perShare')}
                         </p>
                       )}
                     </>

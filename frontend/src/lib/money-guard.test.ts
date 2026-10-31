@@ -82,16 +82,26 @@ describe('nothing bypasses the masked formatter', () => {
     expect(offenders, 'the symbol comes from the formatter, with the locale that places it').toEqual([])
   })
 
+  // Checked element by element: a file-level "uses tickFormatter somewhere" let the cashflow axis,
+  // which had no formatter at all, print raw euros in privacy mode.
+  const elements = (source: string, tag: string) =>
+    source.match(new RegExp(`<${tag}\\b[\\s\\S]*?/>`, 'g')) ?? []
+  // Their scale and tooltip are a share of the portfolio, in percent: there is no magnitude to hide.
+  const percentCharts = ['src/pages/analysis/AllocationTrajectory.tsx']
+
   it('makes every amount axis go through the formatter', () => {
-    const allowed = [
-      // Its axis is a share of the portfolio, in percent — there is no magnitude to hide.
-      'src/pages/analysis/AllocationTrajectory.tsx',
-    ]
-    const offenders = files((s) =>
-      s.includes('<YAxis') && s.includes('tickFormatter') && !s.includes('useMoney'),
-    ).filter((f) => !allowed.includes(f))
+    const offenders = files((s) => elements(s, 'YAxis').some((axis) => !axis.includes('tickFormatter={money.tick}')))
+      .filter((f) => !percentCharts.includes(f))
 
     expect(offenders, 'pass money.tick as the tickFormatter').toEqual([])
+  })
+
+  it('makes every chart tooltip format its values', () => {
+    // Without a formatter, ChartTooltipContent prints `value.toLocaleString()`: the raw figure.
+    const offenders = files((s) => elements(s, 'ChartTooltipContent').some((tooltip) => !/\sformatter=/.test(tooltip)))
+      .filter((f) => !percentCharts.includes(f))
+
+    expect(offenders, 'use MoneyChartTooltip').toEqual([])
   })
 
   it('lets no amount-shaped value be printed straight into JSX', () => {

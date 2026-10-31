@@ -4,6 +4,7 @@ import {
   cn,
   formatDate,
   formatDecimal,
+  formatNumber,
   formatPercent,
   freshnessLevel,
   isOAuthAuthorizeRedirect,
@@ -87,6 +88,15 @@ describe('formatDecimal', () => {
     expect(formatDecimal(4.7, 1, 'fr-FR')).toBe('4,7')
     expect(formatDecimal(4.7, 1, 'en-US')).toBe('4.7')
     expect(formatDecimal(12_345.6, 1, 'fr-FR')).toBe('12\u00a0345,6')
+  })
+})
+
+describe('formatNumber', () => {
+  it('groups and separates by the locale, with a space the bundled font can draw', () => {
+    expect(formatNumber(12_345, 'fr-FR')).toBe('12\u00a0345')
+    expect(formatNumber(1_234.5, 'fr-FR')).toBe('1\u00a0234,5')
+    expect(formatNumber(1_234.5, 'de-DE')).toBe('1.234,5')
+    expect(formatNumber(1_234.5, 'en-US')).toBe('1,234.5')
   })
 })
 
