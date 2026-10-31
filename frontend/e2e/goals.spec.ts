@@ -9,7 +9,7 @@ test.describe('Goals page', () => {
   })
 
   test('should show demo savings goal cards with progress bars', async ({ page }) => {
-    for (const name of ['Vacances été 2025', 'Apport immobilier', 'Nouvelle voiture']) {
+    for (const name of ['Voyage au Japon', 'Apport immobilier', 'Nouvelle voiture']) {
       const card = page.locator('[data-slot="card"]').filter({ hasText: name })
       await expect(card).toBeVisible()
       await expect(card.getByRole('progressbar')).toBeVisible()
