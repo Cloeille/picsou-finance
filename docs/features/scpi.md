@@ -43,6 +43,11 @@ between the two, and substituting one for the other would overstate net worth.
 
 A missing withdrawal price leaves the previous balance alone and returns `PRICE_INCOMPLETE`.
 
+After a manual SCPI save, the frontend invalidates account data, the dashboard, and history,
+P&L and intraday queries that include the edited account. Aggregate queries for other accounts
+stay cached. In demo mode, these responses read the editable account snapshot, so the new
+withdrawal value appears on refetch during the same session. Past monthly values stay fixed.
+
 `SCPI` is not an investment account. Quantity is not rebuilt from BUY/SELL. No holding row
 is written in this version, so the hourly price job cannot send the ISIN to Yahoo.
 
