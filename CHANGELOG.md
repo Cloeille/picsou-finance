@@ -273,6 +273,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing to show (an account without transactions, a search with no match, an empty
   period on `/budget/transactions`) now says so instead of staying blank, the demo serves
   `/budget/transactions`, and the "Sans catégorie" row lines up with the rows above it.
+- **The goal calendar shows every month without a hidden scroller.** The year grid now wraps
+  (six months per row on a desktop, three on a phone) and opens on the current month, where it
+  used to cut off at May or June and hide the recent months behind a horizontal scroll. The goal
+  name is the page title, with "Calendrier" above it, instead of "Calendrier de Apport
+  immobilier". Ring amounts and objectives are written in whole euros at 11px or larger, so a
+  row no longer mixes "984,72 €" with "1 k €", and the objective reads 1 373 € like the header.
+  A legend tells the share of the objective reached (94%) from the overshoot (+8%), and the
+  overshoot arc is now drawn at the ring's width (#282).
 - **Alignment and control consistency pass (budget, account detail, charts).** Chart Y axes
   are now wide enough for every tick they draw, so labels such as "10.00k", "-3.5k" and
   "-250k" are no longer clipped. The investment account chart is titled "Valeur et capital investi", the
