@@ -261,6 +261,27 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(lep.transactions), 2)
         self.assertEqual(lep.positions, [])
 
+    async def test_every_livret_has_its_transactions_and_iban_harvested(self):
+        # Issue #167: only CHECKING and LEP used to read /mouvements, so a
+        # Livret A, an LDDS or a Livret Bourso+ synced its balance and no history.
+        for label, kind in (
+            ("LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE", "LDDS"),
+            ("LIVRET A", "LIVRET_A"),
+            ("LIVRET BOURSO+", "SAVINGS"),
+        ):
+            with self.subTest(kind=kind):
+                dashboard = DASHBOARD_HTML.replace("LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE", label)
+                async with build_client(default_handler(dashboard=dashboard)) as client:
+                    accounts = await _collect_accounts(client)
+
+                livret = next(account for account in accounts if account.type == kind)
+                self.assertEqual(
+                    [tx["externalId"] for tx in livret.transactions], ["fixture-op-1", "fixture-op-2"]
+                )
+                self.assertIsNone(livret.transactionWarning)
+                self.assertEqual(livret.iban, "FR7630006000011234567890189")
+                self.assertEqual(livret.positions, [])
+
     async def test_movement_outage_keeps_the_balance_and_emits_a_safe_warning(self):
         with self.assertLogs("bourso-auth", level="WARNING") as captured:
             async with build_client(default_handler(movement_status=503)) as client:
@@ -299,7 +320,8 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         checking = next(account for account in accounts if account.type == "CHECKING")
         self.assertEqual(checking.balanceEur, Decimal("20810.50"))
         self.assertEqual(checking.transactionWarning, "TRANSACTIONS_INCOMPLETE")
-        self.assertEqual(len(movement_requests), 2)
+        checking_requests = [r for r in movement_requests if "/compte/cav/" in r.url.path]
+        self.assertEqual(len(checking_requests), 2)
 
     async def test_cross_origin_redirect_is_not_followed_and_warns_unavailable(self):
         foreign_requests = []
@@ -484,6 +506,8 @@ class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
                 "/dashboard/liste-comptes",
                 f"/compte/cav/{'e2f509c466f5294f15abd873dbbf8a62'}/rib",
                 f"/compte/cav/{'e2f509c466f5294f15abd873dbbf8a62'}/mouvements",
+                f"/compte/epargne/ldd/{'a8a23172b7e7c91c538831578242112e'}/rib",
+                f"/compte/epargne/ldd/{'a8a23172b7e7c91c538831578242112e'}/mouvements",
                 f"/services/api/v1.7/_user_/_{USER_HASH}_/trading/accounts/summary/{PEA_ID}",
             ],
         )

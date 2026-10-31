@@ -652,7 +652,7 @@ def _same_origin_url(value: str, base: str) -> str:
 async def _fetch_operations(
     client: httpx.AsyncClient, account_href: str, *, today: date | None = None
 ) -> tuple[list[dict[str, Any]], bool]:
-    """Fetch at most 20 pages of booked current-account/LEP movements."""
+    """Fetch at most 20 pages of booked current-account or livret movements."""
     today = today or date.today()
     from_date = today - timedelta(days=90)
     account_url = _same_origin_url(account_href, BASE_URL)
@@ -740,7 +740,10 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
             entry["cashBalance"] = summary["cashEur"]
             entry["positions"] = summary["positions"]
             guard_symbol_collisions(entry["positions"])
-        elif account["type"] in {"CHECKING", "LEP"}:
+        else:
+            # Current accounts and every livret share the card's /mouvements
+            # history and /rib page; keying this on the section rather than a
+            # list of types keeps a new passbook kind from silently losing them.
             try:
                 entry["iban"] = await _fetch_iban(client, account["href"])
             except (httpx.HTTPError, ValueError):
