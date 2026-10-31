@@ -16,9 +16,11 @@ only as a temporary workaround for issue #174, not a lasting production migratio
 
 ## Usage
 
-Run from a checkout containing these tools on the Docker host. Requires Bash, Docker Compose v2,
+Run from a checkout containing these tools on the Docker host. Requires Bash, Docker Compose v2.17+,
 `flock`, `curl`, Python 3 (private Compose override generation), PostgreSQL-owner privileges to create/drop a temporary database, and sufficient
 space for a full backup plus a restored copy. Configure `docker/.env` and matching sidecars as usual.
+The proxy health wait uses `up --wait --wait-timeout`, supported since
+[Compose v2.17.0](https://github.com/docker/compose/releases/tag/v2.17.0).
 No provider login is performed by preflight. Use an image built from this change or a later release;
 earlier images do not contain the standalone CLI and fail before app replacement.
 On a completely new installation, supply the documented bootstrap admin configuration or complete
@@ -87,8 +89,11 @@ such as `/var/backups/picsou`, not a shared directory like `/var/backups` or `$H
    force-recreate it with `--no-deps` to apply its current networks and Caddyfile without
    replacing the pinned app again. This migrates older, default-network-only Caddy containers
    to `tls-proxy`, where `app-tls` resolves and Caddy uses nginx's trusted peer address.
-   Certificate and configuration volumes are preserved. Stopped or absent proxies remain
-   untouched, even when the `tls` profile is enabled. Then probe `/api/auth/me` without credentials.
+   Certificate and configuration volumes are preserved. Wait up to 60 seconds for the recreated
+   proxy's health check with `--wait --wait-timeout 60`; recreation or health failure exits nonzero
+   with a TLS proxy error before probing the API, even if the app's published HTTP port responds.
+   Stopped or absent proxies remain untouched, even when the `tls` profile is enabled.
+   Then probe `/api/auth/me` without credentials.
    A bounded wait must receive HTTP **401**. Static HTML 200, redirects, gateway 502, and connection
    failure never report success.
 
@@ -177,7 +182,8 @@ container. Do not put passwords in command arguments or print `compose config` i
   refusal of an unknown Compose project, the post-cutover image check, the backup-directory mode,
   the previous-image record, and the free-space check. It also checks that a running TLS proxy
   is recreated after the app check and before the API probe, while migration or cutover failures
-  leave it untouched and a proxy recreation failure returns nonzero. Absent proxies are not started.
+  leave it untouched and proxy recreation or health-wait failures return nonzero without reporting
+  deployment success. Absent proxies are not started.
   Stopped proxies stay stopped with no TLS profile, `--profile tls`, or `COMPOSE_PROFILES=tls`.
   CI also runs `shellcheck -x docker/deploy.sh`.
 - `ReleaseMigrationCliConfigurationTest` (no Docker): Spring Boot naming-strategy parity, the

@@ -302,7 +302,10 @@ When upgrading an existing bundled TLS deployment, use the
 [release deployment script](./release-deployment.md). After checking the new app container,
 it force-recreates `proxy` only if it was running when deployment started. Recreation uses
 `--no-deps` and preserves Caddy's certificate volumes. This applies the new `tls-proxy` attachment
-and loads the `app-tls` upstream before the public API readiness probe. Restarting Caddy alone
+and loads the `app-tls` upstream. The script requires Compose v2.17+ for
+`--wait --wait-timeout 60` and waits for Caddy's health check before the API readiness probe.
+Proxy recreation or health-wait failure exits nonzero with a clear error, even when the API URL
+points directly at the app's published HTTP port. Restarting Caddy alone
 does not apply Compose network changes. Stopped or absent proxies remain untouched, even when
 the `tls` profile is enabled. Migration or app cutover failures leave the proxy untouched.
 
@@ -327,7 +330,11 @@ dependency, checks default and custom addresses, waits for Caddy's health check,
 the `app-tls` upstream. It also runs a one-off app container alongside the live app to cover
 repeat deployments. The nginx fixtures create explicit randomized subnets for static test
 addresses, retrying subnet overlaps for compatibility with Docker versions used in CI.
-The Compose tests publish no host ports and remove their test containers and volumes.
+The Compose tests publish no host ports and remove their test containers, networks and volumes.
+They assert the rendered default TLS addresses but reserve an unused private subnet for that
+live case, so an existing install can keep the default bridge. Network allocation retries across
+multiple private `/16`s on overlap; a timed-out Docker availability check skips rather than
+failing test collection.
 `docker/tests/test_deploy_integration.py` also upgrades a running Caddy from the old
 default-network-only layout and verifies the new network, active upstream, preserved CA
 and HTTPS API response through the deployment script.

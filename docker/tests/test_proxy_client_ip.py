@@ -21,13 +21,16 @@ NGINX_IMAGE = os.environ.get("PICSOU_NGINX_TEST_IMAGE", "nginx:1.29-alpine")
 def docker_available():
     if shutil.which("docker") is None:
         return False
-    return subprocess.run(
-        ["docker", "info"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-        timeout=10,
-    ).returncode == 0
+    try:
+        return subprocess.run(
+            ["docker", "info"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=10,
+        ).returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
 
 
 pytestmark = pytest.mark.skipif(not docker_available(), reason="Docker daemon is required")
@@ -42,10 +45,14 @@ def command(args, *, check=True, env=None, timeout=30):
     return result
 
 
-def create_test_network(name, *, internal=False):
-    for _ in range(32):
-        subnet = ipaddress.ip_network(f"172.31.{uuid.uuid4().int & 0xff}.0/24")
+def create_test_network(name, *, internal=False, subnet_prefix=24, ip_range_prefix=None):
+    private_prefixes = ("172.31", "172.28", "10.203", "10.204", "192.168")
+    for attempt in range(32):
+        prefix = private_prefixes[attempt % len(private_prefixes)]
+        subnet = ipaddress.ip_network(f"{prefix}.{uuid.uuid4().int & 0xff}.0/{subnet_prefix}")
         args = ["docker", "network", "create", "--subnet", str(subnet)]
+        if ip_range_prefix is not None:
+            args.extend(["--ip-range", str(list(subnet.subnets(new_prefix=ip_range_prefix))[-1])])
         if internal:
             args.append("--internal")
         args.append(name)
@@ -57,6 +64,34 @@ def create_test_network(name, *, internal=False):
             assert result.returncode == 0, (args, result.stdout, result.stderr)
 
     pytest.fail("Could not allocate a non-overlapping Docker test subnet")
+
+
+def test_docker_availability_timeout_returns_false(monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda _: "/synthetic/docker")
+
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", timeout)
+    assert docker_available() is False
+
+
+def test_network_allocation_retries_outside_an_occupied_private_range(monkeypatch):
+    attempts = []
+
+    def create(args, **kwargs):
+        subnet = ipaddress.ip_network(args[args.index("--subnet") + 1])
+        attempts.append(subnet)
+        overlaps = subnet.overlaps(ipaddress.ip_network("172.31.0.0/16"))
+        return subprocess.CompletedProcess(
+            args, 1 if overlaps else 0, "",
+            "Pool overlaps with other one on this address space" if overlaps else "",
+        )
+
+    monkeypatch.setattr(f"{__name__}.command", create)
+    subnet = create_test_network("synthetic-subnet-test")
+    assert len(attempts) == 2
+    assert not subnet.overlaps(ipaddress.ip_network("172.31.0.0/16"))
 
 
 @pytest.fixture(scope="module")
@@ -251,6 +286,12 @@ def test_tls_compose_starts_app_before_caddy_and_allows_concurrent_one_off_app(t
         "config", "--format", "json",
     ], env=environment)
     compose = json.loads(rendered.stdout)
+    if not addresses:
+        assert compose["services"]["app"]["environment"]["PICSOU_PROXY_IP"] == "172.30.253.2"
+        assert compose["services"]["proxy"]["networks"]["tls-proxy"]["ipv4_address"] == "172.30.253.2"
+        assert compose["networks"]["tls-proxy"]["ipam"]["config"] == [{
+            "subnet": "172.30.253.0/29", "ip_range": "172.30.253.4/30",
+        }]
     upstream = tmp_path / "upstream.conf"
     upstream.write_text('server { listen 8080; return 200 "synthetic TLS upstream\\n"; }\n')
     compose["services"] = {
@@ -262,7 +303,6 @@ def test_tls_compose_starts_app_before_caddy_and_allows_concurrent_one_off_app(t
         "proxy": {**compose["services"]["proxy"], "ports": []},
     }
     compose_file = tmp_path / "compose.json"
-    compose_file.write_text(json.dumps(compose))
     args = [
         "docker", "compose", "--project-name", project,
         "-f", str(compose_file), "--profile", "tls",
@@ -270,7 +310,19 @@ def test_tls_compose_starts_app_before_caddy_and_allows_concurrent_one_off_app(t
     network = compose["networks"]["tls-proxy"]["name"]
     assert command(["docker", "network", "inspect", network], check=False).returncode != 0
 
+    reserved_network = False
     try:
+        if not addresses:
+            # Reserve an unused network so a running install can keep the default subnet.
+            subnet = create_test_network(network, internal=True, subnet_prefix=29, ip_range_prefix=30)
+            reserved_network = True
+            addresses = {
+                "PICSOU_PROXY_IP": str(subnet.network_address + 2),
+                "PICSOU_PROXY_IP_RANGE": str(list(subnet.subnets(new_prefix=30))[-1]),
+            }
+            compose["networks"]["tls-proxy"] = {"name": network, "external": True}
+            compose["services"]["proxy"]["networks"]["tls-proxy"]["ipv4_address"] = addresses["PICSOU_PROXY_IP"]
+        compose_file.write_text(json.dumps(compose))
         command([*args, "up", "--wait", "--wait-timeout", "60", "app", "proxy"], timeout=90)
         container_ids = command([*args, "ps", "--quiet", "app", "proxy"]).stdout.split()
         containers = json.loads(command(["docker", "inspect", *container_ids]).stdout)
@@ -284,10 +336,8 @@ def test_tls_compose_starts_app_before_caddy_and_allows_concurrent_one_off_app(t
             "-q", "-O", "-", f"http://{actual_addresses['app']}:8080",
         ])
         assert migration.stdout == "synthetic TLS upstream\n"
-        assert actual_addresses["proxy"] == addresses.get("PICSOU_PROXY_IP", "172.30.253.2")
-        allocation_range = ipaddress.ip_network(
-            addresses.get("PICSOU_PROXY_IP_RANGE", "172.30.253.4/30"),
-        )
+        assert actual_addresses["proxy"] == addresses["PICSOU_PROXY_IP"]
+        allocation_range = ipaddress.ip_network(addresses["PICSOU_PROXY_IP_RANGE"])
         assert ipaddress.ip_address(actual_addresses["app"]) in allocation_range
         assert ipaddress.ip_address(actual_addresses["proxy"]) not in allocation_range
         response = command([
@@ -295,7 +345,12 @@ def test_tls_compose_starts_app_before_caddy_and_allows_concurrent_one_off_app(t
         ])
         assert response.stdout == "synthetic TLS upstream\n"
     finally:
-        command([*args, "down", "--volumes", "--remove-orphans"])
+        try:
+            if compose_file.exists():
+                command([*args, "down", "--volumes", "--remove-orphans"])
+        finally:
+            if reserved_network:
+                command(["docker", "network", "rm", network])
 
 
 def test_split_compose_isolates_the_exact_frontend_proxy_address(tmp_path):

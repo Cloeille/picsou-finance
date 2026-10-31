@@ -257,7 +257,10 @@ fi
 
 # A restart reloads the Caddyfile but leaves old Compose network attachments intact.
 if [[ -n "$running_proxy" ]]; then
-    docker_compose up -d --no-deps --force-recreate proxy
+    if ! docker_compose up -d --no-deps --force-recreate --wait --wait-timeout 60 proxy; then
+        echo 'Deployment cut over, but TLS proxy recreation or health check failed (60-second wait limit).' >&2
+        exit 1
+    fi
 fi
 
 probe_url="$api_base/api/auth/me"

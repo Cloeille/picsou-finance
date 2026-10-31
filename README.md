@@ -79,7 +79,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 
 ### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) & Docker Compose v2 (v2.33+ to build the sidecars from source with `--build`)
+- [Docker](https://docs.docker.com/get-docker/) & Docker Compose v2.17+ (v2.33+ to build the sidecars from source with `--build`)
 - (Optional) An [Enable Banking](https://enablebanking.com/) account for bank sync
 
 ### 1. Clone

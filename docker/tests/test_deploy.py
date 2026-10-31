@@ -73,7 +73,10 @@ if [[ "$args" == *" up "* && "$args" == *" app"* ]]; then
   for arg in "$@"; do [[ $prev == -f ]] && override=$arg; prev=$arg; done
   [[ -f "$override" ]] && cp "$override" "$MOCK_LOG.cutover-override"
 fi
-if [[ "$args" == *" up "* && "$args" == *" proxy"* && "${MOCK_FAIL:-}" == proxy ]]; then exit 19; fi
+if [[ "$args" == *" up "* && "$args" == *" proxy"* ]]; then
+  [[ "${MOCK_FAIL:-}" == proxy ]] && exit 19
+  [[ "$args" == *"--wait"* && "${MOCK_FAIL:-}" == proxy_wait ]] && exit 19
+fi
 exit 0
 ''')
     docker.chmod(0o755)
@@ -143,6 +146,7 @@ def test_running_tls_proxy_is_recreated_after_app_cutover_before_probe(fake_tool
     assert app_check < proxy_recreate < probe
     assert "<--force-recreate>" in commands[proxy_recreate]
     assert "<--no-deps>" in commands[proxy_recreate]
+    assert "<--wait> <--wait-timeout> <60>" in commands[proxy_recreate]
     assert "<app>" not in commands[proxy_recreate]
 
 
@@ -172,11 +176,14 @@ def test_absent_tls_proxy_is_not_started(fake_tools, tmp_path):
     assert not any("<up>" in line and "<proxy>" in line for line in commands)
 
 
-def test_tls_proxy_recreation_failure_does_not_report_success(fake_tools, tmp_path):
+@pytest.mark.parametrize("failure", ["proxy", "proxy_wait"])
+def test_tls_proxy_recreation_failure_does_not_report_success(fake_tools, tmp_path, failure):
     result, commands, backup = run_deploy(
-        fake_tools, tmp_path, fail="proxy", MOCK_PROXY_CONTAINER="old-proxy-container",
+        fake_tools, tmp_path, fail=failure, MOCK_PROXY_CONTAINER="old-proxy-container",
     )
     assert result.returncode != 0
+    assert "TLS proxy recreation or health check failed" in result.stderr
+    assert "Deployment verified" not in result.stdout
     assert not any(line.startswith("curl") for line in commands)
     assert list(backup.glob("picsou-*.dump"))
     assert any("dropdb" in line for line in commands)
