@@ -1,9 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
-import { setupLocale } from './helpers'
+import { login, setupLocale } from './helpers'
 
 // Issue #273: at phone widths, nothing may stick out of the screen or of the card that clips
 // it. French labels are the longest the app ships, so the check runs in French.
-test.use({ viewport: { width: 360, height: 800 } })
 
 /**
  * Visible elements of <main> whose right edge passes the edge of whatever clips them: the
@@ -54,6 +53,8 @@ const PAGES = [
 ] as const
 
 test.describe('Phone layout (360px)', () => {
+  test.use({ viewport: { width: 360, height: 800 } })
+
   for (const [path, label] of PAGES) {
     test(`nothing is clipped on ${path}`, async ({ page }) => {
       await open(page, path)
@@ -106,6 +107,14 @@ test.describe('Phone layout (360px)', () => {
     await expect(page.getByRole('link', { name: /À catégoriser/ })).toBeInViewport({ ratio: 1 })
   })
 
+  test('a deep link to the CMES sync tab shows its tab and panel', async ({ page }) => {
+    await open(page, '/sync?tab=cmes')
+    const tab = page.getByRole('tab', { name: 'Crédit Mutuel / CIC Épargne Salariale' })
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await expect(tab).toBeInViewport({ ratio: 1 })
+    await expect(page.getByRole('tabpanel')).not.toBeEmpty()
+  })
+
   test('a deep link to the last sync tab shows that tab', async ({ page }) => {
     await open(page, '/sync?tab=visibility')
     const tab = page.getByRole('tab', { name: 'Comptes' })
@@ -127,10 +136,14 @@ test.describe('Phone layout (360px)', () => {
     await expect(page.getByRole('tab').first()).toHaveAttribute('aria-selected', 'true')
     const tabs = page.getByRole('tab')
     const strip = page.getByRole('tablist').locator('xpath=..')
-    // Swipe so the first tab that does not fit shows only its first half at the right edge.
+    // Swipe so the first tab whose middle is past the right edge shows only its first half there.
+    // A tab that overflows by less than half would need a negative swipe, so it can't be picked.
     const stripBox = (await strip.boundingBox())!
     const stripRight = stripBox.x + stripBox.width
-    const i = await tabs.evaluateAll((all, right) => all.findIndex((tab) => tab.getBoundingClientRect().right > right), stripRight)
+    const i = await tabs.evaluateAll((all, right) => all.findIndex((tab) => {
+      const box = tab.getBoundingClientRect()
+      return box.left + box.width / 2 > right
+    }), stripRight)
     const hidden = (await tabs.nth(i).boundingBox())!
     const shift = Math.round(hidden.x + hidden.width / 2 - stripRight)
     await strip.hover()
@@ -189,4 +202,72 @@ test.describe('Phone layout (360px)', () => {
       expect(cut).toEqual([])
     })
   }
+})
+
+const NAV_INSET = 16
+
+function contentBox(page: Page) {
+  return page.locator('#main-content .overflow-auto').first().evaluate((el) => {
+    const style = getComputedStyle(el)
+    const box = el.getBoundingClientRect()
+    return {
+      left: box.left + parseFloat(style.paddingLeft),
+      right: box.right - parseFloat(style.paddingRight),
+      top: box.top + parseFloat(style.paddingTop),
+      bottom: box.bottom - parseFloat(style.paddingBottom),
+    }
+  })
+}
+
+test.describe('Mobile layout', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+  })
+
+  for (const route of ['/accounts', '/goals', '/settings']) {
+    test(`the end of ${route} stays clear of the bottom nav`, async ({ page }) => {
+      await page.goto(route)
+
+      const nav = (await page.locator('nav.fixed').boundingBox())!
+      const content = await contentBox(page)
+      expect(content.bottom).toBeLessThanOrEqual(nav.y - NAV_INSET)
+    })
+  }
+
+  test('the end of a page also clears a home-indicator safe area', async ({ page }) => {
+    // Playwright's viewport has no safe area, so env(safe-area-inset-bottom) is 0 above;
+    // a CDP override gives it the height of an iPhone home indicator.
+    const safeArea = 34
+    const cdp = await page.context().newCDPSession(page)
+    await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { bottom: safeArea } })
+    await page.goto('/accounts')
+
+    const nav = (await page.locator('nav.fixed').boundingBox())!
+    const content = await contentBox(page)
+    expect(content.bottom).toBeLessThanOrEqual(nav.y - NAV_INSET)
+
+    // The visible bar sits above the nav's safe-area spacer: it must clear the inset by its
+    // own bottom-4, which also fails this test if the override had no effect.
+    const bar = (await page.locator('nav.fixed > div').first().boundingBox())!
+    expect(bar.y + bar.height).toBeLessThanOrEqual(page.viewportSize()!.height - safeArea - NAV_INSET)
+  })
+
+  test('page content lines up with the bottom nav gutter', async ({ page }) => {
+    await page.goto('/accounts')
+
+    const nav = (await page.locator('nav.fixed').boundingBox())!
+    const content = await contentBox(page)
+    expect(content.left).toBe(nav.x)
+    expect(content.right).toBe(nav.x + nav.width)
+    expect(content.top).toBeGreaterThanOrEqual(NAV_INSET)
+  })
+
+  test('Famille is reachable from the bottom nav', async ({ page }) => {
+    const famille = page.locator('nav.fixed').getByRole('link', { name: 'Famille' })
+    await famille.click()
+    await page.waitForURL('**/family')
+    await expect(famille).toHaveAttribute('aria-current', 'page')
+  })
 })

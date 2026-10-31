@@ -75,8 +75,12 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: simplefinStatus })
       case '/amex/status':
         return Promise.resolve({ data: amexStatus })
+      case '/caisse-epargne/status':
+        return Promise.resolve({ data: caisseEpargneStatus })
       case '/corum/status':
         return Promise.resolve({ data: corumStatus })
+      case '/cmes/status':
+        return Promise.resolve({ data: cmesStatus })
       case '/sofidy/status':
         return Promise.resolve({ data: sofidyStatus })
       case '/accounts':
@@ -117,8 +121,10 @@ const SIMPLEFIN_DISCONNECTED = {
   connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null,
 }
 let amexStatus: Record<string, unknown>
+let caisseEpargneStatus: Record<string, unknown>
 let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
+let cmesStatus: Record<string, unknown>
 
 const AMUNDI_INACTIVE = {
   isActive: false, syncStatus: 'IDLE', lastSyncError: null,
@@ -142,6 +148,24 @@ const AMEX_ACCOUNT = {
   provider: 'American Express',
 }
 
+/** A current account created by the Caisse d'Epargne sidecar (`CaisseEpargneSyncService.PROVIDER`). */
+const CAISSE_EPARGNE_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 5,
+  name: 'Compte joint',
+  type: 'CHECKING',
+  provider: "Caisse d'Epargne",
+}
+
+/** An account created by the Crédit Mutuel / CIC Épargne Salariale sidecar (`CmesSyncService.PROVIDER`). */
+const CMES_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 6,
+  name: 'PEG — EURO-INFORMATION',
+  type: 'EMPLOYEE_SAVINGS',
+  provider: 'Crédit Mutuel Épargne Salariale',
+}
+
 /** A SCPI account linked to no provider fund; tests set `provider` and the fund codes. */
 const SCPI_ACCOUNT = {
   ...TR_ACCOUNT,
@@ -157,8 +181,10 @@ function resetFixtures() {
   amundiStatus = AMUNDI_INACTIVE
   simplefinStatus = SIMPLEFIN_DISCONNECTED
   amexStatus = AMUNDI_INACTIVE
+  caisseEpargneStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0 }
   corumStatus = AMUNDI_INACTIVE
   sofidyStatus = AMUNDI_INACTIVE
+  cmesStatus = AMUNDI_INACTIVE
   accountsFixture = [TR_ACCOUNT]
   revolutStatus = REVOLUT_NOT_REMEMBERED
   revolutProgress = REVOLUT_DONE
@@ -427,6 +453,104 @@ describe('SyncAllModal session providers', () => {
     fireEvent.click(within(row).getByRole('button'))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=amex'))
     expect(apiPost).not.toHaveBeenCalledWith('/amex/sync')
+  })
+
+  it("lists and syncs a live Caisse d'Epargne session", async () => {
+    caisseEpargneStatus = { ...caisseEpargneStatus, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: caisseEpargneStatus })
+    renderModal()
+
+    const row = (await screen.findByText("Caisse d'Epargne")).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  /** Its login is the bank's keypad plus a Sécur'Pass approval, which only its tab can run. */
+  it("keeps an expired Caisse d'Epargne row with its accounts and routes to its tab", async () => {
+    accountsFixture = [TR_ACCOUNT, CAISSE_EPARGNE_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText("Caisse d'Epargne")).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=caisse-epargne'))
+    expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
+  })
+
+  /** The backend refuses a dead CE session (`SESSION_EXPIRED`), so the batch must skip the row. */
+  it("leaves an expired Caisse d'Epargne row out of \"Sync all\"", async () => {
+    amundiStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'IDLE' }
+    accountsFixture = [AMUNDI_ACCOUNT, CAISSE_EPARGNE_ACCOUNT]
+    apiPost.mockResolvedValue({ data: amundiStatus })
+    const onOpenChange = vi.fn()
+    renderModal(onOpenChange)
+
+    await screen.findByText("Caisse d'Epargne")
+    const button = screen.getByRole('button', { name: /sync\.all\.syncAll/ })
+    await waitFor(() => expect(button).toBeEnabled())
+    fireEvent.click(button)
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amundi/sync'))
+    expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
+    expect(navigate).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+  })
+
+  it('lists and syncs a live Crédit Mutuel / CIC Épargne Salariale session', async () => {
+    cmesStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: cmesStatus })
+    renderModal()
+
+    const row = (await screen.findByText('Crédit Mutuel / CIC Épargne Salariale')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/cmes/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('includes a live Crédit Mutuel / CIC Épargne Salariale session in "Sync all"', async () => {
+    cmesStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    amundiStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: cmesStatus })
+    renderModal()
+
+    await screen.findByText('Crédit Mutuel / CIC Épargne Salariale')
+    await screen.findByText('Amundi')
+    const syncAll = screen.getByRole('button', { name: /sync\.all\.syncAll/ })
+    await waitFor(() => expect(syncAll).toBeEnabled())
+    fireEvent.click(syncAll)
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/cmes/sync'))
+    expect(apiPost).toHaveBeenCalledWith('/amundi/sync')
+  })
+
+  /** A first sync that expired before importing anything leaves a session but no account. */
+  it('keeps an expired Crédit Mutuel / CIC Épargne Salariale session that has no account yet', async () => {
+    cmesStatus = { ...AMUNDI_INACTIVE, syncStatus: 'FAILED', lastSyncError: 'SESSION_EXPIRED' }
+    renderModal()
+
+    const row = (await screen.findByText('Crédit Mutuel / CIC Épargne Salariale')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cmes'))
+    expect(apiPost).not.toHaveBeenCalledWith('/cmes/sync')
+  })
+
+  it('hides Crédit Mutuel / CIC Épargne Salariale with no session and no account', async () => {
+    renderModal()
+
+    expect(await screen.findByText('Trade Republic')).toBeInTheDocument()
+    expect(screen.queryByText('Crédit Mutuel / CIC Épargne Salariale')).not.toBeInTheDocument()
+  })
+
+  /** Its login can need a code by SMS or a confirmation in the app, which only its tab can take. */
+  it('keeps an expired Crédit Mutuel / CIC Épargne Salariale row with its accounts and routes to its tab', async () => {
+    accountsFixture = [TR_ACCOUNT, CMES_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('Crédit Mutuel / CIC Épargne Salariale')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cmes'))
+    expect(apiPost).not.toHaveBeenCalledWith('/cmes/sync')
   })
 
   it('reports a failed American Express run on a live session', async () => {

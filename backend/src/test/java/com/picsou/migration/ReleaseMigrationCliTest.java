@@ -136,6 +136,26 @@ class ReleaseMigrationCliTest {
     }
 
     @Test
+    void explainsWhyMigrateStopsBeforeV47OnDuplicateExternalIds() throws Exception {
+        String url = createDatabase("duplicate_external_ids");
+        Flyway.configure()
+            .dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword())
+            .locations("classpath:db/migration")
+            .target("46")
+            .load()
+            .migrate();
+        execute(url, "INSERT INTO family_member (display_name) VALUES ('Test')");
+        execute(url, "INSERT INTO account (name, external_account_id, member_id) VALUES "
+            + "('A', 'ext-1', (SELECT min(id) FROM family_member)), "
+            + "('B', 'ext-1', (SELECT min(id) FROM family_member))");
+
+        String diagnosis = diagnosis("migrate", url);
+
+        assertThat(diagnosis).contains("Reason: 1 group(s) of active accounts share an external_account_id");
+        assertThat(historyRowsForVersion(url, "47")).isZero();
+    }
+
+    @Test
     void namesTheFailingScriptWhenMigrateFails() throws Exception {
         String url = createDatabase("failing_script");
         assertThat(run("migrate", url)).isZero();
