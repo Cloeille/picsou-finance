@@ -20,6 +20,7 @@ import type {
   Transaction,
   UncategorizedTransaction,
 } from '@/types/api'
+import { mockAccounts } from './accounts'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 // Demo data is generated relative to "today" so the Budget section always looks
@@ -538,4 +539,32 @@ export function mockCategoryDetail(categoryId: number, period: CashflowPeriod): 
     transactions,
     children,
   }
+}
+
+/**
+ * `GET /transactions`: the current cycle's leaf-category transactions, all booked on the main
+ * checking account, filtered like `TransactionRepository.searchByMember` (inclusive dates, exact
+ * account and category) and sorted newest first.
+ */
+export function mockTransactionSearch(params: {
+  from?: string
+  to?: string
+  accountId?: number | string
+  categoryId?: number | string
+}): Transaction[] {
+  const checking = mockAccounts.find((a) => a.type === 'CHECKING')!
+  const leaves = mockCategories.filter((c) => !c.archived && !mockCategories.some((child) => child.parentId === c.id))
+  return leaves
+    .flatMap((cat) => leafTransactions(cat, 1).map((tx) => ({
+      ...tx,
+      categoryId: cat.id,
+      accountId: checking.id,
+      accountName: checking.name,
+    })))
+    .filter((tx) =>
+      (!params.from || tx.date >= params.from) &&
+      (!params.to || tx.date <= params.to) &&
+      (params.accountId == null || tx.accountId === Number(params.accountId)) &&
+      (params.categoryId == null || tx.categoryId === Number(params.categoryId)))
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
 }

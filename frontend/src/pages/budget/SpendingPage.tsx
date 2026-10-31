@@ -81,9 +81,15 @@ function BreakdownRow({ row, total }: { row: CategorySpend; total: number }) {
     </div>
   )
 
-  // The uncategorized bucket has no id, so it isn't drillable — render it static.
+  // The uncategorized bucket has no id, so it isn't drillable — render it static, keeping the
+  // chevron's slot so its amount and bar line up with the rows above.
   if (row.categoryId == null) {
-    return <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">{content}</div>
+    return (
+      <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
+        {content}
+        <span aria-hidden="true" className="size-4 shrink-0" />
+      </div>
+    )
   }
 
   return (

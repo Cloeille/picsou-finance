@@ -39,7 +39,7 @@ Content: merchant avatar + name, raw description, amount (+ native currency if d
 
 ### `TransactionsList` (refactored)
 
-Refactored to use `TransactionRow` + `TransactionDetailSheet`. Removes the inline category picker that was previously embedded. Retains: date grouping, search bar, Card wrapper.
+Refactored to use `TransactionRow` + `TransactionDetailSheet`. Removes the inline category picker that was previously embedded. Retains: date grouping, search bar, Card wrapper. When the card is shown with no rows (an account without transactions, or a search that matches nothing) it renders an `EmptyState` instead of a blank body.
 
 ## Fix — CategoryDetailPage
 
@@ -71,7 +71,7 @@ New page `BudgetTransactionsPage`.
 - Category select (all categories, optional filter)
 - Default: current month, all accounts, all categories
 
-**Results:** `TransactionsList` with `onCategorize` wired. `TransactionRow` shows account name as a sub-text line (absent in per-account views, useful here to identify origin).
+**Results:** `TransactionsList` with `onCategorize` wired, or an `EmptyState` when the period has no transactions. In demo mode `GET /transactions` is served by `mockTransactionSearch` (`demo/data/budget.ts`), which filters the current cycle's synthetic transactions like the repository query. `TransactionRow` shows account name as a sub-text line (absent in per-account views, useful here to identify origin).
 
 **Navigation:**
 - New "Transactions" tab in budget nav (`budget-nav.ts`), icon `Receipt`, route `/budget/transactions`

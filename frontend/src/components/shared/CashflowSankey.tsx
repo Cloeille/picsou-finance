@@ -17,13 +17,24 @@ import { FLOW_FALLBACK_COLOR, flowNodeColor, flowNodeLabel, flowSides } from './
  * never disagree — they read the same `{nodes, links}` the backend guarantees balanced.
  */
 
-const MAX_LABEL = 16
+const MAX_LABEL = 20
+/** Room for a full label beside the outer columns: MAX_LABEL characters plus an amount. */
+const LABEL_MARGIN = 200
+const MARGIN_Y = 16
+const MIN_HEIGHT = 360
+/**
+ * Recharts guarantees this gap between nodes of a column, so it is what keeps two labels from
+ * overlapping however small their nodes get: one 11px line plus air.
+ */
+const NODE_PADDING = 18
+/** Vertical room per node in the busiest column; past the minimum height the diagram grows. */
+const ROW_HEIGHT = 30
 
 function truncate(label: string): string {
   return label.length > MAX_LABEL ? `${label.slice(0, MAX_LABEL - 1)}…` : label
 }
 
-/** A node rectangle plus its label, placed outside the diagram (left for in, right for out). */
+/** A node rectangle plus its name and amount, placed outside the diagram (left for in, right for out). */
 function FlowSankeyNode(props: {
   x?: number
   y?: number
@@ -32,6 +43,7 @@ function FlowSankeyNode(props: {
   payload?: FlowNode & { value?: number }
   t?: TFunction
 }) {
+  const money = useMoney()
   const { x = 0, y = 0, width = 0, height = 0, payload, t } = props
   if (!payload || !t) return null
 
@@ -55,16 +67,18 @@ function FlowSankeyNode(props: {
         fillOpacity={0.9}
         radius={2}
       />
-      {!isHub && height >= 6 && (
+      {!isHub && (
         <text
           x={isRight ? x + width + 8 : x - 8}
           y={y + height / 2}
           textAnchor={isRight ? 'start' : 'end'}
           dominantBaseline="middle"
           fontSize={11}
-          className="fill-foreground"
         >
-          {truncate(label)}
+          <tspan className="fill-muted-foreground">{truncate(label)}</tspan>
+          <tspan dx={6} className="fill-foreground font-medium tabular-nums">
+            {money.amount(payload.value ?? 0)}
+          </tspan>
         </text>
       )}
     </Layer>
@@ -211,16 +225,18 @@ export function CashflowSankey({ flow }: { flow: CashflowFlowResponse }) {
     nodes: flow.nodes.map((n) => ({ ...n })),
     links: flow.links.map((l) => ({ ...l })),
   }
+  const { sources, sinks } = flowSides(flow)
+  const height = Math.max(MIN_HEIGHT, Math.max(sources.length, sinks.length) * ROW_HEIGHT + 2 * MARGIN_Y)
 
   return (
     <figure className="m-0">
-      <div className="h-[360px] w-full" aria-hidden="true">
-        <ResponsiveContainer width="100%" height="100%">
+      <div className="w-full" aria-hidden="true">
+        <ResponsiveContainer width="100%" height={height}>
           <Sankey
             data={data}
             nodeWidth={12}
-            nodePadding={26}
-            margin={{ top: 16, right: 112, bottom: 16, left: 112 }}
+            nodePadding={NODE_PADDING}
+            margin={{ top: MARGIN_Y, right: LABEL_MARGIN, bottom: MARGIN_Y, left: LABEL_MARGIN }}
             node={<FlowSankeyNode t={t} />}
             link={<FlowSankeyLink nodes={data.nodes} />}
           >

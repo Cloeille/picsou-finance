@@ -220,6 +220,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The cashflow diagram labels every destination again.** With a dozen destinations the
+  Sankey squeezed each node to a few pixels and hid all their labels; it now grows taller
+  instead and shows each name with its amount. On phones the list under the flow is titled
+  "Répartition du revenu", so "Sorties" only ever means spending. A transaction card with
+  nothing to show (an account without transactions, a search with no match, an empty
+  period on `/budget/transactions`) now says so instead of staying blank, the demo serves
+  `/budget/transactions`, and the "Sans catégorie" row lines up with the rows above it.
+
 - **American Express no longer stores a second copy of a charge AMEX re-describes.** A
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
   `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its

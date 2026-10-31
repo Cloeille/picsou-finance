@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Receipt } from 'lucide-react'
 import type { Category, Transaction } from '@/types/api'
+import { EmptyState } from '@/components/shared/EmptyState'
 import { TransactionRow } from '@/components/shared/TransactionRow'
 import { TransactionDetailSheet } from '@/components/shared/TransactionDetailSheet'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -71,6 +73,13 @@ export function TransactionsList({
             onChange={(e) => setSearch(e.target.value)}
             className="mb-4"
           />}
+          {filtered.length === 0 && (
+            <EmptyState
+              className="py-8"
+              icon={<Receipt className="size-10" />}
+              title={transactions.length === 0 ? t('accounts.noTransactions') : t('common.noResults')}
+            />
+          )}
           {sortedDates.map((date, dateIdx) => (
             <div key={date}>
               {dateIdx > 0 && <Separator className="my-3" />}

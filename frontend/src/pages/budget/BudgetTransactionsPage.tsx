@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
+import { Receipt } from 'lucide-react'
+import { EmptyState } from '@/components/shared/EmptyState'
 import { TransactionsList } from '@/components/shared/TransactionsList'
 import { useMerchantLogoUrl } from '@/features/budget/hooks'
 import { useTransactions } from '@/features/budget/hooks'
@@ -98,7 +100,7 @@ export function BudgetTransactionsPage() {
       )}
 
       {!isLoading && !isError && transactions && transactions.length === 0 && (
-        <p className="py-12 text-center text-sm text-muted-foreground">{t('transactions.empty')}</p>
+        <EmptyState icon={<Receipt className="size-10" />} title={t('transactions.empty')} />
       )}
 
       {!isLoading && !isError && transactions && transactions.length > 0 && (

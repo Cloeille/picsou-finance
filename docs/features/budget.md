@@ -172,6 +172,12 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
   (envelope-style progress bars) < `md`. They swap by **conditional mount** (not CSS hide) because
   Recharts `ResponsiveContainer` measures 0×0 inside `display:none`. Pure mapping logic lives in
   `components/shared/flow-utils.ts` (unit-tested), keeping the component files Fast-Refresh-clean.
+  Every Sankey node except the hub carries its name and amount. Recharts sizes nodes by
+  `(height − (n−1)·nodePadding) / total`, so the padding stays fixed at one label line (18px) and the
+  diagram grows 30px per node in its busiest column past a 360px minimum: a long sink list can't
+  squeeze the nodes, and the labels, to nothing. The `FlowBars` sink list is titled "Income allocation"
+  ("Répartition du revenu"), not "Out": it also holds savings, transfers and money left unspent, so it
+  must not share a label with the expense KPI.
 - **`MerchantAvatar`** (`components/shared/MerchantAvatar.tsx`) — initial-monogram with a
   **deterministic colour derived from the name**, fully offline; switches to a proxied `<img>` only
   when `logo_fetch_enabled` (M5). Used across every transaction list.
