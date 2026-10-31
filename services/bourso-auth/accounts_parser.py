@@ -33,6 +33,7 @@ INVALID_DATA = "INVALID_DATA"
 # disagree the read is partial. Same tolerance as the Bourse Direct connector.
 MONEY_ABSOLUTE_TOLERANCE = Decimal("0.05")
 MONEY_RELATIVE_TOLERANCE = Decimal("0.001")
+MONEY_PER_LINE_TOLERANCE = Decimal("0.01")
 
 # A sanity ceiling, not a business rule: a dashboard with hundreds of accounts
 # means the regex matched something other than account cards.
@@ -148,6 +149,16 @@ def money_close(actual: Decimal, expected: Decimal) -> bool:
     if difference <= MONEY_ABSOLUTE_TOLERANCE:
         return True
     return difference <= abs(expected) * MONEY_RELATIVE_TOLERANCE
+
+
+def lines_close(actual: Decimal, expected: Decimal, lines: int) -> bool:
+    """Whether `lines` amounts, each rounded to the cent, add up to `expected`.
+
+    Rounding each line can move the sum by at most a cent per line, and nothing
+    else may: unlike `money_close`, the allowance never grows with the total, so
+    a support missing from a large contract cannot hide inside a relative one.
+    """
+    return abs(actual - expected) <= max(MONEY_ABSOLUTE_TOLERANCE, MONEY_PER_LINE_TOLERANCE * lines)
 
 
 def describe_payload(payload: Any, depth: int = 0) -> str:
@@ -916,7 +927,7 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
         })
 
     lines_total = sum((position["currentValueEur"] for position in positions), cash)
-    if not money_close(lines_total, total):
+    if not lines_close(lines_total, total, len(rows)):
         raise AccountsFormatError(
             INCOMPLETE,
             f"Assurance-vie lines do not reconcile with the valuation "

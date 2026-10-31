@@ -110,6 +110,31 @@ class LifeInsurancePageTest(unittest.TestCase):
         self.assertLessEqual(len(position["symbol"]), 30)
         self.assertEqual(position["label"], label)
 
+    def test_a_missing_support_on_a_large_contract_is_not_hidden_by_a_relative_tolerance(self):
+        rows = (
+            life_insurance_row("iShares MSCI World SRI UCITS ETF", "IE00BYX2JD69", "1rASUSW",
+                               "100,0000", "10,00 €", "12,00 €", "49 910,00 €", "200,00 €")
+            + life_insurance_row("Fonds Euro Nouvelle Génération", None, None,
+                                 "", "", "", "50 000,00 €", "")
+        )
+
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_life_insurance(life_insurance_page(rows, valuation="100 000,00 €"))
+
+        self.assertEqual(raised.exception.code, INCOMPLETE)
+
+    def test_a_few_cents_of_per_line_rounding_are_accepted(self):
+        rows = "".join(
+            life_insurance_row(f"Support {index}", f"FR00000000{index:02d}", f"SYM{index}",
+                               "10,0000", "90,00 €", "100,00 €",
+                               "1 000,08 €" if index == 0 else "1 000,00 €", "0,00 €")
+            for index in range(10)
+        )
+
+        contract = parse_life_insurance(life_insurance_page(rows, valuation="10 000,00 €"))
+
+        self.assertEqual(len(contract["positions"]), 10)
+
     def test_a_page_without_the_supports_table_is_a_format_change(self):
         with self.assertRaises(AccountsFormatError) as raised:
             parse_life_insurance("<html><body>Bienvenue</body></html>")

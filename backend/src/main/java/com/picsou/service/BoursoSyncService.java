@@ -62,6 +62,7 @@ public class BoursoSyncService {
     private static final List<String> PROVIDER_FAMILY = List.of(PROVIDER, "Boursorama", "Boursorama Banque");
     private static final BigDecimal ABSOLUTE_RECONCILIATION_TOLERANCE = new BigDecimal("0.05");
     private static final BigDecimal RELATIVE_RECONCILIATION_TOLERANCE = new BigDecimal("0.001");
+    private static final BigDecimal PER_LINE_RECONCILIATION_TOLERANCE = new BigDecimal("0.01");
     private static final int MAX_TICKER_LENGTH = 30;
 
     /** The account types the sidecar is allowed to return; loans are out of scope. */
@@ -403,7 +404,12 @@ public class BoursoSyncService {
                 BigDecimal positionValue = positions.stream()
                     .map(PreparedPosition::currentValueEur)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
-                if (!moneyClose(positionValue, account.balanceEur().subtract(cashBalance))) {
+                BigDecimal expectedValue = account.balanceEur().subtract(cashBalance);
+                // The euro fund line feeds the cash leg, so it counts as one more line.
+                boolean reconciled = account.type() == AccountType.ASSURANCE_VIE
+                    ? linesClose(positionValue, expectedValue, positions.size() + 1)
+                    : moneyClose(positionValue, expectedValue);
+                if (!reconciled) {
                     throw error(
                         BoursoErrorCode.PORTFOLIO_INCOMPLETE,
                         "BoursoBank returned an incomplete portfolio",
@@ -900,6 +906,18 @@ public class BoursoSyncService {
     private boolean moneyClose(BigDecimal actual, BigDecimal expected) {
         BigDecimal tolerance = ABSOLUTE_RECONCILIATION_TOLERANCE.max(
             expected.abs().multiply(RELATIVE_RECONCILIATION_TOLERANCE)
+        );
+        return actual.subtract(expected).abs().compareTo(tolerance) <= 0;
+    }
+
+    /**
+     * Whether {@code lines} amounts, each rounded to the cent, add up to {@code expected}.
+     * Unlike {@link #moneyClose}, the allowance never grows with the total, so a support
+     * missing from a large contract cannot hide inside a relative tolerance.
+     */
+    private boolean linesClose(BigDecimal actual, BigDecimal expected, int lines) {
+        BigDecimal tolerance = ABSOLUTE_RECONCILIATION_TOLERANCE.max(
+            PER_LINE_RECONCILIATION_TOLERANCE.multiply(BigDecimal.valueOf(lines))
         );
         return actual.subtract(expected).abs().compareTo(tolerance) <= 0;
     }

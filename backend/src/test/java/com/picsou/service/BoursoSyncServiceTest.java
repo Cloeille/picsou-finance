@@ -202,10 +202,6 @@ class BoursoSyncServiceTest {
         verify(accountRepository, never()).save(any());
     }
 
-    /**
-     * A livret has one number and no cash sleeve. Writing 0 would report a
-     * phantom cash balance that AccountService folds into the invested amount.
-     */
     @Test
     void queueSync_importsAnAssuranceVieWithItsSupportsAndEuroFund() {
         arrangeCommittableSync(account("bourso_0a1b2c3d4e5f60718293a4b5c6d7e8f9", "Contrat N° 12345678",
@@ -227,6 +223,10 @@ class BoursoSyncServiceTest {
         assertThat(holdingsCaptor.getValue()).hasSize(2);
     }
 
+    /**
+     * A livret has one number and no cash sleeve. Writing 0 would report a
+     * phantom cash balance that AccountService folds into the invested amount.
+     */
     @Test
     void queueSync_leavesTheCashBalanceNullOnACashAccount() {
         arrangeCommittableSync(checkingAccount(), peaAccount());
@@ -346,6 +346,29 @@ class BoursoSyncServiceTest {
         assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).deleteByAccountId(any());
+    }
+
+    /**
+     * A support missing from a large contract is a few tenths of a percent at
+     * most, which the relative tolerance of the other envelopes would let through.
+     */
+    @Test
+    void queueSync_refusesAnAssuranceVieWhoseSupportsFallShortOfALargeBalance() {
+        BoursoSession session = activeSession(member());
+        arrangeQueuedSession(session);
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(
+            account("bourso_0a1b2c3d4e5f60718293a4b5c6d7e8f9", "Contrat N° 12345678",
+                AccountType.ASSURANCE_VIE, "100000.00", "1000.00",
+                position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
+                    "100", "10.00", "12.00", "98910.00", "200.00"))
+        ));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE);
+        verify(accountRepository, never()).save(any());
+        verify(holdingRepository, never()).saveAll(any());
     }
 
     @Test

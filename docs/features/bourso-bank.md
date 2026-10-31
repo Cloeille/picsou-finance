@@ -561,5 +561,12 @@ Positions come from the contract's server-rendered page `/compte/assurance-vie/<
 the trading board: the "Valorisation au <date>" box gives the total, and
 `table[data-table-trading-operations]` one row per support (label, ISIN in `.c-table__mention`,
 Boursorama symbol from the quote link, quantity, buying price, price, amount, latent gain). A
-unit-linked line becomes a position; the euro fund (no units, no ISIN) becomes `cashBalance`. Any
-other row shape is refused, and the lines must reconcile with the valuation.
+unit-linked line becomes a position; the euro fund (no units, no ISIN, a label naming the euro
+fund) becomes `cashBalance`. Any other row shape is refused.
+
+The lines must reconcile with the valuation within a cent per line (floor 0.05 €), in the sidecar
+(`lines_close`) and again in `BoursoSyncService` (`linesClose`, counting the euro fund as a line).
+Each support amount is rounded to the cent, so that is all the rounding can add up to. The 0.1 %
+tolerance of the other envelopes is deliberately not used: it scales with the valuation, so a
+support missing from a large contract would pass inside it. A position without an ISIN or a quote
+link falls back to its label as ticker, cut to 30 characters (the backend's ticker limit).
