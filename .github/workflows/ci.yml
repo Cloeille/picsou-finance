@@ -519,6 +519,7 @@ jobs:
       - tr-auth-sidecar
       - revolut-auth-sidecar
       - cmes-auth-sidecar
+      - cic-auth-sidecar
       - compose-sidecar-build
       - workflow-inventory
     if: github.event_name == 'push'
