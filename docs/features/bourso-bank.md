@@ -374,8 +374,15 @@ no resolvable ticker is unpriceable *by construction* here rather than by
 accident, so without the provider-valued fallback a PEA would read as its cash
 sleeve alone and the dashboard would book the rest as a loss.
 
-Two positions collapsing onto the same fallback symbol are refused
+The sidecar refuses two ISIN-less positions sharing a fallback symbol
 (`INVALID_DATA`) instead of merging two different instruments into one holding.
+`BoursoSyncService` applies the same rule after ticker resolution: lines that
+land on one ticker merge only when both carry the same ISIN. Two ISINs on one
+ticker (OpenFIGI giving two share classes the same symbol), an ISIN-less line
+whose symbol equals another line's resolved ticker, or two ISIN-less lines on
+one symbol fail the sync with `INVALID_DATA` and keep the last good portfolio.
+Merged, the holding would be recorded under only one of the ISINs, so fund
+facts and composition would describe the wrong fund for part of it.
 
 ### Asynchronous import
 

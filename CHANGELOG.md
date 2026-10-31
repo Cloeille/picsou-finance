@@ -306,6 +306,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   did not know: its cards failed the completeness check and the whole sync stopped with
   `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
   like loans and insurance, since they belong to the child.
+- **BoursoBank no longer merges two funds that resolve to the same ticker.** When two lines
+  of a PEA or compte-titres with different ISINs got the same ticker (two share classes of
+  one fund, for example), they became one holding recorded under only one of the ISINs, so
+  fund facts and composition described the wrong fund for part of it. The sync now stops
+  with `INVALID_DATA` and keeps the last good portfolio. Lines with the same ISIN still
+  merge ([#302](https://github.com/Cloeille/picsou-finance/issues/302)).
+- **Upgrading a 1.0.11–1.0.18 database to 1.1.0.** The backend no longer stops at boot with 13
+  Flyway checksum mismatches (V38, V51, V54–V64). Merging main into 1.1.0 had moved these
+  migrations to new versions, and edited comments in five of them. Before Flyway validates, the
+  backend now moves each of those history rows to its new version, so nothing re-runs, and then
+  applies the 1.1.0 migrations the database never ran
 - **Upgrading a 1.0.6–1.0.18 database to 1.1.0.** The backend no longer stops at boot with
   Flyway checksum mismatches (V33 on 1.0.6; V38, V51, V54–V64 on 1.0.11–1.0.18). Merging main
   into 1.1.0 had moved these migrations to new versions, and edited comments in five of them;
