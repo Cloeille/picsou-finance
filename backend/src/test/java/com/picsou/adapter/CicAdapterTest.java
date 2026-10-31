@@ -45,8 +45,9 @@ class CicAdapterTest {
     }
 
     @Test
-    void fetchAccounts_fallsBackToTheBareListOfAnOlderSidecar() {
+    void fetchAccounts_fallsBackToTheBareListOfAnOlderSidecar() throws Exception {
         List<String> paths = new ArrayList<>();
+        List<String> accountsBodies = new ArrayList<>();
         ExchangeFunction exchange = request -> {
             paths.add(request.url().getPath());
             if (request.url().getPath().equals("/accounts/listing")) {
@@ -55,6 +56,9 @@ class CicAdapterTest {
                     .body("{\"detail\":\"Not Found\"}")
                     .build());
             }
+            MockClientHttpRequest recorder = new MockClientHttpRequest(request.method(), request.url());
+            request.writeTo(recorder, ExchangeStrategies.withDefaults()).block();
+            accountsBodies.add(recorder.getBodyAsString().block());
             return Mono.just(ClientResponse.create(HttpStatus.OK)
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body("""
@@ -70,6 +74,8 @@ class CicAdapterTest {
         assertThat(paths).containsExactly("/accounts/listing", "/accounts");
         assertThat(listing.accounts()).hasSize(1);
         assertThat(listing.categoriesRead()).isNull();
+        assertThat(accountsBodies).hasSize(1);
+        assertThat(JSON.readTree(accountsBodies.get(0)).path("sessionState").asText()).isEqualTo("state");
     }
 
     @Test
