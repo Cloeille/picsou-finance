@@ -92,9 +92,8 @@ test.describe('Goal calendar on a phone', () => {
     await login(page)
     await page.goto('/goals/2/calendar')
 
-    // Demo goal 2 was created 11 months before today, so the grid holds 12 past/current months:
-    // Nov 2025 through Oct 2026 under the pinned clock, across two year cards. `:not([title])`
-    // skips the backfill button.
+    // 12 = Nov 2025 through Oct 2026: demo goal 2 is created 11 months before today (the frozen
+    // date), and the current month is included. `:not([title])` skips the backfill button.
     const months = page.locator('[data-slot="card-content"] > .grid > button:not([title])')
     await expect(months).toHaveCount(12)
 
