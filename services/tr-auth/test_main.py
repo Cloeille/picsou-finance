@@ -47,7 +47,7 @@ class EndpointTest(unittest.TestCase):
         self.post = AsyncMock()
         self.get = AsyncMock()
         for p in (
-            patch.object(main, "SIDECAR_API_KEY", TEST_KEY),
+            patch.dict(os.environ, {"APP_SIDECAR_API_KEY": TEST_KEY}),
             patch.object(main, "get_waf_token", AsyncMock(return_value="waf")),
             patch.object(httpx.AsyncClient, "post", self.post),
             patch.object(httpx.AsyncClient, "get", self.get),

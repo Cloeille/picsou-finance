@@ -26,23 +26,16 @@ the same page. Liveness is therefore detected by the presence of the login form,
 never by a status code: a 200 on the portfolio page is not a portfolio.
 """
 
-import asyncio
 import html as html_module
 import json
-import logging
-import os
-import re
-import secrets
 import time
 import uuid
-from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import Any, Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi import HTTPException
+from picsou_sidecar import PendingStore, configure_logging, create_app, safe
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from positions_parser import (
@@ -51,11 +44,8 @@ from positions_parser import (
     parse_portfolio,
 )
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("sofidy-auth")
 # httpx logs complete URLs, including upstream-controlled query strings.
-logging.getLogger("httpx").setLevel(logging.ERROR)
-logging.getLogger("httpcore").setLevel(logging.ERROR)
+log = configure_logging("sofidy-auth", quiet=("httpx", "httpcore"))
 
 BASE_URL = "https://moncompte.sofidy.com"
 # The portal hands out PHPSESSID on the first page view, so the login POST has
@@ -71,7 +61,6 @@ USER_AGENT = (
     "Chrome/141.0.0.0 Safari/537.36"
 )
 REQUEST_TIMEOUT_SECONDS = 30.0
-SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
 
 # The portal shows a 120 s countdown before it will re-send a verification code,
 # and says the code itself expires. Holding the attempt open much longer than
@@ -81,74 +70,8 @@ PENDING_SWEEP_SECONDS = 30
 # One pending attempt pins an httpx client and its cookie jar.
 MAX_PENDING = 16
 
-_pending: dict[str, dict[str, Any]] = {}
-_pending_lock = asyncio.Lock()
 
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    if not SIDECAR_API_KEY.strip():
-        raise RuntimeError("APP_SIDECAR_API_KEY must be configured with a non-blank value")
-    sweeper = asyncio.create_task(_pending_sweeper())
-    try:
-        yield
-    finally:
-        sweeper.cancel()
-        try:
-            await sweeper
-        except asyncio.CancelledError:
-            pass
-        await _close_all_pending()
-
-
-app = FastAPI(title="picsou-sofidy-auth", lifespan=lifespan)
-
-
-@app.middleware("http")
-async def log_request_duration(request: Request, call_next):
-    """Times every call and logs the method, path and status only.
-
-    No body, no cookie, no identifier: this log is what an operator reads when a
-    login starts failing, and a financial page or a credential must never land in
-    it.
-    """
-    started = time.time()
-    response = await call_next(request)
-    log.info(
-        "%s %s -> %s (%.0fms)",
-        request.method,
-        _log_safe(request.url.path),
-        response.status_code,
-        (time.time() - started) * 1000,
-    )
-    return response
-
-
-@app.middleware("http")
-async def require_sidecar_key(request: Request, call_next):
-    """Authenticate before routing, request parsing, or any application work."""
-    if request.url.path == "/health":
-        return await call_next(request)
-
-    provided = request.headers.get("X-Picsou-Sidecar-Key", "")
-    expected_bytes = SIDECAR_API_KEY.encode("utf-8")
-    # Starlette decodes wire header bytes as Latin-1; recover those bytes so
-    # UTF-8 secrets with non-ASCII characters compare exactly as configured.
-    provided_bytes = provided.encode("latin-1")
-    if not SIDECAR_API_KEY.strip() or not secrets.compare_digest(provided_bytes, expected_bytes):
-        return JSONResponse(
-            status_code=401,
-            content={"detail": "UNAUTHORIZED"},
-            headers={"WWW-Authenticate": "Picsou-Sidecar-Key"},
-        )
-    return await call_next(request)
-
-
-def _log_safe(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._/-]", "?", value)[:120]
-
-
-# ─── payloads ────────────────────────────────────────────────────────────────
+# ─── payloads# ─── payloads ────────────────────────────────────────────────────────────────
 
 
 class InitiateRequest(BaseModel):
@@ -201,19 +124,6 @@ class SnapshotPayload(BaseModel):
     valuationDate: str | None
     holdings: list[HoldingPayload]
     snapshotComplete: bool = True
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(
-    _: Request, exc: RequestValidationError
-) -> JSONResponse:
-    """A malformed body must read as a 400, not as an upstream outage.
-
-    FastAPI's own handler answers 422, and every adapter here maps anything
-    above 400 on a login to INVALID_CREDENTIALS -- which would send the operator
-    looking at the portal instead of at the caller.
-    """
-    return JSONResponse(status_code=400, content={"detail": "INVALID_REQUEST"})
 
 
 # ─── pending second factors ──────────────────────────────────────────────────
@@ -286,51 +196,22 @@ async def _dispose_pending_state(state: dict[str, Any]) -> None:
             log.debug("Sofidy pending client close failed", exc_info=True)
 
 
-async def _close_pending(process_id: str) -> None:
-    async with _pending_lock:
-        state = _pending.pop(process_id, None)
-    if state:
-        await _dispose_pending_state(state)
+_pending = PendingStore(
+    dispose=_dispose_pending_state,
+    log=log,
+    ttl_seconds=PENDING_TTL_SECONDS,
+    sweep_seconds=PENDING_SWEEP_SECONDS,
+    max_size=MAX_PENDING,
+)
 
-
-async def _store_pending(process_id: str, state: dict[str, Any]) -> bool:
-    async with _pending_lock:
-        if len(_pending) >= MAX_PENDING:
-            return False
-        _pending[process_id] = state
-        return True
-
-
-async def _take_pending(process_id: str) -> dict[str, Any] | None:
-    async with _pending_lock:
-        return _pending.pop(process_id, None)
-
-
-async def _cleanup_expired() -> None:
-    cutoff = time.time() - PENDING_TTL_SECONDS
-    async with _pending_lock:
-        expired = [pid for pid, s in _pending.items() if s["created_at"] < cutoff]
-    for pid in expired:
-        await _close_pending(pid)
-
-
-async def _close_all_pending() -> None:
-    async with _pending_lock:
-        states = list(_pending.values())
-        _pending.clear()
-    for state in states:
-        await _dispose_pending_state(state)
-
-
-async def _pending_sweeper() -> None:
-    while True:
-        try:
-            await asyncio.sleep(PENDING_SWEEP_SECONDS)
-            await _cleanup_expired()
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # pragma: no cover -- a sweep must never kill the loop
-            log.warning("Sofidy pending sweep failed", exc_info=True)
+# A malformed body must read as a 400, not as an upstream outage: FastAPI's own
+# 422 would be mapped by every adapter to INVALID_CREDENTIALS on a login.
+app = create_app(
+    title="picsou-sofidy-auth",
+    request_log=(log, "Sofidy"),
+    background=_pending,
+    validation_detail="INVALID_REQUEST",
+)
 
 
 # ─── portal calls ────────────────────────────────────────────────────────────
@@ -344,7 +225,7 @@ async def _post(client: httpx.AsyncClient, path: str, data: dict[str, str]) -> s
         # The login endpoint answers 200 with a bare token for every outcome,
         # including a wrong password, so a non-200 here is the portal refusing
         # the request itself rather than rejecting the credentials.
-        log.warning("Sofidy request refused (path=%s; status=%s)", _log_safe(path), response.status_code)
+        log.warning("Sofidy request refused (path=%s; status=%s)", safe(path, 120), response.status_code)
         raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
     return response.text.strip()
 
@@ -391,15 +272,9 @@ def _classify_login(raw: str) -> tuple[str, int] | None:
 # ─── routes ──────────────────────────────────────────────────────────────────
 
 
-@app.get("/health")
-async def health() -> dict:
-    base = os.environ.get("PICSOU_SIDECAR_BASE")
-    return {"status": "ok", "base": base} if base else {"status": "ok"}
-
-
 @app.post("/initiate", response_model=InitiateResponse)
 async def initiate(req: InitiateRequest) -> dict:
-    await _cleanup_expired()
+    await _pending.expire()
     client = _new_client()
     keep_client = False
     try:
@@ -422,7 +297,7 @@ async def initiate(req: InitiateRequest) -> dict:
                 "password": req.password,
                 "created_at": time.time(),
             }
-            if not await _store_pending(process_id, state):
+            if not await _pending.put(process_id, state):
                 raise HTTPException(status_code=503, detail="TOO_MANY_PENDING")
             keep_client = True
             return {
@@ -463,8 +338,8 @@ async def initiate(req: InitiateRequest) -> dict:
 
 @app.post("/complete", response_model=SessionResponse)
 async def complete(req: CompleteRequest) -> dict:
-    await _cleanup_expired()
-    state = await _take_pending(req.processId)
+    await _pending.expire()
+    state = await _pending.take(req.processId)
     if not state:
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
     if state["created_at"] < time.time() - PENDING_TTL_SECONDS:
@@ -511,7 +386,7 @@ async def complete(req: CompleteRequest) -> dict:
         # A wrong code is retryable: the portal keeps the same attempt open.
         # Disposing it here would turn the next code into an expired attempt.
         if retryable:
-            restored = await _store_pending(req.processId, state)
+            restored = await _pending.put(req.processId, state)
             if not restored:
                 await _dispose_pending_state(state)
         else:

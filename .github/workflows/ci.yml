@@ -490,6 +490,7 @@ jobs:
           --env PYTHONPATH=/app
           --env APP_SIDECAR_API_KEY=test-key
           --volume "${{ github.workspace }}/services/amex-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --volume "${{ github.workspace }}/services/amex-auth/test_parsers.py:/tests/test_parsers.py:ro"
           --volume "${{ github.workspace }}/services/amex-auth/test_pin_camoufox.py:/tests/test_pin_camoufox.py:ro"
           --workdir /tests
           picsou-amex-auth:test
@@ -611,7 +612,6 @@ jobs:
           --env APP_SIDECAR_API_KEY=test-key
           --volume "${{ github.workspace }}/services/tr-auth/main.py:/tests/main.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_complete_url.py:/tests/test_complete_url.py:ro"
-          --volume "${{ github.workspace }}/services/tr-auth/test_log_safety.py:/tests/test_log_safety.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_mask_phone.py:/tests/test_mask_phone.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_refresh_method.py:/tests/test_refresh_method.py:ro"

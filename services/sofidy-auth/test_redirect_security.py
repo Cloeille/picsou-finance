@@ -38,9 +38,9 @@ class RedirectSecurityTest(unittest.TestCase):
             ) as app:
                 if route == "/complete":
                     upstream = main._new_client()
-                    main._pending["fixture"] = {
+                    app.portal.call(main._pending.put, "fixture", {
                         "client": upstream, "associateCode": "123456",
-                        "password": "fixture-password", "created_at": main.time.time()}
+                        "password": "fixture-password", "created_at": main.time.time()})
                     body = {"processId": "fixture", "code": "654321"}
                 elif route == "/positions":
                     body = {"sessionState": FAKE_SESSION}
