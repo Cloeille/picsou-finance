@@ -130,6 +130,19 @@ kubectl -n picsou create secret generic picsou-secrets \
 Losing it makes them unreadable: either provide it and keep a copy, or back up
 the `<release>-data` volume where the app generated it.
 
+**Rotating `sidecar-api-key`** restarts no pod when the Secret is not managed by
+the chart values (`secrets.existingSecret`, or a Secret edited by hand): restart
+the app and every sidecar together, e.g.
+`kubectl -n picsou rollout restart deployment -l app.kubernetes.io/instance=<release>`.
+
+**Rotating the bundled PostgreSQL password.** An initialized volume keeps the
+role password it was created with, so changing `secrets.postgresPassword` alone
+would lock the app out: the chart refuses to render it. Change the role inside
+the pod (`ALTER ROLE <username> PASSWORD '…'` through `psql` in
+`<release>-postgresql-0`), update `postgres-password` in the Secret, then set
+`secrets.postgresPassword` to the new value or leave it empty. An external
+database is not affected: the explicit value is used as is.
+
 ## Database
 
 The bundled PostgreSQL (`postgresql.enabled`, default `true`) is a single
@@ -161,6 +174,13 @@ With Argo CD, the hook becomes a PreSync hook, which also runs on the very first
 sync, before the bundled PostgreSQL exists. Set `migrationJob.enabled=false`
 for the first sync, then enable it.
 
+**Switching from an external database to the bundled one** (`postgresql.enabled`
+from `false` to `true`) hits the same problem: the pre-upgrade Job targets the
+bundled PostgreSQL Service before Helm has created it, so the upgrade fails. Run
+that one upgrade with `--set migrationJob.enabled=false`: the app migrates the
+new, empty database on first boot. The chart does not move data; restore it
+yourself if you need it, then re-enable the Job.
+
 ## Sidecars
 
 Every sidecar is deployed by default. Disable the ones you do not use, the
@@ -179,6 +199,10 @@ reaches them in its own namespace: the backend accepts plain HTTP to a sidecar
 only on such a name, everything else must be HTTPS. Per-sidecar `resources`,
 `securityContext` and `podSecurityContext` are merged over `sidecarDefaults`.
 
+Resource names are capped at 40 characters before the sidecar name: a longer
+release name is cut to 33 characters plus a hash of the full name, so two long
+names never collide.
+
 ### Keeping up with the Compose file
 
 `sync-sidecars.sh` compares the `*-auth` services of `docker/docker-compose.yml`
@@ -192,6 +216,12 @@ charts/picsou/sync-sidecars.sh --apply   # also add the missing standard sidecar
 A sidecar is standard when its Compose service has only an image, a build, a
 restart policy and `APP_SIDECAR_API_KEY`: the generic template covers it. One
 with volumes, networks, `init` or more variables needs a chart change by hand.
+
+A sidecar the chart already lists is checked against its own entry, and reported
+as `drift` when the entry misses what Compose has: a volume without
+`persistence.enabled`, `init: true` without `shareProcessNamespace`, a variable
+that is neither in `env` nor in `extraEnv`. Compose networks are not compared,
+the NetworkPolicies isolate every sidecar the same way.
 
 CI runs it in both directions. On a pull request, the `helm-chart` job reports
 differences as warnings and never fails because of them. When publishing, the
@@ -213,7 +243,8 @@ They only take effect with a CNI that enforces NetworkPolicies (Cilium, Calico,
 ## Known limitations
 
 - **One app replica.** Flyway and the `ReadWriteOnce` `/data` volume rule out
-  more; the Deployment uses the `Recreate` strategy.
+  more; the Deployment uses the `Recreate` strategy and `app.replicaCount` above
+  1 fails the render.
 - **Pod Security `baseline`, not `restricted`.** The app image runs nginx and
   the JVM as root under supervisord, PostgreSQL starts as root before dropping
   privileges, and the sidecar images declare non-numeric users, so

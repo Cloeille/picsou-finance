@@ -38,7 +38,10 @@ and publishes to `oci://ghcr.io/<owner>/charts/picsou`:
 - a push to `main` publishes `<latest release + 1 patch>-main.<UTC timestamp>.g<short sha>`, a
   pre-release that sorts above the latest release and that Helm only installs with `--devel`, with
   `appVersion` = `sha-<short sha>`, the image tag `docker/metadata-action` gives every image of the
-  commit.
+  commit. The latest release comes from the tags of the checkout (`fetch-depth: 0`), not from a
+  network call: the checkout token is not persisted, so `git ls-remote` could not authenticate on a
+  private repository. The version must be a valid semantic version (no leading zero in a numeric
+  pre-release identifier), otherwise nothing is published.
 
 Before packaging, `sync-sidecars.sh --apply` adds to the packaged copy the standard sidecars that
 `values.yaml` does not list yet, and `global.imageRepository` is set to `ghcr.io/<repository>`, where
@@ -75,7 +78,7 @@ helm upgrade
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
 | TLS on the Ingress/Gateway, no Caddy | Clusters already have a controller and a certificate source (cert-manager, internal CA); the chart only needs `X-Forwarded-Proto` | Shipping the Caddy terminator of the `tls` Compose profile |
-| Sidecar Services named `<release>-<sidecar>`, URLs without a domain | `SidecarBaseUrl` accepts plain HTTP only on a single-label host; the fullname is capped at 40 characters so the longest name stays a valid DNS label | Cluster FQDNs (`*.svc.cluster.local`), which would require HTTPS between pods |
+| Sidecar Services named `<release>-<sidecar>`, URLs without a domain | `SidecarBaseUrl` accepts plain HTTP only on a single-label host; the fullname is capped at 40 characters (33 plus a 6-character hash of the full name when longer, so releases sharing a prefix never collide) so the longest name stays a valid DNS label | Cluster FQDNs (`*.svc.cluster.local`), which would require HTTPS between pods |
 | JWT and encryption keys left to the entrypoint by default | Matches Compose and keeps the encryption key off any value the chart could regenerate | Generating them in the chart Secret, which a `helm template` renderer would rotate on every sync and make stored secrets unreadable |
 | `lookup` + `helm.sh/resource-policy: keep` for the generated Secret | Values survive upgrades and uninstall | Regenerating on each upgrade |
 | Chart version and `appVersion` stamped at publish time | One chart per release and per commit of main, each pinned to its own images, without a manual bump | A version kept in `Chart.yaml` and bumped by hand |
@@ -83,7 +86,8 @@ helm upgrade
 | Standard sidecars added at publish time, never committed | New sidecars reach the main channel without a chart PR, and CI never writes to the repository | Failing pull requests that add a sidecar; a bot committing to main |
 | Pre-upgrade migration Job with the release CLI | Applies the [migration ADR](../decisions/2026-10-08-rehearse-release-migrations.md): migrate and verify before replacing the API | Relying on startup Flyway only, which fails after the old pod is gone |
 | Bundled `postgres:16-alpine` StatefulSet | Same image as Compose, no dependency on a third-party chart | Bitnami PostgreSQL subchart |
-| Liveness on TCP, readiness on `/actuator/health` | Health includes the database; a database outage must not restart the app in a loop. supervisord restarts a dead JVM | Liveness on `/actuator/health`; `/actuator/health/liveness` is not permitted by `SecurityConfig`/`SetupFilter` |
+| Liveness on TCP, readiness on `/actuator/health`, no app startup probe | Health includes the database; a database outage must not restart the app in a loop. supervisord restarts a dead JVM. Liveness is a TCP check on nginx (port 8080, the JVM listens on 9090), which answers at once, so a TCP startup probe adds nothing, and one on `/actuator/health` would restart the pod when the database is down at startup | Liveness on `/actuator/health`; `/actuator/health/liveness` is not permitted by `SecurityConfig`/`SetupFilter` |
+| Startup probe on the bundled PostgreSQL | Crash recovery after an unclean stop can outlast the liveness window; liveness starts once it succeeds | Longer `initialDelaySeconds` on liveness, which would also delay detecting a hung database |
 | `shareProcessNamespace` for `amex-auth` | Equivalent of Compose `init: true`: the pause container reaps orphaned browser processes | Patching the image with an init |
 
 ## Gotchas / Pitfalls
@@ -92,6 +96,21 @@ helm upgrade
   `secrets.existingSecret` is required there. Argo CD also maps `pre-upgrade` to PreSync, which
   runs on the first sync before the bundled PostgreSQL exists: disable `migrationJob` for that
   sync.
+- **Switching from an external to the bundled database** (`postgresql.enabled` `false` → `true`):
+  the `pre-upgrade` Job targets the bundled PostgreSQL Service before Helm creates it, so the
+  upgrade fails. Run that upgrade with `--set migrationJob.enabled=false`; the app migrates the
+  new empty database on first boot. The chart does not move data. Re-enable the Job afterwards.
+- **The bundled PostgreSQL keeps its original role password.** Changing `secrets.postgresPassword`
+  on an existing release would lock the app out, so `secret.yaml` fails the render when the stored
+  `postgres-password` differs from the explicit value. Rotate with `ALTER ROLE` in the pod, update
+  the Secret, then set the value. The check needs `lookup`, so it does not run under `helm template`.
+- **Rotating `sidecar-api-key` restarts nothing** unless the value is set through the chart: the
+  checksum annotation hashes chart values only. With `secrets.existingSecret`, restart the app and
+  every sidecar together (`kubectl rollout restart deployment -l app.kubernetes.io/instance=<release>`).
+- **`app.replicaCount` above 1 fails the render**: Flyway and the `ReadWriteOnce` `/data` volume
+  allow one app pod.
+- **`app.podLabels` cannot override the selector labels** (`app.kubernetes.io/name`, `instance`,
+  `component`); they are dropped.
 - **The migration Job does not back up or rehearse.** `docker/deploy.sh` restores a backup into a
   clone first; on Kubernetes, backups belong to the storage or database operator.
 - **Wizard values win over `app.env`.** `ENABLEBANKING_REDIRECT_URI`, `ALLOWED_ORIGINS` and
@@ -118,10 +137,14 @@ helm upgrade
 ## Tests
 
 - `helm lint --strict charts/picsou` and two `helm template` renders (`helm-chart` CI job)
-- `.github/tests/test_helm_chart_sync.py` (run by the `helm-chart` job): the repository chart lists
-  every Compose sidecar; `--check` reports each kind of difference; `--apply` adds only standard
-  sidecars and keeps the rest of `values.yaml` byte for byte; a second `--apply` is a no-op; a port
-  change is a mismatch; `--github` warns about everything but added sidecars
+- `.github/tests/test_helm_chart_sync.py` (run by the `helm-chart` job): the script parses the
+  repository's Compose file and chart (`--check --json` exits 0 or 2 and prints a JSON array, so a
+  new Compose sidecar never fails CI) and reports no `drift` for the sidecars the chart lists;
+  `--check` reports each kind of difference; `--apply` adds only standard sidecars and keeps the
+  rest of `values.yaml` byte for byte; a second `--apply` is a no-op; a port change is a mismatch;
+  an `https://` app URL is parsed; a listed sidecar the app no longer points at is `unwired`;
+  a Compose volume, `init: true` or variable the chart entry does not carry is `drift`, Compose
+  networks are not; `--github` warns about everything but added sidecars and leaves `--json` valid
 - `sync-sidecars.sh` on modified Compose files: new standard sidecar (added by `--apply`, values
   otherwise unchanged byte for byte), sidecar with a volume and extra variable (reported, not
   added), sidecar without an app URL, removed sidecar, changed port; idempotent second `--apply`
