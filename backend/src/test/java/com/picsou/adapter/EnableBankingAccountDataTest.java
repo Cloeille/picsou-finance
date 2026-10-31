@@ -479,7 +479,7 @@ class EnableBankingAccountDataTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"\"Booked balance\"", "\" BOOKED BALANCE \"", "null", "\"  \""})
-    void fetchBalances_independentResponsesWithGenericLabels_keepsEachAccountsOwnBalance(String label) {
+    void fetchBalances_overlappingGenericLabelsWithoutOwnerMetadata_rejectsBothAccounts(String label) {
         responses.put("/sessions/session", "{\"accounts\":[\"uid-current\",\"uid-savings\"]}");
         responses.put("/accounts/uid-current/details", "{\"details\":\"Current account\"}");
         responses.put("/accounts/uid-savings/details", "{\"details\":\"Savings account\"}");
@@ -492,23 +492,34 @@ class EnableBankingAccountDataTest {
               "balance_amount":{"currency":"EUR", "amount":"200"}}]}
             """.formatted(label));
 
-        var accounts = connector.fetchBalances("session");
-
-        assertThat(accounts).extracting(AccountData::externalId).containsExactly("uid-current", "uid-savings");
-        assertThat(accounts.get(0)).satisfies(account -> {
-            assertThat(account.name()).isEqualTo("Current account");
-            assertThat(account.currency()).isEqualTo("EUR");
-            assertThat(account.balance()).isEqualByComparingTo("100");
-        });
-        assertThat(accounts.get(1)).satisfies(account -> {
-            assertThat(account.name()).isEqualTo("Savings account");
-            assertThat(account.currency()).isEqualTo("EUR");
-            assertThat(account.balance()).isEqualByComparingTo("200");
-        });
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
     }
 
     @Test
-    void fetchBalances_independentEmptyAccountsWithGenericLabels_keepsBothAccountsSyncable() {
+    void fetchBalances_sharedListWithSingleGenericLabel_rejectsEveryFallbackContender() {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-current\",\"uid-savings\"]}");
+        responses.put("/accounts/uid-current/details", "{\"details\":\"Current account\"}");
+        responses.put("/accounts/uid-savings/details", "{\"details\":\"Savings account\"}");
+        String balances = """
+            {"balances": [
+              {"name":"Bank balance", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"100"}},
+              {"name":"Bank balance", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"200"}}
+            ]}
+            """;
+        responses.put("/accounts/uid-current/balances", balances);
+        responses.put("/accounts/uid-savings/balances", balances);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
+    }
+
+    @Test
+    void fetchBalances_emptyAccountsWithUnprovenGenericOwnership_rejectsBothAccounts() {
         responses.put("/sessions/session", "{\"accounts\":[\"uid-current\",\"uid-savings\"]}");
         responses.put("/accounts/uid-current/details", "{\"details\":\"Current account\"}");
         responses.put("/accounts/uid-savings/details", "{\"details\":\"Savings account\"}");
@@ -518,6 +529,25 @@ class EnableBankingAccountDataTest {
             """);
         responses.put("/accounts/uid-savings/balances", """
             {"balances": [{"name":"Booked balance", "balance_type":"CLBD",
+              "balance_amount":{"currency":"EUR", "amount":"0.00"}}]}
+            """);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
+    }
+
+    @Test
+    void fetchBalances_independentEmptyAccountsWithUniqueDescriptions_keepsBothAccountsSyncable() {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-current\",\"uid-savings\"]}");
+        responses.put("/accounts/uid-current/details", "{\"details\":\"Current account\"}");
+        responses.put("/accounts/uid-savings/details", "{\"details\":\"Savings account\"}");
+        responses.put("/accounts/uid-current/balances", """
+            {"balances": [{"name":"Current account", "balance_type":"CLBD",
+              "balance_amount":{"currency":"EUR", "amount":"0"}}]}
+            """);
+        responses.put("/accounts/uid-savings/balances", """
+            {"balances": [{"name":"Savings account", "balance_type":"CLBD",
               "balance_amount":{"currency":"EUR", "amount":"0.00"}}]}
             """);
 
@@ -531,7 +561,7 @@ class EnableBankingAccountDataTest {
     }
 
     @Test
-    void fetchBalances_independentGenericScopes_ranksBalancesWithinEachResponse() {
+    void fetchBalances_overlappingGenericLabels_rejectsBothBeforeTypeRanking() {
         responses.put("/sessions/session", "{\"accounts\":[\"uid-operations\",\"uid-reserve\"]}");
         responses.put("/accounts/uid-operations/details", "{}");
         responses.put("/accounts/uid-reserve/details", "{}");
@@ -552,11 +582,46 @@ class EnableBankingAccountDataTest {
             ]}
             """);
 
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
+    }
+
+    @Test
+    void fetchBalances_uniqueDescriptions_ranksBalancesWithinEachResponse() {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-operations\",\"uid-reserve\"]}");
+        responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations wallet\"}");
+        responses.put("/accounts/uid-reserve/details", "{\"details\":\"Reserve wallet\"}");
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name":"Operations wallet", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"90"}},
+              {"name":" OPERATIONS WALLET ", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"100"}}
+            ]}
+            """);
+        responses.put("/accounts/uid-reserve/balances", """
+            {"balances": [
+              {"name":"Reserve wallet", "balance_type":"CLBD",
+               "balance_amount":{"currency":"EUR", "amount":"200"}},
+              {"name":"Reserve wallet", "balance_type":"ITAV",
+               "balance_amount":{"currency":"EUR", "amount":"190"}}
+            ]}
+            """);
+
         var accounts = connector.fetchBalances("session");
 
         assertThat(accounts).extracting(AccountData::externalId).containsExactly("uid-operations", "uid-reserve");
-        assertThat(accounts.get(0).balance()).isEqualByComparingTo("100");
-        assertThat(accounts.get(1).balance()).isEqualByComparingTo("200");
+        assertThat(accounts.get(0)).satisfies(account -> {
+            assertThat(account.name()).isEqualTo("Operations wallet");
+            assertThat(account.currency()).isEqualTo("EUR");
+            assertThat(account.balance()).isEqualByComparingTo("100");
+        });
+        assertThat(accounts.get(1)).satisfies(account -> {
+            assertThat(account.name()).isEqualTo("Reserve wallet");
+            assertThat(account.currency()).isEqualTo("EUR");
+            assertThat(account.balance()).isEqualByComparingTo("200");
+        });
     }
 
     @ParameterizedTest

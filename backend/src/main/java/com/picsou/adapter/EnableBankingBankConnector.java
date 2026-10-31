@@ -220,8 +220,6 @@ public class EnableBankingBankConnector implements BankConnectorPort {
                 if (firstFailure == null) firstFailure = ex;
             }
         }
-        // Keep every response scope: a generic label alone is not a shared balance identity,
-        // and a later account failure cannot grant ownership to a sibling.
         var ownership = new BalanceOwnership(candidatesByAccount, candidatesByAccount.size() == accounts.size()
             && detailsByAccount.values().stream().allMatch(details -> details != null));
         for (var entry : candidatesByAccount.entrySet()) {
@@ -666,8 +664,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             .block();
     }
 
-    record AccountBalanceCandidates(AccountDetailsResponse details, List<BalancesResponse.BalanceItem> balances,
-                                    List<BalancesResponse.BalanceItem> candidates, boolean matchedDescription) {}
+    record AccountBalanceCandidates(AccountDetailsResponse details, List<BalancesResponse.BalanceItem> candidates,
+                                    boolean matchedDescription) {}
 
     record BalanceOwnership(Map<String, AccountBalanceCandidates> candidatesByAccount, boolean complete) {}
 
@@ -706,7 +704,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         candidates = matchedDescription ? matching : candidates.stream()
             .filter(item -> !labelClaims.containsKey(nullToEmpty(item.name()).trim()))
             .toList();
-        return new AccountBalanceCandidates(details, balances.balances(), candidates, matchedDescription);
+        return new AccountBalanceCandidates(details, candidates, matchedDescription);
     }
 
     AccountData fetchAccountData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
@@ -727,10 +725,12 @@ public class EnableBankingBankConnector implements BankConnectorPort {
                                                              BalanceOwnership ownership) {
         List<BalancesResponse.BalanceItem> candidates = response.candidates();
         String balanceLabel = balanceLabel(candidates);
+        // A shared list can have one generic label, so response shape cannot prove ownership.
         if (!response.matchedDescription()
             && (!ownership.complete() || ownership.candidatesByAccount().entrySet().stream()
                 .anyMatch(entry -> !entry.getKey().equals(accountId) && !entry.getValue().matchedDescription()
-                    && competingFallbacks(response, entry.getValue(), balanceLabel)))) {
+                    && entry.getValue().candidates().stream()
+                        .anyMatch(item -> balanceLabel.equalsIgnoreCase(nullToEmpty(item.name()).trim()))))) {
             throw new SyncException("Enable Banking returned ambiguous account balances; cannot establish fallback ownership");
         }
         return preferredBalance(candidates);
@@ -760,24 +760,6 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             throw new SyncException("Enable Banking returned an account balance without an amount");
         }
         return selected;
-    }
-
-    private static boolean competingFallbacks(AccountBalanceCandidates response,
-                                              AccountBalanceCandidates other, String label) {
-        if (other.candidates().stream()
-            .noneMatch(item -> label.equalsIgnoreCase(nullToEmpty(item.name()).trim()))) return false;
-        try {
-            // Only intact single-label responses establish independent uid scopes.
-            // Removing sibling labels cannot turn a shared list into an account-scoped response.
-            balanceLabel(response.balances());
-            balanceLabel(other.balances());
-            new BigDecimal(preferredBalance(response.candidates()).balanceAmount().amount().trim());
-            new BigDecimal(preferredBalance(other.candidates()).balanceAmount().amount().trim());
-        } catch (SyncException | NumberFormatException ex) {
-            // Shared or invalid responses cannot prove independent fallback ownership.
-            return true;
-        }
-        return false;
     }
 
     private static int balancePriority(BalancesResponse.BalanceItem balance) {

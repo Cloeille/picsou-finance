@@ -270,11 +270,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   even when one balance type has higher priority. Missing or unmatched descriptions
   cannot use entries claimed by another session account, and accounts sharing a
   description cannot select its balances. Other accounts keep syncing. Generic-label
-  fallback requires a single unclaimed entry or consistent unclaimed labels. Independent
-  per-account responses can share generic labels such as `Booked balance` while keeping
-  their own amounts, even when both are zero. Fallback ownership uses the original response
-  scope before sibling-label filtering. Overlapping fallbacks from shared lists remain
-  ambiguous when amounts change between requests. Competing
+  fallback requires a single unclaimed entry or consistent unclaimed labels. Overlapping
+  fallback labels are ambiguous even when both responses have one label, so shared lists
+  cannot assign the same preferred balance to several accounts. Separate generic responses
+  with overlapping labels also fail safely because they supply no owner identifier, even
+  when both balances are zero. Unique description matches still sync zero balances.
+  Ownership never depends on amounts or changes between requests. Competing
   fallback accounts all fail safely, and unavailable sibling details or invalid balance
   responses prevent fallback without blocking positive description matches. Skipping a soft-deleted account logs
   an IBAN fingerprint instead of the full IBAN.

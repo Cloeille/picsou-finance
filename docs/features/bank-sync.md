@@ -109,21 +109,19 @@ Other or missing types have lower priority. When the description is missing, sha
 matches no balance, fallback first excludes entries claimed by any session description.
 This includes entries with a shared description and claims from accounts whose balance
 request fails. If no entry remains, that account fails with a `SyncException`.
-Before selecting any fallback, the adapter retains each uid's original balance response
-alongside its filtered candidates. A valid original response with one normalized label
-stays scoped to the requested uid. Independent responses can share generic labels such as
-`Booked balance`, balance types, currencies, and amounts, including zero. These values
-cannot identify an account's owner.
-Two fallback scopes compete when their remaining labels overlap and either original
-response contains multiple normalized labels. Removing sibling-claimed entries cannot
-turn a shared list into an independent account response. Every contender fails, regardless
-of session order or changes in amounts between requests. An account with a unique
-description match does not compete for fallback. Amounts are parsed to validate usability,
-never to establish ownership.
-An ambiguous or invalid scope still claims its labels, so its later failure cannot grant
-ownership to a sibling. This conservatively blocks fallback with an overlapping label
-when either scope has inconsistent labels, tied preferred types, or an invalid selected
-amount, even if their candidates otherwise differ.
+Before selecting any fallback, the adapter compares its remaining labels with every other
+account that also needs fallback. Overlapping labels make every contender ambiguous,
+regardless of response size, balance types, currencies, or amounts. A shared list can contain
+only one normalized label, so that shape cannot establish account ownership. The provider's
+[`HalBalances`](https://enablebanking.com/docs/api/reference/#halbalances) and
+[`BalanceResource`](https://enablebanking.com/docs/api/reference/#balanceresource) schemas supply
+no account identifier to resolve the overlap.
+Separate generic responses, including two zero balances, therefore fail closed when their
+labels overlap. Positive unique description matches still sync, including genuine zeros,
+and do not compete for fallback.
+Every response retains its label claims until selection finishes. A later failure caused by
+inconsistent labels, tied preferred types, or an invalid amount cannot grant ownership to
+a sibling. Selection is independent of session order and changes in amounts between requests.
 Fallback also requires complete session ownership information. If any account's details
 are unavailable, or its balance response is missing or structurally invalid, other accounts can
 only use positive description matches. A failed sibling request cannot make its balances
@@ -140,6 +138,8 @@ With only one linked uid, no sibling descriptions are available to identify anot
 account's entries in an organization-wide list. An organization-wide response with only
 one normalized label is also indistinguishable from an ordinary account-scoped response
 without a positive description match.
+Without an account identifier on balance entries, non-overlapping fallback labels also cannot
+prove ownership of balances belonging to accounts outside the linked session.
 Several entries at the best priority are ambiguous and cause a `SyncException`, even
 when their names match. The adapter never adds balances together or chooses an arbitrary
 entry from a tie. An absent balance, null entry, or missing selected amount also fails
@@ -155,8 +155,9 @@ the account-details currency, then `EUR`.
 balance lists, flat details, type priorities, ordinary single-account responses,
 unmatched lists with different balance types, missing or unmatched descriptions with only
 sibling-claimed balances, unclaimed fallback, duplicate session descriptions with different
-balance types, competing fallback assignments with changing amounts, independent empty
-accounts with coincident generic balances, incomplete ownership after a details failure,
+balance types, competing fallback assignments with changing amounts, shared lists with one
+generic label, rejection of overlapping generic zero balances, independent empty accounts
+with unique description matches, incomplete ownership after a details failure,
 oversized display names, full-description matching before truncation,
 ambiguous or missing data, and per-account failure isolation for details and balance requests.
 
