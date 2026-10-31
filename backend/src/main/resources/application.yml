@@ -44,10 +44,8 @@ spring:
       max-file-size: 10MB
       max-request-size: 10MB
 
-  # Embedded MCP server (Model Context Protocol). Transport is HTTP+SSE, pinned with
-  # `protocol: SSE`: existing clients (Claude Code, `mcp-remote`) are configured for SSE. Both the SSE
-  # stream (GET /mcp) and the message channel (POST /mcp/message) live under /mcp/** so
-  # AccessKeyAuthFilter gates them and a `psk_` key can never reach /api/** (security Property A).
+  # MCP_PROTOCOL=STREAMABLE enables protocol 2025-11-25 for hosted connectors. SSE remains the
+  # default for existing clients. Both transports stay under /mcp/** for access-key/OAuth scoping.
   ai:
     mcp:
       server:
@@ -65,7 +63,10 @@ spring:
         sse-endpoint: /mcp
         sse-message-endpoint: /mcp/message
         request-timeout: 30s
-        protocol: SSE
+        protocol: ${MCP_PROTOCOL:SSE}
+        streamable-http:
+          mcp-endpoint: /mcp
+          keep-alive-interval: ${MCP_KEEP_ALIVE_INTERVAL:60s}
         # The server pings every open SSE session at this interval. Without it the stream stays
         # silent between two replies, and clients drop it as idle: Bun's fetch (Claude Code) after
         # ~6 min, the Python MCP SDK's SSE client after 300 s. The next call then times out.

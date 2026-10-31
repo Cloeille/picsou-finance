@@ -264,6 +264,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Modern MCP protocol support is selectable.** Set `MCP_PROTOCOL=STREAMABLE` and restart the
+  app to serve protocol `2025-11-25` at `/mcp` for hosted connectors such as claude.ai. Existing
+  installations keep legacy SSE by default. Switching requires configuring other clients for
+  Streamable HTTP. The existing Spring AI 1.1.8 supports this without a Boot 4 migration (#53).
+
 - **Demo budget dates are no longer one day early east of UTC.** In Paris the demo showed the
   current cycle as 30/09 to 30/10 on 31 October, opened the budget pages on September, and
   listed every upcoming recurring charge a day before its series' next date. The demo now

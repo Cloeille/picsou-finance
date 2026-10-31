@@ -1,6 +1,6 @@
 # Feature: Embedded MCP server + scoped access-keys
 
-> Last updated: 2026-10-07
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -13,11 +13,46 @@ hard-bound to its owner's data and can only ever reach a small, curated, audited
 
 ## How it works
 
-The MCP server is **embedded in the Spring backend** (Spring AI MCP, HTTP+SSE transport). A
-second authentication principal — a bearer **access-key** (`psk_…`) — sits alongside the cookie.
+The MCP server is **embedded in the Spring backend** (Spring AI MCP, HTTP+SSE by default, with
+opt-in Streamable HTTP). A bearer **access-key** (`psk_…`) provides a second authentication
+principal alongside the cookie.
 An app points an MCP client at `https://<host>/mcp` with `Authorization: Bearer psk_…`; the
 `@Tool` methods resolve the key owner's member and delegate to the existing, already
 member-scoped services, so member isolation is automatic.
+
+### Use protocol 2025-11-25 with a hosted connector
+
+Set `MCP_PROTOCOL=STREAMABLE` in the app's environment and restart the backend. With the
+production Compose stack, set it in `docker/.env` and recreate the app container from `docker/`:
+
+```bash
+docker compose up -d --force-recreate app
+```
+
+Configure the connector URL as `https://<host>/mcp`. Streamable HTTP sends JSON-RPC requests to
+`POST /mcp` and supports protocol `2025-11-25` with the existing Spring AI 1.1.8 and Boot 3.5.16.
+Keep the OAuth discovery, registration, login, and consent configuration described in
+[Remote-MCP OAuth](./mcp-oauth-remote.md).
+
+The two transports are alternatives for the whole instance. In Streamable mode, `/mcp/message`
+is absent and SSE-only client configurations must change. For Claude Code, use an HTTP config:
+
+```json
+{"mcpServers":{"picsou":{"type":"http","url":"https://<host>/mcp","headers":{"Authorization":"Bearer <access-key>"}}}}
+```
+
+The Settings SSE snippet applies only to the default SSE mode. To roll back, set
+`MCP_PROTOCOL=SSE`, recreate the app container, and restore SSE client configurations.
+`MCP_KEEP_ALIVE_INTERVAL` defaults to `60s` for either mode. Both transports use the same
+authentication, scopes, curated tools, and member isolation.
+
+The legacy SSE provider advertises only `2024-11-05`, even though SDK 0.18.3 implements newer
+versions in its Streamable provider. An OAuth success alone does not prove tool discovery works.
+Check that `initialize` returns `2025-11-25`, then that `tools/list` contains `list_accounts`.
+The hosted claude.ai flow still requires a live public-instance check. See
+[the transport decision](../decisions/2026-10-31-opt-in-streamable-mcp.md) for source evidence.
+
+### Security properties
 
 Three security properties are guaranteed structurally (not by per-call checks):
 
@@ -52,7 +87,7 @@ Three security properties are guaranteed structurally (not by per-call checks):
 - `backend/src/main/java/com/picsou/mcp/RequiresScope.java` + `backend/src/main/java/com/picsou/mcp/ScopeEnforcementAspect.java` + `backend/src/main/java/com/picsou/exception/MissingScopeException.java` — scope enforcement (AOP) and its clean error.
 - `backend/src/main/java/com/picsou/controller/AccessKeyController.java` + `dto/AccessKey{CreateRequest,Response,CreatedResponse}.java` — self-service management REST API under `/api/access-keys`.
 - `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — `mcpKeyBuckets`, `accessKeyCreateBuckets`, and the bucket factories.
-- `backend/src/main/resources/application.yml` — `spring.ai.mcp.server.*` (HTTP+SSE pinned with `protocol: SSE`, `SYNC`, `/mcp` + `/mcp/message`, `keep-alive-interval` (`MCP_KEEP_ALIVE_INTERVAL`, 60 s), `MCP_ENABLED` gate, instructions string).
+- `backend/src/main/resources/application.yml` — `spring.ai.mcp.server.*` (`MCP_PROTOCOL`, default `SSE`; `STREAMABLE` at `/mcp`; `SYNC`; keep-alive (`MCP_KEEP_ALIVE_INTERVAL`, 60 s); `MCP_ENABLED` gate; instructions string).
 
 **Frontend**
 - `frontend/src/features/accessKeys/{api,hooks,scopes,status}.ts` — TanStack Query layer + scope/status helpers.
@@ -169,7 +204,7 @@ sessions/credentials as the documented side effect of deleting a connection's la
 | MCP server **embedded** in the backend | Tools call existing member-scoped services in-process; one deployable; smallest new attack surface | Standalone MCP sidecar proxying the REST API (extra hop, duplicated auth, more to secure) |
 | **Access-key** principal, separate from the JWT cookie | A distinct `Authentication` type is the seam for Properties B/C; keys are revocable and scope-limited without touching the login | Reuse cookie/JWT for MCP (no scoping, full surface, no per-app revoke) |
 | **SHA-256 + constant-time compare** for key hashes | The secret is high-entropy (~190 bits), so a fast hash is safe; enables O(1) prefix lookup then `MessageDigest.isEqual` | bcrypt (needed for low-entropy passwords; here it only adds latency to the hot auth path) |
-| **HTTP+SSE** transport (`/mcp` stream + `/mcp/message`) | Existing clients (Claude Code, `mcp-remote`) are configured for it; `protocol: SSE` pins it | Streamable HTTP (available since Spring AI 1.1, evaluated but not switched — see the 2026-10-27 ADR) |
+| **HTTP+SSE by default**, opt-in Streamable HTTP (`MCP_PROTOCOL=STREAMABLE`) | Preserve existing SSE clients while allowing hosted connectors to negotiate `2025-11-25` at `/mcp` | Changing every installation's transport at once; maintaining a custom protocol implementation |
 | **Server keep-alive** on the SSE stream (`keep-alive-interval: 60s`) | The SDK pings every open session, so an idle stream is never silent long enough for a client to drop it | No keep-alive (Bun's fetch drops the stream after ~6 min, the Python client after 300 s, and the next call times out) |
 | **Reactor automatic context propagation** to carry the security context to the tool thread | Spring AI runs tools off the servlet thread; this restores the `SecurityContext` there so the existing thread-local check works unchanged | `MODE_INHERITABLETHREADLOCAL` (misses pooled scheduler threads) · making the aspect read auth some other way (leaks the thread concern into every tool) |
 | **Curated** write surface (record maintenance, manual account creation, resync, and account deletion with idle-connection cleanup) | No credential submission/retrieval or new authentication flow; deleting the last synced account can remove its stored session/credentials | Expose the full REST surface as tools (uncontrolled blast radius) |
@@ -247,10 +282,9 @@ sessions/credentials as the documented side effect of deleting a connection's la
   `ToolCallbackConverterAutoConfiguration` already defines a bean named `syncTools` (the SYNC server's tool-spec
   list). A `@Component` defaulting to `syncTools` collides with it and aborts the context
   (bean-definition overriding is disabled). The other tool components use unreserved default names.
-- **Transport is HTTP+SSE, not Streamable HTTP.** The endpoints are `GET /mcp` (SSE stream) and
-  `POST /mcp/message` (messages). Both are under `/mcp/**` so Property A's prefix check covers them.
-  Spring AI 1.1 offers Streamable HTTP (`protocol: STREAMABLE`), but switching changes the endpoint
-  every deployed client points at, so it stays a separate, deliberate change.
+- **Transport selection requires a restart.** SSE uses `GET /mcp` and `POST /mcp/message`.
+  Streamable HTTP uses `POST`, `GET`, and `DELETE /mcp`. Switching modes requires updating SSE-only
+  clients. Both stay under `/mcp/**` so Property A's prefix check covers them.
 - **Nginx must proxy `/mcp`, not only `/api`.** The all-in-one image and the split-stack frontend
   both serve the SPA via `try_files` for unmatched paths. Without an explicit `location /mcp`
   block, clients receive `index.html` (HTTP 200 HTML) instead of the MCP transport. Both
@@ -308,6 +342,7 @@ Backend (H2, `mvn test`):
 - `service/TradeRepublicSyncServiceTest`, `service/sync/MemberSyncServiceTest` — session lookup,
   Finary failures and transaction-proxy exit errors retain their throwable and do not stop later sources.
 - `service/SyncStatusServiceTest` — last sync, status and reauth flag per connection; a secret never appears in the text.
+- `mcp/McpStreamableHttpTest` — opt-in transport over HTTP with both an access key and an OAuth-shaped MCP JWT: exact `2025-11-25` negotiation, tool discovery, member isolation, scope denial, API rejection, and session cleanup. Requires Docker and PostgreSQL.
 - `mcp/McpSseKeepAliveTest` — real SSE transport with a 1 s keep-alive: after `initialize`, a server `ping` arrives on the idle stream with no client traffic.
 - `mcp/SyncToolsSseTest` — real SSE transport: `GET /mcp`, then `tools/call trigger_full_sync` with a `sync:trigger` key, and the per-source summary comes back. The sync itself is stubbed so the test does not call a bank.
 - `service/AccountConnectionServiceTest` — last-account cleanup, connection preservation, and deletion results with labels captured before the connection is removed.
