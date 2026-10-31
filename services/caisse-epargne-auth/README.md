@@ -59,7 +59,8 @@ Supported products, from `productFamilyPFM.code` / `subProductFamilyPFM.code`
 | `3` / `01` (or label `LIVRET A` without a sub code) | `LIVRET_A` | `contractPfmId` |
 | `3` / `28` | `LDDS` | `contractPfmId` |
 | `4` / `05` | `PER` (complete owned UC + euro-fund detail, total >= 0) | `contract:<contractId.id>` |
-| `6` / `12` | `LOAN` (balance = outstanding capital, <= 0) | `contract:<contractId.id>` |
+| `6` / `12` | `LOAN` (personal loan; balance = outstanding capital, <= 0) | `contract:<contractId.id>` |
+| `6` / `13` | `LOAN` (home loan, "Crédit immobilier"; same balance rule) | `contract:<contractId.id>` |
 | anything else (home insurance `5`, other sub codes) | listed in `unsupported`, never imported, never fatal | pfm id, else `contract:<id>` |
 
 #### Second token: personal loan
@@ -77,11 +78,42 @@ The detail fills `loan` on the LOAN account. Dates come as `DD/MM/YYYY`, the
 nominal rate `folder.tNC` in percent. `participants` (names) and
 `linkedAccount.label` are never read. `insuranceMonthly` is derived, not read:
 installment minus the annuity at the nominal rate, rounded to the cent, null
-when negative (the bank's installment includes the borrower insurance).
+when negative (the bank's installment includes the borrower insurance). Figures
+the 28-digit decimal context cannot carry refuse the detail
+(`INVALID_LOAN_DETAIL`): an amount of 10^26 or more cannot be rounded to the
+cent, and a rate around 1e-30 % makes the annuity divide by zero.
 A detail that cannot be read (loan OAuth refused, 5xx, format change) leaves the
 LOAN out of `accounts` and lists it in `unavailable`; only its error code is
 logged, and the rest of the import goes on. Without a loan token provider,
 `loan` stays null.
+
+#### Third token: home loan
+
+A home loan is managed by another web app (`gestion-client/credit-immobilier`),
+served by the BPCE group hosts (observed live 2026-10-25). Its token comes from
+`www.as-ext-bad-me.bpce.fr`, through the same authorize -> AuthnRequest ->
+consume -> token chain, with that app's public client and redirect, an empty
+`scope` and no `claims` (`replay.HOME_LOAN_CHAIN`). These two BPCE hosts, and
+only them, are added to the allow-list. The detail is
+`GET https://www.rs-ext-bad-me.bpce.fr/bapi/loan/v1/loans/<entityCode>-<contractId.id>`
+(`accounts_parser.parse_home_loan_detail`): ISO dates, the rate in percent in
+`nextDuedateRate`, `duration` in installments. The first due date is not given:
+it is the last one minus `duration - 1` months, clamped to the end of a short
+month (a loan due on the 31st and ending 2042-05-31 over 4 installments starts
+2042-02-28; the backend takes the due day back from the last due date). The
+backend also leaves the Debt as it was when an amount does not fit its
+`NUMERIC(20, 8)` columns (10^12 or more), so the import goes on. A
+duration that puts that date out of range refuses the detail
+(`INVALID_LOAN_DETAIL`). The debit account comes without
+its IBAN, so `linkedIban` is null and the backend keeps whatever account the
+user linked the loan's Debt to (often the financed property). As for a personal
+loan, the insurance is the installment minus the annuity, both to the cent:
+`0.00` when they match (e.g. the insurance is taken elsewhere), nothing when the
+installment is below the annuity.
+Amounts must be in EUR. The schedule assumes level installments, like the personal
+loan: a deferred or stepped home loan is not detected. A refusal (401) from the
+BPCE hosts, token or detail, leaves only the home loan in `unavailable`
+(`UPSTREAM_UNAVAILABLE`) and never fails the import or the session.
 
 Response 200 (money as decimal strings, never floats; a card's `balance` is its
 outstanding, the sum of operations with a future `dueDate`, so <= 0):
@@ -176,7 +208,7 @@ bank files them under another id, the import fails with
 
 ## Safety
 
-- SSRF guard: authorize, token, SAML and the `action` URLs returned by the bank must be `https` on `*.caisse-epargne.fr` (default port, no userinfo, no apex). A URL that fails is rejected before any request is sent. Redirects are never followed.
+- SSRF guard: authorize, token, SAML and the `action` URLs returned by the bank must be `https` on `*.caisse-epargne.fr` (default port, no userinfo, no apex), or on exactly one of the two home-loan hosts `www.as-ext-bad-me.bpce.fr` and `www.rs-ext-bad-me.bpce.fr` (never a wildcard on `bpce.fr`). A URL that fails is rejected before any request is sent. Redirects are never followed.
 - Finite timeouts (10 s connect, 25 s per request), response bodies capped at 1 MiB, the httpx client is always closed.
 - Cookies, SAML payloads, codes, tokens and authorize parameters are never logged or returned. The access token lives only in an in-memory cache until `expires_in - 30 s` (at most 64 entries) and is never returned by the API.
 - Read-only target: the OAuth/SAML replay POSTs and, for `/accounts`, GET data calls only. No balance, label, IBAN or token is ever logged.
@@ -233,7 +265,8 @@ Rules:
 - The pad is typed once: a refusal never triggers a second attempt, here or
   anywhere in the stack (a wrong password costs a bank attempt).
 - Navigation is allow-listed: any request outside `https://*.caisse-epargne.fr`
-  is aborted at the browser (`context.route`).
+  and the two exact BPCE home-loan hosts (`replay.is_allowed_url`) is aborted at
+  the browser (`context.route`).
 - The returned state keeps only cookies on `caisse-epargne.fr`, and the
   authorize query of the first `/api/oauth/v2/authorize` request made from the
   client space (without `code_challenge`, `code_challenge_method`, `nonce`),
@@ -253,7 +286,8 @@ Rules:
   the client-space URL or the timeout decide, so an informational alert can never
   become a false `INVALID_CREDENTIALS` (the user would retype and risk a lock).
 - Browser context: service workers blocked; WebSocket connections to hosts outside
-  `https://*.caisse-epargne.fr` (as `wss://`) are closed (`context.route_web_socket`).
+  `https://*.caisse-epargne.fr` and the two BPCE home-loan hosts (as `wss://`) are
+  closed (`context.route_web_socket`).
 - The 10 key images are re-read and compared to the pinned ones before every
   click; any change (reshuffle, missing image, extra key, bigger image) stops
   with `KEYPAD_CHANGED` and no further click.

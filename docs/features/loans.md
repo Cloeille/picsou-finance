@@ -1,6 +1,6 @@
 # Feature: Loan accounts (LOAN type)
 
-> Last updated: 2026-07-08
+> Last updated: 2026-10-31
 
 ## Sign convention
 
@@ -113,6 +113,11 @@ BalanceSnapshot persisted  →  historical balance chart steps down monthly
 
 - **A computed monthly payment includes the insurance.** `monthlyPayment` is the whole installment; the schedule subtracts `insuranceMonthly` from it before amortising. A user-entered payment already includes the insurance, a computed annuity does not, so `LoanAmortizationService` adds it when it computes the payment itself. Before that, every installment under-amortised the capital by the insurance and the last installment absorbed the shortfall.
 - **A `Debt` without a start and an end date has no schedule.** `computeRemainingBalance` then answers the borrowed amount, not what is owed, so `AccountService.valuation` and `RealEstateSummaryService` check `LoanAmortizationService.hasSchedule` first and fall back to the balance stored on the loan account.
+- **Installment *i* falls *i* months after `startDate`, each clamped to its own month.** The due
+  day is `startDate`'s, except when `startDate` is the last day of its month and `endDate` falls on
+  a later day: `startDate` was then clamped (a loan due on the 31st whose first installment is
+  31 March can only start on 28 February), and the due day is `endDate`'s. Chaining `plusMonths`
+  from 28 February dated every installment on the 28th.
 - **The last installment absorbs the rounding residue.** With BigDecimal precision and scale 2,
   240 monthly capitals do not sum exactly to the borrowed amount; the service forces the
   last installment to bring `remainingBalance` to zero.
@@ -138,6 +143,6 @@ BalanceSnapshot persisted  →  historical balance chart steps down monthly
 
 - `LoanAmortizationServiceTest` — zero rate, computed monthly payment, paid installments from
   asOf date, capitalRepaidPct, insurance split, totalCost includes fileFees, finished loan,
-  not-yet-started loan, `computeRemainingBalance`
+  not-yet-started loan, `computeRemainingBalance`, installment dates of a loan due at month end
 - `AccountControllerLoanTest` — endpoint delegates correctly, propagates 404 (no Debt) and 400
   (account is not LOAN)
