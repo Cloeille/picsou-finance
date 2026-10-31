@@ -665,7 +665,7 @@ public class CaisseEpargneSyncService {
      * sends are written: file fees, or anything else the user typed, stay. {@code startDate} is
      * one month before the first due date, on the loan's due day, because the schedule dates
      * installment i at {@code startDate + i months}. The debited account is the member's account
-     * with that IBAN: one of this import (its IBAN is never stored), else one already stored, else
+     * with that IBAN in EUR: one of this import (its IBAN is never stored), else one already stored, else
      * none. With no debit IBAN the linked account is left as it was.
      */
     private void upsertLoanDebts(
@@ -721,7 +721,7 @@ public class CaisseEpargneSyncService {
             .filter(a -> iban.equals(a.iban()))
             .toList();
         if (inImport.isEmpty()) {
-            return accountRepository.findByIbanAndMemberId(iban, memberId).orElse(null);
+            return accountRepository.findByIbanAndCurrencyAndMemberId(iban, "EUR", memberId).orElse(null);
         }
         // The bank itself shows this IBAN on this import: never guess past an ambiguity there,
         // nor fall back to another account that happens to carry the same IBAN.

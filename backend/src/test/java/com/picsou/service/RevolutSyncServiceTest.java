@@ -22,6 +22,7 @@ import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.sync.SyncProgressService;
 import com.picsou.service.sync.SyncProvider;
+import com.picsou.util.LogSanitizer;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -162,10 +163,10 @@ class RevolutSyncServiceTest {
         // Sidecar order is not guaranteed -- pocket listed before its wallet on purpose.
         when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID)).thenReturn(List.of(pocket, wallet));
 
-        when(accountRepository.findByIbanAndMemberId(IBAN, MEMBER_ID)).thenReturn(Optional.empty());
+        when(accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID)).thenReturn(Optional.empty());
         when(accountRepository.findByExternalAccountIdAndMemberId("wallet-1", MEMBER_ID)).thenReturn(Optional.empty());
         when(accountRepository.findByExternalAccountIdAndMemberId("pocket-1", MEMBER_ID)).thenReturn(Optional.empty());
-        lenient().when(accountRepository.existsSoftDeletedByIbanAndMemberId(IBAN, MEMBER_ID)).thenReturn(false);
+        lenient().when(accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID)).thenReturn(false);
         lenient().when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(anyString(), eq(MEMBER_ID)))
             .thenReturn(false);
         when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(member));
@@ -386,7 +387,7 @@ class RevolutSyncServiceTest {
             "revolut-wallet-1", "Revolut EUR", AccountType.CHECKING, IBAN, bd("1500.00"), "EUR", null, List.of());
         when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID)).thenReturn(List.of(walletData));
 
-        when(accountRepository.findByIbanAndMemberId(IBAN, MEMBER_ID)).thenReturn(Optional.of(existingEbAccount));
+        when(accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID)).thenReturn(Optional.of(existingEbAccount));
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
         stubToResponseMirrorsAccount();
         // No prior RevolutSession row -- applyPostSyncSessionState creates the "sidecar synced" marker.
@@ -640,6 +641,46 @@ class RevolutSyncServiceTest {
         }
     }
 
+    @Test
+    void resyncReporting_softDeletedByIban_logsOnlyIbanFingerprint() throws Exception {
+        String syntheticIban = "FR00SYNTHETICDELETED";
+        RevolutSession stored = RevolutSession.builder().member(member())
+            .credentialsEnc("enc-blob").rememberCredentials(true).build();
+        when(sessionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.of(stored));
+        String credentials = objectMapper.writeValueAsString(Map.of("phone", PHONE, "passcode", PASSCODE));
+        when(encryption.decrypt("enc-blob")).thenReturn(credentials);
+        RevolutAccountData wallet = new RevolutAccountData(
+            "synthetic-deleted-wallet", "Synthetic wallet", AccountType.CHECKING, syntheticIban,
+            bd("100"), "EUR", null, List.of());
+        when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID, false)).thenReturn(List.of(wallet));
+        when(accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(syntheticIban, "EUR", MEMBER_ID))
+            .thenReturn(true);
+        ch.qos.logback.classic.Logger logger =
+            (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(RevolutSyncService.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            var result = service.resyncReporting(MEMBER_ID);
+
+            assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.SYNCED);
+            verify(accountRepository, never()).save(any());
+            assertThat(logs.list).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.INFO);
+                assertThat(event.getFormattedMessage())
+                    .contains("skipping resurrection", LogSanitizer.fingerprint(syntheticIban));
+            });
+            assertThat(logs.list).extracting(ILoggingEvent::getFormattedMessage)
+                .allSatisfy(message -> assertThat(message).doesNotContain(syntheticIban));
+            assertThat(logs.list).flatExtracting(event -> event.getArgumentArray() == null
+                ? List.of() : java.util.Arrays.asList(event.getArgumentArray()))
+                .doesNotContain(syntheticIban);
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+        }
+    }
+
     // ─── Manual on-demand flow: discover (no writes) → confirmSync (persist selection) ──────────
 
     /**
@@ -653,7 +694,7 @@ class RevolutSyncServiceTest {
         RevolutAccountData wallet = new RevolutAccountData(
             "wallet-9", "Revolut EUR", AccountType.CHECKING, IBAN, bd("300.00"), "EUR", null, List.of());
         when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID)).thenReturn(List.of(wallet));
-        when(accountRepository.findByIbanAndMemberId(IBAN, MEMBER_ID)).thenReturn(Optional.empty());
+        when(accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID)).thenReturn(Optional.empty());
         when(accountRepository.findByExternalAccountIdAndMemberId("wallet-9", MEMBER_ID)).thenReturn(Optional.empty());
 
         service.discover(MEMBER_ID, PHONE, PASSCODE);
@@ -725,7 +766,7 @@ class RevolutSyncServiceTest {
 
         service.confirmSync(MEMBER_ID, List.of("wallet-A"), false, true);
 
-        verify(accountRepository).restoreSoftDeletedRevolutAccount(MEMBER_ID, "wallet-A", null);
+        verify(accountRepository).restoreSoftDeletedRevolutAccount(MEMBER_ID, "wallet-A", null, "EUR");
 
         ArgumentCaptor<Account> captor = ArgumentCaptor.forClass(Account.class);
         verify(accountRepository).save(captor.capture());
@@ -753,7 +794,7 @@ class RevolutSyncServiceTest {
 
         service.confirmSync(MEMBER_ID, List.of("wallet-C"), false, true);
 
-        verify(accountRepository).restoreSoftDeletedRevolutAccount(MEMBER_ID, "wallet-C", null);
+        verify(accountRepository).restoreSoftDeletedRevolutAccount(MEMBER_ID, "wallet-C", null, "EUR");
     }
 
     /** {@code voluntary=false} (auto-sync confirm) never lifts tombstones -- a trash-delete stays respected. */
@@ -774,7 +815,7 @@ class RevolutSyncServiceTest {
 
         service.confirmSync(MEMBER_ID, List.of("wallet-D"), false, false);
 
-        verify(accountRepository, never()).restoreSoftDeletedRevolutAccount(anyLong(), anyString(), any());
+        verify(accountRepository, never()).restoreSoftDeletedRevolutAccount(anyLong(), anyString(), any(), anyString());
     }
 
     /** A confirm with nothing pending (e.g. a backend restart between discovery and confirm) fails clearly. */

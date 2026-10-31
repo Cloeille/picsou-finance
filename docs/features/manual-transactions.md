@@ -1,6 +1,6 @@
 # Feature: Manual Transactions
 
-> Last updated: 2026-09-02
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -71,6 +71,11 @@ On an investment account, the instrument field accepts **either** a Yahoo ticker
 A user-supplied "Nom" always wins over the resolved name. The same logic runs for both add and edit (`addTransaction` and `updateTransaction` share `applyInstrumentFields`).
 
 ### Balance derivation (cash accounts)
+
+A cash account is a type for which `AccountType.isLedger()` is true. An investment account
+recomputes its holdings instead, and a valued account (`SCPI`, `REAL_ESTATE`,
+`EMPLOYEE_SAVINGS`) keeps its valuation: the transaction is recorded but never moves the balance
+or its history, since summing a SCPI's dividends would replace the value of its shares.
 
 When a manual transaction is added, edited, or deleted on a **manual** cash account (`account.isManual = true`), `ManualTransactionService` recomputes `account.currentBalance` as the sum of all transaction amounts via a single aggregate query (`sumAmountByAccountId`). It then calls `FinaryPersistenceHelper.reconstructSnapshotsFromDb()` to rebuild the balance history from scratch.
 

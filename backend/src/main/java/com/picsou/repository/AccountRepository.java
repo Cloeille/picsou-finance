@@ -90,6 +90,12 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
      */
     Optional<Account> findByIbanAndMemberId(String iban, Long memberId);
 
+    /** Currency distinguishes subaccounts sharing an IBAN while allowing provider uid rotation. */
+    Optional<Account> findByIbanAndCurrencyAndMemberId(String iban, String currency, Long memberId);
+
+    /** Prevent IBAN backfill from making another active account's currency-aware lookup ambiguous. */
+    boolean existsByIbanAndCurrencyAndMemberIdAndIdNot(String iban, String currency, Long memberId, Long id);
+
     /** Match a legacy provider value exactly, without merging a different provider's account. */
     Optional<Account> findFirstByIbanAndMemberIdAndProvider(String iban, Long memberId, String provider);
 
@@ -107,6 +113,17 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
         nativeQuery = true)
     boolean existsSoftDeletedByIbanAndMemberId(
         @Param("iban") String iban,
+        @Param("memberId") Long memberId
+    );
+
+    /** A deleted currency subaccount must not suppress other currencies sharing its IBAN. */
+    @Query(value =
+        "SELECT EXISTS(SELECT 1 FROM account " +
+        "  WHERE iban = :iban AND currency = :currency AND member_id = :memberId AND deleted_at IS NOT NULL)",
+        nativeQuery = true)
+    boolean existsSoftDeletedByIbanAndCurrencyAndMemberId(
+        @Param("iban") String iban,
+        @Param("currency") String currency,
         @Param("memberId") Long memberId
     );
 
@@ -162,8 +179,8 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
 
     /**
      * Lifts the soft-delete tombstone for a single Revolut account (by external id or, if
-     * present, IBAN), mirroring the OR key used by the existence checks above. Used by the
-     * manual sync + selection confirm path ({@code RevolutSyncService.confirmSync}) to restore
+     * present, IBAN and currency), mirroring the OR key used by the existence checks above.
+     * Used by the manual sync + selection confirm path ({@code RevolutSyncService.confirmSync}) to restore
      * only the accounts the member explicitly selected, rather than the blanket per-provider
      * restore in {@link #restoreSoftDeletedRevolutAccounts} used on full reconnect.
      */
@@ -171,11 +188,12 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     @Query(value =
         "UPDATE account SET deleted_at = NULL " +
         "WHERE member_id = :memberId AND provider = 'Revolut' AND deleted_at IS NOT NULL " +
-        "AND (external_account_id = :externalId OR (:iban IS NOT NULL AND iban = :iban))",
+        "AND (external_account_id = :externalId OR (:iban IS NOT NULL AND iban = :iban AND currency = :currency))",
         nativeQuery = true)
     void restoreSoftDeletedRevolutAccount(
         @Param("memberId") Long memberId,
         @Param("externalId") String externalId,
-        @Param("iban") String iban
+        @Param("iban") String iban,
+        @Param("currency") String currency
     );
 }
