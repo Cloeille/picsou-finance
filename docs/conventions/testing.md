@@ -84,7 +84,8 @@ would paper over.
 `AccountEnumH2Dialect` registers `SqlTypes.NAMED_ENUM` as `VarcharJdbcType` because `Account.type`
 explicitly requests PostgreSQL's named-enum JDBC type. A VARCHAR fixture column alone does not
 override that mapping. A dedicated regression persists and reloads `AccountType.CHECKING`.
-The other cases exercise Enable Banking and Revolut matching. The test sets
+The other cases exercise Enable Banking and Revolut matching and EUR snapshots, plus Caisse
+d'Epargne loan linking to the EUR account after a shared-IBAN import. The test sets
 `spring.jpa.properties.hibernate.dialect` to override the application's PostgreSQL dialect.
 The override stays in that context and does not validate PostgreSQL enum semantics.
 

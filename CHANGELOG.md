@@ -277,6 +277,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   IBAN matching and deletion guards include currency while retaining uid-rotation support.
   Revolut discovery and sync use the same currency-aware match for these imported accounts.
   Deleting or voluntarily restoring one currency does not affect another sharing its IBAN.
+  Caisse d'Epargne loans link to the member's EUR account when currencies share an IBAN,
+  keeping the import from failing on multiple matches. Revolut converts native balances to
+  EUR before writing snapshots, keeping their value and invested amount in the same currency.
 
 - **Numbers and labels follow the interface language.** Percentages are formatted by the
   locale everywhere ("8,3 %" in French, "8.3%" in English) instead of a dot and a hand-placed

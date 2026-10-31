@@ -526,7 +526,7 @@ public class RevolutSyncService {
         }
 
         account = accountRepository.save(account);
-        accountService.upsertSnapshot(account, data.balance(), LocalDate.now());
+        accountService.upsertSnapshotFromNative(account, data.balance(), LocalDate.now());
 
         ingestTransactions(account, data, ctx, transferLegs);
 

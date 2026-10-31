@@ -67,6 +67,11 @@ The IBAN-based soft-delete guard also includes currency. Deleting one currency l
 currencies eligible for import. Voluntary selection restores only the selected external id or
 IBAN and currency, so selecting EUR leaves a deleted GBP wallet deleted.
 
+Accounts keep their native balances. Snapshot balances and invested amounts are stored in EUR,
+using `AccountService.upsertSnapshotFromNative`. Confirming a GBP wallet with an unchanged balance
+of GBP 200 at a synthetic GBP/EUR rate of 1.20 keeps both snapshot amounts at EUR 240, including
+when Revolut matches an account previously imported by Enable Banking.
+
 ### Transactions for pockets and vaults
 
 The harvest fetches the existing bounded 90-day transaction window for every real
@@ -321,8 +326,9 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 - `backend/.../service/RevolutSyncServiceTest.java` — sync mapping (pockets/vaults), IBAN dedup vs
   Enable Banking, transaction dedup, remembered-vs-not credentials, always-upsert session marker row.
 - `SyncServiceCurrencyMatchTest` persists synthetic Enable Banking accounts with a shared IBAN,
-  then runs Revolut discovery and confirmation. It checks currency-specific updates, deletion
-  guards, and voluntary restoration against real repository queries on H2.
+  then runs Revolut discovery and confirmation for EUR, GBP, and missing-currency wallets. It
+  checks currency-specific updates, EUR snapshot balances and invested amounts, deletion guards,
+  and voluntary restoration against real repository queries on H2.
 - Live end-to-end (login + harvest against a real account) is still pending the account cool-down.
 - Note: 3 tests are red independently of this feature (`CashflowFlowServiceTest` ×3 — pre-existing
   budget NPE issues; verified via `git stash`). `RevolutPocketServiceTest` and

@@ -1,23 +1,32 @@
 package com.picsou.service;
 
+import com.picsou.config.CryptoEncryption;
 import com.picsou.dto.AccountResponse;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
+import com.picsou.model.CaisseEpargneSession;
+import com.picsou.model.CaisseEpargneSyncStatus;
+import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Requisition;
 import com.picsou.model.RequisitionStatus;
 import com.picsou.port.BankConnectorPort;
+import com.picsou.port.CaisseEpargnePort;
 import com.picsou.port.PriceProviderPort;
 import com.picsou.port.RevolutPort;
 import com.picsou.port.RevolutPort.RevolutAccountData;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
+import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.RevolutSessionRepository;
+import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
+import com.picsou.service.budget.CategoryService;
 import com.picsou.service.budget.RecurringDetectionService;
 import com.picsou.service.sync.SourceSyncResult;
 import com.picsou.service.sync.SyncProgressService;
@@ -45,6 +54,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -71,6 +81,7 @@ class SyncServiceCurrencyMatchTest {
 
     @Autowired AccountRepository accountRepository;
     @Autowired BalanceSnapshotRepository snapshotRepository;
+    @Autowired DebtRepository debtRepository;
     @Autowired FamilyMemberRepository memberRepository;
     @Autowired TestEntityManager entityManager;
     @Autowired PlatformTransactionManager transactionManager;
@@ -97,8 +108,8 @@ class SyncServiceCurrencyMatchTest {
         when(priceProvider.getFxRateToEur("GBP")).thenReturn(new BigDecimal("1.20"));
         accountService = spy(new AccountService(
             accountRepository, snapshotRepository, mock(AccountHoldingRepository.class),
-            null, null, null, null, null, new PriceService(priceProvider, null),
-            null, null, null, null, null, null, null));
+            null, null, null, debtRepository, null, new PriceService(priceProvider, null),
+            new LoanAmortizationService(), null, null, null, null, null, null));
         // Only response enrichment is stubbed; snapshot persistence and FX conversion run normally.
         doReturn(mock(AccountResponse.class)).when(accountService).toResponse(any(Account.class));
         syncService = new SyncService(bankConnector, accountRepository, requisitionRepository,
@@ -191,17 +202,20 @@ class SyncServiceCurrencyMatchTest {
 
     @ParameterizedTest
     @NullSource
-    @ValueSource(strings = "EUR")
-    void revolutDiscoveryAndConfirm_sharedIban_updatesOnlyMatchingCurrency(String walletCurrency) {
+    @ValueSource(strings = {"EUR", "GBP"})
+    void revolutDiscoveryAndConfirm_sharedIban_updatesOnlyMatchingCurrencyAndKeepsEurSnapshots(String walletCurrency) {
         when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(
             data("uid-eur", "EUR", "100"), data("uid-gbp", "GBP", "200")));
         syncAndReload();
         List<Account> imported = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId());
         Account eur = accountInCurrency(imported, "EUR");
         Account gbp = accountInCurrency(imported, "GBP");
+        assertSnapshot(gbp, "240");
+        boolean gbpWallet = "GBP".equals(walletCurrency);
+        String walletId = gbpWallet ? "revolut-gbp" : "revolut-eur";
         SyncProgressService progress = new SyncProgressService();
         RevolutSyncService revolut = revolutService(progress, List.of(
-            wallet("revolut-eur", walletCurrency, "125")));
+            wallet(walletId, walletCurrency, gbpWallet ? "200" : "125")));
 
         assertThat(progress.startIfIdle(member.getId(), SyncProvider.REVOLUT)).isTrue();
         revolut.discover(member.getId(), "+33000000000", "000000");
@@ -210,26 +224,74 @@ class SyncServiceCurrencyMatchTest {
         assertThat(preview.done()).isTrue();
         assertThat(preview.error()).isNull();
         assertThat(preview.discovered()).singleElement().satisfies(account -> {
-            assertThat(account.externalId()).isEqualTo("revolut-eur");
+            assertThat(account.externalId()).isEqualTo(walletId);
             assertThat(account.alreadyImported()).isTrue();
         });
         assertThat(accountRepository.findByIdAndMemberId(eur.getId(), member.getId()).orElseThrow()
             .getCurrentBalance()).isEqualByComparingTo("100");
 
-        assertThat(revolut.confirmSync(member.getId(), List.of("revolut-eur"), false, false)).hasSize(1);
+        assertThat(revolut.confirmSync(member.getId(), List.of(walletId), false, false)).hasSize(1);
         entityManager.flush();
         entityManager.clear();
 
         List<Account> accounts = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId());
         assertThat(accounts).extracting(Account::getId).containsExactlyInAnyOrder(eur.getId(), gbp.getId());
         Account updatedEur = accountInCurrency(accounts, "EUR");
-        assertThat(updatedEur.getExternalAccountId()).isEqualTo("revolut-eur");
-        assertThat(updatedEur.getCurrentBalance()).isEqualByComparingTo("125");
-        Account unchangedGbp = accountInCurrency(accounts, "GBP");
-        assertThat(unchangedGbp.getExternalAccountId()).isEqualTo("uid-gbp");
-        assertThat(unchangedGbp.getCurrentBalance()).isEqualByComparingTo("200");
-        assertSnapshot(updatedEur, "125");
-        assertSnapshot(unchangedGbp, "240");
+        assertThat(updatedEur.getExternalAccountId()).isEqualTo(gbpWallet ? "uid-eur" : "revolut-eur");
+        assertThat(updatedEur.getCurrentBalance()).isEqualByComparingTo(gbpWallet ? "100" : "125");
+        Account updatedGbp = accountInCurrency(accounts, "GBP");
+        assertThat(updatedGbp.getExternalAccountId()).isEqualTo(gbpWallet ? "revolut-gbp" : "uid-gbp");
+        assertThat(updatedGbp.getCurrentBalance()).isEqualByComparingTo("200");
+        assertSnapshot(updatedEur, gbpWallet ? "100" : "125");
+        assertSnapshot(updatedGbp, "240");
+        assertThat(snapshotRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void caisseEpargneSync_sharedIban_linksLoanToImportedEurAccount() {
+        when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(
+            data("uid-eur", "EUR", "100"), data("uid-gbp", "GBP", "200")));
+        syncAndReload();
+        List<Account> imported = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId());
+        Account eur = accountInCurrency(imported, "EUR");
+        Account gbp = accountInCurrency(imported, "GBP");
+        CaisseEpargnePort port = mock(CaisseEpargnePort.class);
+        CaisseEpargnePort.LoanDetails loan = new CaisseEpargnePort.LoanDetails(
+            new BigDecimal("10000"), new BigDecimal("0.045"), new BigDecimal("230"), new BigDecimal("2"),
+            LocalDate.of(2026, 1, 10), LocalDate.of(2026, 2, 5), LocalDate.of(2028, 1, 5), 24, IBAN);
+        when(port.fetchAccounts("synthetic-state")).thenReturn(new CaisseEpargnePort.AccountsSnapshot(
+            List.of(new CaisseEpargnePort.AccountData("synthetic-loan", "LOAN", "Synthetic loan",
+                new BigDecimal("-9000"), "EUR", null, false, null, null, null, null, null, null, null,
+                List.of(), true, loan)), List.of()));
+        CaisseEpargneSession session = CaisseEpargneSession.builder()
+            .id(1L).member(member).sessionState("synthetic-encrypted-state").active(true)
+            .syncStatus(CaisseEpargneSyncStatus.IDLE).build();
+        CaisseEpargneSessionRepository sessions = mock(CaisseEpargneSessionRepository.class);
+        when(sessions.findByMemberIdForUpdate(member.getId())).thenReturn(Optional.of(session));
+        when(sessions.findByIdAndMemberIdForUpdate(session.getId(), member.getId()))
+            .thenReturn(Optional.of(session));
+        when(sessions.findByMemberId(member.getId())).thenReturn(Optional.of(session));
+        CryptoEncryption encryption = mock(CryptoEncryption.class);
+        when(encryption.decrypt(session.getSessionState())).thenReturn("synthetic-state");
+        CaisseEpargneSyncService caisseEpargne = new CaisseEpargneSyncService(
+            port, sessions, accountRepository, mock(TransactionRepository.class), memberRepository,
+            debtRepository, accountService, mock(CategorizationService.class), mock(CategoryService.class),
+            encryption, new TransactionTemplate(transactionManager), Runnable::run, null);
+
+        assertThat(caisseEpargne.queueSync(member.getId()).syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        entityManager.flush();
+        entityManager.clear();
+
+        Account savedLoan = accountRepository.findByExternalAccountIdAndMemberId("ce_synthetic-loan", member.getId())
+            .orElseThrow();
+        Debt debt = debtRepository.findByAccountId(savedLoan.getId()).orElseThrow();
+        assertThat(debt.getLinkedAccount().getId()).isEqualTo(eur.getId());
+        assertThat(savedLoan.getCurrentBalance()).isEqualByComparingTo("9000");
+        assertThat(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId())).hasSize(3);
+        assertThat(snapshotRepository.count()).isEqualTo(3);
+        assertSnapshot(savedLoan, "9000");
+        assertSnapshot(eur, "100");
+        assertSnapshot(gbp, "240");
     }
 
     @Test
