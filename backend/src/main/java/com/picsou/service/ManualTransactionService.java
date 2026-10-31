@@ -55,6 +55,7 @@ public class ManualTransactionService {
         // link are stamped either way, and a rule or known brand may auto-assign the category).
         if (req.categoryId() != null) {
             tx.setCategoryRef(resolveCategory(req.categoryId(), memberId));
+            tx.setCategoryManual(true);
             categorizationService.enrich(tx);
         } else {
             categorizationService.autoCategorize(tx, memberId);
@@ -90,7 +91,10 @@ public class ManualTransactionService {
         if (req.fees() != null) tx.setFees(req.fees());
         if (req.currency() != null) tx.setNativeCurrency(req.currency());
         applyInstrumentFields(tx, req);
-        if (req.categoryId() != null) tx.setCategoryRef(resolveCategory(req.categoryId(), memberId));
+        if (req.categoryId() != null) {
+            tx.setCategoryRef(resolveCategory(req.categoryId(), memberId));
+            tx.setCategoryManual(true);
+        }
         transactionRepository.save(tx);
 
         recomputeDerivedState(account);

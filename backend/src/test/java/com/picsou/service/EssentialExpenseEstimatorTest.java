@@ -155,6 +155,85 @@ class EssentialExpenseEstimatorTest {
     }
 
     @Test
+    void anExchangeBetweenOwnPocketsIsExcludedThroughItsSharedId() {
+        Account cryptoPocket = account(3L, AccountType.CHECKING);
+        current.setProvider("Revolut");
+        cryptoPocket.setProvider("Revolut");
+        tx(current, 1, 5, "-1500");     // real spending
+        tx(current, 2, 5, "-1500");
+        // Revolut books both legs of "Exchanged to EUR" under one id. The source leg was
+        // stored mis-scaled, so the amounts are 10^7 apart and amount matching cannot pair them.
+        Transaction source = tx(cryptoPocket, 1, 12, "-48000000");
+        source.setExternalId("revolut-exchange-1");
+        Transaction landed = tx(current, 1, 12, "4.80");
+        landed.setExternalId("revolut-exchange-1");
+
+        EssentialExpenseEstimateResponse response = estimator.estimate(MEMBER);
+
+        assertThat(response.excludedTransferCount()).isEqualTo(1);
+        assertThat(response.estimate()).isEqualByComparingTo("1500.00");
+    }
+
+    @Test
+    void anExchangeWhoseOtherLegWasNeverStoredIsExcludedByItsLabel() {
+        tx(current, 1, 5, "-1000");
+        Transaction toBitcoin = tx(current, 1, 9, "-250");
+        toBitcoin.setDescription("Exchanged to BTC");
+        Transaction lookalike = tx(current, 1, 10, "-40");
+        lookalike.setDescription("Exchanged to BTC at the airport kiosk");
+        Transaction ordinaryWord = tx(current, 1, 11, "-60");
+        ordinaryWord.setDescription("Exchanged to cash");
+
+        EssentialExpenseEstimateResponse response = estimator.estimate(MEMBER);
+
+        assertThat(response.excludedTransferCount()).isEqualTo(1);
+        assertThat(response.estimate()).isEqualByComparingTo("1100.00");
+    }
+
+    @Test
+    void aSharedIdBetweenTwoAccountsWithoutProviderIsNotAnExchange() {
+        Account other = account(3L, AccountType.CHECKING);
+        Transaction debit = tx(current, 1, 5, "-80");
+        debit.setExternalId("same-id");
+        Transaction credit = tx(other, 1, 5, "30");
+        credit.setExternalId("same-id");
+
+        EssentialExpenseEstimateResponse response = estimator.estimate(MEMBER);
+
+        assertThat(response.excludedTransferCount()).isZero();
+        assertThat(response.estimate()).isEqualByComparingTo("80.00");
+    }
+
+    @Test
+    void aSharedIdFromAnotherProviderIsNotAnExchange() {
+        current.setProvider("Revolut");
+        Account bourso = account(3L, AccountType.CHECKING);
+        bourso.setProvider("BoursoBank");
+        Transaction debit = tx(current, 1, 5, "-80");
+        debit.setExternalId("same-id");
+        Transaction credit = tx(bourso, 1, 5, "30");
+        credit.setExternalId("same-id");
+
+        EssentialExpenseEstimateResponse response = estimator.estimate(MEMBER);
+
+        assertThat(response.excludedTransferCount()).isZero();
+        assertThat(response.estimate()).isEqualByComparingTo("80.00");
+    }
+
+    @Test
+    void aSharedIdOnTheSameAccountIsNotAnExchange() {
+        Transaction debit = tx(current, 1, 5, "-80");
+        debit.setExternalId("refund-pair");
+        Transaction refund = tx(current, 1, 6, "30");
+        refund.setExternalId("refund-pair");
+
+        EssentialExpenseEstimateResponse response = estimator.estimate(MEMBER);
+
+        assertThat(response.excludedTransferCount()).isZero();
+        assertThat(response.estimate()).isEqualByComparingTo("80.00");
+    }
+
+    @Test
     void oneIncomingCreditCannotExcuseSeveralDebitsOfTheSameAmount() {
         tx(current, 1, 5, "-500");
         tx(current, 1, 6, "-500");
