@@ -67,6 +67,12 @@ VITE_DEMO_MODE=true
 
 ## Tests
 
+From `frontend/`, run `bun run typecheck` and `bun run lint` alongside the demo
+tests (`bunx vitest run src/demo src/features/auth/guards.test.tsx`). Vitest
+transpiles TypeScript without checking for unused imports. An unused import in
+`src/demo/index.ts` fails both checks and blocks `bun run build`, including the
+demo build used by the Docker image.
+
 - `frontend/src/demo/cic.test.ts` checks all six CIC session routes through the adapter, including authentication, reconnect, sync, and deletion response shapes.
 - `frontend/src/demo/coverage.test.ts` scans the source for every `api.get('/...')` call, expands each path parameter over every demo account, goal and category id, and fails on any URL the demo adapter has no handler for. Mutations are not checked: an unhandled one still answers `200 {}` by design.
 - `frontend/src/demo/fixtures.test.ts` freezes the clock before the fixtures load and checks that they agree across pages (dashboard against Accounts, allocation stock against the accounts, an account's history against its edited balance, family against accounts and goals, goal badge against its calendar), that the calendar is identical between loads, and that the budget opens on the current month in a UTC+ zone.

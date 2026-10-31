@@ -285,22 +285,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Demo budget dates are no longer one day early east of UTC.** In Paris the demo showed the
-  current cycle as 30/09 to 30/10 on 31 October, opened the budget pages on September, and
-  listed every upcoming recurring charge a day before its series' next date. The demo now
-  writes local calendar dates, so the cycle is 01/10 to 31/10 and both recurring cards agree
-  in every timezone (#280). The demo's upcoming-charges calendar also no longer skips a
-  month after a charge due on the 31st: it moves to the last day of a shorter month, as the
-  backend does.
-- **The cashflow diagram labels every destination again.** With a dozen destinations the
-  Sankey squeezed each node to a few pixels and hid all their labels; it now grows taller
-  instead and shows each name with its amount. A card too narrow for those labels (a phone, or a
-  small window with the sidebar open) lists the flows as bars instead of folding the diagram's
-  columns over each other. The list under the flow is titled
-  "Répartition du revenu", so "Sorties" only ever means spending. A transaction card with
-  nothing to show (an account without transactions, a search with no match, an empty
-  period on `/budget/transactions`) now says so instead of staying blank, the demo serves
-  `/budget/transactions`, and the "Sans catégorie" row lines up with the rows above it.
 - **The demo no longer looks broken.** Every page now gets an answer from the demo build:
   holdings on every account, prices, connected apps, the status of each provider, the budget's
   transactions and the fourth goal no longer leave a card loading forever or a table empty. Its
@@ -353,6 +337,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   show a centred spinner rather than a full-screen dashboard placeholder or an empty
   screen. Moving between setup steps keeps the wizard frame on screen; only the step
   area stays empty until the next step loads.
+- **Demo budget dates are no longer one day early east of UTC.** In Paris the demo showed the
+  current cycle as 30/09 to 30/10 on 31 October, opened the budget pages on September, and
+  listed every upcoming recurring charge a day before its series' next date. The demo now
+  writes local calendar dates, so the cycle is 01/10 to 31/10 and both recurring cards agree
+  in every timezone (#280). The demo's upcoming-charges calendar also no longer skips a
+  month after a charge due on the 31st: it moves to the last day of a shorter month, as the
+  backend does.
+- **The cashflow diagram labels every destination again.** With a dozen destinations the
+  Sankey squeezed each node to a few pixels and hid all their labels; it now grows taller
+  instead and shows each name with its amount. A card too narrow for those labels (a phone, or a
+  small window with the sidebar open) lists the flows as bars instead of folding the diagram's
+  columns over each other. The list under the flow is titled
+  "Répartition du revenu", so "Sorties" only ever means spending. A transaction card with
+  nothing to show (an account without transactions, a search with no match, an empty
+  period on `/budget/transactions`) now says so instead of staying blank, the demo serves
+  `/budget/transactions`, and the "Sans catégorie" row lines up with the rows above it.
 - **The goal calendar shows every month without a hidden scroller.** The year grid now wraps
   (six months per row on a desktop, three on a phone) and opens on the current month, where it
   used to cut off at May or June and hide the recent months behind a horizontal scroll. The goal
