@@ -32,6 +32,7 @@ import {
   useExecuteFinaryApiSync,
   useFinaryAutoSync,
 } from '@/features/sync/hooks'
+import { availableTargets, initialFinaryMappings } from '@/features/sync/finary-mappings'
 import type {
   Account,
   FinaryPreviewResponse,
@@ -163,7 +164,7 @@ export function FinaryTab() {
         setTotpCode('')
 
         if (data.autoMapped && data.suggestedMappings) {
-          executeWithMappings(data.fileToken, data.suggestedMappings)
+          executeWithMappings(data.fileToken, data.suggestedMappings, true)
         } else {
           setStep(2)
         }
@@ -202,7 +203,9 @@ export function FinaryTab() {
     })
   }
 
-  function executeWithMappings(token: string, mappingsToUse: FinaryAccountMapping[]) {
+  // The mode is a parameter, not read from isApiSync: handleSync calls this in the
+  // same tick it calls setIsApiSync(true), when the closure still holds the old value.
+  function executeWithMappings(token: string, mappingsToUse: FinaryAccountMapping[], apiSync: boolean) {
     setLoading(true)
     setError(null)
     const onSuccess = (data: FinaryImportResultResponse) => {
@@ -219,7 +222,7 @@ export function FinaryTab() {
 
     // Each mutation takes a distinct payload shape — branch so the call stays
     // type-safe instead of erasing it with a cast.
-    if (isApiSync) {
+    if (apiSync) {
       executeApiMutation.mutate({ syncToken: token, mappings: mappingsToUse }, { onSuccess, onError })
     } else {
       importMutation.mutate({ fileToken: token, mappings: mappingsToUse }, { onSuccess, onError })
@@ -262,21 +265,7 @@ export function FinaryTab() {
   // ----- Mapping -----
 
   function initMappings(preview: FinaryPreviewResponse) {
-    const initialMappings: FinaryAccountMapping[] = preview.accounts.map((account) => ({
-      finaryId: account.finaryId,
-      finaryName: account.finaryName,
-      finaryCategory: account.finaryCategory,
-      action: 'CREATE_NEW' as FinaryMappingAction,
-      targetAccountId: undefined,
-      newAccount: {
-        name: account.finaryName,
-        type: account.suggestedType,
-        provider: account.finaryInstitution,
-        currency: account.nativeCurrency,
-        color: ACCOUNT_COLORS[preview.accounts.indexOf(account) % ACCOUNT_COLORS.length],
-      },
-    }))
-    setMappings(initialMappings)
+    setMappings(initialFinaryMappings(preview))
   }
 
   function setMappingAction(index: number, action: FinaryMappingAction) {
@@ -315,7 +304,7 @@ export function FinaryTab() {
 
   function handleImport() {
     if (!previewData) return
-    executeWithMappings(previewData.fileToken, mappings)
+    executeWithMappings(previewData.fileToken, mappings, isApiSync)
   }
 
   function handleDelete() {
@@ -556,7 +545,7 @@ export function FinaryTab() {
                 key={account.finaryCategory + account.finaryId}
                 account={account}
                 mapping={mappings[index]}
-                existingAccounts={previewData.existingPicsouAccounts}
+                existingAccounts={availableTargets(previewData.existingPicsouAccounts, mappings, index)}
                 onActionChange={(action) => setMappingAction(index, action)}
                 onTargetChange={(id) => updateMapping(index, { targetAccountId: id })}
                 onNewAccountField={(field, value) => updateNewAccountField(index, field, value)}
@@ -647,7 +636,7 @@ function MappingCard({
             </p>
           </div>
           <div className="text-right shrink-0 ml-3">
-            <CurrencyDisplay value={account.currentBalance} />
+            <CurrencyDisplay value={account.currentBalance} currency={account.nativeCurrency} />
             <p className="text-xs text-muted-foreground">{account.transactionCount} tx</p>
           </div>
         </div>

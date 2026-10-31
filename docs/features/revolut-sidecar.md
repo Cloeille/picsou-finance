@@ -132,7 +132,9 @@ do not generate financial activity just to exercise this connector.
 Run the Python tests with real installed dependencies:
 `python -m pytest -p no:logging --asyncio-mode=auto -q tests` from
 `services/revolut-auth/`. Disabling pytest's logging plugin lets the existing
-root-formatter installation test inspect the application's own logger.
+root-formatter installation test inspect the application's own logger. CI's
+`revolut-auth-sidecar` job runs the same command inside the built image, after
+installing pinned `pytest` and `pytest-asyncio`, and image publishing waits for it.
 
 ### Key files
 

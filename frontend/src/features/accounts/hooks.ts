@@ -61,6 +61,13 @@ function recomputeWithLivePrice(
   return { currentValueEur, costBasisEur, pnlEur, pnlPercent }
 }
 
+// The backend prices a CRYPTO account crypto-only (AccountService.quotesFor). The generic /prices
+// route hands a symbol CoinGecko does not map to Yahoo Finance, so its quote would revalue a token
+// at the share price of the stock trading under the same symbol.
+function takesGenericQuotes(accountType: Account['type']): boolean {
+  return accountType !== 'CRYPTO'
+}
+
 const HOLDING_VALUE_FIELDS: readonly (keyof HoldingResponse)[] = [
   'quantity', 'currentPrice', 'quoteCurrency', 'currentValueEur', 'costBasisEur',
   'pnlEur', 'pnlPercent', 'priceAsOf', 'priceStale',
@@ -208,7 +215,10 @@ export function usePortfolio() {
       }
 
       // Fetch live prices for all tickers
-      const allTickers = [...new Set(lines.map(l => l.ticker).filter((t): t is string => t != null && t !== 'EUR'))]
+      const allTickers = [...new Set(lines
+        .filter(l => takesGenericQuotes(l.accountType))
+        .map(l => l.ticker)
+        .filter((t): t is string => t != null && t !== 'EUR'))]
       let livePrices: Record<string, number> = {}
       if (allTickers.length > 0) {
         try {
@@ -218,7 +228,7 @@ export function usePortfolio() {
 
       const now = new Date().toISOString()
       const enriched = lines.map(l => {
-        if (!l.ticker || l.ticker === 'EUR') return l
+        if (!l.ticker || l.ticker === 'EUR' || !takesGenericQuotes(l.accountType)) return l
         const livePrice = livePrices[l.ticker]
         if (livePrice == null) return l // keep backend priceUpdatedAt
         const recomputed = recomputeWithLivePrice(
@@ -359,8 +369,11 @@ export function useHoldingsWithLivePrices(id: number) {
   const query = useQuery({
     queryKey: ['accounts', id, 'holdings'],
     queryFn: async (): Promise<HoldingResponse[]> => {
-      const holdings = await accountsApi.holdings(id)
-      if (holdings.length === 0) return holdings
+      const [holdings, account] = await Promise.all([
+        accountsApi.holdings(id),
+        queryClient.ensureQueryData({ queryKey: ['accounts', id], queryFn: () => accountsApi.get(id) }),
+      ])
+      if (holdings.length === 0 || !takesGenericQuotes(account.type)) return holdings
 
       const tickers = [...new Set(holdings.map(h => h.ticker))]
       try {

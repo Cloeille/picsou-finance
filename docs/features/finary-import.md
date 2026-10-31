@@ -1,6 +1,6 @@
 # Feature: Finary Import
 
-> Last updated: 2026-07-07
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -24,7 +24,7 @@ Authenticates directly with Finary via Clerk (their auth provider) and fetches a
 - **Authentication**: `FinaryApiClient.authenticate()` performs a 6-step Clerk OAuth flow: GET environment, GET client, POST sign_ins, (optionally POST TOTP), POST session touch, POST tokens. Returns a JWT for API calls.
 - **TOTP/2FA handling**: When Clerk returns `needs_second_factor`, the backend throws `TotpRequiredException` → HTTP 403. The frontend detects 403 on the preview mutation, shows a TOTP input field, then retries with `?totp={code}` as query parameter.
 - **Preview**: `preview(totp)` authenticates, fetches accounts from all 10 portfolio categories **plus the dedicated `/loans` endpoint** (loans are not exposed as a portfolio category), fetches transactions (paginated, 200 per page), caches everything with a `syncToken`, returns previews.
-- **Execute**: `execute(syncToken, mappings)` retrieves cached data, applies user mappings, creates/updates accounts, imports transactions.
+- **Execute**: `execute(syncToken, mappings)` retrieves cached data, applies user mappings, creates/updates accounts, imports holdings (positions) and transactions.
 
 ### Account mapping
 
@@ -35,6 +35,27 @@ Both paths present the user with a mapping screen where they choose for each Fin
 - **CREATE_NEW** -- Create a new Picsou account with user-specified name, type, provider, and color.
 
 Type suggestions are auto-computed from the Finary category via `FinaryPersistenceHelper.suggestTypeFromDisplayCategory()` or `suggestTypeFromApiCategory()`.
+
+### Holdings (API sync only)
+
+On execute / auto-sync, `FinaryHoldingsImporter` reads positions already nested on each account DTO:
+
+| Finary list | Picsou |
+|---|---|
+| `securities` | holding; ISIN → OpenFIGI ticker, else ISIN / symbol / slug |
+| `cryptos` | holding; ticker = crypto `code` (BTC, REG, RealT slug…) |
+| `fonds_euro`, `generic_assets`, `scpis`, `precious_metals` | holding; ticker `FINARY_<sanitized name>` |
+| `fiats` + "Solde Espèces" | `account.cash_balance`, not a holding |
+
+Each holding stores Finary's `display_current_value` and `display_unrealized_pnl` (securities: `display_current_upnl`) as `provider_value_eur` / `provider_pnl_eur`, so unlisted instruments still value on the dashboard. Native amounts never stand in for a missing display amount: their currency is not in the payload. When two lines resolve to one ticker and either has no value or no buying value, the merged holding has no provider value or no average cost either.
+
+Holdings and cash are replaced only from a complete snapshot: a payload carrying every list the importer reads (`securities`, `cryptos`, `fonds_euro`, `fiats`, `generic_assets`, `scpis`, `precious_metals`), even empty, with a `display_current_value` on every cash line and a `quantity` on every other position. A payload missing any list cannot tell an emptied group from an omitted one, a cash line without a EUR value cannot state the cash, and a position without a quantity cannot say how much is held, so in each case the account's holdings and cash are kept as they are. An explicit zero quantity still closes the position.
+
+**Display currency.** `display_*` amounts are in the display currency the user picks in Finary, which the payload does not name. `FinaryApiSyncService.displayCurrencyIsEur` proves it is EUR when every EUR account with a non-zero balance has `display_balance == balance` (to the cent) and at least one of them holds €1,000 or more. A small balance proves nothing: €0.01 also reads $0.01 once rounded. Once proven, an account stores `display_balance` in EUR and its holdings are imported. Otherwise every account stores its native `balance` in its native currency (the dashboard converts it), and holdings are left untouched. Preview shows the same amount/currency pair execute stores. Transactions are stored in their own currency. The rebuilt history is in EUR, like every snapshot: the anchor balance and each transaction, retained manual ones included, are converted first with `PriceService.getFxRateEur`, which reads the `{CURRENCY}EUR=X` pair. `getPriceEur` would price an asset instead: `USD` is also an ETF ticker. A missing rate aborts the import instead of writing an unconverted amount as EUR.
+
+**Accounts owned by another connector** (not manual, with an external id: Trade Republic, Bourso…) are never suggested by name. An explicit `MAP_EXISTING` onto one updates its balance but keeps its external id and holdings, so that connector still finds it. Two rows written into one Picsou account are rejected before anything is written. That covers a `CREATE_NEW` row whose external id already belongs to the account another row maps onto, and the XLSX import.
+
+**Suggestion order.** Every row's external-id match is reserved before any row is matched by name, so an earlier same-name row never takes the account a later row is linked to. The wizard keeps the backend's suggestion for every row it sent one for, `CREATE_NEW` included; its own name match runs only for rows without one, and only against manual accounts.
 
 ### Cache and session management
 
@@ -68,6 +89,8 @@ Possible status values: `OK`, `NEEDS_MAPPING`, `TOTP_REQUIRED`, `NOT_CONNECTED`.
 - `backend/src/main/java/com/picsou/exception/TotpRequiredException.java` -- Thrown when 2FA is required but no TOTP provided (returns 403)
 - `backend/src/main/java/com/picsou/exception/FinaryServiceUnavailableException.java` -- Thrown when Clerk/Finary APIs are unreachable (network, timeout, DNS); returns 502
 - `backend/src/main/java/com/picsou/finary/FinaryPersistenceHelper.java` -- Shared helper: account creation, snapshot reconstruction, transaction import (preserves manual transactions), type suggestion
+- `backend/src/main/java/com/picsou/finary/FinaryHoldingsImporter.java` -- Maps Finary `securities` / `cryptos` / `fonds_euro` / generic assets onto `account_holding`, records leftover cash on `account.cash_balance`
+- `backend/src/main/java/com/picsou/finary/dto/FinaryPositionDto.java` -- One Finary position line (`display_*` = EUR)
 - `backend/src/main/java/com/picsou/controller/FinaryImportController.java` -- REST endpoints for xlsx upload
 - `backend/src/main/java/com/picsou/controller/FinaryApiSyncController.java` -- REST endpoints for API sync (`/preview`, `/execute`, `/auto`)
 - `backend/src/main/java/com/picsou/finary/dto/` -- 14 DTOs for Finary API responses (incl. `FinaryLoanDto`)
@@ -97,10 +120,10 @@ FinaryImportService.executeImport(fileToken + mappings)
         +-- Retrieve cached data
         +-- For each mapping:
         |       +-- SKIP: skip
-        |       +-- MAP_EXISTING: update balance, set externalAccountId
+        |       +-- MAP_EXISTING: take the Finary balance and currency
         |       +-- CREATE_NEW: create account, set externalAccountId
         |       +-- Reconstruct balance snapshots from transactions
-        |       +-- Import transactions
+        |       +-- Import transactions (xlsx has no holdings payload)
         +-- Return result (counts + imported accounts)
 
 API Sync:
@@ -137,7 +160,11 @@ User reviews + maps accounts
 FinaryApiSyncService.execute(syncToken + mappings)
         |
         +-- Retrieve cached session
-        +-- Apply mappings + import transactions
+        +-- Apply mappings
+        +-- Reject two rows written into one Picsou account (explicit targets and upserts)
+        +-- Store display_balance in EUR once the display currency is proven EUR, native balance otherwise
+        +-- Persist holdings (ISIN → OpenFIGI ticker, crypto code as ticker), not on accounts another connector owns
+        +-- Import transactions (in their own currency, else the Finary account's native one, else reject), rebuild the history in EUR
         +-- Remove from cache
         +-- Return result
 
@@ -172,20 +199,28 @@ POST /api/finary/api-sync/auto
 | `FinaryServiceUnavailableException` → 502 | Distinguishes upstream outage (Clerk/Finary unreachable) from data sync issues; frontend shows "service unavailable" message | Returning 502 for all sync errors (confusing, cannot distinguish cause) |
 | `SyncException` → 422 | Data/sync issues (bad response, mapping failures) are client errors, not gateway errors | 502 BAD_GATEWAY (semantically wrong for data processing failures) |
 | Retry with exponential backoff | Transient HTTP 5xx and network errors from Clerk/Finary are common; retry reduces false failures | No retry (fails on first attempt even for transient issues) |
-| Auto-mapping by name | Simple heuristic that works for most cases after first manual import | ML-based matching (unnecessary complexity) |
+| Per-account mapping suggestions | Match by current `finary_{category}_{id}`, then legacy slug id, then unique name+type. One new Finary row must not wipe the rest | Fail-all on first miss (old behaviour: wizard defaulted every row to CREATE_NEW) |
+| Legacy slug id keeps the XLSX sheet name | The XLSX import wrote `finary_{sheet}_{slug}` with the sheet's display name (`finary_Checkings_checking`, `finary_Real Estate_paris_flat`), so `FinaryAccountMatcher` maps each API category (`checkings`, `real_estates`) back to its sheet before comparing | Lower-casing the stored ids (a data migration for a lookup the matcher can do) |
 
 ## Gotchas / Pitfalls
 
 - **`autoSync` is `@Transactional` in its own right.** It calls `execute()` on `this`, past the Spring proxy, so `execute`'s annotation never applies on that path; without its own transaction the daily and the manual auto-sync ran deletes, snapshot rebuilds and imports as auto-committed statements, and a failure halfway left a half-imported account.
 - **Mapping a Finary account onto a connector-owned account keeps that account's `externalAccountId`.** The other connector (Enable Banking, a broker) finds the account by that id; taking it over made it create a duplicate at its next sync. Only a manual account, or one with no external id, takes the Finary id.
+- **The XLSX preview row key is not the account's identity.** The wizard keys a row by `slug(category_name)`, but the import persists `finary_{sheet}_{slug(name)}`. The matcher adds the category itself, so the XLSX preview hands it `slug(name)`. Passing the row key built `finary_Savings_savings_emergency` for a row named "Emergency" and selected the account named "Savings Emergency", whose balance and synced transactions the import then replaced.
 - **A rebuilt snapshot holds the end-of-day balance.** Both reconstructions walk transactions newest first and record, under a day's date, the running balance before that day's transactions are subtracted (once per day). Subtracting first stored the balance before the day's movements, one day's transactions off on every rebuilt point.
 - **TOTP must be disabled for background auto-sync**: `autoSync()` passes `null` for TOTP. If 2FA is enabled on the Finary account, auto-sync returns `TOTP_REQUIRED` and the session is flagged. The user must re-authenticate interactively (via the preview endpoint with TOTP). For interactive sync via the frontend button, the TOTP input is shown and the user retries through the preview flow.
 - **Manual transactions survive Finary re-syncs**: `FinaryPersistenceHelper.importTransactions()` calls `deleteByAccountIdAndIsManualFalse()` instead of `deleteByAccountId()`. Manually-added transactions are preserved across any number of re-syncs.
 - **TOTP is a query parameter**: The TOTP code is sent as `?totp={code}` on the POST preview request. This avoids body parsing complexity but means the code is visible in server access logs.
 - **Preview tokens expire quickly**: XLSX tokens expire after 30 minutes, API sync tokens after 10 minutes. Users must complete the mapping within that window or re-upload.
 - **Clerk API version is hardcoded**: The `__clerk_api_version` and `_clerk_js_version` query parameters are hardcoded in `FinaryApiClient`. If Clerk updates, these may need to be updated.
-- **Account name matching is case-insensitive but exact**: Auto-mapping matches Finary account name to Picsou account name. If the user renamed an account in Picsou, it won't match.
+- **Account name matching is case-insensitive, trimmed, and type-aware**: a Finary `investments` row can map to PEA / CTO / épargne salariale with the same name; `fonds_euro` maps to SAVINGS/livrets, not the CTO of the same label. Two Coinbase wallets of type CRYPTO stay unmatched (ambiguous). After the first successful MAP_EXISTING, `externalAccountId` is written so the next auto-sync skips the wizard.
 - **Transactions are per-category**: API sync fetches transactions only from checkings, savings, investments, and credits categories. Other categories (real estate, cryptos) do not have a transactions endpoint.
+- **Holdings come from the account payload, not a separate endpoint**: `/portfolio/{cat}/holdings` is 404. Positions live on each account as `securities`, `cryptos`, `fonds_euro`, `fiats`, `generic_assets`, `scpis`, `precious_metals`. `FinaryHoldingsImporter` reads those lists on execute/auto-sync. XLSX import still has no holdings.
+- **Never label an amount EUR without proof**: USD crypto wallets report `balance` / `current_value` in USD, and `display_*` is in whatever display currency the user chose. Storing either as EUR unchecked is what used to inflate those wallets. See **Display currency** above. The same goes for a transaction without a currency: its `value` is in the Finary account's native currency, never the Picsou account's, which may just have switched to EUR. And when a holding has no cost, `AccountService.valuation()` uses the balance converted to EUR as the neutral baseline, because a native balance read as EUR invents a gain or loss. The 24H chart takes that same baseline from `valuation()` for such an account.
+- **A crypto code is not a stock symbol**: Finary crypto codes such as `REG` (RealToken) are also listed equities (Regency Centers). A `CRYPTO` account resolves its quotes through `PriceService`'s crypto-only paths, which check `PriceProviderPort.supportsCrypto` and never fall back to Yahoo, so a code CoinGecko does not map keeps Finary's `provider_value_eur`. The 24H chart asks `getCryptoIntradayPricesEur` for the same reason, and keys each hourly series by ticker *and* crypto-ness, so a `REG` token and a `REG` share held side by side never share a series.
+- **Cash is not a holding**: fiats and "Solde Espèces" (`symbol`/`isin` `000000000000`) go to `account.cash_balance`. Everything else is replaced on each sync (same wipe-and-write as Bourse Direct / TR).
+- **Many Finary instruments have no Yahoo ticker**: Yomoni fonds, RealT tokens, fonds euros, Amundi `QS…` employee-savings codes. `provider_value_eur` / `provider_pnl_eur` keep the Finary valuation so the live balance does not collapse to cash-only.
+- **Ticker column is VARCHAR(100)** (`V119__widen_holding_ticker.sql`): RealT property codes exceed the old 30-char limit. Names widened to 255.
 - **External IDs use Finary category + ID**: Format is `finary_{category}_{finaryId}`. This means the same Finary account always maps to the same external ID, preventing duplicates across imports.
 - **Loans come from a separate endpoint (issue #11)**: loan/mortgage accounts are *not* returned by the portfolio `credits`/`credit_accounts` categories — they live on the dedicated `/loans` endpoint. The API sync fetches them via `FinaryApiClient.fetchLoans()` and adapts each entry to the common `FinaryAccountDto` under a synthetic `loans` category (external ID `finary_loans_{id}`), so they flow through the normal preview/mapping/execute pipeline and map to `AccountType.LOAN`. The outstanding amount is stored as a **negative** balance (a loan is a liability). Only the balance is imported — the loans payload does not expose the original principal or interest rate, so **no `Debt` row is created**; the imported LOAN account shows a static balance until the user fills in the loan parameters for the amortization view (see [loans.md](loans.md)). The exact `/loans` JSON shape and path are best-effort from the issue's sample (`type`, `name`, `outstanding_amount`, `monthly_repayment`, `start_date`, `end_date`); `FinaryLoanDto` maps the snake_case keys explicitly and accepts camelCase aliases as a fallback.
 - **Import mapping wizard type dropdown includes all account types (fix #17)**: The `CREATE_NEW` type selector in `FinaryTab` now uses `ACCOUNT_TYPES` from `@/lib/constants` instead of a hard-coded subset. This ensures `LOAN` and `REAL_ESTATE` are available in the dropdown, so loans imported from `/loans` are no longer forced into `OTHER` when the user overrides the backend suggestion.
@@ -195,8 +230,13 @@ POST /api/finary/api-sync/auto
 ## Tests
 
 - `FinaryImportServiceTest` -- unit tests for xlsx parsing, type suggestion, mapping
+- `FinaryAccountMatcherTest` -- external-id vs name+type, external ids reserved before name matches, duplicate names, Fortuneo AV vs fonds euros
 - `FinaryApiSyncServiceTest` -- unit tests for API sync flow, incl. loans appearing in the preview and being created as LOAN accounts on execute
 - `FinaryLoanDtoTest` -- unit tests for parsing the `/loans` payload (snake_case + camelCase aliases)
+- `FinaryHoldingsImporterTest` -- securities / crypto / fonds-euro mapping, cash skip, ticker sanitizing, omitted, partial vs empty snapshot (every imported group), cash line without a EUR value, position without a quantity, unproven display currency, null lines, partial merged values and costs
+- `FinaryAccountHoldingsDtoTest` -- Jackson parse of `display_balance` + nested positions
+- `FinaryApiSyncServiceTest` -- preview and execute agree on the balance with and without a proven EUR display currency (a too-small EUR witness proves nothing), transactions keep their own currency (the account's native one when they omit it, rejected when neither names one), connector-owned accounts keep their id and holdings, shared targets are rejected (upserts included), `autoSync` stays transactional
+- `FinaryPersistenceHelperTest` -- rebuilt history records each day's end-of-day balance, in EUR, and aborts on a missing rate
 - Manual integration testing with real Finary accounts
 
 ## Links

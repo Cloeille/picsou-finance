@@ -608,6 +608,24 @@ information architecture.
   envelope, a drop that never happened. The cash pocket now counts in the hourly
   value and in the invested amount, as the daily chart's today point already did,
   so the gain is unchanged and the two charts agree.
+- **The 24H chart costs a Finary line the way the daily chart does.** A security Finary
+  reports with a value and a gain but no buying value has no average buy-in, and the
+  hourly points charged it nothing, so its whole value read as a gain. They now take the
+  provider's cost (value minus gain) first, as the daily valuation already did. A line
+  with neither a buying value nor a gain takes the daily chart's neutral baseline, the
+  account balance, instead of counting as free units. The average buy-in is read as the
+  EUR figure it is stored as: a Finary wallet put back in USD no longer converts it a
+  second time, which turned an 80 EUR cost into 72 EUR and an 8 EUR gain nobody made.
+- **A crypto token is never priced as the stock that shares its symbol.** The crypto-only
+  price lookups asked the combined price provider whether it supported a symbol, and
+  that provider accepts any stock symbol, so a token CoinGecko does not map reached
+  Yahoo Finance. A Finary wallet holding 10 REG (RealToken, worth 10 EUR) was valued at
+  Regency Centers' share price, 600 EUR, and the daily snapshot recorded it. Crypto
+  lookups, the hourly crypto refresh, the crypto history backfill and the 24H chart's
+  hourly series now stop at CoinGecko, and an unmapped token keeps the value its
+  connector reported. The account page and the portfolio no longer replace that value
+  with a generic live quote either: a crypto account keeps the backend's crypto-only
+  valuation, while a stock sharing the symbol in another account still refreshes live.
 - **Trade Republic and DEGIRO daily snapshots now cost today's positions, not
   yesterday's.** Both syncs took the day's snapshot before replacing the holdings,
   and the snapshot derives its invested amount from the holdings in the table, so
@@ -651,9 +669,19 @@ information architecture.
 - **Mapping a Finary account onto a bank or broker account no longer steals that
   account from its connector.** The Finary id replaced the connector's external
   id, and the connector then created a duplicate at its next sync.
+- **A Finary spreadsheet import no longer maps a row onto an account with a longer
+  name.** The preview looked accounts up with an id that carried the category twice, so
+  a `Savings` row named "Emergency" was matched to the account imported earlier as
+  "Savings Emergency". Accepting the suggestion replaced that account's balance and its
+  synced transactions. The preview now looks up the id the import stores.
 - **A rebuilt Finary or manual-cash history dates each balance at the end of its
   day.** The rebuilt snapshot for a day held the balance before that day's
   transactions, so every point of the rebuilt history was one day off.
+- **A Finary position without a quantity no longer deletes the account's holdings.**
+  The import skipped the line, then replaced the holdings with what was left, so one
+  share Finary sent with `quantity: null` vanished with its cost basis. Such a payload
+  now keeps the account's holdings and cash as they were; an explicit zero still
+  closes the position.
 - The account-deletion dialog scrolls on short screens and wraps long action
   labels without horizontal overflow.
 - Account deletion preserves the last active administrator even when other
