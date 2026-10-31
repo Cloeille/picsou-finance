@@ -145,17 +145,17 @@ export function todayLabel(locale = getLocale(), date = new Date()): string {
   return capitalizeFirstCharacter(label, safeLocale)
 }
 
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+const graphemeSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
 
-/** First `count` user-perceived characters of `value`; never splits a surrogate pair, ZWJ emoji, flag or combining accent. */
+/**
+ * First `count` user-perceived characters of `value`. Never splits a surrogate pair. Where Intl.Segmenter
+ * is available, also keeps ZWJ emojis, flags and combining accents whole; otherwise falls back to code points.
+ */
 export function firstGraphemes(value: string, count: number): string {
-  let result = ''
-  let taken = 0
-  for (const { segment } of graphemeSegmenter.segment(value)) {
-    if (taken++ === count) break
-    result += segment
-  }
-  return result
+  const parts = graphemeSegmenter
+    ? Array.from(graphemeSegmenter.segment(value), (s) => s.segment)
+    : Array.from(value)
+  return parts.slice(0, count).join('')
 }
 
 /** First character of up to two words, else the first two characters (user-perceived, not UTF-16 units). Always uppercase. At most two characters. */

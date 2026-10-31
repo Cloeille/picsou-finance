@@ -316,4 +316,17 @@ describe('deriveMonogram', () => {
     expect(deriveMonogram('ß Bank')).toBe('SB')
     expect(deriveMonogram('ßx')).toBe('SS')
   })
+
+  it('never splits a surrogate pair even when Intl.Segmenter is missing', async () => {
+    const savedSegmenter = Intl.Segmenter
+    try {
+      Object.defineProperty(Intl, 'Segmenter', { value: undefined, configurable: true })
+      vi.resetModules()
+      const { firstGraphemes } = await import('./utils')
+      expect(firstGraphemes('🚀Rocket', 2)).toBe('🚀R')
+    } finally {
+      Object.defineProperty(Intl, 'Segmenter', { value: savedSegmenter, configurable: true })
+      vi.resetModules()
+    }
+  })
 })
