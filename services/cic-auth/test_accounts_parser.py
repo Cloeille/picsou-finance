@@ -5,7 +5,7 @@ import sys
 import unittest
 from decimal import Decimal
 
-from accounts_parser import AccountsFormatError, account_type, categories_read, parse_accounts, parse_amount
+from accounts_parser import AccountsFormatError, account_type, categories_read, parse_accounts, parse_accounts_listing, parse_amount
 from fixtures import ACCOUNTS_PAGE, account_row, accounts_table
 
 
@@ -719,6 +719,33 @@ class PageTest(unittest.TestCase):
                     accounts, skipped = parse_accounts(page)
                     self.assertEqual(accounts, parse_accounts(ACCOUNTS_PAGE)[0])
                     self.assertEqual(skipped, ["autres contrats liés", category.lower() if category else "unnamed"])
+
+    def test_balance_free_percentage_offers_are_skipped(self):
+        expected_accounts, expected_skipped, expected_categories = parse_accounts_listing(ACCOUNTS_PAGE)
+        for text in ("À partir de 2,99 % TAEG", "Taux annuel : 3,50 %",
+                     "Taux annuel : 3,50%", "Taux annuel : 3,50&#8239;%"):
+            for category in ("", "Autres offres"):
+                row = ('<tr><td><span class="ei_sdsf_title">Vos contrats et nos offres</span>'
+                       f'<span>{text}</span></td><td class="ei_sdsf_solde"></td></tr>')
+                table = accounts_table(category, row)
+                page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+                with self.subTest(text=text, category=category):
+                    accounts, skipped, categories = parse_accounts_listing(page)
+                    self.assertEqual(accounts, expected_accounts)
+                    self.assertEqual(skipped, expected_skipped + [category.lower() or "unnamed"])
+                    self.assertEqual(categories, expected_categories)
+
+    def test_percentage_offers_cannot_hide_account_or_balance_data(self):
+        for data in ('<span class="doux">0001 12345678</span>',
+                     '<span class="ei_sdsf_montant">3,50 %</span>',
+                     '<td class="ei_sdsf_solde">3,50 %</td>',
+                     '<span>1 234,56 EUR</span>', '<span>1 EURO</span>',
+                     '<span>1 234,56</span>', '<span>EUR 3,50 %</span>'):
+            with self.subTest(data=data):
+                self.assert_unknown_row_fails(
+                    '<td><span class="ei_sdsf_title">Vos contrats et nos offres</span>'
+                    '<span>À partir de 2,99 % TAEG</span></td>' + data
+                )
 
     def test_whole_euro_currency_words_after_amounts_fail(self):
         for amount in ("1 EURO", "1 234,56 euros", "1 euro", "1 EUROS", "1\u202feuro"):

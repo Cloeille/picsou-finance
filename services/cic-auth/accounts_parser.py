@@ -300,8 +300,11 @@ def _has_balance(fragment: str) -> bool:
     outside_title = " ".join(parser.outside_title_parts)
     # Unknown rows may expose a balance without a currency or class marker.
     # Reuse numeric runs to avoid retrying a decimal regex at every digit.
+    # Runs consume trailing whitespace, so an adjacent % identifies an offer
+    # rate. Only the unmarked-decimal fallback ignores it; markers still win.
     return (_balance_data(parser, contract=False)
-            or any(re.search(r",\d{2}\b", match.group("number"))
+            or any((re.search(r",\d{2}\b", match.group("number"))
+                    and not outside_title.startswith("%", match.end()))
                    # Currency words must follow an amount, not just occur in prose.
                    or _EURO_WORD_RE.match(outside_title, match.end())
                    for match in _BALANCE_RE.finditer(outside_title)))

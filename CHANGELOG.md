@@ -88,7 +88,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Unknown rows with bare French decimal amounts or numeric amounts followed by the whole
   currency word `euro` or `euros` (case-insensitive) outside the title fail closed,
   even without a balance class or currency symbol. Balance-free offer text mentioning Europe
-  or "Montants en euros" no longer blocks imports. Account endpoints collect categories during
+  or "Montants en euros" no longer blocks imports. Advertised percentages such as
+  "À partir de 2,99 % TAEG" and "Taux annuel : 3,50 %" also preserve imports when no
+  account markers or balances are present. Account endpoints collect categories during
   validation so the full page is preprocessed only once. Money nested in product titles
   is detected when it includes decimal punctuation, a symbol, or grouped thousands such as
   `1 234 EUR`; a title such as `Contrat 2024 USD` remains a link.

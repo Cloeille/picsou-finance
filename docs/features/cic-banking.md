@@ -52,6 +52,10 @@ balance.
   currency does not trigger quadratic regex retries.
   Balance-free offer text such as "Découvrez nos offres en Europe" or "Montants en euros"
   remains skippable; `1 EURO` and `1 234,56 euros` still fail closed.
+  Explicit percentages such as "À partir de 2,99 % TAEG" or "Taux annuel : 3,50 %"
+  are excluded only from the bare-decimal fallback, with or without whitespace before `%`.
+  Account markers, populated balance elements, currency amounts, and other bare monetary
+  decimals in the same row still fail closed.
   Outside supported contract tables, an alphabetic currency prefix requires decimal punctuation
   or at least four digits in the amount. Uppercase prose such as `TOP 3`, `ALL 4 YOU`, or `SOS 112`
   therefore preserves the accounts in layout tables, unknown-category captions, and offer subtitles.
