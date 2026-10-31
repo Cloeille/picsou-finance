@@ -307,6 +307,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Client addresses behind trusted proxies.** The bundled TLS proxy now preserves separate
+  per-client login limits. nginx and Tomcat resolve forwarded addresses only from configured
+  proxy peers, and rate limiters and audit logs use the same resolved address. Direct client
+  headers do not replace the connection address. Public HTTP and HTTPS ports remain available
+  to same-origin checks. Caddy's configurable static address stays outside the TLS bridge's
+  automatic allocation range, allowing fresh startup and repeat deployment migrations
+  alongside the running app without address conflicts. The release deployment script
+  recreates a running bundled TLS proxy after the app cutover, applying the new network
+  and upstream while preserving certificates, so upgrades also receive the fix. It waits up to
+  60 seconds for proxy health before the API probe and fails clearly if recreation or health
+  verification fails (Compose v2.17+ required). Stopped proxies remain stopped, even when the
+  `tls` profile is enabled. Docker proxy tests handle daemon timeouts and retry subnets across
+  private ranges; the live default-address case uses an unused subnet to avoid existing installs.
+  **Upgrade note:** the app always joins the new `tls-proxy` bridge (`172.30.253.0/29`),
+  including on non-TLS installs. If it overlaps an existing Docker network,
+  `docker compose up -d` and `deploy.sh` fail with `networks have overlapping IPv4`.
+  Before upgrading, set `PICSOU_PROXY_SUBNET`, `PICSOU_PROXY_IP`, and
+  `PICSOU_PROXY_IP_RANGE` together in your existing `docker/.env` to non-conflicting values.
+  See the [proxy network requirements](docs/features/docker-deployment.md#trusted-proxy-client-addresses).
 - **Caisse d'Epargne sync after Sécur'Pass approval.** If the login completion response is
   lost or returns 502 or 504, the approval card stays open while Picsou checks the session
   every three seconds for up to 180 seconds. An active session queues the first sync once.

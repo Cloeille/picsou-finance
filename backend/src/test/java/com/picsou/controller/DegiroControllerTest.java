@@ -69,11 +69,12 @@ class DegiroControllerTest {
     }
 
     @Test
-    void authenticationRateLimitUsesTheTrustedProxyClientIp() {
+    void authenticationRateLimitUsesTheContainerResolvedClientIp() {
         var proxiedRequest = new MockHttpServletRequest();
-        proxiedRequest.setRemoteAddr("172.18.0.2");
+        // Native forwarding has already resolved the address before controller dispatch.
+        proxiedRequest.setRemoteAddr("203.0.113.9");
         proxiedRequest.addHeader("X-Forwarded-For", "1.2.3.4");
-        proxiedRequest.addHeader("X-Real-IP", "203.0.113.9");
+        proxiedRequest.addHeader("X-Real-IP", "203.0.113.99");
         when(service.initiateAuth("user", "password", MEMBER_ID))
             .thenReturn(new DegiroSyncService.AuthInitResponse("process", true));
 
@@ -107,8 +108,9 @@ class DegiroControllerTest {
     @Test
     void completeAuthIsRateLimitedPerIp() {
         var proxiedRequest = new MockHttpServletRequest();
-        proxiedRequest.setRemoteAddr("172.18.0.2");
-        proxiedRequest.addHeader("X-Real-IP", "203.0.113.9");
+        // Native forwarding has already resolved the address before controller dispatch.
+        proxiedRequest.setRemoteAddr("203.0.113.9");
+        proxiedRequest.addHeader("X-Real-IP", "203.0.113.99");
         when(service.completeAuth("process", "123456", MEMBER_ID))
             .thenReturn(new DegiroSyncService.SessionStatusResponse(true, DegiroSessionStatus.ACTIVE, null));
 

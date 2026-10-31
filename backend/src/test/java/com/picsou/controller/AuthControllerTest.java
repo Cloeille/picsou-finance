@@ -350,12 +350,8 @@ class AuthControllerTest {
     }
 
     @Test
-    void login_ratelimitKey_isXRealIp_notSpoofableXForwardedFor() {
-        // Regression for the leftmost-XFF spoofing bug: request.getRemoteAddr() is tainted by
-        // ForwardedHeaderFilter from whatever the client puts in X-Forwarded-For (nginx only
-        // appends, never replaces), so a raw client could rotate it and get a fresh bucket every
-        // request. ClientIp.resolve() must key on nginx's X-Real-IP instead, which stays constant
-        // for the same real client regardless of the spoofed XFF value.
+    void login_ratelimitKey_usesContainerAddress_despiteForwardedHeaders() {
+        // The container resolves trusted proxies; controllers must not reinterpret headers.
         @SuppressWarnings("unchecked")
         Map<String, Bucket> mockedLoginBuckets = mock(Map.class);
         Bucket bucket = mock(Bucket.class);
@@ -369,14 +365,14 @@ class AuthControllerTest {
             mfaService, persistentSessionService, auditService, false, true);
 
         MockHttpServletRequest firstCall = new MockHttpServletRequest();
-        firstCall.setRemoteAddr("172.18.0.2");
+        firstCall.setRemoteAddr("203.0.113.9");
         firstCall.addHeader("X-Forwarded-For", "1.1.1.1"); // attacker-supplied, rotates per request
-        firstCall.addHeader("X-Real-IP", "203.0.113.9");   // nginx-observed peer, stable
+        firstCall.addHeader("X-Real-IP", "203.0.113.99");
 
         MockHttpServletRequest secondCall = new MockHttpServletRequest();
-        secondCall.setRemoteAddr("172.18.0.2");
+        secondCall.setRemoteAddr("203.0.113.9");
         secondCall.addHeader("X-Forwarded-For", "9.9.9.9"); // rotated -- same attacker, new value
-        secondCall.addHeader("X-Real-IP", "203.0.113.9");   // unchanged: same real client
+        secondCall.addHeader("X-Real-IP", "203.0.113.100");
 
         assertThatThrownBy(() -> spoofTestController.login(
                 new LoginRequest("alice", "pw", false), firstCall, httpRes))
