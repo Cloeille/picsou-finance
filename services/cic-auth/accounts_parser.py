@@ -40,13 +40,17 @@ _TABLE_RE = re.compile(
     r'<table\b[^>]*class="[^"]*\bei_comptescontrats\b[^"]*"[^>]*>(?P<body>.*?)</table>',
     re.DOTALL,
 )
-_ANY_TABLE_RE = re.compile(r"<table\b[^>]*>(?P<body>.*?)</table>", re.DOTALL | re.IGNORECASE)
+_UNPARSED_CONTAINER_RE = re.compile(
+    r"<(?P<tag>table|tr)\b[^>]*>(?P<body>.*?)(?:</(?P=tag)>|\Z)",
+    re.DOTALL | re.IGNORECASE,
+)
 _CAPTION_RE = re.compile(r"<caption\b[^>]*>(?P<text>.*?)</caption>", re.DOTALL)
 _CATEGORY_RE = re.compile(r"cat[ée]gorie\s*:\s*(?P<name>.+)$", re.IGNORECASE)
 _ROW_RE = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.DOTALL | re.IGNORECASE)
 _TITLE_RE = re.compile(r'class="[^"]*\bei_sdsf_title\b[^"]*"[^>]*>(?P<title>.*?)</span>', re.DOTALL)
 _NUMBER_RE = re.compile(r'class="[^"]*\bdoux\b[^"]*"[^>]*>(?P<number>.*?)</span>', re.DOTALL)
 _AMOUNT_RE = re.compile(r'class="[^"]*\bei_sdsf_montant\b[^"]*"[^>]*>(?P<amount>.*?)</span>', re.DOTALL)
+_ACCOUNT_MARKER_RE = re.compile(r'class="[^"]*\b(?:ei_sdsf_title|doux|ei_sdsf_montant)\b')
 _TAG_RE = re.compile(r"<[^>]+>")
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s.]*(?:,\d+)?)\s*(?P<currency>[A-Z]{3}|€)$")
 _BALANCE_RE = re.compile(r"\d[\d\s.,]*\s*(?:[A-Z]{3}\b|€)")
@@ -114,7 +118,7 @@ def _category(table: str) -> str:
 
 def _has_account_data(fragment: str) -> bool:
     return bool(
-        _TITLE_RE.search(fragment) or _NUMBER_RE.search(fragment) or _AMOUNT_RE.search(fragment)
+        _ACCOUNT_MARKER_RE.search(fragment)
         or "ei_sdsf_solde" in fragment or _BALANCE_RE.search(_text(fragment))
     )
 
@@ -127,9 +131,8 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
 
     # A certified partial page would zero accounts the backend no longer sees.
     remainder = _TABLE_RE.sub("", page)
-    for pattern in (_ANY_TABLE_RE, _ROW_RE):
-        if any(_has_account_data(match.group(1)) for match in pattern.finditer(remainder)):
-            raise AccountsFormatError(FORMAT_CHANGED, "Account data outside a recognized contract table")
+    if any(_has_account_data(match.group("body")) for match in _UNPARSED_CONTAINER_RE.finditer(remainder)):
+        raise AccountsFormatError(FORMAT_CHANGED, "Account data outside a recognized contract table")
 
     accounts: list[dict] = []
     skipped: list[str] = []

@@ -102,6 +102,32 @@ class PageTest(unittest.TestCase):
 
                 self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
+    def test_a_truncated_savings_table_fails_the_whole_page(self):
+        for ending in (
+            'class="_c1 ei_sdsf_title _c1">LIVRET A',
+            '>LIVRET A</span>',
+            '+5&nbsp;000,00 EUR',
+            '+5&nbsp;000,00 EUR</span>',
+        ):
+            with self.subTest(ending=ending):
+                page = ACCOUNTS_PAGE[:ACCOUNTS_PAGE.index(ending) + len(ending)]
+
+                with self.assertRaises(AccountsFormatError) as error:
+                    parse_accounts(page)
+
+                self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_an_unterminated_orphan_account_row_fails_the_whole_page(self):
+        row = account_row(0, "LIVRET A", "10000 000123456 02", "+1,00 EUR")
+        for ending in ('>LIVRET A', '+1,00 EUR</span>'):
+            with self.subTest(ending=ending):
+                page = ACCOUNTS_PAGE + row[:row.index(ending) + len(ending)]
+
+                with self.assertRaises(AccountsFormatError) as error:
+                    parse_accounts(page)
+
+                self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
     def test_an_unknown_table_with_changed_account_markers_still_fails(self):
         row = account_row(0, "LIVRET A", "10000 000123456 02", "+1,00 EUR")
         for marker in ("ei_sdsf_title", "doux", "ei_sdsf_montant", "ei_sdsf_solde"):

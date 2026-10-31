@@ -260,6 +260,15 @@ class FlowTest(unittest.TestCase):
 
         self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
 
+    def test_a_truncated_savings_table_cannot_certify_a_partial_snapshot(self):
+        session = self.confirm()
+        ending = '+5&nbsp;000,00 EUR</span>'
+        self.bank.accounts_page = ACCOUNTS_PAGE[:ACCOUNTS_PAGE.index(ending) + len(ending)]
+
+        response = self.client.post("/accounts", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
+
     def test_an_entity_encoded_skip_link_is_found(self):
         page = '<a href="/skip.html">Passer cette &eacute;tape</a>'
 
