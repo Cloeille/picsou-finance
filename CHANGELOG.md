@@ -304,9 +304,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reload, and a goal's badge matches its calendar. Dates follow today, so the card's next debit
   and the goal deadlines are ahead of you, and the budget opens on the current month instead of
   the previous one in France. Settings shows the demo user's name (#277).
-- **Monthly payments read "/mois" in French.** The debts card printed a hard-coded English
-  "/mo" after each payment, and the dashboard said "1 autres objectifs" when one goal was left
-  off the summary (#277).
 - **Trade Republic crypto is valued at its market price again.** The connector guessed the
   venue of each price subscription (`TRD0` for crypto). Trade Republic refused that guess, and
   every crypto position was valued at its average buy-in, which hid its whole gain or loss
