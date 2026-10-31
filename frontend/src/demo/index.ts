@@ -593,8 +593,11 @@ function demoInsight(ticker: string) {
 handlers.set(key('GET', '/securities/:ticker/insight'), (_config, { ticker }) => demoInsight(ticker))
 
 // Account details: month-start balances then today's, the same points /history sums.
-handlers.set(key('GET', '/accounts/:id/history'), (_config, { id }) =>
-  accountBalanceHistory(Number(id)).map((point, i) => ({ id: 100 + i, ...point })))
+// The live point is the account as the demo holds it now, so an edit shows in the last point.
+handlers.set(key('GET', '/accounts/:id/history'), (_config, { id }) => {
+  const account = _demoAccounts.find(a => a.id === Number(id))
+  return account ? accountBalanceHistory(account).map((point, i) => ({ id: 100 + i, ...point })) : []
+})
 
 // ─── Real estate ─────────────────────────────────────────────────────────────
 // Every route the property UI touches needs a handler: the demo adapter answers `{}` for
@@ -1478,7 +1481,7 @@ handlers.set(key('GET', '/cashflow'), (config) =>
 handlers.set(key('GET', '/cashflow/flow'), (config) =>
   mockFlow(((config.params?.period as CashflowPeriod) ?? 'CYCLE')))
 handlers.set(key('GET', '/allocation'), (config) =>
-  mockAllocation(((config.params?.period as CashflowPeriod) ?? 'CYCLE')))
+  mockAllocation(((config.params?.period as CashflowPeriod) ?? 'CYCLE'), _demoAccounts))
 
 // Spending breakdown & per-category drill (one handler per known category id)
 handlers.set(key('GET', '/spending/by-category'), (config) =>

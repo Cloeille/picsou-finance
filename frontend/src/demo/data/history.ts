@@ -1,4 +1,5 @@
 import { LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
+import type { Account } from '@/types/api'
 import { mockAccounts } from './accounts'
 import { daysBeforeToday, isoDate, monthStartFromToday } from './dates'
 import { holdingsCostBasis, holdingsValue, mockHoldings } from './holdings'
@@ -44,21 +45,23 @@ export const mockBalanceHistory: Record<number, number[]> = {
 
 /**
  * The dates a history spans, oldest first: the last twelve month starts, then today, which
- * HistoryService always ends on with its live point.
+ * HistoryService always ends on with its live point. Fixed at load, like the balances they
+ * label, so a month rolling over mid-session cannot shift one against the other.
  */
-function historyDates(): string[] {
+const HISTORY_DATES: string[] = (() => {
   const monthStarts = Array.from({ length: 12 }, (_, i) => monthStartFromToday(i - 11))
   const today = isoDate(new Date())
   return monthStarts[11] === today ? monthStarts : [...monthStarts, today]
-}
+})()
 
 /** An account's balance on each history date, ending on its live balance. */
-export function accountBalanceHistory(accountId: number): { date: string; balance: number }[] {
-  const balances = mockBalanceHistory[accountId]
+export function accountBalanceHistory(account: Account): { date: string; balance: number }[] {
+  const balances = mockBalanceHistory[account.id]
   if (!balances) return []
-  const live = accountId in mockHoldings ? holdingsValue([accountId]) : balances[11]
-  const dates = historyDates()
-  return dates.map((date, i) => ({ date, balance: i === dates.length - 1 ? live : balances[i] }))
+  return HISTORY_DATES.map((date, i) => ({
+    date,
+    balance: i === HISTORY_DATES.length - 1 ? account.currentBalanceEur : balances[i],
+  }))
 }
 
 interface PointValues { total: number; invested: number; pnl: number }
@@ -73,13 +76,15 @@ const round2 = (n: number) => Math.round(n * 100) / 100
  */
 export function netWorthHistory(accountIds: number[], months: number, split: boolean) {
   const first = 12 - Math.min(Math.max(months, 1), 12)
-  const histories = new Map(accountIds.map(id => [id, accountBalanceHistory(id)]))
-  return historyDates().slice(first).map((date, i) => {
+  const rows = accountIds.map((id) => {
+    const account = mockAccounts.find((a) => a.id === id)
+    return { id, account, history: account ? accountBalanceHistory(account) : [] }
+  })
+  return HISTORY_DATES.slice(first).map((date, i) => {
     const sums: PointValues = { total: 0, invested: 0, pnl: 0 }
     const accounts: Record<string, PointValues> = {}
-    for (const id of accountIds) {
-      const account = mockAccounts.find((a) => a.id === id)
-      const balance = histories.get(id)?.[first + i]?.balance ?? 0
+    for (const { id, account, history } of rows) {
+      const balance = history[first + i]?.balance ?? 0
       const liability = account != null && LIABILITY_ACCOUNT_TYPES.includes(account.type)
       const total = account?.type === 'LOAN' ? -balance : balance
       const invested = liability ? 0 : id in mockHoldings ? holdingsCostBasis(id) : balance

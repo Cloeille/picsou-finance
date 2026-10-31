@@ -1,13 +1,23 @@
 import { AxiosHeaders } from 'axios'
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { FamilyDashboard } from '@/features/family/api'
-import type { Account, BudgetSettings, DashboardData, GoalMonthEntry, GoalProgress } from '@/types/api'
+import type {
+  Account, AllocationResponse, BudgetSettings, DashboardData, GoalMonthEntry, GoalProgress, ScpiPositionRequest,
+} from '@/types/api'
 
 // East of UTC, where a local-midnight date run through toISOString() slips to the day before.
 // Set before the fixtures load, since they are built at import time.
 vi.stubEnv('TZ', 'Europe/Paris')
+// The fixtures and the `today` below must read one instant, so freeze Date (mid-month, clear of
+// any month boundary) before the fixtures load.
+vi.useFakeTimers({ toFake: ['Date'] })
+vi.setSystemTime(new Date('2026-06-15T10:00:00Z'))
 const { createDemoAdapter } = await import('./index')
 const { mockBalanceHistory } = await import('./data/history')
+
+afterAll(() => {
+  vi.useRealTimers()
+})
 
 const adapter = createDemoAdapter()
 async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
@@ -57,6 +67,38 @@ describe('demo fixtures', () => {
       // HistoryService negates a loan's outstanding capital.
       const expected = account.type === 'LOAN' ? -account.currentBalanceEur : account.currentBalanceEur
       expect(latest.accounts[String(account.id)]?.total, account.name).toBeCloseTo(expected, 2)
+    }
+  })
+
+  it('splits the allocation stock over the accounts the Accounts page lists', async () => {
+    const [allocation, accounts] = await Promise.all([
+      get<AllocationResponse>('/allocation', { period: 'CYCLE' }), get<Account[]>('/accounts'),
+    ])
+    const held = accounts.filter((a) => a.parentAccountId == null && !a.hidden)
+    const investment = held
+      .filter((a) => ['PEA', 'COMPTE_TITRES', 'CRYPTO'].includes(a.type))
+      .reduce((sum, a) => sum + a.currentBalance, 0)
+    expect(allocation.stock.map((s) => s.assetClass)).toEqual(['CURRENT', 'SAVINGS', 'INVESTMENT'])
+    expect(allocation.stock.find((s) => s.assetClass === 'INVESTMENT')?.amount).toBeCloseTo(investment, 2)
+    // A pocket is already inside its wallet, so the wallet alone counts as current money.
+    const current = held.filter((a) => a.type === 'CHECKING').reduce((sum, a) => sum + a.currentBalance, 0)
+    expect(allocation.stock.find((s) => s.assetClass === 'CURRENT')?.amount).toBeCloseTo(current, 2)
+    expect(allocation.totalStock).toBeCloseTo(allocation.stock.reduce((sum, s) => sum + s.amount, 0), 2)
+    expect(allocation.stock.reduce((sum, s) => sum + s.percent, 0)).toBeCloseTo(100, 0)
+  })
+
+  it('ends an account history on its balance after an edit', async () => {
+    const scpi = (await get<Account[]>('/accounts')).find((a) => a.id === 13)!
+    const put = (data: ScpiPositionRequest) => adapter({
+      method: 'PUT', url: '/accounts/13/scpi', headers: new AxiosHeaders(), data: JSON.stringify(data),
+    })
+    const lastPoint = async () => (await get<{ balance: number }[]>('/accounts/13/history')).at(-1)!.balance
+    try {
+      await put({ shareCount: 10, withdrawalPriceEur: 900 })
+      expect(await lastPoint()).toBe(9000)
+      expect((await get<Account>('/accounts/13')).currentBalanceEur).toBe(9000)
+    } finally {
+      await put({ ...scpi.scpi! })
     }
   })
 

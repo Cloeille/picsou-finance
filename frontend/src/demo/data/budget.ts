@@ -1,5 +1,10 @@
 import type {
+  Account,
+  AccountType,
+  AllocationContribution,
   AllocationResponse,
+  AllocationStock,
+  AssetClass,
   Budget,
   BudgetSettings,
   CashflowBucket,
@@ -205,20 +210,55 @@ export function mockCashflow(period: CashflowPeriod): CashflowResponse {
 
 // ── Allocation ────────────────────────────────────────────────────────────────
 
-export function mockAllocation(period: CashflowPeriod): AllocationResponse {
-  const stock = [
-    { assetClass: 'CURRENT' as const, amount: 3920, percent: 11 },
-    { assetClass: 'SAVINGS' as const, amount: 12920, percent: 36 },
-    { assetClass: 'INVESTMENT' as const, amount: 18770, percent: 53 },
-  ]
-  const totalStock = stock.reduce((a, s) => a + s.amount, 0)
-  // YTD shows the accumulated transfers; CYCLE shows just this month's.
+/** Mirrors the backend's `AssetClass.of`: the bucket an account type counts in. */
+function assetClassOf(type: AccountType): AssetClass {
+  switch (type) {
+    case 'CHECKING':
+      return 'CURRENT'
+    case 'LEP': case 'SAVINGS': case 'LIVRET_A': case 'LDDS': case 'LIVRET_JEUNE': case 'PEL': case 'CEL':
+      return 'SAVINGS'
+    case 'PEA': case 'COMPTE_TITRES': case 'CRYPTO': case 'EMPLOYEE_SAVINGS': case 'ASSURANCE_VIE': case 'PER':
+      return 'INVESTMENT'
+    default:
+      return 'OTHER'
+  }
+}
+
+const STOCK_CLASSES: AssetClass[] = ['CURRENT', 'SAVINGS', 'INVESTMENT']
+
+/**
+ * What the accounts hold per asset class, as `AllocationService.buildStock` sums it: hidden
+ * accounts and classes outside the cash allocation are left out. Pockets are left out too, as
+ * the dashboard does, since their wallet's balance already holds their money.
+ */
+function allocationStock(accounts: Account[]): AllocationStock[] {
+  const amounts = new Map<AssetClass, number>()
+  for (const account of accounts) {
+    if (account.hidden || account.parentAccountId != null) continue
+    const assetClass = assetClassOf(account.type)
+    if (assetClass !== 'OTHER') amounts.set(assetClass, (amounts.get(assetClass) ?? 0) + account.currentBalance)
+  }
+  const total = [...amounts.values()].reduce((a, b) => a + b, 0)
+  return STOCK_CLASSES.filter((assetClass) => amounts.has(assetClass)).map((assetClass) => {
+    const amount = amounts.get(assetClass)!
+    return { assetClass, amount: r2(amount), percent: total === 0 ? 0 : r2((amount * 100) / total) }
+  })
+}
+
+/** Transfers into the savings and investment accounts: YTD accumulates, CYCLE is this month's. */
+function allocationContributions(period: CashflowPeriod): AllocationContribution[] {
   const factor = cyclesIn(period)
-  const contributions = [
-    { accountId: 1, accountName: 'Livret A', assetClass: 'SAVINGS' as const, color: '#22c55e', amount: 300 * factor },
-    { accountId: 7, accountName: 'LEP', assetClass: 'SAVINGS' as const, color: '#16a34a', amount: 150 * factor },
-    { accountId: 2, accountName: 'PEA', assetClass: 'INVESTMENT' as const, color: '#8b5cf6', amount: 400 * factor },
+  return [
+    { accountId: 1, accountName: 'Livret A', assetClass: 'SAVINGS', color: '#22c55e', amount: 300 * factor },
+    { accountId: 7, accountName: 'LEP', assetClass: 'SAVINGS', color: '#16a34a', amount: 150 * factor },
+    { accountId: 2, accountName: 'PEA', assetClass: 'INVESTMENT', color: '#8b5cf6', amount: 400 * factor },
   ]
+}
+
+export function mockAllocation(period: CashflowPeriod, accounts: Account[]): AllocationResponse {
+  const stock = allocationStock(accounts)
+  const totalStock = r2(stock.reduce((a, s) => a + s.amount, 0))
+  const contributions = allocationContributions(period)
   const totalContributions = contributions.reduce((a, c) => a + c.amount, 0)
   return {
     period,
@@ -441,7 +481,7 @@ export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {
 
   // Transfers into savings/investment accounts: the allocation demo's contributions, so the
   // Sankey and the allocation view agree (one SAVINGS sink per account, largest first).
-  const savings = [...mockAllocation(period).contributions].sort((a, b) => b.amount - a.amount)
+  const savings = allocationContributions(period).sort((a, b) => b.amount - a.amount)
   const saved = r2(savings.reduce((acc, s) => acc + s.amount, 0))
   // A small transfer to an account Picsou doesn't see, to showcase the TRANSFER_OUT sink.
   const transferredOut = r2(50 * cyclesIn(period))
