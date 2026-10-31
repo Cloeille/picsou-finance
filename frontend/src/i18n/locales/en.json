@@ -1102,6 +1102,7 @@
         "invalidTan": "The verification code is incorrect or expired. Use the latest code you received, or restart the step to receive a new one.",
         "authenticationFailed": "Trade Republic authentication failed.",
         "serviceUnavailable": "The local Trade Republic service is unavailable. Restart the servers, then try again.",
+        "temporarilyBlocked": "Trade Republic blocked the request. Retry in a minute.",
         "serverError": "Trade Republic server error. Please try again.",
         "phoneNumberRequired": "Phone number is required.",
         "pinRequired": "PIN is required.",

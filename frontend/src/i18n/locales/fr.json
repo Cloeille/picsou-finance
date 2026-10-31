@@ -1102,6 +1102,7 @@
         "invalidTan": "Code de vérification incorrect ou expiré. Utilisez le dernier code reçu, ou relancez l'étape pour en recevoir un nouveau.",
         "authenticationFailed": "Échec de l'authentification Trade Republic.",
         "serviceUnavailable": "Le service Trade Republic local n'est pas disponible. Relancez les serveurs puis réessayez.",
+        "temporarilyBlocked": "Trade Republic a bloqué la requête. Réessayez dans une minute.",
         "serverError": "Erreur serveur Trade Republic. Réessayez.",
         "phoneNumberRequired": "Numéro de téléphone requis.",
         "pinRequired": "Code PIN requis.",
