@@ -1,12 +1,15 @@
 import type { TFunction } from 'i18next'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Layer, Rectangle, ResponsiveContainer, Sankey, Tooltip } from 'recharts'
+import { Layer, Rectangle, Sankey, Tooltip } from 'recharts'
 import type { CashflowFlowResponse, FlowNode } from '@/types/api'
 import { useMoney } from '@/hooks/use-money'
+import { FlowBars } from './FlowBars'
 import { FLOW_FALLBACK_COLOR, flowNodeColor, flowNodeLabel, flowSides } from './flow-utils'
 
 /**
- * Income → budget → expense Sankey for desktop (≥md; the mobile fallback is `FlowBars`).
+ * Income → budget → expense Sankey, or `FlowBars` when the container is narrower than the two
+ * label columns plus a readable diagram (phones, and a 768px window with the sidebar open).
  *
  * Recharts owns the layout: it clones the `node`/`link` elements we pass, injecting the
  * computed geometry (`x/y/width/height`, bezier control points) while preserving the extra
@@ -17,13 +20,29 @@ import { FLOW_FALLBACK_COLOR, flowNodeColor, flowNodeLabel, flowSides } from './
  * never disagree — they read the same `{nodes, links}` the backend guarantees balanced.
  */
 
-const MAX_LABEL = 16
+const MAX_LABEL = 20
+/** Room for a full label beside the outer columns: MAX_LABEL characters plus an amount. */
+const LABEL_MARGIN = 200
+/**
+ * Below this the diagram between the label columns is too thin to read, and below zero Recharts
+ * lays the columns out right to left. Narrower containers get `FlowBars`.
+ */
+const MIN_PLOT_WIDTH = 240
+const MARGIN_Y = 16
+const MIN_HEIGHT = 360
+/**
+ * Recharts guarantees this gap between nodes of a column, so it is what keeps two labels from
+ * overlapping however small their nodes get: one 11px line plus air.
+ */
+const NODE_PADDING = 18
+/** Vertical room per node in the busiest column; past the minimum height the diagram grows. */
+const ROW_HEIGHT = 30
 
 function truncate(label: string): string {
   return label.length > MAX_LABEL ? `${label.slice(0, MAX_LABEL - 1)}…` : label
 }
 
-/** A node rectangle plus its label, placed outside the diagram (left for in, right for out). */
+/** A node rectangle plus its name and amount, placed outside the diagram (left for in, right for out). */
 function FlowSankeyNode(props: {
   x?: number
   y?: number
@@ -32,6 +51,7 @@ function FlowSankeyNode(props: {
   payload?: FlowNode & { value?: number }
   t?: TFunction
 }) {
+  const money = useMoney()
   const { x = 0, y = 0, width = 0, height = 0, payload, t } = props
   if (!payload || !t) return null
 
@@ -55,16 +75,18 @@ function FlowSankeyNode(props: {
         fillOpacity={0.9}
         radius={2}
       />
-      {!isHub && height >= 6 && (
+      {!isHub && (
         <text
           x={isRight ? x + width + 8 : x - 8}
           y={y + height / 2}
           textAnchor={isRight ? 'start' : 'end'}
           dominantBaseline="middle"
           fontSize={11}
-          className="fill-foreground"
         >
-          {truncate(label)}
+          <tspan className="fill-muted-foreground">{truncate(label)}</tspan>
+          <tspan dx={6} className="fill-foreground font-medium tabular-nums">
+            {money.amount(payload.value ?? 0)}
+          </tspan>
         </text>
       )}
     </Layer>
@@ -203,7 +225,7 @@ function FlowDataTable({ flow, t }: { flow: CashflowFlowResponse; t: TFunction }
   )
 }
 
-export function CashflowSankey({ flow }: { flow: CashflowFlowResponse }) {
+function SankeyFigure({ flow, width }: { flow: CashflowFlowResponse; width: number }) {
   const { t } = useTranslation()
 
   // Recharts mutates its data in place during layout — hand it fresh copies each render.
@@ -211,24 +233,48 @@ export function CashflowSankey({ flow }: { flow: CashflowFlowResponse }) {
     nodes: flow.nodes.map((n) => ({ ...n })),
     links: flow.links.map((l) => ({ ...l })),
   }
+  const { sources, sinks } = flowSides(flow)
+  const height = Math.max(MIN_HEIGHT, Math.max(sources.length, sinks.length) * ROW_HEIGHT + 2 * MARGIN_Y)
 
   return (
     <figure className="m-0">
-      <div className="h-[360px] w-full" aria-hidden="true">
-        <ResponsiveContainer width="100%" height="100%">
-          <Sankey
-            data={data}
-            nodeWidth={12}
-            nodePadding={26}
-            margin={{ top: 16, right: 112, bottom: 16, left: 112 }}
-            node={<FlowSankeyNode t={t} />}
-            link={<FlowSankeyLink nodes={data.nodes} />}
-          >
-            <Tooltip content={<FlowTooltip t={t} nodes={data.nodes} />} />
-          </Sankey>
-        </ResponsiveContainer>
+      <div aria-hidden="true">
+        <Sankey
+          width={width}
+          height={height}
+          data={data}
+          nodeWidth={12}
+          nodePadding={NODE_PADDING}
+          margin={{ top: MARGIN_Y, right: LABEL_MARGIN, bottom: MARGIN_Y, left: LABEL_MARGIN }}
+          node={<FlowSankeyNode t={t} />}
+          link={<FlowSankeyLink nodes={data.nodes} />}
+        >
+          <Tooltip content={<FlowTooltip t={t} nodes={data.nodes} />} />
+        </Sankey>
       </div>
       <FlowDataTable flow={flow} t={t} />
     </figure>
+  )
+}
+
+export function CashflowSankey({ flow }: { flow: CashflowFlowResponse }) {
+  const box = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState<number | null>(null)
+
+  // Layout effect: the observer's first report lands before paint, so nothing flashes.
+  useLayoutEffect(() => {
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
+    observer.observe(box.current!)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div ref={box} className="w-full">
+      {width === null ? null : width < 2 * LABEL_MARGIN + MIN_PLOT_WIDTH ? (
+        <FlowBars flow={flow} />
+      ) : (
+        <SankeyFigure flow={flow} width={width} />
+      )}
+    </div>
   )
 }
