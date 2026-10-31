@@ -56,7 +56,10 @@ _AMOUNT_RE = re.compile(r'class="[^"]*\bei_sdsf_montant\b[^"]*"[^>]*>(?P<amount>
 _ACCOUNT_MARKER_RE = re.compile(r'class="[^"]*\b(?:ei_sdsf_title|doux|ei_sdsf_montant)\b')
 _TAG_RE = re.compile(r"<[^>]+>")
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s.]*(?:,\d+)?)\s*(?P<currency>[A-Z]{3}|€)$")
-_BALANCE_RE = re.compile(r"\d[\d\s.,]*\s*(?:[A-Z]{3}\b|€)")
+# Money in text: a number then an ISO code or a currency symbol, or a symbol then a
+# number with cents. No ISO code before the number: a title such as "PEL 2024" would
+# match. A symbol-first number needs cents so script text such as "$1" does not match.
+_BALANCE_RE = re.compile(r"\d[\d\s.,]*\s*(?:[A-Z]{3}\b|[€$£])|[€$£]\s*\d[\d\s.,]*[.,]\d{2}\b")
 
 # Ordered: the first match wins, so the specific products come before the
 # generic "livret".

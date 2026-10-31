@@ -259,6 +259,29 @@ class PageTest(unittest.TestCase):
         self.assertEqual(len(accounts), 4)
         self.assertEqual(skipped, ["autres contrats liés", "unnamed"])
 
+    def test_a_captionless_row_with_a_plain_text_symbol_amount_fails_the_page(self):
+        for amount in ("$1,234.56", "1 234,56 $", "£12.00", "12,00 £"):
+            with self.subTest(amount=amount):
+                row = (
+                    '<table class="ei_comptescontrats"><tr><td>'
+                    f'<span class="ei_sdsf_title">COMPTE EN DEVISE</span> {amount}'
+                    '</td></tr></table>'
+                )
+                page = ACCOUNTS_PAGE.replace('</form>', row + '</form>')
+
+                with self.assertRaises(AccountsFormatError) as error:
+                    parse_accounts(page)
+
+                self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_script_text_in_a_layout_table_is_not_mistaken_for_money(self):
+        extra = '<table><tr><td><script>s.replace(/x/, "$1")</script></td></tr></table>'
+        page = ACCOUNTS_PAGE.replace('</form>', extra + '</form>')
+
+        accounts, _ = parse_accounts(page)
+
+        self.assertEqual(len(accounts), 4)
+
     def test_an_unknown_category_with_a_balance_is_named_in_the_error(self):
         page = ACCOUNTS_PAGE.replace("Livrets et comptes d&#39;épargne", "Nouveaux comptes")
 
