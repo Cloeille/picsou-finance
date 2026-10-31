@@ -358,6 +358,7 @@ public class HistoryService {
             } else {
                 List<HoldingData> holdingDataList = new ArrayList<>();
                 BigDecimal invested = BigDecimal.ZERO;
+                boolean anyCostUnknown = false;
 
                 for (AccountHolding h : holdings) {
                     BigDecimal qty = h.getQuantity();
@@ -369,6 +370,7 @@ public class HistoryService {
                     // chart: a Finary line without a buying value has no average buy-in, and
                     // charging it zero printed its whole value as an intraday gain.
                     BigDecimal providerCost = AccountService.providerCostBasisEur(h);
+                    if (providerCost == null && h.getAverageBuyIn() == null) anyCostUnknown = true;
                     invested = invested.add(providerCost != null ? providerCost : qty.multiply(avgBuyEur));
                     if (ticker != null) allTickers.add(ticker);
                 }
@@ -381,7 +383,11 @@ public class HistoryService {
                 BigDecimal cash = account.getCashBalance() != null ? account.getCashBalance() : BigDecimal.ZERO;
                 accountCash.put(accId, cash);
                 accountHoldings.put(accId, holdingDataList);
-                accountHoldingsInvested.put(accId, weigh(invested.add(cash), shares, accId));
+                // A line with no cost at all would count as free units. valuation() then pairs
+                // the account with its own balance, and the 24H chart takes that same baseline.
+                accountHoldingsInvested.put(accId, anyCostUnknown
+                    ? weigh(accountService.valuation(account).investedEur(), shares, accId)
+                    : weigh(invested.add(cash), shares, accId));
             }
         }
 

@@ -611,7 +611,16 @@ information architecture.
 - **The 24H chart costs a Finary line the way the daily chart does.** A security Finary
   reports with a value and a gain but no buying value has no average buy-in, and the
   hourly points charged it nothing, so its whole value read as a gain. They now take the
-  provider's cost (value minus gain) first, as the daily valuation already did.
+  provider's cost (value minus gain) first, as the daily valuation already did. A line
+  with neither a buying value nor a gain takes the daily chart's neutral baseline, the
+  account balance, instead of counting as free units.
+- **A crypto token is never priced as the stock that shares its symbol.** The crypto-only
+  price lookups asked the combined price provider whether it supported a symbol, and
+  that provider accepts any stock symbol, so a token CoinGecko does not map reached
+  Yahoo Finance. A Finary wallet holding 10 REG (RealToken, worth 10 EUR) was valued at
+  Regency Centers' share price, 600 EUR, and the daily snapshot recorded it. Crypto
+  lookups, the hourly crypto refresh and the crypto history backfill now stop at
+  CoinGecko, and an unmapped token keeps the value its connector reported.
 - **Trade Republic and DEGIRO daily snapshots now cost today's positions, not
   yesterday's.** Both syncs took the day's snapshot before replacing the holdings,
   and the snapshot derives its invested amount from the holdings in the table, so

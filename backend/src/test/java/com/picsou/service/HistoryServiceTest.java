@@ -892,6 +892,32 @@ class HistoryServiceTest {
     }
 
     @Test
+    void buildIntradayHistory_entirelyUnknownCost_takesTheDailyNeutralBaseline() {
+        Account account = brokerage(1L, "CTO");
+        account.setCurrentBalance(new BigDecimal("200"));
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(account));
+        lenient().when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        // What FinaryHoldingsImporterTest's merged-cost fixture stores: two AXA lines, one without
+        // a buying value, so neither an average buy-in nor a provider P&L survives the merge.
+        AccountHolding axa = AccountHolding.builder()
+            .account(account)
+            .ticker("CS.PA")
+            .quantity(new BigDecimal("2"))
+            .providerValueEur(new BigDecimal("200"))
+            .build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(axa));
+        // valuation() pairs an unknown cost with the balance itself, the daily chart's baseline.
+        stubValuation(account, "200", "200");
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("200");
+            assertThat(p.invested()).isEqualByComparingTo("200");
+        });
+    }
+
+    @Test
     void buildIntradayHistory_creditCardSigned_excludedFromInvested() {
         Account card = creditCard(1L, "-800");
         Account cashAcc = checking(2L, "2000");

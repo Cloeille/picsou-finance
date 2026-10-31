@@ -155,7 +155,7 @@ public class PriceService {
                 resolved.put(upper, new Quote(BigDecimal.ONE, today, true));
                 continue;
             }
-            if (cryptoOnly && !priceProvider.supports(upper)) {
+            if (cryptoOnly && !priceProvider.supportsCrypto(upper)) {
                 continue;
             }
             CachedPrice cached = priceCache.get(upper);
@@ -179,7 +179,7 @@ public class PriceService {
             .collect(Collectors.toCollection(TreeSet::new));
 
         if (!fetchable.isEmpty()) {
-            Map<String, BigDecimal> live = fetchLive(fetchable, cryptoOnly);
+            Map<String, BigDecimal> live = new HashMap<>(priceProvider.getPricesEur(fetchable));
             Instant fetchedAt = Instant.now();
             for (String ticker : fetchable) {
                 BigDecimal price = live.get(ticker);
@@ -222,17 +222,6 @@ public class PriceService {
         }
 
         return resolved;
-    }
-
-    /** One batched provider call — the composite routes crypto vs stock internally. */
-    private Map<String, BigDecimal> fetchLive(Set<String> tickers, boolean cryptoOnly) {
-        Set<String> fetchable = cryptoOnly
-            ? tickers.stream().filter(priceProvider::supports)
-                .collect(Collectors.toCollection(TreeSet::new))
-            : tickers;
-
-        if (fetchable.isEmpty()) return Map.of();
-        return new HashMap<>(priceProvider.getPricesEur(fetchable));
     }
 
     /**
@@ -289,7 +278,7 @@ public class PriceService {
 
         Set<String> unresolved = tickers.stream()
             .map(t -> t.toUpperCase(Locale.ROOT))
-            .filter(priceProvider::supports)
+            .filter(priceProvider::supportsCrypto)
             .filter(t -> !quotes.containsKey(t))
             .collect(Collectors.toCollection(TreeSet::new));
         if (unresolved.isEmpty()) return quotes;
@@ -330,6 +319,9 @@ public class PriceService {
             String upper = ticker.toUpperCase(Locale.ROOT);
             if ("EUR".equals(upper)) {
                 result.put(upper, BigDecimal.ONE);
+                continue;
+            }
+            if (cryptoOnly && !priceProvider.supportsCrypto(upper)) {
                 continue;
             }
             CachedPrice cached = priceCache.get(upper);
@@ -450,6 +442,7 @@ public class PriceService {
         for (String ticker : tickers) {
             String upper = ticker.toUpperCase(Locale.ROOT);
             if ("EUR".equals(upper)) continue;
+            if (cryptoOnly && !priceProvider.supportsCrypto(upper)) continue;
 
             if (alreadyCovered(upper, from, to)) {
                 skipped++;

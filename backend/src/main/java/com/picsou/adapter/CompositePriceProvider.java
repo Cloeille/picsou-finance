@@ -61,6 +61,11 @@ public class CompositePriceProvider implements PriceProviderPort {
     }
 
     @Override
+    public boolean supportsCrypto(String ticker) {
+        return coinGecko.supportsCrypto(ticker);
+    }
+
+    @Override
     public Map<LocalDate, BigDecimal> getHistoricalPricesEur(String ticker, LocalDate from, LocalDate to) {
         return providerFor(ticker).getHistoricalPricesEur(ticker, from, to);
     }
