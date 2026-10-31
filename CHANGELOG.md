@@ -279,6 +279,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings and Revolut texts that said "tu" now say "vous". German and Spanish translate the
   auto-confirmed subscription badge, the AI suggestion and the savings rate labels. The
   profile form shows its amounts in the member's notation with their unit (#274).
+- **Demo budget dates are no longer one day early east of UTC.** In Paris the demo showed the
+  current cycle as 30/09 to 30/10 on 31 October, opened the budget pages on September, and
+  listed every upcoming recurring charge a day before its series' next date. The demo now
+  writes local calendar dates, so the cycle is 01/10 to 31/10 and both recurring cards agree
+  in every timezone (#280). The demo's upcoming-charges calendar also no longer skips a
+  month after a charge due on the 31st: it moves to the last day of a shorter month, as the
+  backend does.
 - **The cashflow diagram labels every destination again.** With a dozen destinations the
   Sankey squeezed each node to a few pixels and hid all their labels; it now grows taller
   instead and shows each name with its amount. A card too narrow for those labels (a phone, or a
