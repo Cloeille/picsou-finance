@@ -28,9 +28,10 @@ balance.
   An unnamed or unrecognized table with a balance fails the whole page. Its error names the
   normalized category and the product title when available. Balance detection uses amount and
   balance markers or plain-text money with a trailing currency code or a `€`, `$`, or `£` symbol
-  on either side of the amount. A symbol before the amount requires cents, so an inline JavaScript
-  replacement string such as `"$1"` in a layout table is not mistaken for money. This detection
-  also rejects account data outside recognized contract tables rather than silently dropping it.
+  on either side of the amount. A symbol before the amount requires cents. Text extraction excludes
+  script bodies, so JavaScript replacement strings such as `"$1"`, `"$1$2"`, and `"$1 $2"` are not
+  mistaken for money. This detection also rejects account data outside recognized contract tables
+  rather than silently dropping it.
   Supported categories still require each account row's title, number, and readable euro balance,
   including when only a title remains. Header and action rows without account or balance markers
   are skipped. External id `cic_<account number digits>`.

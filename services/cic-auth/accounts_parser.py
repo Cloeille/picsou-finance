@@ -46,9 +46,10 @@ _ROW_RE = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.DOTALL)
 _TITLE_RE = re.compile(r'class="[^"]*\bei_sdsf_title\b[^"]*"[^>]*>(?P<title>.*?)</span>', re.DOTALL)
 _NUMBER_RE = re.compile(r'class="[^"]*\bdoux\b[^"]*"[^>]*>(?P<number>.*?)</span>', re.DOTALL)
 _AMOUNT_RE = re.compile(r'class="[^"]*\bei_sdsf_montant\b[^"]*"[^>]*>(?P<amount>.*?)</span>', re.DOTALL)
+_SCRIPT_RE = re.compile(r"<script\b[^>]*>.*?</script\s*>", re.IGNORECASE | re.DOTALL)
 _TAG_RE = re.compile(r"<[^>]+>")
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s.]*(?:,\d+)?)\s*(?P<currency>[A-Z]{3}|€)$")
-# Symbol-first amounts need cents so script replacement strings like "$1" are not money.
+# Symbol-first amounts need cents to distinguish balances from references like "$1".
 _BALANCE_RE = re.compile(
     r"\d[\d\s.,]*\s*(?:[A-Z]{3}\b|[€$£])|[€$£]\s*[+-]?\s*\d[\d\s.,]*[.,]\d{2}\b"
 )
@@ -72,7 +73,7 @@ class AccountsFormatError(Exception):
 
 
 def _text(fragment: str) -> str:
-    return " ".join(html_module.unescape(_TAG_RE.sub(" ", fragment)).split())
+    return " ".join(html_module.unescape(_TAG_RE.sub(" ", _SCRIPT_RE.sub(" ", fragment))).split())
 
 
 def parse_amount(raw: str) -> Decimal:

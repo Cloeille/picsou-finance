@@ -126,15 +126,42 @@ class PageTest(unittest.TestCase):
                 self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
     def test_script_text_in_a_layout_table_is_not_mistaken_for_money(self):
-        page = (
-            '<table class="layout"><tr><td><script>'
-            'const accountLabel = name.replace(/(.*)/, "$1");'
-            f"</script>{ACCOUNTS_PAGE}</td></tr></table>"
+        for replacement in ("$1", "$1$2", "$1 $2", "$12.34"):
+            for tag in ("script", "SCRIPT"):
+                page = (
+                    f'<table class="layout"><tr><td><{tag} type="text/javascript">\n'
+                    f'const accountLabel = name.replace(/(a)(b)/, "{replacement}");\n'
+                    f"</{tag}>{ACCOUNTS_PAGE}</td></tr></table>"
+                )
+
+                with self.subTest(replacement=replacement, tag=tag):
+                    self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
+
+    def test_script_text_in_a_captionless_contract_link_is_not_mistaken_for_money(self):
+        for replacement in ("$1", "$1$2", "$1 $2", "$12.34"):
+            table = (
+                '<table class="ei_comptescontrats"><tr><td>'
+                '<span class="ei_sdsf_title">Vos contrats et nos offres</span>'
+                f'<script>name.replace(/(a)(b)/, "{replacement}");</script>'
+                '</td></tr></table>'
+            )
+
+            with self.subTest(replacement=replacement):
+                accounts, skipped = parse_accounts(ACCOUNTS_PAGE + table)
+
+                self.assertEqual(accounts, parse_accounts(ACCOUNTS_PAGE)[0])
+                self.assertEqual(skipped, ["autres contrats liés", "unnamed"])
+
+    def test_plain_text_money_between_scripts_still_fails_the_page(self):
+        table = (
+            '<table class="layout"><tr><td><script>name.replace(/(a)/, "$1");</script>'
+            '12.34 $<script>name.replace(/(b)/, "$1");</script></td></tr></table>'
         )
 
-        accounts, _ = parse_accounts(page)
+        with self.assertRaises(AccountsFormatError) as error:
+            parse_accounts(ACCOUNTS_PAGE + table)
 
-        self.assertEqual(len(accounts), 4)
+        self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
     def test_account_data_outside_contract_tables_fails_the_page(self):
         marked_row = account_row(9, "LIVRET A", "10000 000999999 01", "+12,34 EUR")
