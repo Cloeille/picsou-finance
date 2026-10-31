@@ -1,6 +1,7 @@
 package com.picsou.service;
 
 import com.picsou.dto.*;
+import com.picsou.finary.FinaryAccountMatcher;
 import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.*;
 import com.picsou.repository.AccountRepository;
@@ -80,13 +81,44 @@ public class FinaryImportService {
                 ))
                 .collect(Collectors.toList());
 
-            List<AccountResponse> existing = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId).stream()
+            List<Account> existingAccounts = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId);
+            List<AccountResponse> existing = existingAccounts.stream()
                 .map(a -> AccountResponse.from(a, a.getCurrentBalance()))
                 .collect(Collectors.toList());
 
+            // The matcher prefixes the category itself, so it gets the slug the import persists
+            // (finary_{sheet}_{slug}), not the preview row key that already carries the category.
+            List<FinaryAccountMatcher.FinaryRow> rows = parsed.accounts.stream()
+                .map(acc -> new FinaryAccountMatcher.FinaryRow(
+                    slugify(acc.name()),
+                    acc.name(),
+                    acc.category(),
+                    null))
+                .toList();
+            List<Optional<FinaryAccountMatcher.Suggestion>> matches =
+                FinaryAccountMatcher.suggestAll(rows, existingAccounts);
+            boolean allAutoMapped = !rows.isEmpty() && matches.stream().allMatch(Optional::isPresent);
+            List<FinaryAccountMapping> suggested = new ArrayList<>();
+            for (int i = 0; i < parsed.accounts.size(); i++) {
+                var acc = parsed.accounts.get(i);
+                String finaryId = slugify(acc.category() + "_" + acc.name());
+                var match = matches.get(i);
+                if (match.isPresent()) {
+                    suggested.add(new FinaryAccountMapping(
+                        finaryId, acc.name(), acc.category(),
+                        FinaryMappingAction.MAP_EXISTING,
+                        match.get().account().getId(), null));
+                } else {
+                    suggested.add(new FinaryAccountMapping(
+                        finaryId, acc.name(), acc.category(),
+                        FinaryMappingAction.CREATE_NEW,
+                        null, null));
+                }
+            }
+
             int totalTx = (int) parsed.transactions.stream().count();
 
-            return new FinaryPreviewResponse(previews, existing, totalTx, fileToken, false, List.of());
+            return new FinaryPreviewResponse(previews, existing, totalTx, fileToken, allAutoMapped, suggested);
 
         } catch (IOException e) {
             throw new IllegalArgumentException("That file isn't a valid Excel spreadsheet (.xlsx).", e);
@@ -120,12 +152,20 @@ public class FinaryImportService {
                 (a, b) -> a
             ));
 
+        // Two rows mapped onto one account would each replace its balance and history, the last
+        // one silently winning. CREATE_NEW always creates here, so only explicit targets count.
+        Long shared = FinaryAccountMatcher.sharedTarget(req.mappings().stream()
+            .filter(m -> m.action() == FinaryMappingAction.MAP_EXISTING
+                && finaryByKey.containsKey(mappingKey(m)))
+            .map(FinaryAccountMapping::targetAccountId)
+            .toList());
+        if (shared != null) {
+            throw new IllegalArgumentException("Two Finary accounts are mapped onto the same Picsou account "
+                + shared + " -- pick a different account for one of them");
+        }
+
         for (FinaryAccountMapping mapping : req.mappings()) {
-            FinaryPersistenceHelper.ParsedFinaryAccount finaryAcc = finaryByKey.get(
-                mapping.finaryId() != null
-                    ? mapping.finaryId()
-                    : buildParsedAccountKey(mapping.finaryCategory(), mapping.finaryName())
-            );
+            FinaryPersistenceHelper.ParsedFinaryAccount finaryAcc = finaryByKey.get(mappingKey(mapping));
             if (finaryAcc == null) continue;
 
             Account account = null;
@@ -138,6 +178,10 @@ public class FinaryImportService {
                     .orElseThrow(() -> new IllegalArgumentException(
                         "Account " + mapping.targetAccountId() + " not found"
                     ));
+                // The rebuilt history is anchored at the Finary balance; the account must show it too.
+                account.setCurrentBalance(finaryAcc.balance());
+                account.setCurrency(finaryAcc.currency());
+                account = accountRepository.save(account);
                 accountsMapped++;
             } else if (mapping.action() == com.picsou.dto.FinaryMappingAction.CREATE_NEW) {
                 NewAccountDetails det = mapping.newAccount();
@@ -272,6 +316,12 @@ public class FinaryImportService {
             case NUMERIC -> String.valueOf((long) cell.getNumericCellValue());
             default -> null;
         };
+    }
+
+    private String mappingKey(FinaryAccountMapping mapping) {
+        return mapping.finaryId() != null
+            ? mapping.finaryId()
+            : buildParsedAccountKey(mapping.finaryCategory(), mapping.finaryName());
     }
 
     private String buildParsedAccountKey(String category, String name) {
