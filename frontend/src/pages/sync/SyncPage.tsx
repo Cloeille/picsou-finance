@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { BankSyncTab } from './BankSyncTab'
 import { CryptoExchangeTab } from './CryptoExchangeTab'
 import { CryptoWalletTab } from './CryptoWalletTab'
@@ -28,36 +30,39 @@ import { ActualBudgetTab } from './ActualBudgetTab'
 export function SyncPage() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
-  const defaultTab = searchParams.get('tab') ?? 'banks'
+  // Controlled so ScrollStrip sees every selection, not only the deep-linked one.
+  const [tab, setTab] = useState(() => searchParams.get('tab') ?? 'banks')
 
   return (
     <div className="space-y-6">
       <PageHeader title={t('sync.title')} />
-      <Tabs defaultValue={defaultTab}>
-        <TabsList className="w-full justify-start">
-          <TabsTrigger value="banks" className="flex-none">{t('sync.banks.title')}</TabsTrigger>
-          <TabsTrigger value="exchanges" className="flex-none">{t('sync.exchanges.title')}</TabsTrigger>
-          <TabsTrigger value="wallets" className="flex-none">{t('sync.wallets.title')}</TabsTrigger>
-          <TabsTrigger value="tr" className="flex-none">{t('sync.tr.title')}</TabsTrigger>
-          <TabsTrigger value="revolut" className="flex-none">{t('sync.revolut.title')}</TabsTrigger>
-          <TabsTrigger value="bourso" className="flex-none">{t('sync.bourso.title')}</TabsTrigger>
-          <TabsTrigger value="caisse-epargne" className="flex-none">{t('sync.caisseEpargne.title')}</TabsTrigger>
-          <TabsTrigger value="bourse-direct" className="flex-none">{t('sync.bourseDirect.title')}</TabsTrigger>
-          <TabsTrigger value="degiro" className="flex-none">{t('sync.degiro.title')}</TabsTrigger>
-          <TabsTrigger value="ibkr" className="flex-none">{t('sync.ibkr.title')}</TabsTrigger>
-          <TabsTrigger value="simplefin" className="flex-none">{t('sync.simplefin.title')}</TabsTrigger>
-          <TabsTrigger value="amundi" className="flex-none">{t('sync.amundi.title')}</TabsTrigger>
-          <TabsTrigger value="cmes" className="flex-none">{t('sync.cmes.title')}</TabsTrigger>
-          <TabsTrigger value="cic" className="flex-none">{t('sync.cic.title')}</TabsTrigger>
-          <TabsTrigger value="fortuneo" className="flex-none">{t('sync.fortuneo.title')}</TabsTrigger>
-          <TabsTrigger value="amex" className="flex-none">{t('sync.amex.title')}</TabsTrigger>
-          <TabsTrigger value="corum" className="flex-none">{t('sync.corum.title')}</TabsTrigger>
-          <TabsTrigger value="sofidy" className="flex-none">{t('sync.sofidy.title')}</TabsTrigger>
-          <TabsTrigger value="actual" className="flex-none">{t('sync.actual.title')}</TabsTrigger>
-          <TabsTrigger value="finary" className="flex-none">{t('sync.finary.title')}</TabsTrigger>
-          <TabsTrigger value="homebank" className="flex-none">{t('sync.homebank.title')}</TabsTrigger>
-          <TabsTrigger value="visibility" className="flex-none">{t('sync.visibility.title')}</TabsTrigger>
-        </TabsList>
+      <Tabs value={tab} onValueChange={setTab}>
+        <ScrollStrip activeKey={tab}>
+          <TabsList className="w-max flex-nowrap justify-start md:w-full md:flex-wrap">
+            <TabsTrigger value="banks" className="flex-none">{t('sync.banks.title')}</TabsTrigger>
+            <TabsTrigger value="exchanges" className="flex-none">{t('sync.exchanges.title')}</TabsTrigger>
+            <TabsTrigger value="wallets" className="flex-none">{t('sync.wallets.title')}</TabsTrigger>
+            <TabsTrigger value="tr" className="flex-none">{t('sync.tr.title')}</TabsTrigger>
+            <TabsTrigger value="revolut" className="flex-none">{t('sync.revolut.title')}</TabsTrigger>
+            <TabsTrigger value="bourso" className="flex-none">{t('sync.bourso.title')}</TabsTrigger>
+            <TabsTrigger value="caisse-epargne" className="flex-none">{t('sync.caisseEpargne.title')}</TabsTrigger>
+            <TabsTrigger value="bourse-direct" className="flex-none">{t('sync.bourseDirect.title')}</TabsTrigger>
+            <TabsTrigger value="degiro" className="flex-none">{t('sync.degiro.title')}</TabsTrigger>
+            <TabsTrigger value="ibkr" className="flex-none">{t('sync.ibkr.title')}</TabsTrigger>
+            <TabsTrigger value="simplefin" className="flex-none">{t('sync.simplefin.title')}</TabsTrigger>
+            <TabsTrigger value="amundi" className="flex-none">{t('sync.amundi.title')}</TabsTrigger>
+            <TabsTrigger value="cmes" className="flex-none">{t('sync.cmes.title')}</TabsTrigger>
+            <TabsTrigger value="cic" className="flex-none">{t('sync.cic.title')}</TabsTrigger>
+            <TabsTrigger value="fortuneo" className="flex-none">{t('sync.fortuneo.title')}</TabsTrigger>
+            <TabsTrigger value="amex" className="flex-none">{t('sync.amex.title')}</TabsTrigger>
+            <TabsTrigger value="corum" className="flex-none">{t('sync.corum.title')}</TabsTrigger>
+            <TabsTrigger value="sofidy" className="flex-none">{t('sync.sofidy.title')}</TabsTrigger>
+            <TabsTrigger value="actual" className="flex-none">{t('sync.actual.title')}</TabsTrigger>
+            <TabsTrigger value="finary" className="flex-none">{t('sync.finary.title')}</TabsTrigger>
+            <TabsTrigger value="homebank" className="flex-none">{t('sync.homebank.title')}</TabsTrigger>
+            <TabsTrigger value="visibility" className="flex-none">{t('sync.visibility.title')}</TabsTrigger>
+          </TabsList>
+        </ScrollStrip>
         <TabsContent value="banks" className="mt-6">
           <BankSyncTab />
         </TabsContent>

@@ -1,6 +1,6 @@
 # Feature: BoursoBank sync
 
-> Last updated: 2026-10-04
+> Last updated: 2026-10-31
 > Status: ✅ **Validated end-to-end against a live BoursoBank account**
 > (2026-08-11) — login, dashboard, PEA with 9 positions, reconciled exactly.
 > See "Verification boundaries" for what that run did and did not exercise.
@@ -31,8 +31,8 @@ why.
 
 | Imported | Not imported |
 |---|---|
-| Current accounts → `CHECKING` | Loans (`data-summary-loan`), insurance, `Bourso Protect` (`data-summary-insurance` / `data-summary-assurance`), accounts held for a minor (`data-summary-child`, "Comptes de mes enfants") |
-| Livrets → `LIVRET_A`, `LDDS`, `LEP`, `LIVRET_JEUNE`, `PEL`, `CEL`, else `SAVINGS` | Accounts BoursoBank aggregates from **other banks** |
+| Current accounts → `CHECKING`, with 90 days of transactions | Loans (`data-summary-loan`), insurance, `Bourso Protect` (`data-summary-insurance` / `data-summary-assurance`), accounts held for a minor (`data-summary-child`, "Comptes de mes enfants") |
+| Livrets → `LIVRET_A`, `LDDS`, `LEP`, `LIVRET_JEUNE`, `PEL`, `CEL`, else `SAVINGS`, with 90 days of transactions | Accounts BoursoBank aggregates from **other banks** |
 | PEA, PEA-PME → `PEA` | Securities-account transactions |
 | Compte-titres → `COMPTE_TITRES`, with positions | Orders, statements |
 | Assurance-vie → `ASSURANCE_VIE`, unit-linked supports as positions, euro fund as cash | |
@@ -54,13 +54,26 @@ connection with worse freshness, so anything whose sub-label is not BoursoBank i
 skipped — and *counted*, then logged, because a connector that quietly drops
 accounts is indistinguishable from one that is broken.
 
-**Current-account and LEP transactions** are fetched from each dashboard card's
-own `/mouvements` page, for the last 90 days. The sidecar preserves the card's
-exact URL and follows continuation tokens, capped at 20 pages. Booked rows carry
-their provider ID, date, signed amount and label; securities accounts remain
-holdings-only. The HTML selectors and `/rib` IBAN route follow the public Woob
-Boursorama connector. New operation fixtures are explicitly synthetic, not a
-live BoursoBank capture. The CSV importer still accepts BoursoBank's own export.
+**Current-account and livret transactions** are fetched from each dashboard
+card's own `/mouvements` page, for the last 90 days, and its IBAN from `/rib`.
+Every synced current-account and livret card (the banking and savings sections)
+gets both; loan, insurance, children's and third-party cards are skipped earlier,
+by `parse_dashboard`, and get neither request. Within what is synced the gate is
+the dashboard section, not a list of types, so a new passbook kind cannot
+silently lose its history. Until #167 only `CHECKING` and `LEP` were read, and a
+Livret A, LDDS or Livret Bourso+ synced its balance with no operations. The
+sidecar preserves the card's exact URL and follows continuation tokens, capped
+at 20 pages. Booked rows carry their provider ID, date, signed amount and label;
+securities accounts and assurance-vie contracts remain holdings-only. The HTML selectors and `/rib` IBAN
+route follow the public Woob Boursorama connector, which reads livrets through
+the same history page as current accounts. New operation fixtures are explicitly
+synthetic, not a live BoursoBank capture. The CSV importer still accepts
+BoursoBank's own export.
+
+The movements page, not the CSV export, is the sync source on purpose: the
+export moved behind a protected POST in July and its columns vary with the
+operation category, whereas each movement row carries the same `data-id`, date
+line, amount and label whatever the category.
 
 A failed operation read does not discard balances or holdings: the response
 carries `TRANSACTIONS_UNAVAILABLE`; hitting the page cap carries
@@ -69,6 +82,14 @@ currently ignores them and does not display a warning in the sync result. The
 sidecar also logs a fixed warning code without bank URLs or account data.
 Missing optional IBAN metadata must not be treated as
 proof that a legacy aggregator account can be merged by its name.
+
+Balances and holdings are read first; the `/rib` and `/mouvements` reads of every
+account then only use what is left of a 60 s budget
+(`ACCOUNTS_HISTORY_DEADLINE_SECONDS`) counted from the start of the accounts
+read, however long the balances took. That leaves 30 s of margin under the
+backend's 90 s `/accounts` timeout, which would drop every balance. An account the
+budget does not reach, or cuts off mid-read, reports `TRANSACTIONS_UNAVAILABLE`,
+keeps its balance, and triggers no further request.
 
 **Overlap with Enable Banking.** The sidecar passes an optional verified IBAN.
 The backend first matches the sidecar external ID, then the IBAN on an active
@@ -103,7 +124,8 @@ This proves the storage path, not the live Bourso HTML or equivalence of
 labels from two providers.
 
 Before declaring the live acceptance complete, a maintainer with an active
-Bourso current account and LEP must compare recent operations with the bank,
+Bourso current account and livret (an LEP and at least one other passbook)
+must compare recent operations with the bank,
 sync twice, check the current Budget cycle, and inspect any overlap with
 legacy aggregator transactions. Different provider labels remain an explicit
 reconciliation risk; do not infer equality from date and amount alone.
@@ -352,8 +374,15 @@ no resolvable ticker is unpriceable *by construction* here rather than by
 accident, so without the provider-valued fallback a PEA would read as its cash
 sleeve alone and the dashboard would book the rest as a loss.
 
-Two positions collapsing onto the same fallback symbol are refused
+The sidecar refuses two ISIN-less positions sharing a fallback symbol
 (`INVALID_DATA`) instead of merging two different instruments into one holding.
+`BoursoSyncService` applies the same rule after ticker resolution: lines that
+land on one ticker merge only when both carry the same ISIN. Two ISINs on one
+ticker (OpenFIGI giving two share classes the same symbol), an ISIN-less line
+whose symbol equals another line's resolved ticker, or two ISIN-less lines on
+one symbol fail the sync with `INVALID_DATA` and keep the last good portfolio.
+Merged, the holding would be recorded under only one of the ISINs, so fund
+facts and composition would describe the wrong fund for part of it.
 
 ### Asynchronous import
 
@@ -477,7 +506,9 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Verification boundaries
 
-`services/bourso-auth` — 130 tests, run inside the built image in CI: pad decoding
+`services/bourso-auth` — 146 tests run inside the built image in CI, plus the 9
+movement-parser tests of `test_transactions.py`, which the CI step does not
+mount yet: pad decoding
 against the real SVGs (and its refusal on an unknown one), password encoding, the
 dashboard parsed from a real captured page including the third-party filter and
 the loan exclusion, a card that stops parsing failing the sync, reconciliation
@@ -487,7 +518,11 @@ the single-fund contract and each of its refusals, the identity selector (person
 identity chosen, inflected business markers recognised, a marker inside a
 personal name ignored, business-only and ambiguous selectors refused, a selector that
 comes back after the switch refused, the token kept out of the logs), cookie
-round-tripping with per-cookie domains, pending TTL, and the HTTP contract.
+round-tripping with per-cookie domains, pending TTL, the HTTP contract, and the
+history and IBAN read for the current account and every livret kind (LDDS,
+Livret A, LEP, Livret Jeune, PEL, CEL and the house passbook), and the history
+deadline: a stalled `/mouvements` read still returns every balance and the PEA
+holdings, flags the accounts without history, and logs no URL, amount or IBAN.
 
 Backend — `BoursoAdapterTest` (18), `BoursoSyncServiceTest` (29),
 `BoursoControllerTest` (11), `BoursoAdapterWiringTest`, `BoursoSyncRecoveryTest`,
@@ -517,6 +552,10 @@ two-section payload shape, and the existence of a separate ISIN feed.
 - **`MFA_TYPE_UNSUPPORTED`** — no SMS prompt was seen;
 - the **ISIN-less fallback** and its **collision refusal** — every line on that
   account carried a valid ISIN;
+- **livret transactions** — the `/mouvements` and `/rib` pages of a livret
+  are assumed to share the current account's markup, as Woob reads them; a
+  livret whose page differs keeps its balance and reports
+  `TRANSACTIONS_UNAVAILABLE`;
 - a **livret** and a **compte-titres ordinaire** — the account held a current
   account and a PEA only, so `COMPTE_TITRES` and every passbook type
   (`SAVINGS`, `LEP`, `LIVRET_A`, `LDDS`, `LIVRET_JEUNE`, `PEL`, `CEL`) are

@@ -264,8 +264,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Accounts you created yourself, and accounts created for another Actual budget, only ever
   gain new transactions. Loan accounts can't receive an Actual import.
 
+### Changed
+
+- **Pull requests go green sooner.** CI runs only the jobs a pull request's changed paths can
+  affect, a new push cancels the stale run, and the demo Playwright suite runs once instead of
+  twice. Pushes to `main` and tags still run every job, and a new `ci-ok` check fails when a
+  selected job did not pass. The app image builds its frontend and backend once, natively,
+  instead of once per platform, and a new `APP_VERSION` build argument no longer reinstalls the
+  dependencies (an edit to `frontend/package.json`, version field included, still does).
+  Building `docker/Dockerfile` yourself now needs BuildKit (`docker buildx`).
+
 ### Fixed
 
+- **Every BoursoBank livret now syncs its transactions, not only the LEP.** A Livret A, LDDS,
+  Livret Jeune, PEL, CEL or Livret Bourso+ used to sync its balance with no operations, so
+  money moving in and out of it never reached Budget. The BoursoBank sync now reads the last
+  90 days of operations and the IBAN of every current account and livret, through the same
+  importer and duplicate checks as the current account. A livret whose history page cannot
+  be read, or is too slow (the history reads only use what is left of a 60 s budget counted
+  from the start of the accounts read, after balances and holdings), still syncs its balance. ([#167](https://github.com/Cloeille/picsou-finance/issues/167))
+- **Controls no longer spill out of their card on phones** (#273). At 360–390px the Settings
+  theme and language switches (Spanish was hidden), the family sharing choices, the Analysis
+  card toggles and the account Transactions buttons were cut at the card edge. Settings and
+  sharing choices now stretch across the card, and card toggles move under the title. The
+  Accounts filters and Sync providers sit on one row you can swipe instead of up to eight
+  ragged rows; that row, like the Budget sections, fades at the edge that hides more, opens
+  on the current section and brings a newly picked tab fully into view, without cutting the
+  keyboard focus ring or undoing a swipe when a count loads late. Goal names and page titles wrap to a second line instead of being
+  cut with an ellipsis.
 - **Phone layout: page margins, the end of each page, and Family.** On a phone, pages ran 4 px
   from the screen edge while the bottom bar sat 16 px in, and the last card of every page
   touched the bar. Pages now keep the bar's 16 px margin on every side and end 16 px above it.
@@ -302,6 +328,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   did not know: its cards failed the completeness check and the whole sync stopped with
   `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
   like loans and insurance, since they belong to the child.
+- **BoursoBank no longer merges two funds that resolve to the same ticker.** When two lines
+  of a PEA or compte-titres with different ISINs got the same ticker (two share classes of
+  one fund, for example), they became one holding recorded under only one of the ISINs, so
+  fund facts and composition described the wrong fund for part of it. The sync now stops
+  with `INVALID_DATA` and keeps the last good portfolio. Lines with the same ISIN still
+  merge ([#302](https://github.com/Cloeille/picsou-finance/issues/302)).
+- **Upgrading a 1.0.11–1.0.18 database to 1.1.0.** The backend no longer stops at boot with 13
+  Flyway checksum mismatches (V38, V51, V54–V64). Merging main into 1.1.0 had moved these
+  migrations to new versions, and edited comments in five of them. Before Flyway validates, the
+  backend now moves each of those history rows to its new version, so nothing re-runs, and then
+  applies the 1.1.0 migrations the database never ran
 - **Upgrading a 1.0.6–1.0.18 database to 1.1.0.** The backend no longer stops at boot with
   Flyway checksum mismatches (V33 on 1.0.6; V38, V51, V54–V64 on 1.0.11–1.0.18). Merging main
   into 1.1.0 had moved these migrations to new versions, and edited comments in five of them;
