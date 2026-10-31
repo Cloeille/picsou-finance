@@ -91,12 +91,13 @@ test.describe('Goal calendar on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } })
 
   test('should wrap the months instead of running them off the screen', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-10-15T12:00:00'))
     await login(page)
     await page.goto('/goals/2/calendar')
 
-    const months = page.locator('[data-slot="card-content"] > .grid > button')
-    await expect(months.first()).toBeVisible()
-    expect(await months.count()).toBeGreaterThan(12)
+    // 22 = Jan 2025 through Oct 2026, the past/current months of demo goal 2; `:not([title])` skips the backfill button.
+    const months = page.locator('[data-slot="card-content"] > .grid > button:not([title])')
+    await expect(months).toHaveCount(22)
 
     // Horizontal containment only: a wrapping year is allowed to run below the fold.
     for (const box of await months.evaluateAll(els => els.map(el => el.getBoundingClientRect().toJSON()))) {
