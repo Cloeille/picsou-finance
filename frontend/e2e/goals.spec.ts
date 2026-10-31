@@ -9,7 +9,7 @@ test.describe('Goals page', () => {
   })
 
   test('should show demo savings goal cards with progress bars', async ({ page }) => {
-    for (const name of ['Vacances été 2025', 'Apport immobilier', 'Nouvelle voiture']) {
+    for (const name of ['Voyage au Japon', 'Apport immobilier', 'Nouvelle voiture']) {
       const card = page.locator('[data-slot="card"]').filter({ hasText: name })
       await expect(card).toBeVisible()
       await expect(card.getByRole('progressbar')).toBeVisible()
@@ -92,9 +92,10 @@ test.describe('Goal calendar on a phone', () => {
     await login(page)
     await page.goto('/goals/2/calendar')
 
-    // 22 = Jan 2025 through Oct 2026, the past/current months of demo goal 2; `:not([title])` skips the backfill button.
+    // 12 = Nov 2025 through Oct 2026: demo goal 2 is created 11 months before today (the frozen
+    // date), and the current month is included. `:not([title])` skips the backfill button.
     const months = page.locator('[data-slot="card-content"] > .grid > button:not([title])')
-    await expect(months).toHaveCount(22)
+    await expect(months).toHaveCount(12)
 
     // Horizontal containment only: a wrapping year is allowed to run below the fold.
     for (const box of await months.evaluateAll(els => els.map(el => el.getBoundingClientRect().toJSON()))) {

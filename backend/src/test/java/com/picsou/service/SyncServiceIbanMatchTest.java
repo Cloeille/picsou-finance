@@ -1,5 +1,8 @@
 package com.picsou.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.picsou.dto.AccountResponse;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
@@ -13,6 +16,7 @@ import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.RecurringDetectionService;
+import com.picsou.util.LogSanitizer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +24,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -36,7 +41,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 /**
- * Verifies SyncService IBAN-first account matching behaviour introduced to survive
+ * Verifies SyncService uid matching with an IBAN fallback introduced to survive
  * Enable Banking v0.16.4 identification-hash rotation (Boursorama case).
  *
  * <p>Three scenarios:
@@ -103,7 +108,7 @@ class SyncServiceIbanMatchTest {
         when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data));
 
         // IBAN lookup finds the existing account (stored with old uid)
-        when(accountRepository.findByIbanAndMemberId(IBAN, MEMBER_ID))
+        when(accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID))
             .thenReturn(Optional.of(existing));
 
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -122,8 +127,8 @@ class SyncServiceIbanMatchTest {
         assertThat(savedAccount.getId()).isEqualTo(10L);                      // same entity — no duplicate
         assertThat(savedAccount.getExternalAccountId()).isEqualTo(NEW_EB_UID); // uid refreshed
         assertThat(savedAccount.getCurrentBalance()).isEqualByComparingTo("1500"); // balance updated
-        // IBAN matched first: externalAccountId fallback lookup was never needed
-        verify(accountRepository, never())
+        // The current uid is absent, so the stable IBAN supplies the existing row.
+        verify(accountRepository)
             .findByExternalAccountIdAndMemberId(NEW_EB_UID, MEMBER_ID);
     }
 
@@ -142,17 +147,50 @@ class SyncServiceIbanMatchTest {
         when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data));
 
         // IBAN lookup: no active account
-        when(accountRepository.findByIbanAndMemberId(IBAN, MEMBER_ID)).thenReturn(Optional.empty());
+        when(accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID)).thenReturn(Optional.empty());
         // externalAccountId lookup: no active account
         when(accountRepository.findByExternalAccountIdAndMemberId(NEW_EB_UID, MEMBER_ID))
             .thenReturn(Optional.empty());
         // Soft-delete guard: found by IBAN → skip resurrection
-        when(accountRepository.existsSoftDeletedByIbanAndMemberId(IBAN, MEMBER_ID)).thenReturn(true);
+        when(accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID)).thenReturn(true);
 
         syncService.resyncAll(MEMBER_ID);
 
         // No account saved — resurrection blocked
         verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void resyncAll_softDeletedByIban_logsOnlyIbanFingerprint() {
+        String syntheticIban = "FR00SYNTHETICDELETED";
+        var data = new BankConnectorPort.AccountData(
+            NEW_EB_UID, "Synthetic account", syntheticIban, "EUR", BigDecimal.valueOf(100));
+        when(requisitionRepository.findByStatusAndMemberIdOrderByCreatedAtDesc(
+            RequisitionStatus.LINKED, MEMBER_ID)).thenReturn(List.of(linkedReq));
+        when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data));
+        when(accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(syntheticIban, "EUR", MEMBER_ID))
+            .thenReturn(true);
+
+        Logger logger = (Logger) LoggerFactory.getLogger(SyncService.class);
+        var logs = new ListAppender<ILoggingEvent>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            syncService.resyncAll(MEMBER_ID);
+
+            assertThat(linkedReq.getStatus()).isEqualTo(RequisitionStatus.LINKED);
+            verify(accountRepository, never()).save(any());
+            assertThat(logs.list).extracting(ILoggingEvent::getFormattedMessage)
+                .anySatisfy(message -> assertThat(message)
+                    .contains("Skipping resurrection", LogSanitizer.fingerprint(syntheticIban)))
+                .allSatisfy(message -> assertThat(message).doesNotContain(syntheticIban));
+            assertThat(logs.list).flatExtracting(event -> event.getArgumentArray() == null
+                ? List.of() : java.util.Arrays.asList(event.getArgumentArray()))
+                .doesNotContain(syntheticIban);
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+        }
     }
 
     /**
@@ -170,10 +208,10 @@ class SyncServiceIbanMatchTest {
         when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data));
 
         // No existing account by IBAN or externalId
-        when(accountRepository.findByIbanAndMemberId(IBAN, MEMBER_ID)).thenReturn(Optional.empty());
+        when(accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID)).thenReturn(Optional.empty());
         when(accountRepository.findByExternalAccountIdAndMemberId(NEW_EB_UID, MEMBER_ID))
             .thenReturn(Optional.empty());
-        when(accountRepository.existsSoftDeletedByIbanAndMemberId(IBAN, MEMBER_ID)).thenReturn(false);
+        when(accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID)).thenReturn(false);
         when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(NEW_EB_UID, MEMBER_ID))
             .thenReturn(false);
 

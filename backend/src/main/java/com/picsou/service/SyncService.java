@@ -12,6 +12,7 @@ import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.RecurringDetectionService;
 import com.picsou.service.sync.SourceSyncResult;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -460,14 +461,16 @@ public class SyncService {
      *
      * <p>Matching strategy (Enable Banking v0.16.4 uid-rotation resilience):
      * <ol>
-     *   <li>If the account has an IBAN, look up by {@code (iban, memberId)} first — IBAN is
-     *       stable even when the provider uid changes (e.g. Boursorama after EB v0.16.4).
-     *       When matched via IBAN, the stored {@code externalAccountId} is refreshed to the
-     *       current uid so future syncs stay aligned.</li>
-     *   <li>Fall back to {@code (externalAccountId, memberId)} for accounts without an IBAN
-     *       and for providers whose uid never changes.</li>
+     *   <li>Look up by {@code (externalAccountId, memberId)} first, preserving legacy accounts
+     *       without an IBAN even when another connector already stores that IBAN.</li>
+     *   <li>If no active uid matches, skip a uid the member deleted before trying the IBAN.</li>
+     *   <li>Fall back to {@code (iban, currency, memberId)} when an IBAN is available.
+     *       Currency distinguishes subaccounts sharing an IBAN, which remains stable even
+     *       when the provider uid changes (e.g. Boursorama after EB v0.16.4).
+     *       An IBAN match refreshes the stored uid. An exact uid match only accepts the
+     *       incoming IBAN if no other active or deleted account has that IBAN and currency.</li>
      * </ol>
-     * Soft-delete guards follow the same two-step order.
+     * The IBAN soft-delete guard applies when neither active lookup matches.
      *
      * <p>{@code sessionId} is passed in rather than read off the requisition: during
      * {@code completeConnection} the row still carries the (now spent) authorization
@@ -480,23 +483,20 @@ public class SyncService {
         FamilyMember member,
         String sessionId
     ) {
-        // Step 1: locate an existing active account (IBAN-first when available)
-        Optional<Account> existing = Optional.empty();
-        if (data.iban() != null) {
-            existing = accountRepository.findByIbanAndMemberId(data.iban(), member.getId());
-        }
+        String currency = data.currency() != null ? data.currency() : "EUR";
+        Optional<Account> existing =
+            accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), member.getId());
         if (existing.isEmpty()) {
-            existing = accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), member.getId());
-        }
-
-        // Step 2: soft-delete guard — refuse to resurrect an account the user removed
-        if (existing.isEmpty()) {
-            boolean softDeleted = (data.iban() != null &&
-                accountRepository.existsSoftDeletedByIbanAndMemberId(data.iban(), member.getId()))
-                || accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), member.getId());
-            if (softDeleted) {
+            // A deleted uid is not a rotation, even when another connector owns the IBAN.
+            boolean deletedUid = accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(
+                data.externalId(), member.getId());
+            if (!deletedUid && data.iban() != null) {
+                existing = accountRepository.findByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId());
+            }
+            if (deletedUid || (existing.isEmpty() && data.iban() != null &&
+                accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId()))) {
                 log.info("Skipping resurrection of soft-deleted account externalId={} iban={} member={}",
-                    data.externalId(), data.iban(), member.getId());
+                    data.externalId(), LogSanitizer.fingerprint(data.iban()), member.getId());
                 return Optional.empty();
             }
         }
@@ -504,11 +504,16 @@ public class SyncService {
         Account account;
         if (existing.isPresent()) {
             account = existing.get();
+            account.setCurrency(currency);
             account.setCurrentBalance(data.balance());
             account.setLastSyncedAt(Instant.now());
             // Refresh uid in case the provider rotated it (EB v0.16.4 Boursorama case)
             account.setExternalAccountId(data.externalId());
-            if (data.iban() != null) {
+            // A deleted sidecar can be restored on reconnect, so it still reserves its IBAN.
+            if (data.iban() != null && !accountRepository.existsByIbanAndCurrencyAndMemberIdAndIdNot(
+                data.iban(), currency, member.getId(), account.getId()) &&
+                !accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(
+                    data.iban(), currency, member.getId())) {
                 account.setIban(data.iban());
             }
             // Backfill the bank logo on a pre-logo account once the requisition has one.
@@ -524,7 +529,7 @@ public class SyncService {
                 .name(data.name() != null ? data.name() : "Account")
                 .type(AccountType.CHECKING)
                 .provider(requisition.getInstitutionName())
-                .currency(data.currency() != null ? data.currency() : "EUR")
+                .currency(currency)
                 .currentBalance(data.balance())
                 .lastSyncedAt(Instant.now())
                 .externalAccountId(data.externalId())

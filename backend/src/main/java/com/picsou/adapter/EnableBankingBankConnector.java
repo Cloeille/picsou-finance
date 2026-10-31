@@ -23,10 +23,12 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -53,6 +55,9 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     /** {@code transaction.description} is VARCHAR(255) and {@code category} VARCHAR(100). */
     private static final int MAX_DESCRIPTION_LENGTH = 255;
     private static final int MAX_CATEGORY_LENGTH = 100;
+    /** {@code account.name} is VARCHAR(100). */
+    private static final int MAX_ACCOUNT_NAME_LENGTH = 100;
+    private static final List<String> BALANCE_TYPE_PRIORITY = List.of("CLBD", "XPCD", "ITBD", "ITAV", "CLAV");
 
     private final EnableBankingConfigProvider configProvider;
     private final WebClient webClient;
@@ -185,27 +190,63 @@ public class EnableBankingBankConnector implements BankConnectorPort {
 
     @Override
     public List<AccountData> fetchBalances(String sessionId) {
-        List<String> accounts = fetchSessionAccountsWithRetry(sessionId);
+        SessionAccounts sessionAccounts = fetchSessionAccountsWithRetry(sessionId);
+        List<String> accounts = sessionAccounts.accounts();
         List<AccountData> fetched = new ArrayList<>(accounts.size());
-        RuntimeException firstFailure = null;
+        List<RuntimeException> failures = new ArrayList<>();
+        Map<String, AccountDetailsResponse> detailsByAccount = new LinkedHashMap<>();
+        Map<String, Integer> labelClaims = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Map<String, AccountBalanceCandidates> candidatesByAccount = new LinkedHashMap<>();
+        // A uid's balances may include its siblings. Collect every description before selection,
+        // even when its balance request will fail. Each endpoint is fetched at most once per uid
+        // because Enable Banking enforces strict daily call limits.
         for (String accountId : accounts) {
             try {
-                fetched.add(fetchAccountData(accountId));
+                AccountDetailsResponse details = fetchAccountDetails(accountId);
+                detailsByAccount.put(accountId, details);
+                String label = details != null ? firstNonBlank(details.details()) : null;
+                if (label != null) labelClaims.merge(label, 1, Integer::sum);
+            } catch (SyncException ex) {
+                skip(accountId, ex, failures);
+            }
+        }
+        boolean detailsComplete = detailsByAccount.size() == accounts.size()
+            && detailsByAccount.values().stream().allMatch(details -> details != null);
+        var accountLabels = new AccountLabels(labelClaims, detailsComplete, sessionAccounts.scope());
+        for (var entry : detailsByAccount.entrySet()) {
+            String accountId = entry.getKey();
+            try {
+                var candidates = fetchAccountCandidates(accountId, entry.getValue(), accountLabels);
+                candidatesByAccount.put(accountId, candidates);
+            } catch (SyncException ex) {
+                skip(accountId, ex, failures);
+            }
+        }
+        var ownership = new BalanceOwnership(candidatesByAccount,
+            detailsComplete && candidatesByAccount.size() == accounts.size());
+        for (var entry : candidatesByAccount.entrySet()) {
+            String accountId = entry.getKey();
+            try {
+                fetched.add(fetchAccountData(accountId, entry.getValue(), ownership));
             } catch (SyncException | NumberFormatException ex) {
                 // An account uid can rotate independently after a successful session link,
                 // and one ASPSP may send a malformed balance amount. Keep the remaining accounts
                 // syncable; anything else is a bug and must fail the whole sync.
-                log.warn("Failed to fetch account {} from Enable Banking; skipping it for this sync",
-                    LogSanitizer.fingerprint(accountId), ex);
-                if (firstFailure == null) firstFailure = ex;
+                skip(accountId, ex, failures);
             }
         }
-        // Every account failing is a bank- or consent-level failure (5xx, 429, expired consent),
-        // not a stale uid: an empty list would read as "accounts still linking" upstream.
-        if (fetched.isEmpty() && firstFailure != null) {
-            throw firstFailure;
+        // An empty list means "accounts still linking" upstream, so report a failure
+        // when a populated session has no usable accounts.
+        if (fetched.isEmpty() && !failures.isEmpty()) {
+            throw failures.getFirst();
         }
         return fetched;
+    }
+
+    private static void skip(String accountId, RuntimeException failure, List<RuntimeException> failures) {
+        log.warn("Failed to fetch account {} from Enable Banking; skipping it for this sync",
+            LogSanitizer.fingerprint(accountId), failure);
+        failures.add(failure);
     }
 
     /**
@@ -276,7 +317,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
      * id. Throwing here turned the legitimate "still linking" case into a 502
      * in production.
      */
-    List<String> fetchSessionAccountsWithRetry(String sessionId) {
+    SessionAccounts fetchSessionAccountsWithRetry(String sessionId) {
         int maxAttempts = 3;
         int delayMs = 1_500;
 
@@ -294,7 +335,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             if (session != null && session.accounts() != null && !session.accounts().isEmpty()) {
                 log.info("Session {} has {} accounts (attempt {}, status={})",
                     LogSanitizer.fingerprint(sessionId), session.accounts().size(), attempt, session.status());
-                return session.accounts();
+                return new SessionAccounts(session.accounts(), responseScope(session.aspsp()));
             }
 
             log.info("Session {} has no accounts yet (attempt {}/{}, status={})",
@@ -308,7 +349,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
 
         log.warn("Session {} still has no accounts after {} attempts — returning empty so the caller can retry asynchronously",
             LogSanitizer.fingerprint(sessionId), maxAttempts);
-        return List.of();
+        return new SessionAccounts(List.of(), BalanceResponseScope.UNKNOWN);
     }
 
     /**
@@ -617,7 +658,37 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         }
     }
 
-    AccountData fetchAccountData(String accountId) {
+    AccountDetailsResponse fetchAccountDetails(String accountId) {
+        return mapToSyncException(
+            webClient.get()
+                .uri("/accounts/{id}/details", accountId)
+                .header("Authorization", "Bearer " + buildJwt())
+                .retrieve()
+                .bodyToMono(AccountDetailsResponse.class)
+                .timeout(TIMEOUT),
+            "Failed to fetch account details")
+            .block();
+    }
+
+    enum BalanceResponseScope { ACCOUNT_SCOPED, SHARED, UNKNOWN }
+
+    enum BalanceSelection { ACCOUNT_SCOPED, DESCRIPTION, FALLBACK }
+
+    record SessionAccounts(List<String> accounts, BalanceResponseScope scope) {
+        SessionAccounts {
+            accounts = List.copyOf(accounts);
+        }
+    }
+
+    record AccountLabels(Map<String, Integer> claims, boolean complete, BalanceResponseScope responseScope) {}
+
+    record AccountBalanceCandidates(AccountDetailsResponse details, List<BalancesResponse.BalanceItem> candidates,
+                                    BalanceSelection selection) {}
+
+    record BalanceOwnership(Map<String, AccountBalanceCandidates> candidatesByAccount, boolean complete) {}
+
+    AccountBalanceCandidates fetchAccountCandidates(String accountId, AccountDetailsResponse details,
+                                                    AccountLabels accountLabels) {
         BalancesResponse balances = mapToSyncException(
             webClient.get()
                 .uri("/accounts/{id}/balances", accountId)
@@ -628,44 +699,129 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             "Failed to fetch account balances")
             .block();
 
-        AccountDetailsResponse details = mapToSyncException(
-            webClient.get()
-                .uri("/accounts/{id}/details", accountId)
-                .header("Authorization", "Bearer " + buildJwt())
-                .retrieve()
-                .bodyToMono(AccountDetailsResponse.class)
-                .timeout(TIMEOUT),
-            "Failed to fetch account details")
-            .block();
-
-        BigDecimal balance = BigDecimal.ZERO;
-        String currency = "EUR";
-        String name = "Account";
-        String iban = null;
-
         // Keep per-account visibility at INFO (operators need it to diagnose Enable
         // Banking's async linking), but log only the balance count — never the full
         // balances object, which carries the account's amounts (financial PII).
         log.info("Fetched {} balances for account {}",
             balances != null && balances.balances() != null ? balances.balances().size() : 0, accountId);
-        if (balances != null && balances.balances() != null && !balances.balances().isEmpty()) {
-            var b = balances.balances().stream()
-                .filter(bl -> "closingBooked".equals(bl.balanceType()) || "expected".equals(bl.balanceType()))
-                .findFirst()
-                .orElse(balances.balances().get(0));
-            if (b.balanceAmount() != null) {
-                balance = new BigDecimal(b.balanceAmount().amount());
-                currency = b.balanceAmount().currency();
-            }
-        }
 
-        if (details != null && details.account() != null) {
-            name = details.account().name() != null ? details.account().name() :
-                   details.account().product() != null ? details.account().product() : "Account";
-            iban = details.account().iban();
+        if (balances == null || balances.balances() == null || balances.balances().isEmpty()) {
+            throw new SyncException("Enable Banking returned no account balances");
         }
+        List<BalancesResponse.BalanceItem> candidates = balances.balances();
+        if (candidates.stream().anyMatch(item -> item == null)) {
+            throw new SyncException("Enable Banking returned an invalid account balance");
+        }
+        String accountLabel = details != null ? firstNonBlank(details.details()) : null;
+        var matching = candidates.stream()
+            .filter(item -> accountLabel != null && item.name() != null
+                && accountLabel.equalsIgnoreCase(item.name().trim()))
+            .toList();
+        boolean matchedDescription = accountLabels.complete() && accountLabel != null
+            && accountLabels.claims().getOrDefault(accountLabel, 0) == 1
+            && !matching.isEmpty();
+        if (matchedDescription) {
+            return new AccountBalanceCandidates(details, matching, BalanceSelection.DESCRIPTION);
+        }
+        // Account-scoped responses may name each balance type rather than the account.
+        if (accountLabels.responseScope() == BalanceResponseScope.ACCOUNT_SCOPED
+            && !containsDistinctSiblingClaim(candidates, accountLabel, accountLabels.claims())) {
+            return new AccountBalanceCandidates(details, candidates, BalanceSelection.ACCOUNT_SCOPED);
+        }
+        candidates = candidates.stream()
+            .filter(item -> !accountLabels.claims().containsKey(nullToEmpty(item.name()).trim()))
+            .toList();
+        return new AccountBalanceCandidates(details, candidates, BalanceSelection.FALLBACK);
+    }
 
-        return new AccountData(accountId, name, iban, currency, balance);
+    AccountData fetchAccountData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
+        var selected = selectBalance(accountId, response, ownership);
+        AccountDetailsResponse details = response.details();
+        BigDecimal balance = new BigDecimal(selected.balanceAmount().amount().trim());
+        String currency = firstNonBlank(selected.balanceAmount().currency(),
+            details != null ? details.currency() : null, "EUR");
+        String name = details != null
+            ? firstNonBlank(details.details(), details.product(), details.name(), "Account") : "Account";
+        String iban = details != null && details.accountId() != null
+            ? firstNonBlank(details.accountId().iban()) : null;
+
+        return new AccountData(accountId, truncate(name, MAX_ACCOUNT_NAME_LENGTH), iban, currency, balance);
+    }
+
+    private static BalancesResponse.BalanceItem selectBalance(String accountId, AccountBalanceCandidates response,
+                                                             BalanceOwnership ownership) {
+        List<BalancesResponse.BalanceItem> candidates = response.candidates();
+        if (response.selection() != BalanceSelection.FALLBACK) {
+            return preferredBalance(candidates);
+        }
+        String balanceLabel = balanceLabel(candidates);
+        // A shared list can have one generic label, so response shape cannot prove ownership.
+        if (!ownership.complete() || ownership.candidatesByAccount().entrySet().stream()
+            .anyMatch(entry -> !entry.getKey().equals(accountId)
+                && entry.getValue().selection() == BalanceSelection.FALLBACK
+                && entry.getValue().candidates().stream()
+                    .anyMatch(item -> balanceLabel.equalsIgnoreCase(nullToEmpty(item.name()).trim())))) {
+            throw new SyncException("Enable Banking returned ambiguous account balances; cannot establish fallback ownership");
+        }
+        return preferredBalance(candidates);
+    }
+
+    private static boolean containsDistinctSiblingClaim(List<BalancesResponse.BalanceItem> candidates,
+                                                        String accountLabel, Map<String, Integer> labelClaims) {
+        String ownLabel = nullToEmpty(accountLabel).trim();
+        return candidates.stream()
+            .map(item -> nullToEmpty(item.name()).trim())
+            .anyMatch(candidateLabel -> !ownLabel.equalsIgnoreCase(candidateLabel)
+                && labelClaims.containsKey(candidateLabel));
+    }
+
+    private static String balanceLabel(List<BalancesResponse.BalanceItem> candidates) {
+        if (candidates.isEmpty()) {
+            throw new SyncException("Enable Banking returned ambiguous account balances; no unclaimed balance remains");
+        }
+        String balanceLabel = nullToEmpty(candidates.getFirst().name()).trim();
+        if (candidates.stream().anyMatch(item -> !balanceLabel.equalsIgnoreCase(nullToEmpty(item.name()).trim()))) {
+            throw new SyncException("Enable Banking returned ambiguous account balances; cannot establish account scope");
+        }
+        return balanceLabel;
+    }
+
+    private static BalancesResponse.BalanceItem preferredBalance(List<BalancesResponse.BalanceItem> candidates) {
+        var selected = candidates.stream().min(Comparator.comparingInt(EnableBankingBankConnector::balancePriority))
+            .orElseThrow(() -> new SyncException("Enable Banking returned no account balances"));
+        long preferredCount = candidates.stream()
+            .filter(item -> balancePriority(item) == balancePriority(selected))
+            .count();
+        if (preferredCount > 1) {
+            throw new SyncException("Enable Banking returned ambiguous account balances; cannot select a balance safely");
+        }
+        if (selected.balanceAmount() == null || selected.balanceAmount().amount() == null) {
+            throw new SyncException("Enable Banking returned an account balance without an amount");
+        }
+        return selected;
+    }
+
+    private static int balancePriority(BalancesResponse.BalanceItem balance) {
+        if (balance.balanceType() == null) return BALANCE_TYPE_PRIORITY.size();
+        int priority = BALANCE_TYPE_PRIORITY.indexOf(balance.balanceType());
+        return priority >= 0 ? priority : BALANCE_TYPE_PRIORITY.size();
+    }
+
+    private static BalanceResponseScope responseScope(AspspResponse aspsp) {
+        String name = aspsp != null ? firstNonBlank(aspsp.name()) : null;
+        if (name == null) return BalanceResponseScope.UNKNOWN;
+        // Enable Banking documents this endpoint as account-scoped; Qonto is the reported
+        // exception that returns an organization-wide list for each account uid.
+        return "Qonto".equalsIgnoreCase(name)
+            ? BalanceResponseScope.SHARED
+            : BalanceResponseScope.ACCOUNT_SCOPED;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) return value.trim();
+        }
+        return null;
     }
 
     /**
@@ -702,7 +858,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         @com.fasterxml.jackson.annotation.JsonProperty("session_id") String sessionId,
         String url,
         String status,
-        List<String> accounts
+        List<String> accounts,
+        AspspResponse aspsp
     ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -724,6 +881,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     record BalancesResponse(List<BalanceItem> balances) {
         @JsonIgnoreProperties(ignoreUnknown = true)
         record BalanceItem(
+            String name,
             @com.fasterxml.jackson.annotation.JsonProperty("balance_amount") BalanceAmount balanceAmount,
             @com.fasterxml.jackson.annotation.JsonProperty("balance_type") String balanceType
         ) {}
@@ -732,14 +890,15 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record AccountDetailsResponse(AccountDetail account) {
+    record AccountDetailsResponse(
+        @com.fasterxml.jackson.annotation.JsonProperty("account_id") AccountIdentification accountId,
+        String name,
+        String details,
+        String product,
+        String currency
+    ) {
         @JsonIgnoreProperties(ignoreUnknown = true)
-        record AccountDetail(
-            String iban,
-            String name,
-            String product,
-            @com.fasterxml.jackson.annotation.JsonProperty("cash_account_type") String cashAccountType
-        ) {}
+        record AccountIdentification(String iban) {}
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

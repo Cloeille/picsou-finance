@@ -9,13 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SCPI positions over MCP.** An MCP client can now record a SCPI account's share count,
+  subscription and withdrawal prices and distribution with the new `set_scpi_position` tool
+  (`accounts:write`). It goes through the same service as the account form, so the balance is
+  still the withdrawal price times the share count, and a call never detaches a CORUM or Sofidy
+  fund. `get_account` already returned the position, so reading needs no new tool.
+
 - **Caisse d'Epargne home loans.** A home loan listed in the synthesis was reported as
   unsupported. The sidecar now reads its detail from the bank's home-loan app (amount borrowed,
   rate, installment, insurance, first and last due dates) and imports it like a personal loan.
   A property you linked the mortgage to stays linked when the loan syncs again. A loan due on
   the 31st keeps that due day in its schedule, even after a shorter month, and a detail with
   figures out of range, or amounts too large to store, leaves only that loan's details aside
-  instead of failing the import.
+  instead of failing the import. Personal and home loans accept up to 600 monthly
+  installments (50 years); longer durations are refused before calculating insurance,
+  so they cannot block the other accounts' import.
 
 - **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
   Picsou matches it to the dividend history it already holds, marks it as a dividend and files
@@ -55,10 +63,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   balances only. CIC asks for a mobile confirmation at least once every 24 hours, so the daily sync
   only goes through within a day of the last confirmation. It is listed in the dashboard's
   *Sync all* modal, which opens the CIC tab when the session has lapsed.
+  After a complete fetch, an account CIC no longer lists is closed at zero, with a zero balance
+  and snapshot. The account is kept so it can be imported again if it reappears.
+  Its last balance no longer counts toward net worth.
   Deleting its last account removes the session and credentials and revokes pending logins,
   including a confirmation already in progress or a stored-credentials reconnect still reading
   its password. Unreadable account rows and unrecognized tables containing account data fail the
-  whole import. Savings captions accept typographic apostrophes. A wrong SMS code can be corrected
+  whole import, including renamed tables, rows outside the parser's selectors, and truncated
+  account tables or rows, preserving existing balances and snapshots. Recognized contract tables
+  also fail when cut off after their opening tag or caption, before any account markers appear.
+  The accounts page must end with its closing HTML tag, so cuts between tables or within their
+  opening tags also fail without changing balances or snapshots. Complete pages containing only
+  checking accounts remain valid.
+  Completion has its own 10-attempt quota per IP per 15 minutes,
+  separate from the five password checks shared by initiate and reconnect.
+  Savings captions accept typographic apostrophes. Savings labels with accents or typographic
+  apostrophes are recognized. The CIC panel is now translated into German and Spanish.
+  A wrong SMS code can be corrected
   without another login, and expired attempts have their pending passwords cleared every minute.
   Rejected credentials make the session inactive and require credential entry, including after an
   explicit reconnect, without erasing a newer login's password. Expired sessions stay in *Sync all*
@@ -286,13 +307,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Enable Banking account balances and details.** Accounts in a shared balance list,
+  such as Qonto business accounts, now select entries matching the account description
+  before applying ISO balance-type priority. For Qonto or an unknown ASPSP, unmatched lists
+  with distinct labels fail even when one balance type has higher priority. Missing or unmatched
+  descriptions cannot use entries claimed by another session account. Shared descriptions
+  cannot establish ownership for Qonto or unknown ASPSPs. Other accounts keep syncing. Generic-label
+  fallback requires a single unclaimed entry or consistent unclaimed labels. Overlapping
+  fallback labels are ambiguous for Qonto and unknown ASPSPs even when both responses have
+  one label, so shared lists cannot assign the same preferred balance to several accounts.
+  Other named ASPSPs retain account-scoped type ranking, including distinct balance-type labels,
+  overlapping labels and independent zero balances, unless the response names a distinct sibling.
+  Accounts at these banks can share their own description and still sync independently.
+  Unique description matches still sync zero balances.
+  Ownership never depends on amounts or changes between requests. Competing
+  fallback accounts all fail safely. Unavailable sibling details prevent shared-description
+  matches as well as fallback. Invalid sibling balance responses prevent shared fallback
+  while preserving complete description claims. Skipping a soft-deleted account logs
+  an IBAN fingerprint instead of the full IBAN.
+  Flat account details supply the IBAN and the description, product, or holder name
+  for new accounts, bounded to 100 characters after matching the full description.
+  Ambiguous or missing balances fail explicitly
+  instead of selecting another account's balance or storing zero. Existing account
+  names stay unchanged and can be edited in the account form. Currency subaccounts sharing
+  an IBAN remain separate, with balances and snapshots valued in the correct currency.
+  IBAN matching and deletion guards include currency while retaining uid-rotation support.
+  A deleted uid takes precedence over an active IBAN match, so deleting an old Enable Banking
+  duplicate stops its balance and transaction imports without taking over another connector's row.
+  Accounts found by uid reconcile previously misparsed currencies before saving balances
+  and converting the current day's snapshot to EUR, so later syncs keep those accounts separate.
+  Revolut discovery and sync use the same currency-aware match for these imported accounts.
+  Deleting or voluntarily restoring one currency does not affect another sharing its IBAN.
+  IBAN backfill respects deleted accounts, so reconnecting Revolut restores its original
+  row without creating an ambiguous active match.
+  Caisse d'Epargne loans link to the member's EUR account when currencies share an IBAN,
+  keeping the import from failing on multiple matches. Revolut converts native balances to
+  EUR before writing snapshots, keeping their value and invested amount in the same currency.
+- **The demo no longer looks broken.** Every page now gets an answer from the demo build:
+  holdings on every account, prices, connected apps, the status of each provider, the budget's
+  transactions and the fourth goal no longer leave a card loading forever or a table empty. Its
+  figures agree from page to page: the dashboard's net worth and portfolio performance match the
+  Accounts total, an investment account is worth its holdings at the quotes shown and its
+  performance over a range follows those quotes, the family view shows the same accounts, and the car loan and the house's
+  mortgage are real accounts under French names. Performance and the 24-hour chart cover the
+  accounts the dashboard selects, the 24-hour chart follows the hourly quotes, and the history
+  ends on today's value instead of placing it on the first of the month. The budget's
+  transaction list holds the same expenses as the spending breakdown for the month and the
+  year to date, even on the first day of the month. Cashflow totals and every chart bucket
+  sum those same dated rows, and the checking account lists the same transactions as global
+  search. Categorizing a transaction updates the inbox, spending, category drill, envelopes,
+  cashflow, and Sankey together, including direct parent assignments. Loan history follows
+  each dated amortization installment. Goal calendars no longer change on every
+  reload, and a goal's badge matches its calendar. Dates follow today, so the card's next debit
+  and the goal deadlines are ahead of you, and the budget opens on the current month instead of
+  the previous one in France. Settings shows the demo user's name, and opening `/admin` in a
+  fresh demo tab waits for that user's role. SCPI edits update the dashboard, aggregate history,
+  P&L and 24-hour chart during the same session (#277).
+- **Enable Banking setup guidance.** Registration now lists the required application fields,
+  explains email-link sign-in and account-linked activation, and describes restricted-mode
+  limits. Key import is the default. Server key generation requires an explicit action.
+  The success screen distinguishes application configuration from connecting bank accounts,
+  and network failures show a translated Picsou connection message in all four languages.
 - **Caisse d'Epargne loan insurance rounding.** Personal and home loans now
   retain the correct cent-rounded insurance at exact half-cent annuity boundaries
   and extremely small positive nominal rates. Directed Decimal bounds certify
   the rounded annuity, with an exact rational fallback when the bounds disagree.
   This prevents an extra cent of insurance from reducing the capital repaid in
   the amortization schedule.
-
 - **Trade Republic crypto is valued at its market price again.** The connector guessed the
   venue of each price subscription (`TRD0` for crypto). Trade Republic refused that guess, and
   every crypto position was valued at its average buy-in, which hid its whole gain or loss

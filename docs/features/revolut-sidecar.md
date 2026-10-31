@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-10-31 (hCaptcha opacity checks and rotated empty overflow clips)
+> Last updated: 2026-10-31 (hCaptcha content-quad clipping; legacy Enable Banking coexistence and IBAN log privacy)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -50,7 +50,7 @@ refreshed with `PUT /api/retail/token`. All API calls run in-page (`page.evaluat
 the app's own JS, which can't be hooked.
 
 Java maps pockets → `CHECKING` sub-accounts (parent = wallet), money-boxes → `SAVINGS`, dedups
-against Enable Banking by IBAN, and ingests transactions (feeds Budget). **Pocket nesting:** the sidecar
+against Enable Banking by IBAN, currency, and member, and ingests transactions (feeds Budget). **Pocket nesting:** the sidecar
 emits one synthetic **wallet parent** account per wallet (`externalId = wallet_id`, IBAN, `balance = sum
 of its same-currency children`); pockets/vaults carry `parentExternalId = wallet_id` and become children.
 This matters because `DashboardService`/`AccountsPage` **exclude children** (`parentAccountId != null`)
@@ -58,6 +58,29 @@ from net-worth totals — the parent must carry the sum, or balances are lost. C
 top-level (the sidecar has no FX). Credentials are stored encrypted (AES-256-GCM) only if the user ticks
 "remember"; otherwise they're passed per sync and not stored. Revolut is the **primary** source; Enable
 Banking stays as a fallback for the current account.
+
+After upgrading from an Enable Banking version that did not import IBANs, a separate legacy
+Enable Banking row can already coexist with a sidecar row for the same wallet. Enable Banking
+now prefers its exact uid and leaves its IBAN unset when the sidecar owns that IBAN and currency.
+It preserves both rows and their history without moving the uid onto the sidecar row or making
+Revolut's IBAN lookup ambiguous. If the legacy Enable Banking row is deleted, its uid blocks
+Enable Banking's IBAN fallback, so later syncs leave the sidecar row and its transactions alone.
+See [bank-sync.md](./bank-sync.md#account-matching-resilience-enable-banking-0164).
+
+Discovery and persistence use the same currency-aware IBAN match, then fall back to the external
+account id and member. EUR and GBP accounts imported by Enable Banking can share an IBAN without
+breaking Revolut's selection preview or overwriting each other's balances. Missing or blank Revolut
+currencies default to EUR; other values are trimmed and uppercased before matching and creation.
+The IBAN-based soft-delete guard also includes currency. Deleting one currency leaves other
+currencies eligible for import. Voluntary selection restores only the selected external id or
+IBAN and currency, so selecting EUR leaves a deleted GBP wallet deleted.
+When this guard skips a deleted account, its INFO log contains only
+`LogSanitizer.fingerprint(iban)` for correlation, never the full IBAN.
+
+Accounts keep their native balances. Snapshot balances and invested amounts are stored in EUR,
+using `AccountService.upsertSnapshotFromNative`. Confirming a GBP wallet with an unchanged balance
+of GBP 200 at a synthetic GBP/EUR rate of 1.20 keeps both snapshot amounts at EUR 240, including
+when Revolut matches an account previously imported by Enable Banking.
 
 ### Transactions for pockets and vaults
 
@@ -377,6 +400,10 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   plus `SyncAllModal.test.tsx` (translated captcha message, no countdown).
 - `backend/.../service/RevolutSyncServiceTest.java` — sync mapping (pockets/vaults), IBAN dedup vs
   Enable Banking, transaction dedup, remembered-vs-not credentials, always-upsert session marker row.
+- `SyncServiceCurrencyMatchTest` persists synthetic Enable Banking accounts with a shared IBAN,
+  then runs Revolut discovery and confirmation for EUR, GBP, and missing-currency wallets. It
+  checks currency-specific updates, EUR snapshot balances and invested amounts, deletion guards,
+  and voluntary restoration against real repository queries on H2.
 - Live end-to-end (login + harvest against a real account) is still pending the account cool-down.
 - Note: 3 tests are red independently of this feature (`CashflowFlowServiceTest` ×3 — pre-existing
   budget NPE issues; verified via `git stash`). `RevolutPocketServiceTest` and
