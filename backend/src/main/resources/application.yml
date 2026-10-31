@@ -209,6 +209,8 @@ app:
     url: ${AMUNDI_AUTH_URL:http://amundi-auth:8001}
   cmes-auth:
     url: ${CMES_AUTH_URL:http://cmes-auth:8001}
+  cic-auth:
+    url: ${CIC_AUTH_URL:http://cic-auth:8001}
   amex-auth:
     url: ${AMEX_AUTH_URL:http://amex-auth:8001}
   fortuneo-auth:
