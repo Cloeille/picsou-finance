@@ -311,8 +311,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shared Camoufox images for AMEX and Revolut.** Both sidecars now inherit the
   same published browser base digest and common FastAPI/uvicorn pins. Revolut's
   ARM64 image downloads the ARM64 Firefox build instead of the x86_64 archive.
-  Browser/Playwright versions, service users, ports and profile storage are
-  preserved. Their shared Xvfb startup clears stale locks and refuses to start
+  Browser/Playwright versions and ports are preserved. Revolut pins its service
+  UID to 999 so existing profile volumes stay readable and writable after upgrades.
+  Their shared Xvfb startup clears stale locks and refuses to start
   without a ready display. The admin status check detects older Camoufox images.
   CI adds offline browser smoke checks on native ARM64;
   bank login compatibility remains unverified. Dependabot now covers Maven,

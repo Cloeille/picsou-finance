@@ -57,7 +57,9 @@ for the telemetry consent dialog, so two modals never stack. It waits only while
 is on screen (`useTelemetryConsentPrompt`): closing it unanswered leaves consent `UNSET` but
 lets the alert through for the rest of the page load. It lists each issue with the fix
 (`docker compose pull` then `docker compose up -d`, or `docker compose up -d --build` with
-Compose v2.33+) and the update with a link to the release notes. Closing it stores a
+Compose v2.33+) and the update with a link to the release notes. The build instructions
+name all three bases (`sidecar-python`, `sidecar-chromium` and `sidecar-camoufox`)
+in each supported language. Closing it stores a
 fingerprint (sorted `code:sidecar` plus the latest version) in the persisted app store; it
 shows again only when that fingerprint changes. A clean status clears the stored fingerprint,
 so a problem that is fixed and later comes back alerts again. The request opts out of the

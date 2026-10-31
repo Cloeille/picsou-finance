@@ -2258,7 +2258,7 @@
       "outdated": "This sidecar answers, but it is not running on the expected shared base image.",
       "expectedBase": "Expected shared base image:",
       "fixIntro": "To fix it, refresh the images, then restart:",
-      "fixBuildIntro": "When building from source, with Compose v2.33 or newer (it builds sidecar-python and sidecar-chromium first):",
+      "fixBuildIntro": "When building from source, with Compose v2.33 or newer (it builds sidecar-python, sidecar-chromium and sidecar-camoufox first):",
       "updateTitle": "Update available",
       "releaseNotes": "Release notes",
       "later": "Later"

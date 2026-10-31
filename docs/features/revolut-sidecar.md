@@ -284,7 +284,10 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   Port 8002, screen 1280x1024x24 and the 65-second keep-alive are preserved. Both services
   clear stale Xvfb locks on restart and fail explicitly without a ready display.
   Shared browser assets live in `/opt/camoufox-cache/camoufox`; profiles persist on the
-  `revolut_profiles` docker volume.
+  `revolut_profiles` docker volume. The `revoauth` user is pinned to UID 999 to
+  retain access to volumes created by earlier images, including mode-700 member
+  directories. Its group remains automatically allocated; profile access depends
+  on the owner UID.
 - **Camoufox needs Firefox system libs** (gtk/dbus-glib/xtst/…), different from Chromium.
 - **Headless launches silently fail without GL/Mesa libs.** `_harvest_from_profile` (the
   session-reuse path tried on *every* `/sync`, before falling back to a fresh login) launches
@@ -306,6 +309,8 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 
 ## Tests
 
+- `.github/tests/test_sidecar_workflows.py` ensures the Revolut CI job checks
+  that the built image runs as UID 999, preserving ownership of existing profiles.
 - `services/base/test_entrypoint.py` covers the shared Xvfb startup, preserved per-service
   settings, stale display cleanup and explicit failures. `services/base/smoke_camoufox.py`
   checks the installed ELF architecture and launches headless/headful Firefox against

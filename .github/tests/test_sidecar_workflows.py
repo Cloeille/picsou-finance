@@ -102,6 +102,15 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertIn("services/revolut-auth/tests:/app/tests:ro", commands)
         self.assertIn("python -m pytest -p no:cacheprovider -p no:logging --asyncio-mode=auto -v tests", commands)
 
+    def test_revolut_job_preserves_the_legacy_profile_owner(self):
+        commands = _run_commands(_load(CI_WORKFLOW)["jobs"]["revolut-auth-sidecar"])
+
+        self.assertIn(
+            "docker run --rm --network none --entrypoint sh picsou-revolut-auth:test "
+            "-c 'test \"$(id -u)\" = 999'",
+            commands,
+        )
+
     def test_camoufox_starts_on_a_native_arm64_runner(self):
         job = _load(CI_WORKFLOW)["jobs"]["camoufox-arm64-smoke"]
         commands = _run_commands(job)

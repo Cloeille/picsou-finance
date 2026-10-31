@@ -57,7 +57,11 @@ puts the browser and addons outside /app and the service homes; both non-root
 users read the same assets without copying/chowning browser layers. The shared
 entrypoint takes the port, display and screen from each service's environment,
 removes stale Xvfb locks on restart, and refuses to start the API without a ready
-display. Service users, ports, Revolut profile storage and login code are unchanged.
+display. Ports and login code are unchanged. Revolut pins `revoauth` to UID 999,
+the owner of existing `revolut_profiles` volumes and their mode-700 member directories.
+Its group remains automatically allocated because the base already uses GID 999.
+AMEX has no persistent volume, so its service UID remains automatically allocated.
+The Revolut CI job checks the built image's UID before running its sidecar tests.
 Native ARM64 CI launches both headless and headful Firefox in both derived images
 using offline HTML; this does not verify bank login compatibility.
 

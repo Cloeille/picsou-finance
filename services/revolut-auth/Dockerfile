@@ -3,7 +3,8 @@ FROM ${SIDECAR_BASE}
 
 WORKDIR /app
 
-RUN groupadd -r revoauth && useradd -r -g revoauth -m -d /home/revoauth revoauth \
+# Existing profile volumes belong to UID 999; base packages can change automatic allocation.
+RUN groupadd -r revoauth && useradd -r -u 999 -g revoauth -m -d /home/revoauth revoauth \
     && mkdir -p /data/revolut-profiles \
     && chown -R revoauth:revoauth /app /data/revolut-profiles
 USER revoauth

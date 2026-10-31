@@ -613,6 +613,10 @@ jobs:
         run: docker build --target camoufox --tag picsou-sidecar-camoufox services/base
       - name: Build the Revolut sidecar image
         run: docker build --tag picsou-revolut-auth:test services/revolut-auth
+      - name: Verify the legacy Revolut profile owner
+        run: >-
+          docker run --rm --network none --entrypoint sh picsou-revolut-auth:test
+          -c 'test "$(id -u)" = 999'
       # The async tests need pytest-asyncio, a test-only dependency the image does not ship.
       - name: Run sidecar tests in the image
         run: >-

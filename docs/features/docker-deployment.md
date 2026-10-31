@@ -103,7 +103,10 @@ The Camoufox entrypoint preserves AMEX's port 8001/display :98/screen 1366x768x2
 and Revolut's port 8002/display :99/screen 1280x1024x24, with a 65-second keep-alive.
 It clears stale display locks on restart and fails explicitly if Xvfb exits or
 has not become ready within five seconds. Revolut profiles still persist on the
-`revolut_profiles` volume. Native ARM64 CI runs both derived images as non-root
+`revolut_profiles` volume. Its `revoauth` user stays at UID 999 so upgrades retain
+read/write access to existing volumes and their mode-700 member directories.
+The group is automatically allocated, and CI checks the built Revolut image's UID.
+Native ARM64 CI runs both derived images as non-root
 and starts headless/headful Firefox against offline HTML without network access;
 login compatibility requires a separate release check.
 
