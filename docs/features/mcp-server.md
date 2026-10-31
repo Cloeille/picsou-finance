@@ -221,8 +221,9 @@ sessions/credentials as the documented side effect of deleting a connection's la
   failed exchange cannot roll back a successful neighbour. Transient connector errors do not ask
   the user to reconnect; `NEEDS_REAUTH` is reserved for authentication/session-expiry codes.
 - **Inactive browser sessions preserve their stored failure reason.** BoursoBank, Bourse Direct,
-  Amundi and Fortuneo report `NEEDS_REAUTH` for `SESSION_EXPIRED` (also `INVALID_CREDENTIALS` for
-  BoursoBank), `FAILED` for another stored error, and `SKIPPED_NOT_CONNECTED` only when no error is
+  Amundi, Crédit Mutuel / CIC Épargne Salariale (`cmes`) and Fortuneo report `NEEDS_REAUTH` for
+  `SESSION_EXPIRED` (also `INVALID_CREDENTIALS` for BoursoBank and `cmes`, which clear a rejected
+  password), `FAILED` for another stored error, and `SKIPPED_NOT_CONNECTED` only when no error is
   recorded. Database failures and sync exceptions retain their throwable in server logs; raw
   database messages are never returned in their MCP summary.
 - **Exception details stay server-side across all trigger paths.** The shared exception classifier,

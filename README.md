@@ -112,6 +112,7 @@ Picsou publishes pre-built, multi-arch (amd64/arm64) images to the GitHub Contai
 | `ghcr.io/cloeille/picsou-finance/bourso-auth` | BoursoBank login/2FA sidecar |
 | `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth` | Caisse d'Epargne read-only sidecar (no in-app login yet) |
 | `ghcr.io/cloeille/picsou-finance/fortuneo-auth` | Fortuneo login/2FA and portfolio sidecar |
+| `ghcr.io/cloeille/picsou-finance/cmes-auth` | Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar |
 
 The app and every `*-auth` sidecar authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`. Compose refuses to start without it, and each sidecar refuses any request that does not carry it. Set it once before the first launch:
 
@@ -367,6 +368,7 @@ cp docker/.env.example docker/.env
 | `CAISSE_EPARGNE_AUTH_URL` | Custom sidecar | Defaults to `http://caisse-epargne-auth:8001` |
 | `BOURSE_DIRECT_AUTH_URL` | Custom sidecar | Defaults to `http://bourse-direct-auth:8001` |
 | `FORTUNEO_AUTH_URL` | Custom sidecar | Defaults to `http://fortuneo-auth:8001` |
+| `CMES_AUTH_URL` | Custom sidecar | Defaults to `http://cmes-auth:8001`. Set it to reach a `cmes-auth` sidecar run elsewhere (Crédit Mutuel / CIC Épargne Salariale) |
 | `PICSOU_DOMAIN` | TLS profile | Hostname Caddy serves — see [step 3](#3-https-decide-before-the-first-launch) |
 | `HSTS_ENABLED` | Trusted cert | `true` only with a publicly-trusted certificate |
 
