@@ -159,25 +159,35 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     List<Transaction> findRecentCategorizedByMemberId(@Param("memberId") Long memberId,
                                                       org.springframework.data.domain.Pageable pageable);
 
+    // ─── Budget & cashflow ────────────────────────────────────────────────────
+    //
+    // Hidden accounts are left out of every query below, like the dashboard and allocation
+    // views already do: an account is typically hidden because a second connector syncs the
+    // same bank account, and counting both copies would double the member's spending.
+
     /** All member transactions in a date range (cashflow / detection input). */
     @Query("""
         SELECT t FROM Transaction t
         JOIN FETCH t.account
-        WHERE t.account.member.id = :memberId AND t.date BETWEEN :from AND :to
+        WHERE t.account.member.id = :memberId AND t.account.hidden = false
+        AND t.date BETWEEN :from AND :to
         ORDER BY t.date ASC, t.id ASC
         """)
     List<Transaction> findByMemberIdAndDateBetween(@Param("memberId") Long memberId,
                                                    @Param("from") LocalDate from,
                                                    @Param("to") LocalDate to);
 
-    /** Cross-account search with optional account and category filters, newest first. */
+    /**
+     * Cross-account search with optional account and category filters, newest first. Without an
+     * account filter hidden accounts are skipped; asking for one by id still returns its rows.
+     */
     @Query("""
         SELECT t FROM Transaction t
         JOIN FETCH t.account
         LEFT JOIN FETCH t.categoryRef
         WHERE t.account.member.id = :memberId
         AND t.date BETWEEN :from AND :to
-        AND (:accountId IS NULL OR t.account.id = :accountId)
+        AND ((:accountId IS NULL AND t.account.hidden = false) OR t.account.id = :accountId)
         AND (:categoryId IS NULL OR t.categoryRef.id = :categoryId)
         ORDER BY t.date DESC, t.id DESC
         """)
@@ -190,8 +200,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     /** One category's transactions for a member over a range, newest first (spending drill). */
     @Query("""
         SELECT t FROM Transaction t
-        WHERE t.account.member.id = :memberId AND t.categoryRef.id = :categoryId
-        AND t.date BETWEEN :from AND :to
+        WHERE t.account.member.id = :memberId AND t.account.hidden = false
+        AND t.categoryRef.id = :categoryId AND t.date BETWEEN :from AND :to
         ORDER BY t.date DESC, t.id DESC
         """)
     List<Transaction> findByMemberIdAndCategoryIdAndDateBetween(@Param("memberId") Long memberId,
@@ -202,7 +212,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     /** Sum of (signed) amounts for one category over a date range — used by envelopes. */
     @Query("""
         SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t
-        WHERE t.categoryRef.id = :categoryId AND t.date BETWEEN :from AND :to
+        WHERE t.categoryRef.id = :categoryId AND t.account.hidden = false
+        AND t.date BETWEEN :from AND :to
         """)
     BigDecimal sumByCategoryIdAndDateBetween(@Param("categoryId") Long categoryId,
                                              @Param("from") LocalDate from,
@@ -211,8 +222,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     /** A member's transactions across several categories over a range, newest first (parent drill). */
     @Query("""
         SELECT t FROM Transaction t
-        WHERE t.account.member.id = :memberId AND t.categoryRef.id IN :categoryIds
-        AND t.date BETWEEN :from AND :to
+        WHERE t.account.member.id = :memberId AND t.account.hidden = false
+        AND t.categoryRef.id IN :categoryIds AND t.date BETWEEN :from AND :to
         ORDER BY t.date DESC, t.id DESC
         """)
     List<Transaction> findByMemberIdAndCategoryIdInAndDateBetween(@Param("memberId") Long memberId,
@@ -223,7 +234,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     /** Sum of (signed) amounts across several categories over a range — parent envelope rollup. */
     @Query("""
         SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t
-        WHERE t.categoryRef.id IN :categoryIds AND t.date BETWEEN :from AND :to
+        WHERE t.categoryRef.id IN :categoryIds AND t.account.hidden = false
+        AND t.date BETWEEN :from AND :to
         """)
     BigDecimal sumByCategoryIdInAndDateBetween(@Param("categoryIds") Collection<Long> categoryIds,
                                                @Param("from") LocalDate from,
@@ -232,8 +244,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     /** Sum of (signed) amounts for a member, filtered by category kind, over a range. */
     @Query("""
         SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t
-        WHERE t.account.member.id = :memberId AND t.categoryRef.kind = :kind
-        AND t.date BETWEEN :from AND :to
+        WHERE t.account.member.id = :memberId AND t.account.hidden = false
+        AND t.categoryRef.kind = :kind AND t.date BETWEEN :from AND :to
         """)
     BigDecimal sumByMemberIdAndKindAndDateBetween(@Param("memberId") Long memberId,
                                                   @Param("kind") com.picsou.model.CategoryKind kind,
@@ -244,8 +256,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @Query("""
         SELECT t FROM Transaction t
         JOIN FETCH t.account
-        WHERE t.account.member.id = :memberId AND t.categoryRef.kind = :kind
-        AND t.date BETWEEN :from AND :to
+        WHERE t.account.member.id = :memberId AND t.account.hidden = false
+        AND t.categoryRef.kind = :kind AND t.date BETWEEN :from AND :to
         """)
     List<Transaction> findByMemberIdAndKindAndDateBetween(@Param("memberId") Long memberId,
                                                           @Param("kind") com.picsou.model.CategoryKind kind,

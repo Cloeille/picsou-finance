@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -31,6 +32,8 @@ import java.util.function.Supplier;
 @Service
 public class SyncStatusService {
 
+    private static final Set<String> REAUTH_ON_INVALID_CREDENTIALS = Set.of("bourso", "cmes");
+
     private final RevolutSyncService revolutSyncService;
     private final RequisitionRepository requisitionRepository;
     private final TradeRepublicSyncService tradeRepublicSyncService;
@@ -38,6 +41,7 @@ public class SyncStatusService {
     private final BoursoSyncService boursoSyncService;
     private final BourseDirectSyncService bourseDirectSyncService;
     private final AmundiSyncService amundiSyncService;
+    private final CmesSyncService cmesSyncService;
     private final FortuneoSyncService fortuneoSyncService;
     private final AmexSyncService amexSyncService;
     private final IbkrConnectionRepository ibkrConnectionRepository;
@@ -54,6 +58,7 @@ public class SyncStatusService {
                              BoursoSyncService boursoSyncService,
                              BourseDirectSyncService bourseDirectSyncService,
                              AmundiSyncService amundiSyncService,
+                             CmesSyncService cmesSyncService,
                              FortuneoSyncService fortuneoSyncService,
                              AmexSyncService amexSyncService,
                              IbkrConnectionRepository ibkrConnectionRepository,
@@ -69,6 +74,7 @@ public class SyncStatusService {
         this.boursoSyncService = boursoSyncService;
         this.bourseDirectSyncService = bourseDirectSyncService;
         this.amundiSyncService = amundiSyncService;
+        this.cmesSyncService = cmesSyncService;
         this.fortuneoSyncService = fortuneoSyncService;
         this.amexSyncService = amexSyncService;
         this.ibkrConnectionRepository = ibkrConnectionRepository;
@@ -96,6 +102,10 @@ public class SyncStatusService {
         add(lines, "amundi", () -> {
             AmundiSyncService.SessionStatusResponse s = amundiSyncService.getStatus(memberId);
             return List.of(broker("amundi", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
+        });
+        add(lines, "cmes", () -> {
+            CmesSyncService.SessionStatusResponse s = cmesSyncService.getStatus(memberId);
+            return List.of(broker("cmes", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
         });
         add(lines, "fortuneo", () -> {
             FortuneoSyncService.SessionStatusResponse s = fortuneoSyncService.getStatus(memberId);
@@ -251,8 +261,9 @@ public class SyncStatusService {
 
     private static String broker(String source, boolean active, String syncStatus, Instant completed, Enum<?> error) {
         String errorName = error == null ? null : error.name();
+        // A stored password these sites rejected can only be fixed by the member.
         boolean reauth = "SESSION_EXPIRED".equals(errorName)
-            || ("bourso".equals(source) && "INVALID_CREDENTIALS".equals(errorName));
+            || (REAUTH_ON_INVALID_CREDENTIALS.contains(source) && "INVALID_CREDENTIALS".equals(errorName));
         String status;
         if (reauth) {
             status = "NEEDS_REAUTH";

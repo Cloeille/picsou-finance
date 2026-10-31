@@ -381,3 +381,89 @@ MOVEMENTS_HTML = """<ul class="list__movement">
 # Synthetic markup matching the verified woob IbanPage XPath; the value is a
 # test-only IBAN and was not captured from a customer account.
 RIB_HTML = """<div><strong>IBAN</strong><div class="definition"><p>FR76 3000 6000 0112 3456 7890 189</p></div></div>"""
+
+
+# ─── Assurance vie ─────────────────────────────────────────────────────────
+# Shaped like a real contract's dashboard card and positions page: the card
+# links to /compte/assurance-vie/<id> with no trailing slash, and the page
+# carries a "Valorisation au" box and the supports table.
+
+LIFE_INSURANCE_ID = "0a1b2c3d4e5f60718293a4b5c6d7e8f9"
+
+LIFE_INSURANCE_CARD = f"""
+                <li class="c-panel__item c-info-box__item" data-brs-filterable>
+                    <a class="c-info-box__link-wrapper" href="/compte/assurance-vie/{LIFE_INSURANCE_ID}"
+                        data-tag-commander-click='{{"label": "application::customer.dashboard::click_accounts_investement", "s2": 1, "type": "N"}}'
+                        aria-label="Détails du compte Contrat N° 12345678 - Solde : 3 300,00 €" title="Contrat N° 12345678">
+                        <span class="c-info-box__account">
+                            <span class="c-info-box__account-label"
+                                data-account-label="{LIFE_INSURANCE_ID}" data-brs-list-item-label>
+                                Contrat N° 12345678
+                            </span>
+                            <span class="c-info-box__account-balance c-info-box__account-balance--positive">
+                                3 300,00 €
+                            </span>
+                        </span>
+                        <span class="c-info-box__account-sub-label" data-brs-list-item-label>
+                            BoursoBank
+                        </span>
+                    </a>
+                </li>
+"""
+
+
+def dashboard_with_life_insurance() -> str:
+    """The fixture dashboard with one contract listed after the PEA, as BoursoBank does."""
+    marker = "            </ul>\n        </div>\n    </div>"
+    pea = DASHBOARD_HTML.index("data-summary-trading>")
+    end = DASHBOARD_HTML.index("</li>", pea) + len("</li>")
+    return DASHBOARD_HTML[:end] + LIFE_INSURANCE_CARD + DASHBOARD_HTML[end:]
+
+
+def life_insurance_row(label, mention, symbol, quantity, buying, price, amount, gain, gain_class="u-color-positive"):
+    link = (
+        f'<a href="//bourse.boursobank.com/cours/{symbol}" class="c-link c-link--animated " target="_blank">'
+        f'<span class="c-link__label ">{label}</span></a>'
+        if symbol else f'<span class="c-link__label ">{label}</span>'
+    )
+    mention_html = f'<span class="c-table__mention">{mention}</span>' if mention else ""
+
+    def cell(content, css="c-table__cell--right"):
+        return (f'<td class="c-table__cell {css}"><div class="c-table__cell-wrapper">'
+                f'<div class="c-table__cell-content-wrapper">{content}</div></div></td>')
+
+    return (
+        '<tr class="c-table__row " >'
+        + cell(f'<div class="c-table__cell-content-wrapper">{link}</div>{mention_html}', "c-table__cell--left")
+        + cell('<span class="c-table__date">22/10/2026</span>')
+        + cell(f'<span class="u-ellipsis ">{quantity}</span>')
+        + cell(f'<span class="u-ellipsis ">{buying}</span>')
+        + cell(f'<span class="u-ellipsis ">{price}</span>')
+        + cell(f'<span class="u-ellipsis ">{amount}</span>')
+        + cell(f'<span class="u-ellipsis {gain_class}">{gain}</span>')
+        + cell(f'<span class="u-ellipsis {gain_class}"> 1,00 %</span>')
+        + "</tr>"
+    )
+
+
+def life_insurance_page(rows: str, valuation: str = "3 300,00 €") -> str:
+    return f"""<html><body>
+<div class="c-summary-account-wrapper__item"><div class="c-card c-databox"><div class="c-card__content c-databox__content ">
+<div class="c-databox__name"> Valorisation au 23/10/2026 </div><div class="c-databox__value u-color-positive"> {valuation} </div>
+</div></div></div>
+<table class="c-table c-table--action c-table--full" data-table-trading-operations>
+<thead><tr class="c-table__row "><th>Valeur</th><th>Date de Valeur</th><th>Quantité</th><th>Px. Revient</th>
+<th>Cours</th><th>Montant</th><th>+/- Latentes</th><th>+/- %</th></tr></thead>
+<tbody>{rows}</tbody>
+</table></body></html>"""
+
+
+LIFE_INSURANCE_ROWS = (
+    life_insurance_row("iShares MSCI World SRI UCITS ETF", "IE00BYX2JD69", "1rASUSW",
+                       "100,0000", "10,00 €", "12,00 €", "1 200,00 €", "200,00 €")
+    + life_insurance_row("Fonds Actions Europe A", "LU0123456789", "0P0000ABCD",
+                         "40,0000", "26,00 €", "25,00 €", "1 000,00 €", "−40,00 €", "u-color-negative")
+    + life_insurance_row("Fonds Euro Nouvelle Génération", None, None,
+                         "", "", "", "1 100,00 €", "")
+)
+LIFE_INSURANCE_HTML = life_insurance_page(LIFE_INSURANCE_ROWS)

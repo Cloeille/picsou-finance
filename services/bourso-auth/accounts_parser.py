@@ -18,12 +18,14 @@ is ever skipped to "recover": a card that looks like an account but does not
 parse fails the whole sync, so the last known-good data survives.
 """
 
+import hashlib
 import re
 import unicodedata
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from html import unescape as html_unescape
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 FORMAT_CHANGED = "UPSTREAM_FORMAT_CHANGED"
 INCOMPLETE = "PORTFOLIO_INCOMPLETE"
@@ -33,6 +35,7 @@ INVALID_DATA = "INVALID_DATA"
 # disagree the read is partial. Same tolerance as the Bourse Direct connector.
 MONEY_ABSOLUTE_TOLERANCE = Decimal("0.05")
 MONEY_RELATIVE_TOLERANCE = Decimal("0.001")
+MONEY_PER_LINE_TOLERANCE = Decimal("0.01")
 
 # A sanity ceiling, not a business rule: a dashboard with hundreds of accounts
 # means the regex matched something other than account cards.
@@ -57,8 +60,10 @@ SECTION_PATTERNS = {
     "children": re.compile(r"data-summary-child>(.*?)</div>", re.DOTALL),
 }
 
+# Most cards link to `/compte/<kind>/<id>/`; assurance-vie cards drop the
+# trailing slash (`/compte/assurance-vie/<id>`), hence the optional one.
 _ACCOUNT_RE = re.compile(
-    r"/compte/(.*?)?/?(?P<id>[a-f0-9]{32})/(.*?)"
+    r"/compte/(.*?)?/?(?P<id>[a-f0-9]{32})/?\"(.*?)"
     r"Solde\s:\s(?P<balance>[\d\s\u00a0\u2212-]+,?\d{0,2})\s€"
     r".+?c-info-box__account-label.+?>(?P<name>.+?)</span>"
     r".+?c-info-box__account-sub-label.+?>(?P<bank>.+?)</span>",
@@ -68,8 +73,9 @@ _ACCOUNT_RE = re.compile(
 # Used only to count the account cards a section *should* have yielded, so a card
 # that stopped matching the full pattern is a hard failure instead of a silent drop.
 _ACCOUNT_LINK_RE = re.compile(
-    r"href=\"(?P<href>[^\"]*?/compte/[^\"]*?(?P<id>[a-f0-9]{32})/)\""
+    r"href=\"(?P<href>[^\"]*?/compte/[^\"]*?(?P<id>[a-f0-9]{32})/?)\""
 )
+LIFE_INSURANCE_PATH = "/compte/assurance-vie/"
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -147,6 +153,16 @@ def money_close(actual: Decimal, expected: Decimal) -> bool:
     return difference <= abs(expected) * MONEY_RELATIVE_TOLERANCE
 
 
+def lines_close(actual: Decimal, expected: Decimal, lines: int) -> bool:
+    """Whether `lines` amounts, each rounded to the cent, add up to `expected`.
+
+    Rounding each line can move the sum by at most a cent per line, and nothing
+    else may: unlike `money_close`, the allowance never grows with the total, so
+    a support missing from a large contract cannot hide inside a relative one.
+    """
+    return abs(actual - expected) <= max(MONEY_ABSOLUTE_TOLERANCE, MONEY_PER_LINE_TOLERANCE * lines)
+
+
 def describe_payload(payload: Any, depth: int = 0) -> str:
     """The *shape* of an upstream response: containers and key names, no values.
 
@@ -215,6 +231,7 @@ AccountKind = Literal[
     "CEL",
     "PEA",
     "COMPTE_TITRES",
+    "ASSURANCE_VIE",
 ]
 
 # The French regulated passbooks, matched on the label BoursoBank prints, in the
@@ -233,13 +250,17 @@ _SAVINGS_PATTERNS: tuple[tuple[AccountKind, str], ...] = (
 )
 
 
-def account_type(section: str, name: str) -> AccountKind:
+def account_type(section: str, name: str, href: str = "") -> AccountKind:
     """Map a BoursoBank account onto a Picsou AccountType.
 
     PEA-PME folds into PEA: Picsou has no separate envelope for it, and the two
-    share a tax regime and a reporting shape.
+    share a tax regime and a reporting shape. An assurance-vie sits in the
+    trading section too and is told apart by its link, its label being only
+    "Contrat N° …".
     """
     label = _deaccent(name)
+    if section == "trading" and LIFE_INSURANCE_PATH in href:
+        return "ASSURANCE_VIE"
     if section == "trading":
         return "PEA" if re.search(r"\bPEA\b|\bPEA-?PME\b", label) else "COMPTE_TITRES"
     if section == "savings":
@@ -306,7 +327,7 @@ def parse_dashboard(html: str) -> tuple[list[dict[str, Any]], int]:
                     {
                         "id": account_id,
                         "name": name,
-                        "type": account_type(section, name),
+                        "type": account_type(section, name, linked[account_id]),
                         "balanceEur": balance,
                         "section": section,
                         "href": linked[account_id],
@@ -811,3 +832,196 @@ def guard_symbol_collisions(positions: list[dict[str, Any]]) -> None:
                 INVALID_DATA, f"Two positions without an ISIN share the symbol {fallback}"
             )
         fallbacks.add(fallback)
+
+
+# ─── Assurance vie ─────────────────────────────────────────────────────────
+
+LIFE_INSURANCE_POSITIONS_SUFFIX = "positions"
+
+_LI_VALUATION_RE = re.compile(
+    r'c-databox__name">\s*Valorisation au\s*(?P<date>\d{2}/\d{2}/\d{4})\s*</div>\s*'
+    r'<div class="c-databox__value[^"]*">\s*(?P<amount>[^<]+?)\s*</div>',
+    re.DOTALL,
+)
+_LI_TABLE_RE = re.compile(r"<table\b[^>]*data-table-trading-operations[^>]*>(?P<body>.*?)</table>", re.DOTALL)
+_LI_TBODY_RE = re.compile(r"<tbody\b[^>]*>(?P<rows>.*?)</tbody>", re.DOTALL)
+_LI_ROW_RE = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.DOTALL)
+_LI_CELL_RE = re.compile(r"<td\b[^>]*>(?P<cell>.*?)</td>", re.DOTALL)
+_LI_LABEL_RE = re.compile(r'class="c-link__label[^"]*">(?P<label>.*?)</span>', re.DOTALL)
+_LI_MENTION_RE = re.compile(r'class="c-table__mention[^"]*">(?P<mention>.*?)</span>', re.DOTALL)
+# A quote link is told apart from its symbol: a link whose symbol cannot be read
+# (a query string, a new URL shape) must still count as a quote link, or a quoted
+# fund without units would pass for the euro fund.
+_LI_QUOTE_LINK_MARK = "/cours/"
+_LI_HREF_RE = re.compile(r"""href=(?P<q>["'])(?P<url>.*?)(?P=q)""", re.DOTALL)
+# Matched against the URL path alone: a "/cours/MSFT/" in a returnUrl or a fragment
+# is another instrument's page, not this support's symbol.
+_LI_SYMBOL_PATH_RE = re.compile(r"(?:/(?!cours/)[^/]*)*/cours/(?P<symbol>[^/]+)/?")
+_LI_ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}\d$")
+# The euro fund carries no unit and no ISIN; its label is what names it. "Euro"
+# must be a whole word: "Fonds Europe Actions" is a unit-linked fund, not cash.
+_LI_EURO_FUND_RE = re.compile(r"\bEUROS?\b", re.IGNORECASE)
+# The backend refuses an unresolved ticker longer than this (BoursoSyncService.MAX_TICKER_LENGTH).
+_LI_MAX_FALLBACK_SYMBOL = 30
+# Room left for the label once "-" and the digest are appended.
+_LI_DIGEST_LENGTH = 8
+_LI_LABEL_PREFIX = _LI_MAX_FALLBACK_SYMBOL - _LI_DIGEST_LENGTH - 1
+
+
+def _java_length(text: str) -> int:
+    """Length in UTF-16 code units, as Java's String.length() counts it."""
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def _li_symbol(quote_symbol: str | None, isin: str | None, label: str) -> str:
+    """Pick the ticker of an assurance-vie support, never longer than the backend accepts.
+
+    Order: the Boursorama quote-link symbol, then the ISIN, then the label itself when it
+    fits, and finally a shortened label followed by a digest of the full label.
+
+    The ticker must be stable: the backend keys holdings by ticker, so one that changes
+    between two syncs would drop the old holding and create a new one. That is why nothing
+    depends on the position in the list (a support added or reordered would renumber the
+    others); the digest depends on the label alone. It also keeps two labels that only
+    share a prefix apart. Two identical labels still collide on purpose, and
+    guard_symbol_collisions refuses them instead of merging two holdings into one.
+
+    A quote-link symbol longer than the limit is dropped, as the backend would reject it.
+    Lengths are counted in UTF-16 units, as the backend's `String.length()` does, so a
+    label with characters outside the BMP (emoji) cannot slip past the limit. `label` must
+    be the whole label, not the 200-character display cut: the digest has to tell apart
+    two labels that only differ after that cut.
+    """
+    if quote_symbol and _java_length(quote_symbol) <= _LI_MAX_FALLBACK_SYMBOL:
+        return quote_symbol
+    if isin:
+        return isin
+    if _java_length(label) <= _LI_MAX_FALLBACK_SYMBOL:
+        return label.rstrip()
+    prefix = ""
+    for char in label:
+        if _java_length(prefix + char) > _LI_LABEL_PREFIX:
+            break
+        prefix += char
+    digest = hashlib.sha256(label.encode("utf-8", "surrogatepass")).hexdigest()[:_LI_DIGEST_LENGTH]
+    return f"{prefix.rstrip()}-{digest}"
+
+
+def _li_quote_symbol(cell: str) -> str | None:
+    """The Boursorama symbol of the cell's quote link, None when it has no quote link.
+
+    Read from each link's path, after HTML-unescaping, never from its query or fragment.
+    A quote link whose symbol cannot be read, or two links naming different symbols, is
+    refused: guessing would move the ticker, and the backend keys holdings by ticker.
+    """
+    symbols = set()
+    for href in _LI_HREF_RE.finditer(cell):
+        path = urlsplit(html_unescape(href.group("url"))).path
+        match = _LI_SYMBOL_PATH_RE.fullmatch(path)
+        if match:
+            symbols.add(match.group("symbol"))
+    if len(symbols) > 1:
+        raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has quote links naming different symbols")
+    if not symbols and _LI_QUOTE_LINK_MARK in html_unescape(cell):
+        raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has a quote link without a readable symbol")
+    return symbols.pop() if symbols else None
+
+
+def _li_amount(cell: str, field: str, *, required: bool = True) -> Decimal | None:
+    """An amount cell: None when it is blank or a dash, an error when it says anything else.
+
+    Only an absent value may be optional. Text that does not parse ("n/a", a new
+    format) is refused even on an optional cell: read as None, an unreadable quantity
+    would look like the euro fund's empty one.
+    """
+    text = text_value(cell, 100)
+    if not text or text in ("-", "—"):
+        if required:
+            raise AccountsFormatError(FORMAT_CHANGED, f"Assurance-vie line has no {field}")
+        return None
+    value = parse_amount(text.replace("€", "").replace("%", ""))
+    if value is None:
+        raise AccountsFormatError(FORMAT_CHANGED, f"Assurance-vie line has an unreadable {field}")
+    return value
+
+
+def parse_life_insurance(html: str) -> dict[str, Any]:
+    """Read an assurance-vie contract's positions page (`/compte/assurance-vie/<id>/positions`).
+
+    Server-rendered: a "Valorisation au <date>" box with the contract total, and
+    `table[data-table-trading-operations]` with one row per support -- Valeur
+    (label, ISIN, link to its quote), Date de valeur, Quantité, Px. revient,
+    Cours, Montant, +/- latentes, +/- %. A unit-linked line becomes a position;
+    the euro fund, which has no ISIN, no quote link, no price and no units (or "0,0000"),
+    becomes the cash leg, the slot Picsou keeps for it on a life-insurance account. Any
+    other row shape, or a cell or quote link that does not parse, is refused rather than
+    guessed, and the lines must add up to the valuation.
+    """
+    valuation = _LI_VALUATION_RE.search(html)
+    table = _LI_TABLE_RE.search(html)
+    if valuation is None or table is None:
+        raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie page has no valuation or no supports table")
+    total_text = text_value(valuation.group("amount"), 100)
+    total = parse_amount(total_text.replace("€", "")) if total_text else None
+    if total is None:
+        raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie valuation is unreadable")
+    body = _LI_TBODY_RE.search(table.group("body"))
+    rows = [row.group("row") for row in _LI_ROW_RE.finditer(body.group("rows") if body else "")]
+
+    positions: list[dict[str, Any]] = []
+    cash = Decimal("0")
+    for row in rows:
+        cells = [cell.group("cell") for cell in _LI_CELL_RE.finditer(row)]
+        if len(cells) < 7:
+            raise AccountsFormatError(FORMAT_CHANGED, f"Assurance-vie line has {len(cells)} cells, expected 8")
+        label_match = _LI_LABEL_RE.search(cells[0])
+        label_source = label_match.group("label") if label_match else cells[0]
+        # The ticker is derived from the whole label; only the displayed one is cut.
+        full_label = text_value(label_source, len(label_source))
+        mention = _LI_MENTION_RE.search(cells[0])
+        isin = text_value(mention.group("mention"), 20) if mention else None
+        if isin and not _LI_ISIN_RE.match(isin):
+            isin = None
+        symbol = _li_quote_symbol(cells[0])
+        value = _li_amount(cells[5], "amount")
+        quantity = _li_amount(cells[2], "quantity", required=False)
+        price = _li_amount(cells[4], "price", required=False)
+        if not full_label:
+            raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no label")
+        label = full_label[:200]
+        if not quantity:
+            # The euro fund is shown either with no units or with "0,0000": it is
+            # a balance, not units of a fund. It has no ISIN, no quote page and no
+            # price; a label naming the euro is not enough on its own ("Euro Stoxx
+            # 50" is a quoted fund), so a row with any of those is not cash.
+            is_euro_fund = (
+                isin is None and symbol is None and not price
+                and _LI_EURO_FUND_RE.search(_deaccent(label))
+            )
+            if is_euro_fund:
+                cash += value
+                continue
+            if quantity is None or value != 0:
+                raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no units and is not a euro fund")
+        positions.append({
+            "isin": isin,
+            "symbol": _li_symbol(symbol, isin, full_label),
+            "label": label,
+            "quantity": quantity,
+            "buyingPriceEur": _li_amount(cells[3], "buying price", required=False),
+            "currentPrice": price,
+            "quoteCurrency": "EUR",
+            "currentValueEur": value,
+            "pnlEur": _li_amount(cells[6], "gain", required=False),
+        })
+
+    lines_total = sum((position["currentValueEur"] for position in positions), cash)
+    if not lines_close(lines_total, total, len(rows)):
+        raise AccountsFormatError(
+            INCOMPLETE,
+            f"Assurance-vie lines do not reconcile with the valuation "
+            f"({len(positions)} line(s); lines vs valuation={relative_difference(lines_total, total)})",
+        )
+    # The backend re-runs this check after the euro-fund rows have been summed into
+    # one cash figure; it needs the row count to grant the same allowance.
+    return {"cashEur": cash, "totalEur": total, "positions": positions, "valuationLineCount": len(rows)}

@@ -64,6 +64,7 @@ class GoalServiceTest {
 - **Lombok builders for test data** — `Account.builder()`, `Goal.builder()` etc. No test fixtures or mother objects.
 - **AssertJ** for all assertions (`assertThat`, `isEqualByComparingTo`). No JUnit `assertEquals`.
 - **No Spring context** in unit tests — pure Mockito mocking.
+- **Log capture on the root logger** — a `ListAppender` on the root logger also receives events from other threads, such as the schedulers of Spring contexts left by earlier test classes in the same JVM. Those threads can still append after `detachAppender`. Copy `appender.list` inside `synchronized (appender)` before you assert on it (see `CaisseEpargneAdapterAuthTest.snapshot`). Iterating the live list fails at random with `ConcurrentModificationException`. Prefer a ListAppender on the class's own logger when the test does not need every logger.
 
 ### Naming
 
