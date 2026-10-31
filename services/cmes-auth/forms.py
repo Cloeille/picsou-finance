@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 _FORM_RE = re.compile(r"<form\b(?P<attrs>[^>]*)>(?P<body>.*?)</form>", re.DOTALL | re.IGNORECASE)
 _INPUT_RE = re.compile(r"<input\b(?P<attrs>[^>]*)/?>", re.IGNORECASE)
 _ATTR_RE = re.compile(r'(?P<name>[\w:-]+)\s*=\s*(?:"(?P<dq>[^"]*)"|\'(?P<sq>[^\']*)\')')
+_QUOTED_RE = re.compile(r'"[^"]*"|\'[^\']*\'')
+# `checked` as an attribute name (bare or with a value), never inside a value.
+_CHECKED_RE = re.compile(r"(?<![\w:-])checked(?![\w:-])", re.IGNORECASE)
 
 # Field types a browser sends without user action. Submit buttons are sent only
 # when pressed, checkboxes and radios only when checked.
@@ -58,7 +61,7 @@ def parse_forms(page: str) -> list[Form]:
             if kind == "submit":
                 form.buttons[name] = field_attrs.get("value", "")
             elif kind in ("checkbox", "radio"):
-                if "checked" in field_match.group("attrs").lower():
+                if _CHECKED_RE.search(_QUOTED_RE.sub('""', field_match.group("attrs"))):
                     form.fields[name] = field_attrs.get("value", "on")
             elif kind in _SENT_TYPES:
                 form.fields[name] = field_attrs.get("value", "")

@@ -32,9 +32,12 @@ _ISIN_RE = re.compile(r"\b(?P<isin>[A-Z]{2}[A-Z0-9]{9}\d)\b")
 def _decimal(raw: str) -> Decimal:
     digits = re.sub(r"\s", "", _text(raw)).replace(",", ".")
     try:
-        return Decimal(digits)
+        value = Decimal(digits)
     except InvalidOperation as exc:
         raise SituationFormatError(FORMAT_CHANGED, "Unreadable number of units") from exc
+    if not value.is_finite():
+        raise SituationFormatError(FORMAT_CHANGED, "Unreadable number of units")
+    return value
 
 
 def my_savings_tab(page: str) -> str | None:

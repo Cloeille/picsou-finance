@@ -13,8 +13,8 @@ from fixtures import (
     plan_table,
     situation_page,
 )
-from forms import find_form, field_names
-from fund_parser import my_savings_tab, parse_fund_identity, parse_my_savings
+from forms import find_form, field_names, parse_forms
+from fund_parser import _decimal, my_savings_tab, parse_fund_identity, parse_my_savings
 from situation_parser import (
     FORMAT_CHANGED,
     INCOMPLETE,
@@ -134,6 +134,14 @@ class FundPagesTest(unittest.TestCase):
         self.assertEqual(parse_fund_identity(fund_summary_page(0, code="1613")), (None, "1613"))
 
 
+class UnitsTest(unittest.TestCase):
+    def test_a_non_finite_number_of_units_is_a_format_change(self):
+        for raw in ("NaN", "Infinity", "-inf"):
+            with self.subTest(raw=raw), self.assertRaises(SituationFormatError) as raised:
+                _decimal(raw)
+            self.assertEqual(raised.exception.code, FORMAT_CHANGED)
+
+
 class FormsTest(unittest.TestCase):
     def test_finds_the_form_holding_a_fund_button_with_its_hidden_state(self):
         form = find_form(SITUATION_PAGE, button="_FID_GoFundSummary_selectedFundIndex:1")
@@ -144,6 +152,17 @@ class FormsTest(unittest.TestCase):
         self.assertEqual(form.fields["$CPT"], "opaque-page-state")
         # Buttons are sent only when pressed.
         self.assertNotIn("_FID_GoFundSummary_selectedFundIndex:0", form.fields)
+
+    def test_only_checked_boxes_are_sent(self):
+        [form] = parse_forms(
+            '<form action="/a">'
+            '<input type="checkbox" name="consent" value="unchecked" />'
+            '<input type="checkbox" name="remember" checked />'
+            '<input type="radio" name="channel" value="sms" checked="checked" />'
+            "</form>"
+        )
+
+        self.assertEqual(form.fields, {"remember": "on", "channel": "sms"})
 
     def test_field_names_never_carry_values(self):
         names = field_names(SITUATION_PAGE)

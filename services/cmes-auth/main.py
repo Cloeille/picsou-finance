@@ -37,6 +37,7 @@ import re
 import secrets
 import time
 import uuid
+from collections import Counter
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import Any, Literal
@@ -50,7 +51,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from forms import Form, field_names, find_form, parse_forms
 from fund_parser import MY_SAVINGS_PATH_MARKER, my_savings_tab, parse_fund_identity, parse_my_savings
-from situation_parser import SituationFormatError, money_close, parse_profile, parse_situation
+from situation_parser import SituationFormatError, _text, money_close, parse_profile, parse_situation
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -106,7 +107,6 @@ _CANCEL_URL_RE = re.compile(r"""['"](?P<url>[^'"\s]*SOSD_OTP_CancelTransaction[^
 _TRANSACTION_STATE_RE = re.compile(r"<transactionState>\s*(?P<state>\w+)\s*</transactionState>", re.IGNORECASE)
 _LINK_RE = re.compile(r"<a\b(?P<attrs>[^>]*)>(?P<text>.*?)</a>", re.DOTALL | re.IGNORECASE)
 _HREF_RE = re.compile(r'href="(?P<href>[^"]+)"')
-_TAG_RE = re.compile(r"<[^>]+>")
 
 _pending: dict[str, dict[str, Any]] = {}
 _pending_lock = asyncio.Lock()
@@ -400,10 +400,6 @@ async def _follow(client: httpx.AsyncClient, response: httpx.Response) -> httpx.
     raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "Too many redirects")
 
 
-def _text(fragment: str) -> str:
-    return " ".join(_TAG_RE.sub(" ", fragment).replace("&nbsp;", " ").split())
-
-
 def _link_with(page: str, *phrases: str) -> str | None:
     """The href of the first link whose text holds one of `phrases`."""
     for match in _LINK_RE.finditer(page):
@@ -632,7 +628,7 @@ async def _withdraw_confirmation(client: httpx.AsyncClient, state: dict[str, Any
         return
     try:
         await client.post(state["cancelUrl"], data={"transactionId": state["transactionId"]})
-        log.info("CMES: withdrew the confirmation request of an unattended re-login")
+        log.info("CMES: withdrew the confirmation request")
     except httpx.HTTPError:
         log.info("CMES could not withdraw the confirmation request")
 
@@ -641,7 +637,13 @@ async def _await_confirmation(client: httpx.AsyncClient, state: dict[str, Any]) 
     deadline = time.monotonic() + APP_VALIDATION_TIMEOUT_SECONDS
     data = {"transactionId": state["transactionId"]}
     while time.monotonic() < deadline:
-        response = await client.post(state["stateUrl"], data=data)
+        try:
+            response = await client.post(state["stateUrl"], data=data)
+        except httpx.HTTPError:
+            # The request may still be live on the phone: withdraw it before
+            # reporting the failure.
+            await _withdraw_confirmation(client, state)
+            raise
         match = _TRANSACTION_STATE_RE.search(response.text) if response.status_code == 200 else None
         if match is None:
             # Sent elsewhere (typically the login page): the request is gone.
@@ -656,12 +658,8 @@ async def _await_confirmation(client: httpx.AsyncClient, state: dict[str, Any]) 
             log.warning("CMES confirmation polling returned an unknown state")
             raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "Unknown confirmation state")
         await asyncio.sleep(APP_VALIDATION_POLL_SECONDS)
-    if state.get("cancelUrl"):
-        try:
-            # Withdraw the request from the phone rather than leave it pending.
-            await client.post(state["cancelUrl"], data=data)
-        except httpx.HTTPError:
-            log.info("CMES could not cancel the expired confirmation request")
+    # Withdraw the request from the phone rather than leave it pending.
+    await _withdraw_confirmation(client, state)
     raise UpstreamError("APP_VALIDATION_TIMEOUT", "Confirmation not approved in time")
 
 
@@ -687,8 +685,12 @@ def _require_logged_in(stage: str, response: httpx.Response) -> None:
 # ─── Positions ──────────────────────────────────────────────────────────────
 
 
-def plan_external_id(number: str, plan: dict) -> str:
-    slug = plan["planKind"] or re.sub(r"[^a-z0-9]+", "-", plan["name"].lower()).strip("-")
+def plan_external_id(number: str, plan: dict, shared_kind: bool = False) -> str:
+    """`cmes_<number>_<KIND>`, stable across syncs. A kind held by several plans
+    (two PEG from two employers) adds the plan's name so each keeps its own id."""
+    name = re.sub(r"[^a-z0-9]+", "-", plan["name"].lower()).strip("-")
+    kind = plan["planKind"]
+    slug = (f"{kind}-{name}" if shared_kind else kind) if kind else name
     return f"cmes_{number}_{slug}"[:100]
 
 
@@ -715,11 +717,12 @@ async def _collect_plans(client: httpx.AsyncClient) -> list[PlanPayload]:
     page = await _situation(client)
     employer, number = parse_profile(page)
     plans = parse_situation(page)
+    kinds = Counter(plan["planKind"] for plan in plans)
     payloads = []
     for plan in plans:
         positions = [await fetch_fund(client, fund) for fund in plan["funds"]]
         payloads.append({
-            "externalId": plan_external_id(number, plan),
+            "externalId": plan_external_id(number, plan, kinds[plan["planKind"]] > 1),
             "name": plan["name"],
             "planKind": plan["planKind"],
             "employer": employer,
@@ -728,6 +731,14 @@ async def _collect_plans(client: httpx.AsyncClient) -> list[PlanPayload]:
             "snapshotComplete": True,
         })
     return [PlanPayload.model_validate(payload) for payload in payloads]
+
+
+def _require_session(response: httpx.Response) -> httpx.Response:
+    """A page that lands on the login or strong-authentication page means the
+    session ran out mid-read: say so, so the backend logs in again."""
+    if response.status_code in (401, 403) or LOGIN_PATH in _path(response.url) or _is_mfa_page(response):
+        raise UpstreamError("SESSION_EXPIRED", "Session expired")
+    return response
 
 
 async def fetch_fund(client: httpx.AsyncClient, fund: dict) -> dict:
@@ -742,12 +753,12 @@ async def fetch_fund(client: httpx.AsyncClient, fund: dict) -> dict:
     form = find_form(page, button=fund["button"])
     if form is None:
         raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "No form holds the fund button")
-    fields = dict(form.fields)
-    fields[fund["button"]] = fund["label"]
+    # The pressed button is replayed with the value it was served with.
+    fields = {**form.fields, fund["button"]: form.buttons[fund["button"]]}
     target = _same_origin(urljoin(BASE_URL + SITUATION_PATH, form.action or SITUATION_PATH))
-    summary = await _follow(client, await client.post(target, data=fields, headers={"Origin": BASE_URL}))
-    if LOGIN_PATH in _path(summary.url):
-        raise UpstreamError("SESSION_EXPIRED", "Session expired")
+    summary = _require_session(
+        await _follow(client, await client.post(target, data=fields, headers={"Origin": BASE_URL}))
+    )
     isin, fund_code = parse_fund_identity(summary.text)
 
     savings = summary
@@ -756,7 +767,9 @@ async def fetch_fund(client: httpx.AsyncClient, fund: dict) -> dict:
         if tab is None:
             _diagnose("fund summary", summary)
             raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "No 'Mon épargne' tab on the fund page")
-        savings = await _follow(client, await client.get(_same_origin(urljoin(str(summary.url), tab))))
+        savings = _require_session(
+            await _follow(client, await client.get(_same_origin(urljoin(str(summary.url), tab))))
+        )
     details = parse_my_savings(savings.text)
     if not money_close(details["valueEur"], fund["valueEur"]):
         # The fund page belongs to another fund, or the two pages were read on
@@ -892,7 +905,6 @@ async def complete(req: CompleteRequest) -> dict:
         if state["kind"] == "SMS":
             if req.code is None:
                 # Not a failure of the attempt: the code can still be sent.
-                keep_state = True
                 raise UpstreamError("INVALID_OTP", "An SMS code is required")
             landing = await _submit_sms_code(client, state, req.code)
         else:
@@ -905,9 +917,10 @@ async def complete(req: CompleteRequest) -> dict:
     except UpstreamError as exc:
         if exc.code == "INVALID_OTP" and state["kind"] == "SMS":
             # A mistyped code leaves the request open on the site: keep it so
-            # the saver can type the code again.
-            keep_state = True
+            # the saver can type the code again. Only a stored attempt is kept:
+            # if the pool refuses it, `finally` still closes its client.
             await _store_pending(req.processId, state)
+            keep_state = True
         log.warning("CMES second factor rejected (code=%s): %s", exc.code, exc)
         raise _http_error(exc) from exc
     except HTTPException:

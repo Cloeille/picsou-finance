@@ -8,7 +8,7 @@ and fund pages. Nothing reaches the real site.
 import json
 import unittest
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs
 
 import httpx
@@ -25,6 +25,8 @@ from fixtures import (
     SMS_CONFIRMATION_PAGE,
     SMS_WRONG_CODE_PAGE,
     fund_summary_page,
+    plan_table,
+    situation_page,
     transaction_state,
 )
 
@@ -45,7 +47,10 @@ class FakeSite:
         self.requests: list[tuple[str, str]] = []
         self.login_fields: dict[str, list[str]] = {}
         self.final_fields: dict[str, list[str]] = {}
+        self.fund_fields: dict[str, list[str]] = {}
         self.cancelled = False
+        self.situation = SITUATION_PAGE
+        self.expire_before_savings = False
 
     def redirect(self, location: str, *cookies: str) -> httpx.Response:
         headers = [("location", location)] + [("set-cookie", cookie) for cookie in cookies]
@@ -72,7 +77,10 @@ class FakeSite:
             return httpx.Response(200, text=page[self.second_factor])
         if path.endswith("SOSD_OTP_GetTransactionState.htm"):
             assert parse_qs(request.content.decode()) == {"transactionId": [TRANSACTION_ID]}
-            return httpx.Response(200, text=transaction_state(self.states.pop(0)))
+            state = self.states.pop(0)
+            if state == "UNREACHABLE":
+                raise httpx.ConnectError("polling endpoint unreachable", request=request)
+            return httpx.Response(200, text=transaction_state(state))
         if path.endswith("SOSD_OTP_CancelTransaction.htm"):
             self.cancelled = True
             return httpx.Response(200, text="")
@@ -98,9 +106,10 @@ class FakeSite:
         if path == DASHBOARD_PATH:
             return self.redirect(main.SITUATION_PATH)
         if path == main.SITUATION_PATH and request.method == "GET":
-            return httpx.Response(200, text=SITUATION_PAGE)
+            return httpx.Response(200, text=self.situation)
         if path == main.SITUATION_PATH:
             fields = parse_qs(request.content.decode(), keep_blank_values=True)
+            self.fund_fields = fields
             assert fields["$CPT"] == ["opaque-page-state"], "page state must be replayed"
             index = next(
                 int(name.rsplit(":", 1)[1]) for name in fields if name.startswith("_FID_GoFundSummary")
@@ -112,6 +121,8 @@ class FakeSite:
                 return self.redirect(f"{SPACE}/supports/epargne-sur-le-support.html?k_fundIndex={index}")
             return httpx.Response(200, text=fund_summary_page(index, code=f"16{index}"))
         if path.endswith("epargne-sur-le-support.html"):
+            if self.expire_before_savings:
+                return self.redirect(main.LOGIN_PATH)
             return httpx.Response(200, text=FUND_SAVINGS[int(request.url.params["k_fundIndex"])])
         return httpx.Response(404)
 
@@ -278,6 +289,69 @@ class FlowTest(unittest.TestCase):
 
         self.assertEqual((response.status_code, response.json()), (408, {"detail": "APP_VALIDATION_TIMEOUT"}))
         self.assertTrue(self.site.cancelled)
+
+    def test_a_polling_failure_withdraws_the_confirmation_from_the_phone(self):
+        self.site.states = ["PENDING", "UNREACHABLE"]
+        started = self.initiate()
+
+        response = self.client.post("/complete", json={"processId": started.json()["processId"]}, headers=HEADERS)
+
+        self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_UNAVAILABLE"}))
+        self.assertTrue(self.site.cancelled)
+
+    def test_a_wrong_code_the_full_pool_cannot_keep_is_disposed_of(self):
+        process = self.sms_login()
+        dispose = AsyncMock(wraps=main._dispose_pending_state)
+
+        with (
+            patch.object(main, "_store_pending", AsyncMock(side_effect=main.HTTPException(503, "UPSTREAM_UNAVAILABLE"))),
+            patch.object(main, "_dispose_pending_state", dispose),
+        ):
+            wrong = self.client.post("/complete", json={"processId": process, "code": "000000"}, headers=HEADERS)
+
+        self.assertEqual(wrong.status_code, 503)
+        dispose.assert_awaited_once()
+
+    def test_the_fund_button_is_sent_with_its_served_value(self):
+        self.site.situation = SITUATION_PAGE.replace(
+            'value="FONDS ACTIONS MONDE" name=', 'value="Voir le support" name='
+        )
+        session = self.confirm()
+
+        response = self.client.post("/positions", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.site.fund_fields["_FID_GoFundSummary_selectedFundIndex:1"], ["Voir le support"])
+
+    def test_a_session_that_ends_before_the_savings_tab_reads_as_session_expired(self):
+        session = self.confirm()
+        self.site.expire_before_savings = True
+
+        response = self.client.post("/positions", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual((response.status_code, response.json()), (401, {"detail": "SESSION_EXPIRED"}))
+
+    def test_two_plans_of_the_same_kind_keep_distinct_ids(self):
+        self.site.situation = situation_page(
+            plan_table("Plan d&#39;&#233;pargne groupe ACME", "0,00", "")
+            + plan_table("Plan d&#39;&#233;pargne groupe GLOBEX", "0,00", "")
+            + plan_table("Plan d&#39;&#233;pargne entreprise", "0,00", "")
+        )
+        session = self.confirm()
+
+        response = self.client.post("/positions", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        ids = [plan["externalId"] for plan in response.json()]
+        self.assertEqual(len(set(ids)), 3)
+        self.assertTrue(all(plan_id.startswith("cmes_12345_PEG-") for plan_id in ids[:2]))
+        # A kind held by one plan keeps the id it always had.
+        self.assertEqual(ids[2], "cmes_12345_PEE")
+
+    def test_an_entity_encoded_skip_link_is_found(self):
+        page = '<a href="/skip.html">Passer cette &eacute;tape</a>'
+
+        self.assertEqual(main._link_with(page, "passer cette étape"), "/skip.html")
 
     def test_an_unknown_process_has_expired(self):
         response = self.client.post("/complete", json={"processId": "nope"}, headers=HEADERS)
