@@ -104,6 +104,8 @@ type TFunc = (key: string) => string
  */
 function matchTrDetail(detail: string, t: TFunc): string | null {
   if (detail.includes('authentication service is unavailable')) return t('sync.tr.errors.serviceUnavailable')
+  if (detail.includes('blocked the request')) return t('sync.tr.errors.temporarilyBlocked')
+  if (detail.includes('did not respond')) return t('sync.tr.errors.serverError')
   if (detail.includes('VALIDATION_CODE_INVALID') || detail.includes('verification code is invalid')) return t('sync.tr.errors.invalidTan')
   if (detail.includes('NUMBER_INVALID')) return t('sync.tr.errors.invalidPhoneNumber')
   if (detail.includes('PIN_INVALID')) return t('sync.tr.errors.invalidPin')

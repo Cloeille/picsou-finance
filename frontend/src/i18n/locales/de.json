@@ -58,8 +58,7 @@
     "hideAmounts": "Beträge ausblenden",
     "showAmounts": "Beträge einblenden",
     "budget": "Budget",
-    "budget.desc": "Spending & cashflow",
-    "switchLanguage": "Switch language"
+    "budget.desc": "Spending & cashflow"
   },
   "auth": {
     "login": "Anmelden",
@@ -820,6 +819,7 @@
         "invalidTan": "Der Bestätigungscode ist falsch oder abgelaufen. Verwende den zuletzt erhaltenen Code oder starte den Schritt neu, um einen neuen zu erhalten.",
         "authenticationFailed": "Trade-Republic-Authentifizierung fehlgeschlagen.",
         "serviceUnavailable": "Der lokale Trade-Republic-Dienst ist nicht verfügbar. Starte die Server neu und versuche es erneut.",
+        "temporarilyBlocked": "Trade Republic hat die Anfrage blockiert. Versuche es in einer Minute erneut.",
         "serverError": "Trade-Republic-Serverfehler. Bitte versuche es erneut.",
         "phoneNumberRequired": "Telefonnummer ist erforderlich.",
         "pinRequired": "PIN ist erforderlich.",
@@ -1065,7 +1065,11 @@
       "transactionsImported": "Transaktionen importiert",
       "transactionsSkipped": "Transaktionen übersprungen",
       "done": "Fertig",
-      "errors": { "invalidPreview": "Die Vorschauantwort ist ungültig.", "previewFailed": "HomeBank-Datei konnte nicht angezeigt werden.", "importFailed": "HomeBank-Import fehlgeschlagen." }
+      "errors": {
+        "invalidPreview": "Die Vorschauantwort ist ungültig.",
+        "previewFailed": "HomeBank-Datei konnte nicht angezeigt werden.",
+        "importFailed": "HomeBank-Import fehlgeschlagen."
+      }
     },
     "all": {
       "title": "Konten synchronisieren",
@@ -1246,6 +1250,42 @@
         "formatChanged": "Das Format der Amundi-Website hat sich geändert. Ihre vorhandenen Daten wurden beibehalten.",
         "invalidData": "Amundi hat inkonsistente Daten zurückgegeben. Ihre vorhandenen Daten wurden beibehalten.",
         "serverError": "Amundi ist nicht erreichbar. Bitte erneut versuchen."
+      }
+    },
+    "cmes": {
+      "title": "Crédit Mutuel / CIC Mitarbeitersparen",
+      "login": "Benutzername",
+      "password": "Passwort",
+      "otpCode": "Per SMS erhaltener Code",
+      "otpPrompt": "Geben Sie den Bestätigungscode ein, den Sie per SMS erhalten haben.",
+      "appValidationPrompt": "Öffnen Sie die App Ihrer Bank und bestätigen Sie die Anmeldung (mobile Bestätigung).",
+      "appValidationHint": "Diese Seite aktualisiert sich, sobald Sie bestätigen. Danach meldet sich Picsou selbst wieder an, solange die Website das Gerät wiedererkennt.",
+      "connect": "Verbinden",
+      "connecting": "Verbindung wird hergestellt…",
+      "validate": "Code senden",
+      "validating": "Wird geprüft…",
+      "sync": "Synchronisieren",
+      "queued": "Synchronisierung eingeplant…",
+      "syncing": "Synchronisierung läuft…",
+      "syncSuccess": "Sparpläne synchronisiert.",
+      "clearSession": "Trennen",
+      "noSession": "Keine aktive Sitzung",
+      "sessionActive": "Sitzung aktiv",
+      "scope": "Synchronisiert Ihre Mitarbeitersparpläne bei Crédit Mutuel oder CIC (PEE, PEG, PERCOL) und die darin gehaltenen Fonds: Anteile, Anteilswert und Gewinn.",
+      "errors": {
+        "tooManyAttempts": "Zu viele Versuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
+        "invalidCredentials": "Ungültiger Benutzername oder ungültiges Passwort.",
+        "actionRequired": "Die Website verlangt zuerst eine Aktion von Ihnen (Bedingungen akzeptieren, Kontaktdaten ergänzen). Melden Sie sich einmal auf der Website an und versuchen Sie es dann erneut.",
+        "mfaTypeUnsupported": "Die Website hat einen Digipass oder Safetrans verlangt, den Picsou nicht unterstützt. Wählen Sie in Ihren Sicherheitseinstellungen die mobile Bestätigung oder SMS.",
+        "appValidationTimeout": "Die mobile Bestätigung wurde nicht rechtzeitig erteilt. Bitte beginnen Sie von vorn.",
+        "appValidationCancelled": "Die mobile Bestätigung wurde in der App abgelehnt.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Bitte beginnen Sie von vorn.",
+        "sessionExpired": "Die Sitzung ist abgelaufen und die Website verlangt eine neue Bestätigung. Bitte verbinden Sie sich erneut.",
+        "portfolioIncomplete": "Die Website hat unvollständige Pläne geliefert. Ihre bestehenden Daten wurden beibehalten.",
+        "formatChanged": "Das Format der Website hat sich geändert. Ihre bestehenden Daten wurden beibehalten.",
+        "invalidData": "Die Website hat widersprüchliche Daten geliefert. Ihre bestehenden Daten wurden beibehalten.",
+        "serverError": "Die Website für Mitarbeitersparen ist nicht erreichbar. Bitte versuchen Sie es erneut.",
+        "invalidCode": "Falscher SMS-Code. Bitte prüfen Sie ihn und geben Sie ihn erneut ein."
       }
     },
     "amex": {

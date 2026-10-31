@@ -31,10 +31,11 @@ why.
 
 | Imported | Not imported |
 |---|---|
-| Current accounts → `CHECKING` | Loans (`data-summary-loan`), assurance-vie and insurance, `Bourso Protect` (`data-summary-insurance` / `data-summary-assurance`), accounts held for a minor (`data-summary-child`, "Comptes de mes enfants") |
+| Current accounts → `CHECKING` | Loans (`data-summary-loan`), insurance, `Bourso Protect` (`data-summary-insurance` / `data-summary-assurance`), accounts held for a minor (`data-summary-child`, "Comptes de mes enfants") |
 | Livrets → `LIVRET_A`, `LDDS`, `LEP`, `LIVRET_JEUNE`, `PEL`, `CEL`, else `SAVINGS` | Accounts BoursoBank aggregates from **other banks** |
 | PEA, PEA-PME → `PEA` | Securities-account transactions |
 | Compte-titres → `COMPTE_TITRES`, with positions | Orders, statements |
+| Assurance-vie → `ASSURANCE_VIE`, unit-linked supports as positions, euro fund as cash | |
 
 **PEA-PME folds into `PEA`**: Picsou has no separate envelope for it, and the
 two share a tax regime and a reporting shape.
@@ -547,3 +548,46 @@ the imported list against the BoursoBank dashboard after the first sync.
 - Related: [degiro-sync.md](./degiro-sync.md) — the other `httpx`-only sidecar
 - Related: [encryption-at-rest.md](./encryption-at-rest.md)
 - Upstream reference: [azerpas/bourso-api](https://github.com/azerpas/bourso-api)
+
+## Assurance vie (2026-10-24)
+
+Assurance-vie contracts sit in the dashboard's `data-summary-trading` section, next to the PEA,
+but their cards link to `/compte/assurance-vie/<id>` with **no trailing slash**. The card and link
+patterns now accept that, so the contracts are parsed and counted instead of silently missing
+(the completeness check never saw them either). A contract is typed `ASSURANCE_VIE` from its link,
+its label being only "Contrat N° …". Contracts in the children's panel stay skipped.
+
+Positions come from the contract's server-rendered page `/compte/assurance-vie/<id>/positions`, not
+the trading board: the "Valorisation au <date>" box gives the total, and
+`table[data-table-trading-operations]` one row per support (label, ISIN in `.c-table__mention`,
+Boursorama symbol from the quote link, quantity, buying price, price, amount, latent gain). A
+unit-linked line becomes a position; the euro fund becomes `cashBalance`. A row is the euro fund
+only when it has no units (blank or `0,0000`), no ISIN, no quote link, no price (blank or `0,00 €`)
+and a label naming the euro as a whole word: "Euro Stoxx 50" with a quote link or a price is a
+fund, and without units it is refused, not read as cash. Any `/cours/` link in the label cell counts
+as a quote link, even one whose symbol cannot be read. The symbol is read from the path of the
+HTML-unescaped `href` alone (`urlsplit`), so a query string (`/cours/1rTXYZ/?foo=1`) does not hide
+it, and a `/cours/MSFT/` inside a `returnUrl` or a fragment cannot replace it: without an ISIN the
+backend would keep that ticker and value the support as another instrument. A link without a
+readable symbol, or two links naming different symbols, is refused as `FORMAT_CHANGED` rather than
+given a guessed ticker. A blank or dash cell is an absent
+value; any other text that does not parse as an amount (`n/a`) is refused as `FORMAT_CHANGED`, so an
+unreadable quantity can never pass for the euro fund's empty one. Any other row shape is refused.
+
+The lines must reconcile with the valuation within a cent per line (floor 0.05 €), in the sidecar
+(`lines_close`) and again in `BoursoSyncService` (`linesClose`). Each support amount is rounded to
+the cent, so that is all the rounding can add up to. The sidecar counts every table row, and sends
+that count as `valuationLineCount` because the backend cannot rebuild it: rows of one fund merge into
+a single holding, zero-unit rows are dropped and all euro-fund rows are summed into one cash figure.
+The backend refuses an assurance vie without that count, or with fewer rows than positions, as
+`INVALID_DATA`. The 0.1 %
+tolerance of the other envelopes is deliberately not used: it scales with the valuation, so a
+support missing from a large contract would pass inside it. A position's ticker is, in order: the
+quote-link symbol (dropped if over 30 characters, the backend's ticker limit), the ISIN, the label
+when it fits in 30 characters, else the first 21 characters of the label, a dash and the first 8
+hex digits of the SHA-256 of the full label (lengths counted in UTF-16 units, like the backend's
+`String.length()`, and the digest taken on the whole label, not on its 200-character display cut).
+The digest depends on the label alone, never on the
+position in the list, so the ticker is the same at every sync (the backend keys holdings by ticker)
+and two labels sharing only a prefix stay apart. Two identical labels are still refused by
+`guard_symbol_collisions`.
