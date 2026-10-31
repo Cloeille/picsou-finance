@@ -8,14 +8,11 @@ test.describe('Goals page', () => {
     await page.waitForURL('**/goals')
   })
 
-  test('should show goal cards or empty state', async ({ page }) => {
-    // Either goal cards are visible or the empty state message
-    const hasGoals = (await page.locator('.grid > *').count()) > 0
-    if (hasGoals) {
-      // Goal cards with progress bars
-      await expect(page.locator('.grid').first()).toBeVisible()
-    } else {
-      await expect(page.getByText('Aucun objectif défini')).toBeVisible()
+  test('should show demo savings goal cards with progress bars', async ({ page }) => {
+    for (const name of ['Voyage au Japon', 'Apport immobilier', 'Nouvelle voiture']) {
+      const card = page.locator('[data-slot="card"]').filter({ hasText: name })
+      await expect(card).toBeVisible()
+      await expect(card.getByRole('progressbar')).toBeVisible()
     }
   })
 

@@ -73,7 +73,7 @@ export function IbkrPanel({ onConnected }: IbkrPanelProps = {}) {
               )}
               {status.lastSyncedAt ? (
                 <span className="text-xs text-muted-foreground">
-                  {t('sync.ibkr.lastSync')}: {formatDateTime(status.lastSyncedAt)}
+                  {t('common.labelColon', { label: t('sync.ibkr.lastSync') })} {formatDateTime(status.lastSyncedAt)}
                 </span>
               ) : (
                 <span className="text-xs text-muted-foreground">{t('sync.ibkr.neverSynced')}</span>

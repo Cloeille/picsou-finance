@@ -41,6 +41,8 @@ describe('demo cross-account transaction search', () => {
     expect(rows.every((r) => r.date >= from && r.date <= to)).toBe(true)
     expect(rows.map((r) => r.date)).toEqual([...rows.map((r) => r.date)].sort().reverse())
     expect(rows.every((r) => r.accountId != null && r.accountName)).toBe(true)
+    expect(rows.filter((r) => r.categoryId == null).every((r) => r.category == null)).toBe(true)
+    expect(rows.some((r) => r.categoryId != null)).toBe(true)
     expect(rows.every((r) => r.categoryId == null || mockCategories.some((c) => c.id === r.categoryId))).toBe(true)
     expect(rows.filter((r) => r.categoryId == null).map((r) => r.id).sort()).toEqual(
       mockUncategorized().filter((r) => r.date >= from && r.date <= to).map((r) => r.id).sort(),

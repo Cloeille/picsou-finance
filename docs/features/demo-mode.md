@@ -48,6 +48,7 @@ VITE_DEMO_MODE=true
 |--------|-----|----------------------|
 | Axios adapter (not an interceptor) | Completely replaces the transport — no network request is ever sent | Response interceptor: the request is still dispatched, risking network errors |
 | `partialize` to exclude `demoMode` from persist | The env var must always win; without this, a stale localStorage value overwrites `VITE_DEMO_MODE` | Persisting `demoMode`: broke demo mode if the app had previously run with `false` |
+| Shared checking-account ledger with localized display labels | Account transactions, global search, and budget views keep the same rows after categorization. Other accounts' synthetic transaction labels use French, matching the demo fixtures | Restoring a separate checking-account fixture while translating its labels |
 
 ## Gotchas / Pitfalls
 
@@ -72,5 +73,7 @@ VITE_DEMO_MODE=true
 - `frontend/src/demo/transactions.test.ts` checks date, account, and category filters, newest-first order, spending amounts and counts including the review inbox, and session recategorization through the adapter. Category filters select an explicitly categorized row, including on October 31, November 1, and January 1.
 
 The Playwright suite (`frontend/e2e/*.spec.ts`, `bun run test:e2e`) runs entirely against demo mode — it is the de-facto regression net for the handler table. `playwright.config.ts` forces `VITE_DEMO_MODE=true` on the Vite dev server it starts, so a missing `frontend/.env` still runs the suite in demo mode. The specs find demo data by its displayed text (a goal or account name, a label), so renaming a fixture means updating the specs that name it: `e2e/mobile-layout.spec.ts` still looked for the goal "Vacances été 2025" after it became "Voyage au Japon". The same holds for counts that follow from a fixture's relative dates: `e2e/goals.spec.ts` counts goal 2's calendar months, which is its `createdMonthsAgo` + 1 (12) on any date.
+
+The goals E2E test waits for each named savings goal and its progress bar, including "Voyage au Japon". Navigation alone does not establish readiness because route fallbacks wait 200 ms before appearing. The demo session probe still sets the signed-in user while `RequireAuth` renders immediately; the loading spinner only applies outside that bypass.
 
 CI (`.github/workflows/ci.yml` job `e2e`) installs Chromium, runs the same command, and uploads `playwright-report/` on failure. A red e2e job blocks the Docker publish job.

@@ -4,6 +4,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { useProjectionDateLabel } from '@/features/analysis/hooks'
 import { SLICE_PALETTE } from '@/lib/chart-palette'
+import { formatPercent } from '@/lib/utils'
 import type { AllocationPoint, WealthTier } from '@/types/api'
 
 /** Bottom to top, heaviest first — the order the pyramid itself reads in. */
@@ -72,7 +73,7 @@ export function AllocationTrajectory({ allocation }: { allocation: AllocationPoi
             axisLine={false}
             width={44}
             domain={[0, 100]}
-            tickFormatter={(value: number) => `${value}%`}
+            tickFormatter={(value: number) => formatPercent(value, { fractionDigits: 0 })}
           />
           <ChartTooltip
             content={
@@ -129,10 +130,10 @@ export function AllocationTrajectory({ allocation }: { allocation: AllocationPoi
                   </span>
                 </td>
                 <td className="py-1.5 text-right tabular-nums text-muted-foreground">
-                  {now.percent.toFixed(1)}%
+                  {formatPercent(now.percent)}
                 </td>
                 <td className="py-1.5 text-right tabular-nums text-foreground">
-                  {then.percent.toFixed(1)}%
+                  {formatPercent(then.percent)}
                   <span className="ml-2 text-xs text-muted-foreground">
                     <CurrencyDisplay value={then.valueEur} />
                   </span>
@@ -146,7 +147,7 @@ export function AllocationTrajectory({ allocation }: { allocation: AllocationPoi
                       arrives as undefined and `=== null` was false — .toFixed then threw and took
                       the whole tab down. Demo mode sends an explicit null, which is why the
                       fixtures were happy. */}
-                  {then.targetPercent == null ? '—' : `${then.targetPercent.toFixed(0)}%`}
+                  {then.targetPercent == null ? '—' : formatPercent(then.targetPercent, { fractionDigits: 0 })}
                 </td>
               </tr>
             )

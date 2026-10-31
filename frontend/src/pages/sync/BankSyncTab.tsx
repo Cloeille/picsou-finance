@@ -41,10 +41,9 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
   }
 }
 
+// FAILED keeps a custom tint: the destructive variant measures about 3:1 in dark mode.
 function statusClasses(status: string): string {
   switch (status) {
-    case 'LINKED': return 'bg-green-500/10 text-green-600 dark:text-green-400'
-    case 'CREATED': return 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
     case 'EXPIRED': return 'bg-muted text-muted-foreground'
     case 'FAILED': return 'bg-red-500/10 text-red-600 dark:text-red-400'
     default: return ''
@@ -313,7 +312,7 @@ export function BankSyncTab() {
                       variant={statusVariant(conn.status)}
                       className={statusClasses(conn.status)}
                     >
-                      {conn.status}
+                      {t(`sync.connectionStatus.${conn.status}`, { defaultValue: conn.status })}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">

@@ -135,7 +135,7 @@ describe('PropertyValuationCard', () => {
     // contract rather than decoration.
     expect(screen.getByText('property.valuation.methodDisclaimer')).toBeInTheDocument()
     expect(screen.getByText('property.adjustments.GARDEN')).toBeInTheDocument()
-    expect(screen.getByText('+2.0 %')).toBeInTheDocument()
+    expect(screen.getByText('+2,0 %')).toBeInTheDocument()
     expect(screen.getByText('+12 m²')).toBeInTheDocument()
   })
 })

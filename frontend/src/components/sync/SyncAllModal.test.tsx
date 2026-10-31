@@ -416,8 +416,8 @@ describe('SyncAllModal session providers', () => {
     renderModal()
 
     const row = (await screen.findByText('Amundi')).closest('[data-slot="card"]') as HTMLElement
-    expect(within(row).getByText('FAILED')).toBeInTheDocument()
-    expect(within(row).queryByText('active')).not.toBeInTheDocument()
+    expect(within(row).getByText('sync.connectionStatus.FAILED')).toBeInTheDocument()
+    expect(within(row).queryByText('sync.connectionStatus.active')).not.toBeInTheDocument()
   })
 
   /** A Flex outage or a rate limit clears on its own, so a failed-but-live row keeps its retry. */
@@ -558,7 +558,7 @@ describe('SyncAllModal session providers', () => {
     renderModal()
 
     const row = (await screen.findByText('American Express')).closest('[data-slot="card"]') as HTMLElement
-    expect(within(row).getByText('FAILED')).toBeInTheDocument()
+    expect(within(row).getByText('sync.connectionStatus.FAILED')).toBeInTheDocument()
   })
 
   it('hides American Express with no session and no card', async () => {

@@ -10,7 +10,7 @@ const TICK_CHAR_PX = 7.5
  * gets -3 500 and 10 500 ticks. The ticks are therefore generated the way a default `<YAxis>`
  * does (domain `[0, 'auto']` widened to the data, 5 ticks, adaptive steps) and each is measured.
  *
- * `format` must be the formatter handed to the axis (`money.tick(...)`), so a masked axis is
+ * `format` must be the formatter handed to the axis (`money.tick`), so a masked axis is
  * sized for the mask.
  *
  * `tickSize` is reserved even under `tickLine={false}`: Recharts still offsets the tick text by

@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth-store'
 import { useAppStore } from '@/stores/app-store'
-import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
+import { RouteSpinner } from '@/components/shared/RouteFallback'
 import { useSessionProbe } from './hooks'
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -19,7 +19,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   }, [probe.isSuccess, probe.data, login])
 
   if (demoMode || isAuthenticated) return <>{children}</>
-  if (probe.isPending || probe.isSuccess) return <LoadingSkeleton />
+  if (probe.isPending || probe.isSuccess) return <RouteSpinner />
 
   return <Navigate to="/login" replace />
 }
@@ -53,7 +53,7 @@ export function PublicOnly({
   if (demoMode || isAuthenticated) return <Navigate to="/" replace />
   // While the probe resolves (only when actually enabled), hold the form back so
   // a restorable session redirects into the app rather than flashing /login.
-  if (shouldProbe && (sessionProbe.isPending || sessionProbe.isSuccess)) return <LoadingSkeleton />
+  if (shouldProbe && (sessionProbe.isPending || sessionProbe.isSuccess)) return <RouteSpinner />
 
   return <>{children}</>
 }

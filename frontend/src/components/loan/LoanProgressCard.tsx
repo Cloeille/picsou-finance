@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { localeFromLanguage } from '@/lib/utils'
+import { formatPercent, localeFromLanguage } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import type { LoanSummary } from '@/types/api'
@@ -34,7 +34,7 @@ export function LoanProgressCard({ summary }: LoanProgressCardProps) {
         <div className="space-y-2">
           <Progress value={pct} className="h-2" />
           <p className="text-xs text-muted-foreground">
-            {t('debt.capitalRepaidPct', { pct: pct.toFixed(0) })}
+            {t('debt.capitalRepaidPct', { pct: formatPercent(pct, { fractionDigits: 0 }, locale) })}
           </p>
         </div>
       </CardContent>
