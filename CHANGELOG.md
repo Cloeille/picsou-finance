@@ -226,9 +226,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replaces. The 404, 403 and 500 pages appear inside the sidebar and navigation when
   you are signed in, including after a browser restart with "Remember Me". A server
   error inside that sidebar no longer reloads the error page in a loop. Each error page
-  offers "Back to dashboard" and "Back". Session checks and
-  the setup wizard show a centred spinner rather than a full-screen dashboard
-  placeholder or an empty screen.
+  offers "Back to dashboard" and "Back". Session checks and opening the setup wizard
+  show a centred spinner rather than a full-screen dashboard placeholder or an empty
+  screen. Moving between setup steps keeps the wizard frame on screen; only the step
+  area stays empty until the next step loads.
 
 - **American Express no longer stores a second copy of a charge AMEX re-describes.** A
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
