@@ -13,8 +13,8 @@ test.describe('Sync page tabs', () => {
   test('should expose every supported provider tab', async ({ page }) => {
     const providerNames = [
       'Banques',
-      'Exchanges',
-      'Wallets',
+      'Plateformes crypto',
+      'Portefeuilles crypto',
       'Trade Republic',
       'Revolut',
       'BoursoBank',
@@ -25,6 +25,7 @@ test.describe('Sync page tabs', () => {
       'SimpleFIN',
       'Amundi',
       'Crédit Mutuel / CIC Épargne Salariale',
+      'CIC (livrets)',
       'Fortuneo',
       'American Express',
       'CORUM',
@@ -90,15 +91,15 @@ test.describe('Sync page tabs', () => {
   // Switching tabs no longer rewrites the URL (?tab= is only read as the
   // initial tab), so assert on the revealed content instead of waitForURL.
   test('should switch to Exchanges tab', async ({ page }) => {
-    await page.getByRole('tab', { name: 'Exchanges' }).click()
+    await page.getByRole('tab', { name: 'Plateformes crypto' }).click()
     // Exchanges content should be visible
-    await expect(page.getByText('Ajouter un exchange')).toBeVisible()
+    await expect(page.getByText('Ajouter une plateforme')).toBeVisible()
   })
 
   test('should switch to Wallets tab', async ({ page }) => {
-    await page.getByRole('tab', { name: 'Wallets' }).click()
+    await page.getByRole('tab', { name: 'Portefeuilles crypto' }).click()
     // Wallets content should be visible
-    await expect(page.getByText('Ajouter un wallet')).toBeVisible()
+    await expect(page.getByText('Ajouter un portefeuille')).toBeVisible()
   })
 
   test('should switch to Finary tab and show login + file import', async ({ page }) => {
@@ -117,6 +118,6 @@ test.describe('Sync page tabs', () => {
 
   test('should open a tab directly via the ?tab= query param', async ({ page }) => {
     await page.goto('/sync?tab=exchanges')
-    await expect(page.getByText('Ajouter un exchange')).toBeVisible()
+    await expect(page.getByText('Ajouter une plateforme')).toBeVisible()
   })
 })

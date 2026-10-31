@@ -29,6 +29,7 @@
     "today": "Heute",
     "currency": "EUR",
     "done": "Fertig",
+    "labelColon": "{{label}}:",
     "errorTitle": "Error",
     "skipToContent": "Skip to main content",
     "locale": "en-US",
@@ -131,7 +132,8 @@
     "newGoal": "Neues Ziel",
     "achieved": "erreicht",
     "goalsSummary": "Verfolge deinen Fortschritt auf dem Weg zu deinen finanziellen Zielen.",
-    "otherGoals": "{{count}} weitere Ziele",
+    "otherGoals": "{{count}} weiteres Ziel",
+    "otherGoals_other": "{{count}} weitere Ziele",
     "holdings": "Bestände",
     "holdingsDescription": "Dein Portfolio auf einen Blick",
     "searchHoldings": "Bestände oder Ticker suchen...",
@@ -152,6 +154,7 @@
     "portfolioPerformance": "portfolio performance",
     "liabilities": "Verbindlichkeiten",
     "monthlyPayment": "Monatliche Rate",
+    "perMonthSuffix": "/Monat",
     "loanParamsUnconfigured": "Parameter nicht konfiguriert",
     "amountDue": "Fälliger Betrag",
     "dueOn": "Fällig am {{date}}"
@@ -288,7 +291,7 @@
     "editTargets": "Meine Ziele",
     "error": "Analyse konnte nicht geladen werden",
     "points": "Pkt",
-    "targetShort": "Ziel {{value}}%",
+    "targetShort": "Ziel {{value}}",
     "empty": {
       "title": "Noch nichts zu analysieren",
       "description": "Füge Konten hinzu, damit Picsou den Aufbau deines Vermögens bewerten kann."
@@ -307,14 +310,14 @@
       "cryptoPenalty": "Krypto-Abzug",
       "leverageBonus": "Hebel-Bonus",
       "notRated": "nicht bewertet",
-      "misplaced": "{{value}}% deines Vermögens müssten umgeschichtet werden, um deine Ziele zu erreichen.",
+      "misplaced": "{{value}} deines Vermögens müssten umgeschichtet werden, um deine Ziele zu erreichen.",
       "safetyNetUnknownHint": "Trage deine monatlichen Fixkosten ein, damit der Notgroschen bewertet werden kann.",
       "notRatedYet": "Noch keine Bewertung: Geben Sie Ihre monatlichen Ausgaben an oder investieren Sie über Ihr Polster hinaus."
     },
     "safetyNet": {
       "title": "Notgroschen und Aufteilung",
       "ofTarget": "von einem Ziel von",
-      "short": "{{value}}% des Ziels",
+      "short": "{{value}} des Ziels",
       "covered": "Gedeckt",
       "excess": "Überschuss",
       "excessHint": "Alles über dem Ziel ist umzuschichtendes Geld: es fließt nicht in die Aufteilung unten ein.",
@@ -334,7 +337,7 @@
       "useSuggestion": "Übernehmen",
       "months": "Zu deckende Monate",
       "allocation": "Zielaufteilung des Rests",
-      "sum": "Summe {{value}}% / 100%",
+      "sum": "Summe {{value}} / {{max}}",
       "allocationHint": "Die vier Prozentsätze müssen zusammen 100% ergeben."
     },
     "targetAmount": "Ziel",
@@ -343,7 +346,7 @@
       "sectors": "Sektoren",
       "countries": "Regionen",
       "effective": "{{value}} effektive Positionen / {{target}} angestrebt",
-      "coverage": "Berechnet über {{value}} % des Aktien- & ETF-Anteils",
+      "coverage": "Berechnet über {{value}} des Aktien- & ETF-Anteils",
       "unclassified": "nicht klassifiziert",
       "noData": "Keine Aufteilungsdaten verfügbar",
       "noHoldings": "Keine Aktien- oder ETF-Position zu analysieren.",
@@ -362,10 +365,10 @@
       "nothingToProject": "Lege unter Ziele eine monatliche Anlage an, um eine Projektion zu sehen.",
       "disclaimer": "Projiziert aus deinen wiederkehrenden Einzahlungen, monatlich verzinst. Ohne Immobilien, Kredite und alternative Anlagen. Das ist keine Prognose.",
       "scenarios": {
-        "PESSIMISTIC": "Pessimistisch ({{value}} %)",
-        "CAUTIOUS": "Vorsichtig ({{value}} %)",
-        "REFERENCE": "Referenz ({{value}} %)",
-        "OPTIMISTIC": "Optimistisch ({{value}} %)"
+        "PESSIMISTIC": "Pessimistisch ({{value}})",
+        "CAUTIOUS": "Vorsichtig ({{value}})",
+        "REFERENCE": "Referenz ({{value}})",
+        "OPTIMISTIC": "Optimistisch ({{value}})"
       },
       "contributed": "Ihre Einzahlungen",
       "views": {
@@ -406,7 +409,7 @@
       "hint": "Wählen Sie einen Anteil, um zu sehen, woraus er besteht."
     },
     "alerts": {
-      "SINGLE_ASSET_CONCENTRATION": "{{label}} macht {{percent}} % Ihres Vermögens aus — ein einzelner Wert trägt das meiste Risiko.",
+      "SINGLE_ASSET_CONCENTRATION": "{{label}} macht {{percent}} Ihres Vermögens aus — ein einzelner Wert trägt das meiste Risiko.",
       "EMPTY_TIER": "Nichts in {{label}}: diese Stufe ist leer, nicht bloß unter dem Ziel.",
       "CUSHION_OVERFUNDED": "{{value}} über Ihrem Polsterziel — Geld, das anderswo arbeiten könnte.",
       "title": "Beachtenswert"
@@ -538,7 +541,7 @@
     "interestAndInsurance": "Zinsen und Versicherung",
     "paidInstallments": "Gezahlte Raten",
     "remainingInstallments": "Verbleibende Raten",
-    "capitalRepaidPct": "Du hast {{pct}} % der Kreditsumme getilgt",
+    "capitalRepaidPct": "Du hast {{pct}} der Kreditsumme getilgt",
     "summary": "Zusammenfassung",
     "totalCost": "Gesamtkosten des Kredits",
     "totalRepaid": "Insgesamt zurückgezahlt",
@@ -679,8 +682,8 @@
     "noGoals": "Keine Ziele definiert",
     "waiting": "Laufend",
     "calendar": "Kalender",
-    "legendProgress": "Erreichter Anteil des Monatsziels (z. B. 94%)",
-    "legendOvershoot": "Über dem Ziel (z. B. +8%)",
+    "legendProgress": "Erreichter Anteil des Monatsziels (z. B. 94\u00a0%)",
+    "legendOvershoot": "Über dem Ziel (z. B. +8\u00a0%)",
     "viewGrid": "Jahresraster",
     "viewTimeline": "Zeitleiste",
     "viewCalendar": "Kalender",
@@ -741,7 +744,7 @@
       "title": "Sparquote",
       "perMonth": "pro Monat",
       "benchmarkLabel": "Zum französischen Durchschnitt",
-      "benchmark": "Die durchschnittliche Sparquote der Haushalte in Frankreich liegt bei rund {{rate}} % ihres verfügbaren Bruttoeinkommens",
+      "benchmark": "Die durchschnittliche Sparquote der Haushalte in Frankreich liegt bei rund {{rate}} ihres verfügbaren Bruttoeinkommens",
       "needsIncome": "Trage dein monatliches Netto vor Steuern und deinen Quellensteuersatz ein, um deine Sparquote zu sehen.",
       "goToSettings": "Zu den Einstellungen"
     }
@@ -779,6 +782,16 @@
   },
   "sync": {
     "title": "Synchronisierung",
+    "connectionStatus": {
+      "CREATED": "Ausstehend",
+      "LINKED": "Verbunden",
+      "CONNECTED": "Verbunden",
+      "active": "Verbunden",
+      "EXPIRED": "Abgelaufen",
+      "FAILED": "Fehlgeschlagen",
+      "ERROR": "Fehler",
+      "TOTP_REQUIRED": "2FA-Code erforderlich"
+    },
     "banks": {
       "title": "Banken",
       "search": "Bank suchen",
@@ -1289,6 +1302,44 @@
         "invalidCode": "Falscher SMS-Code. Bitte prüfen Sie ihn und geben Sie ihn erneut ein."
       }
     },
+    "cic": {
+      "title": "CIC (livrets)",
+      "login": "Customer number",
+      "password": "Password",
+      "otpCode": "Code received by SMS",
+      "otpPrompt": "Enter the confirmation code you received by SMS.",
+      "appValidationPrompt": "Open the CIC app and confirm the sign-in (mobile confirmation).",
+      "appValidationHint": "This page updates on its own as soon as you confirm. CIC asks for a new confirmation at least every 24 hours.",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "reconnect": "Reconnect",
+      "reconnectHint": "Your credentials are stored: CIC will send a confirmation request to your phone.",
+      "validate": "Submit code",
+      "validating": "Validating…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Accounts synced.",
+      "clearSession": "Disconnect",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your CIC current and savings accounts (Livret A, LDDS, PEL…), which the PSD2 bank connection does not return. Balances only.",
+      "errors": {
+        "tooManyAttempts": "Too many attempts. Please wait before retrying.",
+        "invalidCredentials": "Invalid CIC customer number or password.",
+        "actionRequired": "The site needs you to act first (terms to accept, contact details to complete). Sign in once on the website, then retry.",
+        "mfaTypeUnsupported": "The site asked for a Digipass or Safetrans, which Picsou cannot handle. Choose mobile confirmation or SMS in your security settings.",
+        "appValidationTimeout": "The mobile confirmation was not approved in time. Please start over.",
+        "appValidationCancelled": "The mobile confirmation was refused in the app.",
+        "authAttemptExpired": "The authentication attempt expired. Please start over.",
+        "sessionExpired": "The session expired and the site asks for a new mobile confirmation. Please reconnect.",
+        "portfolioIncomplete": "CIC returned an incomplete account list. Your existing data was kept.",
+        "formatChanged": "The CIC website format changed. Your existing data was kept.",
+        "invalidData": "CIC returned inconsistent data. Your existing data was kept.",
+        "serverError": "Could not reach the CIC website. Please try again.",
+        "invalidCode": "Wrong SMS code. Check it and type it again."
+      }
+    },
     "amex": {
       "title": "American Express",
       "login": "Benutzer-ID",
@@ -1540,6 +1591,8 @@
     "sessionsEmpty": "Keine vertrauenswürdigen Geräte — du musst dich bei jedem Besuch neu anmelden.",
     "sessionsCurrent": "Dieses Gerät",
     "sessionsTrusted": "2FA-vertraut",
+    "sessionsUnknownDevice": "Unbekanntes Gerät",
+    "sessionsBrowser": "Browser",
     "sessionsLastUsed": "Zuletzt verwendet",
     "sessionsCreated": "Erstellt",
     "sessionsExpires": "Läuft ab",
@@ -1564,14 +1617,14 @@
       },
       "taxHouseholdParts": "Steuerliche Anteile",
       "dependents": "Unterhaltsberechtigte",
-      "annualGrossIncome": "Jährliches Bruttoeinkommen",
+      "annualGrossIncome": "Jährliches Bruttoeinkommen (€)",
       "incomeHint": "Der Bruttobetrag deiner Gehaltsabrechnung. Steuerlicher Kontext — die Sparquote wird auf den Nettobetrag unten berechnet.",
       "netPay": "Was tatsächlich auf dem Konto ankommt",
       "netPayHint": "Beide Angaben stehen auf deiner Gehaltsabrechnung. Brutto allein genügt nicht: zuerst gehen die Sozialabgaben ab, zu einem Satz, der von deinem Status abhängt.",
-      "monthlyNetBeforeTax": "Monatliches Netto vor Steuern",
+      "monthlyNetBeforeTax": "Monatliches Netto vor Steuern (€)",
       "withholdingTaxRate": "Quellensteuersatz (%)",
       "netIncomeDerived": "Monatliches Netto:",
-      "savingsCapacity": "Monatliche Sparfähigkeit",
+      "savingsCapacity": "Monatliche Sparfähigkeit (€)",
       "riskProfile": "Risikoprofil",
       "risk": {
         "PRUDENT": "Vorsichtig",
@@ -2324,7 +2377,7 @@
       "costBasis": "Gesamtkosten",
       "currentValue": "Aktueller Wert",
       "gain": "Wertzuwachs",
-      "coOwnedNote": "Sie halten {{percent}} % dieses Objekts. Summen zählen nur Ihren Anteil."
+      "coOwnedNote": "Sie halten {{percent}} dieses Objekts. Summen zählen nur Ihren Anteil."
     },
     "valuation": {
       "title": "Bewertung",
@@ -2366,7 +2419,7 @@
       "gross": "Bruttowert",
       "debt": "Restschuld",
       "net": "Nettowert",
-      "equityShare": "{{pct}} % des Objekts gehören Ihnen tatsächlich"
+      "equityShare": "{{pct}} des Objekts gehören Ihnen tatsächlich"
     },
     "summary": {
       "title": "Immobilienvermögen",
@@ -2374,7 +2427,7 @@
       "debt": "Schulden",
       "net": "Netto",
       "gain": "Wertzuwachs",
-      "loanToValue": "Beleihungsquote: {{pct}} % des Objektwerts",
+      "loanToValue": "Beleihungsquote: {{pct}} des Objektwerts",
       "rentalIncome": "Monatliche Mieteinnahmen:"
     },
     "ownership": {
@@ -2382,7 +2435,7 @@
       "hint": "Anteil je Mitglied festlegen. Jeder zählt nur seinen eigenen Anteil zum Vermögen.",
       "total": "Zugewiesen",
       "overAllocated": "Die Summe übersteigt 100 %.",
-      "unassigned": "{{percent}} % sind niemandem zugewiesen: Dieser Anteil liegt außerhalb von Picsou und zählt zu keinem Vermögen.",
+      "unassigned": "{{percent}} sind niemandem zugewiesen: Dieser Anteil liegt außerhalb von Picsou und zählt zu keinem Vermögen.",
       "saveError": "Aufteilung konnte nicht gespeichert werden"
     },
     "chart": {
@@ -2721,7 +2774,7 @@
       "noCategory": "No category",
       "formHint": "Manually add a recurring payment.",
       "variable": "Variable amount",
-      "autoConfirmedConfident": "Auto-confirmed · {{percent}}% confidence",
+      "autoConfirmedConfident": "Automatisch bestätigt · {{percent}} Sicherheit",
       "priceFromTo": "{{from}} → {{to}}",
       "undo": "Undo",
       "status": {
@@ -2736,7 +2789,7 @@
       },
       "activity": {
         "title": "What changed",
-        "autoConfirmed": "Auto-confirmed",
+        "autoConfirmed": "Automatisch bestätigt",
         "priceChange": "Price change",
         "autoConfirmedDesc": "Detected and confirmed automatically",
         "priceChangeDesc": "Price went from {{from}} to {{to}}",
@@ -2748,7 +2801,7 @@
       "subtitle": "Assign a category to unclassified transactions.",
       "recategorize": "Re-categorize",
       "categorizeAi": "Categorize with AI",
-      "aiSuggested": "AI: {{name}} · {{confidence}}%",
+      "aiSuggested": "KI: {{name}} · {{confidence}}",
       "selectCategory": "Pick a category",
       "learnRule": "Remember a rule",
       "assign": "Assign",
@@ -2860,8 +2913,8 @@
     "error": "Could not revoke access. Please try again."
   },
   "pockets": {
-    "subAccountsCount": "{{count}} pocket",
-    "subAccountsCount_other": "{{count}} pockets"
+    "subAccountsCount": "{{count}} Unterkonto",
+    "subAccountsCount_other": "{{count}} Unterkonten"
   },
   "savings": {
     "configSection": "Savings configuration",
@@ -2872,11 +2925,11 @@
       "LEP": "LEP",
       "COMMERCIAL": "Commercial savings account"
     },
-    "annualRate": "Annual rate (%)",
+    "annualRate": "Jahreszins (%)",
     "rateBasis": "Rate basis",
     "gross": "Gross",
     "net": "Net",
-    "taxRate": "Withholding tax (%)",
+    "taxRate": "Quellensteuer (%)",
     "taxRateHint": "PFU: 30% (flat tax)",
     "ceiling": "Legal ceiling (€)",
     "ceilingOptional": "Optional",

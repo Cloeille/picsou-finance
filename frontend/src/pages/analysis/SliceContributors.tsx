@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { formatPercent } from '@/lib/utils'
 import type { DiversificationSecurity, DiversificationSlice } from '@/types/api'
 
 /**
@@ -61,7 +62,7 @@ export function SliceContributors({
               </span>
               <span className="flex items-baseline gap-2 text-muted-foreground">
                 <CurrencyDisplay value={c.valueEur} />
-                <span className="tabular-nums">{c.sharePercent.toFixed(1)}%</span>
+                <span className="tabular-nums">{formatPercent(c.sharePercent)}</span>
               </span>
             </li>
           )

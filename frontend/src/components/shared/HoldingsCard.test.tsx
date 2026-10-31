@@ -188,6 +188,19 @@ describe('HoldingsCard', () => {
       .toHaveClass('bg-emerald-500')
   })
 
+  it('writes the quantity in the interface language, not the browser one', () => {
+    document.documentElement.lang = 'fr'
+    setPortfolioData([{ ...normalLine, quantity: 1234.5 }])
+
+    try {
+      render(<HoldingsCard />)
+      // Testing Library folds the U+00A0 into a plain space, so the exact text is read off the node.
+      expect(screen.getByText(/dashboard\.shares/).textContent).toBe('1 234,5 dashboard.shares · PEA')
+    } finally {
+      document.documentElement.lang = ''
+    }
+  })
+
   it('does not mark a cash balance as a fresh live quote', () => {
     setPortfolioData([perEuroLine])
 

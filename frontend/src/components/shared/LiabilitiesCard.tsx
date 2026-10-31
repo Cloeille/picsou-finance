@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
-import { formatLocalDate } from '@/lib/utils'
+import { formatLocalDate, formatPercent } from '@/lib/utils'
 import type { DashboardLiability } from '@/types/api'
 
 interface Props {
@@ -25,16 +25,16 @@ export function LiabilitiesCard({ liabilities, totalMonthlyPayment }: Props) {
         <CardTitle>{t('dashboard.liabilities')}</CardTitle>
         <CardDescription className="flex flex-wrap gap-x-4 gap-y-1">
           <span>
-            {t('dashboard.totalLiabilities')}:{' '}
+            {t('common.labelColon', { label: t('dashboard.totalLiabilities') })}{' '}
             <span className="font-medium text-destructive">
               <CurrencyDisplay value={totalDebt} />
             </span>
           </span>
           {totalMonthlyPayment != null && (
             <span>
-              {t('dashboard.monthlyPayment')}:{' '}
+              {t('common.labelColon', { label: t('dashboard.monthlyPayment') })}{' '}
               <span className="font-medium text-foreground">
-                <CurrencyDisplay value={totalMonthlyPayment} />/mo
+                <CurrencyDisplay value={totalMonthlyPayment} />{t('dashboard.perMonthSuffix')}
               </span>
             </span>
           )}
@@ -96,9 +96,9 @@ function LoanProgress({ liability }: { liability: DashboardLiability }) {
         className="h-1.5 flex-1 [&_[data-slot=progress-indicator]]:bg-primary/60 dark:[&_[data-slot=progress-indicator]]:bg-primary/75"
       />
       <span className="shrink-0 text-xs text-muted-foreground">
-        {Math.round(percentPaid)}%
+        {formatPercent(percentPaid, { fractionDigits: 0 })}
         {monthlyPayment != null && (
-          <> · <CurrencyDisplay value={monthlyPayment} />/mo</>
+          <> · <CurrencyDisplay value={monthlyPayment} />{t('dashboard.perMonthSuffix')}</>
         )}
       </span>
     </div>

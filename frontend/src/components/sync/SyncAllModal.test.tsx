@@ -81,6 +81,8 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: corumStatus })
       case '/cmes/status':
         return Promise.resolve({ data: cmesStatus })
+      case '/cic/status':
+        return Promise.resolve({ data: cicStatus })
       case '/sofidy/status':
         return Promise.resolve({ data: sofidyStatus })
       case '/accounts':
@@ -125,6 +127,7 @@ let caisseEpargneStatus: Record<string, unknown>
 let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
 let cmesStatus: Record<string, unknown>
+let cicStatus: Record<string, unknown>
 
 const AMUNDI_INACTIVE = {
   isActive: false, syncStatus: 'IDLE', lastSyncError: null,
@@ -166,6 +169,15 @@ const CMES_ACCOUNT = {
   provider: 'Crédit Mutuel Épargne Salariale',
 }
 
+/** An account created by the CIC (livrets) sidecar (`CicSyncService.PROVIDER`). */
+const CIC_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 7,
+  name: 'Livret Bleu',
+  type: 'SAVINGS',
+  provider: 'CIC',
+}
+
 /** A SCPI account linked to no provider fund; tests set `provider` and the fund codes. */
 const SCPI_ACCOUNT = {
   ...TR_ACCOUNT,
@@ -185,6 +197,7 @@ function resetFixtures() {
   corumStatus = AMUNDI_INACTIVE
   sofidyStatus = AMUNDI_INACTIVE
   cmesStatus = AMUNDI_INACTIVE
+  cicStatus = AMUNDI_INACTIVE
   accountsFixture = [TR_ACCOUNT]
   revolutStatus = REVOLUT_NOT_REMEMBERED
   revolutProgress = REVOLUT_DONE
@@ -416,8 +429,8 @@ describe('SyncAllModal session providers', () => {
     renderModal()
 
     const row = (await screen.findByText('Amundi')).closest('[data-slot="card"]') as HTMLElement
-    expect(within(row).getByText('FAILED')).toBeInTheDocument()
-    expect(within(row).queryByText('active')).not.toBeInTheDocument()
+    expect(within(row).getByText('sync.connectionStatus.FAILED')).toBeInTheDocument()
+    expect(within(row).queryByText('sync.connectionStatus.active')).not.toBeInTheDocument()
   })
 
   /** A Flex outage or a rate limit clears on its own, so a failed-but-live row keeps its retry. */
@@ -553,12 +566,66 @@ describe('SyncAllModal session providers', () => {
     expect(apiPost).not.toHaveBeenCalledWith('/cmes/sync')
   })
 
+  it('lists and syncs a live CIC (livrets) session', async () => {
+    cicStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: cicStatus })
+    renderModal()
+
+    const row = (await screen.findByText('CIC (livrets)')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/cic/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('keeps an expired CIC session without accounts and reconnects with stored credentials', async () => {
+    cicStatus = { ...AMUNDI_INACTIVE, syncStatus: 'FAILED', lastSyncError: 'SESSION_EXPIRED', canReconnect: true }
+    renderModal()
+
+    const title = await screen.findByText('CIC (livrets)')
+    const row = title.closest('[data-slot="card"]')
+    if (!(row instanceof HTMLElement)) throw new Error('Missing CIC connection card')
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cic&reconnect=1'))
+    expect(apiPost).not.toHaveBeenCalledWith('/cic/sync')
+  })
+
+  it('hides CIC with no stored session and no account', async () => {
+    renderModal()
+
+    expect(await screen.findByText('Trade Republic')).toBeInTheDocument()
+    expect(screen.queryByText('CIC (livrets)')).not.toBeInTheDocument()
+  })
+
+  /** CIC asks for a confirmation in its app at least once a day, which only its tab can wait for. */
+  it('keeps an expired CIC (livrets) row with its accounts and routes to its tab', async () => {
+    accountsFixture = [TR_ACCOUNT, CIC_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('CIC (livrets)')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cic'))
+    expect(apiPost).not.toHaveBeenCalledWith('/cic/sync')
+  })
+
+  /** Stored credentials only need the phone confirmation, so the tab starts the reconnect itself. */
+  it('asks the CIC tab to reconnect at once when credentials are stored', async () => {
+    cicStatus = { ...AMUNDI_INACTIVE, canReconnect: true }
+    accountsFixture = [TR_ACCOUNT, CIC_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('CIC (livrets)')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cic&reconnect=1'))
+  })
+
   it('reports a failed American Express run on a live session', async () => {
     amexStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'FAILED', lastSyncError: 'INTERNAL_ERROR' }
     renderModal()
 
     const row = (await screen.findByText('American Express')).closest('[data-slot="card"]') as HTMLElement
-    expect(within(row).getByText('FAILED')).toBeInTheDocument()
+    expect(within(row).getByText('sync.connectionStatus.FAILED')).toBeInTheDocument()
   })
 
   it('hides American Express with no session and no card', async () => {

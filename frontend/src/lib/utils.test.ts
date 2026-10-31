@@ -4,8 +4,11 @@ import {
   cn,
   deriveMonogram,
   formatDate,
+  formatDecimal,
   formatLocalDate,
+  formatNumber,
   formatPercent,
+  formatQuantity,
   freshnessLevel,
   isOAuthAuthorizeRedirect,
   localeFromLanguage,
@@ -59,9 +62,51 @@ describe('formatDate', () => {
 })
 
 describe('formatPercent', () => {
-  it('formats percentage', () => {
-    const result = formatPercent(0.5)
-    expect(result).toContain('50')
+  it.each([
+    ['fr-FR', '+8,3\u00a0%'],
+    ['de-DE', '+8,3\u00a0%'],
+    ['es-ES', '+8,3\u00a0%'],
+    ['en-US', '+8.3%'],
+  ])('lets %s place the decimal separator and the space', (locale, expected) => {
+    expect(formatPercent(8.3, { signed: true }, locale)).toBe(expected)
+  })
+
+  it('takes points, not a fraction', () => {
+    expect(formatPercent(50, {}, 'en-US')).toBe('50.0%')
+  })
+
+  it('signs only when asked, and never signs zero', () => {
+    expect(formatPercent(8.3, {}, 'en-US')).toBe('8.3%')
+    expect(formatPercent(-88.9, {}, 'en-US')).toBe('-88.9%')
+    expect(formatPercent(0, { signed: true }, 'en-US')).toBe('0.0%')
+  })
+
+  it('honours the precision it is given', () => {
+    expect(formatPercent(13.46, { fractionDigits: 0 }, 'fr-FR')).toBe('13\u00a0%')
+  })
+})
+
+describe('formatDecimal', () => {
+  it('uses the locale decimal separator', () => {
+    expect(formatDecimal(4.7, 1, 'fr-FR')).toBe('4,7')
+    expect(formatDecimal(4.7, 1, 'en-US')).toBe('4.7')
+    expect(formatDecimal(12_345.6, 1, 'fr-FR')).toBe('12\u00a0345,6')
+  })
+})
+
+describe('formatNumber', () => {
+  it('groups and separates by the locale, with a space the bundled font can draw', () => {
+    expect(formatNumber(12_345, 'fr-FR')).toBe('12\u00a0345')
+    expect(formatNumber(1_234.5, 'fr-FR')).toBe('1\u00a0234,5')
+    expect(formatNumber(1_234.5, 'de-DE')).toBe('1.234,5')
+    expect(formatNumber(1_234.5, 'en-US')).toBe('1,234.5')
+  })
+})
+
+describe('formatQuantity', () => {
+  it('keeps a small holding quantity precise instead of rounding it to 0', () => {
+    expect(formatQuantity(0.0001, 'fr-FR')).toBe('0,0001')
+    expect(formatQuantity(1_234.5, 'en-US')).toBe('1,234.5')
   })
 })
 

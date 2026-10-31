@@ -10,7 +10,7 @@ import { useOwnership, useUpdateOwnership } from '@/features/accounts/hooks'
 import { useFamilyMembers } from '@/features/family/hooks'
 import { useAuthStore } from '@/stores/auth-store'
 import { formatApiError } from '@/lib/errors'
-import { parseAmount } from '@/lib/utils'
+import { formatPercent, parseAmount } from '@/lib/utils'
 import type { Ownership } from '@/types/api'
 
 interface OwnershipEditorProps {
@@ -138,7 +138,7 @@ function OwnershipForm({ accountId, ownership, rows, canEdit }: {
         <div className="flex items-center justify-between border-t pt-3 text-sm">
           <span className="text-muted-foreground">{t('property.ownership.total')}</span>
           <span className={`font-medium tabular-nums ${overAllocated ? 'text-destructive' : ''}`}>
-            {total.toFixed(1)} %
+            {formatPercent(total)}
           </span>
         </div>
 
@@ -152,7 +152,7 @@ function OwnershipForm({ accountId, ownership, rows, canEdit }: {
         {!overAllocated && unassigned > 0.01 && (
           <p className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            {t('property.ownership.unassigned', { percent: unassigned.toFixed(1) })}
+            {t('property.ownership.unassigned', { percent: formatPercent(unassigned) })}
           </p>
         )}
 

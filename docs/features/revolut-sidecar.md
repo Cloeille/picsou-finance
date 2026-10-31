@@ -275,6 +275,7 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   approval wait, the sidecar replaces progress with `LOGGING_IN`, removing the elapsed and remaining
   seconds before returning the error. The backend then reports the translated terminal error.
   The error text does not claim whether a push was sent. The visible challenge cannot establish that.
+  French sign-in errors address the member as "vous", including the blocked-sign-in message.
   A missing passcode screen after the phone step, a missing passcode input, or a Playwright timeout
   during login returns a flat `424 UPSTREAM_FORMAT_CHANGED`. The timeout handling covers navigation,
   screen waits, and input interactions that previously caused a 500. The same code also covers a rejected phone number

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
+import { useMutation } from "@tanstack/react-query"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import {
   AlertTriangle,
@@ -31,6 +32,8 @@ export interface SidecarSessionStatus {
   syncStatus: "IDLE" | "QUEUED" | "RUNNING" | "SUCCESS" | "FAILED"
   lastSyncCompletedAt: string | null
   lastSyncError: string | null
+  /** Set by providers that can log in again from stored credentials (see `useReconnect`). */
+  canReconnect?: boolean
 }
 
 /** Shape shared by every sidecar `auth/initiate` response. */
@@ -103,6 +106,31 @@ const ERROR_MESSAGE_SUFFIXES: Record<string, string> = {
   INTERNAL_ERROR: "serverError",
 }
 
+/**
+ * How long the panel keeps polling the session once a mobile confirmation's
+ * completion request is lost: the backend's own confirmation window (120 s)
+ * plus the time to import.
+ */
+const LOST_CONFIRMATION_WAIT_MS = 150_000
+const LOST_CONFIRMATION_POLL_MS = 3_000
+
+/**
+ * The completion request got no answer from the backend: iOS drops it while
+ * Safari sits in the background, which is exactly when the user is approving
+ * the push in the bank's app. The backend carries on regardless.
+ */
+function isLostRequest(value: unknown) {
+  const httpStatus = getErrorStatus(value)
+  return httpStatus === undefined || httpStatus === 502 || httpStatus === 504
+}
+
+/** Stands in for `useReconnect` on the providers that have none; never fired. */
+function useNoReconnect<T>(): UseMutationResult<T, unknown, void> {
+  return useMutation<T, unknown, void>({
+    mutationFn: () => Promise.reject(new Error("This provider cannot reconnect from stored credentials")),
+  })
+}
+
 export interface SidecarSessionPanelProps<
   TStatus extends SidecarSessionStatus,
   TInit extends SidecarAuthInitResponse,
@@ -124,6 +152,16 @@ export interface SidecarSessionPanelProps<
   extraField?: SidecarExtraField
   useStatus: () => UseQueryResult<TStatus>
   useInitiateAuth: () => UseMutationResult<TInit, unknown, Credentials>
+  /**
+   * Logs in again from the credentials stored at the last login, answering like
+   * `useInitiateAuth`. Offered while the status reports `canReconnect`; the second
+   * factor then runs as after a typed login, with the user there to approve it.
+   */
+  useReconnect?: () => UseMutationResult<TInit, unknown, void>
+  /** Start that reconnect as soon as the status allows it, once. */
+  autoReconnect?: boolean
+  /** Called once the auto-reconnect has been considered, whether it started or not. */
+  onAutoReconnectStarted?: () => void
   useCompleteAuth: () => UseMutationResult<TStatus, unknown, SecondFactor>
   useSync: () => UseMutationResult<TStatus, unknown, void>
   useClearSession: () => UseMutationResult<unknown, unknown, void>
@@ -155,6 +193,9 @@ export function SidecarSessionPanel<
   extraField,
   useStatus,
   useInitiateAuth,
+  useReconnect,
+  autoReconnect = false,
+  onAutoReconnectStarted,
   useCompleteAuth,
   useSync,
   useClearSession,
@@ -170,10 +211,14 @@ export function SidecarSessionPanel<
   const [extraValue, setExtraValue] = useState(extraField?.defaultValue ?? "")
   const [processId, setProcessId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [lostConfirmationAt, setLostConfirmationAt] = useState<number | null>(null)
   const notifyConnectedOnSuccess = useRef(false)
+  const autoReconnectHandled = useRef(false)
 
   const status = useStatus()
   const initiate = useInitiateAuth()
+  const useReconnectAuth = useReconnect ?? useNoReconnect<TInit>
+  const reconnect = useReconnectAuth()
   const complete = useCompleteAuth()
   const sync = useSync()
   const logout = useClearSession()
@@ -198,6 +243,7 @@ export function SidecarSessionPanel<
     setAuthState("IDLE")
     setProcessId(null)
     setCode("")
+    setLostConfirmationAt(null)
   }
 
   const submitSecondFactor = (id: string, otp?: string) => {
@@ -218,6 +264,11 @@ export function SidecarSessionPanel<
           }
         },
         onError: (value) => {
+          if (appPush && otp === undefined && isLostRequest(value)) {
+            // Keep the waiting card: the session status tells whether it went through.
+            setLostConfirmationAt(Date.now())
+            return
+          }
           setError(formatError(value))
           setCode("")
           if (otpRetryable && getErrorCode(value) === "INVALID_OTP") {
@@ -231,7 +282,44 @@ export function SidecarSessionPanel<
     )
   }
 
+  /** What follows a login request, typed or from stored credentials: a second factor, or a session. */
+  const handleInitResult = (result: TInit) => {
+    setPassword("")
+    if (result.mfaRequired) {
+      if (!result.processId) {
+        setError(t(key("errors.formatChanged")))
+        setAuthState("ERROR")
+        return
+      }
+      setProcessId(result.processId)
+      if (appPush && result.mfaType === "APP_PUSH") {
+        // Nothing to type: hold the completion request open
+        // while the user approves the push on their phone.
+        setAuthState("AWAITING_APP")
+        submitSecondFactor(result.processId)
+        return
+      }
+      setAuthState("AWAITING_OTP")
+      return
+    }
+    notifyConnectedOnSuccess.current = true
+    setLogin("")
+    setAuthState("IDLE")
+    void status.refetch()
+  }
+
+  const handleInitError = (value: unknown) => {
+    setPassword("")
+    setError(formatError(value))
+    setAuthState("ERROR")
+  }
+
+  const startReconnect = () => {
+    reconnect.mutate(undefined, { onSuccess: handleInitResult, onError: handleInitError })
+  }
+
   const connected = status.data?.isActive === true
+  const canReconnect = useReconnect !== undefined && status.data?.canReconnect === true
   const syncStatus = status.data?.syncStatus ?? "IDLE"
   const isSyncing = syncStatus === "QUEUED" || syncStatus === "RUNNING"
   const requestingSync = sync.isPending || isSyncing
@@ -242,6 +330,40 @@ export function SidecarSessionPanel<
       : null
   const statusError = status.isError ? formatError(status.error) : null
   const visibleError = error ?? backgroundError ?? statusError
+
+  const { refetch: refetchStatus } = status
+  useEffect(() => {
+    if (lostConfirmationAt === null) return
+    const timer = setInterval(() => {
+      if (Date.now() - lostConfirmationAt >= LOST_CONFIRMATION_WAIT_MS) {
+        setLostConfirmationAt(null)
+        setError(t(`${translationPrefix}.errors.appValidationTimeout`))
+        setAuthState("ERROR")
+        setProcessId(null)
+        return
+      }
+      void refetchStatus().then(({ data }) => {
+        if (!data?.isActive) return
+        setLostConfirmationAt(null)
+        setAuthState("IDLE")
+        setProcessId(null)
+        setLogin("")
+        setPassword("")
+        if (data.syncStatus === "SUCCESS") onConnected?.()
+        else notifyConnectedOnSuccess.current = true
+      })
+    }, LOST_CONFIRMATION_POLL_MS)
+    return () => clearInterval(timer)
+  }, [lostConfirmationAt, onConnected, refetchStatus, t, translationPrefix])
+
+  useEffect(() => {
+    if (!autoReconnect || autoReconnectHandled.current || status.isLoading) return
+    autoReconnectHandled.current = true
+    onAutoReconnectStarted?.()
+    if (!connected && canReconnect && authState === "IDLE") startReconnect()
+    // startReconnect is a fresh closure every render; the ref makes this run once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoReconnect, status.isLoading, connected, canReconnect, authState, onAutoReconnectStarted])
 
   useEffect(() => {
     if (syncStatus !== "SUCCESS" || !notifyConnectedOnSuccess.current) return
@@ -355,6 +477,24 @@ export function SidecarSessionPanel<
         </div>
       )}
 
+      {!connected && authState === "IDLE" && canReconnect && (
+        <Card size="sm">
+          <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">
+            <p className="flex-1 text-sm text-muted-foreground">{t(key("reconnectHint"))}</p>
+            <Button
+              disabled={reconnect.isPending}
+              onClick={() => {
+                setError(null)
+                startReconnect()
+              }}
+            >
+              <RefreshCw className={reconnect.isPending ? "animate-spin" : undefined} />
+              {reconnect.isPending ? t(key("connecting")) : t(key("reconnect"))}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {!connected && authState === "IDLE" && (
         <form
           className="space-y-4"
@@ -363,37 +503,7 @@ export function SidecarSessionPanel<
             setError(null)
             initiate.mutate(
               { login, password, ...(extraField ? { [extraField.id]: extraValue } : {}) },
-              {
-                onSuccess: (result) => {
-                  setPassword("")
-                  if (result.mfaRequired) {
-                    if (!result.processId) {
-                      setError(t(key("errors.formatChanged")))
-                      setAuthState("ERROR")
-                      return
-                    }
-                    setProcessId(result.processId)
-                    if (appPush && result.mfaType === "APP_PUSH") {
-                      // Nothing to type: hold the completion request open
-                      // while the user approves the push on their phone.
-                      setAuthState("AWAITING_APP")
-                      submitSecondFactor(result.processId)
-                      return
-                    }
-                    setAuthState("AWAITING_OTP")
-                    return
-                  }
-                  notifyConnectedOnSuccess.current = true
-                  setLogin("")
-                  setAuthState("IDLE")
-                  void status.refetch()
-                },
-                onError: (value) => {
-                  setPassword("")
-                  setError(formatError(value))
-                  setAuthState("ERROR")
-                },
-              }
+              { onSuccess: handleInitResult, onError: handleInitError }
             )
           }}
         >
