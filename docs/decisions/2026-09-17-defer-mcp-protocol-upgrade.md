@@ -1,7 +1,7 @@
 # ADR: Defer the MCP protocol upgrade until the Spring Boot 4 migration
 
 > Date: 2026-09-17
-> Status: ✅ Active
+> Status: ✅ Active (the "Bump to Spring AI 1.1.x" alternative was later taken for a different reason, see [2026-10-27](./2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md); the protocol-version gap this ADR defers is still open)
 
 ## Context
 
