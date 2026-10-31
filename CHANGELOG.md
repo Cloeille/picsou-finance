@@ -225,7 +225,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   money moving in and out of it never reached Budget. The BoursoBank sync now reads the last
   90 days of operations and the IBAN of every current account and livret, through the same
   importer and duplicate checks as the current account. A livret whose history page cannot
-  be read still syncs its balance. ([#167](https://github.com/Cloeille/picsou-finance/issues/167))
+  be read, or is too slow (the history reads only use what is left of a 60 s budget counted
+  from the start of the accounts read, after balances and holdings), still syncs its balance. ([#167](https://github.com/Cloeille/picsou-finance/issues/167))
 - **First Trade Republic login after a fresh start.** On a cold `tr-auth` container the first
   login often failed with "please check your credentials" although the phone number and PIN
   were right: the headless browser had not yet received the AWS WAF token, so Trade Republic's

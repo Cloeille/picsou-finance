@@ -55,15 +55,17 @@ accounts is indistinguishable from one that is broken.
 
 **Current-account and livret transactions** are fetched from each dashboard
 card's own `/mouvements` page, for the last 90 days, and its IBAN from `/rib`.
-Every card outside the trading section gets both: the gate is the dashboard
-section, not a list of types, so a new passbook kind cannot silently lose its
-history. Until #167 only `CHECKING` and `LEP` were read, and a Livret A, LDDS or
-Livret Bourso+ synced its balance with no operations. The sidecar preserves the
-card's exact URL and follows continuation tokens, capped at 20 pages. Booked
-rows carry their provider ID, date, signed amount and label; securities
-accounts remain holdings-only. The HTML selectors and `/rib` IBAN route follow
-the public Woob Boursorama connector, which reads livrets through the same
-history page as current accounts. New operation fixtures are explicitly
+Every synced current-account and livret card (the banking and savings sections)
+gets both; loan, insurance, children's and third-party cards are skipped earlier,
+by `parse_dashboard`, and get neither request. Within what is synced the gate is
+the dashboard section, not a list of types, so a new passbook kind cannot
+silently lose its history. Until #167 only `CHECKING` and `LEP` were read, and a
+Livret A, LDDS or Livret Bourso+ synced its balance with no operations. The
+sidecar preserves the card's exact URL and follows continuation tokens, capped
+at 20 pages. Booked rows carry their provider ID, date, signed amount and label;
+securities accounts remain holdings-only. The HTML selectors and `/rib` IBAN
+route follow the public Woob Boursorama connector, which reads livrets through
+the same history page as current accounts. New operation fixtures are explicitly
 synthetic, not a live BoursoBank capture. The CSV importer still accepts
 BoursoBank's own export.
 
@@ -79,6 +81,14 @@ currently ignores them and does not display a warning in the sync result. The
 sidecar also logs a fixed warning code without bank URLs or account data.
 Missing optional IBAN metadata must not be treated as
 proof that a legacy aggregator account can be merged by its name.
+
+Balances and holdings are read first; the `/rib` and `/mouvements` reads of every
+account then only use what is left of a 60 s budget
+(`ACCOUNTS_HISTORY_DEADLINE_SECONDS`) counted from the start of the accounts
+read, however long the balances took. That leaves 30 s of margin under the
+backend's 90 s `/accounts` timeout, which would drop every balance. An account the
+budget does not reach, or cuts off mid-read, reports `TRANSACTIONS_UNAVAILABLE`,
+keeps its balance, and triggers no further request.
 
 **Overlap with Enable Banking.** The sidecar passes an optional verified IBAN.
 The backend first matches the sidecar external ID, then the IBAN on an active
@@ -488,7 +498,7 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Verification boundaries
 
-`services/bourso-auth` — 144 tests run inside the built image in CI, plus the 9
+`services/bourso-auth` — 146 tests run inside the built image in CI, plus the 9
 movement-parser tests of `test_transactions.py`, which the CI step does not
 mount yet: pad decoding
 against the real SVGs (and its refusal on an unknown one), password encoding, the
@@ -501,7 +511,10 @@ identity chosen, inflected business markers recognised, a marker inside a
 personal name ignored, business-only and ambiguous selectors refused, a selector that
 comes back after the switch refused, the token kept out of the logs), cookie
 round-tripping with per-cookie domains, pending TTL, the HTTP contract, and the
-history and IBAN read for the current account and every livret kind.
+history and IBAN read for the current account and every livret kind (LDDS,
+Livret A, LEP, Livret Jeune, PEL, CEL and the house passbook), and the history
+deadline: a stalled `/mouvements` read still returns every balance and the PEA
+holdings, flags the accounts without history, and logs no URL, amount or IBAN.
 
 Backend — `BoursoAdapterTest` (18), `BoursoSyncServiceTest` (29),
 `BoursoControllerTest` (11), `BoursoAdapterWiringTest`, `BoursoSyncRecoveryTest`,

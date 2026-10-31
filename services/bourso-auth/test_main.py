@@ -5,9 +5,12 @@ chain -- home page, dashboard, trading board, response model -- is exercised
 without touching BoursoBank.
 """
 
+import asyncio
 import json
+import time
 import unittest
 from decimal import Decimal
+from unittest import mock
 
 import httpx
 from fastapi import HTTPException
@@ -267,6 +270,10 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         for label, kind in (
             ("LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE", "LDDS"),
             ("LIVRET A", "LIVRET_A"),
+            ("LIVRET D'EPARGNE POPULAIRE", "LEP"),
+            ("LIVRET JEUNE", "LIVRET_JEUNE"),
+            ("PLAN EPARGNE LOGEMENT", "PEL"),
+            ("COMPTE EPARGNE LOGEMENT", "CEL"),
             ("LIVRET BOURSO+", "SAVINGS"),
         ):
             with self.subTest(kind=kind):
@@ -281,6 +288,81 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNone(livret.transactionWarning)
                 self.assertEqual(livret.iban, "FR7630006000011234567890189")
                 self.assertEqual(livret.positions, [])
+
+    async def test_history_past_the_deadline_never_costs_a_balance(self):
+        requested = []
+        normal_handler = default_handler()
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requested.append(request.url.path)
+            if request.url.path.endswith("/mouvements"):
+                await asyncio.sleep(10)
+            return normal_handler(request)
+
+        started = time.monotonic()
+        with (
+            mock.patch("main.ACCOUNTS_HISTORY_DEADLINE_SECONDS", 0.2),
+            self.assertLogs("bourso-auth", level="WARNING") as captured,
+        ):
+            async with build_client(handler) as client:
+                accounts = await _collect_accounts(client)
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 1.5)
+        by_type = {account.type: account for account in accounts}
+
+        checking = by_type["CHECKING"]
+        self.assertEqual(checking.balanceEur, Decimal("20810.50"))
+        self.assertEqual(checking.transactions, [])
+        self.assertEqual(checking.transactionWarning, "TRANSACTIONS_UNAVAILABLE")
+        # The IBAN was read before the movements stalled: nothing to discard.
+        self.assertEqual(checking.iban, "FR7630006000011234567890189")
+
+        # The deadline had passed by the time the livret came up: it got no
+        # request of its own, only the warning and its dashboard balance.
+        ldds = by_type["LDDS"]
+        self.assertEqual(ldds.balanceEur, Decimal("11010.00"))
+        self.assertEqual(ldds.transactions, [])
+        self.assertIsNone(ldds.iban)
+        self.assertEqual(ldds.transactionWarning, "TRANSACTIONS_UNAVAILABLE")
+        self.assertFalse(any("/compte/epargne/" in path for path in requested))
+
+        # Holdings come from the first pass, before any history read.
+        pea = by_type["PEA"]
+        self.assertEqual(pea.balanceEur, Decimal("143088.89"))
+        self.assertEqual(len(pea.positions), 1)
+        self.assertIsNone(pea.transactionWarning)
+
+        self.assertEqual(len(captured.output), 1)
+        self.assertIn("deadline reached, 2 account(s) without history", captured.output[0])
+        for leak in ("20810.50", "11010.00", "FR763", "/mouvements", "/rib", "http"):
+            self.assertNotIn(leak, captured.output[0])
+
+    async def test_deadline_counts_from_the_start_of_the_accounts_read(self):
+        requested = []
+        normal_handler = default_handler()
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requested.append(request.url.path)
+            if request.url.path == "/dashboard/liste-comptes":
+                await asyncio.sleep(0.3)
+            return normal_handler(request)
+
+        with (
+            mock.patch("main.ACCOUNTS_HISTORY_DEADLINE_SECONDS", 0.2),
+            self.assertLogs("bourso-auth", level="WARNING"),
+        ):
+            async with build_client(handler) as client:
+                accounts = await _collect_accounts(client)
+
+        # The slow first pass used the whole budget: no history request at all,
+        # yet every balance and the PEA holdings are intact.
+        self.assertFalse(any(p.endswith(("/rib", "/mouvements")) for p in requested))
+        by_type = {account.type: account for account in accounts}
+        self.assertEqual(by_type["CHECKING"].balanceEur, Decimal("20810.50"))
+        self.assertEqual(by_type["CHECKING"].transactionWarning, "TRANSACTIONS_UNAVAILABLE")
+        self.assertEqual(by_type["LDDS"].transactionWarning, "TRANSACTIONS_UNAVAILABLE")
+        self.assertEqual(len(by_type["PEA"].positions), 1)
 
     async def test_movement_outage_keeps_the_balance_and_emits_a_safe_warning(self):
         with self.assertLogs("bourso-auth", level="WARNING") as captured:
@@ -504,11 +586,11 @@ class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
             [
                 "/",
                 "/dashboard/liste-comptes",
+                f"/services/api/v1.7/_user_/_{USER_HASH}_/trading/accounts/summary/{PEA_ID}",
                 f"/compte/cav/{'e2f509c466f5294f15abd873dbbf8a62'}/rib",
                 f"/compte/cav/{'e2f509c466f5294f15abd873dbbf8a62'}/mouvements",
                 f"/compte/epargne/ldd/{'a8a23172b7e7c91c538831578242112e'}/rib",
                 f"/compte/epargne/ldd/{'a8a23172b7e7c91c538831578242112e'}/mouvements",
-                f"/services/api/v1.7/_user_/_{USER_HASH}_/trading/accounts/summary/{PEA_ID}",
             ],
         )
 
