@@ -21,6 +21,8 @@ import com.picsou.model.BoursoSyncStatus;
 import com.picsou.model.AmundiSyncStatus;
 import com.picsou.model.CmesSyncStatus;
 import com.picsou.port.CmesErrorCode;
+import com.picsou.model.CicSyncStatus;
+import com.picsou.port.CicErrorCode;
 import com.picsou.model.BourseDirectSyncStatus;
 import com.picsou.model.FortuneoSyncStatus;
 import com.picsou.model.AmexSyncStatus;
@@ -54,6 +56,7 @@ class SyncStatusServiceTest {
     @Mock BourseDirectSyncService bourseDirectSyncService;
     @Mock AmundiSyncService amundiSyncService;
     @Mock CmesSyncService cmesSyncService;
+    @Mock CicSyncService cicSyncService;
     @Mock FortuneoSyncService fortuneoSyncService;
     @Mock AmexSyncService amexSyncService;
     @Mock IbkrConnectionRepository ibkrConnectionRepository;
@@ -69,7 +72,7 @@ class SyncStatusServiceTest {
     void setUp() {
         service = new SyncStatusService(
             revolutSyncService, requisitionRepository, tradeRepublicSyncService, tradeRepublicSessionRepository,
-            boursoSyncService, bourseDirectSyncService, amundiSyncService, cmesSyncService, fortuneoSyncService,
+            boursoSyncService, bourseDirectSyncService, amundiSyncService, cmesSyncService, cicSyncService, fortuneoSyncService,
             amexSyncService, ibkrConnectionRepository, simplefinConnectionRepository, cryptoExchangeSyncService,
             walletAddressRepository,
             finarySessionRepository, degiroSessionRepository);
@@ -85,6 +88,7 @@ class SyncStatusServiceTest {
         when(amundiSyncService.getStatus(MID)).thenReturn(
             new AmundiSyncService.SessionStatusResponse(false, AmundiSyncStatus.IDLE, null, null, null));
         when(cmesSyncService.getStatus(MID)).thenReturn(CmesSyncService.SessionStatusResponse.inactive());
+        when(cicSyncService.getStatus(MID)).thenReturn(CicSyncService.SessionStatusResponse.inactive());
         when(fortuneoSyncService.getStatus(MID)).thenReturn(
             new FortuneoSyncService.SessionStatusResponse(false, null, FortuneoSyncStatus.IDLE, null, null, null));
         when(amexSyncService.getStatus(MID)).thenReturn(
@@ -140,6 +144,35 @@ class SyncStatusServiceTest {
             .contains("cmes: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — INVALID_CREDENTIALS");
     }
 
+    @ParameterizedTest
+    @EnumSource(value = CicSyncStatus.class, names = {"QUEUED", "RUNNING", "SUCCESS"})
+    void cicReportsQueuedRunningAndCompletedSyncs(CicSyncStatus status) {
+        when(cicSyncService.getStatus(MID)).thenReturn(new CicSyncService.SessionStatusResponse(
+            true, status, null, SYNCED_AT, null, true));
+
+        assertThat(service.describe(MID)).contains("cic: " + (status == CicSyncStatus.SUCCESS ? "CONNECTED" : status.name())
+            + " lastSync=2026-10-04T06:00:00Z reauth=false");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CicErrorCode.class, names = {"SESSION_EXPIRED", "INVALID_CREDENTIALS"})
+    void cicAuthenticationErrorsRequireReconnection(CicErrorCode error) {
+        when(cicSyncService.getStatus(MID)).thenReturn(new CicSyncService.SessionStatusResponse(
+            false, CicSyncStatus.FAILED, null, SYNCED_AT, error, false));
+
+        assertThat(service.describe(MID)).contains(
+            "cic: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — " + error.name());
+    }
+
+    @Test
+    void cicTransientFailuresAllowRetryWithoutReauthentication() {
+        when(cicSyncService.getStatus(MID)).thenReturn(new CicSyncService.SessionStatusResponse(
+            true, CicSyncStatus.FAILED, null, SYNCED_AT, CicErrorCode.UPSTREAM_UNAVAILABLE, true));
+
+        assertThat(service.describe(MID)).contains(
+            "cic: FAILED lastSync=2026-10-04T06:00:00Z reauth=false — UPSTREAM_UNAVAILABLE");
+    }
+
     @Test
     void missingConnections_areNamedNotHidden() {
         String text = service.describe(MID);
@@ -147,6 +180,7 @@ class SyncStatusServiceTest {
         assertThat(text).contains("revolut: NOT_CONNECTED lastSync=none reauth=false");
         assertThat(text).contains("enable-banking: NOT_CONNECTED lastSync=none reauth=false");
         assertThat(text).contains("amex: NOT_CONNECTED lastSync=none reauth=false");
+        assertThat(text).contains("cic: NOT_CONNECTED lastSync=none reauth=false");
         assertThat(text).contains("degiro: NOT_CONNECTED lastSync=none reauth=false");
         assertThat(text).doesNotContain("password");
         assertThat(text).doesNotContain("token");

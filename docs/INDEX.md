@@ -108,6 +108,7 @@
 | DEGIRO sync | 2026-08-05 | [degiro-sync.md](./features/degiro-sync.md) |
 | Amundi Épargne Salariale sync | 2026-08-09 | [amundi-epargne-salariale.md](./features/amundi-epargne-salariale.md) |
 | Crédit Mutuel / CIC Épargne Salariale sync | 2026-10-24 | [cmes-epargne-salariale.md](./features/cmes-epargne-salariale.md) |
+| CIC online-banking sync (livrets) | 2026-10-24 | [cic-banking.md](./features/cic-banking.md) |
 | American Express France credit-card sidecar | 2026-09-28 | [amex-sidecar.md](./features/amex-sidecar.md) |
 | Trade Republic — Holdings deduplication | 2026-05-18 | [trade-republic-holding-deduplication.md](./features/trade-republic-holding-deduplication.md) |
 | ISIN → Ticker conversion | 2026-08-10 | [ISIN_TO_TICKER_CONVERSION.md](./features/ISIN_TO_TICKER_CONVERSION.md) |
