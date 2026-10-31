@@ -173,6 +173,25 @@ class LoanAmortizationServiceTest {
         assertThat(LoanAmortizationService.hasSchedule(debt("12000", "0", "100", "2026-01-01", "2025-01-01"))).isFalse();
     }
 
+    @Test
+    void installmentDates_takeTheDueDayFromTheEndDateWhenTheStartIsAClampedMonthEnd() {
+        // A loan due on the 31st whose first installment is 31 March: its start date can only be 28 February.
+        Debt debt = debt("3000", "0", "1000", "2042-02-28", "2042-05-31");
+
+        assertThat(service.compute(debt, LocalDate.parse("2042-01-01")).schedule())
+            .extracting(LoanAmortizationService.LoanInstallment::date)
+            .containsExactly(LocalDate.parse("2042-03-31"), LocalDate.parse("2042-04-30"), LocalDate.parse("2042-05-31"));
+    }
+
+    @Test
+    void installmentDates_keepTheStartDayWhenTheStartIsNotAMonthEnd() {
+        Debt debt = debt("3000", "0", "1000", "2042-01-28", "2042-04-30");
+
+        assertThat(service.compute(debt, LocalDate.parse("2042-01-01")).schedule())
+            .extracting(LoanAmortizationService.LoanInstallment::date)
+            .containsExactly(LocalDate.parse("2042-02-28"), LocalDate.parse("2042-03-28"), LocalDate.parse("2042-04-28"));
+    }
+
     private static Debt debt(String borrowed, String rate, String monthly, String start, String end) {
         return Debt.builder()
             .borrowedAmount(new BigDecimal(borrowed))
