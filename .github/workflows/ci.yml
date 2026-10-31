@@ -507,7 +507,6 @@ jobs:
           --env APP_SIDECAR_API_KEY=test-key
           --volume "${{ github.workspace }}/services/degiro-auth/test_portfolio_url.py:/tests/test_portfolio_url.py:ro"
           --volume "${{ github.workspace }}/services/degiro-auth/test_portfolio_parser.py:/tests/test_portfolio_parser.py:ro"
-          --volume "${{ github.workspace }}/services/degiro-auth/test_log_safety.py:/tests/test_log_safety.py:ro"
           --volume "${{ github.workspace }}/services/degiro-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
           --workdir /tests
           picsou-degiro-auth:test

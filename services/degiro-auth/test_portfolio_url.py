@@ -1,6 +1,7 @@
 """/portfolio builds a DEGIRO path from the session blob: only well-formed values reach it."""
 
 import json
+import os
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -23,7 +24,7 @@ class PortfolioEndpointTest(unittest.TestCase):
         self.get = AsyncMock(return_value=httpx.Response(
             401, request=httpx.Request("GET", "https://trader.degiro.nl/")))
         for p in (
-            patch.object(main, "SIDECAR_API_KEY", TEST_KEY),
+            patch.dict(os.environ, {"APP_SIDECAR_API_KEY": TEST_KEY}),
             patch.object(httpx.AsyncClient, "get", self.get),
         ):
             p.start()

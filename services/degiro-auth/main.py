@@ -39,82 +39,30 @@ docs/decisions/2026-08-05-degiro-session-only-no-stored-totp.md.
 """
 
 import json
-import logging
-import os
 import re
-import secrets
 import time
 import uuid
-from contextlib import asynccontextmanager
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import HTTPException
+from picsou_sidecar import PendingStore, configure_logging, create_app, safe
 from pydantic import BaseModel
 
 from portfolio_parser import build_positions, build_product_info_map, parse_cash_eur, parse_raw_positions
 
-# C0/C1 controls (CR, LF, ESC, NEL...) and the Unicode line/paragraph separators.
-_LOG_UNSAFE = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
+log = configure_logging("degiro-auth")
 
 
-class SafeFormatter(logging.Formatter):
-    """Escapes line breaks and control characters in the whole formatted record,
-    traceback included, so a logged value cannot forge a log line."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        return _LOG_UNSAFE.sub(
-            lambda m: m.group().encode("unicode_escape").decode("ascii"),
-            super().format(record),
-        )
+async def _forget(_: dict) -> None:
+    """A pending DEGIRO login pins no resource, only the credentials dict."""
 
 
-def safe(value: object, limit: int = 500) -> str:
-    """An outside-controlled value made safe for a log line: truncated, line
-    breaks and control characters replaced with '?'. SafeFormatter already
-    covers the handler; this keeps the call site safe on its own."""
-    text = str(value)
-    if len(text) > limit:
-        text = text[:limit] + "..."
-    text = text.replace("\r\n", "?").replace("\n", "?")
-    return _LOG_UNSAFE.sub("?", text)
-
-
-_log_handler = logging.StreamHandler()
-_log_handler.setFormatter(SafeFormatter(logging.BASIC_FORMAT))
-logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
-log = logging.getLogger("degiro-auth")
-SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    if not SIDECAR_API_KEY.strip():
-        raise RuntimeError("APP_SIDECAR_API_KEY must be configured and non-blank")
-    yield
-
-
-app = FastAPI(lifespan=lifespan)
-
-
-@app.middleware("http")
-async def authenticate_sidecar_request(request: Request, call_next):
-    if request.url.path != "/health":
-        supplied_key = request.headers.get("X-Picsou-Sidecar-Key", "")
-        # Starlette exposes wire header bytes through Latin-1, not UTF-8.
-        if (
-            not SIDECAR_API_KEY.strip()
-            or not secrets.compare_digest(
-                supplied_key.encode("latin-1"), SIDECAR_API_KEY.encode("utf-8")
-            )
-        ):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "UNAUTHORIZED"},
-                headers={"WWW-Authenticate": "Picsou-Sidecar-Key"},
-            )
-    return await call_next(request)
+# processId → {username, password, created_at}. Credentials are held only long
+# enough to retry the login with a TOTP code — never logged, never persisted.
+# 5 minutes: DEGIRO TOTP codes are valid 30s, a generous margin for user entry.
+_pending = PendingStore(dispose=_forget, log=log, ttl_seconds=300)
+app = create_app(background=_pending)
 
 
 DEGIRO_BASE = "https://trader.degiro.nl"
@@ -123,11 +71,6 @@ DEGIRO_BASE = "https://trader.degiro.nl"
 # inside a URL path segment: no / ? # % ; @ \, whitespace or controls.
 SESSION_ID_PATTERN = r"[A-Za-z0-9._~!*+=,:-]{1,256}"
 
-# In-memory auth state: processId → {username, password, created_at}
-# Cleaned up after /complete or after TTL. Credentials are held only long
-# enough to retry the login with a TOTP code — never logged, never persisted.
-_pending: dict[str, dict] = {}
-_PENDING_TTL = 300  # 5 minutes — DEGIRO TOTP codes are valid 30s, generous margin for user entry
 
 _USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -163,13 +106,6 @@ def _redact(value):
 
 def _safe_body(payload) -> str:
     return json.dumps(_redact(payload))[:500]
-
-
-def _clean_pending():
-    now = time.time()
-    expired = [k for k, v in _pending.items() if now - v.get("created_at", 0) > _PENDING_TTL]
-    for k in expired:
-        _pending.pop(k, None)
 
 
 def _client() -> httpx.AsyncClient:
@@ -335,7 +271,6 @@ class PortfolioRequest(BaseModel):
 
 @app.post("/initiate")
 async def initiate(req: InitiateRequest):
-    _clean_pending()
     log.info("DEGIRO auth initiate for user %s***", safe(req.username[:2]))
 
     client = _client()
@@ -352,7 +287,7 @@ async def initiate(req: InitiateRequest):
 
     if result.get("needsTotp"):
         await client.aclose()
-        _pending[process_id] = {"username": req.username, "password": req.password, "created_at": time.time()}
+        await _pending.put(process_id, {"username": req.username, "password": req.password, "created_at": time.time()})
         return {"processId": process_id, "totpRequired": True}
 
     try:
@@ -366,7 +301,7 @@ async def initiate(req: InitiateRequest):
 
 @app.post("/complete")
 async def complete(req: CompleteRequest):
-    state = _pending.pop(req.processId, None)
+    state = await _pending.take(req.processId)
     if not state:
         raise HTTPException(status_code=404, detail="processId not found or expired — please re-authenticate")
 
@@ -408,9 +343,3 @@ async def portfolio(req: PortfolioRequest):
         return await _fetch_portfolio(client, session_id, int_account)
     finally:
         await client.aclose()
-
-
-@app.get("/health")
-async def health():
-    base = os.environ.get("PICSOU_SIDECAR_BASE")
-    return {"status": "ok", "base": base} if base else {"status": "ok"}
