@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-10-31 (currency-aware matching for shared IBANs)
+> Last updated: 2026-10-31 (legacy Enable Banking coexistence and IBAN log privacy)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -59,6 +59,12 @@ top-level (the sidecar has no FX). Credentials are stored encrypted (AES-256-GCM
 "remember"; otherwise they're passed per sync and not stored. Revolut is the **primary** source; Enable
 Banking stays as a fallback for the current account.
 
+After upgrading from an Enable Banking version that did not import IBANs, a separate legacy
+Enable Banking row can already coexist with a sidecar row for the same wallet. Enable Banking
+now prefers its exact uid and leaves its IBAN unset when the sidecar owns that IBAN and currency.
+It preserves both rows and their history without moving the uid onto the sidecar row or making
+Revolut's IBAN lookup ambiguous. See [bank-sync.md](./bank-sync.md#account-matching-resilience-enable-banking-0164).
+
 Discovery and persistence use the same currency-aware IBAN match, then fall back to the external
 account id and member. EUR and GBP accounts imported by Enable Banking can share an IBAN without
 breaking Revolut's selection preview or overwriting each other's balances. Missing or blank Revolut
@@ -66,6 +72,8 @@ currencies default to EUR; other values are trimmed and uppercased before matchi
 The IBAN-based soft-delete guard also includes currency. Deleting one currency leaves other
 currencies eligible for import. Voluntary selection restores only the selected external id or
 IBAN and currency, so selecting EUR leaves a deleted GBP wallet deleted.
+When this guard skips a deleted account, its INFO log contains only
+`LogSanitizer.fingerprint(iban)` for correlation, never the full IBAN.
 
 Accounts keep their native balances. Snapshot balances and invested amounts are stored in EUR,
 using `AccountService.upsertSnapshotFromNative`. Confirming a GBP wallet with an unchanged balance

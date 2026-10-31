@@ -21,6 +21,7 @@ import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.sync.SyncProgressService;
 import com.picsou.service.sync.SyncProvider;
 import com.picsou.service.sync.SourceSyncResult;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -54,8 +55,8 @@ import java.util.stream.Collectors;
  * {@code remember} below); otherwise it is bookkeeping only.
  *
  * <p>Revolut is the <b>primary</b> source for Revolut assets; Enable Banking stays connected as a
- * <b>fallback</b> for the current account (dedup by IBAN and currency in {@link #upsertAccount}, mirroring
- * {@code SyncService.upsertAccount}). Per the sidecar's rate-limit rule, auto-sync
+ * <b>fallback</b> for the current account (dedup by IBAN and currency in {@link #upsertAccount}).
+ * Per the sidecar's rate-limit rule, auto-sync
  * ({@link #resyncIfSessionActive}) must never loop or retry aggressively -- a failure is logged
  * and swallowed, leaving Enable Banking to carry the gap until the next scheduled attempt.
  *
@@ -473,7 +474,7 @@ public class RevolutSyncService {
     // ─── Upsert ─────────────────────────────────────────────────────────────────
 
     /**
-     * IBAN and currency matching + soft-delete guard, mirroring {@code SyncService.upsertAccount}:
+     * IBAN and currency matching with a soft-delete guard:
      * a wallet dedups against the same Enable Banking currency subaccount; pockets/vaults have
      * no IBAN and match on {@code externalAccountId} alone.
      */
@@ -489,7 +490,7 @@ public class RevolutSyncService {
                 || accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId);
             if (softDeleted) {
                 log.info("Revolut: skipping resurrection of soft-deleted account externalId={} iban={} member={}",
-                    data.externalId(), data.iban(), memberId);
+                    data.externalId(), LogSanitizer.fingerprint(data.iban()), memberId);
                 return Optional.empty();
             }
         }

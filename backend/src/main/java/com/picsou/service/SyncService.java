@@ -461,15 +461,15 @@ public class SyncService {
      *
      * <p>Matching strategy (Enable Banking v0.16.4 uid-rotation resilience):
      * <ol>
-     *   <li>If the account has an IBAN, look up by {@code (iban, currency, memberId)} first.
+     *   <li>Look up by {@code (externalAccountId, memberId)} first, preserving legacy accounts
+     *       without an IBAN even when another connector already stores that IBAN.</li>
+     *   <li>Fall back to {@code (iban, currency, memberId)} when an IBAN is available.
      *       Currency distinguishes subaccounts sharing an IBAN, which remains stable even
      *       when the provider uid changes (e.g. Boursorama after EB v0.16.4).
-     *       When matched via IBAN, the stored {@code externalAccountId} is refreshed to the
-     *       current uid so future syncs stay aligned.</li>
-     *   <li>Fall back to {@code (externalAccountId, memberId)} for accounts without an IBAN
-     *       and for providers whose uid never changes.</li>
+     *       An IBAN match refreshes the stored uid. An exact uid match only accepts the
+     *       incoming IBAN if no other active account has that IBAN and currency.</li>
      * </ol>
-     * Soft-delete guards follow the same two-step order.
+     * Soft-delete guards check both keys when no active account matches.
      *
      * <p>{@code sessionId} is passed in rather than read off the requisition: during
      * {@code completeConnection} the row still carries the (now spent) authorization
@@ -483,13 +483,11 @@ public class SyncService {
         String sessionId
     ) {
         String currency = data.currency() != null ? data.currency() : "EUR";
-        // Step 1: locate an existing active account (IBAN-first when available)
-        Optional<Account> existing = Optional.empty();
-        if (data.iban() != null) {
+        // Step 1: preserve the exact uid; IBAN and currency are the uid-rotation fallback.
+        Optional<Account> existing =
+            accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), member.getId());
+        if (existing.isEmpty() && data.iban() != null) {
             existing = accountRepository.findByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId());
-        }
-        if (existing.isEmpty()) {
-            existing = accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), member.getId());
         }
 
         // Step 2: soft-delete guard — refuse to resurrect an account the user removed
@@ -512,7 +510,9 @@ public class SyncService {
             account.setLastSyncedAt(Instant.now());
             // Refresh uid in case the provider rotated it (EB v0.16.4 Boursorama case)
             account.setExternalAccountId(data.externalId());
-            if (data.iban() != null) {
+            // Legacy EB and sidecar rows can coexist. Keep their IBAN lookup unambiguous.
+            if (data.iban() != null && !accountRepository.existsByIbanAndCurrencyAndMemberIdAndIdNot(
+                data.iban(), currency, member.getId(), account.getId())) {
                 account.setIban(data.iban());
             }
             // Backfill the bank logo on a pre-logo account once the requisition has one.

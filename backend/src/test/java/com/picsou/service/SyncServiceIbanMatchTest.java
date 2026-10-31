@@ -41,7 +41,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 /**
- * Verifies SyncService IBAN-first account matching behaviour introduced to survive
+ * Verifies SyncService uid matching with an IBAN fallback introduced to survive
  * Enable Banking v0.16.4 identification-hash rotation (Boursorama case).
  *
  * <p>Three scenarios:
@@ -127,8 +127,8 @@ class SyncServiceIbanMatchTest {
         assertThat(savedAccount.getId()).isEqualTo(10L);                      // same entity — no duplicate
         assertThat(savedAccount.getExternalAccountId()).isEqualTo(NEW_EB_UID); // uid refreshed
         assertThat(savedAccount.getCurrentBalance()).isEqualByComparingTo("1500"); // balance updated
-        // IBAN matched first: externalAccountId fallback lookup was never needed
-        verify(accountRepository, never())
+        // The current uid is absent, so the stable IBAN supplies the existing row.
+        verify(accountRepository)
             .findByExternalAccountIdAndMemberId(NEW_EB_UID, MEMBER_ID);
     }
 

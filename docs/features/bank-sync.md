@@ -1,6 +1,6 @@
 # Feature: Bank Sync
 
-> Last updated: 2026-10-31 (Enable Banking account parsing and currency-aware IBAN matching)
+> Last updated: 2026-10-31 (uid-first matching and connector coexistence)
 
 > **Status (1.0.0).** Enable Banking is the only enabled provider. The Powens
 > adapter ships in the codebase but is **experimental and untested** —
@@ -41,10 +41,14 @@ account number alone, breaking the uid-based match used by the previous upsert l
 
 Picsou now handles this with a two-pronged strategy:
 
-1. **IBAN-first account matching.** `SyncService.upsertAccount()` matches an incoming account against
-   stored accounts by **IBAN, currency, and member** first, falling back to the Enable Banking
-   `uid` and member when no IBAN match exists or the IBAN is absent. Different currency
-   subaccounts can share an IBAN, so IBAN alone does not identify an account. On a successful
+1. **Uid-first account matching.** `SyncService.upsertAccount()` matches an incoming account against
+   stored accounts by **uid and member** first, falling back to **IBAN, currency, and member**
+   only when the current uid has no active match. This preserves a legacy Enable Banking row
+   without an IBAN when a Revolut sidecar row already has the incoming IBAN and currency.
+   Updates write the incoming IBAN only if no other active account for that member has the
+   same IBAN and currency. Both rows keep their identities and history; the sidecar's IBAN
+   lookup remains unambiguous on later syncs. Different currency subaccounts can share an
+   IBAN, so IBAN alone does not identify an account. On a successful
    IBAN and currency match, the stored `uid` is refreshed in place. A missing currency defaults
    to `EUR` before matching, account creation, and updates. The soft-delete guard uses the same IBAN,
    currency, and member key alongside the exact uid check. Deleting one currency subaccount
@@ -161,6 +165,10 @@ entry from a tie. An absent balance, null entry, or missing selected amount also
 explicitly. A malformed numeric amount follows the existing per-account failure path.
 These failures leave that account unchanged, allow other accounts to sync, and propagate
 when every account fails. A genuine zero remains a valid balance.
+The `BalanceResource` schema has no flag indicating whether an individual balance includes
+a credit limit. The account-level `credit_limit` cannot identify which tied entry excludes it,
+so it does not provide a safe tie-break. Unlisted types such as `OPBD` and `PRCD` retain equal
+priority and also fail closed when tied.
 
 The selected amount supplies the currency. If it omits the currency, the adapter uses
 the account-details currency, then `EUR`.
@@ -185,6 +193,11 @@ FX rate. Currency-specific soft deletion and the missing-currency EUR default ar
 The legacy-upgrade regression starts with two EUR accounts without IBANs and same-day EUR 100
 snapshots. Two successive syncs preserve their ids, reconcile the GBP account's currency and
 shared IBAN, and replace its snapshot with EUR 240 for a GBP 200 balance at a fixed 1.20 rate.
+Another upgrade regression starts with a legacy Enable Banking row without an IBAN alongside
+a Revolut sidecar row with that IBAN and currency. Repeated Enable Banking syncs preserve both
+uids and update only the legacy row, for both matching and differing provider names. A following
+Revolut discovery and sync still finds and updates only the sidecar row.
+A deleted sidecar row does not prevent IBAN backfill onto the active legacy row.
 Live bank behavior remains unverified.
 
 ### Country selection
@@ -361,8 +374,8 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 - **Type upgrade on resync**: If the user has not customized an account's type, `upsertAccount()` will upgrade it from CHECKING to the detected type on the next sync. Manual user changes are preserved (only CHECKING is auto-upgraded).
 - **Both providers are optional**: The app starts fine without either. No `BankConnectorPort` bean is required at startup.
 - **Enable Banking uid instability.** EB 0.16.4 changed the account uid derivation for ASPSPs that
-  don't expose per-account currency. Picsou resolves this via currency-aware IBAN matching and uid refresh on
-  match; if no IBAN match exists it falls back to uid matching and may be treated as a new
+  don't expose per-account currency. Picsou first matches the current uid, then uses currency-aware
+  IBAN matching and uid refresh after a rotation; if neither key matches, it may be treated as a new
   account after an EB provider upgrade. This is tracked by `V46__account_iban.sql`.
 - **A business bank in the list can still fail at authorization**: Enable Banking
   lets an ASPSP declare `required_psu_headers` that must accompany `/auth`.

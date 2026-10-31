@@ -192,6 +192,70 @@ class SyncServiceCurrencyMatchTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"Revolut", "Synthetic bank"})
+    void resyncAll_legacyUidWithSidecarIban_preservesBothConnectorAccounts(String legacyProvider) {
+        Account legacy = persistAccount("uid-legacy", "EUR", null);
+        legacy.setIban(null);
+        legacy.setProvider(legacyProvider);
+        Account sidecar = persistAccount("revolut-eur", "EUR", null);
+        sidecar.setProvider("Revolut");
+        sidecar.setCurrentBalance(new BigDecimal("50"));
+        accountService.upsertSnapshotFromNative(sidecar, new BigDecimal("50"), LocalDate.now());
+        entityManager.flush();
+        entityManager.clear();
+        when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data("uid-legacy", "EUR", "100")));
+
+        for (int sync = 0; sync < 2; sync++) {
+            syncAndReload();
+
+            assertThat(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId()))
+                .extracting(Account::getId).containsExactlyInAnyOrder(legacy.getId(), sidecar.getId());
+            Account updatedLegacy = accountRepository.findByExternalAccountIdAndMemberId("uid-legacy", member.getId())
+                .orElseThrow();
+            assertThat(updatedLegacy.getId()).isEqualTo(legacy.getId());
+            assertThat(updatedLegacy.getIban()).isNull();
+            assertThat(updatedLegacy.getProvider()).isEqualTo(legacyProvider);
+            assertThat(updatedLegacy.getCurrentBalance()).isEqualByComparingTo("100");
+            assertSnapshot(updatedLegacy, "100");
+            Account unchangedSidecar = accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", member.getId())
+                .orElseThrow();
+            assertThat(unchangedSidecar.getId()).isEqualTo(sidecar.getId());
+            assertThat(unchangedSidecar.getExternalAccountId()).isEqualTo("revolut-eur");
+            assertThat(unchangedSidecar.getRequisitionId()).isNull();
+            assertThat(unchangedSidecar.getCurrentBalance()).isEqualByComparingTo("50");
+            assertSnapshot(unchangedSidecar, "50");
+            assertThat(snapshotRepository.count()).isEqualTo(2);
+        }
+
+        SyncProgressService progress = new SyncProgressService();
+        RevolutSyncService revolut = revolutService(progress, List.of(wallet("revolut-eur", "EUR", "125")));
+        assertThat(progress.startIfIdle(member.getId(), SyncProvider.REVOLUT)).isTrue();
+        revolut.discover(member.getId(), "+33000000000", "000000");
+        var preview = progress.status(member.getId(), SyncProvider.REVOLUT);
+        assertThat(preview.error()).isNull();
+        assertThat(preview.discovered()).singleElement().satisfies(account ->
+            assertThat(account.alreadyImported()).isTrue());
+        assertThat(revolut.confirmSync(member.getId(), List.of("revolut-eur"), false, false)).hasSize(1);
+        entityManager.flush();
+        entityManager.clear();
+
+        Account updatedSidecar = accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", member.getId())
+            .orElseThrow();
+        assertThat(updatedSidecar.getId()).isEqualTo(sidecar.getId());
+        assertThat(updatedSidecar.getExternalAccountId()).isEqualTo("revolut-eur");
+        assertThat(updatedSidecar.getCurrentBalance()).isEqualByComparingTo("125");
+        assertSnapshot(updatedSidecar, "125");
+        Account unchangedLegacy = accountRepository.findByExternalAccountIdAndMemberId("uid-legacy", member.getId())
+            .orElseThrow();
+        assertThat(unchangedLegacy.getId()).isEqualTo(legacy.getId());
+        assertThat(unchangedLegacy.getIban()).isNull();
+        assertThat(unchangedLegacy.getCurrentBalance()).isEqualByComparingTo("100");
+        assertSnapshot(unchangedLegacy, "100");
+        assertThat(accountRepository.count()).isEqualTo(2);
+        assertThat(snapshotRepository.count()).isEqualTo(2);
+    }
+
+    @ParameterizedTest
     @NullSource
     @ValueSource(strings = "EUR")
     void resyncAll_rotatedUids_matchesEachCurrencyAndDefaultsMissingCurrency(String eurCurrency) {
@@ -233,6 +297,27 @@ class SyncServiceCurrencyMatchTest {
         assertThat(accountRepository.findByIdAndMemberId(deleted.getId(), member.getId())).isEmpty();
         assertThat(snapshotRepository.count()).isEqualTo(1);
         assertSnapshot(gbp, "240");
+    }
+
+    @Test
+    void resyncAll_legacyUidWithDeletedSidecar_backfillsIban() {
+        Account legacy = persistAccount("uid-legacy", "EUR", null);
+        legacy.setIban(null);
+        Account deleted = persistAccount("revolut-deleted", "EUR", Instant.now());
+        deleted.setProvider("Revolut");
+        entityManager.flush();
+        entityManager.clear();
+        when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data("uid-legacy", "EUR", "100")));
+
+        syncAndReload();
+
+        Account updated = accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", member.getId())
+            .orElseThrow();
+        assertThat(updated.getId()).isEqualTo(legacy.getId());
+        assertThat(updated.getExternalAccountId()).isEqualTo("uid-legacy");
+        assertThat(updated.getCurrentBalance()).isEqualByComparingTo("100");
+        assertThat(accountRepository.findByIdAndMemberId(deleted.getId(), member.getId())).isEmpty();
+        assertSnapshot(updated, "100");
     }
 
     @ParameterizedTest

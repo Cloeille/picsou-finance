@@ -93,6 +93,9 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     /** Currency distinguishes subaccounts sharing an IBAN while allowing provider uid rotation. */
     Optional<Account> findByIbanAndCurrencyAndMemberId(String iban, String currency, Long memberId);
 
+    /** Prevent IBAN backfill from making another active account's currency-aware lookup ambiguous. */
+    boolean existsByIbanAndCurrencyAndMemberIdAndIdNot(String iban, String currency, Long memberId, Long id);
+
     /** Match a legacy provider value exactly, without merging a different provider's account. */
     Optional<Account> findFirstByIbanAndMemberIdAndProvider(String iban, Long memberId, String provider);
 
