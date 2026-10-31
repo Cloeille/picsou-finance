@@ -124,9 +124,11 @@ BalanceSnapshot persisted  →  historical balance chart steps down monthly
 - **`liveBalanceEur` returns POSITIVE for LOAN; only aggregation negates.** See the
   "Sign convention" section above — the dashboard "Total liabilities" card adds the positive
   value to liabilities and subtracts liabilities from assets.
-- **`paidInstallments` is computed from "today", not from a count of payments.** No transaction
-  is required against the LOAN account — the formula assumes payments occur on schedule. If a
-  user pays late or makes prepayments, the model does not capture that (out of scope).
+- **`paidInstallments` is computed from "today", not from a count of payments.** An installment
+  counts as paid from its due date (the installment date the schedule shows), not from the 1st
+  of its month. No transaction is required against the LOAN account — the formula assumes
+  payments occur on schedule. If a user pays late or makes prepayments, the model does not
+  capture that (out of scope).
 - **`monthlyPayment` is optional** in the form. If null, the service computes it from the
   standard formula `M = P · r / (1 − (1 + r)^-n)`.
 - **Holdings, transactions, and the manual snapshot history dialog are hidden** for LOAN
