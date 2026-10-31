@@ -365,7 +365,10 @@ Merging main into 1.1.0 (1906d3a) moved migrations that the 1.0.11–1.0.18 rele
 applied: V38 to V94, V54–V63 to V56–V65, V64 to V96. It also added comments to V51 and V55–V58,
 which changes their checksum but not their SQL. The 1.1.0 image then stopped at boot with
 `Migration checksum mismatch` on up to 13 versions
-([#265](https://github.com/Cloeille/picsou-finance/issues/265)).
+([#265](https://github.com/Cloeille/picsou-finance/issues/265)). Release 1.0.6 had applied today's
+V36 `transaction security name` as V33 (1.0.7 renamed it, see the CHANGELOG entry for 1.0.7);
+today's V33 is `budget foundation`, so a 1.0.6 database failed validation too. It is handled the
+same way.
 
 The same callback as below now handles these rows. It moves each one to its new version and, for
 the five edited files, stores the new checksum. A row moves only when its old version,
@@ -410,8 +413,10 @@ you want to keep its own `external_account_id`. Renaming an account does not hel
 V47, ignore the name. Re-run the query and upgrade only once it returns no rows. Rehearse on a
 restored copy.
 
-Covered: every 1.0.x release tag. `nightly` images of main between two tags are matched row by
-row, so a build between 1.0.15 and 1.0.16 that applied only one of V51 and V64 is handled too.
+Covered: every 1.0.x release, including 1.0.6, whose V33 is moved to V36 (1.0.6 has no git tag;
+1.0.2–1.0.5 applied no migration beyond 1.0.1's V32). `nightly` images of main between two tags
+are matched row by row, so a build between 1.0.15 and 1.0.16 that applied only one of V51 and
+V64 is handled too.
 Builds of main from before cfc70930 shipped two V57 files and could not boot, so they left no
 history to repair. A row whose checksum matches no released file is left alone, and Flyway still
 rejects it.
@@ -524,11 +529,13 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - Backend unit tests run separately via `./mvnw test` (not in Docker build — skipped with `-DskipTests`).
 - `LegacyMigrationRenumberingTest` (Testcontainers) upgrades databases built under the old V80–V88
   numbering and a fresh database to head, and checks that a second start changes nothing. It also
-  builds 1.0.18 and 1.0.11 databases from those releases' files (the five comment-edited 1.0.18
-  files are kept verbatim under `src/test/resources/db/legacy-1.0.18`), upgrades them, and
-  compares the resulting schema with a fresh database, and checks that a 1.0.18 database with
-  duplicate external account ids stops before V47 without losing an account, also when a second
-  connection commits the duplicate after the first check, and that account writes wait for V47.
+  builds 1.0.18, 1.0.15, 1.0.11 and 1.0.6 databases from those releases' files (the five
+  comment-edited 1.0.18 files are kept verbatim under `src/test/resources/db/legacy-1.0.18`),
+  upgrades them, and compares the resulting schema with a fresh database. It also checks that a
+  1.0.18 database with duplicate external account ids stops before V47 without losing an account,
+  also when a second connection commits the duplicate after the first check, and that account
+  writes wait for V47. With a Flyway target below V47, or a baseline at or above V47 (`47.0`
+  included), the check is skipped.
 
 ## Links
 

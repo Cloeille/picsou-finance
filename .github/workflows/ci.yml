@@ -90,7 +90,7 @@ jobs:
             backend/target/surefire-reports/com.picsou.service.HomeBankQifPersistenceTest.txt
       - name: Require the legacy migration renumbering tests
         run: >-
-          grep -q 'Tests run: 12, Failures: 0, Errors: 0, Skipped: 0'
+          grep -q 'Tests run: 15, Failures: 0, Errors: 0, Skipped: 0'
           backend/target/surefire-reports/com.picsou.migration.LegacyMigrationRenumberingTest.txt
       - name: Require the sidecar Budget PostgreSQL tests
         run: >-

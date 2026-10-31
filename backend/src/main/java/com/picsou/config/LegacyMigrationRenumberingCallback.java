@@ -25,7 +25,8 @@ import java.util.List;
  * <ul>
  *   <li>Issue #174: commit 2839c94 moved the 1.1.0 branch's V80, V81 and V86-V88 to V93-V99.</li>
  *   <li>Issue #265: merging main into 1.1.0 (1906d3a) moved the 1.0.11-1.0.18 releases' V38 and
- *       V54-V64 to V56-V65, V94 and V96, and added comments to V51 and V55-V58.</li>
+ *       V54-V64 to V56-V65, V94 and V96, and added comments to V51 and V55-V58. Release 1.0.6
+ *       applied today's V36 as V33.</li>
  * </ul>
  *
  * <p>Without it, such a database fails validation, and would then re-run the moved files on
@@ -39,7 +40,8 @@ import java.util.List;
  * their history cascades with them. Databases that skipped V47 are the 1.0.x line, which never
  * enforced that key; the operator resolves the duplicates first (upgrade note below). That check
  * commits before any migration runs, while the old instance may still be syncing, so it runs again
- * in V47's own transaction with account writes locked out until V47 commits.
+ * in V47's own transaction with account writes locked out until V47 commits. A Flyway target
+ * below V47 means V47 will not run, so the check is skipped.
  *
  * <p>Spring Boot registers every {@link Callback} bean with the auto-configured Flyway. Flyway
  * runs the callback in a transaction. Operator upgrade path: docs/features/docker-deployment.md.
@@ -88,7 +90,9 @@ public class LegacyMigrationRenumberingCallback implements Callback {
         new Renumbering("55", "57", "wallet evm account name", -1244807568, -1770899403),
         new Renumbering("54", "56", "wallet ethereum to evm", 903440536),
         new Renumbering("51", "51", "requisition oauth state", 1952390840, 960451194),
-        new Renumbering("38", "94", "backfill tr crypto transaction tickers", 2050086936)
+        new Renumbering("38", "94", "backfill tr crypto transaction tickers", 2050086936),
+        // 1.0.6 applied V36 as V33; 1.0.7 renamed it.
+        new Renumbering("33", "36", "transaction security name", -924862297)
     );
 
     private static final MigrationVersion V47 = MigrationVersion.fromVersion("47");
@@ -176,19 +180,25 @@ public class LegacyMigrationRenumberingCallback implements Callback {
     /** Groups V47 would collapse, or 0 when V47 will not run or the account columns are not there yet. */
     private static int duplicateGroupsBeforeV47(Connection connection, Configuration configuration)
             throws SQLException {
+        MigrationVersion target = configuration.getTarget();
+        if (target != null && !target.isPredefined() && target.compareTo(V47) < 0) {
+            return 0;
+        }
         String schema = historySchema(connection, configuration);
         if (!tableExists(connection, schema, configuration.getTable())
                 || !columnExists(connection, schema, "account", "external_account_id")) {
             return 0;
         }
         String history = quote(schema) + "." + quote(configuration.getTable());
-        // A baseline at or above V47 means Flyway never runs it.
+        // Flyway reads '47' and '47.0' as one version; a baseline at or above V47 means it never runs.
         try (PreparedStatement applied = connection.prepareStatement(
-                "SELECT 1 FROM " + history + " WHERE \"version\" = '47' OR CASE WHEN \"type\" = 'BASELINE'"
-                    + " AND \"version\" ~ '^[0-9]+$' THEN \"version\"::int >= 47 ELSE false END");
+                "SELECT \"version\", \"type\" FROM " + history + " WHERE \"version\" IS NOT NULL");
              ResultSet rows = applied.executeQuery()) {
-            if (rows.next()) {
-                return 0;
+            while (rows.next()) {
+                MigrationVersion version = MigrationVersion.fromVersion(rows.getString(1));
+                if (version.equals(V47) || ("BASELINE".equals(rows.getString(2)) && version.compareTo(V47) >= 0)) {
+                    return 0;
+                }
             }
         }
         return duplicateGroups(connection, schema);
