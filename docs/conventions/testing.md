@@ -178,6 +178,12 @@ unspecified, so otherwise the other tests may assert against post-mutation state
 - **Unit tests:** Vitest (`vitest`) with `@testing-library/react` and `jsdom`.
 - **E2E tests:** Playwright (`@playwright/test`) against demo mode. CI runs them
   in the `e2e` job (`bun run test:e2e` after `playwright install --with-deps chromium`).
+- **Page readiness:** `waitForURL` only confirms navigation. Lazy routes can still
+  render nothing during the delayed `RouteFallback`, and data can still be loading.
+  Use retrying assertions on the expected page content before reading the DOM.
+  The goals demo always contains savings targets, so its E2E test requires the
+  named goal cards and their progress bars. A CSS grid or an immediate `count()`
+  does not establish that the goals have loaded.
 - Run commands:
   ```bash
   bunx vitest run         # unit tests

@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
+import { RouteFallback } from '@/components/shared/RouteFallback'
 
 // Lazy-loaded page components, split out of routes.tsx so that routes.tsx can
 // stay a pure route table (a single non-component `router` export). Keeping the
@@ -161,7 +161,7 @@ export const ServerErrorPage = lazy(() =>
 
 export function SuspensePage({
   children,
-  fallback = <LoadingSkeleton />,
+  fallback = <RouteFallback />,
 }: {
   children: React.ReactNode
   fallback?: React.ReactNode

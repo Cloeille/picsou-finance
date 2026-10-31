@@ -264,6 +264,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Pages no longer jump while they load, and error pages keep the app around them.**
+  A page that loads quickly now appears directly. A slower one shows a page title and
+  one block in its place, not a dashboard-shaped placeholder that the real page then
+  replaces. The 404, 403 and 500 pages appear inside the sidebar and navigation when
+  you are signed in, including after a browser restart with "Remember Me". A server
+  error inside that sidebar no longer reloads the error page in a loop. Each error page
+  offers "Back to dashboard" and "Back". Session checks and opening the setup wizard
+  show a centred spinner rather than a full-screen dashboard placeholder or an empty
+  screen. Moving between setup steps keeps the wizard frame on screen; only the step
+  area stays empty until the next step loads.
 - **Demo budget dates are no longer one day early east of UTC.** In Paris the demo showed the
   current cycle as 30/09 to 30/10 on 31 October, opened the budget pages on September, and
   listed every upcoming recurring charge a day before its series' next date. The demo now
