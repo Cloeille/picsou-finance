@@ -21,6 +21,7 @@ import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.sync.SyncProgressService;
 import com.picsou.service.sync.SyncProvider;
 import com.picsou.service.sync.SourceSyncResult;
+import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -54,8 +55,8 @@ import java.util.stream.Collectors;
  * {@code remember} below); otherwise it is bookkeeping only.
  *
  * <p>Revolut is the <b>primary</b> source for Revolut assets; Enable Banking stays connected as a
- * <b>fallback</b> for the current account (dedup by IBAN in {@link #upsertAccount}, mirroring
- * {@code SyncService.upsertAccount}). Per the sidecar's rate-limit rule, auto-sync
+ * <b>fallback</b> for the current account (dedup by IBAN and currency in {@link #upsertAccount}).
+ * Per the sidecar's rate-limit rule, auto-sync
  * ({@link #resyncIfSessionActive}) must never loop or retry aggressively -- a failure is logged
  * and swallowed, leaving Enable Banking to carry the gap until the next scheduled attempt.
  *
@@ -220,7 +221,8 @@ public class RevolutSyncService {
                 // resurrected -- a precise version of sync()'s blanket per-provider restore.
                 for (RevolutAccountData data : discovered) {
                     if (selected.contains(data.externalId())) {
-                        accountRepository.restoreSoftDeletedRevolutAccount(memberId, data.externalId(), data.iban());
+                        accountRepository.restoreSoftDeletedRevolutAccount(
+                            memberId, data.externalId(), data.iban(), currencyOf(data));
                     }
                 }
             }
@@ -308,7 +310,7 @@ public class RevolutSyncService {
     private Optional<Account> findActiveAccount(RevolutAccountData data, Long memberId) {
         Optional<Account> existing = Optional.empty();
         if (data.iban() != null) {
-            existing = accountRepository.findByIbanAndMemberId(data.iban(), memberId);
+            existing = accountRepository.findByIbanAndCurrencyAndMemberId(data.iban(), currencyOf(data), memberId);
         }
         if (existing.isEmpty()) {
             existing = accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), memberId);
@@ -472,9 +474,9 @@ public class RevolutSyncService {
     // ─── Upsert ─────────────────────────────────────────────────────────────────
 
     /**
-     * IBAN-first matching + soft-delete guard, mirroring {@code SyncService.upsertAccount}: a
-     * wallet carries an IBAN and dedups against any existing Enable Banking account for the same
-     * current account; pockets/vaults have no IBAN and match on {@code externalAccountId} alone.
+     * IBAN and currency matching with a soft-delete guard:
+     * a wallet dedups against the same Enable Banking currency subaccount; pockets/vaults have
+     * no IBAN and match on {@code externalAccountId} alone.
      */
     private Optional<AccountResponse> upsertAccount(
             RevolutAccountData data, Long memberId, Long parentAccountId,
@@ -483,11 +485,12 @@ public class RevolutSyncService {
 
         if (existing.isEmpty()) {
             boolean softDeleted = (data.iban() != null
-                    && accountRepository.existsSoftDeletedByIbanAndMemberId(data.iban(), memberId))
+                    && accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(
+                        data.iban(), currencyOf(data), memberId))
                 || accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId);
             if (softDeleted) {
                 log.info("Revolut: skipping resurrection of soft-deleted account externalId={} iban={} member={}",
-                    data.externalId(), data.iban(), memberId);
+                    data.externalId(), LogSanitizer.fingerprint(data.iban()), memberId);
                 return Optional.empty();
             }
         }
@@ -512,7 +515,7 @@ public class RevolutSyncService {
                 .name(data.name())
                 .type(data.type())
                 .provider("Revolut")
-                .currency(data.currency() != null ? data.currency() : "EUR")
+                .currency(currencyOf(data))
                 .currentBalance(data.balance())
                 .lastSyncedAt(Instant.now())
                 .externalAccountId(data.externalId())
@@ -524,7 +527,7 @@ public class RevolutSyncService {
         }
 
         account = accountRepository.save(account);
-        accountService.upsertSnapshot(account, data.balance(), LocalDate.now());
+        accountService.upsertSnapshotFromNative(account, data.balance(), LocalDate.now());
 
         ingestTransactions(account, data, ctx, transferLegs);
 
