@@ -84,10 +84,11 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 
 - `services/base/test_pin_camoufox.py` covers release pinning, both CPU architectures,
   architecture aliases, unsupported architectures and direct GeoIP downloads.
-- `services/base/test_entrypoint.py` covers both service configurations, stale-lock
-  restart and explicit display-start failures using synthetic subprocesses.
+- `services/base/test_entrypoint.py` checks both Dockerfile configurations against fixed
+  values, stale-lock restart and explicit display-start failures using synthetic subprocesses.
 - `services/base/smoke_camoufox.py` launches headless and headful Firefox against
-  offline HTML. CI runs it in both non-root service images on native ARM64.
+  offline HTML, resolving a fixed IP through the installed GeoIP database. CI runs it in both
+  non-root service images on native ARM64.
 
 - `AmexSyncServiceTest`, `AmexAdapterTest`, `AmexControllerTest`
 - `RecurringSeriesServiceTest`, `HistoryServiceTest`, `AccountServiceTest` (card sign)

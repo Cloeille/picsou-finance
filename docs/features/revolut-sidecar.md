@@ -334,10 +334,11 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 
 - `.github/tests/test_sidecar_workflows.py` ensures the Revolut CI job checks
   that the built image runs as UID 999, preserving ownership of existing profiles.
-- `services/base/test_entrypoint.py` covers the shared Xvfb startup, preserved per-service
-  settings, stale display cleanup and explicit failures. `services/base/smoke_camoufox.py`
-  checks the installed ELF architecture and launches headless/headful Firefox against
-  offline HTML. CI runs both derived non-root images with networking disabled on native
+- `services/base/test_entrypoint.py` covers the shared Xvfb startup, the per-service
+  settings declared in each Dockerfile (checked against fixed values), stale display cleanup
+  and explicit failures. `services/base/smoke_camoufox.py` checks the installed ELF
+  architecture and launches headless/headful Firefox against offline HTML, resolving a fixed
+  IP through the installed GeoIP database. CI runs both derived non-root images with networking disabled on native
   ARM64. These checks do not verify bank login compatibility.
 
 - `services/revolut-auth/tests/test_login_screen.py` — fake-page tests of `sync()`: known device /
