@@ -78,10 +78,10 @@ The detail fills `loan` on the LOAN account. Dates come as `DD/MM/YYYY`, the
 nominal rate `folder.tNC` in percent. `participants` (names) and
 `linkedAccount.label` are never read. `insuranceMonthly` is derived, not read:
 installment minus the annuity at the nominal rate, rounded to the cent, null
-when negative (the bank's installment includes the borrower insurance). Figures
-the 28-digit decimal context cannot carry refuse the detail
-(`INVALID_LOAN_DETAIL`): an amount of 10^26 or more cannot be rounded to the
-cent, and a rate around 1e-30 % makes the annuity divide by zero.
+when negative (the bank's installment includes the borrower insurance). The
+annuity is computed at 60 digits, so a tiny nonzero rate gives the zero-rate
+figure; an amount of 10^26 or more still cannot be rounded to the cent and
+refuses the detail (`INVALID_LOAN_DETAIL`).
 A detail that cannot be read (loan OAuth refused, 5xx, format change) leaves the
 LOAN out of `accounts` and lists it in `unavailable`; only its error code is
 logged, and the rest of the import goes on. Without a loan token provider,
