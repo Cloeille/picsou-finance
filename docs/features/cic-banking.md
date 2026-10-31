@@ -111,6 +111,11 @@ two in Settings → Accounts.
 
 ## Regression coverage
 
+- Admin instance-status monitoring includes `cic-auth` when its session table has a row,
+  including an expired session, using `CIC_AUTH_URL` and expecting the `sidecar-python` base.
+  The unauthenticated `/health` endpoint echoes `PICSOU_SIDECAR_BASE` when set; without it,
+  the response remains `{"status":"ok"}`. `InstanceStatusServiceTest` covers CIC's registry
+  entry, URL and session-count supplier, and `test_sidecar_auth.py` covers both health responses.
 - `services/cic-auth/test_accounts_parser.py` and `test_main.py` reject incomplete markup before
   `/accounts` can return a certified snapshot, including every cut before and throughout the
   savings-table opening tag, after the last table, after the savings caption,

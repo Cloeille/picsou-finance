@@ -11,6 +11,7 @@ import com.picsou.repository.AmundiSessionRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.CicSessionRepository;
 import com.picsou.repository.CmesSessionRepository;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
@@ -80,13 +81,14 @@ public class InstanceStatusService {
         CorumSessionRepository corumSessions,
         SofidySessionRepository sofidySessions,
         CmesSessionRepository cmesSessions,
+        CicSessionRepository cicSessions,
         @Value("${info.app.version:dev}") String currentVersion
     ) {
         this(releaseCheck, currentVersion, registry(
             setupService, env,
             trSessions, boursoSessions, caisseEpargneSessions, revolutSessions, bourseDirectSessions,
             degiroSessions, amundiSessions, amexSessions, fortuneoSessions, corumSessions, sofidySessions,
-            cmesSessions
+            cmesSessions, cicSessions
         ), defaultWebClient(PROBE_TIMEOUT), PROBE_TIMEOUT, OVERALL_DEADLINE);
     }
 
@@ -296,7 +298,8 @@ public class InstanceStatusService {
         FortuneoSessionRepository fortuneoSessions,
         CorumSessionRepository corumSessions,
         SofidySessionRepository sofidySessions,
-        CmesSessionRepository cmesSessions
+        CmesSessionRepository cmesSessions,
+        CicSessionRepository cicSessions
     ) {
         return List.of(
             new SidecarTarget("bourso-auth", BASE_PYTHON,
@@ -305,6 +308,8 @@ public class InstanceStatusService {
                 () -> propertyUrl(env, "sofidy-auth"), sofidySessions::count),
             new SidecarTarget("cmes-auth", BASE_PYTHON,
                 () -> propertyUrl(env, "cmes-auth"), cmesSessions::count),
+            new SidecarTarget("cic-auth", BASE_PYTHON,
+                () -> propertyUrl(env, "cic-auth"), cicSessions::count),
             new SidecarTarget("degiro-auth", BASE_PYTHON,
                 () -> propertyUrl(env, "degiro-auth"), degiroSessions::count),
             new SidecarTarget("tr-auth", BASE_CHROMIUM,

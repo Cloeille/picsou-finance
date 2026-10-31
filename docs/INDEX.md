@@ -148,7 +148,7 @@
 | 24H Intraday net worth chart | 2026-04-18 | [intraday-chart.md](./features/intraday-chart.md) |
 | First-launch Setup Wizard | 2026-07-19 | [setup-wizard.md](./features/setup-wizard.md) |
 | Admin page (instance settings) | 2026-05-29 | [admin-page.md](./features/admin-page.md) |
-| Admin instance-status alert (sidecar health, update available) | 2026-10-24 | [admin-instance-status.md](./features/admin-instance-status.md) |
+| Admin instance-status alert (sidecar health, update available) | 2026-10-31 | [admin-instance-status.md](./features/admin-instance-status.md) |
 | Admin recovery (lost-admin console reset) | 2026-05-29 | [admin-recovery.md](./features/admin-recovery.md) |
 | Frontend error display (`extractErrorMessage`) | 2026-05-31 | [frontend-error-display.md](./features/frontend-error-display.md) |
 | Loan accounts (LOAN type, amortization view) | 2026-04-26 | [loans.md](./features/loans.md) |

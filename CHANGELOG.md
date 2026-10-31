@@ -307,6 +307,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CIC instance monitoring.** Admin status checks now cover all thirteen authentication
+  sidecars, including CIC when a session exists. CIC's health response reports its shared
+  base so an outdated image is detected alongside an unreachable sidecar.
+
 - **Enable Banking account balances and details.** Accounts in a shared balance list,
   such as Qonto business accounts, now select entries matching the account description
   before applying ISO balance-type priority. For Qonto or an unknown ASPSP, unmatched lists

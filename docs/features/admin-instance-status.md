@@ -1,12 +1,12 @@
 # Feature: Admin instance-status alert
 
-> Last updated: 2026-10-24
+> Last updated: 2026-10-31
 
 ## Context
 
 An install can drift from what the release expects without anyone noticing until a sync
 fails. The typical case came with the shared sidecar base images
-([ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md)): nine sidecars are
+([ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md)): eleven sidecars are
 built `FROM sidecar-python` or `sidecar-chromium`. When that base is missing (custom Compose
 file without the two build-only services, Compose older than v2.33, base not pulled), the
 sidecar build fails, Compose aborts, and the old sidecar keeps running or none runs at all.
@@ -28,9 +28,11 @@ pop-up for both.
 }
 ```
 
-**Sidecar check.** Only sidecars the household uses are probed: one with at least one row in
-its session table. Each in-use sidecar gets `GET /health` (2 s per probe, in parallel, 3 s
-overall).
+**Sidecar check.** The registry covers all thirteen authentication sidecars, including
+`cic-auth` (CIC online banking), separately from `cmes-auth` (employee savings).
+Only sidecars the household uses are probed: one with at least one row in its session table,
+including an expired session. Each in-use sidecar gets `GET /health` (2 s per probe, in
+parallel, 3 s overall). CIC uses `app.cic-auth.url` (`CIC_AUTH_URL`) and expects `sidecar-python`.
 
 - No answer, or a non-2xx answer: `SIDECAR_UNREACHABLE`.
 - A 2xx answer whose `base` field is missing or not the expected base: `SIDECAR_OUTDATED`. The
@@ -86,7 +88,7 @@ global error redirect: a 5xx on this optional check never sends the app to `/err
 
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
-| Probe only sidecars with a session row | An install that never uses a bank may run without its sidecar; warning it forever is noise. | Probe all eleven (false alarms on lean installs). |
+| Probe only sidecars with a session row | An install that never uses a bank may run without its sidecar; warning it forever is noise. | Probe all thirteen (false alarms on lean installs). |
 | Base reported by `/health` from an image `ENV` | The only signal that tells "new image" from "old container still running", without Docker socket access. | Reading the Docker API from the app (needs the socket, a privilege escalation). |
 | Backend calls GitHub, not the browser | The CSP keeps `connect-src 'self'`, and one cached call serves every admin. | Browser `fetch` to api.github.com (CSP change, one call per page load). |
 | Failure cached for 6 h too | An offline install would otherwise call GitHub on every admin page load. | Cache successes only. |
@@ -104,12 +106,13 @@ global error redirect: a 5xx on this optional check never sends the app to `/err
 
 ## Tests
 
-- `InstanceStatusServiceTest` — classification against stub HTTP servers, not-in-use sidecars
-  never probed
+- `InstanceStatusServiceTest` — all thirteen registry targets, including CIC's base, URL and
+  session-count supplier; classification against stub HTTP servers, not-in-use sidecars never probed
 - `ReleaseCheckServiceTest` — semver ordering, disabled/non-semver make no call, 6 h cache,
   GitHub errors
 - `AdminControllerTest` — endpoint returns the service result
 - `InstanceStatusDialog.test.tsx` — admin/demo/stacking gates, fingerprint dismiss
 - `TelemetryConsentInstanceStatus.test.tsx` — both dialogs mounted together: X, Escape, Yes
   and No each let the alert through, and closing never records consent
-- Each base-built sidecar's `test_sidecar_auth.py` — `/health` echoes the base
+- Each base-built sidecar's `test_sidecar_auth.py`, including CIC — `/health` echoes the base
+  when set and remains accessible without a key
