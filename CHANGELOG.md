@@ -279,6 +279,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings and Revolut texts that said "tu" now say "vous". German and Spanish translate the
   auto-confirmed subscription badge, the AI suggestion and the savings rate labels. The
   profile form shows its amounts in the member's notation with their unit (#274).
+- **The cashflow diagram labels every destination again.** With a dozen destinations the
+  Sankey squeezed each node to a few pixels and hid all their labels; it now grows taller
+  instead and shows each name with its amount. A card too narrow for those labels (a phone, or a
+  small window with the sidebar open) lists the flows as bars instead of folding the diagram's
+  columns over each other. The list under the flow is titled
+  "Répartition du revenu", so "Sorties" only ever means spending. A transaction card with
+  nothing to show (an account without transactions, a search with no match, an empty
+  period on `/budget/transactions`) now says so instead of staying blank, the demo serves
+  `/budget/transactions`, and the "Sans catégorie" row lines up with the rows above it.
 - **The goal calendar shows every month without a hidden scroller.** The year grid now wraps
   (six months per row on a desktop, three on a phone) and opens on the current month, where it
   used to cut off at May or June and hide the recent months behind a horizontal scroll. The goal
