@@ -699,6 +699,13 @@ public class AccountService {
             // PER purchase basis is not reported. Pair the current PER valuation with itself;
             // its last bank NAV may predate newer market prices and is not a cost basis.
             BigDecimal neutralBaseline = caisseEpargnePer ? liveValue : account.getCurrentBalance();
+            if (!caisseEpargnePer && account.getCurrency() != null && !"EUR".equalsIgnoreCase(account.getCurrency())) {
+                // The baseline is in EUR: a Finary import may store the balance in its own currency.
+                // The currency pair, not toEur, which prices a currency code as a ticker; with no
+                // rate, the live value stands in.
+                BigDecimal rate = priceService.getFxRateEur(account.getCurrency().toUpperCase(Locale.ROOT));
+                neutralBaseline = rate != null ? neutralBaseline.multiply(rate) : liveValue;
+            }
             invested = neutralBaseline;
             investedOverAllHoldings = neutralBaseline;
         }
@@ -1129,7 +1136,7 @@ public class AccountService {
         );
     }
 
-    private BigDecimal providerCostBasisEur(AccountHolding holding) {
+    static BigDecimal providerCostBasisEur(AccountHolding holding) {
         if (holding.getProviderValueEur() == null || holding.getProviderPnlEur() == null) {
             return null;
         }

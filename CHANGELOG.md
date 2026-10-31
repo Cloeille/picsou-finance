@@ -227,6 +227,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in every timezone (#280). The demo's upcoming-charges calendar also no longer skips a
   month after a charge due on the 31st: it moves to the last day of a shorter month, as the
   backend does.
+- **Primary blue and chart strokes are readable in dark mode.** The dark theme's primary blue
+  was darker than the light one, so blue text, badges ("This device", AI category
+  suggestions) and progress bars sat at about 2:1 on the dark cards, and the dashed "Capital
+  invested" line kept its light-mode dark green. Dark mode now uses a lighter blue with navy
+  labels on blue buttons that stay readable on hover, a lighter chart ramp, and a fainter
+  net-worth area so the "Capital invested" line stands out where it crosses it; every primary
+  text, badge and bar clears WCAG AA. Light mode is unchanged. The demo's Revolut accounts now use the indigo a real
+  Revolut sync assigns (#275).
 - **American Express no longer stores a second copy of a charge AMEX re-describes.** A
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
   `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its
@@ -241,11 +249,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   did not know: its cards failed the completeness check and the whole sync stopped with
   `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
   like loans and insurance, since they belong to the child.
+- **Sidebar style prompt shows what each style looks like.** The two miniatures in the
+  first-launch "choose your sidebar style" window now match the real sidebars: logo on the left
+  beside the privacy toggle, two-line nav items, a full-height column with the member row and
+  settings gear at the bottom for the current style, and a shorter card ending on the member row,
+  with Settings among the items, for the classic one. The classic sidebar also stopped cutting
+  long nav subtitles ("Répartition & diversification"); they now wrap to a second line.
+
 - **Account edit and delete buttons on touch screens.** On the Accounts page these buttons
   only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
   the card's corner could still hit delete). They now stay visible on touch screens and when
   keyboard focus is inside the card.
-
+- **MCP calls no longer time out after a few idle minutes.** The MCP SSE stream stayed silent
+  between two replies, so clients dropped it as idle (Claude Code after about 6 minutes, the
+  Python MCP SDK after 300 s) and the next call timed out. The server now pings every open
+  session every 60 s (`MCP_KEEP_ALIVE_INTERVAL`). This moves the backend to Spring AI 1.1.8 and
+  Spring Boot 3.5.16; the transport stays HTTP+SSE on `/mcp`. See
+  [ADR](docs/decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md).
 - **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
@@ -615,6 +635,24 @@ information architecture.
   envelope, a drop that never happened. The cash pocket now counts in the hourly
   value and in the invested amount, as the daily chart's today point already did,
   so the gain is unchanged and the two charts agree.
+- **The 24H chart costs a Finary line the way the daily chart does.** A security Finary
+  reports with a value and a gain but no buying value has no average buy-in, and the
+  hourly points charged it nothing, so its whole value read as a gain. They now take the
+  provider's cost (value minus gain) first, as the daily valuation already did. A line
+  with neither a buying value nor a gain takes the daily chart's neutral baseline, the
+  account balance, instead of counting as free units. The average buy-in is read as the
+  EUR figure it is stored as: a Finary wallet put back in USD no longer converts it a
+  second time, which turned an 80 EUR cost into 72 EUR and an 8 EUR gain nobody made.
+- **A crypto token is never priced as the stock that shares its symbol.** The crypto-only
+  price lookups asked the combined price provider whether it supported a symbol, and
+  that provider accepts any stock symbol, so a token CoinGecko does not map reached
+  Yahoo Finance. A Finary wallet holding 10 REG (RealToken, worth 10 EUR) was valued at
+  Regency Centers' share price, 600 EUR, and the daily snapshot recorded it. Crypto
+  lookups, the hourly crypto refresh, the crypto history backfill and the 24H chart's
+  hourly series now stop at CoinGecko, and an unmapped token keeps the value its
+  connector reported. The account page and the portfolio no longer replace that value
+  with a generic live quote either: a crypto account keeps the backend's crypto-only
+  valuation, while a stock sharing the symbol in another account still refreshes live.
 - **Trade Republic and DEGIRO daily snapshots now cost today's positions, not
   yesterday's.** Both syncs took the day's snapshot before replacing the holdings,
   and the snapshot derives its invested amount from the holdings in the table, so
@@ -658,9 +696,19 @@ information architecture.
 - **Mapping a Finary account onto a bank or broker account no longer steals that
   account from its connector.** The Finary id replaced the connector's external
   id, and the connector then created a duplicate at its next sync.
+- **A Finary spreadsheet import no longer maps a row onto an account with a longer
+  name.** The preview looked accounts up with an id that carried the category twice, so
+  a `Savings` row named "Emergency" was matched to the account imported earlier as
+  "Savings Emergency". Accepting the suggestion replaced that account's balance and its
+  synced transactions. The preview now looks up the id the import stores.
 - **A rebuilt Finary or manual-cash history dates each balance at the end of its
   day.** The rebuilt snapshot for a day held the balance before that day's
   transactions, so every point of the rebuilt history was one day off.
+- **A Finary position without a quantity no longer deletes the account's holdings.**
+  The import skipped the line, then replaced the holdings with what was left, so one
+  share Finary sent with `quantity: null` vanished with its cost basis. Such a payload
+  now keeps the account's holdings and cash as they were; an explicit zero still
+  closes the position.
 - The account-deletion dialog scrolls on short screens and wraps long action
   labels without horizontal overflow.
 - Account deletion preserves the last active administrator even when other
