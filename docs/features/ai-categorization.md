@@ -180,11 +180,12 @@ served by `GET /api/admin/ai-calls` (admin-only).
 - `BudgetSeedWriteOnReadPostgresTest` — boots the full context with the three provider starters
   present and runs `V41`+`V42` on real Postgres (verifies `none` keeps startup clean).
 - `SpringAiCategorizerTest` — a thinking-block-first response (empty or summarized) is parsed from
-  the text block; the JSON format instructions are sent and audited; a fenced answer parses and
-  token usage is recorded; no text at all is an `ERROR`; `unknown` yields no suggestion.
-- `AiConfigProviderTest` — `test_thinking*`: thinking then `OK` passes, thinking only fails.
-- `AiChatModelFactoryTest` — both the default and explicit Anthropic model configurations carry
-  the required token limit; the explicit-model case pins `maxTokens=4096` for thinking + answer,
+  the text block; the exact `BeanOutputConverter` format instructions are sent and audited; a
+  fenced answer parses and token usage is recorded; no text at all is an `ERROR`; `unknown`
+  yields no suggestion.
+- `AiConfigProviderTest` — `test_thinking*` / `test_summarizedThinkingOnly_isNotOk`: thinking then
+  `OK` passes; thinking only (empty or summarized) fails.
+- `AiChatModelFactoryTest` — the Anthropic model pins `maxTokens=4096` for thinking + answer,
   preserves the model ID, and leaves temperature unset.
 - `CategorizeTab.test.tsx` — suggestion pre-selects the dropdown + renders the chip; the
   "Categorize with AI" button is gated on the setting; progress indicator renders while status is

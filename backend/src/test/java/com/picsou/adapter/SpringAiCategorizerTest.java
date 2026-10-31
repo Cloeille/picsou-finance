@@ -11,6 +11,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.converter.BeanOutputConverter;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -83,7 +84,8 @@ class SpringAiCategorizerTest {
         ArgumentCaptor<Prompt> sent = ArgumentCaptor.forClass(Prompt.class);
         verify(model).call(sent.capture());
         String userText = sent.getValue().getUserMessage().getText();
-        assertThat(userText).contains("CARREFOUR").contains("categorySlug").contains("JSON");
+        assertThat(userText).contains("CARREFOUR")
+            .contains(new BeanOutputConverter<>(SpringAiCategorizer.Answer.class).getFormat());
         assertThat(r.prompt()).contains(userText);
         assertThat(r.status()).isEqualTo("OK");
         assertThat(r.suggestion()).get().extracting(s -> s.categorySlug()).isEqualTo("groceries");

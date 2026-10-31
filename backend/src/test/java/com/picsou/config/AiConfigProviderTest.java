@@ -218,6 +218,21 @@ class AiConfigProviderTest {
         assertThat(result.message()).contains("no text answer");
     }
 
+    @Test
+    void test_summarizedThinkingOnly_isNotOk() {
+        // a summarized thinking block carries text, but it is not the answer
+        Generation summary = new Generation(AssistantMessage.builder()
+            .content("The user wants a single word.")
+            .properties(Map.of("signature", "sig")).build());
+        ChatModel model = replying(summary);
+        when(factory.build(any())).thenReturn(Optional.of(model));
+
+        AiTestResponse result = provider.test("anthropic", "m", "u", "somekey");
+
+        assertThat(result.ok()).isFalse();
+        assertThat(result.message()).contains("no text answer");
+    }
+
     // ─── 9. save_evictsCache ─────────────────────────────────────────────────
 
     @Test

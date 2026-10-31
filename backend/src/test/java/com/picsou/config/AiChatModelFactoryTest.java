@@ -29,10 +29,6 @@ class AiChatModelFactoryTest {
         // Current Claude models reject non-default sampling values (the builder default was 0.8).
         assertThat(opts.getTemperature()).isNull();
     }
-    @Test void anthropicSetsMaxTokensRequiredByMessagesApi() {
-        var m = factory.build(new AiProviderConfig(AiProvider.ANTHROPIC, "sk-ant", "", "")).get();
-        assertThat(m.getDefaultOptions().getMaxTokens()).isEqualTo(AiChatModelFactory.ANTHROPIC_MAX_TOKENS);
-    }
     @Test void ollamaBuildsOllamaModelWithoutKey() {
         assertThat(factory.build(new AiProviderConfig(AiProvider.OLLAMA, null, "", "")).get())
             .isInstanceOf(OllamaChatModel.class);
