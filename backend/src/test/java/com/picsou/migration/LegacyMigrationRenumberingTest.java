@@ -290,6 +290,27 @@ class LegacyMigrationRenumberingTest {
     }
 
     @Test
+    void aTargetBelowV47SkipsTheDuplicateCheck() throws Exception {
+        String url = createDatabase("release_duplicates_target");
+        migrateRelease(url, RELEASE_1_0_18_UNCHANGED, RELEASE_1_0_18_MOVED, RELEASE_1_0_18_EDITED);
+        execute(url, "INSERT INTO family_member (display_name) VALUES ('Test')");
+        execute(url, "INSERT INTO account (name, provider, external_account_id, is_manual, member_id) VALUES "
+            + "('Manual', NULL, 'ext-1', true, (SELECT min(id) FROM family_member)), "
+            + "('Synced', 'TRADE_REPUBLIC', 'ext-1', false, (SELECT min(id) FROM family_member))");
+
+        // V47 is above the target, so it cannot delete anything and the check has nothing to guard.
+        Flyway.configure()
+            .configuration(upgrade(url).getConfiguration())
+            .target("46")
+            .load()
+            .migrate();
+
+        assertThat(query(url, "SELECT count(*) FROM flyway_schema_history WHERE version = '47'"))
+            .containsExactly("0");
+        assertThat(query(url, "SELECT name FROM account ORDER BY id")).containsExactly("Manual", "Synced");
+    }
+
+    @Test
     void aDuplicateCommittedAfterTheUpFrontCheckStillStopsBeforeV47() throws Exception {
         String url = createDatabase("release_racing_duplicate");
         migrateRelease(url, RELEASE_1_0_18_UNCHANGED, RELEASE_1_0_18_MOVED, RELEASE_1_0_18_EDITED);
