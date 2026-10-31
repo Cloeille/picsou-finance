@@ -216,6 +216,37 @@ class PageTest(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
 
+    def test_commented_balances_keep_all_accounts(self):
+        for fragment in (
+            '<!-- <span class="ei_sdsf_montant">+12,34 EUR</span> -->',
+            '<!-- Plafond > 12,34 EUR -->',
+        ):
+            page = ACCOUNTS_PAGE.replace("</body>", f"{fragment}</body>")
+
+            with self.subTest(fragment=fragment):
+                self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
+
+    def test_balances_in_quoted_attributes_keep_all_accounts(self):
+        for quote in ('"', "'"):
+            fragment = f"<div title={quote}Aide > Plafond 12,34 EUR{quote}>Aide</div>"
+            page = ACCOUNTS_PAGE.replace("</body>", f"{fragment}</body>")
+
+            with self.subTest(quote=quote):
+                self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
+
+    def test_visible_balances_after_hidden_html_still_fail_the_page(self):
+        for fragment in (
+            '<!-- <span class="ei_sdsf_montant">+12,34 EUR</span> -->',
+            '<div title="Aide > Plafond 12,34 EUR">Aide</div>',
+        ):
+            page = ACCOUNTS_PAGE.replace("</body>", f"{fragment}<div>56,78 EUR</div></body>")
+
+            with self.subTest(fragment=fragment):
+                with self.assertRaises(AccountsFormatError) as error:
+                    parse_accounts(page)
+
+                self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
     def test_title_and_number_marker_references_are_not_element_classes(self):
         for marker in ("ei_sdsf_title", "doux"):
             for fragment in (

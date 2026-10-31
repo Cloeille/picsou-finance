@@ -38,6 +38,8 @@ balance.
   bodies cannot be mistaken for accounts or balances. Account titles, account numbers, and balances
   are detected outside contract tables through parsed element class tokens. Marker names in text,
   unrelated attributes, partial class names, or comments do not count as element classes.
+  Plain-text balances are read from parsed HTML text nodes, excluding comments, attribute values,
+  and script and style bodies. A `>` inside a quoted attribute cannot expose a hidden amount as text.
   Visible balances and actual account markers outside recognized contract tables still fail the page.
   Supported categories still require each account row's title, number, and readable euro balance,
   including when only a title remains. Header and action rows without account or balance markers

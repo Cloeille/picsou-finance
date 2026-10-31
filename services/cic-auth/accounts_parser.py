@@ -22,7 +22,6 @@ as does account data outside the contract tables or an unreadable account row
 in a supported category. Silently dropping an account would hide an incomplete sync.
 """
 
-import html as html_module
 import re
 from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
@@ -51,7 +50,6 @@ _SCRIPT_STYLE_RE = re.compile(
     r"<(?P<tag>script|style)\b[^>]*>.*?</(?P=tag)\s*>",
     re.IGNORECASE | re.DOTALL,
 )
-_TAG_RE = re.compile(r"<[^>]+>")
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s.]*(?:,\d+)?)\s*(?P<currency>[A-Z]{3}|€)$")
 # ISO 4217 List One (SIX, 2026-09-17). Words such as "CIC" are not currencies.
 _CURRENCY_CODES = frozenset((
@@ -99,8 +97,30 @@ class _ClassMarkerParser(HTMLParser):
         self.found |= bool(classes and self.markers.intersection(classes.split()))
 
 
+class _TextParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.parts: list[str] = []
+        self.ignored_tag: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in ("script", "style"):
+            self.ignored_tag = tag
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == self.ignored_tag:
+            self.ignored_tag = None
+
+    def handle_data(self, data: str) -> None:
+        if self.ignored_tag is None:
+            self.parts.append(data)
+
+
 def _text(fragment: str) -> str:
-    return " ".join(html_module.unescape(_TAG_RE.sub(" ", _SCRIPT_STYLE_RE.sub(" ", fragment))).split())
+    parser = _TextParser()
+    parser.feed(fragment)
+    parser.close()
+    return " ".join(" ".join(parser.parts).split())
 
 
 def parse_amount(raw: str) -> Decimal:
