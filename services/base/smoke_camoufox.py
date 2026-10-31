@@ -17,7 +17,7 @@ async def smoke():
     assert struct.unpack("<H", header[18:20])[0] == expected_machine, "Wrong Camoufox architecture"
 
     for headless in (True, False):
-        async with AsyncCamoufox(headless=headless, geoip=False, timeout=60000) as browser:
+        async with AsyncCamoufox(headless=headless, geoip="8.8.8.8", timeout=60000) as browser:
             page = await browser.new_page()
             await page.set_content("<title>Picsou browser smoke</title><p>Offline Firefox works</p>")
             assert await page.title() == "Picsou browser smoke"
