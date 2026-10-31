@@ -133,16 +133,14 @@ class LoanDetailTest(unittest.TestCase):
         self.assertEqual(e.exception.code, "INVALID_LOAN_DETAIL")
 
     def test_a_tiny_rate_keeps_the_zero_rate_insurance(self):
-        # At 28 digits `1 + monthly` rounds: the annuity comes out low (1e-24 %) or divides by zero (1e-30 %).
-        zero = detail()
-        view(zero)["folder"]["tNC"] = 0
-        for rate in (1e-24, 1e-30):
+        # 12 000 / 48 = 250.00; interest at these rates cannot change a cent.
+        for rate in (0, 1e-24, 1e-30, 1e-56, 1e-100, 5e-324):
             with self.subTest(rate=rate):
                 tiny = detail()
                 view(tiny)["folder"]["tNC"] = rate
                 self.assertEqual(
                     parse_loan_detail(tiny)["insuranceMonthly"],
-                    parse_loan_detail(zero)["insuranceMonthly"],
+                    Decimal("30.00"),
                 )
 
     def test_wrong_envelope_raises(self):

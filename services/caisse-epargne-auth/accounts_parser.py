@@ -510,10 +510,9 @@ def _annuity(borrowed: Decimal, rate: Decimal, months: int) -> Decimal:
     """Constant monthly installment of a `months`-long loan at the yearly `rate`."""
     if rate == 0:
         return borrowed / months
-    # 60 digits: at 28, `1 + monthly` rounds to 1 for a tiny rate and the annuity comes
-    # out low (or divides by zero) instead of converging on the zero-rate figure.
+    # Extra digits offset cancellation in 1 - (1 + monthly) ** -months.
     with localcontext() as ctx:
-        ctx.prec = 60
+        ctx.prec = 60 + max(0, -rate.adjusted())
         monthly = rate / 12
         return borrowed * monthly / (1 - (1 + monthly) ** -months)
 
@@ -526,10 +525,10 @@ def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decim
     amortisation schedule takes the insurance back out of the installment, so it is
     sent apart. A home loan's insurance is often taken elsewhere: the installment then
     matches the annuity to the cent and 0.00 is sent. Below the annuity: no figure.
-    The annuity is computed at 60 digits, so a tiny nonzero rate gives the zero-rate
-    figure. An amount of 10^26 or more still cannot be rounded to the cent in the
-    default 28-digit context: it refuses this loan's detail instead of failing the
-    import.
+    The annuity's precision grows as the rate shrinks, so cancellation does not
+    distort cent rounding for tiny nonzero rates. An amount of 10^26 or more still
+    cannot be rounded to the cent in the default 28-digit context: it refuses
+    this loan's detail instead of failing the import.
     """
     try:
         annuity = _annuity(borrowed, rate, months).quantize(_CENT, rounding=ROUND_HALF_UP)

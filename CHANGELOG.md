@@ -244,6 +244,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Caisse d'Epargne loan insurance at tiny rates.** Personal and home loans now
+  retain the correct cent-rounded insurance even at extremely small positive
+  nominal rates, instead of importing an incorrect amount or refusing the detail.
+
 - **First Trade Republic login after a fresh start.** On a cold `tr-auth` container the first
   login often failed with "please check your credentials" although the phone number and PIN
   were right: the headless browser had not yet received the AWS WAF token, so Trade Republic's

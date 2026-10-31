@@ -172,16 +172,15 @@ class HomeLoanDetailTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
     def test_a_tiny_rate_keeps_the_zero_rate_insurance(self):
-        zero = detail()
-        zero["loan"]["financialInformation"]["nextDuedateRate"] = 0
-        for rate in (1e-24, 1e-30):
+        # 200 000 / 240 rounds to 833.33, leaving 104.41 of the 937.74 payment.
+        for rate in (0, 1e-24, 1e-30, 1e-56, 1e-100, 5e-324):
             with self.subTest(rate=rate):
                 tiny = detail()
                 tiny["loan"]["financialInformation"]["nextDuedateRate"] = rate
 
                 self.assertEqual(
                     parse_home_loan_detail(tiny)["insuranceMonthly"],
-                    parse_home_loan_detail(zero)["insuranceMonthly"],
+                    Decimal("104.41"),
                 )
 
     def test_a_first_due_date_before_the_subscription_is_refused(self):

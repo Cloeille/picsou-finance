@@ -79,9 +79,10 @@ nominal rate `folder.tNC` in percent. `participants` (names) and
 `linkedAccount.label` are never read. `insuranceMonthly` is derived, not read:
 installment minus the annuity at the nominal rate, rounded to the cent, null
 when negative (the bank's installment includes the borrower insurance). The
-annuity is computed at 60 digits, so a tiny nonzero rate gives the zero-rate
-figure; an amount of 10^26 or more still cannot be rounded to the cent and
-refuses the detail (`INVALID_LOAN_DETAIL`).
+annuity precision starts at 60 digits and grows with the rate's negative exponent.
+This prevents cancellation from distorting cent rounding for tiny nonzero rates
+in both personal and home loans. An amount of 10^26 or more still cannot be
+rounded to the cent and refuses the detail (`INVALID_LOAN_DETAIL`).
 A detail that cannot be read (loan OAuth refused, 5xx, format change) leaves the
 LOAN out of `accounts` and lists it in `unavailable`; only its error code is
 logged, and the rest of the import goes on. Without a loan token provider,
