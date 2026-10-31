@@ -89,6 +89,7 @@ public class BoursoSyncService {
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
+    private final ReceivedDividendClassifier dividendClassifier;
     private final Map<String, PendingCredentials> pendingCredentials = new java.util.concurrent.ConcurrentHashMap<>();
 
     public BoursoSyncService(
@@ -104,7 +105,8 @@ public class BoursoSyncService {
         SecurityIdentityService identityService,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
-        @Qualifier("boursoSyncExecutor") Executor syncExecutor
+        @Qualifier("boursoSyncExecutor") Executor syncExecutor,
+        ReceivedDividendClassifier dividendClassifier
     ) {
         this.port = port;
         this.sessionRepository = sessionRepository;
@@ -119,6 +121,7 @@ public class BoursoSyncService {
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
+        this.dividendClassifier = dividendClassifier;
     }
 
     public AuthInitResponse initiateAuth(String customerId, String password, Long memberId) {
@@ -237,6 +240,7 @@ public class BoursoSyncService {
             List<PreparedAccount> prepared = prepareAccounts(fetched);
             if (commitAccounts(job, prepared)) {
                 log.info("BoursoBank sync completed (member={}; accounts={})", job.memberId(), prepared.size());
+                dividendClassifier.afterImport(job.memberId());
             } else {
                 log.info("Discarded stale BoursoBank sync result (member={})", job.memberId());
             }
