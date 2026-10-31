@@ -1,4 +1,4 @@
--- V118: the Crédit Mutuel Épargne Salariale site can send the second factor
+-- V120: the Crédit Mutuel Épargne Salariale site can send the second factor
 -- as an SMS code instead of a mobile confirmation, depending on the saver's
 -- access, so INVALID_OTP joins the CHECK enumerating cmes_session.last_sync_error.
 ALTER TABLE cmes_session DROP CONSTRAINT ck_cmes_session_last_sync_error;

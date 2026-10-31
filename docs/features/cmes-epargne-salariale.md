@@ -71,7 +71,7 @@ while the saver confirms on the phone or a field for the SMS code, depending on 
 - `services/cmes-auth/{main.py,forms.py,situation_parser.py,fund_parser.py}` and their tests.
 - `backend/.../port/CmesPort.java`, `CmesErrorCode.java`, `adapter/CmesAdapter.java`,
   `service/CmesSyncService.java`, `controller/CmesController.java`, `model/CmesSession.java`,
-  `db/migration/V117__cmes_session.sql`, `V118__cmes_session_invalid_otp.sql`.
+  `db/migration/V117__cmes_session.sql`, `V120__cmes_session_invalid_otp.sql`.
 - `frontend/src/components/sync/CmesPanel.tsx`, `features/sync/{api,hooks}.ts`.
 - `docker/nginx.conf`, `frontend/nginx.conf`: `/api/cmes/auth/complete` gets 180 s, the
   confirmation can take two minutes.
