@@ -272,8 +272,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   description cannot select its balances. Other accounts keep syncing. Generic-label
   fallback requires a single unclaimed entry or consistent unclaimed labels. Independent
   per-account responses can share generic labels such as `Booked balance` while keeping
-  their own amounts. Shared fallback candidates are detected by normalized name, type,
-  currency, and numeric amount, including candidates below the preferred type. Competing
+  their own amounts, even when both are zero. Fallback ownership uses the original response
+  scope before sibling-label filtering. Overlapping fallbacks from shared lists remain
+  ambiguous when amounts change between requests. Competing
   fallback accounts all fail safely, and unavailable sibling details or invalid balance
   responses prevent fallback without blocking positive description matches. Skipping a soft-deleted account logs
   an IBAN fingerprint instead of the full IBAN.

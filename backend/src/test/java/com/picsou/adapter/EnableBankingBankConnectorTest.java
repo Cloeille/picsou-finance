@@ -35,7 +35,7 @@ class EnableBankingBankConnectorTest {
     private EnableBankingBankConnector balanceConnector() {
         EnableBankingBankConnector underTest = spy(connector());
         doReturn(null).when(underTest).fetchAccountDetails(anyString());
-        doReturn(new EnableBankingBankConnector.AccountBalanceCandidates(null, List.of(), false))
+        doReturn(new EnableBankingBankConnector.AccountBalanceCandidates(null, List.of(), List.of(), false))
             .when(underTest).fetchAccountCandidates(anyString(), any(), any());
         return underTest;
     }

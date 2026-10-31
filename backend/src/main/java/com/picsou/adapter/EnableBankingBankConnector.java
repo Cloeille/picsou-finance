@@ -27,7 +27,6 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -668,11 +667,9 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     }
 
     record AccountBalanceCandidates(AccountDetailsResponse details, List<BalancesResponse.BalanceItem> balances,
-                                    boolean matchedDescription) {}
+                                    List<BalancesResponse.BalanceItem> candidates, boolean matchedDescription) {}
 
     record BalanceOwnership(Map<String, AccountBalanceCandidates> candidatesByAccount, boolean complete) {}
-
-    private record BalanceIdentity(String label, String type, String currency, String amount) {}
 
     AccountBalanceCandidates fetchAccountCandidates(String accountId, AccountDetailsResponse details,
                                                     Map<String, Integer> labelClaims) {
@@ -709,7 +706,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         candidates = matchedDescription ? matching : candidates.stream()
             .filter(item -> !labelClaims.containsKey(nullToEmpty(item.name()).trim()))
             .toList();
-        return new AccountBalanceCandidates(details, candidates, matchedDescription);
+        return new AccountBalanceCandidates(details, balances.balances(), candidates, matchedDescription);
     }
 
     AccountData fetchAccountData(String accountId, AccountBalanceCandidates response, BalanceOwnership ownership) {
@@ -728,12 +725,12 @@ public class EnableBankingBankConnector implements BankConnectorPort {
 
     private static BalancesResponse.BalanceItem selectBalance(String accountId, AccountBalanceCandidates response,
                                                              BalanceOwnership ownership) {
-        List<BalancesResponse.BalanceItem> candidates = response.balances();
+        List<BalancesResponse.BalanceItem> candidates = response.candidates();
         String balanceLabel = balanceLabel(candidates);
         if (!response.matchedDescription()
             && (!ownership.complete() || ownership.candidatesByAccount().entrySet().stream()
                 .anyMatch(entry -> !entry.getKey().equals(accountId) && !entry.getValue().matchedDescription()
-                    && competingFallbacks(candidates, entry.getValue().balances(), balanceLabel)))) {
+                    && competingFallbacks(response, entry.getValue(), balanceLabel)))) {
             throw new SyncException("Enable Banking returned ambiguous account balances; cannot establish fallback ownership");
         }
         return preferredBalance(candidates);
@@ -765,34 +762,22 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         return selected;
     }
 
-    private static boolean competingFallbacks(List<BalancesResponse.BalanceItem> candidates,
-                                              List<BalancesResponse.BalanceItem> other, String label) {
-        if (other.stream().noneMatch(item -> label.equalsIgnoreCase(nullToEmpty(item.name()).trim()))) return false;
+    private static boolean competingFallbacks(AccountBalanceCandidates response,
+                                              AccountBalanceCandidates other, String label) {
+        if (other.candidates().stream()
+            .noneMatch(item -> label.equalsIgnoreCase(nullToEmpty(item.name()).trim()))) return false;
         try {
-            balanceLabel(other);
-            new BigDecimal(preferredBalance(candidates).balanceAmount().amount().trim());
-            new BigDecimal(preferredBalance(other).balanceAmount().amount().trim());
+            // Only intact single-label responses establish independent uid scopes.
+            // Removing sibling labels cannot turn a shared list into an account-scoped response.
+            balanceLabel(response.balances());
+            balanceLabel(other.balances());
+            new BigDecimal(preferredBalance(response.candidates()).balanceAmount().amount().trim());
+            new BigDecimal(preferredBalance(other.candidates()).balanceAmount().amount().trim());
         } catch (SyncException | NumberFormatException ex) {
-            // An invalid scope cannot prove independence; its failure is reported during account selection.
+            // Shared or invalid responses cannot prove independent fallback ownership.
             return true;
         }
-        var identities = candidates.stream().map(EnableBankingBankConnector::balanceIdentity).collect(Collectors.toSet());
-        return other.stream().map(EnableBankingBankConnector::balanceIdentity).anyMatch(identities::contains);
-    }
-
-    private static BalanceIdentity balanceIdentity(BalancesResponse.BalanceItem item) {
-        var value = item.balanceAmount();
-        String amount = value != null ? firstNonBlank(value.amount()) : null;
-        if (amount != null) {
-            try {
-                amount = new BigDecimal(amount).stripTrailingZeros().toString();
-            } catch (NumberFormatException ex) {
-                // Nonselected malformed amounts still participate in shared-candidate detection.
-            }
-        }
-        return new BalanceIdentity(nullToEmpty(item.name()).trim().toUpperCase(Locale.ROOT),
-            nullToEmpty(item.balanceType()).trim().toUpperCase(Locale.ROOT),
-            value != null ? nullToEmpty(value.currency()).trim().toUpperCase(Locale.ROOT) : "", amount);
+        return false;
     }
 
     private static int balancePriority(BalancesResponse.BalanceItem balance) {

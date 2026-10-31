@@ -109,14 +109,17 @@ Other or missing types have lower priority. When the description is missing, sha
 matches no balance, fallback first excludes entries claimed by any session description.
 This includes entries with a shared description and claims from accounts whose balance
 request fails. If no entry remains, that account fails with a `SyncException`.
-Before selecting any fallback, the adapter retains each uid's remaining candidates as a
-separate response scope. Equal generic labels, such as `Booked balance`, do not identify
-a shared balance. Valid responses with different candidates remain independent and rank
-their own balance types. Two fallback scopes compete when any candidate has the same
-normalized name, type, currency, and numeric amount, including a shared lower-priority
-candidate. Numeric formatting differences such as `90` and `90.00` do not establish
-independence. Every contender fails, regardless of session order. An account with a
-unique description match does not compete for fallback.
+Before selecting any fallback, the adapter retains each uid's original balance response
+alongside its filtered candidates. A valid original response with one normalized label
+stays scoped to the requested uid. Independent responses can share generic labels such as
+`Booked balance`, balance types, currencies, and amounts, including zero. These values
+cannot identify an account's owner.
+Two fallback scopes compete when their remaining labels overlap and either original
+response contains multiple normalized labels. Removing sibling-claimed entries cannot
+turn a shared list into an independent account response. Every contender fails, regardless
+of session order or changes in amounts between requests. An account with a unique
+description match does not compete for fallback. Amounts are parsed to validate usability,
+never to establish ownership.
 An ambiguous or invalid scope still claims its labels, so its later failure cannot grant
 ownership to a sibling. This conservatively blocks fallback with an overlapping label
 when either scope has inconsistent labels, tied preferred types, or an invalid selected
@@ -134,7 +137,9 @@ labeled generic balances when the response cannot be distinguished from a shared
 A unique best type does not prove
 that the balance belongs to the requested account.
 With only one linked uid, no sibling descriptions are available to identify another
-account's entries in an organization-wide list.
+account's entries in an organization-wide list. An organization-wide response with only
+one normalized label is also indistinguishable from an ordinary account-scoped response
+without a positive description match.
 Several entries at the best priority are ambiguous and cause a `SyncException`, even
 when their names match. The adapter never adds balances together or chooses an arbitrary
 entry from a tie. An absent balance, null entry, or missing selected amount also fails
@@ -150,7 +155,8 @@ the account-details currency, then `EUR`.
 balance lists, flat details, type priorities, ordinary single-account responses,
 unmatched lists with different balance types, missing or unmatched descriptions with only
 sibling-claimed balances, unclaimed fallback, duplicate session descriptions with different
-balance types, competing fallback assignments, incomplete ownership after a details failure,
+balance types, competing fallback assignments with changing amounts, independent empty
+accounts with coincident generic balances, incomplete ownership after a details failure,
 oversized display names, full-description matching before truncation,
 ambiguous or missing data, and per-account failure isolation for details and balance requests.
 
