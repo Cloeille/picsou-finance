@@ -16,6 +16,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 import main
+from accounts_parser import _PageParser
 from fixtures import (
     ACCOUNTS_PAGE,
     AUTHORITY_MANAGEMENT_PAGE,
@@ -375,6 +376,9 @@ class FlowTest(unittest.TestCase):
             '<table class="layout"><tr><td>TOP 10 des offres</td></tr></table>',
             '<table class="layout"><tr><td>ALL 3 offres</td></tr></table>',
             '<table class="layout"><tr><td>SOS 112</td></tr></table>',
+            accounts_table("Offres TOP 3", '<tr><td><a href="/offres">'
+                           '<span class="ei_sdsf_title">Nos offres</span>'
+                           '<span>Formule ALL 4 YOU</span></a></td></tr>'),
             "<p>Total : 10 135,06 EUR</p>",
             '<div class="doux">Mentions légales</div>',
             "<p>Jusqu'à 80 € offerts</p>",
@@ -427,6 +431,29 @@ class FlowTest(unittest.TestCase):
                         response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
                         self.assertEqual((response.status_code, response.json()),
                                          (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
+
+    def test_account_endpoints_preprocess_the_accounts_page_once(self):
+        session = self.confirm()
+        for path in ("/accounts", "/accounts/listing"):
+            with self.subTest(path=path), patch.object(
+                _PageParser, "visible_html", autospec=True,
+                side_effect=_PageParser.visible_html,
+            ) as visible_html:
+                response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+                self.assertEqual(response.status_code, 200, response.text)
+                visible_html.assert_called_once()
+
+    def test_unmarked_balances_in_unknown_tables_cannot_certify_a_snapshot(self):
+        session = self.confirm()
+        for amount in ("+1 234,56", "1 234,56 euros"):
+            table = accounts_table("", '<tr><td><span class="ei_sdsf_title">LIVRET X</span>'
+                                   f'</td><td>{amount}</td></tr>')
+            self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+            for path in ("/accounts", "/accounts/listing"):
+                with self.subTest(amount=amount, path=path):
+                    response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+                    self.assertEqual((response.status_code, response.json()),
+                                     (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
 
     def test_the_listing_reports_only_the_tables_on_the_page(self):
         # The savings table is missing: the backend must not read that as "no livret any more".

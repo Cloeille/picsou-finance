@@ -52,7 +52,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from forms import Form, field_names, find_form, parse_forms
-from accounts_parser import AccountKind, AccountsFormatError, _text, categories_read, parse_accounts
+from accounts_parser import AccountKind, AccountsFormatError, _text, parse_accounts_listing
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -724,7 +724,7 @@ async def _accounts_page(client: httpx.AsyncClient) -> str:
 
 async def _collect_accounts(client: httpx.AsyncClient) -> AccountsResponse:
     page = await _accounts_page(client)
-    accounts, skipped = parse_accounts(page)
+    accounts, skipped, categories = parse_accounts_listing(page)
     if skipped:
         # Category names only: insurance, links to sister sites and the like.
         log.info("CIC: skipped out-of-scope categories %s", skipped)
@@ -741,7 +741,7 @@ async def _collect_accounts(client: httpx.AsyncClient) -> AccountsResponse:
             })
             for account in accounts
         ],
-        categoriesRead=categories_read(page),
+        categoriesRead=categories,
     )
 
 

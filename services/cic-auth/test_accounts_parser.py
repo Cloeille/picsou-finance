@@ -693,6 +693,29 @@ class PageTest(unittest.TestCase):
                     parse_accounts(page)
                 self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
+    def test_unknown_rows_with_unmarked_decimal_or_euro_balances_fail(self):
+        for amount in ("+1 234,56", "1 234,56 euros", "1 EURO", "0,00",
+                       "<strong>1&#8239;234,56</strong>"):
+            for attributes in ("", ' class="d nowrap"'):
+                with self.subTest(amount=amount, attributes=attributes):
+                    self.assert_unknown_row_fails(
+                        '<td><span class="ei_sdsf_title">LIVRET X</span></td>'
+                        f'<td{attributes}>{amount}</td>'
+                    )
+
+    def test_unknown_table_captions_and_offer_subtitles_allow_uppercase_prose(self):
+        for text in ("TOP 3", "ALL 4 YOU", "SOS 112"):
+            for category in (f"Offres {text}", "Autres"):
+                row = ('<tr><td><a href="/offres">'
+                       '<span class="ei_sdsf_title">Nos offres</span>'
+                       f'<span>Formule {text}</span></a></td></tr>')
+                table = accounts_table(category, row)
+                page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+                with self.subTest(text=text, category=category):
+                    accounts, skipped = parse_accounts(page)
+                    self.assertEqual(accounts, parse_accounts(ACCOUNTS_PAGE)[0])
+                    self.assertEqual(skipped, ["autres contrats liés", category.lower()])
+
     def test_unknown_rows_with_an_account_number_fail_without_an_amount(self):
         for classes in ('"nowrap doux"', "'nowrap doux'", "doux"):
             with self.subTest(classes=classes):

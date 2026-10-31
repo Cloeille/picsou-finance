@@ -43,14 +43,20 @@ balance.
   normalized category, truncated to 60 characters. Product titles are omitted because they
   can contain holder names and balances that must not reach sidecar logs. Balance
   detection collects element class tokens, balance-element text, and text with and without
-  titles in one HTML parse per fragment. Plain-text money requires an uppercase ISO currency code
+  titles in one HTML parse per fragment. Unknown rows also fail on visible French decimal
+  amounts (a comma and two decimal digits) or text containing `euro` outside the title,
+  even without a currency symbol or balance class. Other plain-text money requires an uppercase ISO currency code
   (except `EUR`, which remains case-insensitive) or a `€`, `$`, or `£` symbol on either side of the amount,
   including whole-number amounts. Numeric runs are tokenized once so long text without a
   currency does not trigger quadratic regex retries.
-  Outside contract tables, an alphabetic currency prefix requires decimal punctuation in the
-  amount. Uppercase layout text such as `TOP 10 des offres`, `ALL 3 offres`, or `SOS 112` therefore
-  preserves the accounts. Number-first amounts and currency symbols still fail closed there,
-  as do decimal amounts such as `EUR 12,34`. Contract tables accept whole-number prefixes.
+  Outside supported contract tables, an alphabetic currency prefix requires decimal punctuation
+  or at least four digits in the amount. Uppercase prose such as `TOP 3`, `ALL 4 YOU`, or `SOS 112`
+  therefore preserves the accounts in layout tables, unknown-category captions, and offer subtitles.
+  Number-first amounts and currency symbols still fail closed, as do decimal amounts such as
+  `EUR 12,34` and larger whole-number balances such as `ARS 2026` or `EUR 1 234`.
+  Supported contract tables retain strict whole-number prefix detection. Class-marked account
+  numbers, amounts, and nonempty balance elements fail closed regardless of these text rules.
+  Arbitrary visible text outside a title remains allowed so help text does not block imports.
   Alphabetic currency prefixes must be whole words, so a date such as `31 mars 2026`
   in a layout table is not mistaken for an `ARS` balance. Lowercase words such as
   `ils`, `top`, `mur`, or `all` are not currency tokens. A number immediately
@@ -82,7 +88,9 @@ balance.
   are skipped. A complete checking-only page remains valid.
   `/accounts/listing` returns the accounts and `categoriesRead` (`CHECKING` / `SAVINGS`),
   distinguishing a present empty table from a missing category. This evidence is returned only
-  after parsing succeeds. `/accounts` keeps its existing bare-list response for older backends.
+  after parsing succeeds. Both account endpoints collect categories during account validation,
+  preprocessing the full page once instead of parsing it again for category discovery.
+  `/accounts` keeps its existing bare-list response for older backends.
   External id `cic_<account number digits>`.
 - **Backend**: `CicSyncService`, shaped like `CmesSyncService` (stored credentials, re-login with the
   previous session, daily source `cic`), balance-only accounts with `upsertSnapshot`. Migration

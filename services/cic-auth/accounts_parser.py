@@ -265,10 +265,14 @@ def _has_money(text: str, *, explicit: bool = False, contract: bool = True) -> b
                    for token in currencies):
             continue
         decimal = re.search(r"[.,]\d", match.group("number"))
-        # Alphabetic prefixes also occur in layout prose ("TOP 10", "SOS 112").
-        # Outside contract tables they need decimal punctuation to signal money.
-        if (not contract and not match.group("suffix") and match.group("prefix")
-                and match.group("prefix").isalpha() and not decimal):
+        # Short alphabetic prefixes also occur in offers ("TOP 3", "ALL 4 YOU").
+        # An unrecognized trailing word is prose, not a currency suffix. Keep
+        # four-digit and grouped balances fail-closed, even without decimals.
+        suffix = match.group("suffix")
+        currency_suffix = suffix and (suffix in "€$£" or suffix.upper() in _CURRENCY_CODES)
+        large_whole = len(re.sub(r"\s", "", match.group("number"))) >= 4
+        if (not contract and not currency_suffix and match.group("prefix")
+                and match.group("prefix").isalpha() and not decimal and not large_whole):
             continue
         # A title can contain a year and a currency ("Contrat 2024 USD").
         # Grouped thousands, decimal punctuation, or a symbol distinguish money.
@@ -291,7 +295,14 @@ def _balance_data(parser: _TextParser, *, contract: bool = True) -> bool:
 
 
 def _has_balance(fragment: str) -> bool:
-    return _balance_data(_parse_text(fragment))
+    parser = _parse_text(fragment)
+    outside_title = " ".join(parser.outside_title_parts)
+    # Unknown rows may expose a balance without a currency or class marker.
+    # Reuse numeric runs to avoid retrying a decimal regex at every digit.
+    return (_balance_data(parser, contract=False)
+            or "euro" in outside_title.lower()
+            or any(re.search(r",\d{2}\b", match.group("number"))
+                   for match in _BALANCE_RE.finditer(outside_title)))
 
 
 def _has_account_data(fragment: str, *, contract: bool = False) -> bool:
@@ -319,6 +330,12 @@ def categories_read(page: str) -> list[str]:
 
 def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
     """Return the in-scope accounts and the names of the categories skipped."""
+    accounts, skipped, _ = parse_accounts_listing(page)
+    return accounts, skipped
+
+
+def parse_accounts_listing(page: str) -> tuple[list[dict], list[str], list[str]]:
+    """Validate once and return accounts, skipped categories, and categories read."""
     if _DOCUMENT_END_RE.search(page) is None:
         raise AccountsFormatError(FORMAT_CHANGED, "Incomplete accounts page")
 
@@ -336,17 +353,17 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
     accounts: list[dict] = []
     skipped: list[str] = []
     seen: set[str] = set()
+    found: set[str] = set()
     for table in tables:
         body = table.group("body")
         category = _category(body)
-        supported = category in (CHECKING_CATEGORY, SAVINGS_CATEGORY)
-        if _has_account_data(_ROW_RE.sub("", body), contract=True):
+        supported = category in CATEGORY_GROUPS
+        if supported:
+            found.add(category)
+        if _has_account_data(_ROW_RE.sub("", body), contract=supported):
             raise AccountsFormatError(FORMAT_CHANGED, "Account data outside a recognized account row")
         for row in _ROW_RE.finditer(body):
             cells = row.group("row")
-            title = _TITLE_RE.search(cells)
-            number = _NUMBER_RE.search(cells)
-            amount = _AMOUNT_RE.search(cells)
             if not supported:
                 # A title without an account number or balance can be an offer link.
                 if _has_balance(cells):
@@ -356,6 +373,9 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
                         f"An account table has an unrecognized category {category[:60] or 'unnamed'!r}",
                     )
                 continue
+            title = _TITLE_RE.search(cells)
+            number = _NUMBER_RE.search(cells)
+            amount = _AMOUNT_RE.search(cells)
             if not _has_account_data(cells, contract=True):
                 continue
             if (title is None or number is None or amount is None
@@ -378,4 +398,4 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
             })
         if not supported:
             skipped.append(category or "unnamed")
-    return accounts, skipped
+    return accounts, skipped, [group for name, group in CATEGORY_GROUPS.items() if name in found]

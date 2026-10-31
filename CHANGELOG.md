@@ -82,8 +82,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   symbols, including whole-number amounts; `EUR` also accepts lowercase.
   Ordinary words such as `ils`, uppercase offers such as `TOP 10` or `ALL 3 offres`,
   and help text such as `SOS 112` or `SOS 24h/24` in layout tables do not block imports.
-  Alphabetic currency prefixes outside contract tables require decimal punctuation;
-  number-first amounts and currency symbols still count there. Money nested in product titles
+  Alphabetic currency prefixes in layout tables and unknown-category captions or rows require
+  decimal punctuation or at least four digits; short offer prose such as `TOP 3` and `ALL 4 YOU`
+  does not block imports. Number-first amounts and currency symbols still count there.
+  Unknown rows with bare French decimal amounts or `euro` text outside the title fail closed,
+  even without a balance class or currency symbol. Account endpoints collect categories during
+  validation so the full page is preprocessed only once. Money nested in product titles
   is detected when it includes decimal punctuation, a symbol, or grouped thousands such as
   `1 234 EUR`; a title such as `Contrat 2024 USD` remains a link.
   Malformed title markup cannot hide whole-number balances, including when an enclosing end
