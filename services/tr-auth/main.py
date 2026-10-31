@@ -118,22 +118,28 @@ CALLER_TIMEOUT_S = 60
 TR_REQUEST_TIMEOUT_S = 15
 WAF_TOKEN_BUDGET_S = CALLER_TIMEOUT_S - TR_REQUEST_TIMEOUT_S - 5
 
-# Detail sent to the backend when AWS WAF, not TR, refused the login.
+# Details sent to the backend when the login failed for a reason other than the
+# user's credentials: AWS WAF refused it, TR did not answer (timeout or transport
+# error), or the headless browser could not run.
 WAF_BLOCKED = "TR_WAF_BLOCKED"
+TR_UNREACHABLE = "TR_UNREACHABLE"
+BROWSER_FAILED = "TR_BROWSER_FAILED"
 
 
 async def get_waf_token() -> Optional[str]:
     """Retrieves the AWS WAF token, with a fresh browser when an attempt gets none
     or fails, and gives up once WAF_TOKEN_BUDGET_S has passed. A failure on the
-    last attempt is raised unchanged."""
+    last attempt is a browser_failed() error."""
     try:
         async with asyncio.timeout(WAF_TOKEN_BUDGET_S):
             for attempt in range(1, WAF_TOKEN_ATTEMPTS + 1):
                 try:
                     waf_token = await load_waf_token()
-                except Exception:
+                except Exception as error:
                     if attempt == WAF_TOKEN_ATTEMPTS:
-                        raise
+                        log.error("AWS WAF token attempt %d/%d failed",
+                                  attempt, WAF_TOKEN_ATTEMPTS, exc_info=True)
+                        raise browser_failed() from error
                     log.warning("AWS WAF token attempt %d/%d failed",
                                 attempt, WAF_TOKEN_ATTEMPTS, exc_info=True)
                     continue
@@ -202,6 +208,14 @@ def is_waf_rejection(resp: httpx.Response) -> bool:
 
 def waf_blocked() -> HTTPException:
     return HTTPException(status_code=503, detail=WAF_BLOCKED)
+
+
+def tr_unreachable() -> HTTPException:
+    return HTTPException(status_code=504, detail=TR_UNREACHABLE)
+
+
+def browser_failed() -> HTTPException:
+    return HTTPException(status_code=503, detail=BROWSER_FAILED)
 
 
 def tr_headers(waf_token: Optional[str]) -> dict:
@@ -286,21 +300,27 @@ async def initiate(req: InitiateRequest):
     phone = normalise_phone(req.phoneNumber)
     log.info("Initiating TR auth for %s", safe(mask_phone(phone)))
 
-    async with asyncio.timeout(TR_REQUEST_TIMEOUT_S), \
-            httpx.AsyncClient(timeout=TR_REQUEST_TIMEOUT_S) as client:
-        try:
-            resp = await client.post(
-                f"{TR_API}/api/v1/auth/web/login",
-                json={"phoneNumber": phone, "pin": req.pin},
-                headers=tr_headers(waf_token),
-            )
-            log.info("TR /login → %d", resp.status_code)
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            if is_waf_rejection(e.response):
-                raise waf_blocked()
-            raise HTTPException(status_code=e.response.status_code,
-                                detail=f"TR rejected request: {e.response.text[:200]}")
+    # asyncio.timeout raises the builtin TimeoutError; httpx's own timeouts and
+    # connection failures are TransportErrors. Neither is a credentials error.
+    try:
+        async with asyncio.timeout(TR_REQUEST_TIMEOUT_S), \
+                httpx.AsyncClient(timeout=TR_REQUEST_TIMEOUT_S) as client:
+            try:
+                resp = await client.post(
+                    f"{TR_API}/api/v1/auth/web/login",
+                    json={"phoneNumber": phone, "pin": req.pin},
+                    headers=tr_headers(waf_token),
+                )
+                log.info("TR /login → %d", resp.status_code)
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                if is_waf_rejection(e.response):
+                    raise waf_blocked()
+                raise HTTPException(status_code=e.response.status_code,
+                                    detail=f"TR rejected request: {e.response.text[:200]}")
+    except (TimeoutError, httpx.TransportError):
+        log.warning("TR /login did not answer", exc_info=True)
+        raise tr_unreachable()
 
     data = resp.json()
     process_id = data.get("processId")
@@ -313,28 +333,33 @@ async def initiate(req: InitiateRequest):
 
 @app.post("/complete")
 async def complete(req: CompleteRequest):
+    pending_sessions.pop(req.processId, None)  # clean up, whatever happens next
+
     # Always fetch a fresh WAF token — the one from /initiate may have expired
     # by the time the user reads and types the 2FA code.
     waf_token = await get_waf_token()
     if not waf_token:
         raise waf_blocked()
-    pending_sessions.pop(req.processId, None)  # clean up
 
-    async with asyncio.timeout(TR_REQUEST_TIMEOUT_S), \
-            httpx.AsyncClient(timeout=TR_REQUEST_TIMEOUT_S) as client:
-        try:
-            resp = await client.post(
-                login_complete_url(req.processId, req.tan),
-                headers=tr_headers(waf_token),
-            )
-            log.info("TR /login/complete → %d  set-cookie names: %s",
-                     resp.status_code, cookie_names(resp.headers))
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            if is_waf_rejection(e.response):
-                raise waf_blocked()
-            raise HTTPException(status_code=e.response.status_code,
-                                detail=f"TR rejected 2FA: {e.response.text[:200]}")
+    try:
+        async with asyncio.timeout(TR_REQUEST_TIMEOUT_S), \
+                httpx.AsyncClient(timeout=TR_REQUEST_TIMEOUT_S) as client:
+            try:
+                resp = await client.post(
+                    login_complete_url(req.processId, req.tan),
+                    headers=tr_headers(waf_token),
+                )
+                log.info("TR /login/complete → %d  set-cookie names: %s",
+                         resp.status_code, cookie_names(resp.headers))
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                if is_waf_rejection(e.response):
+                    raise waf_blocked()
+                raise HTTPException(status_code=e.response.status_code,
+                                    detail=f"TR rejected 2FA: {e.response.text[:200]}")
+    except (TimeoutError, httpx.TransportError):
+        log.warning("TR /login/complete did not answer", exc_info=True)
+        raise tr_unreachable()
 
     # Session token is in Set-Cookie: tr_session=<value>
     # Use resp.cookies (httpx parses all Set-Cookie headers correctly).

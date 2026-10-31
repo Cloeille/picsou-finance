@@ -167,6 +167,11 @@ describe('formatTrAuthError — TR error codes', () => {
     expect(formatTrAuthError(trErr(422, detail), t)).toBe('sync.tr.errors.temporarilyBlocked')
   })
 
+  it('maps a Trade Republic timeout on a 422 to the server-error message, not a credential error', () => {
+    const detail = 'Trade Republic did not respond. Please try again in a moment.'
+    expect(formatTrAuthError(trErr(422, detail), t)).toBe('sync.tr.errors.serverError')
+  })
+
   it('maps session-expiry wording on a 422', () => {
     const detail = 'Your Trade Republic session has expired and could not be refreshed. Please reconnect.'
     expect(formatTrAuthError(trErr(422, detail), t)).toBe('sync.tr.errors.authenticationFailed')

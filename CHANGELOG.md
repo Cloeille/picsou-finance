@@ -226,6 +226,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   firewall rejected the request. `tr-auth` now waits for the token and retries with a second
   browser before contacting Trade Republic, and still answers within the backend's 60 s wait.
   A firewall rejection now reads "Trade Republic blocked the request. Retry in a minute."
+  A Trade Republic timeout or a broken browser no longer reads as a credentials error.
   (#266)
 - **American Express no longer stores a second copy of a charge AMEX re-describes.** A
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then

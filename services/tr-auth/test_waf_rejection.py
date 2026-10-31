@@ -1,5 +1,6 @@
 """A cold container can miss the AWS WAF token. TR then answers the login with an
-empty 403/405, which must reach the backend as a WAF block, not a credential error."""
+empty 403/405, which must reach the backend as a WAF block, not a credential error.
+A TR timeout and a browser that cannot run are not credential errors either."""
 
 import asyncio
 import time
@@ -92,11 +93,34 @@ class WafRejectionTest(unittest.TestCase):
         for name, endpoint in (("initiate", INITIATE), ("complete", COMPLETE)):
             with self.subTest(endpoint=name):
                 started = time.monotonic()
-                with patch.object(main, "TR_REQUEST_TIMEOUT_S", 0.2), \
-                        self.assertRaises(TimeoutError):
-                    run_endpoint(endpoint, "token", slow_tr)
+                with patch.object(main, "TR_REQUEST_TIMEOUT_S", 0.2):
+                    error, _ = run_endpoint(endpoint, "token", slow_tr)
 
+                self.assertEqual(error.status_code, 504)
+                self.assertEqual(error.detail, main.TR_UNREACHABLE)
                 self.assertLess(time.monotonic() - started, 1)
+
+    def test_transport_error_from_tr_is_reported_as_unreachable(self):
+        def unreachable_tr(tr_request):
+            raise httpx.ConnectError("connection refused", request=tr_request)
+
+        for name, endpoint in (("initiate", INITIATE), ("complete", COMPLETE)):
+            with self.subTest(endpoint=name):
+                error, sent = run_endpoint(endpoint, "token", unreachable_tr)
+
+                self.assertEqual(error.status_code, 504)
+                self.assertEqual(error.detail, main.TR_UNREACHABLE)
+                self.assertEqual(len(sent), 1)
+
+    def test_complete_without_a_waf_token_drops_the_pending_session(self):
+        process_id = COMPLETE[1].processId
+        main.pending_sessions[process_id] = "token"
+        self.addCleanup(main.pending_sessions.pop, process_id, None)
+
+        error, _ = run_endpoint(COMPLETE, None)
+
+        self.assertEqual(error.detail, main.WAF_BLOCKED)
+        self.assertNotIn(process_id, main.pending_sessions)
 
 
 def slow_attempts(*attempts):
@@ -128,12 +152,14 @@ class WafTokenRetryTest(unittest.TestCase):
         self.assertEqual(token, "token")
         self.assertEqual(load.await_count, 2)
 
-    def test_a_failure_on_the_last_attempt_is_raised(self):
+    def test_a_failure_on_the_last_attempt_is_a_browser_failure(self):
         load = AsyncMock(side_effect=RuntimeError("browser launch failed"))
         with patch.object(main, "load_waf_token", load), \
-                self.assertRaises(RuntimeError):
+                self.assertRaises(HTTPException) as raised:
             asyncio.run(main.get_waf_token())
 
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(raised.exception.detail, main.BROWSER_FAILED)
         self.assertEqual(load.await_count, main.WAF_TOKEN_ATTEMPTS)
 
     def test_gives_up_after_the_last_attempt(self):

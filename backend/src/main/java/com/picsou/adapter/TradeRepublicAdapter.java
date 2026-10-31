@@ -1,5 +1,6 @@
 package com.picsou.adapter;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
@@ -58,6 +59,8 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
 
     private static final String WS_URL     = "wss://api.traderepublic.com/";
     private static final int    WS_VERSION = 31;
+    private static final String AUTH_SERVICE_UNAVAILABLE =
+        "Trade Republic authentication service is unavailable. Please make sure tr-auth is running on port 8001.";
     private static final Duration DEFAULT_REFRESH_TIMEOUT = Duration.ofSeconds(15);
     // Total time the WebSocket read may take before the sync goes on with what it has.
     // Kept under WS_HARD_TIMEOUT around the whole exchange, which fails the sync.
@@ -107,12 +110,12 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
             .onErrorResume(WebClientResponseException.class, ex -> {
                 String body = ex.getResponseBodyAsString();
                 log.error("tr-auth sidecar /initiate failed ({}) : {}", ex.getStatusCode(), LogSanitizer.safe(body));
-                return Mono.error(mapAuthError(body,
+                return Mono.error(mapAuthError(ex,
                     "Trade Republic authentication failed. Please check your credentials and try again."));
             })
             .timeout(Duration.ofSeconds(60)) // headless browser takes time
             .onErrorMap(ex -> !(ex instanceof SyncException), ex -> new SyncException(
-                "Trade Republic authentication service is unavailable. Please make sure tr-auth is running on port 8001.",
+                AUTH_SERVICE_UNAVAILABLE,
                 ex))
             .blockOptional()
             .orElseThrow(() -> new SyncException("No response from the Trade Republic service. Please try again later."));
@@ -137,12 +140,12 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
             .onErrorResume(WebClientResponseException.class, ex -> {
                 String body = ex.getResponseBodyAsString();
                 log.error("tr-auth sidecar /complete failed ({}) : {}", ex.getStatusCode(), LogSanitizer.safe(body));
-                return Mono.error(mapAuthError(body,
+                return Mono.error(mapAuthError(ex,
                     "The verification code is invalid or has expired. Please request a new one."));
             })
             .timeout(Duration.ofSeconds(60))
             .onErrorMap(ex -> !(ex instanceof SyncException), ex -> new SyncException(
-                "Trade Republic authentication service is unavailable. Please make sure tr-auth is running on port 8001.",
+                AUTH_SERVICE_UNAVAILABLE,
                 ex))
             .blockOptional()
             .orElseThrow(() -> new SyncException("No response from the Trade Republic service. Please try again later."));
@@ -176,12 +179,12 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                     return Mono.error(new SyncException("SESSION_EXPIRED"));
                 }
                 return Mono.error(new SyncException(
-                    "Trade Republic authentication service is unavailable. Please make sure tr-auth is running on port 8001.",
+                    AUTH_SERVICE_UNAVAILABLE,
                     ex));
             })
             .timeout(refreshTimeout)
             .onErrorMap(ex -> !(ex instanceof SyncException), ex -> new SyncException(
-                "Trade Republic authentication service is unavailable. Please make sure tr-auth is running on port 8001.",
+                AUTH_SERVICE_UNAVAILABLE,
                 ex))
             .blockOptional()
             // An empty 2xx body is a sidecar/proxy defect, not a TR rejection —
@@ -541,26 +544,48 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
 
     // ─── Private helpers ──────────────────────────────────────────────────────
 
-    private SyncException mapAuthError(String responseBody, String fallback) {
-        if (responseBody != null) {
-            // tr-auth could not get past AWS WAF; TR never saw the credentials.
-            if (responseBody.contains("TR_WAF_BLOCKED")) {
-                return new SyncException("Trade Republic blocked the request. Please retry in a minute.");
-            }
-            if (responseBody.contains("VALIDATION_CODE_INVALID")) {
-                return new SyncException("VALIDATION_CODE_INVALID");
-            }
-            if (responseBody.contains("NUMBER_INVALID")) {
-                return new SyncException("NUMBER_INVALID");
-            }
-            if (responseBody.contains("PIN_INVALID")) {
-                return new SyncException("PIN_INVALID");
-            }
-            if (responseBody.contains("AUTHENTICATION_ERROR")) {
-                return new SyncException("AUTHENTICATION_ERROR");
-            }
+    /**
+     * Maps a tr-auth failure to a user-facing {@link SyncException}. Only the sidecar's
+     * {@code detail} is matched: a FastAPI 422 validation body echoes the request input,
+     * so matching the whole body would let a request value pose as an error code.
+     */
+    private SyncException mapAuthError(WebClientResponseException ex, String fallback) {
+        String detail = errorDetail(ex.getResponseBodyAsString());
+        // tr-auth could not get past AWS WAF; TR never saw the credentials.
+        if (detail.equals("TR_WAF_BLOCKED")) {
+            return new SyncException("Trade Republic blocked the request. Please retry in a minute.");
+        }
+        if (detail.equals("TR_UNREACHABLE")) {
+            return new SyncException("Trade Republic did not respond. Please try again in a moment.");
+        }
+        // TR's own errors arrive as: TR rejected request: {...PIN_INVALID...}
+        if (detail.contains("VALIDATION_CODE_INVALID")) {
+            return new SyncException("VALIDATION_CODE_INVALID");
+        }
+        if (detail.contains("NUMBER_INVALID")) {
+            return new SyncException("NUMBER_INVALID");
+        }
+        if (detail.contains("PIN_INVALID")) {
+            return new SyncException("PIN_INVALID");
+        }
+        if (detail.contains("AUTHENTICATION_ERROR")) {
+            return new SyncException("AUTHENTICATION_ERROR");
+        }
+        // TR_BROWSER_FAILED and any unhandled sidecar error: not the user's input.
+        if (ex.getStatusCode().is5xxServerError()) {
+            return new SyncException(AUTH_SERVICE_UNAVAILABLE);
         }
         return new SyncException(fallback);
+    }
+
+    /** The sidecar's {@code detail} when it is a string, else "" (validation arrays, non-JSON). */
+    private String errorDetail(String responseBody) {
+        try {
+            JsonNode detail = objectMapper.readTree(responseBody).path("detail");
+            return detail.isTextual() ? detail.asText() : "";
+        } catch (JsonProcessingException ex) {
+            return "";
+        }
     }
 
     private boolean isAuthError(String payload) {
