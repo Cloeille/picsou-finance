@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessException;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -106,7 +107,11 @@ public class CicSyncService {
     }
 
     public AuthInitResponse initiateAuth(String login, String password, Long memberId) {
-        long generation = authGenerations.getOrDefault(memberId, 0L);
+        return initiateAuth(login, password, memberId, authGenerations.getOrDefault(memberId, 0L));
+    }
+
+    private AuthInitResponse initiateAuth(String login, String password, Long memberId, long generation) {
+        requireGeneration(memberId, generation);
         // A reconnection from the UI replays the remembered-device cookie too, so
         // reconnecting after an error does not ask for a confirmation again.
         CicPort.InitiateResult result = port.initiateAuth(login, password, previousPlainState(memberId));
@@ -116,7 +121,7 @@ public class CicSyncService {
             }
             storeSessionAndQueue(result.sessionState(), memberId, login, password, generation);
         } else if (result.processId() != null) {
-            pendingCredentials.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(clock.instant()));
+            evictExpiredPendingCredentials();
             synchronized (sessionWriteLock) {
                 requireGeneration(memberId, generation);
                 pendingCredentials.put(result.processId(), new PendingCredentials(
@@ -133,6 +138,7 @@ public class CicSyncService {
      * as a typed login. Without stored credentials the saver has to type them.
      */
     public AuthInitResponse reconnect(Long memberId) {
+        long generation = authGenerations.getOrDefault(memberId, 0L);
         String encrypted = sessionRepository.findByMemberId(memberId)
             .map(CicSession::getEncryptedCredentials)
             .orElse(null);
@@ -145,7 +151,30 @@ public class CicSyncService {
         } catch (RuntimeException ex) {
             throw error(CicErrorCode.SESSION_EXPIRED, "Stored CIC credentials are unreadable", ex);
         }
-        return initiateAuth(credentials.login(), credentials.password(), memberId);
+        try {
+            return initiateAuth(credentials.login(), credentials.password(), memberId, generation);
+        } catch (SyncException ex) {
+            if (codeOf(ex) == CicErrorCode.INVALID_CREDENTIALS) {
+                synchronized (sessionWriteLock) {
+                    if (authGenerations.getOrDefault(memberId, 0L) == generation) {
+                        txTemplate.executeWithoutResult(status -> sessionRepository.findByMemberIdForUpdate(memberId)
+                            // A newer login's password must survive an older rejection.
+                            .filter(session -> encrypted.equals(session.getEncryptedCredentials()))
+                            .ifPresent(session -> {
+                                session.rejectCredentials(clock.instant());
+                                sessionRepository.save(session);
+                            }));
+                    }
+                }
+            }
+            throw ex;
+        }
+    }
+
+    @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
+    public void evictExpiredPendingCredentials() {
+        Instant now = clock.instant();
+        pendingCredentials.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(now));
     }
 
     /** {@code code} is the SMS code, or null for a mobile confirmation. */
@@ -153,8 +182,11 @@ public class CicSyncService {
         PendingCredentials credentials;
         synchronized (sessionWriteLock) {
             credentials = pendingCredentials.get(processId);
-            if (credentials == null || !credentials.memberId().equals(memberId)
-                || !credentials.expiresAt().isAfter(clock.instant())) {
+            if (credentials == null || !credentials.memberId().equals(memberId)) {
+                throw error(CicErrorCode.AUTH_ATTEMPT_EXPIRED, "CIC authentication attempt expired", null);
+            }
+            if (!credentials.expiresAt().isAfter(clock.instant())) {
+                pendingCredentials.remove(processId, credentials);
                 throw error(CicErrorCode.AUTH_ATTEMPT_EXPIRED, "CIC authentication attempt expired", null);
             }
             requireGeneration(memberId, credentials.generation());
@@ -168,8 +200,8 @@ public class CicSyncService {
         SyncJob job;
         synchronized (sessionWriteLock) {
             requireGeneration(memberId, credentials.generation());
-            if (!credentials.expiresAt().isAfter(clock.instant())
-                || !pendingCredentials.remove(processId, credentials)) {
+            if (!pendingCredentials.remove(processId, credentials)
+                || !credentials.expiresAt().isAfter(clock.instant())) {
                 throw error(CicErrorCode.AUTH_ATTEMPT_EXPIRED, "CIC authentication attempt expired", null);
             }
             job = insertSession(plainState, memberId, credentials.login(), credentials.password());

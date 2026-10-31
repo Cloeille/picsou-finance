@@ -56,9 +56,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only goes through within a day of the last confirmation. It is listed in the dashboard's
   *Sync all* modal, which opens the CIC tab when the session has lapsed.
   Deleting its last account removes the session and credentials and revokes pending logins,
-  including a confirmation already in progress. Unreadable account rows fail the whole import.
-  A wrong SMS code can be corrected without another login. Rejected credentials make the session
-  inactive, and expired sessions stay in *Sync all* before their first import. MCP `get_sync_status`
+  including a confirmation already in progress or a stored-credentials reconnect still reading
+  its password. Unreadable account rows and unrecognized tables containing account data fail the
+  whole import. Savings captions accept typographic apostrophes. A wrong SMS code can be corrected
+  without another login, and expired attempts have their pending passwords cleared every minute.
+  Rejected credentials make the session inactive and require credential entry, including after an
+  explicit reconnect, without erasing a newer login's password. Expired sessions stay in *Sync all*
+  before their first import. MCP `get_sync_status`
   reports CIC progress and reconnection requirements. Terminal polling failures withdraw the phone
   confirmation, with HTTP 429 and 5xx reported as upstream unavailability.
   See [docs](docs/features/cic-banking.md).

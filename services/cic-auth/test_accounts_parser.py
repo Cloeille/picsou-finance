@@ -59,6 +59,42 @@ class PageTest(unittest.TestCase):
         with self.assertRaises(AccountsFormatError):
             parse_accounts(accounts_table("Livrets et comptes d&#39;épargne", row))
 
+    def test_a_savings_table_without_its_caption_fails_the_whole_page(self):
+        page = ACCOUNTS_PAGE.replace(
+            '<caption class="invisible"><span class="invisible">Liste des comptes li&#233;s &#224; la cat&#233;gorie : '
+            'Livrets et comptes d&#39;épargne</span></caption>',
+            '',
+        )
+        self.assertNotEqual(page, ACCOUNTS_PAGE)
+
+        with self.assertRaises(AccountsFormatError) as error:
+            parse_accounts(page)
+
+        self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_a_typographic_apostrophe_keeps_all_savings_accounts(self):
+        page = ACCOUNTS_PAGE.replace("d&#39;épargne", "d’épargne")
+
+        accounts, _ = parse_accounts(page)
+
+        self.assertEqual([account["type"] for account in accounts], ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
+
+    def test_an_unknown_category_with_account_data_fails_the_whole_page(self):
+        page = ACCOUNTS_PAGE.replace("Livrets et comptes d&#39;épargne", "Nouveaux comptes")
+
+        with self.assertRaises(AccountsFormatError) as error:
+            parse_accounts(page)
+
+        self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_an_unnamed_table_without_account_data_is_skipped(self):
+        page = ACCOUNTS_PAGE + '<table class="ei_comptescontrats"><tr><td>Aide</td></tr></table>'
+
+        accounts, skipped = parse_accounts(page)
+
+        self.assertEqual(len(accounts), 4)
+        self.assertEqual(skipped, ["autres contrats liés", "unnamed"])
+
     def test_a_balance_row_without_its_title_fails_the_whole_page(self):
         page = ACCOUNTS_PAGE.replace('ei_sdsf_title _c1">LIVRET A', 'other _c1">LIVRET A')
         self.assertNotEqual(page, ACCOUNTS_PAGE)

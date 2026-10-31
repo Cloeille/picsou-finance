@@ -16,10 +16,14 @@ import com.picsou.service.sync.SourceSyncResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -29,6 +33,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -236,6 +241,98 @@ class CicSyncServiceTest {
     }
 
     @Test
+    void disconnectAfterReadingStoredCredentialsRevokesTheReconnect() {
+        CicSession session = activeSession(member());
+        session.setEncryptedCredentials("credentials-encrypted");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session), Optional.empty());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("credentials-encrypted")).thenAnswer(invocation -> {
+            service.clearSession(7L);
+            return CREDENTIALS_JSON;
+        });
+        lenient().when(port.initiateAuth("12345678", "secret", null))
+            .thenReturn(new CicPort.InitiateResult("late-reconnect", true, "APP_PUSH", null));
+
+        assertAttemptExpired(() -> service.reconnect(7L));
+        assertAttemptExpired(() -> service.completeAuth("late-reconnect", null, 7L));
+
+        assertThat(service.getStatus(7L).canReconnect()).isFalse();
+        verify(port, never()).completeAuth(anyString(), any());
+        verify(sessionRepository, never()).saveAndFlush(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aRejectedPasswordDuringExplicitReconnectRequiresNewCredentials(boolean active) {
+        CicSession session = activeSession(member());
+        if (!active) {
+            session.markQueued();
+            session.markFailed(CicErrorCode.SESSION_EXPIRED, clock.instant());
+        }
+        session.setEncryptedCredentials("credentials-encrypted");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
+        when(encryption.decrypt("encrypted")).thenReturn("plain-state");
+        when(port.initiateAuth("12345678", "secret", "plain-state"))
+            .thenThrow(new SyncException("bad", null, CicErrorCode.INVALID_CREDENTIALS.name()));
+
+        assertThatThrownBy(() -> service.reconnect(7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CicErrorCode.INVALID_CREDENTIALS.name()));
+
+        CicSyncService.SessionStatusResponse status = service.getStatus(7L);
+        assertThat(status.canReconnect()).isFalse();
+        assertThat(status.isActive()).isFalse();
+        assertThat(status.lastSyncError()).isEqualTo(CicErrorCode.INVALID_CREDENTIALS);
+        assertThat(session.getEncryptedCredentials()).isNull();
+        assertThatThrownBy(() -> service.reconnect(7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CicErrorCode.SESSION_EXPIRED.name()));
+        verify(port).initiateAuth("12345678", "secret", "plain-state");
+    }
+
+    @Test
+    void anOldReconnectRejectionDoesNotEraseNewerCredentials() {
+        CicSession session = activeSession(member());
+        session.setEncryptedCredentials("credentials-encrypted");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
+        when(encryption.decrypt("encrypted")).thenReturn("plain-state");
+        when(port.initiateAuth("12345678", "secret", "plain-state")).thenAnswer(invocation -> {
+            session.setEncryptedCredentials("new-credentials-encrypted");
+            throw new SyncException("bad", null, CicErrorCode.INVALID_CREDENTIALS.name());
+        });
+
+        assertThatThrownBy(() -> service.reconnect(7L)).isInstanceOf(SyncException.class);
+
+        assertThat(session.getEncryptedCredentials()).isEqualTo("new-credentials-encrypted");
+        assertThat(service.getStatus(7L).canReconnect()).isTrue();
+        assertThat(service.getStatus(7L).isActive()).isTrue();
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void aTransientReconnectFailureKeepsTheStoredCredentials() {
+        CicSession session = activeSession(member());
+        session.setEncryptedCredentials("credentials-encrypted");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
+        when(encryption.decrypt("encrypted")).thenReturn("plain-state");
+        when(port.initiateAuth("12345678", "secret", "plain-state"))
+            .thenThrow(new SyncException("unavailable", null, CicErrorCode.UPSTREAM_UNAVAILABLE.name()));
+
+        assertThatThrownBy(() -> service.reconnect(7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CicErrorCode.UPSTREAM_UNAVAILABLE.name()));
+
+        assertThat(session.getEncryptedCredentials()).isEqualTo("credentials-encrypted");
+        assertThat(service.getStatus(7L).canReconnect()).isTrue();
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
     void theStatusTellsWhetherStoredCredentialsCanReconnect() {
         CicSession session = activeSession(member());
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
@@ -339,6 +436,51 @@ class CicSyncServiceTest {
     }
 
     @Test
+    void anExpiredCompletionDropsItsPlaintextCredentials() {
+        initiatePendingAttempt();
+        when(clock.instant()).thenReturn(Instant.parse("2026-10-31T12:10:00Z"));
+
+        assertAttemptExpired(() -> service.completeAuth("pending", null, 7L));
+
+        assertThat((Map<?, ?>) ReflectionTestUtils.getField(service, "pendingCredentials")).isEmpty();
+        verify(port, never()).completeAuth(anyString(), any());
+    }
+
+    @Test
+    void abandonedCredentialsExpireWithoutAnotherLoginWhileNewerAttemptsRemain() {
+        initiatePendingAttempt();
+        when(clock.instant()).thenReturn(Instant.parse("2026-10-31T12:05:00Z"));
+        when(port.initiateAuth("12345678", "new-secret", null))
+            .thenReturn(new CicPort.InitiateResult("newer", true, "SMS", null));
+        service.initiateAuth("12345678", "new-secret", 7L);
+
+        ScheduledAnnotationBeanPostProcessor scheduler = new ScheduledAnnotationBeanPostProcessor();
+        try {
+            scheduler.postProcessAfterInitialization(service, "cicSyncService");
+            assertThat(scheduler.getScheduledTasks()).hasSize(1);
+            when(clock.instant()).thenReturn(Instant.parse("2026-10-31T12:10:00Z"));
+
+            scheduler.getScheduledTasks().forEach(task -> task.getTask().getRunnable().run());
+
+            Map<?, ?> pending = (Map<?, ?>) ReflectionTestUtils.getField(service, "pendingCredentials");
+            assertThat(pending.keySet()).isEqualTo(java.util.Set.of("newer"));
+            assertAttemptExpired(() -> service.completeAuth("pending", null, 7L));
+            when(port.completeAuth("newer", "000000"))
+                .thenThrow(new SyncException("wrong", null, CicErrorCode.INVALID_OTP.name()));
+            assertThatThrownBy(() -> service.completeAuth("newer", "000000", 7L))
+                .isInstanceOfSatisfying(SyncException.class, error ->
+                    assertThat(error.getCode()).isEqualTo(CicErrorCode.INVALID_OTP.name()));
+
+            when(clock.instant()).thenReturn(Instant.parse("2026-10-31T12:15:00Z"));
+            scheduler.getScheduledTasks().forEach(task -> task.getTask().getRunnable().run());
+
+            assertThat(pending).isEmpty();
+        } finally {
+            scheduler.destroy();
+        }
+    }
+
+    @Test
     void disconnectDuringCompletionPreventsSessionPersistence() {
         initiatePendingAttempt();
         when(port.completeAuth("pending", null)).thenAnswer(invocation -> {
@@ -363,6 +505,7 @@ class CicSyncServiceTest {
 
         assertAttemptExpired(() -> service.completeAuth("pending", null, 7L));
 
+        assertThat((Map<?, ?>) ReflectionTestUtils.getField(service, "pendingCredentials")).isEmpty();
         verify(sessionRepository, never()).saveAndFlush(any());
     }
 

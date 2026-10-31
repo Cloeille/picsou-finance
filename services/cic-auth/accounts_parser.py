@@ -15,10 +15,10 @@ table per category, each with an invisible caption naming it:
           <span class="ei_sdsf_montant pos">+1 234,56 EUR</span></td>
         ...
 
-Only current accounts and savings accounts are in scope. Rows of other
-categories (insurance, links to sister sites such as employee savings) carry no
-balance on this page and are skipped. A balance-bearing row that cannot be read
-fails the whole page: a silently dropped account is worse than a failed sync.
+Only current accounts and savings accounts are in scope. Other tables are
+skipped only when their rows contain no account data. An unrecognized category
+with account data fails the whole page, as does a balance-bearing row that
+cannot be read. Silently dropping an account would hide an incomplete sync.
 """
 
 import html as html_module
@@ -101,7 +101,7 @@ def _category(table: str) -> str:
     if caption is None:
         return ""
     match = _CATEGORY_RE.search(_text(caption.group("text")))
-    return match.group("name").strip().lower() if match else ""
+    return match.group("name").strip().lower().replace("’", "'") if match else ""
 
 
 def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
@@ -116,9 +116,7 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
     for table in tables:
         body = table.group("body")
         category = _category(body)
-        if category not in (CHECKING_CATEGORY, SAVINGS_CATEGORY):
-            skipped.append(category or "unnamed")
-            continue
+        supported = category in (CHECKING_CATEGORY, SAVINGS_CATEGORY)
         for row in _ROW_RE.finditer(body):
             cells = row.group("row")
             title = _TITLE_RE.search(cells)
@@ -127,6 +125,8 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
             if (title is None and number is None and amount is None
                     and "ei_sdsf_solde" not in cells and not _BALANCE_RE.search(_text(cells))):
                 continue
+            if not supported:
+                raise AccountsFormatError(FORMAT_CHANGED, "An account table has an unrecognized category")
             if title is None or number is None or amount is None:
                 raise AccountsFormatError(FORMAT_CHANGED, "An account row has no title, number, or balance")
             account_id = re.sub(r"\D", "", _text(number.group("number")))
@@ -144,4 +144,6 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
                 "type": account_type(category, label),
                 "balanceEur": parse_amount(amount.group("amount")),
             })
+        if not supported:
+            skipped.append(category or "unnamed")
     return accounts, skipped

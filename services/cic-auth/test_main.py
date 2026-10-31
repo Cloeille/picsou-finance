@@ -255,6 +255,29 @@ class FlowTest(unittest.TestCase):
 
         self.assertEqual(main._link_with(page, "passer cette étape"), "/skip.html")
 
+    def test_a_savings_table_without_its_caption_does_not_return_a_partial_snapshot(self):
+        session = self.confirm()
+        self.bank.accounts_page = ACCOUNTS_PAGE.replace(
+            '<caption class="invisible"><span class="invisible">Liste des comptes li&#233;s &#224; la cat&#233;gorie : '
+            'Livrets et comptes d&#39;épargne</span></caption>',
+            '',
+        )
+        self.assertNotEqual(self.bank.accounts_page, ACCOUNTS_PAGE)
+
+        response = self.client.post("/accounts", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
+
+    def test_a_typographic_apostrophe_returns_a_complete_snapshot(self):
+        session = self.confirm()
+        self.bank.accounts_page = ACCOUNTS_PAGE.replace("d&#39;épargne", "d’épargne")
+
+        response = self.client.post("/accounts", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([account["type"] for account in response.json()], ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
+        self.assertTrue(all(account["snapshotComplete"] for account in response.json()))
+
     def test_only_checked_boxes_are_sent(self):
         [form] = main.parse_forms(
             '<form action="/a">'

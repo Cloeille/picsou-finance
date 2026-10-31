@@ -22,10 +22,12 @@ balance.
 - **Accounts**: `/fr/banque/comptes-et-contrats.html`, one `table.ei_comptescontrats` per category,
   captioned "Liste des comptes liés à la catégorie : …". "Comptes courants" rows are `CHECKING`;
   "Livrets et comptes d'épargne" rows are typed from their label (Livret A, LDDS, LEP, Livret Jeune,
-  PEL, CEL, else `SAVINGS`). Other categories (insurance, links to sister sites such as employee
-  savings) carry no balance and are skipped by name. A balance-bearing row that cannot be read fails
-  the page, including one whose title marker is missing or whose label is empty. Header and action
-  rows without account or balance markers are skipped. External id `cic_<account number digits>`.
+  PEL, CEL, else `SAVINGS`). Category names accept straight and typographic apostrophes. Tables
+  outside these categories are skipped only when their rows contain no account or balance data,
+  such as links to employee savings. An unnamed or unrecognized table with account data fails the
+  whole page. A balance-bearing row that cannot be read also fails the page, including one whose
+  title marker is missing or whose label is empty. Header and action rows without account or
+  balance markers are skipped. External id `cic_<account number digits>`.
 - **Backend**: `CicSyncService`, shaped like `CmesSyncService` (stored credentials, re-login with the
   previous session, daily source `cic`), balance-only accounts with `upsertSnapshot`. Migration
   V121 `cic_session`. `/api/cic/*`, `/api/cic/auth/complete` given 180 s in nginx.
@@ -41,11 +43,21 @@ Another live CIC account keeps the shared connection. CMES accounts belong to a 
 Disconnect also revokes pending logins. A completion requires the same member's unexpired pending
 attempt, and checks revocation and expiry again after the bank answers. Session writes and
 disconnects share a lock, so an approval arriving after disconnect cannot recreate the connection.
-A new login started after disconnect can create a new connection.
+A stored-credentials reconnect captures the cancellation generation before reading or decrypting
+the credentials and keeps it through initiation and completion. Disconnect therefore also revokes
+a reconnect paused before its request to the bank. A new login started after disconnect can create
+a new connection.
 
-A rejected stored password is forgotten and makes the session inactive with `INVALID_CREDENTIALS`.
-The member must enter new credentials. `SESSION_EXPIRED` also makes the session inactive but keeps
-the credentials for reconnect. Other sync failures leave the session active for retry.
+A rejected stored password is forgotten and makes the session inactive with `INVALID_CREDENTIALS`,
+including rejection during an explicit reconnect. That reconnect clears credentials in a locked
+transaction only if they still match the rejected value and the connection has not been removed
+since it started. A newer login's credentials survive an older rejection. The member must enter
+new credentials after rejection. `SESSION_EXPIRED` also makes the session inactive but keeps the
+credentials for reconnect. Other sync failures leave the session active for retry.
+
+Pending second factors hold plaintext credentials in memory for ten minutes. A task runs every
+minute to remove expired entries even without another login. Completing an expired attempt also
+removes its credentials immediately. Unexpired attempts remain available for SMS correction.
 
 An incorrect SMS code keeps the attempt and code form available, so the member can correct it
 without another login. An expired session stays in **Sync all** even when its first import created

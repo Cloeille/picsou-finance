@@ -128,4 +128,13 @@ public class CicSession extends AuditableEntity {
     public boolean isSyncInFlight() {
         return syncStatus == CicSyncStatus.QUEUED || syncStatus == CicSyncStatus.RUNNING;
     }
+
+    public void rejectCredentials(Instant completedAt) {
+        Instant completion = Objects.requireNonNull(completedAt, "completedAt");
+        encryptedCredentials = null;
+        active = false;
+        syncStatus = CicSyncStatus.FAILED;
+        lastSyncCompletedAt = completion;
+        lastSyncError = CicErrorCode.INVALID_CREDENTIALS;
+    }
 }
