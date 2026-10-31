@@ -6,8 +6,7 @@ from urllib.parse import urlsplit
 _VISIBLE_RECT = """
 frame => {
     const rendered = () => {
-        if (frame.clientWidth <= 1 || frame.clientHeight <= 1 ||
-            !frame.checkVisibility({opacityProperty: true, visibilityProperty: true})) return false;
+        if (!frame.checkVisibility({opacityProperty: true, visibilityProperty: true})) return false;
         let position = getComputedStyle(frame).position;
         for (let el = frame.parentElement; el; el = el.parentElement) {
             const style = getComputedStyle(el);
@@ -47,13 +46,18 @@ frame => {
                 resolve(null);
                 return;
             }
-            const content = frame.getBoxQuads({box: 'content'})[0].getBounds();
+            const content = frame.getBoxQuads({box: 'content'})[0];
+            if (!content) {
+                resolve(null);
+                return;
+            }
+            const bounds = content.getBounds();
             const box = entry.boundingClientRect;
             const clip = entry.intersectionRect;
-            const left = Math.max(clip.left, content.left);
-            const top = Math.max(clip.top, content.top);
-            const right = Math.min(clip.right, content.right);
-            const bottom = Math.min(clip.bottom, content.bottom);
+            const left = Math.max(clip.left, bounds.left);
+            const top = Math.max(clip.top, bounds.top);
+            const right = Math.min(clip.right, bounds.right);
+            const bottom = Math.min(clip.bottom, bounds.bottom);
             if (box.width <= 1 || box.height <= 1 ||
                 right - left <= 1 || bottom - top <= 1) {
                 resolve(null);

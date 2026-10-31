@@ -270,8 +270,10 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   Root overflow and body overflow propagated to the viewport use the observer's viewport clip.
   `overflow:clip` also stays with the observer because `overflow-clip-margin` can expand its clip.
   The observer's border-box intersection is restricted to the iframe's transformed content bounds,
-  obtained through Camoufox's `getBoxQuads({box: 'content'})`. Browser launch and the offline fixture
-  enable Firefox's `layout.css.getBoxQuads.enabled` preference for this geometry API.
+  obtained through Camoufox's `getBoxQuads({box: 'content'})`. A frame with no content quad is hidden.
+  Layout size does not matter, so a sub-pixel frame scaled by its own transform still counts. Browser
+  launch and the offline fixture enable Firefox's `layout.css.getBoxQuads.enabled` preference for this
+  geometry API.
   Visibility and content bounds are checked again when the asynchronous observer callback runs,
   so a frame hidden while the observation is pending does not count as an active challenge.
   A strip showing only the iframe's own border or padding does not expose a challenge.
@@ -309,6 +311,7 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   Bordered-wrapper fixtures cover empty and partially visible padding boxes with scaling and rotation.
   Visibility-override fixtures retain ancestor display and opacity checks. Bordered-iframe fixtures
   cover strips with no content and partially visible content on both axes under scaling and rotation.
+  Frames with sub-pixel layout size and their own scale cover the content-quad geometry.
   The tests route all browser requests to local fixture responses and never contact Revolut or hCaptcha.
   Human challenge completion and the proposed Camofox runtime evaluation remain follow-up work.
 - **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `403`/`424` to

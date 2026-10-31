@@ -145,6 +145,18 @@ async def test_scaled_subpixel_padding_box_exposes_content(page, dimension):
     assert await captcha.visible(page)
 
 
+@pytest.mark.parametrize(("dimension", "transform"), [
+    ("height", "scale(1, 400)"),
+    ("width", "scale(400, 1)"),
+])
+async def test_scaled_subpixel_frame_is_visible(page, dimension, transform):
+    await page.set_content(
+        '<iframe src="https://hcaptcha.com/challenge" style="display:block;border:0;'
+        f'width:400px;height:300px;{dimension}:0.25px;'
+        f'transform-origin:top left;transform:{transform}"></iframe>')
+    assert await captcha.visible(page)
+
+
 @pytest.mark.parametrize("element", ["html", "body"])
 async def test_viewport_overflow_does_not_clip_at_empty_element_box(page, element):
     await page.set_content(
