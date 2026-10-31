@@ -34,18 +34,21 @@ describe('demo cross-account transaction search', () => {
   const from = iso(new Date(now.getFullYear(), now.getMonth() - 1, 1))
   const to = iso(now)
 
-  it('lists the period newest first, each row tied to a category and an account', async () => {
+  it('lists the period newest first, each row tied to an account and each categorized row to a category', async () => {
     const rows = await search({ from, to })
 
     expect(rows.length).toBeGreaterThan(0)
     expect(rows.every((r) => r.date >= from && r.date <= to)).toBe(true)
     expect(rows.map((r) => r.date)).toEqual([...rows.map((r) => r.date)].sort().reverse())
-    expect(rows.every((r) => r.categoryId != null && r.accountId != null && r.accountName)).toBe(true)
+    expect(rows.every((r) => r.accountId != null && r.accountName)).toBe(true)
+    // The ledger also lists the review inbox: the only rows without a category.
+    expect(rows.filter((r) => r.categoryId == null).every((r) => r.category == null)).toBe(true)
+    expect(rows.some((r) => r.categoryId != null)).toBe(true)
   })
 
   it('filters by category, by account, and returns nothing outside the period', async () => {
     const all = await search({ from, to })
-    const categoryId = all[0].categoryId!
+    const categoryId = all.find((r) => r.categoryId != null)!.categoryId!
     const byCategory = await search({ from, to, categoryId })
     expect(byCategory.length).toBeGreaterThan(0)
     expect(byCategory.every((r) => r.categoryId === categoryId)).toBe(true)
@@ -55,9 +58,9 @@ describe('demo cross-account transaction search', () => {
     expect(await search({ from: '2000-01-01', to: '2000-01-31' })).toEqual([])
   })
 
-  it('only holds the categories the spending breakdown shows, with the same row counts', async () => {
+  it('holds the categorized expenses the spending breakdown shows, with the same row counts', async () => {
     const spent = mockSpendingByCategory('CYCLE').categories.filter((c) => c.categoryId != null)
-    const rows = await search(currentMonthRange(now))
+    const rows = (await search(currentMonthRange(now))).filter((r) => r.amount < 0 && r.categoryId != null)
 
     expect([...new Set(rows.map((r) => r.categoryId))].sort()).toEqual(spent.map((c) => c.categoryId).sort())
     for (const c of spent) {

@@ -22,7 +22,7 @@ vi.stubGlobal('sessionStorage', memoryStorage())
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }))
 vi.mock('@/features/auth/api', () => ({ authApi: { refresh } }))
 
-const { PublicOnly } = await import('./guards')
+const { PublicOnly, RequireAuth } = await import('./guards')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { useAppStore } = await import('@/stores/app-store')
 
@@ -101,5 +101,29 @@ describe('PublicOnly session probe', () => {
 
     expect(screen.queryByText('login-form')).not.toBeInTheDocument()
     expect(refresh).not.toHaveBeenCalled()
+  })
+})
+
+describe('RequireAuth in demo mode', () => {
+  beforeEach(() => {
+    refresh.mockReset()
+    useAuthStore.setState({ user: null, isAuthenticated: false })
+    useAppStore.setState({ demoMode: true })
+  })
+
+  it('opens the app at once and signs the demo user in from the session probe', async () => {
+    refresh.mockResolvedValue(USER)
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/settings']}>
+          <RequireAuth><div>app</div></RequireAuth>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(screen.getByText('app')).toBeInTheDocument()
+    await waitFor(() => expect(useAuthStore.getState().user).toEqual(USER))
   })
 })

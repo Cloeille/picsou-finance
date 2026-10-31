@@ -294,6 +294,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The demo no longer looks broken.** Every page now gets an answer from the demo build:
+  holdings on every account, prices, connected apps, the status of each provider, the budget's
+  transactions and the fourth goal no longer leave a card loading forever or a table empty. Its
+  figures agree from page to page: the dashboard's net worth and portfolio performance match the
+  Accounts total, an investment account is worth its holdings at the quotes shown and its
+  performance over a range follows those quotes, the family view shows the same accounts, and the car loan and the house's
+  mortgage are real accounts under French names. Performance and the 24-hour chart cover the
+  accounts the dashboard selects, the 24-hour chart follows the hourly quotes, and the history
+  ends on today's value instead of placing it on the first of the month. The budget's
+  transaction list holds the same expenses as the spending breakdown for the month and the
+  year to date, even on the first day of the month. Goal calendars no longer change on every
+  reload, and a goal's badge matches its calendar. Dates follow today, so the card's next debit
+  and the goal deadlines are ahead of you, and the budget opens on the current month instead of
+  the previous one in France. Settings shows the demo user's name (#277).
+- **Monthly payments read "/mois" in French.** The debts card printed a hard-coded English
+  "/mo" after each payment, and the dashboard said "1 autres objectifs" when one goal was left
+  off the summary (#277).
 - **Enable Banking setup guidance.** Registration now lists the required application fields,
   explains email-link sign-in and account-linked activation, and describes restricted-mode
   limits. Key import is the default. Server key generation requires an explicit action.

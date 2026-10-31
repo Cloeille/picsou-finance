@@ -71,7 +71,7 @@ New page `BudgetTransactionsPage`.
 - Category select (all categories, optional filter)
 - Default: current month, all accounts, all categories
 
-**Results:** `TransactionsList` with `onCategorize` wired, or an `EmptyState` when the period has no transactions. In demo mode `GET /transactions` is served by `mockTransactionSearch` (`demo/data/budget.ts`), which filters the current cycle's synthetic transactions like the repository query. It covers the same categories as the spending breakdown, dates every row between the 1st of the month and today, and keeps a category picked through the demo `PUT /transactions/:id/category` for the rest of the session. `TransactionRow` shows account name as a sub-text line (absent in per-account views, useful here to identify origin).
+**Results:** `TransactionsList` with `onCategorize` wired, or an `EmptyState` when the period has no transactions. In demo mode `GET /transactions` filters the budget ledger (`mockLedger`, `demo/data/budget.ts`) by inclusive `from`/`to`, `accountId` and `categoryId`, newest first, with every row on the main checking account. It is the same ledger the spending breakdown sums, so the two reconcile; it also lists the review inbox, and a category picked through the demo `PUT /transactions/:id/category` (`categorizeDemoTransaction`) sticks for the rest of the session. `TransactionRow` shows account name as a sub-text line (absent in per-account views, useful here to identify origin).
 
 **Navigation:**
 - New "Transactions" tab in budget nav (`budget-nav.ts`), icon `Receipt`, route `/budget/transactions`

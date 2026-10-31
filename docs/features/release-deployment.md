@@ -1,6 +1,6 @@
 # Feature: Migration-safe release deployment
 
-> Last updated: 2026-10-16
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -170,7 +170,8 @@ container. Do not put passwords in command arguments or print `compose config` i
   project without `--fresh`, the packaged JAR via
   Spring Boot's `PropertiesLauncher`, normal entrypoint/API 401, repeat deployment with data preserved,
   missing physical schema and future-history failures that leave the running API untouched. CI builds
-  the actual release image and runs it. With no image supplied, only this expensive integration test skips.
+  the actual release image (layer-cached, see [Docker deployment](./docker-deployment.md#tests)) and
+  runs it. With no image supplied, only this expensive integration test skips.
 - Migration CLI errors return nonzero with an allow-listed diagnosis; tests assert that it names the
   table, column, migration or enum while never containing the JDBC URL, user name or password.
 - Not covered: an image pulled from a registry under the containerd image store. The script checks
