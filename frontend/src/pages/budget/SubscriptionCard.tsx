@@ -82,7 +82,7 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
         <CurrencyDisplay value={series.expectedAmount} showSign />
       </span>
 
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex w-32 shrink-0 items-center justify-end gap-1">
         {series.status !== 'CONFIRMED' && (
           <Button size="icon" variant="ghost" disabled={busy}
             aria-label={t('budget.a11y.confirm', { name: series.label })}

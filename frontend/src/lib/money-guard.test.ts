@@ -91,7 +91,8 @@ describe('nothing bypasses the masked formatter', () => {
 
   it('makes every amount axis go through the formatter', () => {
     const offenders = files((s) => elements(s, 'YAxis').some((axis) => !axis.includes('tickFormatter={money.tick}')))
-      .filter((f) => !percentCharts.includes(f))
+      // Measures the ticks Recharts draws for yAxisWidth on synthetic values; renders no amount.
+      .filter((f) => ![...percentCharts, 'src/lib/chart-axis.test.tsx'].includes(f))
 
     expect(offenders, 'pass money.tick as the tickFormatter').toEqual([])
   })

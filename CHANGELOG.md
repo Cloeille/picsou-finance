@@ -252,6 +252,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Accounts you created yourself, and accounts created for another Actual budget, only ever
   gain new transactions. Loan accounts can't receive an Actual import.
 
+### Changed
+
+- **Pull requests go green sooner.** CI runs only the jobs a pull request's changed paths can
+  affect, a new push cancels the stale run, and the demo Playwright suite runs once instead of
+  twice. Pushes to `main` and tags still run every job, and a new `ci-ok` check fails when a
+  selected job did not pass. The app image builds its frontend and backend once, natively,
+  instead of once per platform, and a new `APP_VERSION` build argument no longer reinstalls the
+  dependencies (an edit to `frontend/package.json`, version field included, still does).
+  Building `docker/Dockerfile` yourself now needs BuildKit (`docker buildx`).
+
 ### Fixed
 
 - **Numbers and labels follow the interface language.** Percentages are formatted by the
@@ -269,6 +279,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings and Revolut texts that said "tu" now say "vous". German and Spanish translate the
   auto-confirmed subscription badge, the AI suggestion and the savings rate labels. The
   profile form shows its amounts in the member's notation with their unit (#274).
+- **Alignment and control consistency pass (budget, account detail, charts).** Chart Y axes
+  are now wide enough for every tick they draw, so labels such as "10.00k", "-3.5k" and
+  "-250k" are no longer clipped. The investment account chart is titled "Valeur et capital investi", the
+  name of what it plots. A holding or dividend without a logo shows its name's initials
+  instead of an empty grey circle, unless that name is only its ticker. A dividend with no
+  payment date says "Date inconnue" and stays on one line. Income on an account's
+  transactions carries its "+", and a zero amount carries no sign. Monthly
+  statements line up with their title and read "1er octobre 2026". In Budget, "OK" in "Ce
+  qui a changé" has a check mark rather than the undo arrow, and the dates and amounts of
+  the recurring lists stay in fixed columns. Envelopes say "87,70 € restants · 82 %" or
+  "37,90 € de dépassement", in German and Spanish too. Category pickers, rule buttons and
+  filters share one 40px height, the transaction filters show dates in your date format,
+  and screen readers announce the account and category filters by name. The confidence slider
+  and the switches follow the dark theme, category names are no longer cut short on mobile,
+  and the "À catégoriser" count sits next to its label.
+  ([#283](https://github.com/Cloeille/picsou-finance/issues/283))
 - **Every BoursoBank livret now syncs its transactions, not only the LEP.** A Livret A, LDDS,
   Livret Jeune, PEL, CEL or Livret Bourso+ used to sync its balance with no operations, so
   money moving in and out of it never reached Budget. The BoursoBank sync now reads the last

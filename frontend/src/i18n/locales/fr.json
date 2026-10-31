@@ -201,6 +201,7 @@
     "tickerOrIsinPlaceholder": "IWDA.AS, IE00B4L5Y983, BTC...",
     "assetNamePlaceholder": "Ex. : iShares Core MSCI World",
     "history": "Historique",
+    "valueAndInvested": "Valeur et capital investi",
     "priceLive": "Prix en direct",
     "priceStale": "Prix datant de {{time}}",
     "priceAsOf": "Cours du {{date}} — le fournisseur de prix n'a pas répondu",
@@ -236,7 +237,7 @@
       "next": "Dividendes suivants",
       "exDate": "Détachement",
       "paymentDate": "Versement",
-      "paymentUnknown": "Date de versement inconnue",
+      "paymentUnknown": "Date inconnue",
       "estimated": "estimée",
       "announced": "Annoncé",
       "estimatedBasis": "Estimé",
@@ -896,6 +897,8 @@
       "emptyHint": "Créez une enveloppe pour suivre vos dépenses par catégorie.",
       "error": "Impossible de charger les enveloppes.",
       "deleteTitle": "Supprimer l'enveloppe",
+      "remaining": "{{amount}} restants · {{percent}}",
+      "overspent": "{{amount}} de dépassement · {{percent}}",
       "deleteDescription": "Supprimer l'enveloppe « {{name}} » ? Les transactions sont conservées."
     },
     "recurring": {

@@ -148,7 +148,7 @@ export function AccountDetailPage() {
       {!isLoan && showHoldings && pnlData && pnlData.length > 1 ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">{t('dashboard.gainLoss')}</CardTitle>
+            <CardTitle className="text-base">{t('accounts.valueAndInvested')}</CardTitle>
           </CardHeader>
           <CardContent>
             <NetWorthChart data={pnlData} range={range} onRangeChange={setRange} />
@@ -213,7 +213,7 @@ export function AccountDetailPage() {
             {recentSnapshots.map(snap => (
               <div
                 key={snap.id}
-                className="flex items-center justify-between px-6 py-3 border-b last:border-0"
+                className="flex items-center justify-between px-4 py-3 border-b last:border-0"
               >
                 <span className="text-sm text-muted-foreground">
                   {formatLocalDate(snap.date)}
