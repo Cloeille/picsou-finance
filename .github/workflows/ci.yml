@@ -35,6 +35,7 @@ jobs:
       sofidy-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.sofidy-sidecar == 'true' }}
       amundi-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.amundi-sidecar == 'true' }}
       amex-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.amex-auth-sidecar == 'true' }}
+      sidecar-package: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.sidecar-package == 'true' }}
       degiro-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.degiro-auth-sidecar == 'true' }}
       tr-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.tr-auth-sidecar == 'true' }}
       revolut-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.revolut-auth-sidecar == 'true' }}
@@ -107,6 +108,9 @@ jobs:
               - *workflows
               - 'services/base/**'
               - 'services/amex-auth/**'
+            sidecar-package:
+              - *workflows
+              - 'services/base/**'
             degiro-auth-sidecar:
               - *workflows
               - 'services/base/**'
@@ -237,6 +241,8 @@ jobs:
           # out for real in the test suite.
           APP_SIDECAR_API_KEY: ci-test-only
           PICSOU_REQUIRE_DOCKER_TESTS: 'true'
+          # The Sofidy contract script imports the shared sidecar package.
+          PYTHONPATH: ${{ github.workspace }}/services/base
         run: mvn -B test -Dsofidy.contract.python=python3
         working-directory: backend
       - name: Require the SCPI PostgreSQL tests
@@ -489,6 +495,25 @@ jobs:
           picsou-amex-auth:test
           -m unittest discover -v
 
+  sidecar-package:
+    needs: changes
+    if: needs.changes.outputs.sidecar-package == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the shared python sidecar base
+        run: docker build --target python --tag picsou-sidecar-python services/base
+      - name: Run the shared package tests in the base
+        run: >-
+          docker run --rm
+          --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/base:/tests:ro"
+          --workdir /tests
+          picsou-sidecar-python
+          python -m unittest discover -v
+
   degiro-auth-sidecar:
     needs: changes
     if: needs.changes.outputs.degiro-auth-sidecar == 'true'
@@ -719,6 +744,7 @@ jobs:
       - sofidy-sidecar
       - amundi-sidecar
       - amex-auth-sidecar
+      - sidecar-package
       - degiro-auth-sidecar
       - tr-auth-sidecar
       - revolut-auth-sidecar
@@ -758,6 +784,7 @@ jobs:
       - sofidy-sidecar
       - amundi-sidecar
       - amex-auth-sidecar
+      - sidecar-package
       - degiro-auth-sidecar
       - tr-auth-sidecar
       - revolut-auth-sidecar

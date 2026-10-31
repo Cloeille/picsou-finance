@@ -238,7 +238,8 @@ class CiJobSelectionTest(unittest.TestCase):
             },
             "services/sofidy-auth/main.py": {"sofidy-sidecar", "backend"} | services,
             "services/tr-auth/main.py": {"tr-auth-sidecar"} | services,
-            "services/base/requirements.txt": sidecars | {"backend"} | services,
+            "services/base/requirements.txt": sidecars | {"backend", "sidecar-package"} | services,
+            "services/base/picsou_sidecar/app.py": sidecars | {"backend", "sidecar-package"} | services,
             ".github/workflows/ci.yml": _gated(jobs),
             ".github/tests/test_sidecar_workflows.py": _gated(jobs),
         }
