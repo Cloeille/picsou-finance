@@ -20,6 +20,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { transactionDescription } from '@/lib/transactions'
+import { formatLocalDate, localeFromLanguage } from '@/lib/utils'
 
 interface TransactionDetailSheetProps {
   transaction: Transaction | null
@@ -42,8 +43,9 @@ export function TransactionDetailSheet({
   onEdit,
   onDelete,
 }: TransactionDetailSheetProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isMobile = useIsMobile()
+  const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const [pendingCategoryId, setPendingCategoryId] = useState<number | ''>('')
 
   // Re-derive the pending category whenever `tx`/`categories` change, without
@@ -98,7 +100,7 @@ export function TransactionDetailSheet({
           className={tx.amount >= 0 ? 'text-xl font-bold text-emerald-500' : 'text-xl font-bold'}
         />
         <span className="text-sm text-muted-foreground">
-          {new Date(tx.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          {formatLocalDate(tx.date, locale, { weekday: 'long' })}
         </span>
       </div>
 

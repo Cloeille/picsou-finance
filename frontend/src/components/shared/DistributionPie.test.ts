@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   disambiguateDistributionNames,
   type DistributionItem,
@@ -23,6 +23,28 @@ const labels = {
 } as const
 
 describe('disambiguateDistributionNames', () => {
+  it('detects duplicate names regardless of browser-specific casing', () => {
+    const nativeLocaleLowerCase = String.prototype.toLocaleLowerCase
+    // Simulate a browser whose locale treats uppercase I differently from lowercase i.
+    const localeCasing = vi.spyOn(String.prototype, 'toLocaleLowerCase')
+      .mockImplementation(function (this: string, locales) {
+        return nativeLocaleLowerCase.call(this, locales ?? 'tr-TR')
+      })
+    try {
+      const result = disambiguateDistributionNames([
+        item(10, 'SYNTHETIC', 'PEA'),
+        item(11, 'synthetic', 'COMPTE_TITRES'),
+      ], type => type)
+
+      expect(result.map(entry => entry.name)).toEqual([
+        'SYNTHETIC · PEA',
+        'synthetic · COMPTE_TITRES',
+      ])
+    } finally {
+      localeCasing.mockRestore()
+    }
+  })
+
   it('adds the account type to broker accounts sharing the same name', () => {
     const result = disambiguateDistributionNames([
       item(10, 'DUPONT Camille', 'PEA'),
