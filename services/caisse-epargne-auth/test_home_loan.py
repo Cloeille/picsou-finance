@@ -6,13 +6,17 @@ The detail payload is invented, with the key structure observed live on
 
 import copy
 import unittest
+import urllib.parse
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, call, patch
 
 import httpx
 
 import accounts_parser
 import fetcher
+import main
 import replay
 from accounts_parser import ParseError, parse_home_loan_detail
 from test_fetcher import FIXTURES, LOAN_ID, SECRET_TOKEN, TODAY, FakeCE, loan_token_provider
@@ -75,7 +79,8 @@ class HomeLoanDetailTest(unittest.TestCase):
                 "borrowedAmount": Decimal("200000.0"),
                 "interestRate": Decimal("0.012"),
                 "monthlyPayment": Decimal("937.74"),
-                "insuranceMonthly": None,
+                # 200 000 at 1.2 % over 240 months: annuity 937.74, so no insurance.
+                "insuranceMonthly": Decimal("0.00"),
                 "signatureDate": date(2022, 5, 2),
                 # 240 installments ending 2042-06-05: the first is 239 months before.
                 "firstDueDate": date(2022, 7, 5),
@@ -90,6 +95,18 @@ class HomeLoanDetailTest(unittest.TestCase):
         d["loan"]["financialInformation"]["nextDuedateAmount"]["value"] = 977.74
 
         self.assertEqual(parse_home_loan_detail(d)["insuranceMonthly"], Decimal("40.00"))
+
+    def test_a_small_excess_over_the_annuity_is_kept_as_insurance(self):
+        d = detail()
+        d["loan"]["financialInformation"]["nextDuedateAmount"]["value"] = 942.74
+
+        self.assertEqual(parse_home_loan_detail(d)["insuranceMonthly"], Decimal("5.00"))
+
+    def test_an_installment_below_the_annuity_gives_no_insurance(self):
+        d = detail()
+        d["loan"]["financialInformation"]["nextDuedateAmount"]["value"] = 900.0
+
+        self.assertIsNone(parse_home_loan_detail(d)["insuranceMonthly"])
 
     def test_the_first_due_date_keeps_to_the_end_of_a_short_month(self):
         d = detail()
@@ -195,7 +212,24 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(len(self.home_requests), 1)
-        self.assertIn(LOAN_ID, [u["externalId"] for u in result["unavailable"]])
+        self.assertEqual(
+            [(u["externalId"], u["code"]) for u in result["unavailable"]],
+            [(LOAN_ID, fetcher.UpstreamUnavailable.code)],
+        )
+        self.assertNotIn(LOAN_ID, [a["externalId"] for a in result["accounts"]])
+        self.assertTrue(result["accounts"])
+
+    async def test_a_home_loan_token_refused_as_expired_leaves_only_the_loan_unavailable(self):
+        result = await self.fetch(
+            loan_token=loan_token_provider([]),
+            home_loan_token=self.home_token([], raises=replay.SessionExpired("refused")),
+        )
+
+        self.assertEqual(self.home_requests, [])
+        self.assertEqual(
+            [(u["externalId"], u["code"]) for u in result["unavailable"]],
+            [(LOAN_ID, fetcher.UpstreamUnavailable.code)],
+        )
         self.assertNotIn(LOAN_ID, [a["externalId"] for a in result["accounts"]])
         self.assertTrue(result["accounts"])
 
@@ -208,6 +242,54 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
             return HOME_TOKEN
 
         return provide
+
+
+class HomeLoanMainWiringTest(unittest.IsolatedAsyncioTestCase):
+    async def run_fetch_once(self, awaits_home_token: bool):
+        tokens = {
+            replay.MAIN_CHAIN: "synthetic-main-token",
+            replay.HOME_LOAN_CHAIN: "synthetic-home-loan-token",
+        }
+        seen: list = []
+
+        async def get(_state, *, chain=replay.MAIN_CHAIN, **_kwargs):
+            return SimpleNamespace(access_token=tokens[chain])
+
+        async def fetch(access_token, **kwargs):
+            self.assertEqual(access_token, "synthetic-main-token")
+            if awaits_home_token:
+                seen.append(await kwargs["home_loan_token"]())
+            return {"accounts": []}
+
+        with patch.object(main._token_cache, "get", AsyncMock(side_effect=get)) as cache, \
+             patch.object(main.fetcher, "fetch_import", AsyncMock(side_effect=fetch)):
+            await main._fetch_once("synthetic-state")
+        return cache, seen
+
+    async def test_the_home_loan_token_is_minted_on_the_bpce_chain(self):
+        cache, seen = await self.run_fetch_once(awaits_home_token=True)
+
+        self.assertEqual(seen, ["synthetic-home-loan-token"])
+        self.assertIn(
+            call(
+                "synthetic-state",
+                authorize_url=replay.HOME_LOAN_AUTHORIZE_URL,
+                token_url=replay.HOME_LOAN_TOKEN_URL,
+                chain=replay.HOME_LOAN_CHAIN,
+                transport=main._TRANSPORT,
+            ),
+            cache.await_args_list,
+        )
+        for url in (replay.HOME_LOAN_AUTHORIZE_URL, replay.HOME_LOAN_TOKEN_URL):
+            with self.subTest(url=url):
+                self.assertTrue(replay.is_allowed_url(url))
+                self.assertIn(urllib.parse.urlsplit(url).hostname, replay.BPCE_HOSTS)
+
+    async def test_no_home_loan_does_not_mint_a_home_loan_token(self):
+        cache, _ = await self.run_fetch_once(awaits_home_token=False)
+
+        self.assertEqual(cache.await_count, 1)
+        self.assertTrue(all(c.kwargs.get("chain") is not replay.HOME_LOAN_CHAIN for c in cache.await_args_list))
 
 
 class BpceHostsTest(unittest.TestCase):

@@ -96,8 +96,13 @@ only them, are added to the allow-list. The detail is
 (`accounts_parser.parse_home_loan_detail`): ISO dates, the rate in percent in
 `nextDuedateRate`, `duration` in installments. The first due date is not given:
 it is the last one minus `duration - 1` months. The debit account comes without
-its IBAN, so `linkedIban` is null. An installment that matches the annuity to
-within 1 % sends no insurance: a home loan's insurance is often taken elsewhere.
+its IBAN, so `linkedIban` is null. As for a personal loan, the insurance is the
+installment minus the annuity, both to the cent: `0.00` when they match (e.g. the
+insurance is taken elsewhere), nothing when the installment is below the annuity.
+Amounts must be in EUR. The schedule assumes level installments, like the personal
+loan: a deferred or stepped home loan is not detected. A refusal (401) from the
+BPCE hosts, token or detail, leaves only the home loan in `unavailable`
+(`UPSTREAM_UNAVAILABLE`) and never fails the import or the session.
 
 Response 200 (money as decimal strings, never floats; a card's `balance` is its
 outstanding, the sum of operations with a future `dueDate`, so <= 0):
@@ -249,7 +254,8 @@ Rules:
 - The pad is typed once: a refusal never triggers a second attempt, here or
   anywhere in the stack (a wrong password costs a bank attempt).
 - Navigation is allow-listed: any request outside `https://*.caisse-epargne.fr`
-  is aborted at the browser (`context.route`).
+  and the two exact BPCE home-loan hosts (`replay.is_allowed_url`) is aborted at
+  the browser (`context.route`).
 - The returned state keeps only cookies on `caisse-epargne.fr`, and the
   authorize query of the first `/api/oauth/v2/authorize` request made from the
   client space (without `code_challenge`, `code_challenge_method`, `nonce`),
@@ -269,7 +275,8 @@ Rules:
   the client-space URL or the timeout decide, so an informational alert can never
   become a false `INVALID_CREDENTIALS` (the user would retype and risk a lock).
 - Browser context: service workers blocked; WebSocket connections to hosts outside
-  `https://*.caisse-epargne.fr` (as `wss://`) are closed (`context.route_web_socket`).
+  `https://*.caisse-epargne.fr` and the two BPCE home-loan hosts (as `wss://`) are
+  closed (`context.route_web_socket`).
 - The 10 key images are re-read and compared to the pinned ones before every
   click; any change (reshuffle, missing image, extra key, bigger image) stops
   with `KEYPAD_CHANGED` and no further click.

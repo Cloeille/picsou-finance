@@ -514,6 +514,20 @@ def _annuity(borrowed: Decimal, rate: Decimal, months: int) -> Decimal:
     return borrowed * monthly / (1 - (1 + monthly) ** -months)
 
 
+def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decimal) -> Optional[Decimal]:
+    """Monthly borrower insurance, derived rather than read, or None below the annuity.
+
+    The bank's installment exceeds the annuity at the nominal rate because of the
+    borrower insurance (types D and I seen live on a personal loan). Picsou's
+    amortisation schedule takes the insurance back out of the installment, so it is
+    sent apart. A home loan's insurance is often taken elsewhere: the installment then
+    matches the annuity to the cent and 0.00 is sent. Below the annuity: no figure.
+    """
+    annuity = _annuity(borrowed, rate, months).quantize(_CENT, rounding=ROUND_HALF_UP)
+    insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
+    return insurance if insurance >= 0 else None
+
+
 def parse_loan_detail(payload: Any) -> dict:
     """`personalLoanPrdSynthesisView` -> the `loan` block of a LOAN account.
 
@@ -538,18 +552,11 @@ def parse_loan_detail(payload: Any) -> dict:
         folder.get("nextMonthlyPaymentAmount"), "loan.folder.nextMonthlyPaymentAmount"
     )
 
-    # Derived, not read: the bank's installment exceeds the annuity at the
-    # nominal rate because of the borrower insurance (types D and I seen live).
-    # Picsou's amortisation schedule takes the insurance back out of the
-    # installment, so it is sent apart. Below the annuity: no insurance figure.
-    annuity = _annuity(borrowed, rate, duration).quantize(_CENT, rounding=ROUND_HALF_UP)
-    insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
-
     return {
         "borrowedAmount": borrowed,
         "interestRate": rate,
         "monthlyPayment": installment,
-        "insuranceMonthly": insurance if insurance >= 0 else None,
+        "insuranceMonthly": _insurance(borrowed, rate, duration, installment),
         "signatureDate": _fr_date(offer.get("signatureDate"), "loan.offer.signatureDate"),
         "firstDueDate": _fr_date(offer.get("firstDueDate"), "loan.offer.firstDueDate"),
         "lastDueDate": _fr_date(folder.get("lastDueDate"), "loan.folder.lastDueDate"),
@@ -614,20 +621,11 @@ def parse_home_loan_detail(payload: Any) -> dict:
             INVALID_LOAN_DETAIL, "loan.financialInformation: first due date before the subscription date"
         )
 
-    # As for a personal loan, any excess of the installment over the annuity is
-    # the borrower insurance. A home loan's insurance is often taken elsewhere:
-    # the installment then matches the annuity to the cent, give or take the
-    # bank's rounding, and no insurance is sent.
-    annuity = _annuity(borrowed, rate, duration).quantize(_CENT, rounding=ROUND_HALF_UP)
-    insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
-    if insurance < 0 or insurance <= installment / 100:
-        insurance = None
-
     return {
         "borrowedAmount": borrowed,
         "interestRate": rate,
         "monthlyPayment": installment,
-        "insuranceMonthly": insurance,
+        "insuranceMonthly": _insurance(borrowed, rate, duration, installment),
         "signatureDate": signature,
         "firstDueDate": first_due,
         "lastDueDate": last_due,

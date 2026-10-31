@@ -335,10 +335,11 @@ async def _fetch_loan_details(
     Personal and home loans each read their own app with its own token. Without a token
     provider a loan is null and imported (legacy). A token that cannot be minted leaves every
     loan of that product unavailable with its code; a detail that cannot be read leaves only
-    its own loan unavailable. A `SessionExpired` while minting a token, or from the
-    personal-loan app, propagates: the session itself is dead, and the caller replays or
-    fails. A 401 from the home-loan app (another OAuth client on BPCE hosts) leaves only
-    that loan unavailable.
+    its own loan unavailable. A `SessionExpired` while minting the personal-loan token, or
+    from the personal-loan app, propagates: the session itself is dead, and the caller
+    replays or fails. The home-loan app is another OAuth client on BPCE hosts: a refusal
+    there, minting its token or reading the detail (401), leaves only the home loans
+    unavailable.
     """
     loans = [a for a in accounts if a["kind"] == "LOAN"]
     details: dict = {a["externalId"]: None for a in loans}
@@ -350,7 +351,14 @@ async def _fetch_loan_details(
         try:
             token = await provider()
         except replay.SessionExpired:
-            raise
+            # The main chain already proved the session in this run, so a refusal from the
+            # BPCE home-loan client says nothing about the SSO session. Propagating it would
+            # make `_fetch_accounts` replay then report SESSION_EXPIRED, which deactivates a
+            # live session (same stance as the PER reader in main.py).
+            if product != "HOME":
+                raise
+            unavailable.update({a["externalId"]: UpstreamUnavailable.code for a in group})
+            continue
         except replay.ReplayError as exc:
             unavailable.update({a["externalId"]: exc.code for a in group})
             continue
