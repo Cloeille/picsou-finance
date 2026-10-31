@@ -53,6 +53,12 @@ class LoanDetailTest(unittest.TestCase):
                 with self.assertRaises(ParseError):
                     parse_loan_detail(d)
 
+    def test_an_amount_too_large_to_quantize_raises(self):
+        d = detail()
+        view(d)["offer"]["proposedAmount"]["value"] = 1e30
+        with self.assertRaises(ParseError):
+            parse_loan_detail(d)
+
     def test_zero_rate_annuity_is_capital_over_duration(self):
         d = detail()
         view(d)["folder"]["tNC"] = 0
@@ -118,6 +124,21 @@ class LoanDetailTest(unittest.TestCase):
                 view(d)["offer"]["proposedAmount"]["value"] = value
                 with self.assertRaises(ParseError):
                     parse_loan_detail(d)
+
+    def test_an_amount_beyond_decimal_precision_is_refused(self):
+        d = detail()
+        view(d)["offer"]["proposedAmount"]["value"] = 10**30
+        with self.assertRaises(ParseError) as e:
+            parse_loan_detail(d)
+        self.assertEqual(e.exception.code, "INVALID_LOAN_DETAIL")
+
+    def test_a_rate_too_small_for_the_annuity_is_refused(self):
+        # 1 + 1e-30 / 12 rounds to 1 in the 28-digit context: the annuity divides by zero.
+        d = detail()
+        view(d)["folder"]["tNC"] = 1e-30
+        with self.assertRaises(ParseError) as e:
+            parse_loan_detail(d)
+        self.assertEqual(e.exception.code, "INVALID_LOAN_DETAIL")
 
     def test_wrong_envelope_raises(self):
         for payload in [None, [], "x", {}, {"personalLoanPrdSynthesisView": []}]:

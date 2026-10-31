@@ -1101,6 +1101,7 @@
         "invalidTan": "Code de vérification incorrect ou expiré. Utilisez le dernier code reçu, ou relancez l'étape pour en recevoir un nouveau.",
         "authenticationFailed": "Échec de l'authentification Trade Republic.",
         "serviceUnavailable": "Le service Trade Republic local n'est pas disponible. Relancez les serveurs puis réessayez.",
+        "temporarilyBlocked": "Trade Republic a bloqué la requête. Réessayez dans une minute.",
         "serverError": "Erreur serveur Trade Republic. Réessayez.",
         "phoneNumberRequired": "Numéro de téléphone requis.",
         "pinRequired": "Code PIN requis.",
@@ -1380,7 +1381,11 @@
       "transactionsImported": "Transactions importées",
       "transactionsSkipped": "Transactions ignorées",
       "done": "Terminé",
-      "errors": { "invalidPreview": "La réponse de prévisualisation est invalide.", "previewFailed": "Impossible de prévisualiser le fichier HomeBank.", "importFailed": "L'import HomeBank a échoué." }
+      "errors": {
+        "invalidPreview": "La réponse de prévisualisation est invalide.",
+        "previewFailed": "Impossible de prévisualiser le fichier HomeBank.",
+        "importFailed": "L'import HomeBank a échoué."
+      }
     },
     "all": {
       "title": "Synchroniser les comptes",
@@ -1561,6 +1566,42 @@
         "formatChanged": "Le format du site Amundi a changé. Vos données existantes ont été conservées.",
         "invalidData": "Amundi a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
         "serverError": "Impossible de joindre Amundi. Veuillez réessayer."
+      }
+    },
+    "cmes": {
+      "title": "Crédit Mutuel / CIC Épargne Salariale",
+      "login": "Identifiant",
+      "password": "Mot de passe",
+      "otpCode": "Code reçu par SMS",
+      "otpPrompt": "Saisissez le code de confirmation reçu par SMS.",
+      "appValidationPrompt": "Ouvrez l'application de votre banque et confirmez la connexion (confirmation mobile).",
+      "appValidationHint": "Cette page se met à jour automatiquement dès que vous avez confirmé. Ensuite, Picsou se reconnecte seul tant que le site reconnaît l'appareil.",
+      "connect": "Se connecter",
+      "connecting": "Connexion en cours…",
+      "validate": "Valider le code",
+      "validating": "Validation en cours…",
+      "sync": "Synchroniser",
+      "queued": "Synchronisation en attente…",
+      "syncing": "Synchronisation en cours…",
+      "syncSuccess": "Plans d'épargne synchronisés.",
+      "clearSession": "Déconnecter",
+      "noSession": "Aucune session active",
+      "sessionActive": "Session active",
+      "scope": "Synchronise vos plans d'épargne salariale Crédit Mutuel ou CIC (PEE, PEG, PERCOL) et les fonds qu'ils contiennent : parts, valeur de la part et plus-value.",
+      "errors": {
+        "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
+        "invalidCredentials": "Identifiant ou mot de passe invalide.",
+        "actionRequired": "Le site vous demande une action (conditions à accepter, coordonnées à compléter). Connectez-vous une fois sur le site, puis réessayez.",
+        "mfaTypeUnsupported": "Le site demande un Digipass ou Safetrans, que Picsou ne sait pas gérer. Choisissez la confirmation mobile ou le SMS dans vos paramètres de sécurité.",
+        "appValidationTimeout": "La confirmation mobile n'a pas été validée à temps. Recommencez la connexion.",
+        "appValidationCancelled": "La confirmation mobile a été refusée dans l'application.",
+        "authAttemptExpired": "La tentative d’authentification a expiré. Recommencez la connexion.",
+        "sessionExpired": "La session a expiré et le site demande une nouvelle confirmation mobile. Veuillez vous reconnecter.",
+        "portfolioIncomplete": "Le site a renvoyé des plans incomplets. Vos données existantes ont été conservées.",
+        "formatChanged": "Le format du site a changé. Vos données existantes ont été conservées.",
+        "invalidData": "Le site a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
+        "serverError": "Impossible de joindre le site d'épargne salariale. Veuillez réessayer.",
+        "invalidCode": "Code SMS erroné. Vérifiez-le et saisissez-le à nouveau."
       }
     },
     "corum": {
