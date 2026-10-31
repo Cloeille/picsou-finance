@@ -117,6 +117,28 @@ class PageTest(unittest.TestCase):
 
                 self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
+    def test_an_early_truncated_savings_table_fails_the_whole_page(self):
+        savings_start = ACCOUNTS_PAGE.index("Livrets et comptes d&#39;épargne")
+        for ending in (
+            'Livrets et comptes d&#39;épargne</span></caption>',
+            'class="_c1 ei_sdsf_ti',
+        ):
+            with self.subTest(ending=ending):
+                page = ACCOUNTS_PAGE[:ACCOUNTS_PAGE.index(ending, savings_start) + len(ending)]
+
+                with self.assertRaises(AccountsFormatError) as error:
+                    parse_accounts(page)
+
+                self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_an_unterminated_empty_contract_table_fails_the_whole_page(self):
+        page = ACCOUNTS_PAGE + '<table class="ei_comptescontrats">'
+
+        with self.assertRaises(AccountsFormatError) as error:
+            parse_accounts(page)
+
+        self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
     def test_an_unterminated_orphan_account_row_fails_the_whole_page(self):
         row = account_row(0, "LIVRET A", "10000 000123456 02", "+1,00 EUR")
         for ending in ('>LIVRET A', '+1,00 EUR</span>'):

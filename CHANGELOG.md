@@ -59,7 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   including a confirmation already in progress or a stored-credentials reconnect still reading
   its password. Unreadable account rows and unrecognized tables containing account data fail the
   whole import, including renamed tables, rows outside the parser's selectors, and truncated
-  account tables or rows, preserving existing balances and snapshots.
+  account tables or rows, preserving existing balances and snapshots. Recognized contract tables
+  also fail when cut off after their opening tag or caption, before any account markers appear.
   Completion has its own 10-attempt quota per IP per 15 minutes,
   separate from the five password checks shared by initiate and reconnect.
   Savings captions accept typographic apostrophes. A wrong SMS code can be corrected

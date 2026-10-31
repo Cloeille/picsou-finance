@@ -37,7 +37,7 @@ CHECKING_CATEGORY = "comptes courants"
 SAVINGS_CATEGORY = "livrets et comptes d'épargne"
 
 _TABLE_RE = re.compile(
-    r'<table\b[^>]*class="[^"]*\bei_comptescontrats\b[^"]*"[^>]*>(?P<body>.*?)</table>',
+    r'<table\b[^>]*class="[^"]*\bei_comptescontrats\b[^"]*"[^>]*>(?P<body>.*?)(?P<closing_tag></table>|\Z)',
     re.DOTALL,
 )
 _UNPARSED_CONTAINER_RE = re.compile(
@@ -130,6 +130,8 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
         raise AccountsFormatError(FORMAT_CHANGED, "No contract table on the accounts page")
 
     # A certified partial page would zero accounts the backend no longer sees.
+    if any(not table.group("closing_tag") for table in tables):
+        raise AccountsFormatError(FORMAT_CHANGED, "Unterminated contract table on the accounts page")
     remainder = _TABLE_RE.sub("", page)
     if any(_has_account_data(match.group("body")) for match in _UNPARSED_CONTAINER_RE.finditer(remainder)):
         raise AccountsFormatError(FORMAT_CHANGED, "Account data outside a recognized contract table")

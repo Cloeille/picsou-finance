@@ -30,9 +30,11 @@ balance.
   balance markers are skipped. Before certifying `snapshotComplete`, the parser also checks
   tables and rows outside its recognized selectors. Account or balance data in a renamed table,
   an orphan row, or unparsed markup inside a contract table fails the fetch with
-  `UPSTREAM_FORMAT_CHANGED`. The check includes tables and rows cut off before their closing tags,
-  even when an account's title or balance span is unfinished. It never certifies the earlier
-  complete tables as a partial snapshot. Existing balances and snapshots remain unchanged.
+  `UPSTREAM_FORMAT_CHANGED`. Every recognized contract table must have a closing tag, even if the
+  page ends immediately after its opening tag or caption, before any account data appears.
+  The check also rejects rows cut off before their closing tags, including unfinished title or
+  balance spans. It never certifies the earlier complete tables as a partial snapshot.
+  Existing balances and snapshots remain unchanged.
   Unrelated tables without account data and summary amounts outside tables or rows are ignored.
   Each account row must have one title, number, and balance; malformed row boundaries cannot merge
   multiple accounts into a single parsed record.
@@ -96,8 +98,9 @@ two in Settings → Accounts.
 ## Regression coverage
 
 - `services/cic-auth/test_accounts_parser.py` and `test_main.py` reject incomplete markup before
-  `/accounts` can return a certified snapshot, including a page cut off after the first savings
-  balance and an unfinished orphan account row.
+  `/accounts` can return a certified snapshot, including a page cut off after the savings caption,
+  midway through the first savings title's class, or after its balance. Parser coverage also
+  rejects an empty, unterminated contract table and an unfinished orphan account row.
 - `CicAdapterTest` preserves the format-change error across the sidecar boundary.
   `CicSyncServiceTest` checks that a failed fetch leaves existing balances and snapshots untouched.
 - `CicControllerTest` exercises the shared initiate/reconnect quota and independent completion
