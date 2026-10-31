@@ -216,6 +216,11 @@ export function formatFortuneoError(err: unknown, t: TFunc): string {
 
 export function formatApiError(err: unknown, t: TFunc, fallbackKey = 'common.error'): string {
   const status = (err as { response?: { status?: number } })?.response?.status
+  const code = (err as { code?: string })?.code
+
+  if (!status && (code === 'ERR_NETWORK' || code === 'ECONNABORTED' || code === 'ETIMEDOUT')) {
+    return t('common.errors.network')
+  }
 
   if (status === 401) return t('common.errors.unauthorized')
   if (status === 429) return t('common.errors.tooManyRequests')

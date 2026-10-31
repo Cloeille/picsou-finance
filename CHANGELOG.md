@@ -21,7 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A property you linked the mortgage to stays linked when the loan syncs again. A loan due on
   the 31st keeps that due day in its schedule, even after a shorter month, and a detail with
   figures out of range, or amounts too large to store, leaves only that loan's details aside
-  instead of failing the import.
+  instead of failing the import. Personal and home loans accept up to 600 monthly
+  installments (50 years); longer durations are refused before calculating insurance,
+  so they cannot block the other accounts' import.
 
 - **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
   Picsou matches it to the dividend history it already holds, marks it as a dividend and files
@@ -61,6 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   balances only. CIC asks for a mobile confirmation at least once every 24 hours, so the daily sync
   only goes through within a day of the last confirmation. It is listed in the dashboard's
   *Sync all* modal, which opens the CIC tab when the session has lapsed.
+  After a complete fetch, an account CIC no longer lists is closed at zero, with a zero balance
+  and snapshot. The account is kept so it can be imported again if it reappears.
+  Its last balance no longer counts toward net worth.
   Deleting its last account removes the session and credentials and revokes pending logins,
   including a confirmation already in progress or a stored-credentials reconnect still reading
   its password. Unreadable account rows and unrecognized tables containing balances fail the
@@ -78,6 +83,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Balance text is extracted with an HTML parser, so amounts in comments or quoted attributes,
   including values containing `>`, do not block valid imports.
   Savings captions accept typographic apostrophes. A wrong SMS code can be corrected
+  its password. Unreadable account rows and unrecognized tables containing account data fail the
+  whole import, including renamed tables, rows outside the parser's selectors, and truncated
+  account tables or rows, preserving existing balances and snapshots. Recognized contract tables
+  also fail when cut off after their opening tag or caption, before any account markers appear.
+  The accounts page must end with its closing HTML tag, so cuts between tables or within their
+  opening tags also fail without changing balances or snapshots. Complete pages containing only
+  checking accounts remain valid.
+  Completion has its own 10-attempt quota per IP per 15 minutes,
+  separate from the five password checks shared by initiate and reconnect.
+  Savings captions accept typographic apostrophes. Savings labels with accents or typographic
+  apostrophes are recognized. The CIC panel is now translated into German and Spanish.
+  A wrong SMS code can be corrected
   without another login, and expired attempts have their pending passwords cleared every minute.
   Rejected credentials make the session inactive and require credential entry, including after an
   explicit reconnect, without erasing a newer login's password. Expired sessions stay in *Sync all*
@@ -313,6 +330,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   import already did. Both importers and the manual ledger share one definition,
   `AccountType.isLedger()`.
 
+- **The demo no longer looks broken.** Every page now gets an answer from the demo build:
+  holdings on every account, prices, connected apps, the status of each provider, the budget's
+  transactions and the fourth goal no longer leave a card loading forever or a table empty. Its
+  figures agree from page to page: the dashboard's net worth and portfolio performance match the
+  Accounts total, an investment account is worth its holdings at the quotes shown and its
+  performance over a range follows those quotes, the family view shows the same accounts, and the car loan and the house's
+  mortgage are real accounts under French names. Performance and the 24-hour chart cover the
+  accounts the dashboard selects, the 24-hour chart follows the hourly quotes, and the history
+  ends on today's value instead of placing it on the first of the month. The budget's
+  transaction list holds the same expenses as the spending breakdown for the month and the
+  year to date, even on the first day of the month. Cashflow totals and every chart bucket
+  sum those same dated rows, and the checking account lists the same transactions as global
+  search. Categorizing a transaction updates the inbox, spending, category drill, envelopes,
+  cashflow, and Sankey together, including direct parent assignments. Loan history follows
+  each dated amortization installment. Goal calendars no longer change on every
+  reload, and a goal's badge matches its calendar. Dates follow today, so the card's next debit
+  and the goal deadlines are ahead of you, and the budget opens on the current month instead of
+  the previous one in France. Settings shows the demo user's name, and opening `/admin` in a
+  fresh demo tab waits for that user's role. SCPI edits update the dashboard, aggregate history,
+  P&L and 24-hour chart during the same session (#277).
+- **Enable Banking setup guidance.** Registration now lists the required application fields,
+  explains email-link sign-in and account-linked activation, and describes restricted-mode
+  limits. Key import is the default. Server key generation requires an explicit action.
+  The success screen distinguishes application configuration from connecting bank accounts,
+  and network failures show a translated Picsou connection message in all four languages.
 - **Caisse d'Epargne loan insurance rounding.** Personal and home loans now
   retain the correct cent-rounded insurance at exact half-cent annuity boundaries
   and extremely small positive nominal rates. Directed Decimal bounds certify

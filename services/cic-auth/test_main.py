@@ -357,7 +357,10 @@ class FlowTest(unittest.TestCase):
             '<div class="doux">Mentions légales</div>',
             "<p>Jusqu'à 80 € offerts</p>",
             '<table class="ei_comptescontrats"><tr><td>'
-            '<span class="ei_sdsf_title">Vos contrats et nos offres</span></td></tr></table>',
+            '<span class="ei_sdsf_title">Vos contrats et nos offres</span></td>'
+            '<td class="ei_sdsf_solde"></td></tr></table>',
+            '<table class="ei_comptescontrats"><tr><td>'
+            '<span class="ei_sdsf_title">Contrat 2024 USD</span></td></tr></table>',
         )
         self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", "".join(fragments) + "</body>")
 

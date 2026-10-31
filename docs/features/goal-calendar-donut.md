@@ -97,7 +97,7 @@ Additionally, a dashed **"+ previous month"** card (`goals.addPreviousMonth`) is
 
 ## Tests
 
-`GoalCalendarPage.test.tsx` renders the page with mocked goal hooks and a fixed date. It checks that the goal name is the H1, ring amounts and objectives are whole euros with no `k`, the current month is `aria-current="date"` and scrolled into view, and the legend renders. Layout (wrapping, label sizes) is checked by screenshots of the demo build at 1440×900 and 390×844.
+`GoalCalendarPage.test.tsx` renders the page with mocked goal hooks and a fixed date. It checks that the goal name is the H1, ring amounts and objectives are whole euros with no `k`, the current month is `aria-current="date"` and scrolled into view, and the legend renders. Layout (wrapping, label sizes) is checked by screenshots of the demo build at 1440×900 and 390×844. In `e2e/goals.spec.ts`, Playwright opens demo goal 2's calendar at 390×844 with a pinned clock and checks that all 12 past/current month buttons sit inside the viewport.
 
 ## Links
 

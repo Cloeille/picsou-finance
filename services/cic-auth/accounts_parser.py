@@ -104,26 +104,34 @@ class _ClassMarkerParser(HTMLParser):
 
 
 class _TextParser(HTMLParser):
-    def __init__(self):
+    def __init__(self, *, ignore_titles: bool = False):
         super().__init__()
         self.parts: list[str] = []
         self.ignored_tag: str | None = None
+        self.ignore_titles = ignore_titles
+        self.title_depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in ("script", "style"):
             self.ignored_tag = tag
+        if tag == "span":
+            classes = next((value for name, value in attrs if name == "class"), None)
+            if self.title_depth or (self.ignore_titles and classes and "ei_sdsf_title" in classes.split()):
+                self.title_depth += 1
 
     def handle_endtag(self, tag: str) -> None:
         if tag == self.ignored_tag:
             self.ignored_tag = None
+        if tag == "span" and self.title_depth:
+            self.title_depth -= 1
 
     def handle_data(self, data: str) -> None:
-        if self.ignored_tag is None:
+        if self.ignored_tag is None and not self.title_depth:
             self.parts.append(data)
 
 
-def _text(fragment: str) -> str:
-    parser = _TextParser()
+def _text(fragment: str, *, ignore_titles: bool = False) -> str:
+    parser = _TextParser(ignore_titles=ignore_titles)
     parser.feed(fragment)
     parser.close()
     return " ".join(" ".join(parser.parts).split())
@@ -175,14 +183,16 @@ def _has_class_marker(fragment: str, markers: set[str]) -> bool:
 
 
 def _has_balance(fragment: str) -> bool:
-    return _has_class_marker(fragment, {"ei_sdsf_montant", "ei_sdsf_solde"}) or any(
+    # Product names can contain years and currency codes; empty solde cells are
+    # also used by contract links. An actual amount marker still requires parsing.
+    return _has_class_marker(fragment, {"ei_sdsf_montant"}) or any(
         match.group("currency") is None or match.group("currency") in _CURRENCY_CODES
-        for match in _BALANCE_RE.finditer(_text(fragment))
+        for match in _BALANCE_RE.finditer(_text(fragment, ignore_titles=True))
     )
 
 
 def _has_account_data(fragment: str) -> bool:
-    return _has_class_marker(fragment, {"ei_sdsf_title", "doux"}) or _has_balance(fragment)
+    return _has_class_marker(fragment, {"ei_sdsf_title", "doux", "ei_sdsf_solde"}) or _has_balance(fragment)
 
 
 # What the backend calls each in-scope table: it closes an account no longer
@@ -233,8 +243,9 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
             number = _NUMBER_RE.search(cells)
             amount = _AMOUNT_RE.search(cells)
             if not supported:
+                # A title without an amount can be a contract or offer link.
                 if _has_balance(cells):
-                    label = _text(title.group("title")) if title else ""
+                    label = _text(title.group("title"))[:60] if title else ""
                     product = f", product {label!r}" if label else ""
                     raise AccountsFormatError(
                         FORMAT_CHANGED,

@@ -25,11 +25,16 @@ balance.
   PEL, CEL, else `SAVINGS`). Product labels ignore accents and typographic apostrophes. Category
   names accept straight and typographic apostrophes. Tables
   outside these categories are skipped only when their rows contain no balance data. A product
-  title alone, such as "Vos contrats et nos offres", can be a contract link without a balance.
+  title alone, such as "Vos contrats et nos offres", can be a contract link without a balance,
+  including when accompanied by an empty `ei_sdsf_solde` cell. Product-title text is excluded
+  from money detection, so a name such as "Contrat 2024 USD" is not a balance. Amount markers
+  still count even inside titles. Empty balance cells remain account markers in supported
+  tables and unrecognized table or row blocks, preserving strict completeness checks.
   An unnamed or unrecognized table with a balance fails the whole page. Its error names the
-  normalized category and the product title when available. Balance detection uses amount and
-  balance class tokens on actual elements or plain-text money with a trailing currency code or a
-  `€`, `$`, or `£` symbol on either side of the amount. A symbol before the amount requires cents.
+  normalized category and up to 60 characters of the product title when available. Balance
+  detection uses amount class tokens on actual elements or plain-text money with a trailing
+  currency code or a `€`, `$`, or `£` symbol on either side of the amount. A symbol before the
+  amount requires cents.
   Alphabetic currency tokens must belong to the local ISO 4217 code set, taken from
   [SIX List One](https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml)
   published on 2026-09-17. Ordinary text such as `© 2026 CIC` does not count as money. Scanning
@@ -59,6 +64,19 @@ balance.
 - **Backend**: `CicSyncService`, shaped like `CmesSyncService` (stored credentials, re-login with the
   previous session, daily source `cic`), balance-only accounts with `upsertSnapshot`. Migration
   V121 `cic_session`. `/api/cic/*`, `/api/cic/auth/complete` given 180 s in nginx.
+  `/auth/initiate` and `/auth/reconnect` share 5 password checks per IP per 15 min; `/auth/complete`
+  has its own 10, so retyped SMS codes do not use them up. An account a complete fetch no longer
+  lists is closed at zero (balance 0, zero snapshot), not soft-deleted, so it can come back; only
+  when the table of its category (current or savings) was read. `/accounts/listing` answers
+  `{accounts, categoriesRead}`, `categoriesRead` naming the in-scope tables the page carried, an
+  empty one included: closing the last livret leaves an empty savings table and closes the account,
+  while a table missing from the page leaves its accounts as they were. Page validation completes
+  before `/accounts/listing` reports any accounts or categories. An incomplete or malformed page
+  returns `UPSTREAM_FORMAT_CHANGED` without a partial listing. `/accounts` still serves
+  the bare list for backends that predate it, and the adapter falls back to that list when an older
+  sidecar answers 404 on `/accounts/listing`; without the tables, a category counts as read when
+  another account of it came back.
+  Savings labels are typed with accents and typographic apostrophes folded.
 - **Frontend**: `CicPanel` (`SidecarSessionPanel` + app push / SMS), tab `cic` on `/sync`. While
   the user approves the push in the CIC app, iOS drops Safari's pending `/auth/complete` request; the
   backend finishes regardless. A completion lost without an answer (network error, 502/504) keeps the
@@ -114,6 +132,14 @@ two in Settings → Accounts.
   and hidden-markup cases alongside the restored completeness checks. It rejects truncated
   documents and tables, orphan or unparsed account rows, and merged account rows. Totals,
   promotional amounts, and legal text outside tables or rows preserve all parsed accounts.
+  Title-only contracts with empty balance cells or currency codes in their names are skipped,
+  while visible balances after nested titles still fail the whole page.
 - `services/cic-auth/test_main.py` checks that incomplete and renamed tables return HTTP 502
   before a snapshot or category evidence is certified. Complete checking-only pages remain
   valid, and listing responses distinguish missing savings tables from empty ones.
+- `CicAdapterTest` preserves the format-change error across the sidecar boundary.
+  `CicSyncServiceTest` checks that a failed fetch leaves existing balances and snapshots untouched.
+  It also covers category-aware closure with explicit table reporting and legacy bare-list responses,
+  and rejects incomplete accounts before any account writes.
+- `CicControllerTest` exercises the shared initiate/reconnect quota and independent completion
+  quota through HTTP. `RateLimitConfigCicTest` checks both capacities and their 15-minute refill.
