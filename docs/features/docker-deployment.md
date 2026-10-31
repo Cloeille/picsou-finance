@@ -278,13 +278,16 @@ native forwarding and trusts only the local nginx loopback hop. Rate limiters, s
 and audit logs share the resolved remote address.
 
 Defaults in `docker/docker-compose.yml` are `PICSOU_PROXY_SUBNET=172.30.253.0/29`,
-`PICSOU_PROXY_IP=172.30.253.2` for Caddy, and `PICSOU_APP_TLS_IP=172.30.253.3` for the app.
-The app starts before Caddy and needs its own static address so Docker cannot assign it Caddy's
-address. Set all three in `docker/.env` if this subnet overlaps an existing network. Both
-addresses must be distinct usable host addresses inside the subnet, separate from the gateway.
-Compose also passes `PICSOU_PROXY_IP` to the app as nginx's trusted peer; the app's own TLS
-address does not extend that trust. The entrypoint rejects proxy values other than a plain IPv4
-literal. Standalone image runs with `PICSOU_PROXY_IP` unset trust no upstream client-address header.
+`PICSOU_PROXY_IP=172.30.253.2` for Caddy, and `PICSOU_PROXY_IP_RANGE=172.30.253.4/30`
+for Docker's automatic address allocation. The app has no fixed TLS address, so `deploy.sh`
+can run one-off migration containers while the live app remains up. Caddy stays outside the
+allocation range, preventing the app from taking its address when it starts first. Set all
+three in `docker/.env` if this subnet overlaps an existing network. The range must be inside
+the subnet and exclude Caddy's address and the gateway; Caddy needs a usable host address
+inside the subnet. Allow at least two usable addresses in the range for the live app and
+one migration container. Compose also passes `PICSOU_PROXY_IP` to the app as nginx's trusted
+peer. The entrypoint rejects proxy values other than a plain IPv4 literal. Standalone image
+runs with `PICSOU_PROXY_IP` unset trust no upstream client-address header.
 For a custom proxy, set it to that proxy's exact address as seen by nginx and recreate the app.
 Do not use a shared Docker subnet or all private networks as a trust list.
 
@@ -306,7 +309,10 @@ See [CORS & cookie security](./security-cors-cookies.md) and the
 `docker/tests/test_proxy_client_ip.py` starts fresh isolated Compose projects with real Caddy
 and a lightweight app stand-in. It preserves the shipped network attachments and startup
 dependency, checks default and custom addresses, waits for Caddy's health check, and probes
-the `app-tls` upstream. It publishes no host ports and removes its test containers and volumes.
+the `app-tls` upstream. It also runs a one-off app container alongside the live app to cover
+repeat deployments. The nginx fixtures create explicit randomized subnets for static test
+addresses, retrying subnet overlaps for compatibility with Docker versions used in CI.
+The Compose tests publish no host ports and remove their test containers and volumes.
 
 ### Key files
 

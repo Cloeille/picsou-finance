@@ -42,6 +42,23 @@ def command(args, *, check=True, env=None, timeout=30):
     return result
 
 
+def create_test_network(name, *, internal=False):
+    for _ in range(32):
+        subnet = ipaddress.ip_network(f"172.31.{uuid.uuid4().int & 0xff}.0/24")
+        args = ["docker", "network", "create", "--subnet", str(subnet)]
+        if internal:
+            args.append("--internal")
+        args.append(name)
+
+        result = command(args, check=False)
+        if result.returncode == 0:
+            return subnet
+        if "pool overlaps with other one on this address space" not in result.stderr.lower():
+            assert result.returncode == 0, (args, result.stdout, result.stderr)
+
+    pytest.fail("Could not allocate a non-overlapping Docker test subnet")
+
+
 @pytest.fixture(scope="module")
 def nginx_proxy(tmp_path_factory):
     suffix = uuid.uuid4().hex[:12]
@@ -52,13 +69,8 @@ def nginx_proxy(tmp_path_factory):
     snippets = tmp_path_factory.mktemp("nginx-snippets")
     backend = snippets.parent / "backend.conf"
 
-    command(["docker", "network", "create", network_name])
+    subnet = create_test_network(network_name)
     try:
-        subnet_text = command([
-            "docker", "network", "inspect", "--format",
-            "{{(index .IPAM.Config 0).Subnet}}", network_name,
-        ]).stdout.strip()
-        subnet = ipaddress.ip_network(subnet_text)
         trusted_proxy_ip = str(subnet.network_address + 10)
         untrusted_client_ip = str(subnet.network_address + 11)
 
@@ -188,13 +200,13 @@ def test_nginx_leaves_the_forwarded_port_empty_for_scheme_default(nginx_proxy):
 
 def test_compose_assigns_the_same_exact_address_to_caddy_and_nginx():
     proxy_ip = "172.30.254.2"
-    app_ip = "172.30.254.3"
     proxy_subnet = "172.30.254.0/29"
+    proxy_ip_range = "172.30.254.4/30"
     environment = {
         **os.environ,
         "APP_SIDECAR_API_KEY": "synthetic-proxy-config-test",
         "PICSOU_PROXY_IP": proxy_ip,
-        "PICSOU_APP_TLS_IP": app_ip,
+        "PICSOU_PROXY_IP_RANGE": proxy_ip_range,
         "PICSOU_PROXY_SUBNET": proxy_subnet,
     }
     rendered = command([
@@ -206,25 +218,26 @@ def test_compose_assigns_the_same_exact_address_to_caddy_and_nginx():
 
     assert compose["services"]["app"]["environment"]["PICSOU_PROXY_IP"] == proxy_ip
     assert compose["services"]["proxy"]["networks"]["tls-proxy"]["ipv4_address"] == proxy_ip
-    assert compose["services"]["app"]["networks"]["tls-proxy"]["ipv4_address"] == app_ip
+    assert "ipv4_address" not in compose["services"]["app"]["networks"]["tls-proxy"]
     assert compose["services"]["app"]["networks"]["tls-proxy"]["aliases"] == ["app-tls"]
     assert compose["networks"]["tls-proxy"]["internal"] is True
     assert compose["networks"]["tls-proxy"]["ipam"]["config"][0]["subnet"] == proxy_subnet
+    assert compose["networks"]["tls-proxy"]["ipam"]["config"][0]["ip_range"] == proxy_ip_range
 
 
 @pytest.mark.parametrize("addresses", [
     {},
     {
-        "PICSOU_PROXY_SUBNET": "172.30.252.0/29",
+        "PICSOU_PROXY_SUBNET": "172.30.252.0/28",
         "PICSOU_PROXY_IP": "172.30.252.4",
-        "PICSOU_APP_TLS_IP": "172.30.252.5",
+        "PICSOU_PROXY_IP_RANGE": "172.30.252.8/29",
     },
 ], ids=["defaults", "custom-addresses"])
-def test_fresh_tls_compose_starts_app_before_caddy_without_address_collision(tmp_path, addresses):
+def test_tls_compose_starts_app_before_caddy_and_allows_concurrent_one_off_app(tmp_path, addresses):
     project = f"picsou-tls-test-{uuid.uuid4().hex[:12]}"
     environment = {
         key: value for key, value in os.environ.items()
-        if key not in {"PICSOU_PROXY_SUBNET", "PICSOU_PROXY_IP", "PICSOU_APP_TLS_IP"}
+        if key not in {"PICSOU_PROXY_SUBNET", "PICSOU_PROXY_IP", "PICSOU_PROXY_IP_RANGE"}
     }
     environment.update({
         "APP_SIDECAR_API_KEY": "synthetic-tls-startup-test",
@@ -266,10 +279,17 @@ def test_fresh_tls_compose_starts_app_before_caddy_without_address_collision(tmp
                 container["NetworkSettings"]["Networks"][network]["IPAddress"]
             for container in containers
         }
-        assert actual_addresses == {
-            "app": addresses.get("PICSOU_APP_TLS_IP", "172.30.253.3"),
-            "proxy": addresses.get("PICSOU_PROXY_IP", "172.30.253.2"),
-        }
+        migration = command([
+            *args, "run", "--rm", "--no-deps", "--entrypoint", "wget", "app",
+            "-q", "-O", "-", f"http://{actual_addresses['app']}:8080",
+        ])
+        assert migration.stdout == "synthetic TLS upstream\n"
+        assert actual_addresses["proxy"] == addresses.get("PICSOU_PROXY_IP", "172.30.253.2")
+        allocation_range = ipaddress.ip_network(
+            addresses.get("PICSOU_PROXY_IP_RANGE", "172.30.253.4/30"),
+        )
+        assert ipaddress.ip_address(actual_addresses["app"]) in allocation_range
+        assert ipaddress.ip_address(actual_addresses["proxy"]) not in allocation_range
         response = command([
             *args, "exec", "-T", "proxy", "wget", "-q", "-O", "-", "http://app-tls:8080",
         ])
@@ -339,16 +359,14 @@ def split_frontend_proxy(tmp_path_factory):
         encoding="utf-8",
     )
 
-    command(["docker", "network", "create", general_network])
-    command(["docker", "network", "create", "--internal", ingress_network])
+    created_networks = []
     try:
-        subnet_text = command([
-            "docker", "network", "inspect", "--format",
-            "{{(index .IPAM.Config 0).Subnet}}", ingress_network,
-        ]).stdout.strip()
-        subnet = ipaddress.ip_network(subnet_text)
-        frontend_ingress_ip = str(subnet.network_address + 2)
-        backend_ingress_ip = str(subnet.network_address + 3)
+        create_test_network(general_network)
+        created_networks.append(general_network)
+        ingress_subnet = create_test_network(ingress_network, internal=True)
+        created_networks.append(ingress_network)
+        frontend_ingress_ip = str(ingress_subnet.network_address + 2)
+        backend_ingress_ip = str(ingress_subnet.network_address + 3)
 
         command([
             "docker", "run", "--detach", "--name", backend_name,
@@ -394,7 +412,8 @@ def split_frontend_proxy(tmp_path_factory):
             ["docker", "rm", "--force", client_name, frontend_name, backend_name],
             check=False,
         )
-        command(["docker", "network", "rm", ingress_network, general_network], check=False)
+        if created_networks:
+            command(["docker", "network", "rm", *reversed(created_networks)], check=False)
 
 
 def test_split_frontend_uses_fixed_ingress_peer_and_keeps_published_port_reachable(

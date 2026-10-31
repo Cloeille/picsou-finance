@@ -13,9 +13,11 @@ headers. Rate limiters and audit readers needed one consistent client-address po
 ## Decision
 
 - nginx uses its real-IP module with an explicit trusted upstream address. The optional Caddy
-  service and the app have distinct stable addresses on a dedicated bridge, so the app cannot
-  claim Caddy's address when it starts first; the entrypoint generates its trust snippet
-  from validated configuration. Without an upstream proxy configuration, no forwarded client
+  service has a fixed address outside the dedicated bridge's automatic allocation range, so
+  the app cannot claim Caddy's address when it starts first. The app and one-off migration
+  containers receive dynamic addresses, allowing upgrades while the app remains up.
+  The entrypoint generates its trust snippet from validated configuration. Without an upstream
+  proxy configuration, no forwarded client
   address is trusted at nginx.
 - Every nginx backend location replaces outgoing `X-Forwarded-For` and `X-Real-IP` with its
   resolved address. Incoming client-address chains are not appended.
@@ -36,6 +38,9 @@ headers. Rate limiters and audit readers needed one consistent client-address po
 - **Resolve the optional Caddy hostname when nginx starts:** nginx must also start when the TLS
   profile is off; resolving an absent service would prevent startup.
 - **Custom forwarding parser/filter:** duplicates existing container and proxy functionality.
+- **Give the bundled app a fixed TLS address:** one-off migration containers inherit it and
+  collide with the live app during repeat deployments. Restricting automatic allocation
+  reserves Caddy's address without a separate migration network override.
 
 ## Consequences
 
@@ -43,14 +48,16 @@ The login quota and other limits remain unchanged, with separate buckets per res
 Untrusted direct connections keep their socket address regardless of client-address headers.
 Custom deployments must identify their actual proxy peers explicitly. Stable small bridge
 subnets can conflict with an existing network; operators must adjust the documented addresses
-and trust settings together. The TLS bridge's subnet, proxy address, and app address are configurable.
+and trust settings together. The TLS bridge's subnet, proxy address, and automatic allocation
+range are configurable. The proxy address and gateway must stay outside that range, which
+needs at least two usable addresses for the live app and one migration container.
 
 ## Validation
 
 Synthetic tests cover separate proxied login buckets, untrusted direct headers, IPv4/IPv6
 addresses, audit consistency, public origin ports, nginx forwarding and entrypoint configuration.
 Fresh Compose startup tests cover default and custom TLS bridge addresses, Caddy health and
-upstream reachability with the app starting first.
+upstream reachability with the app starting first, plus one-off app containers while it is up.
 See [CORS & cookie security](../features/security-cors-cookies.md) and
 [Docker deployment](../features/docker-deployment.md).
 

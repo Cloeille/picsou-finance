@@ -311,8 +311,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-client login limits. nginx and Tomcat resolve forwarded addresses only from configured
   proxy peers, and rate limiters and audit logs use the same resolved address. Direct client
   headers do not replace the connection address. Public HTTP and HTTPS ports remain available
-  to same-origin checks. The app and Caddy have distinct configurable static addresses on the
-  TLS bridge so a fresh stack starts without an address-allocation conflict.
+  to same-origin checks. Caddy's configurable static address stays outside the TLS bridge's
+  automatic allocation range, allowing fresh startup and repeat deployment migrations
+  alongside the running app without address conflicts.
 
 - **The demo no longer looks broken.** Every page now gets an answer from the demo build:
   holdings on every account, prices, connected apps, the status of each provider, the budget's
