@@ -207,6 +207,17 @@ class FinaryHoldingsImporterTest {
             List.of(security("AXA", null, 1, 90, 100, 10), withoutEurValue(cashSecurity(100))), null, null, null));
     }
 
+    @Test
+    void importHoldings_keepsExistingHoldingsAndCash_whenAPositionHasNoQuantity() {
+        FinaryPositionDto unknownQuantity = new FinaryPositionDto(
+            "s1", "AXA", "user_security", null,
+            null, null, null, null, null,
+            null, null, 100.0, null,
+            new FinarySecurityRefDto(1L, "AXA", "FR0000120628", null, null, "security"),
+            null, null, null, null);
+        assertKeepsExisting(portfolio(List.of(unknownQuantity), null, null, null));
+    }
+
     private void assertKeepsExisting(FinaryAccountDto finary) {
         Account account = account();
         account.setCashBalance(new BigDecimal("500"));

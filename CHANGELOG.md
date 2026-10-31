@@ -675,6 +675,11 @@ information architecture.
 - **A rebuilt Finary or manual-cash history dates each balance at the end of its
   day.** The rebuilt snapshot for a day held the balance before that day's
   transactions, so every point of the rebuilt history was one day off.
+- **A Finary position without a quantity no longer deletes the account's holdings.**
+  The import skipped the line, then replaced the holdings with what was left, so one
+  share Finary sent with `quantity: null` vanished with its cost basis. Such a payload
+  now keeps the account's holdings and cash as they were; an explicit zero still
+  closes the position.
 - The account-deletion dialog scrolls on short screens and wraps long action
   labels without horizontal overflow.
 - Account deletion preserves the last active administrator even when other

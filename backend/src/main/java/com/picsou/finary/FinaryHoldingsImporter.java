@@ -31,9 +31,9 @@ import java.util.regex.Pattern;
  * <p>Holdings and cash are replaced wholesale, so only a complete snapshot may replace them: one
  * that carries every list this importer reads ({@code securities}, {@code cryptos},
  * {@code fonds_euro}, {@code fiats}, {@code generic_assets}, {@code scpis},
- * {@code precious_metals}), even empty, and a EUR value on every cash line. A payload missing any
- * of them cannot tell an emptied group from an omitted one, or state the cash, so the existing
- * holdings and cash are kept.
+ * {@code precious_metals}), even empty, a EUR value on every cash line, and a quantity on every
+ * other position. A payload missing any of them cannot tell an emptied group from an omitted one,
+ * state the cash, or say how much is held, so the existing holdings and cash are kept.
  * Values are stored as EUR only from {@code display_*} fields, and only once the
  * caller has proven the display currency is EUR; otherwise nothing is changed. Cash-like
  * lines (fiats, "Solde Espèces") are not persisted as holdings — they go into
@@ -72,6 +72,11 @@ public class FinaryHoldingsImporter {
             return 0;
         }
         List<FinaryPositionDto> positions = collectPositions(finaryAcc);
+        if (positions.stream().anyMatch(p -> !isCash(p) && p.quantity() == null)) {
+            log.warn("Keeping the holdings of account {}: a position has no quantity",
+                account.getId());
+            return 0;
+        }
 
         account.setCashBalance(cash.signum() == 0 ? null : cash);
 
@@ -89,7 +94,7 @@ public class FinaryHoldingsImporter {
                 continue;
             }
             BigDecimal qty = decimal(position.quantity());
-            if (qty == null || qty.signum() == 0) {
+            if (qty.signum() == 0) {
                 continue;
             }
             ResolvedInstrument instrument = resolveInstrument(position);
