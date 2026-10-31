@@ -158,16 +158,16 @@ export function firstGraphemes(value: string, count: number): string {
   return result
 }
 
-/** First character of up to two words, else the first two characters (user-perceived, not UTF-16 units). Always uppercase. */
+/** First character of up to two words, else the first two characters (user-perceived, not UTF-16 units). Always uppercase. At most two characters. */
 export function deriveMonogram(label: string | null | undefined): string {
   const clean = (label ?? '').trim()
   if (!clean) return '•'
   const words = clean.split(/\s+/).filter(Boolean)
   const letters =
     words.length >= 2
-      ? firstGraphemes(words[0]!, 1) + firstGraphemes(words[1]!, 1)
-      : firstGraphemes(clean, 2)
-  return letters.toUpperCase()
+      ? firstGraphemes(words[0]!.toUpperCase(), 1) + firstGraphemes(words[1]!.toUpperCase(), 1)
+      : firstGraphemes(clean.toUpperCase(), 2)
+  return letters
 }
 
 export function formatLocalDate(dateStr: string | null | undefined, locale = getLocale()): string {

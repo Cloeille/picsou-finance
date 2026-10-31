@@ -311,4 +311,9 @@ describe('deriveMonogram', () => {
       expect(deriveMonogram(label)).not.toMatch(LONE_SURROGATE)
     },
   )
+
+  it('stays at two characters when uppercasing expands one', () => {
+    expect(deriveMonogram('ß Bank')).toBe('SB')
+    expect(deriveMonogram('ßx')).toBe('SS')
+  })
 })
