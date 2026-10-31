@@ -29,12 +29,14 @@ balance.
   contract link without a balance, including when accompanied by an empty `ei_sdsf_solde` cell.
   An actual `doux` account-number
   marker or any visible non-whitespace text in an `ei_sdsf_solde` element fails closed, including
-  bare numeric balances without a currency. Product-title text requires decimal punctuation
-  or a currency symbol to count as money, so a name such as "Contrat 2024 USD" is not a balance,
-  while nested text such as "1 234,56 EUR" is. Amount markers
+  bare numeric balances without a currency. Product-title text requires decimal punctuation,
+  a currency symbol, or a whole number with grouped thousands (at least four digits) to count as
+  money. A name such as "Contrat 2024 USD" is not a balance, while nested text such as
+  "1 234 EUR" or "1 234,56 EUR" is. Amount markers
   still count even inside titles. Balance elements can be cells, spans, divs, or other
   containers. Unbalanced title markup cannot suppress balances in following cells;
-  an unterminated title is also scanned for whole-number balances. Empty balance cells remain
+  an unterminated title is also scanned for whole-number balances, even if an enclosing end tag
+  or a new `td` or `th` implicitly closes it. Empty balance cells remain
   account markers in supported
   tables and unrecognized table or row blocks, preserving strict completeness checks.
   An unnamed or unrecognized table with a balance fails the whole page. Its error names the
@@ -45,6 +47,10 @@ balance.
   (except `EUR`, which remains case-insensitive) or a `€`, `$`, or `£` symbol on either side of the amount,
   including whole-number amounts. Numeric runs are tokenized once so long text without a
   currency does not trigger quadratic regex retries.
+  Outside contract tables, an alphabetic currency prefix requires decimal punctuation in the
+  amount. Uppercase layout text such as `TOP 10 des offres`, `ALL 3 offres`, or `SOS 112` therefore
+  preserves the accounts. Number-first amounts and currency symbols still fail closed there,
+  as do decimal amounts such as `EUR 12,34`. Contract tables accept whole-number prefixes.
   Alphabetic currency prefixes must be whole words, so a date such as `31 mars 2026`
   in a layout table is not mistaken for an `ARS` balance. Lowercase words such as
   `ils`, `top`, `mur`, or `all` are not currency tokens. A number immediately
@@ -53,7 +59,10 @@ balance.
   [SIX List One](https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml)
   published on 2026-09-17. Ordinary text such as `© 2026 CIC` does not count as money. Scanning
   continues after nonmonetary text, so a later visible balance still fails the page.
-  Script and style bodies are removed before table discovery and marker detection. JavaScript
+  An HTML parser identifies comments and script and style bodies before table discovery and
+  marker detection, preserving the remaining source markup. A fake `<script>` or `<style>`
+  opening inside a comment or quoted attribute cannot consume visible contract tables up to
+  a later closing tag. Account parsing and category discovery use the same preprocessing. JavaScript
   replacement strings such as `"$1"`, `"$1$2"`, and `"$1 $2"`, CSS selectors, and markup inside these
   bodies cannot be mistaken for accounts or balances. Account titles, account numbers, and balances
   are detected in leftover `<table>` or `<tr>` blocks through parsed element class tokens. Marker
@@ -148,12 +157,15 @@ two in Settings → Accounts.
   promotional amounts, and legal text outside tables or rows preserve all parsed accounts.
   Title-only contracts with empty balance cells or currency codes in their names are skipped,
   while visible balances after nested or malformed titles still fail the whole page.
-  Non-cell balance elements, prose that overlaps ISO codes, and privacy of unknown-category
-  error messages have explicit regression cases.
+  Non-cell balance elements, uppercase layout prose that overlaps ISO codes, comments and
+  attributes containing fake script or style openings, and privacy of unknown-category error
+  messages have explicit regression cases.
 - `services/cic-auth/test_main.py` checks that incomplete and renamed tables return HTTP 502
   before a snapshot or category evidence is certified. Unknown-category warnings omit product
   names and balances. Complete checking-only pages remain
-  valid, and listing responses distinguish missing savings tables from empty ones.
+  valid, and listing responses distinguish missing savings tables from empty ones. Both account
+  endpoints preserve accounts behind fake script openings and reject whole-number balances in
+  malformed titles or grouped amounts nested in closed titles before certifying a snapshot.
 - `CicAdapterTest` preserves the format-change error across the sidecar boundary.
   `CicSyncServiceTest` checks that a failed fetch leaves existing balances and snapshots untouched.
   It also covers category-aware closure with explicit table reporting and legacy bare-list responses,

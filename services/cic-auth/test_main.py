@@ -372,6 +372,9 @@ class FlowTest(unittest.TestCase):
         fragments = (
             '<table class="layout"><tr><td>Depuis 2026 ils proposent. '
             'SOS 24h/24. Top 10</td></tr></table>',
+            '<table class="layout"><tr><td>TOP 10 des offres</td></tr></table>',
+            '<table class="layout"><tr><td>ALL 3 offres</td></tr></table>',
+            '<table class="layout"><tr><td>SOS 112</td></tr></table>',
             "<p>Total : 10 135,06 EUR</p>",
             '<div class="doux">Mentions légales</div>',
             "<p>Jusqu'à 80 € offerts</p>",
@@ -394,6 +397,36 @@ class FlowTest(unittest.TestCase):
                 self.assertTrue(all(account["snapshotComplete"] for account in accounts))
                 if path == "/accounts/listing":
                     self.assertEqual(payload["categoriesRead"], ["CHECKING", "SAVINGS"])
+
+    def test_fake_script_openings_preserve_both_account_responses(self):
+        session = self.confirm()
+        self.bank.accounts_page = ACCOUNTS_PAGE.replace(
+            "<body>", '<body><!-- <script> --><div title="<style>">Aide</div>',
+        ).replace("</body>", "<script>ignored</script><style>ignored</style></body>")
+
+        for path in ("/accounts", "/accounts/listing"):
+            with self.subTest(path=path):
+                response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = response.json()
+                accounts = payload if path == "/accounts" else payload["accounts"]
+                self.assertEqual([account["type"] for account in accounts], ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
+                self.assertTrue(all(account["snapshotComplete"] for account in accounts))
+                if path == "/accounts/listing":
+                    self.assertEqual(payload["categoriesRead"], ["CHECKING", "SAVINGS"])
+
+    def test_whole_number_balances_in_titles_cannot_certify_a_partial_snapshot(self):
+        session = self.confirm()
+        for title in ('<span class="ei_sdsf_title">LIVRET X 1234 EUR',
+                      '<span class="ei_sdsf_title">LIVRET X <span>1 234 EUR</span></span>'):
+            for category in ("", "Nouveaux comptes"):
+                table = accounts_table(category, f"<tr><td>{title}</td></tr>")
+                self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+                for path in ("/accounts", "/accounts/listing"):
+                    with self.subTest(title=title, category=category, path=path):
+                        response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+                        self.assertEqual((response.status_code, response.json()),
+                                         (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
 
     def test_the_listing_reports_only_the_tables_on_the_page(self):
         # The savings table is missing: the backend must not read that as "no livret any more".

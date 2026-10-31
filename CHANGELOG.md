@@ -80,13 +80,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reporting distinguishes missing tables from present empty ones before a snapshot is certified.
   Uppercase currency codes are accepted before or after the number, as are currency
   symbols, including whole-number amounts; `EUR` also accepts lowercase.
-  Ordinary words such as `ils` or `Top 10` and help text such as `SOS 24h/24`
-  in layout tables do not block imports. Money nested in product titles is detected when it
-  includes decimal punctuation or a symbol; a title such as `Contrat 2024 USD` remains a link.
-  Malformed title markup cannot hide balances in following cells. Markers and both text
+  Ordinary words such as `ils`, uppercase offers such as `TOP 10` or `ALL 3 offres`,
+  and help text such as `SOS 112` or `SOS 24h/24` in layout tables do not block imports.
+  Alphabetic currency prefixes outside contract tables require decimal punctuation;
+  number-first amounts and currency symbols still count there. Money nested in product titles
+  is detected when it includes decimal punctuation, a symbol, or grouped thousands such as
+  `1 234 EUR`; a title such as `Contrat 2024 USD` remains a link.
+  Malformed title markup cannot hide whole-number balances, including when an enclosing end
+  tag or the next cell implicitly closes the title. Markers and both text
   variants are collected in one HTML pass per fragment.
   Numeric runs are scanned once to avoid quadratic retries on long text without currency.
-  Script and style bodies are excluded before table and marker detection, so JavaScript
+  Comments and script and style bodies are excluded with an HTML parser before table and
+  marker detection. Fake script or style openings inside comments or attributes cannot hide
+  accounts from either account response or category discovery. JavaScript
   replacement strings, class references, and CSS selectors do not
   block imports. Alphabetic currency tokens are checked against ISO 4217 codes, so footer text
   such as `© 2026 CIC` does not block imports. Currency prefixes must be whole words, so French

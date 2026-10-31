@@ -91,7 +91,8 @@ class PageTest(unittest.TestCase):
 
     def test_currency_code_words_in_layout_tables_keep_all_accounts(self):
         for text in ("Depuis 2026 ils proposent", "ils 2026", "SOS 24h/24",
-                     "Top 10", "10 top", "mur 1234", "all 10", "ars 2026"):
+                     "Top 10", "10 top", "mur 1234", "all 10", "ars 2026",
+                     "TOP 10 des offres", "ALL 3 offres", "SOS 112"):
             table = f'<table class="layout"><tr><td>{text}</td></tr></table>'
             page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
             with self.subTest(text=text):
@@ -378,6 +379,38 @@ class PageTest(unittest.TestCase):
                     parse_accounts(ACCOUNTS_PAGE.replace("</body>", f"<{tag}>{table}</{tag}></body>")),
                     parse_accounts(ACCOUNTS_PAGE),
                 )
+
+    def test_fake_script_and_style_openings_cannot_swallow_accounts(self):
+        for tag in ("script", "SCRIPT", "style", "STYLE"):
+            for opening in (f"<!-- <{tag}> -->", f'<div title="<{tag}>">Aide</div>'):
+                page = ACCOUNTS_PAGE.replace("<body>", "<body>" + opening)
+                page = page.replace("</body>", f"<{tag}>ignored</{tag}></body>")
+                with self.subTest(tag=tag, opening=opening):
+                    self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
+                    self.assertEqual(categories_read(page), categories_read(ACCOUNTS_PAGE))
+
+    def test_comments_and_bogus_declarations_preserve_visible_accounts(self):
+        for comment in ("<!help>", "<!-- > <script> -->", "<!--->"):
+            page = ACCOUNTS_PAGE.replace("<body>", "<body>" + comment)
+            with self.subTest(comment=comment):
+                self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
+                self.assertEqual(categories_read(page), categories_read(ACCOUNTS_PAGE))
+
+    def test_unterminated_comments_cannot_certify_hidden_tables(self):
+        page = ACCOUNTS_PAGE.replace("<body>", "<body><!-- help")
+        with self.assertRaises(AccountsFormatError) as error:
+            parse_accounts(page)
+        self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+        self.assertEqual(categories_read(page), [])
+
+    def test_layout_currency_prefixes_with_decimals_still_fail_the_page(self):
+        for amount in ("TOP 10,50", "ALL 3.25", "SOS 112,00", "10 TOP", "$10", "£3"):
+            page = ACCOUNTS_PAGE.replace(
+                "</body>", f"<table><tr><td>{amount}</td></tr></table></body>",
+            )
+            with self.subTest(amount=amount), self.assertRaises(AccountsFormatError) as error:
+                parse_accounts(page)
+            self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
     def test_balance_marker_names_are_not_balances_without_element_classes(self):
         for marker in ("ei_sdsf_montant", "ei_sdsf_solde"):
@@ -691,6 +724,14 @@ class PageTest(unittest.TestCase):
             '<td><span class="ei_sdsf_title">X</td><td>1 234 EUR</td>',
             '<td><span class="ei_sdsf_title">X<span></span></td><th>1 234 EUR</th>',
             '<td><span class="ei_sdsf_title">X 1 234 EUR',
+            '<td><span class="ei_sdsf_title">X 1 234 EUR</td>',
+            '<td><span class="ei_sdsf_title">X 1234 EUR</td>',
+            '<td><span class="ei_sdsf_title">X 24 EUR<td>Action</td>',
+            '<td class="ei_sdsf_title">X 24 EUR<td>Action</td>',
+            '<td><span class="ei_sdsf_title">X</div> 24 EUR</td>',
+            '<td><span class="ei_sdsf_title">X</div> 1 234 EUR</td>',
+            '<td><span class="ei_sdsf_title">X 1 234 EUR<td>Action</td>',
+            '<td><div><span class="ei_sdsf_title">X 1 234 EUR</div></td>',
         ):
             with self.subTest(cells=cells):
                 self.assert_unknown_row_fails(cells)
@@ -729,7 +770,8 @@ class PageTest(unittest.TestCase):
                 self.assertEqual(skipped, ["autres contrats liés", "nouveaux contrats"])
 
     def test_unknown_rows_with_unmarked_money_inside_titles_fail(self):
-        for amount in ("1 234,56 EUR", "EUR 1 234,56", "€ 1 234", "£12.34"):
+        for amount in ("1 234,56 EUR", "EUR 1 234,56", "€ 1 234", "£12.34",
+                       "1 234 EUR", "12 345 USD", "1\u202f234 GBP", "EUR 1 234"):
             with self.subTest(amount=amount):
                 self.assert_unknown_row_fails(
                     '<td><span class="ei_sdsf_title">LIVRET X '
