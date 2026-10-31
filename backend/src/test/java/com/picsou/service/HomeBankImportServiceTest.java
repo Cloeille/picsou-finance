@@ -20,6 +20,8 @@ import com.picsou.repository.*;
 import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.dto.NewAccountDetails;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -235,6 +237,15 @@ class HomeBankImportServiceTest {
     void investmentAccountCannotBeSelectedAsAnImportTarget() {
         assertUnsafeExistingAccountRejected(Account.builder().id(9L).type(AccountType.PEA)
                 .currency("EUR").currentBalance(BigDecimal.ZERO).isManual(false).build());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = AccountType.class, names = {"PER", "SCPI", "REAL_ESTATE", "EMPLOYEE_SAVINGS"})
+    void valuedOrRetirementAccountCannotBeSelectedAsAnImportTarget(AccountType type) {
+        // Importing would rebuild a manual target's balance from the ledger and erase its valuation.
+        assertUnsafeExistingAccountRejected(Account.builder().id(9L).type(type)
+                .currency("EUR").currentBalance(new BigDecimal("1000")).isManual(true).build(),
+                "cannot receive HomeBank transactions");
     }
 
     @Test
@@ -701,6 +712,10 @@ class HomeBankImportServiceTest {
     }
 
     private void assertUnsafeExistingAccountRejected(Account target) {
+        assertUnsafeExistingAccountRejected(target, "");
+    }
+
+    private void assertUnsafeExistingAccountRejected(Account target, String reason) {
         var source = new ParsedHomeBankData.SourceAccount("a", "Compte", "Banque", "bank", "EUR",
                 BigDecimal.ZERO, false);
         when(parser.parse(any(), eq("bank.hbk"), isNull())).thenReturn(new ParsedHomeBankData(List.of(source), List.of(), List.of()));
@@ -715,7 +730,8 @@ class HomeBankImportServiceTest {
         var request = new Request(preview.fileToken(),
                 List.of(new AccountMapping("a", FinaryMappingAction.MAP_EXISTING, 9L, null)), List.of());
 
-        assertThatThrownBy(() -> service.executeImport(request, 7L)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.executeImport(request, 7L)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(reason);
 
         verify(accountRepository, never()).save(any());
         verify(categoryRepository, never()).save(any());
