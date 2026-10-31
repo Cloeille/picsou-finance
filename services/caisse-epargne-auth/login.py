@@ -48,11 +48,14 @@ ERROR_PATH_PREFIX = "/erreur"
 AUTHORIZE_PATH = "/api/oauth/v2/authorize"
 DROPPED_AUTHORIZE_PARAMS = ("code_challenge", "code_challenge_method", "nonce")
 
-IDENTIFIER_INPUT = "#neo-input-1"
+# The identifier field's id depends on the instance the bank serves: observed
+# live as `#neo-input-1` (2026-10-07) and as `#neo-input-2` (2026-10-31, same
+# region, another deployment). Match the prefix, never one numbered id.
+IDENTIFIER_INPUT = 'input[type="text"][id^="neo-input-"]'
 # Observed live 2026-10-07: the identifier page also has a carousel button
 # labelled `Suivant` (type=button) placed before the form's submit button.
 # Only the form's `Valider` (type=submit) moves on to the keypad.
-NEXT_BUTTON = 'form:has(#neo-input-1) button[type="submit"]:has-text("Valider")'
+NEXT_BUTTON = 'form:has(input[type="text"][id^="neo-input-"]) button[type="submit"]:has-text("Valider")'
 SUBMIT_BUTTON = 'button[type="submit"]:has-text("Valider")'
 KEY_SELECTOR = ".keyboard-button"
 # Not observed live yet (no failed attempt was ever made on purpose): to confirm.
