@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -160,8 +161,10 @@ class RequestContractTest(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "INVALID_DATA")
 
     def test_health_reports_ok(self):
-        with TestClient(app, headers=SIDECAR_HEADERS) as client:
-            response = client.get("/health")
+        with patch.dict(os.environ):
+            os.environ.pop("PICSOU_SIDECAR_BASE", None)
+            with TestClient(app, headers=SIDECAR_HEADERS) as client:
+                response = client.get("/health")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})

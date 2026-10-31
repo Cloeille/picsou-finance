@@ -5,6 +5,7 @@ import { MobileBottomNav } from './MobileBottomNav'
 import { SidebarStylePromptModal } from './SidebarStylePromptModal'
 import { DegradedModeBanner } from '@/components/shared/DegradedModeBanner'
 import { TelemetryRuntime } from '@/components/shared/TelemetryRuntime'
+import { InstanceStatusDialog } from '@/components/shared/InstanceStatusDialog'
 import { TelemetryConsentDialog } from '@/components/shared/TelemetryConsentDialog'
 import { useAppStore } from '@/stores/app-store'
 
@@ -31,6 +32,7 @@ export function AppLayout() {
       <MobileBottomNav />
       <TelemetryRuntime />
       <TelemetryConsentDialog />
+      <InstanceStatusDialog />
       <SidebarStylePromptModal open={!hasSeenSidebarStylePrompt} onOpenChange={() => {}} />
     </div>
   )

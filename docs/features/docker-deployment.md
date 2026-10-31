@@ -80,6 +80,8 @@ needs Compose v2.33+ (`additional_contexts: service:`), tested on 5.6.0.
 by name (`ghcr.io/cloeille/picsou-finance/sidecar-*:latest`); their layers are
 the ones the published sidecars are built from, so nothing is downloaded twice. See
 [ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md).
+A sidecar whose base is missing, or still on a pre-base image, is reported to the admin
+by the [instance-status alert](./admin-instance-status.md).
 
 ### tr-auth sidecar — `services/tr-auth/Dockerfile`
 
@@ -141,6 +143,21 @@ On first boot, auto-generates three secrets into `/data/.secrets/` (mounted name
 - `POSTGRES_PASSWORD` — 24-byte base64
 
 On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency. Secrets are **never** regenerated once created — doing so would invalidate JWTs and corrupt all encrypted data in the DB.
+
+After resolving these secrets, the entrypoint exports `SPRING_DATASOURCE_PASSWORD`
+from `POSTGRES_PASSWORD`, so Spring uses the supplied, persisted or generated
+password rather than its literal `picsou` fallback. An explicit non-empty
+`SPRING_DATASOURCE_PASSWORD` takes precedence; an empty value uses the resolved
+PostgreSQL password.
+
+This does not synchronize or rotate the database container's password. Set
+`POSTGRES_PASSWORD` in `docker/.env` to the actual database password before
+starting the stack. Compose explicitly passes `${POSTGRES_PASSWORD:-picsou}`
+to both the app and PostgreSQL, so an unset or empty password retains their
+shared `picsou` default rather than generating a different app-side secret.
+Standalone image runs still generate a password when none is supplied; that
+password must match the external database. Changing an environment variable
+does not change the password of an already initialized database volume.
 
 ### TLS — the optional `tls` compose profile
 
