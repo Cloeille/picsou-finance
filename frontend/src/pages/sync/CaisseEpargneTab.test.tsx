@@ -321,6 +321,50 @@ describe('CaisseEpargneTab', () => {
       expect(apiPost.mock.calls.filter(c => c[0] === '/caisse-epargne/sync')).toHaveLength(1)
     })
 
+    it('drops the timeout message when a check sent before it brings the session', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' })
+      let armed = false
+      let answerLateCheck: ((value: unknown) => void) | null = null
+      apiGet.mockImplementation(() => {
+        if (armed && answerLateCheck === null) {
+          return new Promise((resolve) => {
+            answerLateCheck = resolve
+          })
+        }
+        return Promise.resolve({ data: DISCONNECTED })
+      })
+      apiPost.mockImplementation(async (url: string) => {
+        if (url === '/caisse-epargne/auth/initiate') return { data: INITIATED }
+        if (url === '/caisse-epargne/auth/keypad') return { data: KEYPAD_DONE }
+        if (url === '/caisse-epargne/auth/complete') throw NETWORK_ERROR
+        return { data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } }
+      })
+      renderTab()
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(4, 0, 9, 9, 2, 7)
+      fireEvent.click(validateButton())
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }))
+
+      // The check sent at 177 s is still out when the 180 s window closes.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(175_000)
+      })
+      armed = true
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000)
+      })
+      expect(await screen.findByText('sync.caisseEpargne.errors.appValidationTimeout')).toBeInTheDocument()
+
+      await act(async () => {
+        answerLateCheck?.({ data: { ...DISCONNECTED, isActive: true } })
+      })
+
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
+      expect(screen.queryByText('sync.caisseEpargne.errors.appValidationTimeout')).not.toBeInTheDocument()
+    })
+
     it('reports a timeout when a lost completion never brings a session', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' })

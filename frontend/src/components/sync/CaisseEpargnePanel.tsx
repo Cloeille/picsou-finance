@@ -305,6 +305,9 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
         // The form only shows without a live session, so a live one now is this login.
         if (!data?.isActive) return
         setLostCompletionAt(null)
+        // A check sent just before the timeout may land after it: the login went
+        // through after all, so drop the timeout message along with the error state.
+        setError(null)
         startFirstSyncRef.current()
       })
     }, LOST_COMPLETION_POLL_MS)
