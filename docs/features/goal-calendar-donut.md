@@ -33,7 +33,7 @@ The "Grid" view of `GoalCalendarPage` displays past months as interactive donut 
 | 60% ≤ ratio < 100% | `#f59e0b` (amber) |
 | ratio ≥ 100% | `oklch(from var(--primary) calc(l + 0.2) c h)` |
 
-**Amounts** — every ring amount and objective goes through `money.amount(value, 'EUR', { maximumFractionDigits: 0 })`: whole euros (`985 €`, `1 373 €`), masked in privacy mode. One unit for the whole grid, so a row never mixes `984,72 €` with `1 k €`, and the objective matches the header's `1 373,33 €` to the euro. `12 345 €` at 12px still fits the 62px inside the ring.
+**Amounts** — every ring amount and objective goes through `money.amount(value, 'EUR', { maximumFractionDigits: 0 })`: whole euros (`985 €`, `1 373 €`), masked in privacy mode. One unit for the whole grid, so a row never mixes `984,72 €` with `1 k €`, and the objective matches the header's `1 373,33 €` to the euro. Measured in Geist at 12px bold, `123 456 €` is 62px wide, exactly the clear inside of the ring; a seven-figure month (`1 234 567 €`, 72px) runs 5px into the 9px stroke on each side. Accepted: a single month of a million euros is outside what this calendar is for, and neither fix is worth it (a compact `M` unit would mix units within a row, and dropping to the 11px floor only buys 8px, still 2px too wide).
 
 **`YearGridView`** — one `<Card>` per year, a wrapping `grid grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] gap-3`: six months per row in the desktop column (≈ 680px), three on a 390px phone. No horizontal scroll. Each month is a `<button>` with:
 1. Month label (11px uppercase)

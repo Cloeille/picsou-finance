@@ -86,3 +86,22 @@ test.describe('Goals page', () => {
     await expect(page.getByRole('tooltip')).toContainText(/ménages en France.*17[.,]5\s%/)
   })
 })
+
+test.describe('Goal calendar on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('should wrap the months instead of running them off the screen', async ({ page }) => {
+    await login(page)
+    await page.goto('/goals/2/calendar')
+
+    const months = page.locator('[data-slot="card-content"] > .grid > button')
+    await expect(months.first()).toBeVisible()
+    expect(await months.count()).toBeGreaterThan(12)
+
+    // Horizontal containment only: a wrapping year is allowed to run below the fold.
+    for (const box of await months.evaluateAll(els => els.map(el => el.getBoundingClientRect().toJSON()))) {
+      expect(box.x).toBeGreaterThanOrEqual(0)
+      expect(box.x + box.width).toBeLessThanOrEqual(390)
+    }
+  })
+})

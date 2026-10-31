@@ -67,7 +67,7 @@ function formatCurrencyIntl(
   } catch {
     // An unknown/invalid ISO 4217 code makes Intl.NumberFormat throw a RangeError.
     // Degrade to a plain decimal + the raw code instead of crashing the whole app (issue #9).
-    const num = new Intl.NumberFormat(safeLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
+    const num = new Intl.NumberFormat(safeLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2, ...precision }).format(value)
     return `${num} ${currency}`
   }
 }
