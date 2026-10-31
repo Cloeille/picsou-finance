@@ -507,6 +507,51 @@ describe('CaisseEpargneTab', () => {
       expect(apiPost.mock.calls.filter(c => c[0] === '/caisse-epargne/sync')).toHaveLength(1)
     })
 
+    it('recovers a lost completion when status responses take longer than the polling interval', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const onConnected = vi.fn()
+      apiGet
+        .mockResolvedValueOnce({ data: DISCONNECTED })
+        .mockImplementation(() => new Promise(resolve => {
+          setTimeout(() => resolve({
+            data: { ...DISCONNECTED, isActive: true, syncStatus: 'RUNNING' },
+          }), 4_000)
+        }))
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockRejectedValueOnce(new Error('Network Error'))
+        .mockResolvedValueOnce({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } })
+      renderTab({ onConnected })
+      await toSecurPass()
+      await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(3))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000)
+      })
+      expect(screen.getByText('sync.caisseEpargne.securPassPrompt')).toBeInTheDocument()
+      expect(apiPost).toHaveBeenCalledTimes(3)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000)
+      })
+      expect(screen.queryByText('sync.caisseEpargne.securPassPrompt')).not.toBeInTheDocument()
+      expect(apiPost.mock.calls.map(c => c[0])).toEqual([
+        '/caisse-epargne/auth/initiate',
+        '/caisse-epargne/auth/keypad',
+        '/caisse-epargne/auth/complete',
+        '/caisse-epargne/sync',
+      ])
+      expect(onConnected).not.toHaveBeenCalled()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000)
+      })
+      expect(screen.getByText('sync.caisseEpargne.sessionActive')).toBeInTheDocument()
+      expect(screen.queryByText('sync.caisseEpargne.errors.appValidationTimeout')).not.toBeInTheDocument()
+      expect(apiPost).toHaveBeenCalledTimes(4)
+    })
+
     it.each([
       ['a network error', new Error('Network Error')],
       ['a 502', problem(502, 'UPSTREAM_UNAVAILABLE')],

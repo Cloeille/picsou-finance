@@ -295,6 +295,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Caisse d'Epargne sync after Sécur'Pass approval.** If the login completion response is
   lost or returns 502 or 504, the approval card stays open while Picsou checks the session
   every three seconds for up to 180 seconds. An active session queues the first sync once.
+  Status requests taking longer than three seconds are allowed to finish.
   If no session appears, the panel reports the approval timeout. Login requests are never
   replayed (#350).
 

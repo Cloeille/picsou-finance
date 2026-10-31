@@ -102,6 +102,8 @@ login is confirmed. The parent view is notified only after that first sync succe
 If the completion response is lost (no HTTP response, 502 or 504), the panel keeps the
 Sécur'Pass approval card. It polls `/status` every 3 seconds for up to 180 seconds after
 the loss, covering the backend's 170-second completion window with a margin.
+Each poll reuses any pending status request, so a response taking longer than
+three seconds can still confirm the session.
 If no active session appears, the panel shows the approval timeout and returns to the
 login form. Other completion errors are shown immediately.
 
@@ -138,4 +140,4 @@ The login codes are in `CaisseEpargneErrorCode` and in the `last_sync_error` CHE
 
 ## Verification boundaries
 
-Covered offline: sidecar login and read path against canned pages and responses, adapter against canned responses, session state machine, service mapping and atomicity (rollback with a real `TransactionTemplate`), controller rate limits, login service/adapter, the sync tab and login panel (vitest, including recovery and timeout after a network error, 502 or 504), the Caisse d'Epargne migrations on real PostgreSQL (Testcontainers) and the entity/schema validation. Not covered: any call to the real sidecar or bank, the real `/accounts` payload beyond the contract in the slice spec, and card `accountIds=<cardPfmId>` (marked UNVERIFIED in the sidecar).
+Covered offline: sidecar login and read path against canned pages and responses, adapter against canned responses, session state machine, service mapping and atomicity (rollback with a real `TransactionTemplate`), controller rate limits, login service/adapter, the sync tab and login panel (vitest, including recovery and timeout after a network error, 502 or 504, and recovery with slow status responses), the Caisse d'Epargne migrations on real PostgreSQL (Testcontainers) and the entity/schema validation. Not covered: any call to the real sidecar or bank, the real `/accounts` payload beyond the contract in the slice spec, and card `accountIds=<cardPfmId>` (marked UNVERIFIED in the sidecar).

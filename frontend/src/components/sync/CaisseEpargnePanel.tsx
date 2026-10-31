@@ -216,7 +216,8 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
         setAuthState("ERROR")
         return
       }
-      void refetchStatus().then(({ data }) => {
+      // Let slow status requests finish so they can confirm the session.
+      void refetchStatus({ cancelRefetch: false }).then(({ data }) => {
         if (cancelled || !data?.isActive) return
         cancelled = true
         clearInterval(timer)
