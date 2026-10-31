@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-10-19 (login fails fast on an hCaptcha challenge instead of waiting for a push that never comes)
+> Last updated: 2026-10-31 (hCaptcha opacity checks and rotated empty overflow clips)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -141,6 +141,8 @@ installing pinned `pytest` and `pytest-asyncio`, and image publishing waits for 
 - `services/revolut-auth/main.py` — sidecar: `/sync`, `/progress/{memberId}`, Camoufox launch, login
   auto-fill, harvest + synthetic wallet-parent emission (`_with_wallet_parents`), per-member
   serialization + stale profile-lock clearing.
+- `services/revolut-auth/captcha.py` owns the shared challenge detector. It checks hCaptcha frame
+  URLs and visible geometry throughout login, including nested frames.
 - `services/revolut-auth/tests/{test_profile_lock.py,test_harvest_shape.py,test_sidecar_auth.py}` —
   regression tests (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent +
   same-currency sum; shared-key 401 challenge, `/health` exemption, startup refusal);
@@ -245,22 +247,70 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   generic "Failed to sync Revolut accounts" message.
 - **The approval wait starts only after the passcode was typed.** Revolut can answer the phone step
   with an **hCaptcha image challenge**: the page stays on `/signin` with the phone field, an
-  `iframe[src*='hcaptcha.com']` is shown, and no push is ever sent. `_wait_for_login_screen` therefore
-  also returns `"captcha"` when a *visible* hCaptcha frame is on the page (hidden hCaptcha frames
-  exist on pages with no challenge), which ends the wait at once. The passcode inputs are checked
-  first, then the captcha, then the phone input: a profile challenged last time can show the phone
-  field with the challenge on top, which must be reported as a captcha, not typed into. The sidecar then answers a flat `403 HUMAN_VERIFICATION_REQUIRED`, and the progress phase stays
-  `LOGGING_IN`, never `AWAITING_APPROVAL`. Any other end state — no passcode screen after the phone
-  step, no passcode input to type into (`_fill_passcode` returns `False`), or a Playwright timeout in a
-  login step (the `page.goto`, the screen waits, `Locator.click`; each used to surface as a 500) —
-  answers a flat `424 UPSTREAM_FORMAT_CHANGED`. The same code also covers a rejected phone number
+  hCaptcha frame is shown, and no push is ever sent in that observed case. `_wait_for_login_screen`
+  also returns `"captcha"` when `captcha.visible(page)` finds a rendered hCaptcha frame,
+  which ends the wait at once. The detector walks `page.frames` and matches only HTTP or HTTPS
+  URLs on `hcaptcha.com` or its subdomains. A URL containing that string on another host does
+  not count. Each matching frame and its parent frames must have visible screen space in common.
+  Firefox's `checkVisibility` checks the frame's visibility and opacity, including ancestor display
+  and opacity. An iframe with `visibility:visible` can override an ancestor's `visibility:hidden`
+  or `visibility:collapse`.
+  Ancestor `display:none` and zero opacity still hide the frame. A one-shot `IntersectionObserver`
+  applies overflow clipping and viewport bounds, then disconnects. The browser follows the CSS
+  containing-block chain, so a fixed or absolute frame can escape an ancestor's overflow clip when
+  its containing block is outside that ancestor. A transformed ancestor that establishes the
+  containing block still clips the frame. Overflow clips at the transformed padding box, excluding
+  borders. A zero-height or zero-width padding box does not expose a challenge, even after rotation.
+  For `hidden`, `auto`, and `scroll` overflow, the detector rejects empty padding quads along the
+  containing-block chain before trusting the observer's axis-aligned rectangle.
+  Rotating an empty clip can give that rectangle nonzero area.
+  It checks the quad's coordinates rather than integer `clientWidth` or `clientHeight`, so a fractional
+  padding box can still expose content after scaling. Ancestors outside a positioned frame's
+  containing-block chain do not apply an overflow clip.
+  Root overflow and body overflow propagated to the viewport use the observer's viewport clip.
+  `overflow:clip` also stays with the observer because `overflow-clip-margin` can expand its clip.
+  The observer's border-box intersection is restricted to the iframe's transformed content bounds,
+  obtained through Camoufox's `getBoxQuads({box: 'content'})`. Browser launch and the offline fixture
+  enable Firefox's `layout.css.getBoxQuads.enabled` preference for this geometry API.
+  Visibility and content bounds are checked again when the asynchronous observer callback runs,
+  so a frame hidden while the observation is pending does not count as an active challenge.
+  A strip showing only the iframe's own border or padding does not expose a challenge.
+  The visible content must exceed one pixel on both axes.
+  Zero-size and one-pixel content frames do not count, even when their borders have a larger box.
+  Playwright's `:visible` alone includes transparent and offscreen elements and cannot inspect nested
+  documents. Frame elements are released after each check. A detached frame is ignored for that poll.
+  Unexpected browser errors still propagate. The captcha is checked before
+  passcode and phone inputs because a challenge can block interaction with either screen.
+  The sidecar also checks immediately after passcode entry and before each approval poll.
+  A detected challenge returns a flat `403 HUMAN_VERIFICATION_REQUIRED`. If it appears during the
+  approval wait, the sidecar replaces progress with `LOGGING_IN`, removing the elapsed and remaining
+  seconds before returning the error. The backend then reports the translated terminal error.
+  The error text does not claim whether a push was sent. The visible challenge cannot establish that.
+  French sign-in errors address the member as "vous", including the blocked-sign-in message.
+  A missing passcode screen after the phone step, a missing passcode input, or a Playwright timeout
+  during login returns a flat `424 UPSTREAM_FORMAT_CHANGED`. The timeout handling covers navigation,
+  screen waits, and input interactions that previously caused a 500. The same code also covers a rejected phone number
   (Revolut keeps `/signin` with an inline error) and a slow network, so the user-facing wording says
   "the sign-in didn't go through, check your phone number" rather than blaming the page. `424` because `502` is already the harvest's
   `UPSTREAM_UNAVAILABLE`/`INVALID_DATA`, which the backend treats as a generic failure.
-  Both fail before the 300 s approval loop, so there is no countdown to show.
+  A challenge detected before approval polling never starts the countdown. A later challenge ends
+  the wait on the next poll instead of consuming the remaining 300 s budget.
   The challenge is **reported, not solved**: letting the member complete it (remote view of the sidecar
   browser) is not implemented, and no third-party solver is used. A successful login on the persistent
   profile may avoid the challenge on later syncs, which is unverified.
+  `tests/test_login_screen.py` covers captcha precedence over each passcode input shape, a challenge
+  after passcode entry, and one during approval, alongside the nominal and timeout paths. These
+  overlapping and later challenge states are synthetic regressions, not captured live bank pages.
+  `tests/test_captcha_detection.py` covers URL matching, nested frame traversal, clipping between
+  parent frames, and detachment. It can also run with `python -m unittest discover -s tests
+  -p test_captcha_detection.py`. `tests/test_captcha_browser.py` runs offline Camoufox fixtures for
+  CSS visibility, nested documents, and a challenge inserted after the first poll. Positioned-frame
+  fixtures cover escaped overflow and clips imposed by positioned or transformed containing blocks.
+  Bordered-wrapper fixtures cover empty and partially visible padding boxes with scaling and rotation.
+  Visibility-override fixtures retain ancestor display and opacity checks. Bordered-iframe fixtures
+  cover strips with no content and partially visible content on both axes under scaling and rotation.
+  The tests route all browser requests to local fixture responses and never contact Revolut or hCaptcha.
+  Human challenge completion and the proposed Camofox runtime evaluation remain follow-up work.
 - **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `403`/`424` to
   `SyncException` with the code as both message and `getCode()`; `RevolutSyncService.friendly()` turns
   them into English sentences, and `discover` passes the code to `SyncProgressService.error`, which
@@ -301,10 +351,17 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 
 ## Tests
 
+- `services/revolut-auth/tests/test_captcha_browser.py` covers offline Camoufox visibility, opacity
+  changes between polls and during observation, nested frames, positioned frames escaping overflow,
+  rotated empty padding boxes, viewport overflow propagation, and fractional padding boxes that
+  expose content after scaling. `test_captcha_detection.py` covers host matching, frame traversal,
+  detached frames, and unexpected browser errors.
 - `services/revolut-auth/tests/test_login_screen.py` — fake-page tests of `sync()`: known device /
   phone screen nominal paths, passcode URL before its inputs render, `?redirect=…passcode` query
   string, single-field passcode fallbacks, `504 LOGIN_SCREEN_TIMEOUT`, captcha after the phone step
   and on the first screen (also over a visible phone field; `403`, approval loop never entered),
+  captcha over each passcode input shape, after passcode entry, and during approval with countdown
+  removal, and the unchanged `408 APPROVAL_TIMEOUT` when no challenge appears,
   unknown post-phone state / missing passcode input / Playwright timeout in `goto` or a login step
   (`424`). Needs `pytest` + `pytest-asyncio` (see the run command above).
 - `RevolutAdapterTest` (`403`/`424` mapping), `RevolutSyncServiceTest` (code + friendly message on

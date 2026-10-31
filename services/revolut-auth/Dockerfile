@@ -38,7 +38,7 @@ USER revoauth
 COPY pin_camoufox.py .
 RUN python pin_camoufox.py
 
-COPY --chown=revoauth:revoauth main.py entrypoint.sh ./
+COPY --chown=revoauth:revoauth main.py captcha.py entrypoint.sh ./
 
 ENV REVOLUT_PROFILES_DIR=/data/revolut-profiles
 EXPOSE 8002

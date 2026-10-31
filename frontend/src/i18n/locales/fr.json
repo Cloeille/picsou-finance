@@ -1148,7 +1148,7 @@
         "harvesting": "Récupération de vos comptes… ({{count}} trouvés)"
       },
       "errors": {
-        "humanVerificationRequired": "Revolut vous demande de prouver que vous êtes humain (captcha), ce que Picsou ne peut pas faire à votre place. Aucune approbation n'a été envoyée sur votre téléphone. Réessayez plus tard.",
+        "humanVerificationRequired": "Revolut vous demande de prouver que vous êtes humain (captcha), ce que Picsou ne peut pas faire à votre place. La connexion ne peut pas continuer. Réessayez plus tard.",
         "upstreamFormatChanged": "La connexion n'a pas abouti. Vérifiez votre numéro de téléphone et réessayez."
       },
       "selection": {

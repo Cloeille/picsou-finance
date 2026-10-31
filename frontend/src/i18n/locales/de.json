@@ -1396,7 +1396,7 @@
         "harvesting": "Fetching your accounts… ({{count}} found)"
       },
       "errors": {
-        "humanVerificationRequired": "Revolut verlangt einen Menschlichkeitsnachweis (Captcha), den Picsou nicht für dich erledigen kann. Es wurde keine Freigabe an dein Telefon gesendet. Versuche es später erneut.",
+        "humanVerificationRequired": "Revolut verlangt einen Menschlichkeitsnachweis (Captcha), den Picsou nicht für dich erledigen kann. Die Anmeldung kann nicht fortgesetzt werden. Versuche es später erneut.",
         "upstreamFormatChanged": "Die Anmeldung hat nicht geklappt. Prüfe deine Telefonnummer und versuche es erneut."
       },
       "selection": {
