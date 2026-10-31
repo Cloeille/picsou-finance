@@ -307,6 +307,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AI categorization works with Anthropic.** Every call to Claude failed with
+  `400 max_tokens: Field required`, so no transaction was ever categorized with that
+  provider. Picsou now sends the token limit the Anthropic API requires.
+
 - **Client addresses behind trusted proxies.** The bundled TLS proxy now preserves separate
   per-client login limits. nginx and Tomcat resolve forwarded addresses only from configured
   proxy peers, and rate limiters and audit logs use the same resolved address. Direct client

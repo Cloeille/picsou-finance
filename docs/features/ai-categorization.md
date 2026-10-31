@@ -1,6 +1,6 @@
 # Feature: Optional AI transaction categorization
 
-> Last updated: 2026-06-27
+> Last updated: 2026-11-01
 
 ## Context
 
@@ -142,6 +142,10 @@ served by `GET /api/admin/ai-calls` (admin-only).
 - **Audit log holds financial data.** `ai_call_log` contains the full prompt (which includes
   merchant label + amount). The endpoint is admin-only; retention is capped at 2000 rows to bound
   exposure.
+- **Anthropic needs an explicit `maxTokens`.** The Messages API rejects any request without
+  `max_tokens` (400 "max_tokens: Field required"). Spring AI's `spring.ai.anthropic.chat.options.max-tokens`
+  default only reaches models built by auto-configuration, which is off here, so
+  `AiChatModelFactory` sets `ANTHROPIC_MAX_TOKENS` itself. Every Anthropic call failed before this.
 - **Do not bump Spring AI past 1.0.x** (targets Boot 3.4 / Spring 6.2; 1.1.x conflicts — see pom).
 - **Only slugged categories are offered** to the model in v1 (the default taxonomy); user-created
   categories without a slug are not AI-targetable yet.
