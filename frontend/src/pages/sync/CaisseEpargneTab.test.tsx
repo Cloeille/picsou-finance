@@ -15,12 +15,11 @@ vi.mock('@/lib/api-client', () => ({
 }))
 
 // Interpolation options are appended to the key so tests can assert on them.
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string, options?: Record<string, unknown>) =>
-      options && Object.keys(options).length > 0 ? `${key} ${JSON.stringify(options)}` : key,
-  }),
-}))
+vi.mock('react-i18next', () => {
+  const t = (key: string, options?: Record<string, unknown>) =>
+    options && Object.keys(options).length > 0 ? `${key} ${JSON.stringify(options)}` : key
+  return { useTranslation: () => ({ t }) }
+})
 
 const { CaisseEpargneTab } = await import('./CaisseEpargneTab')
 
@@ -53,7 +52,7 @@ function renderTab(props: { onConnected?: () => void } = {}) {
   function Wrapper({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   }
-  render(<CaisseEpargneTab {...props} />, { wrapper: Wrapper })
+  return render(<CaisseEpargneTab {...props} />, { wrapper: Wrapper })
 }
 
 function problem(status: number, code: string, headers: Record<string, string> = {}) {
@@ -275,13 +274,170 @@ describe('CaisseEpargneTab', () => {
       await waitFor(() =>
         expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', {
           processId: 'p1',
-        }),
+        }, { timeout: 180_000 }),
       )
       expect(apiPost.mock.calls.map(c => c[0])).toEqual([
         '/caisse-epargne/auth/initiate',
         '/caisse-epargne/auth/keypad',
         '/caisse-epargne/auth/complete',
       ])
+    })
+
+    it('keeps waiting when the completion is lost, then queues the first sync once the session is live', async () => {
+      // iOS drops Safari's pending request while the user approves Sécur'Pass in the bank's app.
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' })
+      let live = false
+      let syncStatus = 'IDLE'
+      apiGet.mockImplementation(async () => ({
+        data: live ? { ...DISCONNECTED, isActive: true, syncStatus } : DISCONNECTED,
+      }))
+      apiPost.mockImplementation(async (url: string) => {
+        if (url === '/caisse-epargne/auth/initiate') return { data: INITIATED }
+        if (url === '/caisse-epargne/auth/keypad') return { data: KEYPAD_DONE }
+        if (url === '/caisse-epargne/auth/complete') throw NETWORK_ERROR
+        syncStatus = 'RUNNING'
+        return { data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } }
+      })
+      const onConnected = vi.fn()
+      renderTab({ onConnected })
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(4, 0, 9, 9, 2, 7)
+      fireEvent.click(validateButton())
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }, { timeout: 180_000 }))
+
+      // Lost: no error, the Sécur'Pass card stays, counting down the recovery window.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+      expect(screen.getByText('sync.caisseEpargne.securPassPrompt')).toBeInTheDocument()
+      expect(screen.getByText(/^2:5\d$/)).toBeInTheDocument()
+      expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
+
+      // The backend stored the session: the next poll sees it and queues the first sync.
+      live = true
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
+      expect(apiPost.mock.calls.filter(c => c[0] === '/caisse-epargne/sync')).toHaveLength(1)
+
+      // Not while the first sync still runs: the accounts do not exist yet.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+      expect(onConnected).not.toHaveBeenCalled()
+
+      // The caller (the add-account modal closes on it) is told once that sync succeeded.
+      syncStatus = 'SUCCESS'
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000)
+      })
+      await waitFor(() => expect(onConnected).toHaveBeenCalledTimes(1))
+    })
+
+    it('recovers even when every status read takes longer than the poll interval', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' })
+      let live = false
+      let slow = false
+      // Once the completion is lost the network turns slow: each read answers after 5 s,
+      // longer than the 3 s between ticks.
+      apiGet.mockImplementation(() => new Promise((resolve) => {
+        const data = live ? { ...DISCONNECTED, isActive: true } : DISCONNECTED
+        setTimeout(() => resolve({ data }), slow ? 5_000 : 0)
+      }))
+      apiPost.mockImplementation(async (url: string) => {
+        if (url === '/caisse-epargne/auth/initiate') return { data: INITIATED }
+        if (url === '/caisse-epargne/auth/keypad') return { data: KEYPAD_DONE }
+        if (url === '/caisse-epargne/auth/complete') throw NETWORK_ERROR
+        return { data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } }
+      })
+      renderTab()
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(4, 0, 9, 9, 2, 7)
+      fireEvent.click(validateButton())
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }, { timeout: 180_000 }))
+
+      slow = true
+      live = true
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000)
+      })
+
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
+      expect(apiPost.mock.calls.filter(c => c[0] === '/caisse-epargne/sync')).toHaveLength(1)
+      // Each read is bounded, so one that never answers cannot hold the recovery.
+      expect(apiGet).toHaveBeenCalledWith('/caisse-epargne/status', expect.objectContaining({ timeout: 10_000 }))
+    })
+
+    it('drops the timeout message when a check sent before it brings the session', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' })
+      let armed = false
+      let answerLateCheck: ((value: unknown) => void) | null = null
+      apiGet.mockImplementation(() => {
+        if (armed && answerLateCheck === null) {
+          return new Promise((resolve) => {
+            answerLateCheck = resolve
+          })
+        }
+        return Promise.resolve({ data: DISCONNECTED })
+      })
+      apiPost.mockImplementation(async (url: string) => {
+        if (url === '/caisse-epargne/auth/initiate') return { data: INITIATED }
+        if (url === '/caisse-epargne/auth/keypad') return { data: KEYPAD_DONE }
+        if (url === '/caisse-epargne/auth/complete') throw NETWORK_ERROR
+        return { data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } }
+      })
+      renderTab()
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(4, 0, 9, 9, 2, 7)
+      fireEvent.click(validateButton())
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }, { timeout: 180_000 }))
+
+      // The check sent at 177 s is still out when the 180 s window closes.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(175_000)
+      })
+      armed = true
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000)
+      })
+      expect(await screen.findByText('sync.caisseEpargne.errors.appValidationTimeout')).toBeInTheDocument()
+
+      await act(async () => {
+        answerLateCheck?.({ data: { ...DISCONNECTED, isActive: true } })
+      })
+
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
+      expect(screen.queryByText('sync.caisseEpargne.errors.appValidationTimeout')).not.toBeInTheDocument()
+    })
+
+    it('reports a timeout when a lost completion never brings a session', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' })
+      apiPost.mockImplementation(async (url: string) => {
+        if (url === '/caisse-epargne/auth/initiate') return { data: INITIATED }
+        if (url === '/caisse-epargne/auth/keypad') return { data: KEYPAD_DONE }
+        throw NETWORK_ERROR
+      })
+      renderTab()
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(4, 0, 9, 9, 2, 7)
+      fireEvent.click(validateButton())
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }, { timeout: 180_000 }))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(183_000)
+      })
+
+      expect(await screen.findByText('sync.caisseEpargne.errors.appValidationTimeout')).toBeInTheDocument()
+      expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
     })
 
     it('ignores a second Validate click while the keypad call is out', async () => {
@@ -428,7 +584,7 @@ describe('CaisseEpargneTab', () => {
       expect(screen.getByTestId('caisse-epargne-countdown')).toHaveTextContent('2:28')
     })
 
-    it('makes one long complete call and never polls or retries it', async () => {
+    it('makes one long complete call without replaying authentication', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       apiPost
         .mockResolvedValueOnce({ data: INITIATED })
@@ -441,7 +597,7 @@ describe('CaisseEpargneTab', () => {
       await waitFor(() =>
         expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', {
           processId: 'p1',
-        }),
+        }, { timeout: 180_000 }),
       )
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5 * 60_000)
@@ -449,6 +605,277 @@ describe('CaisseEpargneTab', () => {
 
       expect(apiPost).toHaveBeenCalledTimes(3)
     })
+
+    it.each([
+      ['a network error', new Error('Network Error')],
+      ['a 502', problem(502, 'UPSTREAM_UNAVAILABLE')],
+      ['a 504', problem(504, 'UPSTREAM_UNAVAILABLE')],
+    ])('keeps waiting after %s and queues the first sync once the session is active', async (_, failure) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const onConnected = vi.fn()
+      let isActive = false
+      let syncStatus = 'IDLE'
+      apiGet.mockImplementation(async () => ({ data: { ...DISCONNECTED, isActive, syncStatus } }))
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockRejectedValueOnce(failure)
+        .mockResolvedValueOnce({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } })
+      renderTab({ onConnected })
+      await toSecurPass()
+
+      await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(3))
+      expect(screen.getByText('sync.caisseEpargne.securPassPrompt')).toBeInTheDocument()
+      expect(screen.queryByLabelText('sync.caisseEpargne.customerId')).not.toBeInTheDocument()
+      expect(screen.queryByText('sync.caisseEpargne.errors.serverError')).not.toBeInTheDocument()
+      const initialStatusCalls = apiGet.mock.calls.length
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000)
+      })
+      expect(apiGet).toHaveBeenCalledTimes(initialStatusCalls)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_000)
+      })
+      expect(apiGet).toHaveBeenCalledTimes(initialStatusCalls + 2)
+      expect(apiPost).toHaveBeenCalledTimes(3)
+
+      isActive = true
+      syncStatus = 'RUNNING'
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+
+      expect(screen.queryByText('sync.caisseEpargne.securPassPrompt')).not.toBeInTheDocument()
+      expect(apiPost.mock.calls.map(c => c[0])).toEqual([
+        '/caisse-epargne/auth/initiate',
+        '/caisse-epargne/auth/keypad',
+        '/caisse-epargne/auth/complete',
+        '/caisse-epargne/sync',
+      ])
+      expect(onConnected).not.toHaveBeenCalled()
+
+      syncStatus = 'SUCCESS'
+      await act(async () => {
+        await queryClient.invalidateQueries()
+        await vi.advanceTimersByTimeAsync(30_000)
+      })
+      expect(onConnected).toHaveBeenCalledTimes(1)
+      expect(apiPost.mock.calls.filter(c => c[0] === '/caisse-epargne/sync')).toHaveLength(1)
+    })
+
+    it('recovers a lost completion when status responses take longer than the polling interval', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const onConnected = vi.fn()
+      apiGet
+        .mockResolvedValueOnce({ data: DISCONNECTED })
+        .mockImplementation(() => new Promise(resolve => {
+          setTimeout(() => resolve({
+            data: { ...DISCONNECTED, isActive: true, syncStatus: 'RUNNING' },
+          }), 4_000)
+        }))
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockRejectedValueOnce(new Error('Network Error'))
+        .mockResolvedValueOnce({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } })
+      renderTab({ onConnected })
+      await toSecurPass()
+      await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(3))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000)
+      })
+      expect(screen.getByText('sync.caisseEpargne.securPassPrompt')).toBeInTheDocument()
+      expect(apiPost).toHaveBeenCalledTimes(3)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000)
+      })
+      expect(screen.queryByText('sync.caisseEpargne.securPassPrompt')).not.toBeInTheDocument()
+      expect(apiPost.mock.calls.map(c => c[0])).toEqual([
+        '/caisse-epargne/auth/initiate',
+        '/caisse-epargne/auth/keypad',
+        '/caisse-epargne/auth/complete',
+        '/caisse-epargne/sync',
+      ])
+      expect(onConnected).not.toHaveBeenCalled()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(180_000)
+      })
+      expect(screen.getByText('sync.caisseEpargne.sessionActive')).toBeInTheDocument()
+      expect(screen.queryByText('sync.caisseEpargne.errors.appValidationTimeout')).not.toBeInTheDocument()
+      expect(apiPost).toHaveBeenCalledTimes(4)
+    })
+
+    it.each([
+      ['a network error', new Error('Network Error')],
+      ['a 502', problem(502, 'UPSTREAM_UNAVAILABLE')],
+      ['a 504', problem(504, 'UPSTREAM_UNAVAILABLE')],
+    ])('reports the approval timeout 180 seconds after %s if no session appears', async (_, failure) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockRejectedValueOnce(failure)
+      renderTab()
+      await toSecurPass()
+      await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(3))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(177_000)
+      })
+      expect(screen.getByText('sync.caisseEpargne.securPassPrompt')).toBeInTheDocument()
+      expect(screen.queryByText('sync.caisseEpargne.errors.appValidationTimeout')).not.toBeInTheDocument()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+
+      expect(screen.getByText('sync.caisseEpargne.errors.appValidationTimeout')).toBeInTheDocument()
+      expect(screen.getByLabelText('sync.caisseEpargne.customerId')).toBeInTheDocument()
+      expect(screen.queryByText('sync.caisseEpargne.securPassPrompt')).not.toBeInTheDocument()
+
+      apiGet.mockResolvedValue({ data: { ...DISCONNECTED, isActive: true } })
+      const statusCallsAtTimeout = apiGet.mock.calls.length
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      expect(apiGet).toHaveBeenCalledTimes(statusCallsAtTimeout)
+      expect(apiPost).toHaveBeenCalledTimes(3)
+    })
+
+    it.each(['timeout', 'unmount'])('ignores an expired or cancelled status read after %s', async (end) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      let resolveStatus!: (value: { data: typeof DISCONNECTED }) => void
+      const pendingStatus = new Promise<{ data: typeof DISCONNECTED }>(resolve => {
+        resolveStatus = resolve
+      })
+      apiGet
+        .mockResolvedValueOnce({ data: DISCONNECTED })
+        .mockReturnValueOnce(pendingStatus)
+        .mockResolvedValue({ data: DISCONNECTED })
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockRejectedValueOnce(new Error('Network Error'))
+      const { unmount } = renderTab()
+      await toSecurPass()
+      await screen.findByText('sync.caisseEpargne.securPassPrompt')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+      expect(apiGet).toHaveBeenCalledTimes(2)
+
+      if (end === 'unmount') unmount()
+      else {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(177_000)
+        })
+        expect(screen.getByText('sync.caisseEpargne.errors.appValidationTimeout')).toBeInTheDocument()
+      }
+
+      const statusCallsAfterRecovery = apiGet.mock.calls.length
+      await act(async () => {
+        resolveStatus({ data: { ...DISCONNECTED, isActive: true } })
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      expect(apiGet).toHaveBeenCalledTimes(statusCallsAfterRecovery)
+      expect(apiPost).toHaveBeenCalledTimes(3)
+    })
+
+    it('recovers through a later read while an earlier read is stalled', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      apiGet
+        .mockResolvedValueOnce({ data: DISCONNECTED })
+        .mockReturnValueOnce(new Promise(() => {}))
+        .mockResolvedValue({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'RUNNING' } })
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockRejectedValueOnce(new Error('Network Error'))
+        .mockResolvedValueOnce({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } })
+      renderTab()
+      await toSecurPass()
+      await screen.findByText('sync.caisseEpargne.securPassPrompt')
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+      expect(apiGet).toHaveBeenNthCalledWith(2, '/caisse-epargne/status', {
+        skipGlobalErrorRedirect: true,
+        timeout: 10_000,
+      })
+      expect(apiPost).toHaveBeenCalledTimes(3)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+      expect(apiGet).toHaveBeenNthCalledWith(3, '/caisse-epargne/status', {
+        skipGlobalErrorRedirect: true,
+        timeout: 10_000,
+      })
+      expect(screen.queryByText('sync.caisseEpargne.securPassPrompt')).not.toBeInTheDocument()
+      expect(apiPost.mock.calls.filter(c => c[0] === '/caisse-epargne/sync')).toHaveLength(1)
+    })
+
+    it.each(['a new login', 'unmount', 'its read deadline'])(
+      'ignores a recent pre-timeout read after %s', async (end) => {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        let armed = false
+        let answerLateCheck: ((value: { data: typeof DISCONNECTED }) => void) | null = null
+        apiGet.mockImplementation(() => {
+          if (armed && answerLateCheck === null) {
+            return new Promise(resolve => {
+              answerLateCheck = resolve
+            })
+          }
+          return Promise.resolve({ data: DISCONNECTED })
+        })
+        apiPost
+          .mockResolvedValueOnce({ data: INITIATED })
+          .mockResolvedValueOnce({ data: KEYPAD_DONE })
+          .mockRejectedValueOnce(new Error('Network Error'))
+          .mockResolvedValueOnce({ data: { ...INITIATED, processId: 'p2' } })
+        const { unmount } = renderTab()
+        await toSecurPass()
+        await screen.findByText('sync.caisseEpargne.securPassPrompt')
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(175_000)
+        })
+        armed = true
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6_000)
+        })
+        expect(screen.getByText('sync.caisseEpargne.errors.appValidationTimeout')).toBeInTheDocument()
+        expect(answerLateCheck).not.toBeNull()
+
+        if (end === 'a new login') {
+          await signIn()
+          await screen.findByTestId('caisse-epargne-keypad-grid')
+        } else if (end === 'unmount') {
+          unmount()
+        } else {
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(8_000)
+          })
+        }
+        const callsBeforeAnswer = apiPost.mock.calls.length
+        await act(async () => {
+          answerLateCheck?.({ data: { ...DISCONNECTED, isActive: true } })
+          await vi.advanceTimersByTimeAsync(1_000)
+        })
+
+        expect(apiPost).toHaveBeenCalledTimes(callsBeforeAnswer)
+        expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
+        if (end === 'a new login') {
+          expect(screen.getByTestId('caisse-epargne-keypad-grid')).toBeInTheDocument()
+        } else if (end === 'its read deadline') {
+          expect(screen.getByText('sync.caisseEpargne.errors.appValidationTimeout')).toBeInTheDocument()
+        }
+      },
+    )
 
     it('shows the connected state once complete answers connected', async () => {
       apiPost

@@ -56,6 +56,9 @@ services:
       DEGIRO_AUTH_URL: ${DEGIRO_AUTH_URL:-http://degiro-auth:8001}
       CMES_AUTH_URL: ${CMES_AUTH_URL:-http://cmes-auth:8001}
       CIC_AUTH_URL: ${CIC_AUTH_URL:-http://cic-auth:8001}
+      # Must match the proxy's exact address on tls-proxy below. The entrypoint
+      # uses it as nginx's only trusted forwarded-address peer.
+      PICSOU_PROXY_IP: ${PICSOU_PROXY_IP:-172.30.253.2}
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     depends_on:
       - db
@@ -73,8 +76,11 @@ services:
       - cmes-auth
       - cic-auth
     networks:
-      - default
-      - fortuneo-auth-net
+      default:
+      fortuneo-auth-net:
+      tls-proxy:
+        aliases:
+          - app-tls
 
   # Optional TLS terminator — OFF unless the `tls` profile is requested:
   #   docker compose -f docker/docker-compose.yml --profile tls up -d
@@ -114,6 +120,12 @@ services:
       start_period: 20s
     depends_on:
       - app
+    networks:
+      # The default network supplies ACME egress. Requests to app-tls use the
+      # isolated network, where this exact source address is safe to trust.
+      default:
+      tls-proxy:
+        ipv4_address: ${PICSOU_PROXY_IP:-172.30.253.2}
 
   # Shared sidecar base images (services/base). Never started (`scale: 0`).
   # `docker compose pull` fetches them by name; their layers are the ones the
@@ -333,6 +345,14 @@ volumes:
   caddy_config:
 
 networks:
+  tls-proxy:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: ${PICSOU_PROXY_SUBNET:-172.30.253.0/29}
+          # Keep Caddy outside automatic allocation, including migration CLI runs.
+          ip_range: ${PICSOU_PROXY_IP_RANGE:-172.30.253.4/30}
   fortuneo-auth-net:
     driver: bridge
     internal: true

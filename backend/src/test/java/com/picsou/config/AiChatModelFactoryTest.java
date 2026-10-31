@@ -18,6 +18,10 @@ class AiChatModelFactoryTest {
         assertThat(factory.build(new AiProviderConfig(AiProvider.ANTHROPIC, "sk-ant", "", "")).get())
             .isInstanceOf(AnthropicChatModel.class);
     }
+    @Test void anthropicSetsMaxTokensRequiredByMessagesApi() {
+        var m = factory.build(new AiProviderConfig(AiProvider.ANTHROPIC, "sk-ant", "", "")).get();
+        assertThat(m.getDefaultOptions().getMaxTokens()).isEqualTo(AiChatModelFactory.ANTHROPIC_MAX_TOKENS);
+    }
     @Test void ollamaBuildsOllamaModelWithoutKey() {
         assertThat(factory.build(new AiProviderConfig(AiProvider.OLLAMA, null, "", "")).get())
             .isInstanceOf(OllamaChatModel.class);
