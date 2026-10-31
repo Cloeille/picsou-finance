@@ -226,6 +226,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the net worth. The connector now asks Trade Republic which venue prices each
   instrument. When a price still does not come back, the holding shows no current price
   instead of its buy-in, and the sync log names it (#268).
+- **First Trade Republic login after a fresh start.** On a cold `tr-auth` container the first
+  login often failed with "please check your credentials" although the phone number and PIN
+  were right: the headless browser had not yet received the AWS WAF token, so Trade Republic's
+  firewall rejected the request. `tr-auth` now waits for the token and retries with a second
+  browser before contacting Trade Republic, and still answers within the backend's 60 s wait.
+  A firewall rejection now reads "Trade Republic blocked the request. Retry in a minute."
+  A Trade Republic timeout or a broken browser no longer reads as a credentials error.
+  (#266)
 - **Primary blue and chart strokes are readable in dark mode.** The dark theme's primary blue
   was darker than the light one, so blue text, badges ("This device", AI category
   suggestions) and progress bars sat at about 2:1 on the dark cards, and the dashed "Capital

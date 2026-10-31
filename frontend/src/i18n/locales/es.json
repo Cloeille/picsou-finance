@@ -818,6 +818,7 @@
         "invalidTan": "El código de verificación es incorrecto o ha caducado. Usa el último código recibido o reinicia el paso para recibir uno nuevo.",
         "authenticationFailed": "Fallo de autenticación con Trade Republic.",
         "serviceUnavailable": "El servicio local de Trade Republic no está disponible. Reinicia los servidores e inténtalo de nuevo.",
+        "temporarilyBlocked": "Trade Republic ha bloqueado la solicitud. Inténtalo de nuevo en un minuto.",
         "serverError": "Error del servidor de Trade Republic. Inténtalo de nuevo.",
         "phoneNumberRequired": "El número de teléfono es obligatorio.",
         "pinRequired": "El PIN es obligatorio.",
