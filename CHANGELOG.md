@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without units, ISIN, quote link or price; an unreadable cell or quote link stops the sync
   instead. A support's ticker comes from its quote link's path, never from its query or
   fragment.
+- **Caisse d'Epargne in *Sync all*.** The dashboard's *Sync all* modal lists Caisse d'Epargne
+  like the other session connectors: a live session syncs in place, an expired one opens the
+  Caisse d'Epargne tab, where the keypad and Sécur'Pass login run, and *Sync all* skips it.
 - **Crédit Mutuel / CIC Épargne Salariale sync.** A browserless `cmes-auth` sidecar reads the
   saver's space (www.creditmutuel-ere.fr) and imports each plan (PEE, PEG, PERCOL) with its funds:
   units, unit value and gain. The login is confirmed once, in the bank's app or with a code
@@ -251,6 +254,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Phone layout: page margins, the end of each page, and Family.** On a phone, pages ran 4 px
+  from the screen edge while the bottom bar sat 16 px in, and the last card of every page
+  touched the bar. Pages now keep the bar's 16 px margin on every side and end 16 px above it.
+  Family, missing from the bottom bar, now has its own entry
+  and is highlighted on its page. The FR/EN switch made room for it and left the bar; the
+  language stays available in Settings, with all four languages.
 - **First Trade Republic login after a fresh start.** On a cold `tr-auth` container the first
   login often failed with "please check your credentials" although the phone number and PIN
   were right: the headless browser had not yet received the AWS WAF token, so Trade Republic's
@@ -281,11 +290,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   did not know: its cards failed the completeness check and the whole sync stopped with
   `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
   like loans and insurance, since they belong to the child.
-- **Upgrading a 1.0.11–1.0.18 database to 1.1.0.** The backend no longer stops at boot with 13
-  Flyway checksum mismatches (V38, V51, V54–V64). Merging main into 1.1.0 had moved these
-  migrations to new versions, and edited comments in five of them. Before Flyway validates, the
-  backend now moves each of those history rows to its new version, so nothing re-runs, and then
-  applies the 1.1.0 migrations the database never ran
+- **Upgrading a 1.0.6–1.0.18 database to 1.1.0.** The backend no longer stops at boot with
+  Flyway checksum mismatches (V33 on 1.0.6; V38, V51, V54–V64 on 1.0.11–1.0.18). Merging main
+  into 1.1.0 had moved these migrations to new versions, and edited comments in five of them;
+  1.0.6 had applied today's V36 as V33. Before Flyway validates, the backend now moves each of
+  those history rows to its new version, so nothing re-runs, and then applies the 1.1.0
+  migrations the database never ran
   ([#265](https://github.com/Cloeille/picsou-finance/issues/265)). Before upgrading, run the
   duplicate-account check in the
   [upgrade note](docs/features/docker-deployment.md#upgrading-a-10x-database-to-110): these

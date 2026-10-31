@@ -2,8 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { CLASSIC_SETTINGS_NAV_ITEM, NAV_ITEMS } from './sidebar-nav-items'
-import { LanguageToggle } from './LanguageToggle'
+import { CLASSIC_SETTINGS_NAV_ITEM, FAMILY_NAV_ITEM, NAV_ITEMS } from './sidebar-nav-items'
 
 /**
  * The bar carries the same routes as the sidebar, plus Settings — which on mobile has no other
@@ -12,10 +11,11 @@ import { LanguageToggle } from './LanguageToggle'
  * It used to keep its own hardcoded copy of the route list with the brand logo centred between
  * two pairs of items. Adding a fifth route left no honest way to keep that symmetry, and a
  * private copy of the list was one more place to forget a route, so both went: one registry,
- * evenly spaced items, and the logo stays on the desktop sidebar where it has room. The language
- * toggle keeps the trailing position it held beside the logo, next to Settings it belongs with.
+ * evenly spaced items, and the logo stays on the desktop sidebar where it has room. The FR/EN
+ * toggle went when Family joined: seven 40px items fill a 390px screen, and Settings already
+ * offers every supported language.
  */
-const MOBILE_NAV_ITEMS = [...NAV_ITEMS, CLASSIC_SETTINGS_NAV_ITEM] as const
+const MOBILE_NAV_ITEMS = [...NAV_ITEMS, FAMILY_NAV_ITEM, CLASSIC_SETTINGS_NAV_ITEM] as const
 
 function MobileNavItem({
   to,
@@ -63,7 +63,6 @@ export function MobileBottomNav() {
             label={t(item.labelKey)}
           />
         ))}
-        <LanguageToggle />
       </div>
       {/* iOS safe area */}
       <div className="h-[env(safe-area-inset-bottom)]" />
