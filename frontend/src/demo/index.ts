@@ -58,7 +58,12 @@ function findHandler(k: string): { handler: MockHandler; params: Record<string, 
     const params: Record<string, string> = {}
     const matches = patternSegments.every((segment, i) => {
       if (segment.startsWith(':')) {
-        params[segment.slice(1)] = decodeURIComponent(segments[i])
+        // A malformed escape (`%` alone) is no match, so it takes the adapter's 200 {} fallback.
+        try {
+          params[segment.slice(1)] = decodeURIComponent(segments[i])
+        } catch {
+          return false
+        }
         return true
       }
       return segment === segments[i]

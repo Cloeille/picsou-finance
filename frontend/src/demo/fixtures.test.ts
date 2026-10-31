@@ -7,6 +7,7 @@ import type { Account, BudgetSettings, DashboardData, GoalMonthEntry, GoalProgre
 // Set before the fixtures load, since they are built at import time.
 vi.stubEnv('TZ', 'Europe/Paris')
 const { createDemoAdapter } = await import('./index')
+const { mockBalanceHistory } = await import('./data/history')
 
 const adapter = createDemoAdapter()
 async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
@@ -96,7 +97,24 @@ describe('demo fixtures', () => {
       const asked = past.reduce((sum, m) => sum + m.objective, 0)
       expect(goal.isOnTrack).toBe(saved >= asked)
       expect(goal.avgMonthlyContribution! >= goal.monthlyNeeded!).toBe(goal.isOnTrack)
+      // GoalService.calculateActualForMonth: each past month is the linked accounts' balance delta.
+      expect(past.length).toBeGreaterThan(0)
+      const [cy, cm] = currentMonth.split('-').map(Number)
+      for (const m of past) {
+        const [y, mo] = m.yearMonth.split('-').map(Number)
+        const monthsAgo = (cy - y) * 12 + (cm - mo)
+        const linkedDelta = goal.accounts.reduce(
+          (sum, a) => sum + mockBalanceHistory[a.id][12 - monthsAgo] - mockBalanceHistory[a.id][11 - monthsAgo], 0)
+        expect(m.effective).toBeCloseTo(linkedDelta, 2)
+      }
     })
+  })
+
+  it('answers a path with a malformed escape like any unhandled call', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const response = await adapter({ method: 'GET', url: '/prices/BAD%/history', headers: new AxiosHeaders() })
+    expect(response.status).toBe(200)
+    expect(response.data).toEqual({})
   })
 
   it('signs the visitor in as the demo admin', async () => {
