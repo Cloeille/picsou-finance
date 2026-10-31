@@ -313,6 +313,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   environment and the SSE default. Existing installations keep legacy SSE by default. Switching
   requires configuring other clients for Streamable HTTP. The existing Spring AI 1.1.8 supports
   this without a Boot 4 migration (#53).
+
+- **A transaction no longer overwrites a valued account.** Adding, editing or deleting a
+  transaction by hand on a SCPI, a property or an employee-savings plan, a dividend for
+  instance, replaced its value with the sum of its transactions, and deleting the last one left
+  it at zero. The transaction is still recorded, but the balance keeps its valuation. The
+  HomeBank import now refuses these accounts, and a PER, as targets, like the Actual Budget
+  import already did. Both importers and the manual ledger share one definition,
+  `AccountType.isLedger()`.
+
+- **Enable Banking account balances and details.** Accounts in a shared balance list,
+  such as Qonto business accounts, now select entries matching the account description
+  before applying ISO balance-type priority. For Qonto or an unknown ASPSP, unmatched lists
+  with distinct labels fail even when one balance type has higher priority. Missing or unmatched
+  descriptions cannot use entries claimed by another session account. Shared descriptions
+  cannot establish ownership for Qonto or unknown ASPSPs. Other accounts keep syncing. Generic-label
+  fallback requires a single unclaimed entry or consistent unclaimed labels. Overlapping
+  fallback labels are ambiguous for Qonto and unknown ASPSPs even when both responses have
+  one label, so shared lists cannot assign the same preferred balance to several accounts.
+  Other named ASPSPs retain account-scoped type ranking, including distinct balance-type labels,
+  overlapping labels and independent zero balances, unless the response names a distinct sibling.
+  Accounts at these banks can share their own description and still sync independently.
+  Unique description matches still sync zero balances.
+  Ownership never depends on amounts or changes between requests. Competing
+  fallback accounts all fail safely. Unavailable sibling details prevent shared-description
+  matches as well as fallback. Invalid sibling balance responses prevent shared fallback
+  while preserving complete description claims. Skipping a soft-deleted account logs
+  an IBAN fingerprint instead of the full IBAN.
+  Flat account details supply the IBAN and the description, product, or holder name
+  for new accounts, bounded to 100 characters after matching the full description.
+  Ambiguous or missing balances fail explicitly
+  instead of selecting another account's balance or storing zero. Existing account
+  names stay unchanged and can be edited in the account form. Currency subaccounts sharing
+  an IBAN remain separate, with balances and snapshots valued in the correct currency.
+  IBAN matching and deletion guards include currency while retaining uid-rotation support.
+  A deleted uid takes precedence over an active IBAN match, so deleting an old Enable Banking
+  duplicate stops its balance and transaction imports without taking over another connector's row.
+  Accounts found by uid reconcile previously misparsed currencies before saving balances
+  and converting the current day's snapshot to EUR, so later syncs keep those accounts separate.
+  Revolut discovery and sync use the same currency-aware match for these imported accounts.
+  Deleting or voluntarily restoring one currency does not affect another sharing its IBAN.
+  IBAN backfill respects deleted accounts, so reconnecting Revolut restores its original
+  row without creating an ambiguous active match.
+  Caisse d'Epargne loans link to the member's EUR account when currencies share an IBAN,
+  keeping the import from failing on multiple matches. Revolut converts native balances to
+  EUR before writing snapshots, keeping their value and invested amount in the same currency.
 - **The demo no longer looks broken.** Every page now gets an answer from the demo build:
   holdings on every account, prices, connected apps, the status of each provider, the budget's
   transactions and the fourth goal no longer leave a card loading forever or a table empty. Its
@@ -344,7 +389,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the rounded annuity, with an exact rational fallback when the bounds disagree.
   This prevents an extra cent of insurance from reducing the capital repaid in
   the amortization schedule.
-
 - **Trade Republic crypto is valued at its market price again.** The connector guessed the
   venue of each price subscription (`TRD0` for crypto). Trade Republic refused that guess, and
   every crypto position was valued at its average buy-in, which hid its whole gain or loss
