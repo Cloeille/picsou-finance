@@ -8,7 +8,7 @@ import { SortableTableHead } from '@/components/shared/SortableTableHead'
 import { useTableSort, type SortColumns } from '@/hooks/use-table-sort'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { cn, formatPercent } from '@/lib/utils'
 import { Pencil, Trash2 } from 'lucide-react'
 import {
   Table,
@@ -81,7 +81,7 @@ export function HoldingsTable({ holdings, onEdit, onDelete }: HoldingsTableProps
               <TableRow key={h.ticker}>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <HoldingLogo logoUrl={h.logoUrl} logoUrlDark={h.logoUrlDark} ticker={h.ticker} />
+                    <HoldingLogo logoUrl={h.logoUrl} logoUrlDark={h.logoUrlDark} ticker={h.ticker} name={h.name} />
                     <span className="font-mono font-medium">{h.ticker}</span>
                   </div>
                 </TableCell>
@@ -106,7 +106,7 @@ export function HoldingsTable({ holdings, onEdit, onDelete }: HoldingsTableProps
                   {h.pnlEur != null ? <CurrencyDisplay value={h.pnlEur} showSign className="text-sm" /> : '\u2014'}
                 </TableCell>
                 <TableCell className={cn('text-right', h.pnlPercent != null && h.pnlPercent >= 0 ? 'text-emerald-500' : h.pnlPercent != null && h.pnlPercent < 0 ? 'text-red-500' : '')}>
-                  {h.pnlPercent != null ? `${h.pnlPercent >= 0 ? '+' : ''}${h.pnlPercent.toFixed(1)}%` : '\u2014'}
+                  {h.pnlPercent != null ? formatPercent(h.pnlPercent, { signed: true }) : '\u2014'}
                 </TableCell>
                 {(onEdit || onDelete) && (
                   <TableCell className="text-right">

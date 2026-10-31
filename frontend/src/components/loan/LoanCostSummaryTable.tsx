@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { formatPercent } from '@/lib/utils'
 import type { LoanSummary } from '@/types/api'
 
 interface LoanCostSummaryTableProps {
@@ -76,7 +77,7 @@ function Row({ label, value, format = 'currency', hidden = false }: {
     <div className="flex items-center justify-between text-xs">
       <span className="text-muted-foreground">{label}</span>
       {format === 'percent'
-        ? <span className="tabular-nums font-medium">{value.toFixed(0)} %</span>
+        ? <span className="tabular-nums font-medium">{formatPercent(value, { fractionDigits: 0 })}</span>
         : <CurrencyDisplay value={value} className="tabular-nums font-medium" />}
     </div>
   )

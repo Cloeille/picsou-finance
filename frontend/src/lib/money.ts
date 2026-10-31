@@ -1,4 +1,4 @@
-import { getLocale, normalizeIntlLocale } from '@/lib/utils'
+import { getLocale, normalizeIntlLocale, withDrawableSpaces } from '@/lib/utils'
 
 /**
  * A fixed-length token, never derived from the value it replaces.
@@ -13,11 +13,25 @@ export const AMOUNT_MASK = '*****'
 /** Shorter, because every masked axis has to fit a gutter as narrow as `width={45}`. */
 export const AXIS_MASK = '***'
 
+/**
+ * The YAxis gutter for {@link MoneyFormatter.tick}. German does not compact thousands, so its
+ * "-250.000 €" is the widest label: 66px in Geist at 12px. Recharts anchors the label at
+ * `width − tickMargin (8) − tickSize (6)`, the tick size being reserved even with
+ * `tickLine={false}`, so 80px leaves no slack and 76px cut the minus sign off. 84 keeps 4px.
+ * Fixed rather than Recharts' `width="auto"`, which dropped the net-worth axis entirely in 3.8.
+ */
+export const MONEY_AXIS_WIDTH = 84
+
 export interface MoneyFormatter {
   /** True when amounts are hidden — for the few places that need to branch on more than a string. */
   readonly hidden: boolean
-  /** A monetary amount: masked, or formatted for the current locale. */
-  amount(value: number, currency?: string): string
+  /**
+   * A monetary amount: masked, or formatted for the current locale.
+   *
+   * @param maximumFractionDigits fixed precision, e.g. 0 for whole units where cents would not fit;
+   *                              omitted, the currency's own precision
+   */
+  amount(value: number, currency?: string, opts?: { maximumFractionDigits?: number }): string
   /**
    * A holding's quantity. Masked with the amounts: a quote is public, so quantity times price
    * reconstitutes the line, and a position anyone can price is not hidden by hiding its total.
@@ -37,8 +51,12 @@ export interface MoneyFormatter {
    * quantity beside it is masked, which is what keeps the position unreconstructible.
    */
   quote(value: number, currency?: string): string
-  /** An axis tick. Masked to {@link AXIS_MASK}, otherwise handed to the chart's own ladder. */
-  tick<T>(format: (value: T) => string): (value: T) => string
+  /**
+   * An amount axis tick, in EUR: a compact amount, or {@link AXIS_MASK} when amounts are hidden.
+   * Takes the value alone so it can be handed to Recharts as `tickFormatter` directly, which
+   * passes the tick index as a second argument.
+   */
+  tick(value: number): string
 }
 
 /**
@@ -47,15 +65,23 @@ export interface MoneyFormatter {
  * The public path is {@link MoneyFormatter} via `useMoney()`, so that hiding amounts cannot be
  * bypassed by reaching for the raw formatter. The one audited exception is exported below.
  */
-function formatCurrencyIntl(value: number, currency = 'EUR', locale = getLocale()): string {
+function formatCurrencyIntl(
+  value: number,
+  currency = 'EUR',
+  locale = getLocale(),
+  maximumFractionDigits?: number,
+): string {
   const safeLocale = normalizeIntlLocale(locale)
+  const precision = maximumFractionDigits == null
+    ? {}
+    : { minimumFractionDigits: 0, maximumFractionDigits }
   try {
-    return new Intl.NumberFormat(safeLocale, { style: 'currency', currency }).format(value)
+    return withDrawableSpaces(new Intl.NumberFormat(safeLocale, { style: 'currency', currency, ...precision }).format(value))
   } catch {
     // An unknown/invalid ISO 4217 code makes Intl.NumberFormat throw a RangeError.
     // Degrade to a plain decimal + the raw code instead of crashing the whole app (issue #9).
-    const num = new Intl.NumberFormat(safeLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
-    return `${num} ${currency}`
+    const num = new Intl.NumberFormat(safeLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2, ...precision }).format(value)
+    return withDrawableSpaces(`${num} ${currency}`)
   }
 }
 
@@ -111,37 +137,40 @@ function maskAmount(value: number, currency: string, locale: string): string {
 }
 
 export function makeMoneyFormatter({ hidden, locale }: { hidden: boolean; locale: string }): MoneyFormatter {
+  const compact = (value: number, opts: { currency?: string; maximumFractionDigits?: number } = {}) => {
+    const currency = opts.currency ?? 'EUR'
+    if (hidden) return maskAmount(value, currency, locale)
+    const abs = Math.abs(value)
+    const digits = opts.maximumFractionDigits
+      ?? (abs >= 1_000_000 ? 2 : abs >= 10_000 ? 0 : abs >= 1_000 ? 1 : null)
+    if (digits == null) return formatCurrencyIntl(value, currency, locale)
+    try {
+      return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale), {
+        style: 'currency', currency, notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: digits,
+      }).format(value))
+    } catch {
+      // An invalid currency or locale throws a RangeError; the full format degrades gracefully.
+      return formatCurrencyIntl(value, currency, locale)
+    }
+  }
+
   return {
     hidden,
-    amount(value: number, currency = 'EUR') {
+    amount(value: number, currency = 'EUR', opts: { maximumFractionDigits?: number } = {}) {
       return hidden
         ? maskAmount(value, currency, locale)
-        : formatCurrencyIntl(value, currency, locale)
+        : formatCurrencyIntl(value, currency, locale, opts.maximumFractionDigits)
     },
-    compact(value: number, opts: { currency?: string; maximumFractionDigits?: number } = {}) {
-      const currency = opts.currency ?? 'EUR'
-      if (hidden) return maskAmount(value, currency, locale)
-      const abs = Math.abs(value)
-      const digits = opts.maximumFractionDigits
-        ?? (abs >= 1_000_000 ? 2 : abs >= 10_000 ? 0 : abs >= 1_000 ? 1 : null)
-      if (digits == null) return formatCurrencyIntl(value, currency, locale)
-      try {
-        return new Intl.NumberFormat(normalizeIntlLocale(locale), {
-          style: 'currency', currency, notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: digits,
-        }).format(value)
-      } catch {
-        // An invalid currency or locale throws a RangeError; the full format degrades gracefully.
-        return formatCurrencyIntl(value, currency, locale)
-      }
-    },
+    compact,
     quote(value: number, currency = 'EUR') {
       return formatCurrencyIntl(value, currency, locale)
     },
     quantity(value: number | string) {
       return hidden ? AMOUNT_MASK : String(value)
     },
-    tick<T>(format: (value: T) => string) {
-      return hidden ? () => AXIS_MASK : format
+    // Two digits so a nice step such as 1,25 M stays exact; Intl drops the zeros of a round one.
+    tick(value: number) {
+      return hidden ? AXIS_MASK : compact(value, { maximumFractionDigits: 2 })
     },
   }
 }

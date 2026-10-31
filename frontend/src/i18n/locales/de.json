@@ -29,6 +29,7 @@
     "today": "Heute",
     "currency": "EUR",
     "done": "Fertig",
+    "labelColon": "{{label}}:",
     "errorTitle": "Error",
     "skipToContent": "Skip to main content",
     "locale": "en-US",
@@ -131,7 +132,8 @@
     "newGoal": "Neues Ziel",
     "achieved": "erreicht",
     "goalsSummary": "Verfolge deinen Fortschritt auf dem Weg zu deinen finanziellen Zielen.",
-    "otherGoals": "{{count}} weitere Ziele",
+    "otherGoals": "{{count}} weiteres Ziel",
+    "otherGoals_other": "{{count}} weitere Ziele",
     "holdings": "Bestände",
     "holdingsDescription": "Dein Portfolio auf einen Blick",
     "searchHoldings": "Bestände oder Ticker suchen...",
@@ -152,6 +154,7 @@
     "portfolioPerformance": "portfolio performance",
     "liabilities": "Verbindlichkeiten",
     "monthlyPayment": "Monatliche Rate",
+    "perMonthSuffix": "/Monat",
     "loanParamsUnconfigured": "Parameter nicht konfiguriert",
     "amountDue": "Fälliger Betrag",
     "dueOn": "Fällig am {{date}}"
@@ -170,6 +173,7 @@
     "neverSynced": "Nie synchronisiert",
     "holdings": "Bestände",
     "transactions": "Transaktionen",
+    "noTransactions": "Keine Transaktionen auf diesem Konto.",
     "addTransaction": "Transaktion hinzufügen",
     "editTransaction": "Transaktion bearbeiten",
     "transactionDate": "Datum",
@@ -190,6 +194,7 @@
     "syncStale": "Synchronisiert {{time}}",
     "syncStaleTooltip": "Dieses Konto wurde seit längerer Zeit nicht synchronisiert. Starte eine Synchronisierung oder verbinde den Anbieter erneut.",
     "history": "Verlauf",
+    "valueAndInvested": "Wert und investiertes Kapital",
     "manual": "Manuell",
     "allTypes": "Alle Typen",
     "accountName": "Kontoname",
@@ -221,7 +226,7 @@
       "next": "Nächste Dividenden",
       "exDate": "Ex-Tag",
       "paymentDate": "Zahlung",
-      "paymentUnknown": "Zahlungstermin unbekannt",
+      "paymentUnknown": "Datum unbekannt",
       "estimated": "geschätzt",
       "announced": "Angekündigt",
       "estimatedBasis": "Geschätzt",
@@ -286,7 +291,7 @@
     "editTargets": "Meine Ziele",
     "error": "Analyse konnte nicht geladen werden",
     "points": "Pkt",
-    "targetShort": "Ziel {{value}}%",
+    "targetShort": "Ziel {{value}}",
     "empty": {
       "title": "Noch nichts zu analysieren",
       "description": "Füge Konten hinzu, damit Picsou den Aufbau deines Vermögens bewerten kann."
@@ -305,14 +310,14 @@
       "cryptoPenalty": "Krypto-Abzug",
       "leverageBonus": "Hebel-Bonus",
       "notRated": "nicht bewertet",
-      "misplaced": "{{value}}% deines Vermögens müssten umgeschichtet werden, um deine Ziele zu erreichen.",
+      "misplaced": "{{value}} deines Vermögens müssten umgeschichtet werden, um deine Ziele zu erreichen.",
       "safetyNetUnknownHint": "Trage deine monatlichen Fixkosten ein, damit der Notgroschen bewertet werden kann.",
       "notRatedYet": "Noch keine Bewertung: Geben Sie Ihre monatlichen Ausgaben an oder investieren Sie über Ihr Polster hinaus."
     },
     "safetyNet": {
       "title": "Notgroschen und Aufteilung",
       "ofTarget": "von einem Ziel von",
-      "short": "{{value}}% des Ziels",
+      "short": "{{value}} des Ziels",
       "covered": "Gedeckt",
       "excess": "Überschuss",
       "excessHint": "Alles über dem Ziel ist umzuschichtendes Geld: es fließt nicht in die Aufteilung unten ein.",
@@ -332,7 +337,7 @@
       "useSuggestion": "Übernehmen",
       "months": "Zu deckende Monate",
       "allocation": "Zielaufteilung des Rests",
-      "sum": "Summe {{value}}% / 100%",
+      "sum": "Summe {{value}} / {{max}}",
       "allocationHint": "Die vier Prozentsätze müssen zusammen 100% ergeben."
     },
     "targetAmount": "Ziel",
@@ -341,7 +346,7 @@
       "sectors": "Sektoren",
       "countries": "Regionen",
       "effective": "{{value}} effektive Positionen / {{target}} angestrebt",
-      "coverage": "Berechnet über {{value}} % des Aktien- & ETF-Anteils",
+      "coverage": "Berechnet über {{value}} des Aktien- & ETF-Anteils",
       "unclassified": "nicht klassifiziert",
       "noData": "Keine Aufteilungsdaten verfügbar",
       "noHoldings": "Keine Aktien- oder ETF-Position zu analysieren.",
@@ -360,10 +365,10 @@
       "nothingToProject": "Lege unter Ziele eine monatliche Anlage an, um eine Projektion zu sehen.",
       "disclaimer": "Projiziert aus deinen wiederkehrenden Einzahlungen, monatlich verzinst. Ohne Immobilien, Kredite und alternative Anlagen. Das ist keine Prognose.",
       "scenarios": {
-        "PESSIMISTIC": "Pessimistisch ({{value}} %)",
-        "CAUTIOUS": "Vorsichtig ({{value}} %)",
-        "REFERENCE": "Referenz ({{value}} %)",
-        "OPTIMISTIC": "Optimistisch ({{value}} %)"
+        "PESSIMISTIC": "Pessimistisch ({{value}})",
+        "CAUTIOUS": "Vorsichtig ({{value}})",
+        "REFERENCE": "Referenz ({{value}})",
+        "OPTIMISTIC": "Optimistisch ({{value}})"
       },
       "contributed": "Ihre Einzahlungen",
       "views": {
@@ -404,7 +409,7 @@
       "hint": "Wählen Sie einen Anteil, um zu sehen, woraus er besteht."
     },
     "alerts": {
-      "SINGLE_ASSET_CONCENTRATION": "{{label}} macht {{percent}} % Ihres Vermögens aus — ein einzelner Wert trägt das meiste Risiko.",
+      "SINGLE_ASSET_CONCENTRATION": "{{label}} macht {{percent}} Ihres Vermögens aus — ein einzelner Wert trägt das meiste Risiko.",
       "EMPTY_TIER": "Nichts in {{label}}: diese Stufe ist leer, nicht bloß unter dem Ziel.",
       "CUSHION_OVERFUNDED": "{{value}} über Ihrem Polsterziel — Geld, das anderswo arbeiten könnte.",
       "title": "Beachtenswert"
@@ -536,7 +541,7 @@
     "interestAndInsurance": "Zinsen und Versicherung",
     "paidInstallments": "Gezahlte Raten",
     "remainingInstallments": "Verbleibende Raten",
-    "capitalRepaidPct": "Du hast {{pct}} % der Kreditsumme getilgt",
+    "capitalRepaidPct": "Du hast {{pct}} der Kreditsumme getilgt",
     "summary": "Zusammenfassung",
     "totalCost": "Gesamtkosten des Kredits",
     "totalRepaid": "Insgesamt zurückgezahlt",
@@ -677,7 +682,8 @@
     "noGoals": "Keine Ziele definiert",
     "waiting": "Laufend",
     "calendar": "Kalender",
-    "calendarTitle": "Kalender für {{name}}",
+    "legendProgress": "Erreichter Anteil des Monatsziels (z. B. 94\u00a0%)",
+    "legendOvershoot": "Über dem Ziel (z. B. +8\u00a0%)",
     "viewGrid": "Jahresraster",
     "viewTimeline": "Zeitleiste",
     "viewCalendar": "Kalender",
@@ -738,7 +744,7 @@
       "title": "Sparquote",
       "perMonth": "pro Monat",
       "benchmarkLabel": "Zum französischen Durchschnitt",
-      "benchmark": "Die durchschnittliche Sparquote der Haushalte in Frankreich liegt bei rund {{rate}} % ihres verfügbaren Bruttoeinkommens",
+      "benchmark": "Die durchschnittliche Sparquote der Haushalte in Frankreich liegt bei rund {{rate}} ihres verfügbaren Bruttoeinkommens",
       "needsIncome": "Trage dein monatliches Netto vor Steuern und deinen Quellensteuersatz ein, um deine Sparquote zu sehen.",
       "goToSettings": "Zu den Einstellungen"
     }
@@ -776,6 +782,16 @@
   },
   "sync": {
     "title": "Synchronisierung",
+    "connectionStatus": {
+      "CREATED": "Ausstehend",
+      "LINKED": "Verbunden",
+      "CONNECTED": "Verbunden",
+      "active": "Verbunden",
+      "EXPIRED": "Abgelaufen",
+      "FAILED": "Fehlgeschlagen",
+      "ERROR": "Fehler",
+      "TOTP_REQUIRED": "2FA-Code erforderlich"
+    },
     "banks": {
       "title": "Banken",
       "search": "Bank suchen",
@@ -1575,6 +1591,8 @@
     "sessionsEmpty": "Keine vertrauenswürdigen Geräte — du musst dich bei jedem Besuch neu anmelden.",
     "sessionsCurrent": "Dieses Gerät",
     "sessionsTrusted": "2FA-vertraut",
+    "sessionsUnknownDevice": "Unbekanntes Gerät",
+    "sessionsBrowser": "Browser",
     "sessionsLastUsed": "Zuletzt verwendet",
     "sessionsCreated": "Erstellt",
     "sessionsExpires": "Läuft ab",
@@ -1599,14 +1617,14 @@
       },
       "taxHouseholdParts": "Steuerliche Anteile",
       "dependents": "Unterhaltsberechtigte",
-      "annualGrossIncome": "Jährliches Bruttoeinkommen",
+      "annualGrossIncome": "Jährliches Bruttoeinkommen (€)",
       "incomeHint": "Der Bruttobetrag deiner Gehaltsabrechnung. Steuerlicher Kontext — die Sparquote wird auf den Nettobetrag unten berechnet.",
       "netPay": "Was tatsächlich auf dem Konto ankommt",
       "netPayHint": "Beide Angaben stehen auf deiner Gehaltsabrechnung. Brutto allein genügt nicht: zuerst gehen die Sozialabgaben ab, zu einem Satz, der von deinem Status abhängt.",
-      "monthlyNetBeforeTax": "Monatliches Netto vor Steuern",
+      "monthlyNetBeforeTax": "Monatliches Netto vor Steuern (€)",
       "withholdingTaxRate": "Quellensteuersatz (%)",
       "netIncomeDerived": "Monatliches Netto:",
-      "savingsCapacity": "Monatliche Sparfähigkeit",
+      "savingsCapacity": "Monatliche Sparfähigkeit (€)",
       "riskProfile": "Risikoprofil",
       "risk": {
         "PRUDENT": "Vorsichtig",
@@ -2359,7 +2377,7 @@
       "costBasis": "Gesamtkosten",
       "currentValue": "Aktueller Wert",
       "gain": "Wertzuwachs",
-      "coOwnedNote": "Sie halten {{percent}} % dieses Objekts. Summen zählen nur Ihren Anteil."
+      "coOwnedNote": "Sie halten {{percent}} dieses Objekts. Summen zählen nur Ihren Anteil."
     },
     "valuation": {
       "title": "Bewertung",
@@ -2401,7 +2419,7 @@
       "gross": "Bruttowert",
       "debt": "Restschuld",
       "net": "Nettowert",
-      "equityShare": "{{pct}} % des Objekts gehören Ihnen tatsächlich"
+      "equityShare": "{{pct}} des Objekts gehören Ihnen tatsächlich"
     },
     "summary": {
       "title": "Immobilienvermögen",
@@ -2409,7 +2427,7 @@
       "debt": "Schulden",
       "net": "Netto",
       "gain": "Wertzuwachs",
-      "loanToValue": "Beleihungsquote: {{pct}} % des Objektwerts",
+      "loanToValue": "Beleihungsquote: {{pct}} des Objektwerts",
       "rentalIncome": "Monatliche Mieteinnahmen:"
     },
     "ownership": {
@@ -2417,7 +2435,7 @@
       "hint": "Anteil je Mitglied festlegen. Jeder zählt nur seinen eigenen Anteil zum Vermögen.",
       "total": "Zugewiesen",
       "overAllocated": "Die Summe übersteigt 100 %.",
-      "unassigned": "{{percent}} % sind niemandem zugewiesen: Dieser Anteil liegt außerhalb von Picsou und zählt zu keinem Vermögen.",
+      "unassigned": "{{percent}} sind niemandem zugewiesen: Dieser Anteil liegt außerhalb von Picsou und zählt zu keinem Vermögen.",
       "saveError": "Aufteilung konnte nicht gespeichert werden"
     },
     "chart": {
@@ -2678,7 +2696,7 @@
       "diagram": "This cycle's flow",
       "breakdown": "Where your money goes",
       "inflows": "In",
-      "outflows": "Out",
+      "outflows": "Einkommensverteilung",
       "empty": "No flow to show for this period.",
       "error": "Could not load the flow diagram.",
       "ariaSummary": "Flow diagram: {{income}} in, {{expense}} out, net {{net}}.",
@@ -2733,6 +2751,8 @@
       "emptyHint": "Create an envelope to track spending by category.",
       "error": "Could not load envelopes.",
       "deleteTitle": "Delete envelope",
+      "remaining": "{{amount}} übrig · {{percent}}",
+      "overspent": "{{amount}} überzogen · {{percent}}",
       "deleteDescription": "Delete the \"{{name}}\" envelope? Transactions are kept."
     },
     "recurring": {
@@ -2754,7 +2774,7 @@
       "noCategory": "No category",
       "formHint": "Manually add a recurring payment.",
       "variable": "Variable amount",
-      "autoConfirmedConfident": "Auto-confirmed · {{percent}}% confidence",
+      "autoConfirmedConfident": "Automatisch bestätigt · {{percent}} Sicherheit",
       "priceFromTo": "{{from}} → {{to}}",
       "undo": "Undo",
       "status": {
@@ -2769,7 +2789,7 @@
       },
       "activity": {
         "title": "What changed",
-        "autoConfirmed": "Auto-confirmed",
+        "autoConfirmed": "Automatisch bestätigt",
         "priceChange": "Price change",
         "autoConfirmedDesc": "Detected and confirmed automatically",
         "priceChangeDesc": "Price went from {{from}} to {{to}}",
@@ -2781,7 +2801,7 @@
       "subtitle": "Assign a category to unclassified transactions.",
       "recategorize": "Re-categorize",
       "categorizeAi": "Categorize with AI",
-      "aiSuggested": "AI: {{name}} · {{confidence}}%",
+      "aiSuggested": "KI: {{name}} · {{confidence}}",
       "selectCategory": "Pick a category",
       "learnRule": "Remember a rule",
       "assign": "Assign",
@@ -2893,8 +2913,8 @@
     "error": "Could not revoke access. Please try again."
   },
   "pockets": {
-    "subAccountsCount": "{{count}} pocket",
-    "subAccountsCount_other": "{{count}} pockets"
+    "subAccountsCount": "{{count}} Unterkonto",
+    "subAccountsCount_other": "{{count}} Unterkonten"
   },
   "savings": {
     "configSection": "Savings configuration",
@@ -2905,11 +2925,11 @@
       "LEP": "LEP",
       "COMMERCIAL": "Commercial savings account"
     },
-    "annualRate": "Annual rate (%)",
+    "annualRate": "Jahreszins (%)",
     "rateBasis": "Rate basis",
     "gross": "Gross",
     "net": "Net",
-    "taxRate": "Withholding tax (%)",
+    "taxRate": "Quellensteuer (%)",
     "taxRateHint": "PFU: 30% (flat tax)",
     "ceiling": "Legal ceiling (€)",
     "ceilingOptional": "Optional",

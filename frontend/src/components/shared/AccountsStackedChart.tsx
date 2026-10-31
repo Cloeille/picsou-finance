@@ -5,6 +5,7 @@ import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
 import { localeFromLanguage } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
+import { yAxisWidth } from '@/lib/chart-axis'
 import type { Account } from '@/types/api'
 
 interface AccountsStackedChartProps {
@@ -89,6 +90,10 @@ export function AccountsStackedChart({ accounts, data }: AccountsStackedChartPro
   const [range, setRange] = useState<TimeRange>('1Y')
 
   const filteredData = useMemo(() => filterByRange(data, range), [data, range])
+  const yWidth = yAxisWidth(
+    filteredData.flatMap(p => accounts.map(a => p[a.id]).filter(v => typeof v === 'number')),
+    money.tick,
+  )
 
   const chartConfig = useMemo(() => {
     const config: ChartConfig = {}
@@ -127,12 +132,8 @@ export function AccountsStackedChart({ accounts, data }: AccountsStackedChartPro
             tickLine={false}
             axisLine={false}
             tickMargin={8}
-            tickFormatter={money.tick((value: number) => {
-              const abs = Math.abs(value)
-              const formatted = abs >= 1000 ? `${(abs / 1000).toFixed(abs >= 10000 ? 0 : 1)}k` : abs.toFixed(0)
-              return `${value < 0 ? '-' : ''}${formatted}`
-            })}
-            width={45}
+            tickFormatter={money.tick}
+            width={yWidth}
           />
           <ChartTooltip content={<PnlTooltip accounts={accounts} labels={labels} />} />
           {accounts.map((account) => (

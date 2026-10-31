@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Download } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatPercent } from '@/lib/utils'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/accounts/pnl'
 import { useAppStore } from '@/stores/app-store'
@@ -232,7 +232,7 @@ export function AccountsPage() {
     if (!hasObservation || hasUnknownBasis) {
       return { pnl: null, pnlPct: null, totalInvested: null }
     }
-    const pct = inv > 0 ? ((pnlSum / inv) * 100).toFixed(1) : null
+    const pct = inv > 0 ? (pnlSum / inv) * 100 : null
     return { pnl: pnlSum, pnlPct: pct, totalInvested: inv }
   }, [historyData, filteredNonPockets])
 
@@ -513,7 +513,7 @@ export function AccountsPage() {
                     <CurrencyDisplay value={pnl} showSign />
                     {pnlPct !== null && (
                       <span className="ml-1 font-normal text-muted-foreground">
-                        ({pnlPositive ? '+' : ''}{pnlPct}%)
+                        ({formatPercent(pnlPct, { signed: true })})
                       </span>
                     )}
                   </span>

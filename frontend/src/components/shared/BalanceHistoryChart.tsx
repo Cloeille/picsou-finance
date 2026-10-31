@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { localeFromLanguage } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
+import { MONEY_AXIS_WIDTH } from '@/lib/money'
 
 interface BalanceHistoryChartProps {
   data: { date: string; balance: number }[]
@@ -42,8 +43,8 @@ export function BalanceHistoryChart({ data }: BalanceHistoryChartProps) {
           tickLine={false}
           axisLine={false}
           tickMargin={8}
-          tickFormatter={money.tick((value: number) => money.compact(value, { maximumFractionDigits: 1 }))}
-          width={72}
+          tickFormatter={money.tick}
+          width={MONEY_AXIS_WIDTH}
         />
         <ChartTooltip
           content={<ChartTooltipContent formatter={(value) => money.amount(value as number)} />}

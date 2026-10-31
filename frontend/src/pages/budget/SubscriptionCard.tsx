@@ -9,7 +9,7 @@ import {
   useDeleteRecurring,
   useIgnoreRecurring,
 } from '@/features/budget/hooks'
-import { formatDate, getLocale } from '@/lib/utils'
+import { formatDate, formatPercent, getLocale } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import type { RecurringSeries } from '@/types/api'
 import { CADENCE_LABEL_KEY, RUNTIME_STATUS_META, STATUS_LABEL_KEY } from './budget-meta'
@@ -31,7 +31,9 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
   const statusVariant = series.status === 'CONFIRMED'
     ? 'default' : series.status === 'SUGGESTED' ? 'secondary' : 'outline'
   const runtime = series.runtimeStatus !== 'SCHEDULED' ? RUNTIME_STATUS_META[series.runtimeStatus] : null
-  const confidencePct = series.confidence != null ? Math.round(series.confidence * 100) : null
+  const confidencePct = series.confidence != null
+    ? formatPercent(series.confidence * 100, { fractionDigits: 0 })
+    : null
   const showPriceChange = series.priceChangedAt != null && series.previousAmount != null
 
   return (
@@ -80,7 +82,7 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
         <CurrencyDisplay value={series.expectedAmount} showSign />
       </span>
 
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex w-32 shrink-0 items-center justify-end gap-1">
         {series.status !== 'CONFIRMED' && (
           <Button size="icon" variant="ghost" disabled={busy}
             aria-label={t('budget.a11y.confirm', { name: series.label })}
