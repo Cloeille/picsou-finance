@@ -1,6 +1,6 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-10-31 (Crédit Mutuel / CIC Épargne Salariale sidecar)
+> Last updated: 2026-10-31 (CI release image build reuses the GitHub Actions layer cache)
 
 ## Context
 
@@ -539,7 +539,12 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
   isolation against command doubles. CI runs it independently of the application tests.
 - `ReleaseMigrationCliTest` checks strict migration history and idempotency on real PostgreSQL.
 - CI builds the release image and runs `test_deploy_integration.py` against real PostgreSQL,
-  the packaged JAR, the normal application entrypoint, and its Nginx API route.
+  the packaged JAR, the normal application entrypoint, and its Nginx API route. The build goes
+  through Buildx with the GitHub Actions layer cache (its own `release-smoke` scope, plus the
+  release build's `app` scope from `docker.yml`), so Maven Central and the npm registry are only
+  contacted when `backend/pom.xml`, `frontend/package.json` or `frontend/bun.lock` changes, or
+  when the cached layers are missing (evicted or cache unavailable). Cold builds from shared runners
+  were rejected by Maven Central with `429 Too Many Requests`.
 - Build validation: `docker build -f docker/Dockerfile .`.
 - Backend unit tests run separately via `./mvnw test` (not in Docker build — skipped with `-DskipTests`).
 - `LegacyMigrationRenumberingTest` (Testcontainers) upgrades databases built under the old V80–V88

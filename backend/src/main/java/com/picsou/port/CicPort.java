@@ -4,6 +4,7 @@ import com.picsou.model.AccountType;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Read-only access to a CIC online-banking customer space.
@@ -34,9 +35,26 @@ public interface CicPort {
     String completeAuth(String processId, String code);
 
     /** The current and savings accounts, balances only. Insurance and other contracts are left out by the sidecar. */
-    List<AccountData> fetchAccounts(String sessionState);
+    AccountListing fetchAccounts(String sessionState);
 
     record InitiateResult(String processId, boolean mfaRequired, String mfaType, String sessionState) {}
+
+    /**
+     * The accounts, and the in-scope tables the page carried ({@code CHECKING}, {@code SAVINGS}),
+     * an empty one included. {@code categoriesRead} is null when the sidecar does not say
+     * (an older sidecar answering with a bare list).
+     */
+    record AccountListing(List<AccountData> accounts, Set<String> categoriesRead) {
+        public AccountListing {
+            accounts = List.copyOf(accounts);
+            categoriesRead = categoriesRead == null ? null : Set.copyOf(categoriesRead);
+        }
+
+        /** A listing that does not say which tables were read. */
+        public static AccountListing withoutCategories(List<AccountData> accounts) {
+            return new AccountListing(accounts, null);
+        }
+    }
 
     record AccountData(String externalId, String name, AccountType type, BigDecimal balanceEur, boolean snapshotComplete) {}
 }

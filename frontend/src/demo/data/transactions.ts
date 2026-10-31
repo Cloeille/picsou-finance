@@ -31,16 +31,6 @@ export const mockTransactions: Record<number, Transaction[]> = {
     t({ id: 42, date: '2025-02-15', description: 'Dividendes IWDA', amount: 85.0, type: 'credit', category: 'Revenus', nativeCurrency: 'EUR' }),
     t({ id: 43, date: '2025-01-20', description: 'Versement CT', amount: 5000.0, type: 'credit', category: 'Épargne', nativeCurrency: 'EUR' }),
   ],
-  4: [
-    t({ id: 1, date: '2025-03-15', description: 'Carrefour Market', amount: -67.8, type: 'debit', category: 'Courses', nativeCurrency: 'EUR' }),
-    t({ id: 2, date: '2025-03-14', description: 'Salaire', amount: 2800.0, type: 'credit', category: 'Salaire', nativeCurrency: 'EUR' }),
-    t({ id: 3, date: '2025-03-13', description: 'EDF Électricité', amount: -85.0, type: 'debit', category: 'Énergie', nativeCurrency: 'EUR' }),
-    t({ id: 4, date: '2025-03-12', description: 'Amazon.fr', amount: -34.99, type: 'debit', category: 'Achats', nativeCurrency: 'EUR' }),
-    t({ id: 5, date: '2025-03-10', description: 'Boulangerie Paul', amount: -8.5, type: 'debit', category: 'Restaurants', nativeCurrency: 'EUR' }),
-    t({ id: 6, date: '2025-03-08', description: 'Fnac', amount: -29.99, type: 'debit', category: 'Achats', nativeCurrency: 'EUR' }),
-    t({ id: 7, date: '2025-03-05', description: 'Loyer', amount: -850.0, type: 'debit', category: 'Loyer', nativeCurrency: 'EUR' }),
-    t({ id: 8, date: '2025-03-01', description: 'Virement épargne', amount: -200.0, type: 'debit', category: 'Épargne', nativeCurrency: 'EUR' }),
-  ],
   5: [
     t({ id: 10, date: '2025-03-14', description: 'Loyer', amount: -850.0, type: 'debit', category: 'Loyer', nativeCurrency: 'EUR' }),
     t({ id: 11, date: '2025-03-12', description: 'Carrefour', amount: -45.3, type: 'debit', category: 'Courses', nativeCurrency: 'EUR' }),

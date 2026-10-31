@@ -672,8 +672,14 @@ describe('useUpdateScpiPosition', () => {
     const keys = [
       ['accounts'], ['accounts', 42], ['real-estate', 'summary'],
       ['dashboard'], ['analysis', 'wealth-pyramid'], ['dividends', 'upcoming', 60],
+      ['accounts', 42, 'history'], ['history', [42], 12, true],
+      ['pnl', [42]], ['pnl', [13, 42], '2026-10-01'], ['net-worth-intraday', [42]],
+    ]
+    const unrelatedKeys = [
+      ['history', [13], 12, true], ['pnl', [13]], ['net-worth-intraday', [13]],
     ]
     keys.forEach(key => client.setQueryData(key, { previous: true }))
+    unrelatedKeys.forEach(key => client.setQueryData(key, { previous: true }))
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     )
@@ -685,6 +691,9 @@ describe('useUpdateScpiPosition', () => {
     expect(updateScpiPosition).toHaveBeenCalledWith(42, data)
     for (const key of keys) {
       expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
+    }
+    for (const key of unrelatedKeys) {
+      expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(false)
     }
   })
 })

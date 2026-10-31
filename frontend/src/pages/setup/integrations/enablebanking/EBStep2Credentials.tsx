@@ -12,6 +12,7 @@ import {
 } from '@/features/setup/schemas'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
 import { useWriteEnableBankingConfig } from '@/features/setup/hooks'
+import { formatApiError } from '@/lib/errors'
 
 interface Props {
   onNext: () => void
@@ -81,10 +82,7 @@ export function EBStep2Credentials({ onNext, onBack }: Props) {
       })
       onNext()
     } catch (err) {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-        String(err)
-      setServerError(detail)
+      setServerError(formatApiError(err, t))
     }
   })
 
