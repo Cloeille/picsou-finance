@@ -103,7 +103,7 @@ class SyncServiceIbanMatchTest {
         when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data));
 
         // IBAN lookup finds the existing account (stored with old uid)
-        when(accountRepository.findByIbanAndMemberId(IBAN, MEMBER_ID))
+        when(accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID))
             .thenReturn(Optional.of(existing));
 
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -142,12 +142,12 @@ class SyncServiceIbanMatchTest {
         when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data));
 
         // IBAN lookup: no active account
-        when(accountRepository.findByIbanAndMemberId(IBAN, MEMBER_ID)).thenReturn(Optional.empty());
+        when(accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID)).thenReturn(Optional.empty());
         // externalAccountId lookup: no active account
         when(accountRepository.findByExternalAccountIdAndMemberId(NEW_EB_UID, MEMBER_ID))
             .thenReturn(Optional.empty());
         // Soft-delete guard: found by IBAN → skip resurrection
-        when(accountRepository.existsSoftDeletedByIbanAndMemberId(IBAN, MEMBER_ID)).thenReturn(true);
+        when(accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID)).thenReturn(true);
 
         syncService.resyncAll(MEMBER_ID);
 
@@ -170,10 +170,10 @@ class SyncServiceIbanMatchTest {
         when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data));
 
         // No existing account by IBAN or externalId
-        when(accountRepository.findByIbanAndMemberId(IBAN, MEMBER_ID)).thenReturn(Optional.empty());
+        when(accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID)).thenReturn(Optional.empty());
         when(accountRepository.findByExternalAccountIdAndMemberId(NEW_EB_UID, MEMBER_ID))
             .thenReturn(Optional.empty());
-        when(accountRepository.existsSoftDeletedByIbanAndMemberId(IBAN, MEMBER_ID)).thenReturn(false);
+        when(accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(IBAN, "EUR", MEMBER_ID)).thenReturn(false);
         when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(NEW_EB_UID, MEMBER_ID))
             .thenReturn(false);
 

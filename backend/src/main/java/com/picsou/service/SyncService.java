@@ -460,8 +460,9 @@ public class SyncService {
      *
      * <p>Matching strategy (Enable Banking v0.16.4 uid-rotation resilience):
      * <ol>
-     *   <li>If the account has an IBAN, look up by {@code (iban, memberId)} first — IBAN is
-     *       stable even when the provider uid changes (e.g. Boursorama after EB v0.16.4).
+     *   <li>If the account has an IBAN, look up by {@code (iban, currency, memberId)} first.
+     *       Currency distinguishes subaccounts sharing an IBAN, which remains stable even
+     *       when the provider uid changes (e.g. Boursorama after EB v0.16.4).
      *       When matched via IBAN, the stored {@code externalAccountId} is refreshed to the
      *       current uid so future syncs stay aligned.</li>
      *   <li>Fall back to {@code (externalAccountId, memberId)} for accounts without an IBAN
@@ -480,10 +481,11 @@ public class SyncService {
         FamilyMember member,
         String sessionId
     ) {
+        String currency = data.currency() != null ? data.currency() : "EUR";
         // Step 1: locate an existing active account (IBAN-first when available)
         Optional<Account> existing = Optional.empty();
         if (data.iban() != null) {
-            existing = accountRepository.findByIbanAndMemberId(data.iban(), member.getId());
+            existing = accountRepository.findByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId());
         }
         if (existing.isEmpty()) {
             existing = accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), member.getId());
@@ -492,7 +494,7 @@ public class SyncService {
         // Step 2: soft-delete guard — refuse to resurrect an account the user removed
         if (existing.isEmpty()) {
             boolean softDeleted = (data.iban() != null &&
-                accountRepository.existsSoftDeletedByIbanAndMemberId(data.iban(), member.getId()))
+                accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(data.iban(), currency, member.getId()))
                 || accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), member.getId());
             if (softDeleted) {
                 log.info("Skipping resurrection of soft-deleted account externalId={} iban={} member={}",
@@ -524,7 +526,7 @@ public class SyncService {
                 .name(data.name() != null ? data.name() : "Account")
                 .type(AccountType.CHECKING)
                 .provider(requisition.getInstitutionName())
-                .currency(data.currency() != null ? data.currency() : "EUR")
+                .currency(currency)
                 .currentBalance(data.balance())
                 .lastSyncedAt(Instant.now())
                 .externalAccountId(data.externalId())

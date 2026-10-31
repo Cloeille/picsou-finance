@@ -90,6 +90,9 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
      */
     Optional<Account> findByIbanAndMemberId(String iban, Long memberId);
 
+    /** Currency distinguishes subaccounts sharing an IBAN while allowing provider uid rotation. */
+    Optional<Account> findByIbanAndCurrencyAndMemberId(String iban, String currency, Long memberId);
+
     /** Match a legacy provider value exactly, without merging a different provider's account. */
     Optional<Account> findFirstByIbanAndMemberIdAndProvider(String iban, Long memberId, String provider);
 
@@ -107,6 +110,17 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
         nativeQuery = true)
     boolean existsSoftDeletedByIbanAndMemberId(
         @Param("iban") String iban,
+        @Param("memberId") Long memberId
+    );
+
+    /** A deleted currency subaccount must not suppress other currencies sharing its IBAN. */
+    @Query(value =
+        "SELECT EXISTS(SELECT 1 FROM account " +
+        "  WHERE iban = :iban AND currency = :currency AND member_id = :memberId AND deleted_at IS NOT NULL)",
+        nativeQuery = true)
+    boolean existsSoftDeletedByIbanAndCurrencyAndMemberId(
+        @Param("iban") String iban,
+        @Param("currency") String currency,
         @Param("memberId") Long memberId
     );
 

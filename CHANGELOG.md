@@ -272,7 +272,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   description, product, or holder name for new accounts, bounded to 100 characters
   after matching the full description. Ambiguous or missing balances fail explicitly
   instead of selecting another account's balance or storing zero. Existing account
-  names stay unchanged and can be edited in the account form.
+  names stay unchanged and can be edited in the account form. Currency subaccounts sharing
+  an IBAN remain separate, with balances and snapshots valued in the correct currency.
+  IBAN matching and deletion guards include currency while retaining uid-rotation support.
 
 - **Numbers and labels follow the interface language.** Percentages are formatted by the
   locale everywhere ("8,3 %" in French, "8.3%" in English) instead of a dot and a hand-placed

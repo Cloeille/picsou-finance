@@ -1,6 +1,6 @@
 # Feature: Bank Sync
 
-> Last updated: 2026-10-31 (Enable Banking flat account details and account-specific balance selection)
+> Last updated: 2026-10-31 (Enable Banking account parsing and currency-aware IBAN matching)
 
 > **Status (1.0.0).** Enable Banking is the only enabled provider. The Powens
 > adapter ships in the codebase but is **experimental and untested** —
@@ -42,10 +42,14 @@ account number alone, breaking the uid-based match used by the previous upsert l
 Picsou now handles this with a two-pronged strategy:
 
 1. **IBAN-first account matching.** `SyncService.upsertAccount()` matches an incoming account against
-   stored accounts by **IBAN** first (stable, bank-issued identifier), falling back to the Enable
-   Banking `uid` only when the IBAN is absent. On a successful IBAN match the stored `uid` is
-   refreshed in place, so the next sync uses the new uid without user intervention. The soft-delete
-   guard (which prevents re-creating an account the user removed) also checks IBAN alongside uid.
+   stored accounts by **IBAN, currency, and member** first, falling back to the Enable Banking
+   `uid` and member when no IBAN match exists or the IBAN is absent. Different currency
+   subaccounts can share an IBAN, so IBAN alone does not identify an account. On a successful
+   IBAN and currency match, the stored `uid` is refreshed in place. A missing currency defaults
+   to `EUR` before matching and account creation. The soft-delete guard uses the same IBAN,
+   currency, and member key alongside the exact uid check. Deleting one currency subaccount
+   does not block another currency sharing its IBAN. Each account keeps its native balance;
+   its snapshot is converted to EUR using that account's currency.
    - New column: `account.iban VARCHAR(34)`, added by `V46__account_iban.sql`.
 
 2. **Per-account failure isolation in `fetchBalances()`.** Previously, a single failing account
@@ -73,7 +77,7 @@ to fit `account.name`. Balance matching always uses the full account description
 so descriptions that share the first 100 characters remain distinct matching keys.
 Existing-account names remain unchanged on sync to preserve user edits. An existing
 generic `Account` label can be renamed in the account form. Balances and IBANs refresh
-through the usual upsert path, including IBAN-first matching after a uid rotation.
+through the usual upsert path, including currency-aware IBAN matching after a uid rotation.
 
 Some ASPSPs, including the Qonto response shape reported in issue #317, return the
 organization's balances for every account uid. When balance names match the account's
@@ -113,6 +117,11 @@ the account-details currency, then `EUR`.
 balance lists, flat details, type priorities, ordinary single-account responses,
 unmatched lists with different balance types, oversized display names, full-description
 matching before truncation, ambiguous or missing data, and per-account failure isolation.
+
+`SyncServiceCurrencyMatchTest` persists accounts and snapshots through real repositories
+against an isolated H2 database. Synthetic EUR and GBP accounts sharing one IBAN stay
+separate across repeated syncs and uid rotation. Snapshot conversion uses a fixed synthetic
+FX rate. Currency-specific soft deletion and the missing-currency EUR default are also covered.
 Live bank behavior remains unverified.
 
 ### Country selection
@@ -289,8 +298,8 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 - **Type upgrade on resync**: If the user has not customized an account's type, `upsertAccount()` will upgrade it from CHECKING to the detected type on the next sync. Manual user changes are preserved (only CHECKING is auto-upgraded).
 - **Both providers are optional**: The app starts fine without either. No `BankConnectorPort` bean is required at startup.
 - **Enable Banking uid instability.** EB 0.16.4 changed the account uid derivation for ASPSPs that
-  don't expose per-account currency. Picsou resolves this via IBAN-first matching and uid refresh on
-  match; if an account has no IBAN it will fall back to uid matching and may be treated as a new
+  don't expose per-account currency. Picsou resolves this via currency-aware IBAN matching and uid refresh on
+  match; if no IBAN match exists it falls back to uid matching and may be treated as a new
   account after an EB provider upgrade. This is tracked by `V46__account_iban.sql`.
 - **A business bank in the list can still fail at authorization**: Enable Banking
   lets an ASPSP declare `required_psu_headers` that must accompany `/auth`.
