@@ -17,7 +17,8 @@ shared `HoldingLogo` renders them in:
 - `HoldingsTable` (an account's holdings) and `PositionsByProduct` (a crypto exchange's
   per-product breakdown), and the dividend cards of `AccountDividendsSection`: the mark, or a
   disc with the holding name's initials so the column does not jump. A line without a name (an
-  exchange coin) keeps an empty disc: its only initials would repeat the ticker printed beside it.
+  exchange coin), or whose name is only its ticker (a dividend with no known name), keeps an empty
+  disc: its only initials would repeat the ticker printed beside it.
 - `HoldingDetailModal`: the mark beside the title, only when there is one. That header never
   had a disc, so an absent mark leaves it unchanged.
 

@@ -71,7 +71,7 @@ vi.mock('recharts', () => {
     CartesianGrid: Empty,
     ReferenceLine: Empty,
     XAxis: Empty,
-    YAxis: Empty,
+    YAxis: ({ width }: { width?: number }) => <span data-testid="y-axis" data-width={width} />,
     Tooltip: Empty,
   }
 })
@@ -132,5 +132,28 @@ describe('NetWorthChart nullable performance data', () => {
     expect(tooltip).not.toHaveTextContent('dashboard.gainLoss')
     const displayedValues = Array.from(tooltip.querySelectorAll('span'), span => span.textContent?.trim())
     expect(displayedValues).not.toContain('0')
+  })
+})
+
+describe('NetWorthChart Y axis width', () => {
+  const axisWidth = (props: { invested: number | null; showInvested: boolean }) => {
+    const { unmount } = render(
+      <NetWorthChart
+        data={[{ date: '2026-02-01', total: 100, invested: props.invested, pnl: null }]}
+        range="ALL"
+        onRangeChange={() => {}}
+        showInvested={props.showInvested}
+      />,
+    )
+    const width = Number(screen.getByTestId('y-axis').dataset.width)
+    unmount()
+    return width
+  }
+
+  it('is sized for the visible series only when invested capital is hidden', () => {
+    const withoutInvestedData = axisWidth({ invested: null, showInvested: false })
+
+    expect(axisWidth({ invested: 100_000, showInvested: false })).toBe(withoutInvestedData)
+    expect(axisWidth({ invested: 100_000, showInvested: true })).toBeGreaterThan(withoutInvestedData)
   })
 })

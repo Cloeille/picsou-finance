@@ -493,8 +493,7 @@ function RuleForm({ open, onOpenChange }: {
           <div className="space-y-2">
             <Label htmlFor="rule-cat">{t('budget.rule.category')}</Label>
             <NativeSelect id="rule-cat" value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}
-             >
+              onChange={(e) => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}>
               <option value="">{t('budget.categorize.selectCategory')}</option>
               {(categories ?? []).filter((c) => !c.archived).map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>

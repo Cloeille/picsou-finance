@@ -224,13 +224,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are now wide enough for their longest tick, so labels such as "10.00k" and "-250k" are no
   longer clipped. The investment account chart is titled "Valeur et capital investi", the
   name of what it plots. A holding or dividend without a logo shows its name's initials
-  instead of an empty grey circle. A dividend with no payment date says "Date inconnue"
-  and stays on one line. Income on an account's transactions carries its "+". Monthly
+  instead of an empty grey circle, unless that name is only its ticker. A dividend with no
+  payment date says "Date inconnue" and stays on one line. Income on an account's
+  transactions carries its "+", and a zero amount carries no sign. Monthly
   statements line up with their title and read "1er octobre 2026". In Budget, "OK" in "Ce
   qui a changé" has a check mark rather than the undo arrow, and the dates and amounts of
   the recurring lists stay in fixed columns. Envelopes say "87,70 € restants · 82 %" or
-  "37,90 € de dépassement". Category pickers, rule buttons and filters share one 40px
-  height, and the transaction filters show dates in your date format. The confidence slider
+  "37,90 € de dépassement", in German and Spanish too. Category pickers, rule buttons and
+  filters share one 40px height, the transaction filters show dates in your date format,
+  and screen readers announce the account and category filters by name. The confidence slider
   and the switches follow the dark theme, category names are no longer cut short on mobile,
   and the "À catégoriser" count sits next to its label.
   ([#283](https://github.com/Cloeille/picsou-finance/issues/283))
