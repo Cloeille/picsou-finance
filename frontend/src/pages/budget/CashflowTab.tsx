@@ -8,21 +8,18 @@ import {
   ChartLegend,
   ChartLegendContent,
   ChartTooltip,
-  ChartTooltipContent,
 } from '@/components/ui/chart'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { ErrorState } from '@/components/shared/ErrorState'
+import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCashflow } from '@/features/budget/hooks'
+import { useMoney } from '@/hooks/use-money'
+import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import type { CashflowPeriod } from '@/types/api'
 import { PeriodToggle } from './budget-utils'
 import { PeriodNavigator } from './PeriodNavigator'
 import { useBudgetPeriod } from './BudgetPeriodContext'
-
-const chartConfig = {
-  income: { label: 'Income', color: 'var(--chart-2)' },
-  expense: { label: 'Expense', color: 'var(--chart-5)' },
-} satisfies ChartConfig
 
 function StatCard({ labelKey, value, tone }: { labelKey: string; value: number; tone?: string }) {
   const { t } = useTranslation()
@@ -40,9 +37,14 @@ function StatCard({ labelKey, value, tone }: { labelKey: string; value: number; 
 
 export function CashflowTab() {
   const { t } = useTranslation()
+  const money = useMoney()
   const [period, setPeriod] = useState<CashflowPeriod>('CYCLE')
   const { anchor, setAnchor } = useBudgetPeriod()
   const { data, isLoading, isError, refetch } = useCashflow(period, anchor)
+  const chartConfig = {
+    income: { label: t('budget.cashflow.income'), color: 'var(--chart-2)' },
+    expense: { label: t('budget.cashflow.expense'), color: 'var(--chart-5)' },
+  } satisfies ChartConfig
 
   return (
     <div className="space-y-4">
@@ -95,8 +97,9 @@ export function CashflowTab() {
                     <CartesianGrid vertical={false} />
                     <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8}
                       fontSize={12} />
-                    <YAxis tickLine={false} axisLine={false} width={48} fontSize={12} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <YAxis tickLine={false} axisLine={false} width={MONEY_AXIS_WIDTH} fontSize={12}
+                      tickMargin={8} tickFormatter={money.tick} />
+                    <ChartTooltip content={<MoneyChartTooltip config={chartConfig} />} />
                     <ChartLegend content={<ChartLegendContent />} />
                     <Bar dataKey="income" fill="var(--color-income)" radius={4} />
                     <Bar dataKey="expense" fill="var(--color-expense)" radius={4} />

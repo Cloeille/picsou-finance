@@ -82,7 +82,7 @@ export function SimplefinPanel({ onConnected }: SimplefinPanelProps = {}) {
               )}
               {status.lastSyncedAt ? (
                 <span className="text-xs text-muted-foreground">
-                  {t('sync.simplefin.lastSync')}: {formatDateTime(status.lastSyncedAt)}
+                  {t('common.labelColon', { label: t('sync.simplefin.lastSync') })} {formatDateTime(status.lastSyncedAt)}
                 </span>
               ) : (
                 <span className="text-xs text-muted-foreground">{t('sync.simplefin.neverSynced')}</span>

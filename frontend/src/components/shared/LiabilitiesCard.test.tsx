@@ -6,7 +6,8 @@ import type { DashboardData } from '@/types/api'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, opts?: { date?: string }) => (opts?.date ? `${key} ${opts.date}` : key),
+    t: (key: string, opts?: { date?: string; label?: string }) =>
+      opts?.label ? `${opts.label}:` : opts?.date ? `${key} ${opts.date}` : key,
   }),
 }))
 

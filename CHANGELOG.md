@@ -281,6 +281,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Monthly payments read "/mois" in French.** The debts card printed a hard-coded English
   "/mo" after each payment, and the dashboard said "1 autres objectifs" when one goal was left
   off the summary (#277).
+- **Numbers and labels follow the interface language.** Percentages are formatted by the
+  locale everywhere ("8,3 %" in French, "8.3%" in English) instead of a dot and a hand-placed
+  sign. Every amount axis uses one compact format ("60 k €", "1,25 M €") instead of "60.0k",
+  in a gutter wide enough for the widest negative tick, German "-250.000 €". The cashflow
+  chart's axis and tooltip, and the allocation donut's tooltip, are now hidden in privacy mode
+  like every other amount. French thousands separators are visible again
+  in large amounts: the bundled font has no narrow no-break space, so "51 646,95 €" used to
+  read as "51646,95 €". Holding quantities, the average buy-in, card reward points and the
+  valuation sample size follow the interface language rather than the browser's.
+  In French, English leftovers are translated ("/mo", "Browser",
+  "Timeline", "YTD", "Exchanges", "Wallets", "pockets", the raw `LINKED` connection status),
+  "1 autre objectif" takes the singular, labels take a space before the colon, and the
+  settings and Revolut texts that said "tu" now say "vous". German and Spanish translate the
+  auto-confirmed subscription badge, the AI suggestion and the savings rate labels. The
+  profile form shows its amounts in the member's notation with their unit (#274).
+- **Pages no longer jump while they load, and error pages keep the app around them.**
+  A page that loads quickly now appears directly. A slower one shows a page title and
+  one block in its place, not a dashboard-shaped placeholder that the real page then
+  replaces. The 404, 403 and 500 pages appear inside the sidebar and navigation when
+  you are signed in, including after a browser restart with "Remember Me". A server
+  error inside that sidebar no longer reloads the error page in a loop. Each error page
+  offers "Back to dashboard" and "Back". Session checks and opening the setup wizard
+  show a centred spinner rather than a full-screen dashboard placeholder or an empty
+  screen. Moving between setup steps keeps the wizard frame on screen; only the step
+  area stays empty until the next step loads.
 - **Demo budget dates are no longer one day early east of UTC.** In Paris the demo showed the
   current cycle as 30/09 to 30/10 on 31 October, opened the budget pages on September, and
   listed every upcoming recurring charge a day before its series' next date. The demo now
