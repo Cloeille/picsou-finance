@@ -68,6 +68,16 @@ describe('PublicOnly session probe', () => {
     expect(screen.queryByText('login-form')).not.toBeInTheDocument()
   })
 
+  it('shows a centred spinner, not a page skeleton, while the probe is pending', async () => {
+    refresh.mockReturnValue(new Promise(() => {}))
+
+    const { container } = renderPublicOnly()
+
+    expect(container.querySelector('[data-slot="skeleton"]')).toBeNull()
+    expect(await screen.findByRole('status')).toHaveAccessibleName('common.loading')
+    expect(container.querySelector('[data-slot="skeleton"]')).toBeNull()
+  })
+
   it('skips the probe on the MFA challenge page (probe=false)', () => {
     renderPublicOnly(false)
 

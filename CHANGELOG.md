@@ -220,6 +220,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Pages no longer jump while they load, and error pages keep the app around them.**
+  A page that loads quickly now appears directly. A slower one shows a page title and
+  one block in its place, not a dashboard-shaped placeholder that the real page then
+  replaces. The 404, 403 and 500 pages appear inside the sidebar and navigation when
+  you are signed in. Each offers "Back to dashboard" and "Back". Session checks and
+  the setup wizard show a centred spinner rather than a full-screen dashboard
+  placeholder or an empty screen.
+
 - **American Express no longer stores a second copy of a charge AMEX re-describes.** A
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
   `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its
