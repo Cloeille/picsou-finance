@@ -118,7 +118,7 @@
 | Savings goals | 2026-06-02 | [goals.md](./features/goals.md) |
 | Goals — Grid view (donuts) | 2026-06-02 | [goal-calendar-donut.md](./features/goal-calendar-donut.md) |
 | Price service | 2026-08-07 | [price-service.md](./features/price-service.md) |
-| Live prices (holdings) | 2026-08-17 | [live-prices-holdings.md](./features/live-prices-holdings.md) |
+| Live prices (holdings) | 2026-10-31 | [live-prices-holdings.md](./features/live-prices-holdings.md) |
 | Security Insight (asset type + ETF composition) | 2026-06-02 | [security-insight.md](./features/security-insight.md) |
 | Finary import + auto-sync | 2026-08-17 | [finary-import.md](./features/finary-import.md) |
 | HomeBank iOS and desktop history import (.hbk / encrypted .hbexport / .qif) | 2026-10-05 | [homebank-import.md](./features/homebank-import.md) |

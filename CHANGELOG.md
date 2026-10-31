@@ -623,7 +623,9 @@ information architecture.
   Regency Centers' share price, 600 EUR, and the daily snapshot recorded it. Crypto
   lookups, the hourly crypto refresh, the crypto history backfill and the 24H chart's
   hourly series now stop at CoinGecko, and an unmapped token keeps the value its
-  connector reported.
+  connector reported. The account page and the portfolio no longer replace that value
+  with a generic live quote either: a crypto account keeps the backend's crypto-only
+  valuation, while a stock sharing the symbol in another account still refreshes live.
 - **Trade Republic and DEGIRO daily snapshots now cost today's positions, not
   yesterday's.** Both syncs took the day's snapshot before replacing the holdings,
   and the snapshot derives its invested amount from the holdings in the table, so
