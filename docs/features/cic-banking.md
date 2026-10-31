@@ -34,12 +34,13 @@ balance.
   `/auth/initiate` and `/auth/reconnect` share 5 password checks per IP per 15 min; `/auth/complete`
   has its own 10, so retyped SMS codes do not use them up. An account a complete fetch no longer
   lists is closed at zero (balance 0, zero snapshot), not soft-deleted, so it can come back; only
-  when the table of its category (current or savings) was read. `/accounts` answers
+  when the table of its category (current or savings) was read. `/accounts/listing` answers
   `{accounts, categoriesRead}`, `categoriesRead` naming the in-scope tables the page carried, an
   empty one included: closing the last livret leaves an empty savings table and closes the account,
-  while a table missing from the page leaves its accounts as they were. A bare list (an older
-  sidecar) says nothing about the tables: a category then counts as read when another account of
-  it came back.
+  while a table missing from the page leaves its accounts as they were. `/accounts` still serves
+  the bare list for backends that predate it, and the adapter falls back to that list when an older
+  sidecar answers 404 on `/accounts/listing`; without the tables, a category counts as read when
+  another account of it came back.
   Savings labels are typed with accents and typographic apostrophes folded.
 - **Frontend**: `CicPanel` (`SidecarSessionPanel` + app push / SMS), tab `cic` on `/sync`. While
   the user approves the push in the CIC app, iOS drops Safari's pending `/auth/complete` request; the

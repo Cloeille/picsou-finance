@@ -4,12 +4,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarErrorTranslator;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
+import com.picsou.exception.SyncException;
 import com.picsou.port.CicErrorCode;
 import com.picsou.port.CicPort;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -113,15 +115,33 @@ public class CicAdapter implements CicPort {
 
     @Override
     public AccountListing fetchAccounts(String sessionState) {
-        JsonNode response = sidecar.post(
-            "/accounts",
-            Map.of("sessionState", sessionState),
-            JsonNode.class,
-            accountsTimeout,
-            "Could not fetch CIC accounts",
-            null
-        );
-        // {accounts, categoriesRead}; a bare list is an older sidecar that does not say which tables it read.
+        JsonNode response;
+        try {
+            response = sidecar.post(
+                "/accounts/listing",
+                Map.of("sessionState", sessionState),
+                JsonNode.class,
+                accountsTimeout,
+                "Could not fetch CIC accounts",
+                null
+            );
+        } catch (SyncException ex) {
+            // The sidecar answers 404 for nothing but an unknown route: an older sidecar,
+            // which only serves the bare list on /accounts and says nothing about the tables.
+            if (!(ex.getCause() instanceof WebClientResponseException http) || http.getStatusCode().value() != 404) {
+                throw ex;
+            }
+            return AccountListing.withoutCategories(sidecar.postForList(
+                "/accounts",
+                Map.of("sessionState", sessionState),
+                AccountData[].class,
+                accountsTimeout,
+                "Could not fetch CIC accounts",
+                CicErrorCode.PORTFOLIO_INCOMPLETE,
+                "CIC returned no account"
+            ));
+        }
+        // {accounts, categoriesRead}; a bare list carries no tables either.
         JsonNode accounts = response.isArray() ? response : response.path("accounts");
         Set<String> categories = null;
         if (!response.isArray() && response.path("categoriesRead").isArray()) {

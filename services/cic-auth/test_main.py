@@ -6,6 +6,7 @@ login form, mobile confirmation or SMS code, remembered-device cookie,
 """
 
 import json
+import re
 import unittest
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
@@ -155,7 +156,7 @@ class FlowTest(unittest.TestCase):
         response = self.client.post("/accounts", json={"sessionState": session}, headers=HEADERS)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(
-            [(a["externalId"], a["type"], Decimal(a["balanceEur"])) for a in response.json()["accounts"]],
+            [(a["externalId"], a["type"], Decimal(a["balanceEur"])) for a in response.json()],
             [
                 ("cic_1000000012345601", "CHECKING", Decimal("1234.56")),
                 ("cic_1000000012345602", "LIVRET_A", Decimal("5000.00")),
@@ -275,10 +276,28 @@ class FlowTest(unittest.TestCase):
         response = self.client.post("/accounts", json={"sessionState": session}, headers=HEADERS)
 
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(
-            [account["type"] for account in response.json()["accounts"]], ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
-        self.assertTrue(all(account["snapshotComplete"] for account in response.json()["accounts"]))
-        self.assertEqual(response.json()["categoriesRead"], ["CHECKING", "SAVINGS"])
+        self.assertEqual([account["type"] for account in response.json()], ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
+        self.assertTrue(all(account["snapshotComplete"] for account in response.json()))
+
+        listing = self.client.post("/accounts/listing", json={"sessionState": session}, headers=HEADERS)
+        self.assertEqual(listing.status_code, 200, listing.text)
+        self.assertEqual([account["type"] for account in listing.json()["accounts"]],
+                         ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
+        self.assertEqual(listing.json()["categoriesRead"], ["CHECKING", "SAVINGS"])
+
+    def test_the_listing_reports_only_the_tables_on_the_page(self):
+        # The savings table is missing: the backend must not read that as "no livret any more".
+        self.bank.accounts_page = re.sub(
+            r"<table[^>]*>\s*<caption[^>]*>\s*<span[^>]*>[^<]*cat&#233;gorie : Livrets.*?</table>",
+            "", ACCOUNTS_PAGE, flags=re.DOTALL)
+        self.assertNotIn("LIVRET A", self.bank.accounts_page)
+        session = self.confirm()
+
+        listing = self.client.post("/accounts/listing", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual(listing.status_code, 200, listing.text)
+        self.assertEqual([account["type"] for account in listing.json()["accounts"]], ["CHECKING"])
+        self.assertEqual(listing.json()["categoriesRead"], ["CHECKING"])
 
     def test_only_checked_boxes_are_sent(self):
         [form] = main.parse_forms(

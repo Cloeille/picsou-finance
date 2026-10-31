@@ -895,8 +895,19 @@ async def complete(req: CompleteRequest) -> dict:
             await _dispose_pending_state(state)
 
 
-@app.post("/accounts", response_model=AccountsResponse)
-async def accounts(req: AccountsRequest) -> AccountsResponse:
+@app.post("/accounts", response_model=list[AccountPayload])
+async def accounts(req: AccountsRequest) -> list[AccountPayload]:
+    """The bare list, kept for backends that predate /accounts/listing."""
+    return (await _read_accounts(req)).accounts
+
+
+@app.post("/accounts/listing", response_model=AccountsResponse)
+async def accounts_listing(req: AccountsRequest) -> AccountsResponse:
+    """The accounts and the in-scope tables the page carried, an empty one included."""
+    return await _read_accounts(req)
+
+
+async def _read_accounts(req: AccountsRequest) -> AccountsResponse:
     client = _new_client()
     try:
         restore_cookies(client, req.sessionState)
