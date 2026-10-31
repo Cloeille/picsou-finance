@@ -292,6 +292,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Enable Banking setup guidance.** Registration now lists the required application fields,
+  explains email-link sign-in and account-linked activation, and describes restricted-mode
+  limits. Key import is the default. Server key generation requires an explicit action.
+  The success screen distinguishes application configuration from connecting bank accounts,
+  and network failures show a translated Picsou connection message in all four languages.
 - **Caisse d'Epargne loan insurance rounding.** Personal and home loans now
   retain the correct cent-rounded insurance at exact half-cent annuity boundaries
   and extremely small positive nominal rates. Directed Decimal bounds certify

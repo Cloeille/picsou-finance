@@ -49,6 +49,7 @@ export function EBStep4Redirect({ onNext, onBack }: Props) {
 
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
+            aria-label={t('setup.enablebanking.redirect.uriLabel')}
             readOnly
             value={redirectUri}
             onFocus={(e) => e.currentTarget.select()}
@@ -72,6 +73,30 @@ export function EBStep4Redirect({ onNext, onBack }: Props) {
               </>
             )}
           </Button>
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-border/60 bg-muted/30 p-4 text-sm">
+          <h3 className="font-semibold">{t('setup.enablebanking.redirect.checklistTitle')}</h3>
+          <ul className="list-disc space-y-2 pl-5 text-muted-foreground">
+            <li>{t('setup.enablebanking.redirect.environment')}</li>
+            <li>{t('setup.enablebanking.redirect.name')}</li>
+            <li>{t('setup.enablebanking.redirect.description')}</li>
+            <li>{t('setup.enablebanking.redirect.email')}</li>
+            <li>
+              {t('setup.enablebanking.redirect.policyUrls')}
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                <a className="underline underline-offset-4" href="https://github.com/Cloeille/picsou-finance/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">SECURITY.md</a>
+                <a className="underline underline-offset-4" href="https://github.com/Cloeille/picsou-finance/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">LICENSE</a>
+              </div>
+            </li>
+            <li>{t('setup.enablebanking.redirect.keyMethod')}</li>
+          </ul>
+        </div>
+
+        <div className="space-y-2 rounded-xl border border-border/60 bg-muted/30 p-4 text-sm">
+          <h3 className="font-semibold">{t('setup.enablebanking.redirect.activationTitle')}</h3>
+          <p className="text-muted-foreground">{t('setup.enablebanking.redirect.activationBody')}</p>
+          <p className="text-muted-foreground">{t('setup.enablebanking.redirect.restrictedMode')}</p>
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
