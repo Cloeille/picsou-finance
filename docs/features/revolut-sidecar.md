@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-10-19 (login fails fast on an hCaptcha challenge instead of waiting for a push that never comes)
+> Last updated: 2026-10-31 (currency-aware matching for shared IBANs)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -50,7 +50,7 @@ refreshed with `PUT /api/retail/token`. All API calls run in-page (`page.evaluat
 the app's own JS, which can't be hooked.
 
 Java maps pockets → `CHECKING` sub-accounts (parent = wallet), money-boxes → `SAVINGS`, dedups
-against Enable Banking by IBAN, and ingests transactions (feeds Budget). **Pocket nesting:** the sidecar
+against Enable Banking by IBAN, currency, and member, and ingests transactions (feeds Budget). **Pocket nesting:** the sidecar
 emits one synthetic **wallet parent** account per wallet (`externalId = wallet_id`, IBAN, `balance = sum
 of its same-currency children`); pockets/vaults carry `parentExternalId = wallet_id` and become children.
 This matters because `DashboardService`/`AccountsPage` **exclude children** (`parentAccountId != null`)
@@ -58,6 +58,14 @@ from net-worth totals — the parent must carry the sum, or balances are lost. C
 top-level (the sidecar has no FX). Credentials are stored encrypted (AES-256-GCM) only if the user ticks
 "remember"; otherwise they're passed per sync and not stored. Revolut is the **primary** source; Enable
 Banking stays as a fallback for the current account.
+
+Discovery and persistence use the same currency-aware IBAN match, then fall back to the external
+account id and member. EUR and GBP accounts imported by Enable Banking can share an IBAN without
+breaking Revolut's selection preview or overwriting each other's balances. Missing or blank Revolut
+currencies default to EUR; other values are trimmed and uppercased before matching and creation.
+The IBAN-based soft-delete guard also includes currency. Deleting one currency leaves other
+currencies eligible for import. Voluntary selection restores only the selected external id or
+IBAN and currency, so selecting EUR leaves a deleted GBP wallet deleted.
 
 ### Transactions for pockets and vaults
 
@@ -312,6 +320,9 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   plus `SyncAllModal.test.tsx` (translated captcha message, no countdown).
 - `backend/.../service/RevolutSyncServiceTest.java` — sync mapping (pockets/vaults), IBAN dedup vs
   Enable Banking, transaction dedup, remembered-vs-not credentials, always-upsert session marker row.
+- `SyncServiceCurrencyMatchTest` persists synthetic Enable Banking accounts with a shared IBAN,
+  then runs Revolut discovery and confirmation. It checks currency-specific updates, deletion
+  guards, and voluntary restoration against real repository queries on H2.
 - Live end-to-end (login + harvest against a real account) is still pending the account cool-down.
 - Note: 3 tests are red independently of this feature (`CashflowFlowServiceTest` ×3 — pre-existing
   budget NPE issues; verified via `git stash`). `RevolutPocketServiceTest` and

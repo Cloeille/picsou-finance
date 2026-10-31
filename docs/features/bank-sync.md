@@ -50,6 +50,8 @@ Picsou now handles this with a two-pronged strategy:
    currency, and member key alongside the exact uid check. Deleting one currency subaccount
    does not block another currency sharing its IBAN. Each account keeps its native balance;
    its snapshot is converted to EUR using that account's currency.
+   Revolut discovery, persistence, and IBAN-based deletion checks use the same currency-aware
+   identity when matching accounts previously imported by Enable Banking.
    - New column: `account.iban VARCHAR(34)`, added by `V46__account_iban.sql`.
 
 2. **Per-account failure isolation in `fetchBalances()`.** Previously, a single failing account

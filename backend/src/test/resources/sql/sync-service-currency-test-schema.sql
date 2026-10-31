@@ -1,4 +1,5 @@
 -- H2 fixture for real account matching and snapshot persistence without PostgreSQL-only migrations.
+-- AccountEnumH2Dialect maps Account's named enum JDBC type to the VARCHAR column below.
 DROP TABLE IF EXISTS balance_snapshot;
 DROP TABLE IF EXISTS account;
 DROP TABLE IF EXISTS family_member;

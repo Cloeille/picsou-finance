@@ -9,12 +9,24 @@ import com.picsou.model.Requisition;
 import com.picsou.model.RequisitionStatus;
 import com.picsou.port.BankConnectorPort;
 import com.picsou.port.PriceProviderPort;
+import com.picsou.port.RevolutPort;
+import com.picsou.port.RevolutPort.RevolutAccountData;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
+import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.RequisitionRepository;
+import com.picsou.repository.RevolutSessionRepository;
+import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.RecurringDetectionService;
 import com.picsou.service.sync.SourceSyncResult;
+import com.picsou.service.sync.SyncProgressService;
+import com.picsou.service.sync.SyncProvider;
+import org.hibernate.boot.model.TypeContributions;
+import org.hibernate.dialect.H2Dialect;
+import org.hibernate.service.ServiceRegistry;
+import org.hibernate.type.SqlTypes;
+import org.hibernate.type.descriptor.jdbc.VarcharJdbcType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -26,6 +38,8 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.jdbc.Sql;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -46,7 +60,8 @@ import static org.mockito.Mockito.when;
     "spring.datasource.username=sa",
     "spring.datasource.password=",
     "spring.flyway.enabled=false",
-    "spring.jpa.hibernate.ddl-auto=none"
+    "spring.jpa.hibernate.ddl-auto=none",
+    "spring.jpa.properties.hibernate.dialect=com.picsou.service.SyncServiceCurrencyMatchTest$AccountEnumH2Dialect"
 })
 @Sql("classpath:sql/sync-service-currency-test-schema.sql")
 class SyncServiceCurrencyMatchTest {
@@ -56,9 +71,12 @@ class SyncServiceCurrencyMatchTest {
 
     @Autowired AccountRepository accountRepository;
     @Autowired BalanceSnapshotRepository snapshotRepository;
+    @Autowired FamilyMemberRepository memberRepository;
     @Autowired TestEntityManager entityManager;
+    @Autowired PlatformTransactionManager transactionManager;
 
     private BankConnectorPort bankConnector;
+    private AccountService accountService;
     private FamilyMember member;
     private SyncService syncService;
 
@@ -77,7 +95,7 @@ class SyncServiceCurrencyMatchTest {
 
         PriceProviderPort priceProvider = mock(PriceProviderPort.class);
         when(priceProvider.getFxRateToEur("GBP")).thenReturn(new BigDecimal("1.20"));
-        AccountService accountService = spy(new AccountService(
+        accountService = spy(new AccountService(
             accountRepository, snapshotRepository, mock(AccountHoldingRepository.class),
             null, null, null, null, null, new PriceService(priceProvider, null),
             null, null, null, null, null, null, null));
@@ -86,6 +104,17 @@ class SyncServiceCurrencyMatchTest {
         syncService = new SyncService(bankConnector, accountRepository, requisitionRepository,
             null, accountService, null, null, mock(RecurringDetectionService.class), null, null,
             mock(BankTransactionImportService.class));
+    }
+
+    @Test
+    void persistAccount_namedEnum_roundTripsCheckingType() {
+        Account account = persistAccount("enum-checking", "EUR", null);
+        entityManager.clear();
+
+        Account reloaded = accountRepository.findByIdAndMemberId(account.getId(), member.getId()).orElseThrow();
+
+        assertThat(reloaded.getType()).isEqualTo(AccountType.CHECKING);
+        assertThat(reloaded.getCurrency()).isEqualTo("EUR");
     }
 
     @Test
@@ -160,6 +189,113 @@ class SyncServiceCurrencyMatchTest {
         assertSnapshot(gbp, "240");
     }
 
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = "EUR")
+    void revolutDiscoveryAndConfirm_sharedIban_updatesOnlyMatchingCurrency(String walletCurrency) {
+        when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(
+            data("uid-eur", "EUR", "100"), data("uid-gbp", "GBP", "200")));
+        syncAndReload();
+        List<Account> imported = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId());
+        Account eur = accountInCurrency(imported, "EUR");
+        Account gbp = accountInCurrency(imported, "GBP");
+        SyncProgressService progress = new SyncProgressService();
+        RevolutSyncService revolut = revolutService(progress, List.of(
+            wallet("revolut-eur", walletCurrency, "125")));
+
+        assertThat(progress.startIfIdle(member.getId(), SyncProvider.REVOLUT)).isTrue();
+        revolut.discover(member.getId(), "+33000000000", "000000");
+
+        var preview = progress.status(member.getId(), SyncProvider.REVOLUT);
+        assertThat(preview.done()).isTrue();
+        assertThat(preview.error()).isNull();
+        assertThat(preview.discovered()).singleElement().satisfies(account -> {
+            assertThat(account.externalId()).isEqualTo("revolut-eur");
+            assertThat(account.alreadyImported()).isTrue();
+        });
+        assertThat(accountRepository.findByIdAndMemberId(eur.getId(), member.getId()).orElseThrow()
+            .getCurrentBalance()).isEqualByComparingTo("100");
+
+        assertThat(revolut.confirmSync(member.getId(), List.of("revolut-eur"), false, false)).hasSize(1);
+        entityManager.flush();
+        entityManager.clear();
+
+        List<Account> accounts = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId());
+        assertThat(accounts).extracting(Account::getId).containsExactlyInAnyOrder(eur.getId(), gbp.getId());
+        Account updatedEur = accountInCurrency(accounts, "EUR");
+        assertThat(updatedEur.getExternalAccountId()).isEqualTo("revolut-eur");
+        assertThat(updatedEur.getCurrentBalance()).isEqualByComparingTo("125");
+        Account unchangedGbp = accountInCurrency(accounts, "GBP");
+        assertThat(unchangedGbp.getExternalAccountId()).isEqualTo("uid-gbp");
+        assertThat(unchangedGbp.getCurrentBalance()).isEqualByComparingTo("200");
+        assertSnapshot(updatedEur, "125");
+        assertSnapshot(unchangedGbp, "240");
+    }
+
+    @Test
+    void revolutConfirm_deletedEur_blocksEurButAllowsNewGbpWithSharedIban() {
+        Account deleted = persistAccount("deleted-eur", "EUR", Instant.now());
+        SyncProgressService progress = new SyncProgressService();
+        RevolutSyncService revolut = revolutService(progress, List.of(
+            wallet("revolut-eur", "EUR", "100"), wallet("revolut-gbp", "GBP", "200")));
+        progress.startIfIdle(member.getId(), SyncProvider.REVOLUT);
+        revolut.discover(member.getId(), "+33000000000", "000000");
+
+        assertThat(progress.status(member.getId(), SyncProvider.REVOLUT).error()).isNull();
+        assertThat(revolut.confirmSync(member.getId(), List.of("revolut-eur", "revolut-gbp"), false, false))
+            .hasSize(1);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId()))
+            .singleElement().satisfies(account -> {
+                assertThat(account.getExternalAccountId()).isEqualTo("revolut-gbp");
+                assertThat(account.getCurrency()).isEqualTo("GBP");
+                assertThat(account.getCurrentBalance()).isEqualByComparingTo("200");
+            });
+        assertThat(accountRepository.findByIdAndMemberId(deleted.getId(), member.getId())).isEmpty();
+    }
+
+    @Test
+    void revolutConfirm_voluntaryRestore_keepsOtherCurrencyDeleted() {
+        Account eur = persistAccount("deleted-eur", "EUR", Instant.now());
+        Account gbp = persistAccount("deleted-gbp", "GBP", Instant.now());
+        eur.setProvider("Revolut");
+        gbp.setProvider("Revolut");
+        entityManager.flush();
+        entityManager.clear();
+        SyncProgressService progress = new SyncProgressService();
+        RevolutSyncService revolut = revolutService(progress, List.of(wallet("rotated-eur", "EUR", "125")));
+        progress.startIfIdle(member.getId(), SyncProvider.REVOLUT);
+        revolut.discover(member.getId(), "+33000000000", "000000");
+
+        assertThat(revolut.confirmSync(member.getId(), List.of("rotated-eur"), false, true)).hasSize(1);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId()))
+            .singleElement().satisfies(account -> {
+                assertThat(account.getId()).isEqualTo(eur.getId());
+                assertThat(account.getExternalAccountId()).isEqualTo("rotated-eur");
+                assertThat(account.getCurrentBalance()).isEqualByComparingTo("125");
+            });
+        assertThat(accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(IBAN, "GBP", member.getId()))
+            .isTrue();
+    }
+
+    private RevolutSyncService revolutService(SyncProgressService progress, List<RevolutAccountData> harvested) {
+        RevolutPort port = mock(RevolutPort.class);
+        when(port.sync("+33000000000", "000000", member.getId())).thenReturn(harvested);
+        return new RevolutSyncService(port, mock(RevolutSessionRepository.class), accountRepository,
+            mock(SharedSidecarTransactionImportService.class), memberRepository, accountService,
+            mock(CategorizationService.class), null, null, new TransactionTemplate(transactionManager), progress);
+    }
+
+    private RevolutAccountData wallet(String uid, String currency, String balance) {
+        return new RevolutAccountData(uid, "Synthetic wallet", AccountType.CHECKING, IBAN,
+            new BigDecimal(balance), currency, null, List.of());
+    }
+
     private Account persistAccount(String uid, String currency, Instant deletedAt) {
         return accountRepository.saveAndFlush(Account.builder()
             .member(member).name("Synthetic " + currency).type(AccountType.CHECKING)
@@ -188,5 +324,15 @@ class SyncServiceCurrencyMatchTest {
             .orElseThrow();
         assertThat(snapshot.getBalance()).isEqualByComparingTo(expectedEur);
         assertThat(snapshot.getInvestedAmount()).isEqualByComparingTo(expectedEur);
+    }
+
+    public static class AccountEnumH2Dialect extends H2Dialect {
+        @Override
+        public void contributeTypes(TypeContributions contributions, ServiceRegistry serviceRegistry) {
+            super.contributeTypes(contributions, serviceRegistry);
+            // Account uses PostgreSQL NAMED_ENUM; this H2 fixture stores its string representation.
+            contributions.getTypeConfiguration().getJdbcTypeRegistry()
+                .addDescriptor(SqlTypes.NAMED_ENUM, VarcharJdbcType.INSTANCE);
+        }
     }
 }

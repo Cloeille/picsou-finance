@@ -275,6 +275,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names stay unchanged and can be edited in the account form. Currency subaccounts sharing
   an IBAN remain separate, with balances and snapshots valued in the correct currency.
   IBAN matching and deletion guards include currency while retaining uid-rotation support.
+  Revolut discovery and sync use the same currency-aware match for these imported accounts.
+  Deleting or voluntarily restoring one currency does not affect another sharing its IBAN.
 
 - **Numbers and labels follow the interface language.** Percentages are formatted by the
   locale everywhere ("8,3 %" in French, "8.3%" in English) instead of a dot and a hand-placed
