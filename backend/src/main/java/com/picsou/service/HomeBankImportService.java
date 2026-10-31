@@ -33,8 +33,6 @@ import java.util.stream.Collectors;
 @Service
 public class HomeBankImportService {
     private static final Pattern COLOR = Pattern.compile("#[0-9a-fA-F]{6}");
-    private static final Set<AccountType> FORBIDDEN_ACCOUNT_TYPES = Set.of(
-            AccountType.PEA, AccountType.COMPTE_TITRES, AccountType.CRYPTO, AccountType.ASSURANCE_VIE);
     private static final int MAX_ACCOUNTS = 100;
     private static final int MAX_CATEGORIES = 200;
     private static final int MAX_ACCOUNT_NAME = 100;
@@ -243,14 +241,15 @@ public class HomeBankImportService {
         if (!source.currency().equals(target.getCurrency())) {
             throw bad("Target account currency does not match");
         }
-        if (target.getType() == null || FORBIDDEN_ACCOUNT_TYPES.contains(target.getType())) {
-            throw bad("Investment accounts cannot receive HomeBank transactions");
+        // HomeBank carries a cash ledger; see AccountType#isLedger for the accounts valued instead.
+        if (target.getType() == null || !target.getType().isLedger()) {
+            throw bad("Investment and valued accounts cannot receive HomeBank transactions");
         }
     }
 
     private void validateNewAccountDetails(SourceAccount source, NewAccountDetails details) {
         if (details == null || blank(details.name()) || details.name().length() > MAX_ACCOUNT_NAME
-                || details.type() == null || FORBIDDEN_ACCOUNT_TYPES.contains(details.type())
+                || details.type() == null || !details.type().isLedger()
                 || !source.currency().equals(details.currency())
                 || details.provider() != null && details.provider().length() > 100
                 || details.color() != null && !COLOR.matcher(details.color()).matches()) {
