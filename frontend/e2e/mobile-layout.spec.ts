@@ -66,14 +66,14 @@ test.describe('Phone layout (360px)', () => {
   test('goal names are shown in full, not cut with an ellipsis', async ({ page }) => {
     const isCut = (el: HTMLElement) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1
     await open(page, '/goals')
-    for (const name of ['Vacances été 2025', 'Apport immobilier']) {
+    for (const name of ['Voyage au Japon', 'Apport immobilier']) {
       const title = page.getByRole('main').getByText(name, { exact: true })
       await expect(title).toBeVisible()
       expect(await title.evaluate(isCut)).toBe(false)
     }
     await open(page, '/goals/1/calendar')
     const heading = page.getByRole('heading', { level: 1 })
-    await expect(heading).toHaveText(/Vacances été 2025/)
+    await expect(heading).toHaveText(/Voyage au Japon/)
     expect(await heading.evaluate(isCut)).toBe(false)
   })
 
