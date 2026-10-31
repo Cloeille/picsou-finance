@@ -873,6 +873,7 @@ def _portfolio_http_exception(status: int) -> HTTPException:
 
 @app.post("/initiate", response_model=InitiateResponse)
 async def initiate(req: InitiateRequest) -> dict:
+    await _pending.expire()
     process_id = str(uuid.uuid4())
     pw: Playwright | None = None
     browser: Browser | None = None

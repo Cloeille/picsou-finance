@@ -26,7 +26,6 @@ the same page. Liveness is therefore detected by the presence of the login form,
 never by a status code: a 200 on the portfolio page is not a portfolio.
 """
 
-import html as html_module
 import json
 import time
 import uuid
@@ -39,7 +38,6 @@ from picsou_sidecar import PendingStore, configure_logging, create_app, safe
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from positions_parser import (
-    Holding,
     PositionsFormatError,
     parse_portfolio,
 )
@@ -71,7 +69,7 @@ PENDING_SWEEP_SECONDS = 30
 MAX_PENDING = 16
 
 
-# ─── payloads# ─── payloads ────────────────────────────────────────────────────────────────
+# ─── payloads ────────────────────────────────────────────────────────────────
 
 
 class InitiateRequest(BaseModel):
