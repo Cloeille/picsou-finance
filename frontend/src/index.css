@@ -74,6 +74,7 @@
     --chart-3: oklch(0.596 0.145 163.225);
     --chart-4: oklch(0.508 0.118 165.612);
     --chart-5: oklch(0.432 0.095 166.913);
+    --chart-area-opacity: 0.32;
 
     /* Categorical slice colours. Distinct hues, unlike --chart-1..5 which is a single-hue ramp
        for ordered series. Declared here so Tailwind emits them and one definition serves the
@@ -107,9 +108,10 @@
     --popover: oklch(0.205 0 0);
     --popover-foreground: oklch(0.985 0 0);
     /* Lifted to blue-400 so primary text, tinted badges and progress fills clear WCAG AA on the
-       dark card; no single blue does that and also carries near-white text, so fills take navy. */
+       dark card; no single blue does that and also carries near-white text, so fills take navy.
+       The navy is deep enough to survive the translucent bg-primary/80 hover over the canvas. */
     --primary: oklch(0.707 0.165 254.624);
-    --primary-foreground: oklch(0.282 0.091 267.935);
+    --primary-foreground: oklch(0.19 0.06 267.935);
     --secondary: oklch(0.274 0.006 286.033);
     --secondary-foreground: oklch(0.985 0 0);
     --muted: oklch(0.269 0 0);
@@ -127,6 +129,9 @@
     --chart-3: oklch(0.696 0.17 162.48);
     --chart-4: oklch(0.596 0.145 163.225);
     --chart-5: oklch(0.508 0.118 165.612);
+    /* The net-worth area's green wash lifts the dark card toward the darker series drawn over it,
+       so it stays faint enough for the dashed invested line to keep 3:1. */
+    --chart-area-opacity: 0.08;
 
     /* Categorical slice colours. Distinct hues, unlike --chart-1..5 which is a single-hue ramp
        for ordered series. Declared here so Tailwind emits them and one definition serves the

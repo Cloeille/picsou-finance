@@ -3,15 +3,25 @@ import css from './index.css?raw'
 
 type Rgb = [number, number, number]
 
-function themeTokens(selector: string): Record<string, Rgb> {
+function themeBlock(selector: string): string {
   const escaped = selector.replace('.', '\\.')
   const block = new RegExp(`^${escaped} \\{([\\s\\S]*?)^\\}`, 'm').exec(css)?.[1]
   if (!block) throw new Error(`no ${selector} block in index.css`)
+  return block
+}
+
+function themeTokens(selector: string): Record<string, Rgb> {
   const tokens: Record<string, Rgb> = {}
-  for (const [, name, l, c, h] of block.matchAll(/--([\w-]+):\s*oklch\(([\d.]+) ([\d.]+) ([\d.]+)\)/g)) {
+  for (const [, name, l, c, h] of themeBlock(selector).matchAll(/--([\w-]+):\s*oklch\(([\d.]+) ([\d.]+) ([\d.]+)\)/g)) {
     tokens[name!] = oklchToLinearSrgb(Number(l), Number(c), Number(h))
   }
   return tokens
+}
+
+function themeNumber(selector: string, name: string): number {
+  const value = new RegExp(`--${name}:\\s*([\\d.]+);`).exec(themeBlock(selector))?.[1]
+  if (!value) throw new Error(`no --${name} in ${selector}`)
+  return Number(value)
 }
 
 function oklchToLinearSrgb(L: number, C: number, h: number): Rgb {
@@ -60,10 +70,24 @@ describe.each([':root', '.dark'])('%s primary tokens meet WCAG AA', (selector) =
   })
 })
 
-describe('.dark chart series', () => {
+// Scoped to dark: light mode's white label on blue/80 over white measures 4.2:1 and predates
+// the dark tokens.
+describe('.dark primary button', () => {
   const t = themeTokens('.dark')
 
-  it.each(['chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5'])('%s stroke stands out from a card', (token) => {
+  it.each(['background', 'card'])('label reads on the hover fill (bg-primary/80) over the %s', (surface) => {
+    expect(contrast(t['primary-foreground']!, tint(t.primary!, t[surface]!, 0.8))).toBeGreaterThanOrEqual(4.5)
+  })
+})
+
+describe('.dark chart series', () => {
+  const t = themeTokens('.dark')
+  // NetWorthChart fills its chart-1 area through a gradient whose densest stop is
+  // --chart-area-opacity, and Recharts' <Area> multiplies that by its default fillOpacity of 0.6.
+  const netWorthArea = tint(t['chart-1']!, t.card!, themeNumber('.dark', 'chart-area-opacity') * 0.6)
+
+  it.each(['chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5'])('%s stroke stands out from a card and from the net-worth area', (token) => {
     expect(contrast(t[token]!, t.card!)).toBeGreaterThanOrEqual(3)
+    expect(contrast(t[token]!, netWorthArea)).toBeGreaterThanOrEqual(3)
   })
 })

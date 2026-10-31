@@ -224,8 +224,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was darker than the light one, so blue text, badges ("This device", AI category
   suggestions) and progress bars sat at about 2:1 on the dark cards, and the dashed "Capital
   invested" line kept its light-mode dark green. Dark mode now uses a lighter blue with navy
-  labels on blue buttons, and a lighter chart ramp; every primary text, badge and bar clears
-  WCAG AA. Light mode is unchanged. The demo's Revolut accounts now use the indigo a real
+  labels on blue buttons that stay readable on hover, a lighter chart ramp, and a fainter
+  net-worth area so the "Capital invested" line stands out where it crosses it; every primary
+  text, badge and bar clears WCAG AA. Light mode is unchanged. The demo's Revolut accounts now use the indigo a real
   Revolut sync assigns (#275).
 - **American Express no longer stores a second copy of a charge AMEX re-describes.** A
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
