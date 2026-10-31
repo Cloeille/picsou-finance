@@ -1,5 +1,5 @@
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
-import type { GoalProgress, ScpiPosition, ScpiPositionRequest } from '@/types/api'
+import type { CicSessionStatus, ScpiPosition, ScpiPositionRequest } from '@/types/api'
 import { mockAccounts } from './data/accounts'
 import {
   mockAllocationTargets,
@@ -9,16 +9,20 @@ import {
   mockWealthPyramid,
 } from './data/analysis'
 import { mockDashboard } from './data/dashboard'
-import { mockGoals } from './data/goals'
-import { mockHoldings } from './data/holdings'
+import { mockGoalMonths, mockGoals } from './data/goals'
+import { accountBalanceHistory, netWorthHistory } from './data/history'
+import { daysBeforeToday, daysFromToday, hoursAgo, monthStartFromToday } from './data/dates'
+import { holdingsValue, holdingsValueHoursAgo, mockHoldings, quoteDaysAgo, quoteHoursAgo } from './data/holdings'
 import { ageFromBirthDate, mockMemberProfile, netIncome } from './data/profile'
 import { mockTransactions } from './data/transactions'
 import { mockExchangeStatuses, mockWalletStatuses, mockRequisitions } from './data/sync-status'
 import {
+  categorizeDemoTransaction,
   mockActivity,
   mockAllocation,
   mockBudgetSettings,
   mockBudgets,
+  mockBudgetSummaries,
   mockCalendar,
   mockCashflow,
   mockCategories,
@@ -29,18 +33,48 @@ import {
   mockSpendingByCategory,
   mockTransactionSearch,
   mockUncategorized,
-  recategorizeMockTransaction,
 } from './data/budget'
 import { mockUpcomingDividends } from './data/dividends'
-import type { CashflowPeriod } from '@/types/api'
+import type { CashflowPeriod, CategorizeRequest } from '@/types/api'
+import { demoLoanSchedule } from './data/loans'
 
 function randomDelay(): number {
   return 200 + Math.random() * 400
 }
 
-type MockHandler = (config: InternalAxiosRequestConfig) => unknown
+type MockHandler = (config: InternalAxiosRequestConfig, params: Record<string, string>) => unknown
 
+// Keys are `METHOD /path`; a `:name` segment matches any value and reaches the handler as
+// params.name. An exact key wins over a pattern, so one id can still override the default.
 const handlers = new Map<string, MockHandler>()
+
+function findHandler(k: string): { handler: MockHandler; params: Record<string, string> } | undefined {
+  const exact = handlers.get(k)
+  if (exact) return { handler: exact, params: {} }
+  const [method, path] = k.split(' ')
+  const segments = path.split('/')
+  for (const [pattern, handler] of handlers) {
+    const [patternMethod, patternPath] = pattern.split(' ')
+    if (patternMethod !== method || !patternPath.includes('/:')) continue
+    const patternSegments = patternPath.split('/')
+    if (patternSegments.length !== segments.length) continue
+    const params: Record<string, string> = {}
+    const matches = patternSegments.every((segment, i) => {
+      if (segment.startsWith(':')) {
+        // A malformed escape (`%` alone) is no match, so it takes the adapter's 200 {} fallback.
+        try {
+          params[segment.slice(1)] = decodeURIComponent(segments[i])
+        } catch {
+          return false
+        }
+        return true
+      }
+      return segment === segments[i]
+    })
+    if (matches) return { handler, params }
+  }
+  return undefined
+}
 
 // Mutable demo state for the pocket rename flow (resets on page reload).
 // `let` so PUT handlers can reassign to a NEW array reference — TanStack Query
@@ -54,8 +88,10 @@ function key(method: string, url: string): string {
 }
 
 // Auth
-handlers.set(key('POST', '/auth/login'), () => ({ username: 'demo' }))
-handlers.set(key('POST', '/auth/refresh'), () => ({ username: 'demo' }))
+// RequireAuth restores this user through /auth/refresh, as it would from a session cookie.
+const demoUser = { username: 'demo', role: 'ADMIN', memberId: 1, displayName: 'Demo' }
+handlers.set(key('POST', '/auth/login'), () => demoUser)
+handlers.set(key('POST', '/auth/refresh'), () => demoUser)
 
 // Persistent sessions — demo shows one current desktop session
 handlers.set(key('GET', '/auth/sessions'), () => [
@@ -117,7 +153,7 @@ handlers.set(key('GET', '/family/members'), () => [
 ])
 
 // Dashboard
-handlers.set(key('GET', '/dashboard'), () => mockDashboard)
+handlers.set(key('GET', '/dashboard'), () => mockDashboard(_demoAccounts))
 
 // Analysis
 handlers.set(key('GET', '/analysis/pyramid'), () => mockWealthPyramid)
@@ -162,37 +198,21 @@ handlers.set(key('POST', '/analysis/security-profiles/refresh'), () => ({
   alreadyRunning: false,
 }))
 
-// Classification is keyed on (account, ticker) and the demo lookup is exact-match, so every pair
-// the UI can open has to be registered. The unregistered fallback returns {}, which would render
-// the editor with undefined fields instead of failing visibly.
-const demoClassifiable: [number, string][] = [
-  ...Object.entries(mockHoldings).flatMap(([accountId, lines]) =>
-    (lines as { ticker: string }[]).map(
-      (line): [number, string] => [Number(accountId), line.ticker],
-    ),
-  ),
-  ...mockDiversification.unclassified
-    .filter((line) => line.accountId !== null)
-    .map((line): [number, string] => [line.accountId as number, line.ticker]),
-]
-for (const [accountId, ticker] of demoClassifiable) {
-  const path = `/accounts/${accountId}/holdings/${encodeURIComponent(ticker)}/classification`
-  // Nothing overridden by default: the demo shows the providers' own answer, which is what a
-  // real instance looks like before anyone corrects anything.
-  handlers.set(key('GET', path), () => ({
-    ticker,
-    wealthTier: null,
-    sectorKey: null,
-    countryKey: null,
-    inferredSectorKey: null,
-    inferredCountryKey: null,
-    profileLooked: true,
-  }))
-  handlers.set(key('PUT', path), (config) => ({
-    ticker,
-    ...(typeof config.data === 'string' ? JSON.parse(config.data) : {}),
-  }))
-}
+// Nothing overridden by default: the demo shows the providers' own answer, which is what a
+// real instance looks like before anyone corrects anything.
+handlers.set(key('GET', '/accounts/:id/holdings/:ticker/classification'), (_config, { ticker }) => ({
+  ticker,
+  wealthTier: null,
+  sectorKey: null,
+  countryKey: null,
+  inferredSectorKey: null,
+  inferredCountryKey: null,
+  profileLooked: true,
+}))
+handlers.set(key('PUT', '/accounts/:id/holdings/:ticker/classification'), (config, { ticker }) => ({
+  ticker,
+  ...(typeof config.data === 'string' ? JSON.parse(config.data) : {}),
+}))
 
 // Accounts
 handlers.set(key('GET', '/accounts'), () => _demoAccounts)
@@ -205,6 +225,10 @@ for (let i = 1; i <= mockAccounts.length; i++) {
 for (let i = 8; i <= 10; i++) {
   handlers.set(key('GET', `/accounts/${i}`), () => _demoAccounts[i - 1])
 }
+
+handlers.set(key('GET', '/accounts/:id/deletion-impact'), () => ({
+  removesConnection: false, connectionLabel: null,
+}))
 
 // SCPI funds seen by a sync: the demo has no CORUM/Sofidy connection.
 handlers.set(key('GET', '/scpi/funds'), () => [])
@@ -270,13 +294,11 @@ handlers.set(key('PUT', '/accounts/1'), (config) => {
 handlers.set(key('DELETE', '/accounts/1'), () => ({}))
 
 // Account details: holdings for PEA (id=2), Compte Titres (id=3), Crypto (id=6)
-handlers.set(key('GET', '/accounts/2/holdings'), () => mockHoldings[2] ?? [])
-handlers.set(key('GET', '/accounts/3/holdings'), () => mockHoldings[3] ?? [])
-handlers.set(key('GET', '/accounts/6/holdings'), () => mockHoldings[6] ?? [])
+handlers.set(key('GET', '/accounts/:id/holdings'), (_config, { id }) => mockHoldings[Number(id)] ?? [])
 
 // Per-product breakdown. Only the crypto account (id=6) has one, exactly like a real crypto
 // exchange account; every other account falls back to the flat holdings table.
-handlers.set(key('GET', '/accounts/6/positions'), () => {
+const demoExchangePositions = (() => {
   const today = new Date().toISOString().slice(0, 10)
   return [
     { product: 'SPOT', ticker: 'BTC', quantity: 0.01204, principal: null, interest: null, averageBuyIn: 68000, currentPriceEur: 92100, currentValueEur: 1108.88, costBasisEur: 818.72, pnlEur: 290.16, pnlPercent: 35.4, priceAsOf: today, priceStale: false },
@@ -284,14 +306,52 @@ handlers.set(key('GET', '/accounts/6/positions'), () => {
     { product: 'STAKING', ticker: 'ATOM', quantity: 33.154, principal: 19.73, interest: 13.424, averageBuyIn: 6.4, currentPriceEur: 5.65, currentValueEur: 187.32, costBasisEur: 212.19, pnlEur: -24.87, pnlPercent: -11.7, priceAsOf: today, priceStale: false },
     { product: 'LENDING', ticker: 'USDT', quantity: 75.01, principal: 75, interest: 0.01, averageBuyIn: 0.91, currentPriceEur: 0.92, currentValueEur: 69.01, costBasisEur: 68.26, pnlEur: 0.75, pnlPercent: 1.1, priceAsOf: today, priceStale: false },
   ]
-})
-for (const i of [1, 2, 3, 4, 5, 7]) {
-  handlers.set(key('GET', `/accounts/${i}/positions`), () => [])
+})()
+handlers.set(key('GET', '/accounts/6/positions'), () => demoExchangePositions)
+handlers.set(key('GET', '/accounts/:id/positions'), () => [])
+
+// Live quotes. The holdings fixtures win over the exchange positions for a ticker both carry, so
+// re-pricing a holdings table with these leaves its values exactly as the fixture states them.
+const demoPrices: Record<string, number> = {}
+for (const line of [...Object.values(mockHoldings).flat(), ...demoExchangePositions]) {
+  const price = 'currentPrice' in line ? line.currentPrice : line.currentPriceEur
+  if (price != null) demoPrices[line.ticker] ??= price
 }
+
+handlers.set(key('GET', '/prices'), (config) => {
+  const tickers = String(config.params?.tickers ?? '').split(',').map(t => t.trim())
+  return Object.fromEntries(tickers.filter(t => t in demoPrices).map(t => [t, demoPrices[t]]))
+})
+
+// Both series end exactly on the live quote, so the chart's last point matches the table.
+handlers.set(key('GET', '/prices/:ticker/history'), (config, { ticker }) => {
+  const price = demoPrices[ticker]
+  if (price == null) return []
+  const days = Math.round((Number(config.params?.months) || 12) * 30.4)
+  return Array.from({ length: days + 1 }, (_, i) => {
+    const back = days - i
+    return { date: daysFromToday(-back), priceEur: quoteDaysAgo(price, back) }
+  })
+})
+
+handlers.set(key('GET', '/prices/:ticker/intraday'), (_config, { ticker }) => {
+  const price = demoPrices[ticker]
+  if (price == null) return []
+  return Array.from({ length: 24 }, (_, i) => {
+    const back = 23 - i
+    return {
+      timestamp: hoursAgo(back),
+      priceEur: quoteHoursAgo(price, back),
+    }
+  })
+})
 
 // Account details: transactions for all accounts
 for (let i = 1; i <= mockAccounts.length; i++) {
-  handlers.set(key('GET', `/accounts/${i}/transactions`), () => mockTransactions[i] ?? [])
+  handlers.set(key('GET', `/accounts/${i}/transactions`), (config) =>
+    i === mockAccounts.find((account) => account.type === 'CHECKING')?.id
+      ? mockTransactionSearch({ ...config.params, accountId: i })
+      : mockTransactions[i] ?? [])
 }
 
 // Pocket rename (accounts 9 and 10) — re-uses the standard PUT /accounts/:id shape.
@@ -372,8 +432,7 @@ function generateSavingsInterest(accountId: number) {
     netOfTax: true,
   }
 }
-handlers.set(key('GET', '/accounts/1/savings-interest'), () => generateSavingsInterest(1))
-handlers.set(key('GET', '/accounts/7/savings-interest'), () => generateSavingsInterest(7))
+handlers.set(key('GET', '/accounts/:id/savings-interest'), (_config, { id }) => generateSavingsInterest(Number(id)))
 
 // Realized P&L on closed positions. PEA (id=2) shows a green + a red closed lot;
 // the other holding accounts report nothing realized yet.
@@ -389,11 +448,14 @@ handlers.set(key('GET', '/accounts/2/realized-pnl'), () => ({
     { ticker: 'TSLA', name: 'Tesla Inc.', date: '2024-09-02', quantity: 3, avgCost: 250.5, proceeds: 660, realized: -91.5 },
   ],
 }))
-for (const i of [3, 6]) {
-  handlers.set(key('GET', `/accounts/${i}/realized-pnl`), () => ({
-    currency: 'EUR', realizedTotal: 0, byTicker: [], lots: [],
-  }))
-}
+handlers.set(key('GET', '/accounts/:id/realized-pnl'), () => ({
+  currency: 'EUR', realizedTotal: 0, byTicker: [], lots: [],
+}))
+
+const r2 = (n: number): number => Math.round(n * 100) / 100
+
+handlers.set(key('GET', '/accounts/:id/loan-summary'), (_config, { id }) =>
+  demoLoanSchedule(_demoAccounts.find(a => a.id === Number(id))?.debt))
 
 // CSV transaction import wizard (holding accounts). Preview returns a French-style
 // sample (semicolon delimiter, comma decimals); execute reports a canned result.
@@ -457,74 +519,21 @@ function demoInsight(ticker: string) {
   return { ticker, assetType: 'UNKNOWN', composition: null }
 }
 
-for (const ticker of [...demoStockTickers, ...demoCryptoTickers, ...Object.keys(demoEtfCompositions)]) {
-  handlers.set(key('GET', `/securities/${ticker}/insight`), () => demoInsight(ticker))
-}
+handlers.set(key('GET', '/securities/:ticker/insight'), (_config, { ticker }) => demoInsight(ticker))
 
-// Account details: history for multiple accounts (12 months each)
-function generateHistory(startBalances: number[]) {
-  const now = new Date()
-  const points: { id: number; date: string; balance: number }[] = []
-  const months = startBalances.length
-
-  for (let i = 0; i < months; i++) {
-    // UTC for the same reason as generateNetWorthHistory: keep the ISO date on the 1st.
-    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth() - (months - 1 - i), 1))
-    points.push({
-      id: 100 + i,
-      date: d.toISOString().split('T')[0],
-      balance: startBalances[i],
-    })
-  }
-
-  return points
-}
-
-// LEP: slow steady growth (savings account)
-handlers.set(key('GET', '/accounts/1/history'), () => generateHistory(
-  [6100, 6250, 6400, 6500, 6650, 6800, 6950, 7100, 7200, 7400, 7600, 7800]))
-
-// PEA: moderate growth with some dips
-handlers.set(key('GET', '/accounts/2/history'), () => generateHistory(
-  [8200, 8600, 9100, 8800, 9400, 9900, 10200, 10800, 11200, 11600, 12000, 12450.5]))
-
-// Compte Titres: more volatile
-handlers.set(key('GET', '/accounts/3/history'), () => generateHistory(
-  [5800, 6200, 6700, 6400, 6900, 7200, 7500, 7100, 7600, 7900, 8100, 8320.75]))
-
-// Checking BNP: fluctuates around salary cycle
-handlers.set(key('GET', '/accounts/4/history'), () => generateHistory(
-  [1200, 2800, 1500, 3100, 1800, 2600, 1400, 2900, 1700, 2500, 2100, 2340.2]))
-
-// Checking BoursoBank: smaller balance, fluctuates
-handlers.set(key('GET', '/accounts/5/history'), () => generateHistory(
-  [800, 1100, 950, 1300, 1050, 1200, 900, 1350, 1100, 1250, 1400, 1580.9]))
-
-// AMEX card: debt builds up then resets on each monthly debit
-handlers.set(key('GET', '/accounts/12/history'), () => generateHistory(
-  [-640, -910, -720, -1050, -830, -1180, -760, -990, -1120, -870, -1030.5, -1284.6]))
-
-// Crypto: volatile, strong upward trend
-handlers.set(key('GET', '/accounts/6/history'), () => generateHistory(
-  [1800, 2100, 2400, 1900, 2600, 2800, 3100, 2700, 3400, 3600, 3900, 4250]))
-
-// Livret A: slow steady growth
-handlers.set(key('GET', '/accounts/7/history'), () => generateHistory(
-  [4200, 4320, 4440, 4560, 4620, 4740, 4800, 4920, 4980, 5040, 5080, 5120]))
-
-// Revolut wallet (id=8)
-handlers.set(key('GET', '/accounts/8/history'), () => generateHistory(
-  [3000, 3050, 3100, 3200, 3150, 3100, 3200, 3300, 3250, 3200, 3240, 3240.5]))
-
-// Property: slow appreciation, revalued monthly rather than daily.
-handlers.set(key('GET', '/accounts/11/history'), () => generateHistory(
-  [392000, 393500, 395000, 397000, 399500, 401000, 403000, 405500, 407000, 409000, 410500, 412000]))
+// Account details: month-start balances then today's, the same points /history sums.
+// The live point is the account as the demo holds it now, so an edit shows in the last point.
+handlers.set(key('GET', '/accounts/:id/history'), (_config, { id }) => {
+  const account = _demoAccounts.find(a => a.id === Number(id))
+  return account ? accountBalanceHistory(account).map((point, i) => ({ id: 100 + i, ...point })) : []
+})
 
 // ─── Real estate ─────────────────────────────────────────────────────────────
 // Every route the property UI touches needs a handler: the demo adapter answers `{}` for
 // anything unmatched, and the pages would then read fields off an empty object.
 
 const demoProperty = mockAccounts.find((a) => a.id === 11)!
+const demoMortgage = mockAccounts.find((a) => a.id === 15)!
 
 function demoPaperSummary() {
   const paper = _demoAccounts.filter(account => account.type === 'SCPI').map(account => ({
@@ -572,16 +581,16 @@ handlers.set(key('GET', '/real-estate/summary'), () => ({
     surfaceArea: 95,
     rentalIncome: 0,
     valuationMode: 'ESTIMATED',
-    lastValuedAt: '2026-07-01',
+    lastValuedAt: monthStartFromToday(0),
     lastConfidence: 'HIGH',
     loans: [{
-      accountId: 4,
-      name: 'Prêt immobilier',
-      lenderName: 'BNP Paribas',
-      outstandingBalance: 168400,
+      accountId: demoMortgage.id,
+      name: demoMortgage.name,
+      lenderName: demoMortgage.debt!.lenderName,
+      outstandingBalance: demoMortgage.currentBalanceEur,
       sharePercent: 100,
-      monthlyPayment: 1120,
-      endDate: '2043-06-01',
+      monthlyPayment: demoMortgage.debt!.monthlyPayment,
+      endDate: demoMortgage.debt!.endDate,
     }],
   }],
 }))
@@ -589,7 +598,7 @@ handlers.set(key('GET', '/real-estate/summary'), () => ({
 handlers.set(key('GET', '/real-estate/11/valuations'), () => {
   const points = [395000, 398000, 401500, 404000, 407500, 409000, 412000]
   return points.map((value, i) => ({
-    valuedAt: `2026-0${i + 1}-01`,
+    valuedAt: monthStartFromToday(i - (points.length - 1)),
     estimatedValue: value,
     lowValue: Math.round(value * 0.88),
     highValue: Math.round(value * 1.14),
@@ -600,6 +609,7 @@ handlers.set(key('GET', '/real-estate/11/valuations'), () => {
     sourceYear: 2025,
   })).reverse()
 })
+handlers.set(key('GET', '/real-estate/:id/valuations'), () => [])
 
 handlers.set(key('POST', '/accounts/11/valuation/refresh'), () => ({
   status: 'OK',
@@ -614,7 +624,7 @@ handlers.set(key('POST', '/accounts/11/valuation/refresh'), () => ({
   sourceYear: 2025,
   provider: 'CEREMA_DV3F',
   scale: 'communes',
-  valuedAt: '2026-08-01',
+  valuedAt: daysFromToday(0),
   reindexRatio: 1.021,
   adjustments: [
     { code: 'GARDEN', factor: 0.02, sqm: null, amount: 8080 },
@@ -623,12 +633,12 @@ handlers.set(key('POST', '/accounts/11/valuation/refresh'), () => ({
   ],
 }))
 
-handlers.set(key('GET', '/accounts/11/ownership'), () => ({
+handlers.set(key('GET', '/accounts/:id/ownership'), () => ({
   shares: [{ memberId: 1, displayName: 'Demo', avatarColor: '#6366f1', sharePercent: 100, isOwner: true }],
   totalAssigned: 100,
   unassigned: 0,
 }))
-handlers.set(key('PUT', '/accounts/11/ownership'), (config) => {
+handlers.set(key('PUT', '/accounts/:id/ownership'), (config) => {
   const body = JSON.parse(config.data || '{}')
   const shares = (body.shares ?? []) as { memberId: number; sharePercent: number }[]
   const total = shares.reduce((sum, s) => sum + s.sharePercent, 0)
@@ -658,136 +668,61 @@ handlers.set(key('GET', '/geocode'), () => ([
   },
 ]))
 
-// Aggregate net-worth history (dashboard chart, accounts page with split=true).
-// Mirrors backend NetWorthPoint: { date, total, invested, pnl, accounts? }.
-function generateNetWorthHistory(months: number, accountIds: number[], split: boolean) {
-  const now = new Date()
-  const weights = accountIds.map((id) => mockAccounts.find((a) => a.id === id)?.currentBalanceEur ?? 1000)
-  const weightSum = weights.reduce((s, w) => s + w, 0) || 1
-
-  return Array.from({ length: months }, (_, i) => {
-    // Build in UTC: a local-midnight Date run through toISOString() shifts to
-    // the previous day in any timezone ahead of UTC.
-    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth() - (months - 1 - i), 1))
-    const progress = months > 1 ? i / (months - 1) : 1
-    const total = Math.round((58_000 + progress * 14_000 + Math.sin(i * 1.7) * 1_200) * 100) / 100
-    const invested = Math.round(total * 0.55 * 100) / 100
-    const pnl = Math.round((total * 0.06 + progress * 1_500) * 100) / 100
-    const point: {
-      date: string; total: number; invested: number; pnl: number
-      accounts?: Record<string, { total: number; invested: number; pnl: number }>
-    } = { date: d.toISOString().split('T')[0], total, invested, pnl }
-    if (split) {
-      point.accounts = Object.fromEntries(accountIds.map((id, idx) => {
-        const share = weights[idx] / weightSum
-        return [String(id), {
-          total: Math.round(total * share * 100) / 100,
-          invested: Math.round(invested * share * 100) / 100,
-          pnl: Math.round(pnl * share * 100) / 100,
-        }]
-      }))
-    }
-    return point
-  })
+/** The `accountIds=2,3,6` query parameter, or `fallback` when the request names none. */
+function requestedAccountIds(config: InternalAxiosRequestConfig, fallback: number[]): number[] {
+  const ids = String(config.params?.accountIds ?? '').split(',').map(Number).filter(n => n > 0)
+  return ids.length ? ids : fallback
 }
 
-handlers.set(key('GET', '/history'), (config) => {
-  const params = (config.params ?? {}) as { accountIds?: string; months?: number | string; split?: boolean | string }
-  const months = Number(params.months) || 12
-  const ids = String(params.accountIds ?? '').split(',').filter(Boolean).map(Number)
-  const split = params.split === true || params.split === 'true'
-  return generateNetWorthHistory(months, ids.length ? ids : mockAccounts.map((a) => a.id), split)
-})
-
-// Pocket "Vacances" (id=9): inflows-only
-handlers.set(key('GET', '/accounts/9/history'), () => generateHistory(
-  [0, 0, 100, 300, 500, 600, 666, 774, 774, 774, 774, 774]))
-
-// Pocket unnamed (id=10): inflows-only
-handlers.set(key('GET', '/accounts/10/history'), () => generateHistory(
-  [0, 0, 0, 100, 200, 200, 300, 300, 300, 300, 300, 300]))
-
-// Aggregate net worth history — GET /history?accountIds=...&months=...&split=...
-// Mirrors HistoryController which aggregates account snapshots into NetWorthPoint[].
-// When split=true, includes per-account breakdown used by AccountsPage PnL chart.
-const DEMO_NW_BALANCES: Record<number, number[]> = {
-  1: [6100, 6250, 6400, 6500, 6650, 6800, 6950, 7100, 7200, 7400, 7600, 7800],
-  2: [8200, 8600, 9100, 8800, 9400, 9900, 10200, 10800, 11200, 11600, 12000, 12450.5],
-  3: [5800, 6200, 6700, 6400, 6900, 7200, 7500, 7100, 7600, 7900, 8100, 8320.75],
-  4: [1200, 2800, 1500, 3100, 1800, 2600, 1400, 2900, 1700, 2500, 2100, 2340.2],
-  5: [800, 1100, 950, 1300, 1050, 1200, 900, 1350, 1100, 1250, 1400, 1580.9],
-  6: [1800, 2100, 2400, 1900, 2600, 2800, 3100, 2700, 3400, 3600, 3900, 4250],
-  7: [4200, 4320, 4440, 4560, 4620, 4740, 4800, 4920, 4980, 5040, 5080, 5120],
-  8: [3000, 3050, 3100, 3200, 3150, 3100, 3200, 3300, 3250, 3200, 3240, 3240.5],
-}
-// Initial invested amounts for investment accounts (drives PnL computation in demo).
-const DEMO_NW_INVESTED: Record<number, number> = {
-  2: 8200,  // PEA — initial position
-  3: 5800,  // Compte Titres
-  6: 1800,  // Crypto
-}
-
+// Aggregate net worth history (dashboard chart; the Accounts page asks for split=true to get
+// the per-account breakdown its PnL reads).
 handlers.set(key('GET', '/history'), (config) => {
   const params = (config.params ?? {}) as Record<string, string>
-  const ids = String(params.accountIds ?? '').split(',').map(Number).filter(n => n > 0)
-  const months = Math.min(Number(params.months ?? 12), 12)
-  const split = String(params.split) === 'true'
-
-  const now = new Date()
-  return Array.from({ length: months }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1)
-    const date = d.toISOString().split('T')[0]
-    const idx = 12 - months + i
-
-    let total = 0
-    let invested = 0
-    let pnl = 0
-    const accounts: Record<string, { total: number; invested: number; pnl: number }> = {}
-
-    for (const id of ids) {
-      const bal = (DEMO_NW_BALANCES[id] ?? [])[idx] ?? 0
-      const inv = DEMO_NW_INVESTED[id] ?? bal
-      const ap = bal - inv
-
-      total += bal
-      invested += inv
-      pnl += ap
-      if (split) accounts[String(id)] = { total: bal, invested: inv, pnl: ap }
-    }
-
-    return { date, total, invested, pnl, ...(split ? { accounts } : {}) }
-  })
+  return netWorthHistory(
+    requestedAccountIds(config, mockAccounts.map(a => a.id)),
+    Number(params.months ?? 12),
+    String(params.split) === 'true',
+    _demoAccounts,
+  )
 })
 
 // PnL summary (dashboard header + account detail)
-handlers.set(key('GET', '/history/pnl'), () => ({
-  total: 72_000,
-  invested: 39_600,
-  pnl: 5_820,
-  pnlPercent: 14.7,
-  valueAtFrom: 66_500,
-  rangePnl: 5_500,
-  rangePnlPercent: 8.3,
-}))
+// Live figures from the history the chart draws. The range reprices the holdings at the quote
+// /prices/:ticker/history gives for `from`, as HistoryService does with its price snapshots.
+const demoTopLevelIds = mockAccounts.filter(a => a.parentAccountId == null).map(a => a.id)
+handlers.set(key('GET', '/history/pnl'), (config) => {
+  const ids = requestedAccountIds(config, demoTopLevelIds)
+  const { total, invested, pnl } = netWorthHistory(ids, 1, false, _demoAccounts).at(-1)!
+  const live = { total, invested, pnl, pnlPercent: invested > 0 ? Math.round((pnl / invested) * 1000) / 10 : null }
+  const from = config.params?.from
+  // HistoryService returns the live figures alone without a range or a holding to price over it.
+  if (!from || holdingsValue(ids) === 0) return { ...live, valueAtFrom: null, rangePnl: null, rangePnlPercent: null }
+  const valueAtFrom = holdingsValue(ids, daysBeforeToday(String(from)))
+  const rangePnl = r2(holdingsValue(ids) - valueAtFrom)
+  return { ...live, valueAtFrom, rangePnl, rangePnlPercent: Math.round((rangePnl / valueAtFrom) * 1000) / 10 }
+})
 
-// Intraday net worth (24H dashboard range): one point per hour, mild noise.
-handlers.set(key('GET', '/history/net-worth/intraday'), () => {
-  const now = Date.now()
-  return Array.from({ length: 24 }, (_, i) => ({
-    timestamp: new Date(now - (23 - i) * 3_600_000).toISOString(),
-    total: Math.round((71_400 + i * 25 + Math.sin(i / 2.5) * 180) * 100) / 100,
-    invested: 39_600,
-  }))
+// Intraday net worth (24H dashboard range), as HistoryService builds it: the holdings repriced at
+// each hour's /prices/:ticker/intraday quote, every other account at its live balance all day.
+handlers.set(key('GET', '/history/net-worth/intraday'), (config) => {
+  const ids = requestedAccountIds(config, demoTopLevelIds)
+  const { total, invested } = netWorthHistory(ids, 1, false, _demoAccounts).at(-1)!
+  const withoutHoldings = total - holdingsValue(ids)
+  return Array.from({ length: 24 }, (_, i) => {
+    const back = 23 - i
+    return { timestamp: hoursAgo(back), total: r2(withoutHoldings + holdingsValueHoursAgo(ids, back)), invested }
+  })
 })
 
 // Goals
 handlers.set(key('GET', '/goals'), () => mockGoals)
-for (let i = 1; i <= 3; i++) {
-  handlers.set(key('GET', `/goals/${i}`), () => mockGoals[i - 1])
-  handlers.set(key('GET', `/goals/${i}/months`), () => generateMockMonths(mockGoals[i - 1]))
-  handlers.set(key('POST', `/goals/${i}/history/extend`), () => mockGoals[i - 1])
-  handlers.set(key('POST', `/goals/${i}/history/extend/month`), () => mockGoals[i - 1])
-}
+const demoGoal = (id: string) => mockGoals.find(g => g.id === Number(id))
+handlers.set(key('GET', '/goals/:id'), (_config, { id }) => demoGoal(id))
+handlers.set(key('GET', '/goals/:id/months'), (_config, { id }) => mockGoalMonths[Number(id)] ?? [])
+handlers.set(key('GET', '/goals/:id/history'), (_config, { id }) =>
+  netWorthHistory(demoGoal(id)?.accounts.map(a => a.id) ?? [], 12, false, _demoAccounts))
+handlers.set(key('POST', '/goals/:id/history/extend'), (_config, { id }) => demoGoal(id))
+handlers.set(key('POST', '/goals/:id/history/extend/month'), (_config, { id }) => demoGoal(id))
 /** The holding name behind a ticker in a demo account, for the split's display. */
 function demoHoldingName(accountId: number | undefined, ticker: string): string | null {
   if (accountId == null) return null
@@ -937,9 +872,7 @@ handlers.set(key('DELETE', '/simplefin/connection'), () => {
 })
 
 // Amundi Épargne Salariale — same demo convention: reads report a disconnected
-// session, mutations fake-succeed with the real response shapes. Bourse Direct
-// has no handlers at all, which leaves its panel reading `isActive: undefined`
-// in demo mode; do not copy that gap here.
+// session, mutations fake-succeed with the real response shapes.
 const demoAmundiStatus = {
   isActive: false,
   syncStatus: 'IDLE',
@@ -1019,6 +952,26 @@ handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
   removed: true, bankSessionRevoked: false, message: '',
 }))
 
+// Demo authentication bypasses the bank's mobile/SMS confirmation.
+const demoCicStatus: CicSessionStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+  canReconnect: false,
+}
+handlers.set(key('GET', '/cic/status'), () => demoCicStatus)
+handlers.set(key('POST', '/cic/auth/initiate'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/cic/auth/reconnect'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/cic/auth/complete'), () => demoCicStatus)
+handlers.set(key('POST', '/cic/sync'), () => demoCicStatus)
+handlers.set(key('DELETE', '/cic/session'), () => null)
+
 // Fortuneo — its frontend validates every response with Zod, so the demo must
 // return the complete production contract rather than relying on the adapter's
 // permissive `{}` fallback.
@@ -1037,6 +990,39 @@ handlers.set(key('POST', '/fortuneo/auth/initiate'), () => ({
 handlers.set(key('POST', '/fortuneo/auth/complete'), () => demoFortuneoStatus)
 handlers.set(key('POST', '/fortuneo/sync'), () => demoFortuneoStatus)
 handlers.set(key('DELETE', '/fortuneo/session'), () => null)
+
+// The other sidecar providers: a session that was never opened.
+const demoIdleSidecar = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+handlers.set(key('GET', '/bourse-direct/status'), () => ({ ...demoIdleSidecar, expiresAt: null }))
+handlers.set(key('GET', '/amex/status'), () => demoIdleSidecar)
+handlers.set(key('GET', '/corum/status'), () => demoIdleSidecar)
+handlers.set(key('GET', '/sofidy/status'), () => demoIdleSidecar)
+handlers.set(key('GET', '/degiro/status'), () => ({ isActive: false, status: null, lastSyncedAt: null }))
+handlers.set(key('GET', '/finary/status'), () => ({
+  connected: false, sessionId: null, status: null, lastSyncedAt: null, maskedEmail: null,
+}))
+
+// Revolut and Trade Republic progress is only polled while a sync runs; idle reads as finished.
+const demoIdleSyncProgress = {
+  running: false,
+  phase: null,
+  elapsedSeconds: null,
+  remainingSeconds: null,
+  accountsFound: null,
+  done: true,
+  error: null,
+  errorCode: null,
+  discovered: [],
+}
+handlers.set(key('GET', '/revolut/status'), () => ({ connected: false, remembered: false, lastSyncedAt: null }))
+handlers.set(key('GET', '/revolut/sync/progress'), () => demoIdleSyncProgress)
+handlers.set(key('GET', '/tr/sync/progress'), () => demoIdleSyncProgress)
 
 // Trade Republic - session status
 handlers.set(key('GET', '/tr/status'), () => ({ isActive: false, expiresAt: null }))
@@ -1155,6 +1141,13 @@ handlers.set(key('GET', '/admin/ai-calls'), () => ({
   totalTokens: 50,
 }))
 
+handlers.set(key('GET', '/admin/instance-status'), () => ({
+  currentVersion: 'demo', update: null, issues: [],
+}))
+// The demo never reaches Enable Banking, so there is no call to log.
+handlers.set(key('GET', '/admin/enablebanking/call-log'), () => [])
+handlers.set(key('DELETE', '/admin/enablebanking/call-log'), () => null)
+
 // Finary - configured
 // Settings — security (2FA off in demo, one active session)
 handlers.set(key('GET', '/auth/mfa/status'), () => ({
@@ -1225,25 +1218,50 @@ for (const id of [1, 2, 3, 4, 5]) {
   })
 }
 
+// Settings — one MCP client approved through the consent screen. Mutable so a revoke sticks
+// until reload instead of reappearing on the refetch.
+let demoConnectedApps = [{
+  id: 'demo-claude',
+  clientName: 'Claude',
+  scopes: ['accounts:read', 'dashboard:read', 'goals:read'],
+  issuedAt: hoursAgo(21 * 24),
+  lastUsedAt: hoursAgo(5),
+}]
+handlers.set(key('GET', '/connected-apps'), () => demoConnectedApps)
+handlers.set(key('DELETE', '/connected-apps/:id'), (_config, { id }) => {
+  demoConnectedApps = demoConnectedApps.filter(app => app.id !== id)
+  return null
+})
+// snake_case on purpose: the OAuth2 wire vocabulary, mapped to camelCase by the caller.
+handlers.set(key('GET', '/oauth2/consent-info'), (config) => {
+  const scope = String(config.params?.scope ?? 'accounts:read dashboard:read')
+  return {
+    client_name: 'Claude',
+    requested_scopes: scope.split(' ').filter(Boolean),
+    state: config.params?.state ?? null,
+  }
+})
+// The demo login is the instance's only admin, so deleting it resets the instance.
+handlers.set(key('GET', '/me/deletion-impact'), () => ({ mode: 'RESET_LAST_ADMIN' }))
+
 // Family (solo demo profile: no managed members, a small shared view)
 handlers.set(key('GET', '/family/members'), () => [])
-handlers.set(key('GET', '/family/dashboard'), () => ({
-  sharedAccounts: [
-    { id: 1, ownerName: 'Demo', name: 'LEP La Banque Postale', type: 'LEP', currency: 'EUR', balance: 7800, balanceEur: 7800 },
-    { id: 2, ownerName: 'Demo', name: 'PEA Boursorama', type: 'PEA', currency: 'EUR', balance: 12450, balanceEur: 12450 },
-  ],
-  sharedGoals: [
-    {
-      id: 1,
-      ownerName: 'Demo',
-      name: 'Vacances été 2025',
-      targetAmount: 3000,
-      currentTotal: 1580.9,
-      contributions: [{ memberName: 'Demo', amount: 1580.9 }],
-    },
-  ],
-  totalSharedNetWorth: 20_250,
-}))
+// Read from the same fixtures as every other page, so a shared account keeps its name and balance.
+handlers.set(key('GET', '/family/dashboard'), () => {
+  const sharedAccounts = _demoAccounts.filter(a => a.id === 1 || a.id === 2).map(a => ({
+    id: a.id, ownerName: 'Demo', name: a.name, type: a.type, currency: a.currency,
+    balance: a.currentBalance, balanceEur: a.currentBalanceEur,
+  }))
+  const sharedGoals = mockGoals.filter(g => g.id === 1).map(g => ({
+    id: g.id, ownerName: 'Demo', name: g.name, targetAmount: g.targetAmount ?? 0,
+    currentTotal: g.currentTotal, contributions: [{ memberName: 'Demo', amount: g.currentTotal }],
+  }))
+  return {
+    sharedAccounts,
+    sharedGoals,
+    totalSharedNetWorth: sharedAccounts.reduce((sum, a) => sum + a.balanceEur, 0),
+  }
+})
 handlers.set(key('GET', '/family/sharing'), (config) => {
   const params = (config.params ?? {}) as { resourceType?: string }
   return {
@@ -1251,6 +1269,11 @@ handlers.set(key('GET', '/family/sharing'), (config) => {
     sharingLevel: 'ALL',
     sharedResourceIds: [],
   }
+})
+// A solo demo: whatever a goal holds, Demo put in.
+handlers.set(key('GET', '/family/goals/:id/contributions'), (_config, { id }) => {
+  const goal = mockGoals.find(g => g.id === Number(id))
+  return goal ? [{ memberName: 'Demo', amount: goal.currentTotal }] : []
 })
 
 handlers.set(key('GET', '/finary/configured'), () => true)
@@ -1300,7 +1323,8 @@ handlers.set(key('POST', '/finary/api-sync/execute'), () => ({
 
 // ── Budget module ─────────────────────────────────────────────────────────────
 // Read endpoints serve the mock fixtures; mutations echo a plausible object so the
-// optimistic UI flows. Demo state is not persisted — refetches return the fixtures.
+// optimistic UI flows. Demo state is not persisted — refetches return the fixtures — except
+// categorizing a transaction, which edits the ledger the Spending pages and the inbox read.
 
 // Categories
 handlers.set(key('GET', '/categories'), () => mockCategories)
@@ -1339,20 +1363,18 @@ for (const r of mockRules) {
 }
 handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categorized: 4 }))
 
-handlers.set(key('GET', '/transactions'), (config) => mockTransactionSearch(config.params ?? {}))
-for (const tx of mockTransactionSearch({})) {
-  handlers.set(key('PUT', `/transactions/${tx.id}/category`), (config) => {
-    const { categoryId } = JSON.parse(config.data || '{}')
-    recategorizeMockTransaction(tx.id, categoryId)
-    return {}
-  })
-}
-
 // To-categorize inbox
-handlers.set(key('GET', '/transactions/uncategorized'), () => mockUncategorized)
-for (const tx of mockUncategorized) {
-  handlers.set(key('PUT', `/transactions/${tx.id}/category`), () => ({}))
-}
+handlers.set(key('GET', '/transactions/uncategorized'), () => mockUncategorized())
+// Unknown transaction or category IDs leave the ledger unchanged. The adapter returns {}.
+handlers.set(key('PUT', '/transactions/:id/category'), (config, { id }) => {
+  const { categoryId } = JSON.parse(config.data || '{}') as CategorizeRequest
+  categorizeDemoTransaction(Number(id), categoryId)
+  return {}
+})
+
+// The budget ledger on the main checking account: the rows the Spending pages and the review
+// inbox summarize, so a search over any period lists what they count.
+handlers.set(key('GET', '/transactions'), (config) => mockTransactionSearch(config.params ?? {}))
 // Optional AI categorizer over the inbox (legacy sync shape).
 handlers.set(key('POST', '/transactions/categorize-ai'), () => ({
   running: false, total: 0, processed: 0, applied: 0, suggested: 0, done: true, error: null,
@@ -1363,7 +1385,7 @@ handlers.set(key('GET', '/transactions/categorize-ai/status'), () => ({
 }))
 
 // Envelopes
-handlers.set(key('GET', '/budgets'), () => mockBudgets)
+handlers.set(key('GET', '/budgets'), () => mockBudgetSummaries())
 handlers.set(key('POST', '/budgets'), (config) => {
   const body = JSON.parse(config.data || '{}')
   const cat = mockCategories.find((c) => c.id === body.categoryId)
@@ -1378,9 +1400,10 @@ handlers.set(key('POST', '/budgets'), (config) => {
 for (const b of mockBudgets) {
   handlers.set(key('PUT', `/budgets/${b.id}`), (config) => {
     const body = JSON.parse(config.data || '{}')
-    const limit = body.monthlyLimit ?? b.monthlyLimit
-    return { ...b, monthlyLimit: limit, remaining: Math.round((limit - b.spent) * 100) / 100,
-      percent: limit > 0 ? Math.round((b.spent / limit) * 100) : 0, overBudget: b.spent > limit }
+    const current = mockBudgetSummaries().find((budget) => budget.id === b.id)!
+    const limit = body.monthlyLimit ?? current.monthlyLimit
+    return { ...current, monthlyLimit: limit, remaining: Math.round((limit - current.spent) * 100) / 100,
+      percent: limit > 0 ? Math.round((current.spent / limit) * 100) : 0, overBudget: current.spent > limit }
   })
   handlers.set(key('DELETE', `/budgets/${b.id}`), () => ({}))
 }
@@ -1405,7 +1428,7 @@ handlers.set(key('GET', '/cashflow'), (config) =>
 handlers.set(key('GET', '/cashflow/flow'), (config) =>
   mockFlow(((config.params?.period as CashflowPeriod) ?? 'CYCLE')))
 handlers.set(key('GET', '/allocation'), (config) =>
-  mockAllocation(((config.params?.period as CashflowPeriod) ?? 'CYCLE')))
+  mockAllocation(((config.params?.period as CashflowPeriod) ?? 'CYCLE'), _demoAccounts))
 
 // Spending breakdown & per-category drill (one handler per known category id)
 handlers.set(key('GET', '/spending/by-category'), (config) =>
@@ -1452,38 +1475,12 @@ for (const s of mockRecurring) {
 }
 handlers.set(key('POST', '/recurring/detect'), () => ({ detected: 2 }))
 
-function generateMockMonths(goal: GoalProgress) {
-  // Mirrors the backend: the monthly calendar belongs to savings targets only.
-  if (goal.deadline === null || goal.monthlyNeeded === null) return []
-  const monthlyNeeded = goal.monthlyNeeded
-  const start = new Date('2025-01-01')
-  const end = new Date(goal.deadline)
-  const months: { yearMonth: string; objective: number; actual: number | null; manualActual: number | null; override: number | null; effective: number | null }[] = []
-  const current = new Date(start)
-  const now = new Date()
-  while (current <= end) {
-    const ym = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`
-    const isPast = current <= now
-    const actual = isPast ? Math.round((monthlyNeeded * (0.7 + Math.random() * 0.6)) * 100) / 100 : null
-    months.push({
-      yearMonth: ym,
-      objective: monthlyNeeded,
-      actual,
-      manualActual: null,
-      override: null,
-      effective: actual,
-    })
-    current.setMonth(current.getMonth() + 1)
-  }
-  return months
-}
-
 export function createDemoAdapter() {
   return (config: InternalAxiosRequestConfig): Promise<AxiosResponse> => {
     const k = key(config.method || 'GET', config.url || '')
-    const handler = handlers.get(k)
+    const match = findHandler(k)
 
-    if (!handler) {
+    if (!match) {
       // Deliberately still resolves 200 {} — several demo screens lean on the
       // permissive fallback. The warning is what keeps frontend/backend
       // endpoint drift visible: a mismatched method/path (e.g. the old
@@ -1494,7 +1491,7 @@ export function createDemoAdapter() {
     return new Promise((resolve) => {
       setTimeout(() => {
         resolve({
-          data: handler ? handler(config) : {},
+          data: match ? match.handler(config, match.params) : {},
           status: 200,
           statusText: 'OK',
           headers: {},
