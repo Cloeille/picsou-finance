@@ -10,6 +10,7 @@ import com.picsou.model.CategoryKind;
 import com.picsou.model.FamilyMember;
 import com.picsou.repository.*;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -69,6 +70,12 @@ class HomeBankQifPersistenceTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class Configuration {
+        // FinaryPersistenceHelper only asks for an FX rate on non-EUR amounts; these fixtures are EUR.
+        @Bean
+        PriceService priceService() {
+            return Mockito.mock(PriceService.class);
+        }
+
         @Bean
         HomeBankImportService homeBankImportService(HomeBankFileParser parser, AccountRepository accounts,
                 CategoryRepository categories, TransactionRepository transactions, FamilyMemberRepository members,
