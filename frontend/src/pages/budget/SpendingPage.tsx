@@ -7,8 +7,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CashflowSankey } from '@/components/shared/CashflowSankey'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { ErrorState } from '@/components/shared/ErrorState'
-import { FlowBars } from '@/components/shared/FlowBars'
-import { useIsMobile } from '@/hooks/use-mobile'
 import { useCashflowFlow, useSpendingByCategory } from '@/features/budget/hooks'
 import type { CashflowPeriod, CategorySpend } from '@/types/api'
 import { FALLBACK_COLOR } from './budget-meta'
@@ -17,9 +15,10 @@ import { PeriodNavigator } from './PeriodNavigator'
 import { useBudgetPeriod } from './BudgetPeriodContext'
 
 /**
- * `/budget/spending` — where the money goes. A flow diagram (Sankey on ≥md, proportion
- * bars on phones) sits above a ranked, tappable breakdown. Each real category drills into
- * `/budget/spending/:categoryId`; the uncategorized bucket has no drill target.
+ * `/budget/spending` — where the money goes. A flow diagram (Sankey where the card is
+ * wide enough, proportion bars otherwise) sits above a ranked, tappable breakdown. Each real
+ * category drills into `/budget/spending/:categoryId`; the uncategorized bucket has no drill
+ * target.
  */
 
 /** A compact income · expense · net line — the diagram already shows the shape visually. */
@@ -178,7 +177,6 @@ export function SpendingPage() {
   const { t } = useTranslation()
   const [period, setPeriod] = useState<CashflowPeriod>('CYCLE')
   const { anchor, setAnchor } = useBudgetPeriod()
-  const isMobile = useIsMobile()
   const flow = useCashflowFlow(period, anchor)
   const breakdown = useSpendingByCategory(period, anchor)
 
@@ -236,8 +234,6 @@ export function SpendingPage() {
           <CardContent>
             {!hasFlow ? (
               <p className="py-8 text-center text-sm text-muted-foreground">{t('budget.flow.empty')}</p>
-            ) : isMobile ? (
-              <FlowBars flow={flow.data} />
             ) : (
               <CashflowSankey flow={flow.data} />
             )}
