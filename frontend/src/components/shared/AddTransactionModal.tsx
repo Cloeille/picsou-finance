@@ -217,7 +217,7 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
             {/* Deliberately unmasked in privacy mode: this is quantity x price as the member is
                 typing them, so both operands are already on screen and masking the product would
                 protect nothing while making the form unreadable. */}
-            {t('accounts.total')}: {total != null && Number.isFinite(total) ? formatCurrencyUnmasked(total, 'EUR', locale) : '—'}
+            {t('common.labelColon', { label: t('accounts.total') })} {total != null && Number.isFinite(total) ? formatCurrencyUnmasked(total, 'EUR', locale) : '—'}
           </p>
         </>
       ) : (

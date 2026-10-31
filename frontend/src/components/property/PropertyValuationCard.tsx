@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { useRefreshValuation } from '@/features/accounts/hooks'
 import { formatApiError } from '@/lib/errors'
-import { localeFromLanguage } from '@/lib/utils'
+import { formatDecimal, formatNumber, formatPercent, localeFromLanguage } from '@/lib/utils'
 import type { PropertyValuation, RealEstateMetadata, ValuationConfidence } from '@/types/api'
 
 interface PropertyValuationCardProps {
@@ -101,7 +101,7 @@ export function PropertyValuationCard({ accountId, metadata, currentValue }: Pro
               )}
               {result.sampleSize != null && (
                 <Fact label={t('property.valuation.sampleSize')}
-                      value={result.sampleSize.toLocaleString(locale)} />
+                      value={formatNumber(result.sampleSize, locale)} />
               )}
               {result.sourceYear != null && (
                 <Fact label={t('property.valuation.sourceYear')} value={String(result.sourceYear)} />
@@ -143,7 +143,7 @@ export function PropertyValuationCard({ accountId, metadata, currentValue }: Pro
                           <span>{t(`property.adjustments.${adj.code}`, { defaultValue: adj.code })}</span>
                           <span className="tabular-nums text-muted-foreground">
                             {adj.factor != null
-                              ? `${adj.factor > 0 ? '+' : ''}${(adj.factor * 100).toFixed(1)} %`
+                              ? formatPercent(adj.factor * 100, { signed: true }, locale)
                               : adj.sqm != null
                                 ? `+${adj.sqm} m²`
                                 : ''}
@@ -154,7 +154,7 @@ export function PropertyValuationCard({ accountId, metadata, currentValue }: Pro
                         <li className="flex items-center justify-between gap-2 border-t pt-1">
                           <span>{t('property.valuation.reindexed')}</span>
                           <span className="tabular-nums text-muted-foreground">
-                            ×{result.reindexRatio.toFixed(3)}
+                            ×{formatDecimal(result.reindexRatio, 3, locale)}
                           </span>
                         </li>
                       )}

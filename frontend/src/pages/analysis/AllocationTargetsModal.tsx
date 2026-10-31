@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { useEssentialExpenseEstimate, useSaveAllocationTargets } from '@/features/analysis/hooks'
-import { parseAmount } from '@/lib/utils'
+import { formatPercent, parseAmount } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { AllocationTargets, AllocationTargetsRequest, WealthTier } from '@/types/api'
 
@@ -139,7 +139,10 @@ function TargetsForm({
                 balanced ? 'text-muted-foreground' : 'text-destructive',
               )}
             >
-              {t('analysis.targets.sum', { value: sum.toFixed(1) })}
+              {t('analysis.targets.sum', {
+                value: formatPercent(sum),
+                max: formatPercent(100, { fractionDigits: 0 }),
+              })}
             </span>
           </div>
           {TARGET_TIERS.map((tier) => (

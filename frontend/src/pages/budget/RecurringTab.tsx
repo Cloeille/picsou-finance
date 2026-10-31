@@ -26,7 +26,7 @@ import {
   useRecurring,
   useRecurringCalendar,
 } from '@/features/budget/hooks'
-import { getLocale, parseAmount } from '@/lib/utils'
+import { formatNumber, getLocale, parseAmount } from '@/lib/utils'
 import type { RecurringCadence } from '@/types/api'
 import { ColorDot } from './budget-utils'
 import { CADENCE_LABEL_KEY } from './budget-meta'
@@ -194,7 +194,7 @@ export function RecurringTab() {
                   </p>
                   <div className="space-y-2">
                     {(occs ?? []).map((occ) => {
-                      const displayLabel = `${occ.label}${occ.creditCardPayment && occ.rewardPoints != null ? ` · ${occ.rewardPoints.toLocaleString()} ${t('accounts.amex.miles')}` : ''}`
+                      const displayLabel = `${occ.label}${occ.creditCardPayment && occ.rewardPoints != null ? ` · ${formatNumber(occ.rewardPoints)} ${t('accounts.amex.miles')}` : ''}`
                       return (
                       <div key={`${occ.seriesId}-${occ.dueDate}`}
                         className="flex items-center gap-3 text-sm">

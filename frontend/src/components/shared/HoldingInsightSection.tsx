@@ -10,7 +10,7 @@ import PartitionBar, {
 } from '@/components/ui/partition-bar'
 import { useSecurityInsight } from '@/features/accounts/hooks'
 import type { WeightedSlice } from '@/types/api'
-import { cn, formatDate } from '@/lib/utils'
+import { cn, formatDate, formatPercent } from '@/lib/utils'
 import { OTHERS_SLICE_COLOR, SLICE_PALETTE } from '@/lib/chart-palette'
 
 // Two ways to render a composition, switchable via the view toggle:
@@ -163,13 +163,13 @@ function BlockView({ slices, others, labelOf, t }: ViewProps) {
           alignment="left"
         >
           <PartitionBarSegmentTitle>{labelOf(slice.label)}</PartitionBarSegmentTitle>
-          <PartitionBarSegmentValue>{slice.percent.toFixed(1)}%</PartitionBarSegmentValue>
+          <PartitionBarSegmentValue>{formatPercent(slice.percent)}</PartitionBarSegmentValue>
         </PartitionBarSegment>
       ))}
       {others > 0.5 && (
         <PartitionBarSegment num={others} variant="muted" alignment="left">
           <PartitionBarSegmentTitle>{t('holdings.insight.others')}</PartitionBarSegmentTitle>
-          <PartitionBarSegmentValue>{others.toFixed(1)}%</PartitionBarSegmentValue>
+          <PartitionBarSegmentValue>{formatPercent(others)}</PartitionBarSegmentValue>
         </PartitionBarSegment>
       )}
     </PartitionBar>
@@ -206,7 +206,7 @@ function LineView({ slices, others, labelOf, t }: ViewProps) {
           <li key={`${item.label}-${i}`} className="flex min-w-0 items-center gap-1.5 text-xs">
             <span className={cn('size-2 shrink-0 rounded-[2px]', item.color)} aria-hidden />
             <span className="truncate text-foreground">{item.label}</span>
-            <span className="shrink-0 tabular-nums text-muted-foreground">{item.percent.toFixed(1)}%</span>
+            <span className="shrink-0 tabular-nums text-muted-foreground">{formatPercent(item.percent)}</span>
           </li>
         ))}
       </ul>

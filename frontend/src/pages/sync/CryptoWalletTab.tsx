@@ -227,7 +227,7 @@ export function CryptoWalletTab() {
                     </p>
                     {wallet.lastSyncedAt && (
                       <p className="text-xs text-muted-foreground">
-                        {t('sync.wallets.lastSync')}: {formatDate(wallet.lastSyncedAt)}
+                        {t('common.labelColon', { label: t('sync.wallets.lastSync') })} {formatDate(wallet.lastSyncedAt)}
                       </p>
                     )}
                   </div>

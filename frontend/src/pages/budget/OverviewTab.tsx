@@ -15,7 +15,7 @@ import {
   useUncategorized,
 } from '@/features/budget/hooks'
 import { useUpcomingDividends } from '@/features/dividends/hooks'
-import { formatDate } from '@/lib/utils'
+import { formatDate, formatPercent } from '@/lib/utils'
 import { ColorDot } from './budget-utils'
 import { PeriodNavigator } from './PeriodNavigator'
 import { useBudgetPeriod } from './BudgetPeriodContext'
@@ -268,12 +268,12 @@ export function OverviewTab() {
                   <div className="flex items-center gap-2 text-sm">
                     <ColorDot color={b.categoryColor} />
                     <span className="truncate">{b.categoryName}</span>
-                    <span className="ml-auto tabular-nums text-muted-foreground">{b.percent}%</span>
+                    <span className="ml-auto tabular-nums text-muted-foreground">{formatPercent(b.percent, { fractionDigits: 0 })}</span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-md bg-muted"
                     role="progressbar" aria-label={b.categoryName}
                     aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(b.percent, 100)}
-                    aria-valuetext={`${b.percent}%`}>
+                    aria-valuetext={formatPercent(b.percent, { fractionDigits: 0 })}>
                     <div className={`h-full rounded-md ${
                       b.overBudget ? 'bg-destructive' : b.percent >= 80 ? 'bg-amber-500' : 'bg-primary'}`}
                       style={{ width: `${Math.min(b.percent, 100)}%` }} />

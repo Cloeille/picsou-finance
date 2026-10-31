@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import {
   FRESHNESS_TEXT_CLASS,
   formatDate,
+  formatPercent,
   formatTimeAgo,
   freshnessLevel,
   type FreshnessLevel,
@@ -142,7 +143,7 @@ export function AccountCard({ account, onClick }: AccountCardProps) {
             {/* Present only below 100%, so the balance above is knowingly a shared figure. */}
             {account.sharePercent != null && (
               <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                {Number(account.sharePercent).toFixed(0)} %
+                {formatPercent(Number(account.sharePercent), { fractionDigits: 0 })}
               </span>
             )}
           </div>
@@ -158,7 +159,7 @@ export function AccountCard({ account, onClick }: AccountCardProps) {
           </div>
           {isLoan && account.debt && (
             <p className="mt-1 text-xs text-muted-foreground">
-              {t('debt.borrowedAmount')}: {money.amount(account.debt.borrowedAmount)}
+              {t('common.labelColon', { label: t('debt.borrowedAmount') })} {money.amount(account.debt.borrowedAmount)}
             </p>
           )}
           {freshness && (
@@ -176,7 +177,7 @@ export function AccountCard({ account, onClick }: AccountCardProps) {
               </TooltipProvider>
             ) : (
               <p className={`mt-1 text-xs ${FRESHNESS_TEXT_CLASS[level]}`}>
-                {freshness.label}: {formatDate(freshness.date)}
+                {t('common.labelColon', { label: freshness.label })} {formatDate(freshness.date)}
               </p>
             )
           )}

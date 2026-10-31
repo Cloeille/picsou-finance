@@ -53,7 +53,7 @@ describe('SavingsRateCard', () => {
       />,
     )
 
-    expect(screen.getByText('20.0 %')).toBeInTheDocument()
+    expect(screen.getByText('20.0%')).toBeInTheDocument()
   })
 
   // The comparison lives in the tooltip beside the title, not as a verdict on the card: the
@@ -86,7 +86,7 @@ describe('SavingsRateCard', () => {
       />,
     )
 
-    expect(screen.getByText('10.0 %')).toBeInTheDocument()
+    expect(screen.getByText('10.0%')).toBeInTheDocument()
   })
 
   // Inventing a denominator would be worse than saying nothing: the figure would look like a

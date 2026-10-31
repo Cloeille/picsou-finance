@@ -90,14 +90,9 @@ export function AccountsStackedChart({ accounts, data }: AccountsStackedChartPro
   const [range, setRange] = useState<TimeRange>('1Y')
 
   const filteredData = useMemo(() => filterByRange(data, range), [data, range])
-  const yTick = money.tick((value: number) => {
-    const abs = Math.abs(value)
-    const formatted = abs >= 1000 ? `${(abs / 1000).toFixed(abs >= 10000 ? 0 : 1)}k` : abs.toFixed(0)
-    return `${value < 0 ? '-' : ''}${formatted}`
-  })
   const yWidth = yAxisWidth(
     filteredData.flatMap(p => accounts.map(a => p[a.id]).filter(v => typeof v === 'number')),
-    yTick,
+    money.tick,
   )
 
   const chartConfig = useMemo(() => {
@@ -137,7 +132,7 @@ export function AccountsStackedChart({ accounts, data }: AccountsStackedChartPro
             tickLine={false}
             axisLine={false}
             tickMargin={8}
-            tickFormatter={yTick}
+            tickFormatter={money.tick}
             width={yWidth}
           />
           <ChartTooltip content={<PnlTooltip accounts={accounts} labels={labels} />} />
