@@ -1,6 +1,6 @@
 # Feature: Bank Sync
 
-> Last updated: 2026-08-10 (sync-flow hardening: OAuth `state` correlation, reconnect path, visible errors — merged with the bank search country picker: `listCountries`, `GET /api/sync/countries`, `DEFAULT_COUNTRY`; on top of PSU types, 2026-08-01)
+> Last updated: 2026-10-31 (Enable Banking flat account details and account-specific balance selection)
 
 > **Status (1.0.0).** Enable Banking is the only enabled provider. The Powens
 > adapter ships in the codebase but is **experimental and untested** —
@@ -60,6 +60,51 @@ Picsou now handles this with a two-pronged strategy:
 
 3. **Missing currency tolerance.** Some ASPSPs omit the per-account currency field. The adapter now
    defaults to `EUR` rather than throwing, matching the most common case for French current accounts.
+
+### Enable Banking account details and balance selection
+
+`GET /accounts/{uid}/details` returns a flat `AccountResource`, as described in the
+[Enable Banking API reference](https://enablebanking.com/docs/api/reference/#accountresource).
+The adapter reads the IBAN from `account_id.iban`. The display name is the first
+nonblank value in `details`, `product`, and `name`, with `Account` as the fallback.
+`name` identifies the holder, so it is less useful than the account description.
+Existing-account names remain unchanged on sync to preserve user edits. An existing
+generic `Account` label can be renamed in the account form. Balances and IBANs refresh
+through the usual upsert path, including IBAN-first matching after a uid rotation.
+
+Some ASPSPs, including the Qonto response shape reported in issue #317, return the
+organization's balances for every account uid. When balance names match the account's
+`details` field, the adapter restricts selection to those entries first. It trims
+whitespace and compares names without case sensitivity. Holder and product names are
+not matching keys because several accounts can share them.
+
+Within that set, the adapter prefers the following
+[ISO balance types](https://enablebanking.com/docs/api/reference/#balancestatus) in order:
+
+1. `CLBD`, closing booked.
+2. `XPCD`, expected.
+3. `ITBD`, interim booked.
+4. `ITAV`, interim available.
+5. `CLAV`, closing available.
+
+Other or missing types have lower priority. When no balance name matches, the adapter
+uses the same type ordering across the response. This preserves single-account banks
+that label balances by kind, such as `Booked balance`, rather than by account.
+Several entries at the best priority are ambiguous and cause a `SyncException`, even
+when their names match. The adapter never adds balances together or chooses an arbitrary
+entry from a tie. An absent balance, null entry, or missing selected amount also fails
+explicitly. A malformed numeric amount follows the existing per-account failure path.
+These failures leave that account unchanged, allow other accounts to sync, and propagate
+when every account fails. A genuine zero remains a valid balance.
+
+The selected amount supplies the currency. If it omits the currency, the adapter uses
+the account-details currency, then `EUR`.
+
+`EnableBankingAccountDataTest` serves synthetic responses over loopback HTTP and calls
+`fetchBalances` through the production WebClient and JSON decoder. It covers shared
+balance lists, flat details, type priorities, ordinary single-account responses,
+ambiguous or missing data, and per-account failure isolation. Live bank behavior remains
+unverified.
 
 ### Country selection
 

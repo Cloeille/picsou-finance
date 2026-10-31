@@ -1,0 +1,284 @@
+package com.picsou.adapter;
+
+import com.picsou.config.EnableBankingConfigProvider;
+import com.picsou.exception.SyncException;
+import com.picsou.port.BankConnectorPort.AccountData;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
+
+@ExtendWith(MockitoExtension.class)
+class EnableBankingAccountDataTest {
+
+    @Mock EnableBankingConfigProvider configProvider;
+
+    private final Map<String, String> responses = new ConcurrentHashMap<>();
+    private HttpServer server;
+    private EnableBankingBankConnector connector;
+
+    @BeforeEach
+    void startProvider() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            String response = responses.get(exchange.getRequestURI().getPath());
+            byte[] body = (response != null ? response : "{}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(response != null ? 200 : 404, body.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        server.start();
+        connector = spy(new EnableBankingBankConnector(configProvider,
+            "http://127.0.0.1:" + server.getAddress().getPort()));
+        doReturn("synthetic-jwt").when(connector).buildJwt();
+        responses.put("/sessions/session", """
+            {"accounts": ["uid-operations"]}
+            """);
+    }
+
+    @AfterEach
+    void stopProvider() {
+        if (server != null) server.stop(0);
+    }
+
+    @Test
+    void fetchBalances_organizationWideBalances_returnsEachAccountsOwnBalanceAndFlatDetails() {
+        responses.put("/sessions/session", """
+            {"accounts": ["uid-operations", "uid-reserve"]}
+            """);
+        String balances = """
+            {"balances": [
+              {"name": "Reserve wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "41.75"}},
+              {"name": "Operations wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "903.20"}}
+            ]}
+            """;
+        responses.put("/accounts/uid-operations/balances", balances);
+        responses.put("/accounts/uid-reserve/balances", balances);
+        responses.put("/accounts/uid-operations/details", """
+            {"account_id": {"iban": "FR00SYNTHETICOPERATIONS"}, "name": "Synthetic company",
+             "details": "Operations wallet", "product": null, "cash_account_type": "CACC",
+             "uid": "uid-operations", "identification_hash": "synthetic-operations"}
+            """);
+        responses.put("/accounts/uid-reserve/details", """
+            {"account_id": {"iban": "FR00SYNTHETICRESERVE"}, "name": "Synthetic company",
+             "details": "Reserve wallet", "product": null, "cash_account_type": "CACC",
+             "uid": "uid-reserve", "identification_hash": "synthetic-reserve"}
+            """);
+
+        var accounts = connector.fetchBalances("session");
+
+        assertThat(accounts).hasSize(2);
+        assertThat(accounts.get(0)).satisfies(account -> {
+            assertThat(account.externalId()).isEqualTo("uid-operations");
+            assertThat(account.name()).isEqualTo("Operations wallet");
+            assertThat(account.iban()).isEqualTo("FR00SYNTHETICOPERATIONS");
+            assertThat(account.currency()).isEqualTo("EUR");
+            assertThat(account.balance()).isEqualByComparingTo("903.20");
+        });
+        assertThat(accounts.get(1)).satisfies(account -> {
+            assertThat(account.externalId()).isEqualTo("uid-reserve");
+            assertThat(account.name()).isEqualTo("Reserve wallet");
+            assertThat(account.iban()).isEqualTo("FR00SYNTHETICRESERVE");
+            assertThat(account.currency()).isEqualTo("EUR");
+            assertThat(account.balance()).isEqualByComparingTo("41.75");
+        });
+    }
+
+    @Test
+    void fetchBalances_matchingAccountLabel_takesPriorityOverAnotherAccountsBalanceType() {
+        responses.put("/accounts/uid-operations/details", """
+            {"details": "  Operations wallet  ", "product": "Shared product", "name": "Shared holder"}
+            """);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name": "Reserve wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "41.75"}},
+              {"name": "  OPERATIONS WALLET ", "balance_type": "ITAV",
+               "balance_amount": {"currency": "EUR", "amount": "902.20"}},
+              {"name": "Operations wallet", "balance_type": "XPCD",
+               "balance_amount": {"currency": "EUR", "amount": "903.20"}}
+            ]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.name()).isEqualTo("Operations wallet");
+            assertThat(account.balance()).isEqualByComparingTo("903.20");
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"CLBD,XPCD", "XPCD,ITBD", "ITBD,ITAV", "ITAV,CLAV"})
+    void fetchBalances_singleAccountWithGenericBalanceLabels_usesIsoTypePriority(String preferred, String other) {
+        responses.put("/accounts/uid-operations/details", """
+            {"details": "Everyday account", "account_id": {"iban": "GB00SYNTHETIC"}}
+            """);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name": "Other balance", "balance_type": "%s",
+               "balance_amount": {"currency": "GBP", "amount": "44.10"}},
+              {"name": "Preferred balance", "balance_type": "%s",
+               "balance_amount": {"currency": "GBP", "amount": "-12.34"}}
+            ]}
+            """.formatted(other, preferred));
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.name()).isEqualTo("Everyday account");
+            assertThat(account.iban()).isEqualTo("GB00SYNTHETIC");
+            assertThat(account.currency()).isEqualTo("GBP");
+            assertThat(account.balance()).isEqualByComparingTo("-12.34");
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource(value = {
+        "{\"details\":\"  \",\"product\":\" Savings product \",\"name\":\"Synthetic holder\"}|Savings product",
+        "{\"product\":\"  \",\"name\":\" Synthetic holder \"}|Synthetic holder",
+        "{\"details\":\" \",\"product\":\" \",\"name\":\" \"}|Account",
+        "{}|Account"
+    }, delimiter = '|')
+    void fetchBalances_flatDetails_usesFirstNonblankDisplayName(String details, String expectedName) {
+        responses.put("/accounts/uid-operations/details", details);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [{"balance_type": "CLBD", "balance_amount": {"currency": "EUR", "amount": "0"}}]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.name()).isEqualTo(expectedName);
+            assertThat(account.iban()).isNull();
+            assertThat(account.balance()).isZero();
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource(value = {"{\"currency\":\"USD\"}|USD", "{}|EUR"}, delimiter = '|')
+    void fetchBalances_missingBalanceCurrency_usesAccountCurrencyThenEur(String details, String expectedCurrency) {
+        responses.put("/accounts/uid-operations/details", details);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [{"balance_type": "CLBD", "balance_amount": {"amount": "24.60"}}]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement()
+            .extracting(AccountData::currency).isEqualTo(expectedCurrency);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"OTHR\"", "null"})
+    void fetchBalances_singleUnknownBalanceType_remainsUsable(String type) {
+        responses.put("/accounts/uid-operations/details", "{}");
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [{"name": "Bank balance", "balance_type": %s,
+             "balance_amount": {"currency": "EUR", "amount": "17.05"}}]}
+            """.formatted(type));
+
+        assertThat(connector.fetchBalances("session")).singleElement()
+            .satisfies(account -> assertThat(account.balance()).isEqualByComparingTo("17.05"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"details\":\"Unmatched wallet\"}", "{}"})
+    void fetchBalances_ambiguousAccountBalances_failsInsteadOfPickingAnotherAccount(String details) {
+        responses.put("/accounts/uid-operations/details", details);
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name": "Reserve wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "41.75"}},
+              {"name": "Operations wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "903.20"}}
+            ]}
+            """);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
+    }
+
+    @Test
+    void fetchBalances_duplicateMatchingLabels_failsWhenTheBestBalanceIsStillAmbiguous() {
+        responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations wallet\"}");
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name": "Operations wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "41.75"}},
+              {"name": "Operations wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "903.20"}}
+            ]}
+            """);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session"))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("ambiguous");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "{}",
+        "{\"balances\":[]}",
+        "{\"balances\":[null]}",
+        "{\"balances\":[{\"balance_type\":\"CLBD\"}]}",
+        "{\"balances\":[{\"balance_type\":\"CLBD\",\"balance_amount\":{\"amount\":null}}]}"
+    })
+    void fetchBalances_missingBalanceOrAmount_failsInsteadOfInventingZero(String balances) {
+        responses.put("/accounts/uid-operations/details", "{}");
+        responses.put("/accounts/uid-operations/balances", balances);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session")).isInstanceOf(SyncException.class);
+    }
+
+    @Test
+    void fetchBalances_malformedMatchingBalance_doesNotFallBackToAnotherAccount() {
+        responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations wallet\"}");
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [
+              {"name": "Reserve wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "41.75"}},
+              {"name": "Operations wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "unreadable"}}
+            ]}
+            """);
+
+        assertThatThrownBy(() -> connector.fetchBalances("session")).isInstanceOf(NumberFormatException.class);
+    }
+
+    @Test
+    void fetchBalances_oneAmbiguousAccount_keepsTheOtherAccountSyncable() {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-ambiguous\",\"uid-operations\"]}");
+        responses.put("/accounts/uid-ambiguous/details", "{}");
+        responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations wallet\"}");
+        String balances = """
+            {"balances": [
+              {"name": "Reserve wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "41.75"}},
+              {"name": "Operations wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "903.20"}}
+            ]}
+            """;
+        responses.put("/accounts/uid-ambiguous/balances", balances);
+        responses.put("/accounts/uid-operations/balances", balances);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.externalId()).isEqualTo("uid-operations");
+            assertThat(account.balance()).isEqualByComparingTo("903.20");
+        });
+    }
+}

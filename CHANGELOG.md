@@ -264,6 +264,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Enable Banking account balances and details.** Accounts in a shared balance list,
+  such as Qonto business accounts, now select entries matching the account description
+  before applying ISO balance-type priority. Flat account details supply the IBAN and
+  the description, product, or holder name for new accounts. Ambiguous or missing
+  balances fail explicitly instead of selecting another account's balance or storing
+  zero. Existing account names stay unchanged and can be edited in the account form.
+
 - **Numbers and labels follow the interface language.** Percentages are formatted by the
   locale everywhere ("8,3 %" in French, "8.3%" in English) instead of a dot and a hand-placed
   sign. Every amount axis uses one compact format ("60 k €", "1,25 M €") instead of "60.0k",

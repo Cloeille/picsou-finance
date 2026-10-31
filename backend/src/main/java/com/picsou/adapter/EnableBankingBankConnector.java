@@ -23,6 +23,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,6 +54,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     /** {@code transaction.description} is VARCHAR(255) and {@code category} VARCHAR(100). */
     private static final int MAX_DESCRIPTION_LENGTH = 255;
     private static final int MAX_CATEGORY_LENGTH = 100;
+    private static final List<String> BALANCE_TYPE_PRIORITY = List.of("CLBD", "XPCD", "ITBD", "ITAV", "CLAV");
 
     private final EnableBankingConfigProvider configProvider;
     private final WebClient webClient;
@@ -638,34 +640,64 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             "Failed to fetch account details")
             .block();
 
-        BigDecimal balance = BigDecimal.ZERO;
-        String currency = "EUR";
-        String name = "Account";
-        String iban = null;
-
         // Keep per-account visibility at INFO (operators need it to diagnose Enable
         // Banking's async linking), but log only the balance count — never the full
         // balances object, which carries the account's amounts (financial PII).
         log.info("Fetched {} balances for account {}",
             balances != null && balances.balances() != null ? balances.balances().size() : 0, accountId);
-        if (balances != null && balances.balances() != null && !balances.balances().isEmpty()) {
-            var b = balances.balances().stream()
-                .filter(bl -> "closingBooked".equals(bl.balanceType()) || "expected".equals(bl.balanceType()))
-                .findFirst()
-                .orElse(balances.balances().get(0));
-            if (b.balanceAmount() != null) {
-                balance = new BigDecimal(b.balanceAmount().amount());
-                currency = b.balanceAmount().currency();
-            }
-        }
-
-        if (details != null && details.account() != null) {
-            name = details.account().name() != null ? details.account().name() :
-                   details.account().product() != null ? details.account().product() : "Account";
-            iban = details.account().iban();
-        }
+        var selected = selectBalance(balances, details != null ? details.details() : null);
+        BigDecimal balance = new BigDecimal(selected.balanceAmount().amount().trim());
+        String currency = firstNonBlank(selected.balanceAmount().currency(),
+            details != null ? details.currency() : null, "EUR");
+        String name = details != null
+            ? firstNonBlank(details.details(), details.product(), details.name(), "Account") : "Account";
+        String iban = details != null && details.accountId() != null
+            ? firstNonBlank(details.accountId().iban()) : null;
 
         return new AccountData(accountId, name, iban, currency, balance);
+    }
+
+    private static BalancesResponse.BalanceItem selectBalance(BalancesResponse response, String accountLabel) {
+        if (response == null || response.balances() == null || response.balances().isEmpty()) {
+            throw new SyncException("Enable Banking returned no account balances");
+        }
+        List<BalancesResponse.BalanceItem> candidates = response.balances();
+        if (candidates.stream().anyMatch(item -> item == null)) {
+            throw new SyncException("Enable Banking returned an invalid account balance");
+        }
+        if (accountLabel != null && !accountLabel.isBlank()) {
+            var matching = candidates.stream()
+                .filter(item -> item.name() != null && accountLabel.trim().equalsIgnoreCase(item.name().trim()))
+                .toList();
+            // Some ASPSPs return an organization-wide list. Scope it before ranking types.
+            if (!matching.isEmpty()) candidates = matching;
+        }
+
+        var selected = candidates.stream().min(Comparator.comparingInt(EnableBankingBankConnector::balancePriority))
+            .orElseThrow(() -> new SyncException("Enable Banking returned no account balances"));
+        long preferredCount = candidates.stream()
+            .filter(item -> balancePriority(item) == balancePriority(selected))
+            .count();
+        if (preferredCount > 1) {
+            throw new SyncException("Enable Banking returned ambiguous account balances; cannot select a balance safely");
+        }
+        if (selected.balanceAmount() == null || selected.balanceAmount().amount() == null) {
+            throw new SyncException("Enable Banking returned an account balance without an amount");
+        }
+        return selected;
+    }
+
+    private static int balancePriority(BalancesResponse.BalanceItem balance) {
+        if (balance.balanceType() == null) return BALANCE_TYPE_PRIORITY.size();
+        int priority = BALANCE_TYPE_PRIORITY.indexOf(balance.balanceType());
+        return priority >= 0 ? priority : BALANCE_TYPE_PRIORITY.size();
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) return value.trim();
+        }
+        return null;
     }
 
     /**
@@ -724,6 +756,7 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     record BalancesResponse(List<BalanceItem> balances) {
         @JsonIgnoreProperties(ignoreUnknown = true)
         record BalanceItem(
+            String name,
             @com.fasterxml.jackson.annotation.JsonProperty("balance_amount") BalanceAmount balanceAmount,
             @com.fasterxml.jackson.annotation.JsonProperty("balance_type") String balanceType
         ) {}
@@ -732,14 +765,15 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record AccountDetailsResponse(AccountDetail account) {
+    record AccountDetailsResponse(
+        @com.fasterxml.jackson.annotation.JsonProperty("account_id") AccountIdentification accountId,
+        String name,
+        String details,
+        String product,
+        String currency
+    ) {
         @JsonIgnoreProperties(ignoreUnknown = true)
-        record AccountDetail(
-            String iban,
-            String name,
-            String product,
-            @com.fasterxml.jackson.annotation.JsonProperty("cash_account_type") String cashAccountType
-        ) {}
+        record AccountIdentification(String iban) {}
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
