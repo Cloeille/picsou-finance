@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useUncategorized } from '@/features/budget/hooks'
@@ -14,7 +15,7 @@ import { BudgetPeriodProvider } from './BudgetPeriodContext'
  *
  * The sub-nav is a horizontally-scrollable segmented control — it reads as a pill row
  * on desktop and stays fully reachable by swipe on narrow phones (no second bottom bar
- * competing with the global MobileBottomNav).
+ * competing with the global MobileBottomNav), with the current section scrolled into view.
  */
 export function BudgetLayout() {
   const { t } = useTranslation()
@@ -26,7 +27,7 @@ export function BudgetLayout() {
     <div>
       <PageHeader surtitle={t('budget.surtitle')} title={t('budget.title')} />
 
-      <div className="-mx-1 overflow-x-auto px-1 pb-1">
+      <ScrollStrip activeKey={location.pathname}>
         <nav className="flex w-max gap-1 rounded-lg bg-muted p-1 text-muted-foreground">
           {BUDGET_NAV.map(({ section, to, end, labelKey, icon: Icon, badge }) => (
             <NavLink
@@ -50,7 +51,7 @@ export function BudgetLayout() {
             </NavLink>
           ))}
         </nav>
-      </div>
+      </ScrollStrip>
 
       {/* Provider mounts outside the keyed div so the anchor survives tab switches.
           The keyed div still remounts per path (entrance animation, local page state reset)

@@ -58,8 +58,7 @@
     "hideAmounts": "Ocultar importes",
     "showAmounts": "Mostrar importes",
     "budget": "Budget",
-    "budget.desc": "Spending & cashflow",
-    "switchLanguage": "Switch language"
+    "budget.desc": "Spending & cashflow"
   },
   "auth": {
     "login": "Iniciar sesión",

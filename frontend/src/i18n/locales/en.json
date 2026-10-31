@@ -58,8 +58,7 @@
     "analysis": "Analysis",
     "analysis.desc": "Allocation & diversification",
     "hideAmounts": "Hide amounts",
-    "showAmounts": "Show amounts",
-    "switchLanguage": "Switch language"
+    "showAmounts": "Show amounts"
   },
   "auth": {
     "login": "Sign in",

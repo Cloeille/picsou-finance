@@ -4,23 +4,26 @@
 # ============================================================
 
 # ---------- Stage 1: Build frontend ----------
-FROM oven/bun:alpine AS frontend-build
+# Static assets are the same on every architecture, so both build stages run
+# natively on the builder instead of once per target platform under emulation.
+FROM --platform=$BUILDPLATFORM oven/bun:alpine AS frontend-build
 
 WORKDIR /build/frontend
 
+COPY frontend/package.json frontend/bun.lock ./
+RUN bun install --frozen-lockfile
+
+# Declared after the install: a new version must not invalidate the dependency layer.
 ARG VITE_DEMO_MODE=false
 ARG APP_VERSION=dev
 ENV VITE_DEMO_MODE=$VITE_DEMO_MODE
 ENV VITE_APP_VERSION=$APP_VERSION
 
-COPY frontend/package.json frontend/bun.lock ./
-RUN bun install --frozen-lockfile
-
 COPY frontend/ .
 RUN bun run build
 
 # ---------- Stage 2: Build backend ----------
-FROM maven:3.9-eclipse-temurin-21-alpine AS backend-build
+FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-21-alpine AS backend-build
 
 WORKDIR /build/backend
 
@@ -33,9 +36,6 @@ RUN mvn package -DskipTests -q
 # ---------- Stage 3: Runtime ----------
 FROM eclipse-temurin:21-jre-jammy
 
-ARG APP_VERSION=dev
-ENV APP_VERSION=$APP_VERSION
-
 # Install Nginx + supervisor + openssl (entrypoint auto-generates secrets on first boot)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         nginx \
@@ -43,6 +43,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         openssl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
 
 # Copy built frontend
 COPY --from=frontend-build /build/frontend/dist /usr/share/nginx/html
