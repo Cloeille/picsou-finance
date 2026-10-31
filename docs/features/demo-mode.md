@@ -64,4 +64,6 @@ VITE_DEMO_MODE=true
 - `frontend/src/demo/fixtures.test.ts` checks that the fixtures agree across pages (dashboard against Accounts, family against accounts and goals, goal badge against its calendar), that the calendar is identical between loads, and that the budget opens on the current month in a UTC+ zone.
 - `frontend/src/demo/consistency.test.ts` rebuilds the fixtures on fixed dates (the first and last day of a month) and checks that P&L and the 24H series follow the dashboard's `accountIds`, that the investment accounts' balances, history, P&L and every hour of the 24H series equal their holdings repriced through `/prices`, that the live point is dated today, and that over CYCLE and YTD the ledger, the spending breakdown, its drill, the Sankey and the review inbox list the same rows.
 
-The Playwright suite (`frontend/e2e/*.spec.ts`, `bun run test:e2e`) runs entirely against demo mode — it is the de-facto regression net for the handler table. Not run in CI; run it locally against a dev server started with `VITE_DEMO_MODE=true`.
+The Playwright suite (`frontend/e2e/*.spec.ts`, `bun run test:e2e`) runs entirely against demo mode — it is the de-facto regression net for the handler table. `playwright.config.ts` forces `VITE_DEMO_MODE=true` on the Vite dev server it starts, so a missing `frontend/.env` still runs the suite in demo mode.
+
+CI (`.github/workflows/ci.yml` job `e2e`) installs Chromium, runs the same command, and uploads `playwright-report/` on failure. A red e2e job blocks the Docker publish job.

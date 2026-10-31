@@ -134,6 +134,11 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     }
 
     @Override
+    public boolean supportsCrypto(String ticker) {
+        return false;
+    }
+
+    @Override
     public Map<String, BigDecimal> getPricesEur(Set<String> tickers) {
         Set<String> supported = tickers.stream()
             .filter(this::supports)
