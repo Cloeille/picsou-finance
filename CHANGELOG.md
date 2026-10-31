@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   balances only. CIC asks for a mobile confirmation at least once every 24 hours, so the daily sync
   only goes through within a day of the last confirmation. It is listed in the dashboard's
   *Sync all* modal, which opens the CIC tab when the session has lapsed.
+  After a complete fetch, an account CIC no longer lists is closed at zero, with a zero balance
+  and snapshot. The account is kept so it can be imported again if it reappears.
+  Its last balance no longer counts toward net worth.
   Deleting its last account removes the session and credentials and revokes pending logins,
   including a confirmation already in progress or a stored-credentials reconnect still reading
   its password. Unreadable account rows and unrecognized tables containing account data fail the
@@ -66,7 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checking accounts remain valid.
   Completion has its own 10-attempt quota per IP per 15 minutes,
   separate from the five password checks shared by initiate and reconnect.
-  Savings captions accept typographic apostrophes. A wrong SMS code can be corrected
+  Savings captions accept typographic apostrophes. Savings labels with accents or typographic
+  apostrophes are recognized. The CIC panel is now translated into German and Spanish.
+  A wrong SMS code can be corrected
   without another login, and expired attempts have their pending passwords cleared every minute.
   Rejected credentials make the session inactive and require credential entry, including after an
   explicit reconnect, without erasing a newer login's password. Expired sessions stay in *Sync all*
