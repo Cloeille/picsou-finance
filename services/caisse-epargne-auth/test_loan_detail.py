@@ -143,6 +143,25 @@ class LoanDetailTest(unittest.TestCase):
                     Decimal("30.00"),
                 )
 
+    def test_tiny_rates_round_the_annuity_at_half_cent_boundaries(self):
+        for borrowed, duration, expected in (
+            (250.005, 1, "29.99"),
+            (750.015, 3, "29.99"),
+            (12000.23, 48, "30.00"),
+            (12000.24, 48, "29.99"),
+            (12000.25, 48, "29.99"),
+            (12250.245, 49, "29.99"),
+        ):
+            for rate in (0, 1e-24, 1e-30, 1e-56, 2e-100, 5e-324):
+                with self.subTest(borrowed=borrowed, duration=duration, rate=rate):
+                    d = detail()
+                    view(d)["offer"]["proposedAmount"]["value"] = borrowed
+                    view(d)["offer"]["duration"] = duration
+                    view(d)["folder"]["tNC"] = rate
+                    view(d)["folder"]["nextMonthlyPaymentAmount"]["value"] = 280
+
+                    self.assertEqual(parse_loan_detail(d)["insuranceMonthly"], Decimal(expected))
+
     def test_wrong_envelope_raises(self):
         for payload in [None, [], "x", {}, {"personalLoanPrdSynthesisView": []}]:
             with self.subTest(payload=payload):

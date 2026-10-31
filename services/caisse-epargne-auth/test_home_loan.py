@@ -183,6 +183,26 @@ class HomeLoanDetailTest(unittest.TestCase):
                     Decimal("104.41"),
                 )
 
+    def test_tiny_rates_round_the_annuity_at_half_cent_boundaries(self):
+        for borrowed, duration, expected in (
+            (250.005, 1, "29.99"),
+            (750.015, 3, "29.99"),
+            (12000.23, 48, "30.00"),
+            (12000.24, 48, "29.99"),
+            (12000.25, 48, "29.99"),
+            (12250.245, 49, "29.99"),
+        ):
+            for rate in (0, 1e-24, 1e-30, 1e-56, 2e-100, 5e-324):
+                with self.subTest(borrowed=borrowed, duration=duration, rate=rate):
+                    d = detail()
+                    money = d["loan"]["financialInformation"]
+                    money["amountBorrowed"]["value"] = borrowed
+                    money["duration"] = duration
+                    money["nextDuedateRate"] = rate
+                    money["nextDuedateAmount"]["value"] = 280
+
+                    self.assertEqual(parse_home_loan_detail(d)["insuranceMonthly"], Decimal(expected))
+
     def test_a_first_due_date_before_the_subscription_is_refused(self):
         d = detail()
         d["loan"]["contractCharacteristic"]["subscriptionDate"] = "2023-01-02"
