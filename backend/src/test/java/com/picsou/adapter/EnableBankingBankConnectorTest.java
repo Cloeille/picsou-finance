@@ -8,7 +8,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,6 +17,8 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -55,8 +56,20 @@ class EnableBankingBankConnectorTest {
 
     // ─── fetchBalances: per-account error isolation ────────────────────────────
 
+    private static EnableBankingBankConnector.AccountPayload payload(
+        String uid, String label, String iban, String currency, String amount
+    ) {
+        var balance = new EnableBankingBankConnector.BalancesResponse.BalanceItem(
+            null, new EnableBankingBankConnector.BalancesResponse.BalanceAmount(amount, currency), "CLBD");
+        var account = iban != null
+            ? new EnableBankingBankConnector.AccountDetailsResponse.AccountIdentification(iban) : null;
+        return new EnableBankingBankConnector.AccountPayload(uid,
+            new EnableBankingBankConnector.BalancesResponse(List.of(balance)),
+            new EnableBankingBankConnector.AccountDetailsResponse(account, null, label, null, null));
+    }
+
     /**
-     * When Enable Banking returns two accounts and fetchAccountData for the first throws
+     * When Enable Banking returns two accounts and fetching the first throws
      * (e.g. a 404 after a uid rotation as in EB v0.16.4 for Boursorama), the second account
      * must still be returned. Before the fix, the whole batch was aborted.
      */
@@ -71,12 +84,11 @@ class EnableBankingBankConnectorTest {
 
         // uid-bad: the 404 after a uid rotation, as mapToSyncException surfaces it
         doThrow(new SyncException("Failed to fetch account balances: 404 Not Found"))
-            .when(underTest).fetchAccountData("uid-bad");
+            .when(underTest).fetchAccountPayload("uid-bad");
 
         // uid-good: returns valid data
-        BankConnectorPort.AccountData goodData = new BankConnectorPort.AccountData(
-            "uid-good", "Compte Courant", "FR7630006000011234567890189", "EUR", BigDecimal.valueOf(1234.56));
-        doReturn(goodData).when(underTest).fetchAccountData("uid-good");
+        doReturn(payload("uid-good", "Compte Courant", "FR7630006000011234567890189", "EUR", "1234.56"))
+            .when(underTest).fetchAccountPayload("uid-good");
 
         List<BankConnectorPort.AccountData> result = underTest.fetchBalances(sessionId);
 
@@ -90,59 +102,74 @@ class EnableBankingBankConnectorTest {
         EnableBankingBankConnector underTest = spy(connector());
         doReturn(List.of("uid-1", "uid-2")).when(underTest).fetchSessionAccountsWithRetry("sess-down");
         SyncException consentExpired = new SyncException("Consent expired", null, "CONSENT_EXPIRED");
-        doThrow(consentExpired).when(underTest).fetchAccountData("uid-1");
-        doThrow(new SyncException("503 Service Unavailable")).when(underTest).fetchAccountData("uid-2");
+        doThrow(consentExpired).when(underTest).fetchAccountPayload("uid-1");
+        doThrow(new SyncException("503 Service Unavailable")).when(underTest).fetchAccountPayload("uid-2");
 
         assertThatThrownBy(() -> underTest.fetchBalances("sess-down")).isSameAs(consentExpired);
+    }
+
+    @Test
+    void fetchBalances_failuresAcrossBothPasses_rethrowTheFirstFailure() {
+        EnableBankingBankConnector underTest = spy(connector());
+        doReturn(List.of("uid-unreadable", "uid-down")).when(underTest).fetchSessionAccountsWithRetry("sess-mixed");
+        doReturn(payload("uid-unreadable", "Livret A", null, "EUR", "unreadable"))
+            .when(underTest).fetchAccountPayload("uid-unreadable");
+        SyncException down = new SyncException("503 Service Unavailable");
+        doThrow(down).when(underTest).fetchAccountPayload("uid-down");
+
+        assertThatThrownBy(() -> underTest.fetchBalances("sess-mixed")).isSameAs(down);
     }
 
     @Test
     void fetchBalances_malformedBalanceAmount_skipsThatAccount() {
         EnableBankingBankConnector underTest = spy(connector());
         doReturn(List.of("uid-bad", "uid-good")).when(underTest).fetchSessionAccountsWithRetry("sess-nfe");
-        doThrow(new NumberFormatException("Character n is neither a decimal digit number"))
-            .when(underTest).fetchAccountData("uid-bad");
-        BankConnectorPort.AccountData goodData = new BankConnectorPort.AccountData(
-            "uid-good", "Livret A", null, "EUR", BigDecimal.valueOf(500));
-        doReturn(goodData).when(underTest).fetchAccountData("uid-good");
+        doReturn(payload("uid-bad", "Compte Courant", null, "EUR", "not-a-number"))
+            .when(underTest).fetchAccountPayload("uid-bad");
+        doReturn(payload("uid-good", "Livret A", null, "EUR", "500"))
+            .when(underTest).fetchAccountPayload("uid-good");
 
-        assertThat(underTest.fetchBalances("sess-nfe")).containsExactly(goodData);
+        assertThat(underTest.fetchBalances("sess-nfe"))
+            .singleElement().satisfies(account -> {
+                assertThat(account.externalId()).isEqualTo("uid-good");
+                assertThat(account.balance()).isEqualByComparingTo("500");
+            });
     }
 
     @Test
     void fetchBalances_unexpectedFailure_propagatesEvenWhenAnotherAccountSucceeds() {
         EnableBankingBankConnector underTest = spy(connector());
         doReturn(List.of("uid-good", "uid-bug")).when(underTest).fetchSessionAccountsWithRetry("sess-bug");
-        doReturn(new BankConnectorPort.AccountData("uid-good", "Livret A", null, "EUR", BigDecimal.valueOf(500)))
-            .when(underTest).fetchAccountData("uid-good");
+        doReturn(payload("uid-good", "Livret A", null, "EUR", "500"))
+            .when(underTest).fetchAccountPayload("uid-good");
         IllegalStateException bug = new IllegalStateException("unexpected");
-        doThrow(bug).when(underTest).fetchAccountData("uid-bug");
+        doThrow(bug).when(underTest).fetchAccountPayload("uid-bug");
 
         assertThatThrownBy(() -> underTest.fetchBalances("sess-bug")).isSameAs(bug);
     }
 
     /**
      * When all accounts succeed, all are returned — the normal path must not regress.
+     * Each uid is fetched exactly once: Enable Banking enforces strict daily call limits.
      */
     @Test
-    void fetchBalances_allAccountsSucceed_allReturned() {
+    void fetchBalances_allAccountsSucceed_allReturnedAndEachUidFetchedOnce() {
         EnableBankingBankConnector underTest = spy(connector());
         String sessionId = "sess-ok";
 
         doReturn(List.of("uid-1", "uid-2")).when(underTest).fetchSessionAccountsWithRetry(sessionId);
-
-        BankConnectorPort.AccountData d1 = new BankConnectorPort.AccountData(
-            "uid-1", "Livret A", "FR1234", "EUR", BigDecimal.valueOf(500));
-        BankConnectorPort.AccountData d2 = new BankConnectorPort.AccountData(
-            "uid-2", "Compte Courant", null, "EUR", BigDecimal.valueOf(1000));
-        doReturn(d1).when(underTest).fetchAccountData("uid-1");
-        doReturn(d2).when(underTest).fetchAccountData("uid-2");
+        doReturn(payload("uid-1", "Livret A", "FR1234", "EUR", "500"))
+            .when(underTest).fetchAccountPayload("uid-1");
+        doReturn(payload("uid-2", "Compte Courant", null, "EUR", "1000"))
+            .when(underTest).fetchAccountPayload("uid-2");
 
         List<BankConnectorPort.AccountData> result = underTest.fetchBalances(sessionId);
 
         assertThat(result).hasSize(2);
         assertThat(result).extracting(BankConnectorPort.AccountData::externalId)
             .containsExactly("uid-1", "uid-2");
+        verify(underTest, times(1)).fetchAccountPayload("uid-1");
+        verify(underTest, times(1)).fetchAccountPayload("uid-2");
     }
 
     /**
@@ -164,8 +191,7 @@ class EnableBankingBankConnectorTest {
 
     /**
      * Boursorama does not provide per-account currency (Enable Banking v0.16.4 change).
-     * fetchAccountData must default to "EUR" rather than propagating null.
-     * This is exercised via the normal fetchBalances path to confirm the whole pipeline handles it.
+     * The balance must default to "EUR" rather than propagating null.
      */
     @Test
     void fetchBalances_nullCurrencyFromAccountData_cleansUpToEur() {
@@ -173,18 +199,15 @@ class EnableBankingBankConnectorTest {
         String sessionId = "sess-bourso";
 
         doReturn(List.of("uid-bourso")).when(underTest).fetchSessionAccountsWithRetry(sessionId);
-
-        // Simulate fetchAccountData returning null currency (what would happen if EB omits it)
-        BankConnectorPort.AccountData dataWithNullCurrency = new BankConnectorPort.AccountData(
-            "uid-bourso", "Compte Boursorama", "FR76300...", null /* null currency */, BigDecimal.valueOf(2000));
-        doReturn(dataWithNullCurrency).when(underTest).fetchAccountData("uid-bourso");
+        doReturn(payload("uid-bourso", "Compte Boursorama", "FR76300...", null /* no currency */, "2000"))
+            .when(underTest).fetchAccountPayload("uid-bourso");
 
         List<BankConnectorPort.AccountData> result = underTest.fetchBalances(sessionId);
 
-        // fetchBalances itself doesn't fix currency — that's fetchAccountData's job (tested separately).
-        // This test verifies that a null currency in AccountData does NOT cause fetchBalances to throw.
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).externalId()).isEqualTo("uid-bourso");
+        assertThat(result).singleElement().satisfies(account -> {
+            assertThat(account.externalId()).isEqualTo("uid-bourso");
+            assertThat(account.currency()).isEqualTo("EUR");
+        });
     }
 
     // ─── PSU type resolution ──────────────────────────────────────────────────

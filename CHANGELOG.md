@@ -294,6 +294,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Enable Banking account balances and details.** Accounts in a shared balance list,
+  such as Qonto business accounts, now select entries matching the account description
+  before applying ISO balance-type priority, and never pick an entry that belongs to
+  another account in the session or to a label two accounts share. Flat account details
+  supply the IBAN and the description, product, or holder name for new accounts. Ambiguous or missing
+  balances fail explicitly instead of selecting another account's balance or storing
+  zero. Existing account names stay unchanged and can be edited in the account form.
 - **Enable Banking setup guidance.** Registration now lists the required application fields,
   explains email-link sign-in and account-linked activation, and describes restricted-mode
   limits. Key import is the default. Server key generation requires an explicit action.
@@ -305,7 +312,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the rounded annuity, with an exact rational fallback when the bounds disagree.
   This prevents an extra cent of insurance from reducing the capital repaid in
   the amortization schedule.
-
 - **Trade Republic crypto is valued at its market price again.** The connector guessed the
   venue of each price subscription (`TRD0` for crypto). Trade Republic refused that guess, and
   every crypto position was valued at its average buy-in, which hid its whole gain or loss
