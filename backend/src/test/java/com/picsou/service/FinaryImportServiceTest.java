@@ -118,9 +118,48 @@ class FinaryImportServiceTest {
         });
     }
 
+    @Test
+    void preview_matchesAnXlsxAccountByItsOwnName_notByOneWhoseNameEndsTheSame() throws Exception {
+        Account savingsEmergency = Account.builder()
+            .name("Savings Emergency").type(AccountType.SAVINGS).currency("EUR")
+            .currentBalance(new BigDecimal("2000")).externalAccountId("finary_Savings_savings_emergency").build();
+        savingsEmergency.setId(7L);
+        Account emergency = Account.builder()
+            .name("Rainy day").type(AccountType.SAVINGS).currency("EUR")
+            .currentBalance(new BigDecimal("50")).externalAccountId("finary_Savings_emergency").build();
+        emergency.setId(8L);
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L))
+            .thenReturn(List.of(savingsEmergency, emergency));
+
+        FinaryPreviewResponse preview = service.preview(xlsxWithSheet("Savings", "Emergency"), 1L);
+
+        assertThat(preview.suggestedMappings()).singleElement().satisfies(m -> {
+            assertThat(m.action()).isEqualTo(FinaryMappingAction.MAP_EXISTING);
+            assertThat(m.targetAccountId()).isEqualTo(8L);
+        });
+    }
+
+    @Test
+    void preview_createsANewAccount_whenOnlyADifferentlyNamedXlsxAccountSharesTheSlugSuffix() throws Exception {
+        Account savingsEmergency = Account.builder()
+            .name("Savings Emergency").type(AccountType.SAVINGS).currency("EUR")
+            .currentBalance(new BigDecimal("2000")).externalAccountId("finary_Savings_savings_emergency").build();
+        savingsEmergency.setId(7L);
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(savingsEmergency));
+
+        FinaryPreviewResponse preview = service.preview(xlsxWithSheet("Savings", "Emergency"), 1L);
+
+        assertThat(preview.suggestedMappings()).singleElement()
+            .satisfies(m -> assertThat(m.action()).isEqualTo(FinaryMappingAction.CREATE_NEW));
+    }
+
     private static MockMultipartFile xlsxWithCheckings(String... names) throws Exception {
+        return xlsxWithSheet("Checkings", names);
+    }
+
+    private static MockMultipartFile xlsxWithSheet(String sheetName, String... names) throws Exception {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            Sheet sheet = workbook.createSheet("Checkings");
+            Sheet sheet = workbook.createSheet(sheetName);
             sheet.createRow(0).createCell(0).setCellValue("name");
             for (int i = 0; i < names.length; i++) {
                 Row row = sheet.createRow(i + 1);

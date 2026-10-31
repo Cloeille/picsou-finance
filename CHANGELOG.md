@@ -667,6 +667,11 @@ information architecture.
 - **Mapping a Finary account onto a bank or broker account no longer steals that
   account from its connector.** The Finary id replaced the connector's external
   id, and the connector then created a duplicate at its next sync.
+- **A Finary spreadsheet import no longer maps a row onto an account with a longer
+  name.** The preview looked accounts up with an id that carried the category twice, so
+  a `Savings` row named "Emergency" was matched to the account imported earlier as
+  "Savings Emergency". Accepting the suggestion replaced that account's balance and its
+  synced transactions. The preview now looks up the id the import stores.
 - **A rebuilt Finary or manual-cash history dates each balance at the end of its
   day.** The rebuilt snapshot for a day held the balance before that day's
   transactions, so every point of the rebuilt history was one day off.

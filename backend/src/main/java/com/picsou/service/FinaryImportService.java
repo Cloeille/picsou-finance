@@ -86,12 +86,14 @@ public class FinaryImportService {
                 .map(a -> AccountResponse.from(a, a.getCurrentBalance()))
                 .collect(Collectors.toList());
 
+            // The matcher prefixes the category itself, so it gets the slug the import persists
+            // (finary_{sheet}_{slug}), not the preview row key that already carries the category.
             List<FinaryAccountMatcher.FinaryRow> rows = parsed.accounts.stream()
                 .map(acc -> new FinaryAccountMatcher.FinaryRow(
-                    slugify(acc.category() + "_" + acc.name()),
+                    slugify(acc.name()),
                     acc.name(),
                     acc.category(),
-                    slugify(acc.name())))
+                    null))
                 .toList();
             List<Optional<FinaryAccountMatcher.Suggestion>> matches =
                 FinaryAccountMatcher.suggestAll(rows, existingAccounts);
