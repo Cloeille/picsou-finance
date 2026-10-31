@@ -309,7 +309,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **AI categorization works with Anthropic.** Every call to Claude failed with
   `400 max_tokens: Field required`, so no transaction was ever categorized with that
-  provider. Picsou now sends the token limit the Anthropic API requires.
+  provider. Picsou now sends the token limit the Anthropic API requires, with room for
+  thinking and the answer. Categorization and the admin Test read the text answer after
+  the model's thinking, including when thinking contains a summary, and Test reports a
+  failure when the model returns no text answer.
 
 - **Client addresses behind trusted proxies.** The bundled TLS proxy now preserves separate
   per-client login limits. nginx and Tomcat resolve forwarded addresses only from configured
