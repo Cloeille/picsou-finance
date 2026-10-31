@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
@@ -100,8 +101,8 @@ class CicSyncServiceTest {
     @Test
     void queueSync_refusesAnAccountTypeOutsideCurrentAndSavings() {
         arrangeQueuedSession(activeSession(member()));
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new CicPort.AccountData(
-            "cic_1", "PEA", AccountType.PEA, new BigDecimal("10.00"), true)));
+        when(port.fetchAccounts("plain-state")).thenReturn(CicPort.AccountListing.withoutCategories(List.of(
+            new CicPort.AccountData("cic_1", "PEA", AccountType.PEA, new BigDecimal("10.00"), true))));
 
         service.queueSync(7L);
 
@@ -118,7 +119,7 @@ class CicSyncServiceTest {
         when(port.fetchAccounts("plain-state")).thenThrow(expired());
         when(port.reauthenticate("12345678", "secret", "plain-state"))
             .thenReturn(new CicPort.InitiateResult(null, false, null, "fresh-state"));
-        when(port.fetchAccounts("fresh-state")).thenReturn(accounts());
+        when(port.fetchAccounts("fresh-state")).thenReturn(CicPort.AccountListing.withoutCategories(accounts()));
 
         service.queueSync(7L);
 
@@ -588,13 +589,153 @@ class CicSyncServiceTest {
         assertThat(result.source()).isEqualTo("cic");
     }
 
+    @Test
+    void anAccountACompleteFetchNoLongerListsIsClosedAtZero() {
+        arrangeCommittableSync(accounts());
+        Account closedLivret = Account.builder()
+            .id(12L)
+            .externalAccountId("cic_1000000012345603")
+            .provider(CicSyncService.PROVIDER)
+            .type(AccountType.LDDS)
+            .currentBalance(new BigDecimal("800.00"))
+            .build();
+        Account listedLivret = Account.builder()
+            .id(13L)
+            .externalAccountId(LIVRET_ID)
+            .provider(CicSyncService.PROVIDER)
+            .type(AccountType.LIVRET_A)
+            .currentBalance(new BigDecimal("4900.00"))
+            .build();
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CicSyncService.PROVIDER))
+            .thenReturn(List.of(closedLivret, listedLivret));
+        when(accountRepository.findByExternalAccountIdAndMemberId(LIVRET_ID, 7L))
+            .thenReturn(Optional.of(listedLivret));
+
+        service.queueSync(7L);
+
+        assertThat(closedLivret.getCurrentBalance()).isEqualByComparingTo("0");
+        assertThat(closedLivret.getDeletedAt()).isNull();
+        verify(accountService).upsertSnapshot(closedLivret, BigDecimal.ZERO, LocalDate.now());
+        verify(accountService).upsertSnapshot(listedLivret, new BigDecimal("5000.00"), LocalDate.now());
+        verify(accountService, never()).upsertSnapshot(eq(listedLivret), eq(BigDecimal.ZERO), any(LocalDate.class));
+    }
+
+    @Test
+    void aFetchWithoutAnyAccountOfACategoryKeepsThatCategorysAccounts() {
+        // Only the current account came back: the savings table is missing from the page.
+        arrangeCommittableSync(List.of(new CicPort.AccountData(
+            "cic_1000000012345601", "Compte Courant", AccountType.CHECKING, new BigDecimal("1234.56"), true)));
+        Account livret = Account.builder()
+            .id(12L)
+            .externalAccountId(LIVRET_ID)
+            .provider(CicSyncService.PROVIDER)
+            .type(AccountType.LIVRET_A)
+            .currentBalance(new BigDecimal("5000.00"))
+            .build();
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CicSyncService.PROVIDER))
+            .thenReturn(List.of(livret));
+
+        service.queueSync(7L);
+
+        assertThat(livret.getCurrentBalance()).isEqualByComparingTo("5000.00");
+        verify(accountService, never()).upsertSnapshot(eq(livret), any(BigDecimal.class), any(LocalDate.class));
+    }
+
+    @Test
+    void theLastLivretOfAnEmptySavingsTableIsClosedAtZero() {
+        // The sidecar read both tables; the savings one has no row any more.
+        arrangeCommittableSession(activeSession(member()));
+        when(port.fetchAccounts("plain-state")).thenReturn(new CicPort.AccountListing(
+            List.of(new CicPort.AccountData(
+                "cic_1000000012345601", "Compte Courant", AccountType.CHECKING, new BigDecimal("1234.56"), true)),
+            java.util.Set.of("CHECKING", "SAVINGS")));
+        Account livret = Account.builder()
+            .id(12L)
+            .externalAccountId(LIVRET_ID)
+            .provider(CicSyncService.PROVIDER)
+            .type(AccountType.LIVRET_A)
+            .currentBalance(new BigDecimal("5000.00"))
+            .build();
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CicSyncService.PROVIDER))
+            .thenReturn(List.of(livret));
+
+        service.queueSync(7L);
+
+        assertThat(livret.getCurrentBalance()).isEqualByComparingTo("0");
+        verify(accountService).upsertSnapshot(livret, BigDecimal.ZERO, LocalDate.now());
+    }
+
+    @Test
+    void aSavingsTableTheSidecarDidNotReadKeepsItsLivrets() {
+        // The sidecar says it read only the current-account table.
+        arrangeCommittableSession(activeSession(member()));
+        when(port.fetchAccounts("plain-state")).thenReturn(new CicPort.AccountListing(
+            List.of(new CicPort.AccountData(
+                "cic_1000000012345601", "Compte Courant", AccountType.CHECKING, new BigDecimal("1234.56"), true)),
+            java.util.Set.of("CHECKING")));
+        Account livret = Account.builder()
+            .id(12L)
+            .externalAccountId(LIVRET_ID)
+            .provider(CicSyncService.PROVIDER)
+            .type(AccountType.LIVRET_A)
+            .currentBalance(new BigDecimal("5000.00"))
+            .build();
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CicSyncService.PROVIDER))
+            .thenReturn(List.of(livret));
+
+        service.queueSync(7L);
+
+        assertThat(livret.getCurrentBalance()).isEqualByComparingTo("5000.00");
+        verify(accountService, never()).upsertSnapshot(eq(livret), any(BigDecimal.class), any(LocalDate.class));
+    }
+
+    @Test
+    void anIncompleteAccountInASuccessfulFetchClosesNoAccount() {
+        arrangeQueuedSession(activeSession(member()));
+        when(port.fetchAccounts("plain-state")).thenReturn(CicPort.AccountListing.withoutCategories(List.of(
+            new CicPort.AccountData("cic_1000000012345601", "Compte Courant", AccountType.CHECKING,
+                new BigDecimal("1234.56"), true),
+            new CicPort.AccountData(LIVRET_ID, "Livret A", AccountType.LIVRET_A, new BigDecimal("5000.00"), false))));
+
+        service.queueSync(7L);
+
+        verify(accountRepository, never()).findAllByMemberIdAndProvider(any(), any());
+        verify(accountRepository, never()).save(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CicErrorCode.class, names = {"PORTFOLIO_INCOMPLETE", "UPSTREAM_FORMAT_CHANGED"})
+    void aFailedFetchPreservesExistingBalancesAndSnapshots(CicErrorCode code) {
+        CicSession session = activeSession(member());
+        arrangeQueuedSession(session);
+        Account checking = Account.builder()
+            .id(12L).externalAccountId("cic_1000000012345601")
+            .provider(CicSyncService.PROVIDER).currentBalance(new BigDecimal("1234.56")).build();
+        Account livret = Account.builder()
+            .id(13L).externalAccountId(LIVRET_ID)
+            .provider(CicSyncService.PROVIDER).currentBalance(new BigDecimal("5000.00")).build();
+        lenient().when(accountRepository.findAllByMemberIdAndProvider(7L, CicSyncService.PROVIDER))
+            .thenReturn(List.of(checking, livret));
+        when(port.fetchAccounts("plain-state"))
+            .thenThrow(new SyncException("partial", null, code.name()));
+
+        service.queueSync(7L);
+
+        assertThat(checking.getCurrentBalance()).isEqualByComparingTo("1234.56");
+        assertThat(livret.getCurrentBalance()).isEqualByComparingTo("5000.00");
+        assertThat(session.getSyncStatus()).isEqualTo(CicSyncStatus.FAILED);
+        verify(accountRepository, never()).findAllByMemberIdAndProvider(any(), any());
+        verify(accountRepository, never()).save(any());
+        verify(accountService, never()).upsertSnapshot(any(Account.class), any(BigDecimal.class), any(LocalDate.class));
+    }
+
     private SyncException expired() {
         return new SyncException("expired", null, CicErrorCode.SESSION_EXPIRED.name());
     }
 
     private void arrangeCommittableSync(List<CicPort.AccountData> accounts) {
         arrangeCommittableSession(activeSession(member()));
-        when(port.fetchAccounts("plain-state")).thenReturn(accounts);
+        when(port.fetchAccounts("plain-state")).thenReturn(CicPort.AccountListing.withoutCategories(accounts));
     }
 
     private void arrangeCommittableSession(CicSession session) {
