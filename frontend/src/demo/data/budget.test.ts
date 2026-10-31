@@ -18,6 +18,21 @@ function calendarIso(year: number, month: number, day: number): string {
   return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10)
 }
 
+// Every monthly due date from `first` to `last` (inclusive), each one month after the previous,
+// with the day clamped to the end of a shorter month like the backend's LocalDate.plusMonths(1).
+function expectedMonthlyDueDates(first: string, last: string): string[] {
+  const dates: string[] = []
+  let [year, month, day] = first.split('-').map(Number)
+  for (let due = first; due <= last; ) {
+    dates.push(due)
+    month += 1
+    day = Math.min(day, new Date(Date.UTC(year, month, 0)).getUTCDate())
+    due = calendarIso(year, month, day)
+    ;[year, month] = due.split('-').map(Number)
+  }
+  return dates
+}
+
 async function loadDemoBudgetAt(tz: string, [y, mo, d, h, mi]: [number, number, number, number, number]) {
   vi.stubEnv('TZ', tz)
   vi.setSystemTime(new Date(y, mo - 1, d, h, mi))
@@ -52,10 +67,12 @@ describe.each(ZONES)('demo budget dates in %s', (tz) => {
     const netflix = mockRecurring.find((s) => s.label === 'Netflix')
     expect(netflix?.nextDueDate).toBe(calendarIso(y, mo, d + 6))
 
-    const occurrences = mockCalendar(60)
+    const horizonDays = 60
+    const horizonEnd = calendarIso(y, mo, d + horizonDays)
+    const occurrences = mockCalendar(horizonDays)
     for (const series of mockRecurring.filter((s) => s.status !== 'IGNORED')) {
-      const first = occurrences.find((o) => o.seriesId === series.id)
-      expect(first?.dueDate, series.label).toBe(series.nextDueDate)
+      const dueDates = occurrences.filter((o) => o.seriesId === series.id).map((o) => o.dueDate)
+      expect(dueDates, series.label).toEqual(expectedMonthlyDueDates(series.nextDueDate!, horizonEnd))
     }
   })
 })
