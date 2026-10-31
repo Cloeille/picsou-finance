@@ -288,6 +288,37 @@ class FlowTest(unittest.TestCase):
 
         self.assertEqual(main._link_with(page, "passer cette étape"), "/skip.html")
 
+    def test_a_cut_before_or_during_the_next_table_opening_cannot_certify_a_partial_snapshot(self):
+        session = self.confirm()
+        table_start = ACCOUNTS_PAGE.index('<table ', ACCOUNTS_PAGE.index('</table>'))
+        opening_end = ACCOUNTS_PAGE.index('>', table_start) + 1
+        for cut in range(table_start, opening_end + 1):
+            with self.subTest(cut=cut):
+                self.bank.accounts_page = ACCOUNTS_PAGE[:cut]
+
+                response = self.client.post("/accounts", json={"sessionState": session}, headers=HEADERS)
+
+                self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
+
+    def test_a_cut_after_the_last_table_cannot_certify_a_snapshot(self):
+        session = self.confirm()
+        self.bank.accounts_page = ACCOUNTS_PAGE[:ACCOUNTS_PAGE.index('</form>')]
+
+        response = self.client.post("/accounts", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
+
+    def test_a_complete_page_with_only_checking_accounts_certifies_the_snapshot(self):
+        session = self.confirm()
+        table_start = ACCOUNTS_PAGE.index('<table ', ACCOUNTS_PAGE.index('</table>'))
+        self.bank.accounts_page = ACCOUNTS_PAGE[:table_start] + ACCOUNTS_PAGE[ACCOUNTS_PAGE.index('</form>'):]
+
+        response = self.client.post("/accounts", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([account["type"] for account in response.json()], ["CHECKING"])
+        self.assertTrue(response.json()[0]["snapshotComplete"])
+
     def test_a_savings_table_without_its_caption_does_not_return_a_partial_snapshot(self):
         session = self.confirm()
         self.bank.accounts_page = ACCOUNTS_PAGE.replace(

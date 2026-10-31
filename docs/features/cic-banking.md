@@ -32,6 +32,10 @@ balance.
   an orphan row, or unparsed markup inside a contract table fails the fetch with
   `UPSTREAM_FORMAT_CHANGED`. Every recognized contract table must have a closing tag, even if the
   page ends immediately after its opening tag or caption, before any account data appears.
+  The accounts page must end with an explicit `</html>` tag before any snapshot is certified.
+  A cut between tables or inside a table's opening tag therefore also fails with HTTP 502,
+  even when all preceding tables are complete. A complete page containing only checking accounts
+  remains valid, so accounts absent from that complete fetch can still be closed.
   The check also rejects rows cut off before their closing tags, including unfinished title or
   balance spans. It never certifies the earlier complete tables as a partial snapshot.
   Existing balances and snapshots remain unchanged.
@@ -98,8 +102,10 @@ two in Settings → Accounts.
 ## Regression coverage
 
 - `services/cic-auth/test_accounts_parser.py` and `test_main.py` reject incomplete markup before
-  `/accounts` can return a certified snapshot, including a page cut off after the savings caption,
-  midway through the first savings title's class, or after its balance. Parser coverage also
+  `/accounts` can return a certified snapshot, including every cut before and throughout the
+  savings-table opening tag, after the last table, after the savings caption,
+  midway through the first savings title's class, or after its balance. Complete checking-only
+  pages still return certified snapshots. Parser coverage also
   rejects an empty, unterminated contract table and an unfinished orphan account row.
 - `CicAdapterTest` preserves the format-change error across the sidecar boundary.
   `CicSyncServiceTest` checks that a failed fetch leaves existing balances and snapshots untouched.

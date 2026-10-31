@@ -36,6 +36,7 @@ FORMAT_CHANGED = "UPSTREAM_FORMAT_CHANGED"
 CHECKING_CATEGORY = "comptes courants"
 SAVINGS_CATEGORY = "livrets et comptes d'épargne"
 
+_DOCUMENT_END_RE = re.compile(r"</html\s*>\s*\Z", re.IGNORECASE)
 _TABLE_RE = re.compile(
     r'<table\b[^>]*class="[^"]*\bei_comptescontrats\b[^"]*"[^>]*>(?P<body>.*?)(?P<closing_tag></table>|\Z)',
     re.DOTALL,
@@ -125,6 +126,9 @@ def _has_account_data(fragment: str) -> bool:
 
 def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
     """Return the in-scope accounts and the names of the categories skipped."""
+    if _DOCUMENT_END_RE.search(page) is None:
+        raise AccountsFormatError(FORMAT_CHANGED, "Incomplete accounts page")
+
     tables = list(_TABLE_RE.finditer(page))
     if not tables:
         raise AccountsFormatError(FORMAT_CHANGED, "No contract table on the accounts page")
