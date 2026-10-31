@@ -15,7 +15,10 @@ with no mark renders exactly as it did before logos existed.
 shared `HoldingLogo` renders them in:
 
 - `HoldingsTable` (an account's holdings) and `PositionsByProduct` (a crypto exchange's
-  per-product breakdown): the mark, or an empty disc so the column does not jump.
+  per-product breakdown), and the dividend cards of `AccountDividendsSection`: the mark, or a
+  disc with the holding name's initials so the column does not jump. A line without a name (an
+  exchange coin), or whose name is only its ticker (a dividend with no known name), keeps an empty
+  disc: its only initials would repeat the ticker printed beside it.
 - `HoldingDetailModal`: the mark beside the title, only when there is one. That header never
   had a disc, so an absent mark leaves it unchanged.
 
@@ -217,7 +220,7 @@ Every failure mode is decoration-only: `logoUrl` is null and the ticker stands.
   ticker as `FAILED` and goes on with the next one. Left unrecorded, the same ticker would head
   the sorted batch every hour and starve every ticker after it. It never reaches a page render
   or the price pass.
-- **Image 404s in the browser**: `HoldingLogo` drops the `src` and shows an empty disc. Radix
+- **Image 404s in the browser**: `HoldingLogo` drops the `src` and shows the fallback disc. Radix
   keeps a failed image mounted, so without that reset one failed request would leave the mark
   blank for the rest of the session.
 

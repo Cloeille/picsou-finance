@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { cn } from '@/lib/utils'
+import { cn, deriveMonogram, firstGraphemes } from '@/lib/utils'
 
 /**
  * A small monogram tile standing in for a merchant logo. Fully offline by design
@@ -36,18 +36,6 @@ const SIZE_CLASS: Record<NonNullable<MerchantAvatarProps['size']>, string> = {
   sm: 'size-7 text-[0.65rem]',
   md: 'size-9 text-xs',
   lg: 'size-11 text-sm',
-}
-
-/** First letters of up to two words, else the first two characters. Always uppercase. */
-function deriveMonogram(label: string | null | undefined): string {
-  const clean = (label ?? '').trim()
-  if (!clean) return '•'
-  const words = clean.split(/\s+/).filter(Boolean)
-  const letters =
-    words.length >= 2
-      ? words[0]!.charAt(0) + words[1]!.charAt(0)
-      : clean.slice(0, 2)
-  return letters.toUpperCase()
 }
 
 /** Stable 32-bit hash (djb2). Same string → same number, every render, no storage. */
@@ -99,7 +87,7 @@ export function MerchantAvatar({
   size = 'md',
   className,
 }: MerchantAvatarProps) {
-  const text = (monogram?.trim() || deriveMonogram(label)).slice(0, 2)
+  const text = firstGraphemes(monogram?.trim() || deriveMonogram(label), 2)
   const { background, foreground } = pickColors(label, color)
 
   // The monogram is the base layer; the logo (if any) renders on top and is removed
