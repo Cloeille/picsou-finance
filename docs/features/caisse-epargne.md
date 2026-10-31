@@ -122,4 +122,6 @@ The login codes are in `CaisseEpargneErrorCode` and in the `last_sync_error` CHE
 
 ## Verification boundaries
 
+Loan regressions cover acceptance at 600 months and rejection at 601 months in both parsers. The home-loan boundary cases use a subscription date early enough that the date-order check cannot reject 601 months first. Separate home-loan cases cover calendar underflow at 600 months. Fetch tests verify that both an oversized duration and calendar underflow leave only the affected loan unavailable, with every other account imported.
+
 Covered offline: sidecar login and read path against canned pages and responses, adapter against canned responses, session state machine, service mapping and atomicity (rollback with a real `TransactionTemplate`), controller rate limits, login service/adapter, the sync tab and login panel (vitest), the Caisse d'Epargne migrations on real PostgreSQL (Testcontainers) and the entity/schema validation. Not covered: any call to the real sidecar or bank, the real `/accounts` payload beyond the contract in the slice spec, and card `accountIds=<cardPfmId>` (marked UNVERIFIED in the sidecar).

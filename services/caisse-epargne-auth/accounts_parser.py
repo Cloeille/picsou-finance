@@ -665,7 +665,7 @@ def parse_home_loan_detail(payload: Any) -> dict:
     signature = _iso_date(
         contract.get("subscriptionDate"), INVALID_LOAN_DETAIL, "loan.contractCharacteristic.subscriptionDate"
     )
-    # Even a supported duration can put the first due date before year 1.
+    # Even within the duration cap, an early last due date can put the first before year 1.
     try:
         first_due = _add_months(last_due, -(duration - 1))
     except ValueError:
