@@ -58,8 +58,7 @@
     "analysis": "Analysis",
     "analysis.desc": "Allocation & diversification",
     "hideAmounts": "Hide amounts",
-    "showAmounts": "Show amounts",
-    "switchLanguage": "Switch language"
+    "showAmounts": "Show amounts"
   },
   "auth": {
     "login": "Sign in",
@@ -1102,6 +1101,7 @@
         "invalidTan": "The verification code is incorrect or expired. Use the latest code you received, or restart the step to receive a new one.",
         "authenticationFailed": "Trade Republic authentication failed.",
         "serviceUnavailable": "The local Trade Republic service is unavailable. Restart the servers, then try again.",
+        "temporarilyBlocked": "Trade Republic blocked the request. Retry in a minute.",
         "serverError": "Trade Republic server error. Please try again.",
         "phoneNumberRequired": "Phone number is required.",
         "pinRequired": "PIN is required.",
@@ -1381,7 +1381,11 @@
       "transactionsImported": "Transactions imported",
       "transactionsSkipped": "Transactions skipped",
       "done": "Done",
-      "errors": { "invalidPreview": "The preview response is invalid.", "previewFailed": "Could not preview the HomeBank file.", "importFailed": "HomeBank import failed." }
+      "errors": {
+        "invalidPreview": "The preview response is invalid.",
+        "previewFailed": "Could not preview the HomeBank file.",
+        "importFailed": "HomeBank import failed."
+      }
     },
     "all": {
       "title": "Sync accounts",
@@ -1562,6 +1566,42 @@
         "formatChanged": "The Amundi website format changed. Your existing data was kept.",
         "invalidData": "Amundi returned inconsistent data. Your existing data was kept.",
         "serverError": "Could not reach Amundi. Please try again."
+      }
+    },
+    "cmes": {
+      "title": "Crédit Mutuel / CIC Employee Savings",
+      "login": "Username",
+      "password": "Password",
+      "otpCode": "Code received by SMS",
+      "otpPrompt": "Enter the confirmation code you received by SMS.",
+      "appValidationPrompt": "Open your bank's app and confirm the sign-in (mobile confirmation).",
+      "appValidationHint": "This page updates on its own as soon as you confirm. Picsou then signs in again by itself as long as the site remembers the device.",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "validate": "Submit code",
+      "validating": "Validating…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Savings plans synced.",
+      "clearSession": "Disconnect",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your Crédit Mutuel or CIC employee savings plans (PEE, PEG, PERCOL) and the funds they hold: units, unit value and gain.",
+      "errors": {
+        "tooManyAttempts": "Too many attempts. Please wait before retrying.",
+        "invalidCredentials": "Invalid username or password.",
+        "actionRequired": "The site needs you to act first (terms to accept, contact details to complete). Sign in once on the website, then retry.",
+        "mfaTypeUnsupported": "The site asked for a Digipass or Safetrans, which Picsou cannot handle. Choose mobile confirmation or SMS in your security settings.",
+        "appValidationTimeout": "The mobile confirmation was not approved in time. Please start over.",
+        "appValidationCancelled": "The mobile confirmation was refused in the app.",
+        "authAttemptExpired": "The authentication attempt expired. Please start over.",
+        "sessionExpired": "The session expired and the site asks for a new mobile confirmation. Please reconnect.",
+        "portfolioIncomplete": "The site returned incomplete plans. Your existing data was kept.",
+        "formatChanged": "The website format changed. Your existing data was kept.",
+        "invalidData": "The site returned inconsistent data. Your existing data was kept.",
+        "serverError": "Could not reach the employee savings site. Please try again.",
+        "invalidCode": "Wrong SMS code. Check it and type it again."
       }
     },
     "corum": {

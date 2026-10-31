@@ -248,6 +248,17 @@ async def _fetch_once(session_state: str) -> dict:
         result = await _token_cache.get(session_state, transport=_TRANSPORT, chain=replay.LOAN_CHAIN)
         return result.access_token
 
+    async def home_loan_token() -> str:
+        # Home-loan app chain on the BPCE authorization server, minted only for a home loan.
+        result = await _token_cache.get(
+            session_state,
+            transport=_TRANSPORT,
+            authorize_url=replay.HOME_LOAN_AUTHORIZE_URL,
+            token_url=replay.HOME_LOAN_TOKEN_URL,
+            chain=replay.HOME_LOAN_CHAIN,
+        )
+        return result.access_token
+
     async def per_detail(contract_id: str, entity_code: str) -> dict:
         # Third OAuth chain (insurer app), minted only when the synthesis holds a PER.
         # The main token already proved the session alive, so a refusal here is
@@ -269,7 +280,11 @@ async def _fetch_once(session_state: str) -> dict:
         raise AssertionError("unreachable")
 
     return await fetcher.fetch_import(
-        token.access_token, transport=_TRANSPORT, loan_token=loan_token, per_detail=per_detail
+        token.access_token,
+        transport=_TRANSPORT,
+        loan_token=loan_token,
+        per_detail=per_detail,
+        home_loan_token=home_loan_token,
     )
 
 
@@ -281,6 +296,7 @@ async def _fetch_accounts(session_state: str) -> dict:
         # A second rejection (or a failed replay) means the session itself is dead.
         _token_cache.evict(session_state)
         _token_cache.evict(session_state, chain=replay.LOAN_CHAIN)
+        _token_cache.evict(session_state, chain=replay.HOME_LOAN_CHAIN)
         _token_cache.evict(session_state, chain=replay.PER_CHAIN)
         return await _fetch_once(session_state)
 

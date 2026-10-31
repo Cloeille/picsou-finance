@@ -23,9 +23,11 @@ export function AppLayout() {
       </a>
       <AppSidebar />
       <main id="main-content" tabIndex={-1}
-        className="flex min-w-0 flex-1 flex-col overflow-hidden pb-20 outline-none md:pb-0">
+        className="flex min-w-0 flex-1 flex-col overflow-hidden pb-[calc(5rem+env(safe-area-inset-bottom))] outline-none md:pb-0">
         <DegradedModeBanner />
-        <div className="flex-1 overflow-auto px-1 pb-1">
+        {/* Mobile: main stops where the fixed bottom nav starts (64px bar + bottom-4 + safe area);
+            the p-4 gutter matches the nav's inset-x-4 and keeps the last card off its edge. */}
+        <div className="flex-1 overflow-auto p-4 md:px-1 md:pt-0 md:pb-1">
           <Outlet />
         </div>
       </main>
