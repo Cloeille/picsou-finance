@@ -289,15 +289,15 @@ describe('CaisseEpargneTab', () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' })
       let live = false
-      let synced = false
+      let syncStatus = 'IDLE'
       apiGet.mockImplementation(async () => ({
-        data: live ? { ...DISCONNECTED, isActive: true, syncStatus: synced ? 'SUCCESS' : 'IDLE' } : DISCONNECTED,
+        data: live ? { ...DISCONNECTED, isActive: true, syncStatus } : DISCONNECTED,
       }))
       apiPost.mockImplementation(async (url: string) => {
         if (url === '/caisse-epargne/auth/initiate') return { data: INITIATED }
         if (url === '/caisse-epargne/auth/keypad') return { data: KEYPAD_DONE }
         if (url === '/caisse-epargne/auth/complete') throw NETWORK_ERROR
-        synced = true
+        syncStatus = 'RUNNING'
         return { data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } }
       })
       const onConnected = vi.fn()
@@ -323,11 +323,52 @@ describe('CaisseEpargneTab', () => {
       await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
       expect(apiPost.mock.calls.filter(c => c[0] === '/caisse-epargne/sync')).toHaveLength(1)
 
+      // Not while the first sync still runs: the accounts do not exist yet.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+      expect(onConnected).not.toHaveBeenCalled()
+
       // The caller (the add-account modal closes on it) is told once that sync succeeded.
+      syncStatus = 'SUCCESS'
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5_000)
       })
       await waitFor(() => expect(onConnected).toHaveBeenCalledTimes(1))
+    })
+
+    it('recovers even when every status read takes longer than the poll interval', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' })
+      let live = false
+      let slow = false
+      // Once the completion is lost the network turns slow: each read answers after 5 s,
+      // longer than the 3 s between ticks.
+      apiGet.mockImplementation(() => new Promise((resolve) => {
+        const data = live ? { ...DISCONNECTED, isActive: true } : DISCONNECTED
+        setTimeout(() => resolve({ data }), slow ? 5_000 : 0)
+      }))
+      apiPost.mockImplementation(async (url: string) => {
+        if (url === '/caisse-epargne/auth/initiate') return { data: INITIATED }
+        if (url === '/caisse-epargne/auth/keypad') return { data: KEYPAD_DONE }
+        if (url === '/caisse-epargne/auth/complete') throw NETWORK_ERROR
+        return { data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } }
+      })
+      renderTab()
+      await signIn()
+      await screen.findByTestId('caisse-epargne-keypad-grid')
+      pressKeys(4, 0, 9, 9, 2, 7)
+      fireEvent.click(validateButton())
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/complete', { processId: 'p1' }))
+
+      slow = true
+      live = true
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000)
+      })
+
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/sync'))
+      expect(apiPost.mock.calls.filter(c => c[0] === '/caisse-epargne/sync')).toHaveLength(1)
     })
 
     it('drops the timeout message when a check sent before it brings the session', async () => {

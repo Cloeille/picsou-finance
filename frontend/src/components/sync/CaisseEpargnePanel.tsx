@@ -69,6 +69,13 @@ const HUMAN_WAIT_SECONDS = 150
  */
 const LOST_COMPLETION_WAIT_MS = 180_000
 const LOST_COMPLETION_POLL_MS = 3_000
+/**
+ * Each poll tick sends its own status read, bounded by this, rather than refetching the
+ * status query: a refetch every 3 s would cancel a read slower than that, so a slow network
+ * would never see the session; and waiting on one read could hang on a request that never
+ * returns. Reads may overlap; the first live answer wins.
+ */
+const LOST_COMPLETION_READ_TIMEOUT_MS = 10_000
 
 /**
  * The completion request got no answer from the backend: iOS drops it while Safari sits
@@ -276,6 +283,7 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
         onError: (value) => {
           if (isLostRequest(value)) {
             // Keep the waiting card: the session status tells whether it went through.
+            recovered.current = false
             setLostCompletionAt(Date.now())
             return
           }
@@ -286,7 +294,8 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
     )
   }
 
-  const { refetch: refetchStatus } = status
+  // Overlapping reads can both answer "live": the first sync is queued once.
+  const recovered = useRef(false)
   // The poll below outlives renders: it reads the latest startFirstSync through this ref.
   const startFirstSyncRef = useRef(startFirstSync)
   useEffect(() => {
@@ -301,18 +310,24 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
         setAuthState("ERROR")
         return
       }
-      void refetchStatus().then(({ data }) => {
-        // The form only shows without a live session, so a live one now is this login.
-        if (!data?.isActive) return
-        setLostCompletionAt(null)
-        // A check sent just before the timeout may land after it: the login went
-        // through after all, so drop the timeout message along with the error state.
-        setError(null)
-        startFirstSyncRef.current()
-      })
+      caisseEpargneApi
+        .getStatusWithin(LOST_COMPLETION_READ_TIMEOUT_MS)
+        .then((data) => {
+          // The form only shows without a live session, so a live one now is this login.
+          if (!data?.isActive || recovered.current) return
+          recovered.current = true
+          setLostCompletionAt(null)
+          // A check sent just before the timeout may land after it: the login went
+          // through after all, so drop the timeout message along with the error state.
+          setError(null)
+          startFirstSyncRef.current()
+        })
+        .catch(() => {
+          // A failed or slow read: the next tick tries again.
+        })
     }, LOST_COMPLETION_POLL_MS)
     return () => clearInterval(timer)
-  }, [lostCompletionAt, refetchStatus, t])
+  }, [lostCompletionAt, t])
 
   const submit = async () => {
     if (submitting.current) return
