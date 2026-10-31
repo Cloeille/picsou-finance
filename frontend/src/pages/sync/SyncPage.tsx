@@ -15,6 +15,7 @@ import { BourseDirectTab } from './BourseDirectTab'
 import { AccountsVisibilityTab } from './AccountsVisibilityTab'
 import { DegiroTab } from './DegiroTab'
 import { AmundiTab } from './AmundiTab'
+import { CmesTab } from './CmesTab'
 import { AmexTab } from './AmexTab'
 import { CorumTab } from './CorumTab'
 import { SofidyTab } from './SofidyTab'
@@ -45,6 +46,7 @@ export function SyncPage() {
           <TabsTrigger value="ibkr" className="flex-none">{t('sync.ibkr.title')}</TabsTrigger>
           <TabsTrigger value="simplefin" className="flex-none">{t('sync.simplefin.title')}</TabsTrigger>
           <TabsTrigger value="amundi" className="flex-none">{t('sync.amundi.title')}</TabsTrigger>
+          <TabsTrigger value="cmes" className="flex-none">{t('sync.cmes.title')}</TabsTrigger>
           <TabsTrigger value="fortuneo" className="flex-none">{t('sync.fortuneo.title')}</TabsTrigger>
           <TabsTrigger value="amex" className="flex-none">{t('sync.amex.title')}</TabsTrigger>
           <TabsTrigger value="corum" className="flex-none">{t('sync.corum.title')}</TabsTrigger>
@@ -89,6 +91,9 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="amundi" className="mt-6">
           <AmundiTab />
+        </TabsContent>
+        <TabsContent value="cmes" className="mt-6">
+          <CmesTab />
         </TabsContent>
         <TabsContent value="fortuneo" className="mt-6">
           <FortuneoTab />

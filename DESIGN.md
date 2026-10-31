@@ -7,8 +7,9 @@ colors:
   card-light: "oklch(1 0 0)"
   card-dark: "oklch(0.205 0 0)"
   coffre-blue: "oklch(0.488 0.243 264.376)"
-  coffre-blue-dark: "oklch(0.424 0.199 265.638)"
+  coffre-blue-dark: "oklch(0.707 0.165 254.624)"
   coffre-blue-foreground: "oklch(0.97 0.014 254.604)"
+  coffre-blue-foreground-dark: "oklch(0.19 0.06 267.935)"
   ledger-ink: "oklch(0.145 0 0)"
   ledger-ink-dark: "oklch(0.985 0 0)"
   quiet-slate: "oklch(0.45 0 0)"
@@ -78,7 +79,7 @@ One confident blue, honest neutrals, and a reserved green family for growth. The
 
 ### Primary
 - **Coffre Blue** (`oklch(0.488 0.243 264.376)`): the brand anchor. A saturated blue-violet that carries identity without aggression. Used on primary actions, the active nav state, links, and focusable emphasis. Its rarity is the point — it appears on the small fraction of the screen that *does* something.
-- **Coffre Blue (dark)** (`oklch(0.424 0.199 265.638)`): the dark-mode counterpart, slightly pulled toward black so it reads as the same confident blue against a dark vault rather than glowing.
+- **Coffre Blue (dark)** (`oklch(0.707 0.165 254.624)`, foreground `oklch(0.19 0.06 267.935)`): the dark-mode counterpart, lifted so primary text, tinted badges and progress fills clear WCAG AA on the dark card (6.8:1 as text, 5.7:1 against a muted track). No blue can do that and also carry near-white text, so in dark mode primary fills take a deep navy label (7.0:1, and 4.8:1 on the translucent `bg-primary/80` hover over the canvas). Ink drawn on a member's own avatar colour is white, never `primary-foreground`.
 
 ### Neutral
 - **Vault Light / Ledger Ink** (`oklch(1 0 0)` background, `oklch(0.145 0 0)` ink): the canvas and its text. True white and near-black, achromatic — no warm drift, no cream. The clarity is deliberate: financial figures read against pure contrast.
@@ -90,7 +91,7 @@ One confident blue, honest neutrals, and a reserved green family for growth. The
 
 ### Tertiary
 - **Alert Red** (`oklch(0.577 0.245 27.325)`): destruction and danger. Used sparingly and only where the user must feel a stop signal — delete confirmations, invalid states, loss indicators. Never decorative.
-- **Growth Green family** (`chart-1` through `chart-5`, `oklch(0.845→0.432 0.143→0.095 ~165)`): a five-step green ramp reserved for charts and positive-value visualization. Lightened for area fills, deepened for primary series. Hue is held near-constant so the family reads as one gesture; lightness does the differentiation, keeping the palette accessible beyond hue alone.
+- **Growth Green family** (`chart-1` through `chart-5`, `oklch(0.845→0.432 0.143→0.095 ~165)`): a five-step green ramp reserved for charts and positive-value visualization. Lightened for area fills, deepened for primary series. Hue is held near-constant so the family reads as one gesture; lightness does the differentiation, keeping the palette accessible beyond hue alone. Dark mode shifts `chart-2`…`chart-5` one emerald step lighter (`0.845→0.508`) so the darkest series still clears 3:1 against the dark card, and the net-worth area wash drops to `--chart-area-opacity: 0.08` so lines drawn over it keep that 3:1.
 
 ### Named Rules
 **The One Voice Rule.** Coffre Blue is the only saturated color permitted on interactive chrome. It appears on ≤10% of any given screen. Its rarity is what makes it read as confidence rather than decoration.

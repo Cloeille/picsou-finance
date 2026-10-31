@@ -85,6 +85,12 @@ const ERROR_MESSAGE_SUFFIXES: Record<string, string> = {
   /** Sofidy arms a brute-force counter of its own; the fix is to wait. */
   RATE_LIMITED: "tooManyAttempts",
   APP_VALIDATION_TIMEOUT: "appValidationTimeout",
+  /** The confirmation was refused in the bank's app (Crédit Mutuel Épargne Salariale). */
+  APP_VALIDATION_CANCELLED: "appValidationCancelled",
+  /** The site parks the login on a step only the holder can complete on its website. */
+  ACTION_REQUIRED: "actionRequired",
+  /** The site asked for a second factor the connector does not drive (Digipass, Safetrans). */
+  MFA_TYPE_UNSUPPORTED: "mfaTypeUnsupported",
   SAFEKEY_TIMEOUT: "appValidationTimeout",
   AUTH_ATTEMPT_EXPIRED: "authAttemptExpired",
   SESSION_EXPIRED: "sessionExpired",
@@ -109,6 +115,11 @@ export interface SidecarSessionPanelProps<
   loginIcon: LucideIcon
   /** Whether the provider can answer the second factor with a mobile app push. */
   appPush?: boolean
+  /**
+   * The sidecar keeps the attempt after a wrong SMS code (Crédit Mutuel Épargne Salariale), so
+   * the panel stays on the code form for another try instead of starting over.
+   */
+  otpRetryable?: boolean
   /** An extra login-form choice merged into the initiate payload (e.g. AMEX's SMS/e-mail pick). */
   extraField?: SidecarExtraField
   useStatus: () => UseQueryResult<TStatus>
@@ -140,6 +151,7 @@ export function SidecarSessionPanel<
   fieldIdPrefix,
   loginIcon: LoginIcon,
   appPush = false,
+  otpRetryable = false,
   extraField,
   useStatus,
   useInitiateAuth,
@@ -207,9 +219,13 @@ export function SidecarSessionPanel<
         },
         onError: (value) => {
           setError(formatError(value))
+          setCode("")
+          if (otpRetryable && getErrorCode(value) === "INVALID_OTP") {
+            setAuthState("AWAITING_OTP")
+            return
+          }
           setAuthState("ERROR")
           setProcessId(null)
-          setCode("")
         },
       }
     )
