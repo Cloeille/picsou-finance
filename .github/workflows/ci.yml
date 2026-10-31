@@ -473,6 +473,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared python sidecar base
+        run: docker build --target python --tag picsou-sidecar-python services/base
       - name: Build the AMEX sidecar image
         run: docker build --tag picsou-amex-auth:test services/amex-auth
       - name: Run sidecar authentication and browser pinning tests in the image
@@ -602,6 +604,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared python sidecar base
+        run: docker build --target python --tag picsou-sidecar-python services/base
       - name: Build the Revolut sidecar image
         run: docker build --tag picsou-revolut-auth:test services/revolut-auth
       # The async tests need pytest-asyncio, a test-only dependency the image does not ship.

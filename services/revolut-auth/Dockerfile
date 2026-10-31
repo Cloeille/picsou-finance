@@ -1,3 +1,9 @@
+# The shared sidecar package (services/base/picsou_sidecar), copied from the
+# python base: this image keeps its own Python and Camoufox pins. Compose and CI
+# build that base first; the publish workflow passes it by digest.
+ARG SIDECAR_LIB=picsou-sidecar-python
+FROM ${SIDECAR_LIB} AS sidecar-lib
+
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -20,6 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+COPY --from=sidecar-lib /opt/sidecar-base/lib /opt/sidecar-base/lib
+RUN echo /opt/sidecar-base/lib > "$(python -c 'import site; print(site.getsitepackages()[0])')/picsou-sidecar.pth"
 
 # Persistent per-member session profiles live here (mount a volume in docker-compose).
 # camoufox[geoip] writes GeoLite2-City.mmdb INTO its own package dir at fetch time, so that
