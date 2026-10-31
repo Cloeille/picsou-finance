@@ -13,7 +13,8 @@ headers. Rate limiters and audit readers needed one consistent client-address po
 ## Decision
 
 - nginx uses its real-IP module with an explicit trusted upstream address. The optional Caddy
-  service has a stable address on a dedicated bridge; the entrypoint generates its trust snippet
+  service and the app have distinct stable addresses on a dedicated bridge, so the app cannot
+  claim Caddy's address when it starts first; the entrypoint generates its trust snippet
   from validated configuration. Without an upstream proxy configuration, no forwarded client
   address is trusted at nginx.
 - Every nginx backend location replaces outgoing `X-Forwarded-For` and `X-Real-IP` with its
@@ -42,12 +43,14 @@ The login quota and other limits remain unchanged, with separate buckets per res
 Untrusted direct connections keep their socket address regardless of client-address headers.
 Custom deployments must identify their actual proxy peers explicitly. Stable small bridge
 subnets can conflict with an existing network; operators must adjust the documented addresses
-and trust settings together. The TLS bridge's subnet and proxy address are configurable.
+and trust settings together. The TLS bridge's subnet, proxy address, and app address are configurable.
 
 ## Validation
 
 Synthetic tests cover separate proxied login buckets, untrusted direct headers, IPv4/IPv6
 addresses, audit consistency, public origin ports, nginx forwarding and entrypoint configuration.
+Fresh Compose startup tests cover default and custom TLS bridge addresses, Caddy health and
+upstream reachability with the app starting first.
 See [CORS & cookie security](../features/security-cors-cookies.md) and
 [Docker deployment](../features/docker-deployment.md).
 

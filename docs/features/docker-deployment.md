@@ -277,13 +277,16 @@ joins this bridge. nginx's real-IP module trusts only the address the entrypoint
 native forwarding and trusts only the local nginx loopback hop. Rate limiters, session metadata
 and audit logs share the resolved remote address.
 
-Defaults in `docker/docker-compose.yml` are `PICSOU_PROXY_SUBNET=172.30.253.0/29` and
-`PICSOU_PROXY_IP=172.30.253.2`. Set both in `docker/.env` if this subnet overlaps an existing
-network. The configured address must belong to the subnet; Compose passes it to both Caddy and
-the app. The entrypoint rejects values other than a plain IPv4 literal. Standalone image runs
-with `PICSOU_PROXY_IP` unset trust no upstream client-address header. For a custom proxy, set it
-to that proxy's exact address as seen by nginx and recreate the app. Do not use a shared Docker
-subnet or all private networks as a trust list.
+Defaults in `docker/docker-compose.yml` are `PICSOU_PROXY_SUBNET=172.30.253.0/29`,
+`PICSOU_PROXY_IP=172.30.253.2` for Caddy, and `PICSOU_APP_TLS_IP=172.30.253.3` for the app.
+The app starts before Caddy and needs its own static address so Docker cannot assign it Caddy's
+address. Set all three in `docker/.env` if this subnet overlaps an existing network. Both
+addresses must be distinct usable host addresses inside the subnet, separate from the gateway.
+Compose also passes `PICSOU_PROXY_IP` to the app as nginx's trusted peer; the app's own TLS
+address does not extend that trust. The entrypoint rejects proxy values other than a plain IPv4
+literal. Standalone image runs with `PICSOU_PROXY_IP` unset trust no upstream client-address header.
+For a custom proxy, set it to that proxy's exact address as seen by nginx and recreate the app.
+Do not use a shared Docker subnet or all private networks as a trust list.
 
 The root split Compose stack uses a separate `picsou-ingress` bridge (`172.30.254.0/29`). nginx
 is `172.30.254.2`, the backend is `172.30.254.3`, and the ingress-only `ingress-backend` alias
@@ -299,6 +302,11 @@ an explicit public host port or an upstream port header, otherwise Tomcat uses t
 default. This preserves same-origin requests on published HTTP and custom HTTPS ports.
 See [CORS & cookie security](./security-cors-cookies.md) and the
 [proxy address ADR](../decisions/2026-10-31-trusted-proxy-client-address.md).
+
+`docker/tests/test_proxy_client_ip.py` starts fresh isolated Compose projects with real Caddy
+and a lightweight app stand-in. It preserves the shipped network attachments and startup
+dependency, checks default and custom addresses, waits for Caddy's health check, and probes
+the `app-tls` upstream. It publishes no host ports and removes its test containers and volumes.
 
 ### Key files
 

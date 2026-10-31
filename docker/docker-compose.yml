@@ -79,6 +79,8 @@ services:
       default:
       fortuneo-auth-net:
       tls-proxy:
+        # The app starts first; keep it from dynamically taking Caddy's address.
+        ipv4_address: ${PICSOU_APP_TLS_IP:-172.30.253.3}
         aliases:
           - app-tls
 

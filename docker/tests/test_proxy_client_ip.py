@@ -33,9 +33,9 @@ def docker_available():
 pytestmark = pytest.mark.skipif(not docker_available(), reason="Docker daemon is required")
 
 
-def command(args, *, check=True, env=None):
+def command(args, *, check=True, env=None, timeout=30):
     result = subprocess.run(
-        args, text=True, capture_output=True, check=False, timeout=30, env=env,
+        args, text=True, capture_output=True, check=False, timeout=timeout, env=env,
     )
     if check:
         assert result.returncode == 0, (args, result.stdout, result.stderr)
@@ -188,11 +188,13 @@ def test_nginx_leaves_the_forwarded_port_empty_for_scheme_default(nginx_proxy):
 
 def test_compose_assigns_the_same_exact_address_to_caddy_and_nginx():
     proxy_ip = "172.30.254.2"
+    app_ip = "172.30.254.3"
     proxy_subnet = "172.30.254.0/29"
     environment = {
         **os.environ,
         "APP_SIDECAR_API_KEY": "synthetic-proxy-config-test",
         "PICSOU_PROXY_IP": proxy_ip,
+        "PICSOU_APP_TLS_IP": app_ip,
         "PICSOU_PROXY_SUBNET": proxy_subnet,
     }
     rendered = command([
@@ -204,9 +206,76 @@ def test_compose_assigns_the_same_exact_address_to_caddy_and_nginx():
 
     assert compose["services"]["app"]["environment"]["PICSOU_PROXY_IP"] == proxy_ip
     assert compose["services"]["proxy"]["networks"]["tls-proxy"]["ipv4_address"] == proxy_ip
+    assert compose["services"]["app"]["networks"]["tls-proxy"]["ipv4_address"] == app_ip
     assert compose["services"]["app"]["networks"]["tls-proxy"]["aliases"] == ["app-tls"]
     assert compose["networks"]["tls-proxy"]["internal"] is True
     assert compose["networks"]["tls-proxy"]["ipam"]["config"][0]["subnet"] == proxy_subnet
+
+
+@pytest.mark.parametrize("addresses", [
+    {},
+    {
+        "PICSOU_PROXY_SUBNET": "172.30.252.0/29",
+        "PICSOU_PROXY_IP": "172.30.252.4",
+        "PICSOU_APP_TLS_IP": "172.30.252.5",
+    },
+], ids=["defaults", "custom-addresses"])
+def test_fresh_tls_compose_starts_app_before_caddy_without_address_collision(tmp_path, addresses):
+    project = f"picsou-tls-test-{uuid.uuid4().hex[:12]}"
+    environment = {
+        key: value for key, value in os.environ.items()
+        if key not in {"PICSOU_PROXY_SUBNET", "PICSOU_PROXY_IP", "PICSOU_APP_TLS_IP"}
+    }
+    environment.update({
+        "APP_SIDECAR_API_KEY": "synthetic-tls-startup-test",
+        "PICSOU_DOMAIN": "picsou.localhost",
+        **addresses,
+    })
+    rendered = command([
+        "docker", "compose", "--project-directory", str(REPO / "docker"),
+        "--env-file", os.devnull, "--project-name", project,
+        "-f", str(REPO / "docker/docker-compose.yml"), "--profile", "tls",
+        "config", "--format", "json",
+    ], env=environment)
+    compose = json.loads(rendered.stdout)
+    upstream = tmp_path / "upstream.conf"
+    upstream.write_text('server { listen 8080; return 200 "synthetic TLS upstream\\n"; }\n')
+    compose["services"] = {
+        "app": {
+            "image": NGINX_IMAGE,
+            "networks": compose["services"]["app"]["networks"],
+            "volumes": [f"{upstream}:/etc/nginx/conf.d/default.conf:ro"],
+        },
+        "proxy": {**compose["services"]["proxy"], "ports": []},
+    }
+    compose_file = tmp_path / "compose.json"
+    compose_file.write_text(json.dumps(compose))
+    args = [
+        "docker", "compose", "--project-name", project,
+        "-f", str(compose_file), "--profile", "tls",
+    ]
+    network = compose["networks"]["tls-proxy"]["name"]
+    assert command(["docker", "network", "inspect", network], check=False).returncode != 0
+
+    try:
+        command([*args, "up", "--wait", "--wait-timeout", "60", "app", "proxy"], timeout=90)
+        container_ids = command([*args, "ps", "--quiet", "app", "proxy"]).stdout.split()
+        containers = json.loads(command(["docker", "inspect", *container_ids]).stdout)
+        actual_addresses = {
+            container["Config"]["Labels"]["com.docker.compose.service"]:
+                container["NetworkSettings"]["Networks"][network]["IPAddress"]
+            for container in containers
+        }
+        assert actual_addresses == {
+            "app": addresses.get("PICSOU_APP_TLS_IP", "172.30.253.3"),
+            "proxy": addresses.get("PICSOU_PROXY_IP", "172.30.253.2"),
+        }
+        response = command([
+            *args, "exec", "-T", "proxy", "wget", "-q", "-O", "-", "http://app-tls:8080",
+        ])
+        assert response.stdout == "synthetic TLS upstream\n"
+    finally:
+        command([*args, "down", "--volumes", "--remove-orphans"])
 
 
 def test_split_compose_isolates_the_exact_frontend_proxy_address(tmp_path):
