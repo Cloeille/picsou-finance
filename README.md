@@ -142,6 +142,15 @@ On first launch the entrypoint auto-generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_K
 Otherwise, open http://localhost:8080 — the **setup wizard** walks you through admin credentials, CORS, and (optionally) Enable Banking.
 
 For subsequent production releases, do not replace the app with a bare `compose up`.
+Before upgrading, check that the new `tls-proxy` subnet `172.30.253.0/29` does not overlap
+an existing Docker, LAN, or VPN network. **This applies to non-TLS installs too**, because
+`app` always joins this bridge. If Docker reports `networks have overlapping IPv4`,
+`docker compose up -d` and `deploy.sh` cannot proceed. If it conflicts, set `PICSOU_PROXY_SUBNET`,
+`PICSOU_PROXY_IP`, and `PICSOU_PROXY_IP_RANGE` together in your existing `docker/.env`
+to an unused subnet, a proxy address, and an automatic allocation range within that subnet.
+Keep the proxy address and gateway outside the allocation range. See the
+[proxy network requirements](docs/features/docker-deployment.md#trusted-proxy-client-addresses).
+
 Use the [migration-safe deployment workflow](docs/features/docker-deployment.md#safe-release-deployment)
 to rehearse migrations on a restored backup, migrate the live database, and verify the API
 before declaring the release ready. Keep Flyway enabled; a historical

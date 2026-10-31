@@ -288,7 +288,14 @@ inside the subnet. Allow at least two usable addresses in the range for the live
 one migration container. Compose also passes `PICSOU_PROXY_IP` to the app as nginx's trusted
 peer. The entrypoint rejects proxy values other than a plain IPv4 literal. Standalone image
 runs with `PICSOU_PROXY_IP` unset trust no upstream client-address header.
-For a custom proxy, set it to that proxy's exact address as seen by nginx and recreate the app.
+
+The app always joins `tls-proxy`, even when the `tls` profile is disabled. Check for subnet
+overlap before upgrading non-TLS installs too. If Docker reports `networks have overlapping IPv4`,
+`docker compose up -d` and `deploy.sh` cannot proceed. Set all three variables above in your existing
+`docker/.env` to non-conflicting values before upgrading.
+
+For a custom proxy, set `PICSOU_PROXY_IP` to that proxy's exact address as seen by nginx and
+recreate the app.
 Do not use a shared Docker subnet or all private networks as a trust list.
 
 When upgrading an existing bundled TLS deployment, use the

@@ -316,6 +316,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alongside the running app without address conflicts. The release deployment script
   recreates an existing bundled TLS proxy after the app cutover, applying the new network
   and upstream while preserving certificates, so upgrades also receive the fix.
+  **Upgrade note:** the app always joins the new `tls-proxy` bridge (`172.30.253.0/29`),
+  including on non-TLS installs. If it overlaps an existing Docker network,
+  `docker compose up -d` and `deploy.sh` fail with `networks have overlapping IPv4`.
+  Before upgrading, set `PICSOU_PROXY_SUBNET`, `PICSOU_PROXY_IP`, and
+  `PICSOU_PROXY_IP_RANGE` together in your existing `docker/.env` to non-conflicting values.
+  See the [proxy network requirements](docs/features/docker-deployment.md#trusted-proxy-client-addresses).
 
 - **The demo no longer looks broken.** Every page now gets an answer from the demo build:
   holdings on every account, prices, connected apps, the status of each provider, the budget's

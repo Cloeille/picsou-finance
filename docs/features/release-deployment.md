@@ -26,6 +26,16 @@ the setup wizard before expecting API 401. While setup is incomplete, the real b
 503 `setup_required`; migrations may already have succeeded, but this tool intentionally does not
 declare the application ready. Complete setup and rerun the idempotent workflow.
 
+Before upgrading, check the new `tls-proxy` subnet `172.30.253.0/29` against existing
+Docker, LAN, and VPN networks. The app always joins this bridge, so this check applies to
+non-TLS installs too. If Docker reports `networks have overlapping IPv4`, both `deploy.sh` and
+`docker compose up -d` cannot proceed. If it conflicts, set `PICSOU_PROXY_SUBNET`, `PICSOU_PROXY_IP`,
+and `PICSOU_PROXY_IP_RANGE` together in your existing `docker/.env` before running the upgrade.
+Choose an unused subnet, a usable proxy address within it, and an automatic allocation range
+inside that subnet. Keep the proxy address and gateway outside the range, with at least two
+usable addresses in the range for the live app and a migration container. See the
+[proxy network requirements](./docker-deployment.md#trusted-proxy-client-addresses).
+
 ```sh
 bash docker/deploy.sh ghcr.io/cloeille/picsou-finance:1.1.0 \
   https://picsou.example.internal "$HOME/picsou-backups" -p picsou_prod

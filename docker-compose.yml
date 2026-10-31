@@ -335,8 +335,10 @@ networks:
     internal: true
   fortuneo-egress:
     driver: bridge
-  # Dedicated frontend -> backend path. Keep this subnet and the two static
-  # addresses above in sync if the default overlaps a local Docker/VPN subnet.
+  # Dedicated frontend -> backend path. If this subnet overlaps a local Docker/VPN
+  # subnet, change it, both static addresses, and the backend's
+  # SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES regex together. Trust only the
+  # frontend's exact address.
   # No sidecar joins it, so 172.30.254.2 identifies only the nginx frontend.
   picsou-ingress:
     driver: bridge

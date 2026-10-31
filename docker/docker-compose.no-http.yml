@@ -18,7 +18,8 @@
 # block in docker/docker-compose.yml by hand instead.
 #
 # The container still listens on 8080 inside the Docker network, which is how
-# the proxy reaches it (`reverse_proxy app:8080`). Only the host publish is gone.
+# the proxy reaches it (`reverse_proxy app-tls:8080` on the isolated `tls-proxy`
+# network). Only the host publish is gone.
 services:
   app:
     ports: !reset []
