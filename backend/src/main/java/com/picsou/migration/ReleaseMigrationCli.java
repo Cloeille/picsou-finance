@@ -107,8 +107,9 @@ public final class ReleaseMigrationCli {
         String sqlState = null;
         for (Throwable cause = failure; cause != null && chain.size() < 10; cause = cause.getCause()) {
             chain.add(cause.getClass().getSimpleName());
-            if (cause instanceof CliCheckException check) {
-                lines.add("Reason: " + check.getMessage());
+            if (cause instanceof CliCheckException
+                    || cause instanceof LegacyMigrationRenumberingCallback.DuplicateExternalAccountsException) {
+                lines.add("Reason: " + cause.getMessage());
             } else if (cause instanceof FlywayMigrateException migrate && migrate.getMigration() != null) {
                 MigrationInfo migration = migrate.getMigration();
                 lines.add("Failing migration: " + describe(migration.getVersion() == null ? null

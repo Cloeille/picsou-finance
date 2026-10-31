@@ -250,6 +250,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   did not know: its cards failed the completeness check and the whole sync stopped with
   `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
   like loans and insurance, since they belong to the child.
+- **Upgrading a 1.0.11–1.0.18 database to 1.1.0.** The backend no longer stops at boot with 13
+  Flyway checksum mismatches (V38, V51, V54–V64). Merging main into 1.1.0 had moved these
+  migrations to new versions, and edited comments in five of them. Before Flyway validates, the
+  backend now moves each of those history rows to its new version, so nothing re-runs, and then
+  applies the 1.1.0 migrations the database never ran
+  ([#265](https://github.com/Cloeille/picsou-finance/issues/265)). Before upgrading, run the
+  duplicate-account check in the
+  [upgrade note](docs/features/docker-deployment.md#upgrading-a-10x-database-to-110): these
+  databases now run V47, which deletes active accounts sharing an external id and member, so the
+  backend refuses to migrate while such duplicates exist, including one synced in while the
+  upgrade runs. Do not run `flyway repair`, and keep
+  Flyway enabled.
 - **Sidebar style prompt shows what each style looks like.** The two miniatures in the
   first-launch "choose your sidebar style" window now match the real sidebars: logo on the left
   beside the privacy toggle, two-line nav items, a full-height column with the member row and
