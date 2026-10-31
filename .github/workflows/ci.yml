@@ -182,6 +182,7 @@ jobs:
           --volume "${{ github.workspace }}/services/bourso-auth/fixtures.py:/tests/fixtures.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_virtual_pad.py:/tests/test_virtual_pad.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_accounts_parser.py:/tests/test_accounts_parser.py:ro"
+          --volume "${{ github.workspace }}/services/bourso-auth/test_life_insurance.py:/tests/test_life_insurance.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
