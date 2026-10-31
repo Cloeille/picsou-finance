@@ -1,5 +1,5 @@
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
-import type { ScpiPosition, ScpiPositionRequest } from '@/types/api'
+import type { CicSessionStatus, ScpiPosition, ScpiPositionRequest } from '@/types/api'
 import { mockAccounts } from './data/accounts'
 import {
   mockAllocationTargets,
@@ -1022,6 +1022,27 @@ handlers.set(key('POST', '/caisse-epargne/sync'), () => demoCaisseEpargneStatus)
 handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
   removed: true, bankSessionRevoked: false, message: '',
 }))
+
+// CIC — the login and the mobile/SMS confirmation are human steps, so the demo
+// skips them: initiate answers no MFA required and complete answers the status.
+const demoCicStatus: CicSessionStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+  canReconnect: false,
+}
+handlers.set(key('GET', '/cic/status'), () => demoCicStatus)
+handlers.set(key('POST', '/cic/auth/initiate'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/cic/auth/reconnect'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/cic/auth/complete'), () => demoCicStatus)
+handlers.set(key('POST', '/cic/sync'), () => demoCicStatus)
+handlers.set(key('DELETE', '/cic/session'), () => null)
 
 // Fortuneo — its frontend validates every response with Zod, so the demo must
 // return the complete production contract rather than relying on the adapter's
