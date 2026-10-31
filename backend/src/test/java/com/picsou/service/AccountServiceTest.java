@@ -497,6 +497,47 @@ class AccountServiceTest {
         assertThat(valuation.investedEur()).isEqualByComparingTo("800");
     }
 
+    /**
+     * A Finary USD crypto portfolio stored in its native currency, with one line Finary valued
+     * but gave no cost for. The neutral baseline is the balance in EUR: the raw $1,000 read as
+     * €1,000 against the €900 the line is worth invents a €100 loss.
+     */
+    @Test
+    void valuation_convertsANativeBalanceUsedAsTheBaselineForAnUnknownCost() {
+        Account account = Account.builder()
+            .id(1L).name("Wallet").type(AccountType.CRYPTO)
+            .currency("USD").currentBalance(new BigDecimal("1000")).build();
+        AccountHolding unknownCost = AccountHolding.builder()
+            .ticker("XYZ").quantity(BigDecimal.ONE)
+            .providerValueEur(new BigDecimal("900")).build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(unknownCost));
+        when(priceService.getCryptoQuotes(any())).thenReturn(Map.of());
+        when(priceService.getFxRateEur("USD")).thenReturn(new BigDecimal("0.9"));
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("900");
+        assertThat(valuation.investedEur()).isEqualByComparingTo("900");
+    }
+
+    @Test
+    void valuation_fallsBackToTheLiveValueAsTheBaseline_whenTheBalanceHasNoEurRate() {
+        Account account = Account.builder()
+            .id(1L).name("Wallet").type(AccountType.CRYPTO)
+            .currency("USD").currentBalance(new BigDecimal("1000")).build();
+        AccountHolding unknownCost = AccountHolding.builder()
+            .ticker("XYZ").quantity(BigDecimal.ONE)
+            .providerValueEur(new BigDecimal("900")).build();
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(unknownCost));
+        when(priceService.getCryptoQuotes(any())).thenReturn(Map.of());
+        when(priceService.getFxRateEur("USD")).thenReturn(null);
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("900");
+        assertThat(valuation.investedEur()).isEqualByComparingTo("900");
+    }
+
     @Test
     void liveBalanceEur_cashAccount_convertsStoredBalance() {
         Account cash = Account.builder()

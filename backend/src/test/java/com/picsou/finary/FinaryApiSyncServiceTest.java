@@ -26,6 +26,9 @@ import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.FinarySessionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -327,6 +330,60 @@ class FinaryApiSyncServiceTest {
             assertThat(parsed.amount()).isEqualByComparingTo("100.0");
             assertThat(parsed.currency()).isEqualTo("USD");
         });
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = "")
+    void execute_labelsATransactionWithoutCurrencyWithItsAccountsNativeCurrency_notTheConvertedOne(String code) {
+        FinaryAccountDto usdChecking = new FinaryAccountDto(
+            "usd-1", "US checking", null, 1000.0, 1000.0, null,
+            new FinaryAccountCurrency("USD", "$"), false,
+            900.0, null, null, null, null, null, null, null);
+        FinaryTransactionDto noCurrency = new FinaryTransactionDto(
+            1L, "tx", null, null, "2026-10-30T10:00:00Z", 100.0, "debit", null,
+            code == null ? null : new FinaryTransactionCurrency(code, null),
+            new FinaryTransactionAccount("usd-1", null, null));
+        stubPreview(Map.of("checkings", List.of(usdChecking, eurChecking(1000.0, 1000.0))),
+            List.of(), Map.of("checkings", List.of(noCurrency)), List.of());
+        Account target = existingAccount(7L, "US checking", AccountType.CHECKING);
+        when(accountRepository.findByIdAndMemberId(7L, 1L)).thenReturn(Optional.of(target));
+        when(familyMemberRepository.findById(1L)).thenReturn(Optional.of(FamilyMember.builder().id(1L).build()));
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        FinaryPreviewResponse preview = service.preview(null, 1L);
+        service.execute(preview.fileToken(), List.of(mapExisting("usd-1", "checkings", 7L)), 1L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<FinaryPersistenceHelper.ParsedFinaryTransaction>> txs = ArgumentCaptor.forClass(List.class);
+        verify(persistenceHelper).importTransactions(eq(target), any(), txs.capture());
+        assertThat(target.getCurrency()).isEqualTo("EUR");
+        assertThat(txs.getValue()).singleElement()
+            .satisfies(parsed -> assertThat(parsed.currency()).isEqualTo("USD"));
+    }
+
+    @Test
+    void execute_rejectsATransactionWhoseCurrencyNeitherItNorItsAccountNames() {
+        FinaryAccountDto noCurrencyAccount = new FinaryAccountDto(
+            "x-1", "Mystery", null, 1000.0, 1000.0, null,
+            null, false,
+            900.0, null, null, null, null, null, null, null);
+        FinaryTransactionDto noCurrency = new FinaryTransactionDto(
+            1L, "tx", null, null, "2026-10-30T10:00:00Z", 100.0, "debit", null,
+            null, new FinaryTransactionAccount("x-1", null, null));
+        stubPreview(Map.of("checkings", List.of(noCurrencyAccount, eurChecking(1000.0, 1000.0))),
+            List.of(), Map.of("checkings", List.of(noCurrency)), List.of());
+        Account target = existingAccount(7L, "Mystery", AccountType.CHECKING);
+        when(accountRepository.findByIdAndMemberId(7L, 1L)).thenReturn(Optional.of(target));
+        when(familyMemberRepository.findById(1L)).thenReturn(Optional.of(FamilyMember.builder().id(1L).build()));
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        FinaryPreviewResponse preview = service.preview(null, 1L);
+
+        assertThatThrownBy(() -> service.execute(preview.fileToken(), List.of(mapExisting("x-1", "checkings", 7L)), 1L))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("currency");
+        verify(persistenceHelper, never()).importTransactions(any(), any(), any());
     }
 
     @Test

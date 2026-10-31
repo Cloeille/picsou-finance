@@ -30,6 +30,7 @@ import java.time.ZoneOffset;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Orchestrates Finary API sync in two phases:
@@ -403,8 +404,7 @@ public class FinaryApiSyncService {
                             BigDecimal.valueOf(tx.value() != null ? tx.value() : 0),
                             tx.transactionType(),
                             tx.category() != null ? tx.category().name() : "",
-                            tx.currency() != null && tx.currency().code() != null
-                                ? tx.currency().code() : finalAccount.getCurrency()
+                            transactionCurrency(tx, finaryAcc)
                         ))
                         .collect(Collectors.toList());
 
@@ -574,6 +574,21 @@ public class FinaryApiSyncService {
             ? acc.currency().code()
             : fallbackCurrency != null && !fallbackCurrency.isBlank() ? fallbackCurrency : "EUR";
         return new Balance(BigDecimal.valueOf(acc.balance() != null ? acc.balance() : 0), currency);
+    }
+
+    /**
+     * A transaction's value is in its Finary account's native currency, so that currency stands in
+     * when the transaction omits its own. Never the Picsou account's: {@link #applyBalance} may have
+     * just switched it to the EUR display currency, which would read a $100 movement as €100.
+     */
+    static String transactionCurrency(FinaryTransactionDto tx, FinaryAccountDto acc) {
+        return Stream.of(
+                tx.currency() != null ? tx.currency().code() : null,
+                acc.currency() != null ? acc.currency().code() : null)
+            .filter(code -> code != null && !code.isBlank())
+            .findFirst()
+            .orElseThrow(() -> new SyncException("Finary transaction " + tx.id() + " on account "
+                + acc.name() + " has no currency, and neither does its account"));
     }
 
     static void applyBalance(Account account, FinaryAccountDto acc, boolean displayIsEur) {

@@ -165,7 +165,7 @@ FinaryApiSyncService.execute(syncToken + mappings)
         +-- Reject two rows written into one Picsou account (explicit targets and upserts)
         +-- Store display_balance in EUR once the display currency is proven EUR, native balance otherwise
         +-- Persist holdings (ISIN → OpenFIGI ticker, crypto code as ticker), not on accounts another connector owns
-        +-- Import transactions (in their own currency), rebuild the history in EUR
+        +-- Import transactions (in their own currency, else the Finary account's native one, else reject), rebuild the history in EUR
         +-- Remove from cache
         +-- Return result
 
@@ -212,7 +212,7 @@ POST /api/finary/api-sync/auto
 - **Account name matching is case-insensitive, trimmed, and type-aware**: a Finary `investments` row can map to PEA / CTO / épargne salariale with the same name; `fonds_euro` maps to SAVINGS/livrets, not the CTO of the same label. Two Coinbase wallets of type CRYPTO stay unmatched (ambiguous). After the first successful MAP_EXISTING, `externalAccountId` is written so the next auto-sync skips the wizard.
 - **Transactions are per-category**: API sync fetches transactions only from checkings, savings, investments, and credits categories. Other categories (real estate, cryptos) do not have a transactions endpoint.
 - **Holdings come from the account payload, not a separate endpoint**: `/portfolio/{cat}/holdings` is 404. Positions live on each account as `securities`, `cryptos`, `fonds_euro`, `fiats`, `generic_assets`, `scpis`, `precious_metals`. `FinaryHoldingsImporter` reads those lists on execute/auto-sync. XLSX import still has no holdings.
-- **Never label an amount EUR without proof**: USD crypto wallets report `balance` / `current_value` in USD, and `display_*` is in whatever display currency the user chose. Storing either as EUR unchecked is what used to inflate those wallets. See **Display currency** above.
+- **Never label an amount EUR without proof**: USD crypto wallets report `balance` / `current_value` in USD, and `display_*` is in whatever display currency the user chose. Storing either as EUR unchecked is what used to inflate those wallets. See **Display currency** above. The same goes for a transaction without a currency: its `value` is in the Finary account's native currency, never the Picsou account's, which may just have switched to EUR. And when a holding has no cost, `AccountService.valuation()` uses the balance converted to EUR as the neutral baseline, because a native balance read as EUR invents a gain or loss.
 - **Cash is not a holding**: fiats and "Solde Espèces" (`symbol`/`isin` `000000000000`) go to `account.cash_balance`. Everything else is replaced on each sync (same wipe-and-write as Bourse Direct / TR).
 - **Many Finary instruments have no Yahoo ticker**: Yomoni fonds, RealT tokens, fonds euros, Amundi `QS…` employee-savings codes. `provider_value_eur` / `provider_pnl_eur` keep the Finary valuation so the live balance does not collapse to cash-only.
 - **Ticker column is VARCHAR(100)** (`V119__widen_holding_ticker.sql`): RealT property codes exceed the old 30-char limit. Names widened to 255.
@@ -230,7 +230,7 @@ POST /api/finary/api-sync/auto
 - `FinaryLoanDtoTest` -- unit tests for parsing the `/loans` payload (snake_case + camelCase aliases)
 - `FinaryHoldingsImporterTest` -- securities / crypto / fonds-euro mapping, cash skip, ticker sanitizing, omitted, partial vs empty snapshot (every imported group), cash line without a EUR value, unproven display currency, null lines, partial merged values and costs
 - `FinaryAccountHoldingsDtoTest` -- Jackson parse of `display_balance` + nested positions
-- `FinaryApiSyncServiceTest` -- preview and execute agree on the balance with and without a proven EUR display currency (a too-small EUR witness proves nothing), transactions keep their own currency, connector-owned accounts keep their id and holdings, shared targets are rejected (upserts included), `autoSync` stays transactional
+- `FinaryApiSyncServiceTest` -- preview and execute agree on the balance with and without a proven EUR display currency (a too-small EUR witness proves nothing), transactions keep their own currency (the account's native one when they omit it, rejected when neither names one), connector-owned accounts keep their id and holdings, shared targets are rejected (upserts included), `autoSync` stays transactional
 - `FinaryPersistenceHelperTest` -- rebuilt history records each day's end-of-day balance, in EUR, and aborts on a missing rate
 - Manual integration testing with real Finary accounts
 

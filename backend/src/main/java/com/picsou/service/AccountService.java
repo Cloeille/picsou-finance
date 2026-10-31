@@ -523,9 +523,16 @@ public class AccountService {
 
         if (anyCostBasisUnknown) {
             // A partial cost basis creates a fictitious gain. Until every
-            // position is known, use the account value as a neutral baseline.
-            invested = account.getCurrentBalance();
-            investedOverAllHoldings = account.getCurrentBalance();
+            // position is known, use the account value as a neutral baseline, in EUR: a Finary
+            // import may store the balance in its own currency. The currency pair, not toEur,
+            // which prices a currency code as a ticker; with no rate, the live value stands in.
+            BigDecimal baseline = account.getCurrentBalance();
+            if (account.getCurrency() != null && !"EUR".equalsIgnoreCase(account.getCurrency())) {
+                BigDecimal rate = priceService.getFxRateEur(account.getCurrency().toUpperCase(Locale.ROOT));
+                baseline = rate != null ? baseline.multiply(rate) : liveValue;
+            }
+            invested = baseline;
+            investedOverAllHoldings = baseline;
         }
         // Some providers report an authoritative total in EUR. If Yahoo/OpenFIGI cannot
         // price even one instrument, prefer that last successful provider valuation over a
