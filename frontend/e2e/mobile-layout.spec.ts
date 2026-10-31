@@ -49,7 +49,7 @@ const PAGES = [
   ['/analysis', '30 ans'],
   ['/accounts/2', '+ Ajouter'],
   ['/goals', 'Apport immobilier'],
-  ['/goals/1/calendar', /^Calendrier de/],
+  ['/goals/1/calendar', 'Vacances été 2025'],
 ] as const
 
 test.describe('Phone layout (360px)', () => {

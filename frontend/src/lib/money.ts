@@ -16,8 +16,13 @@ export const AXIS_MASK = '***'
 export interface MoneyFormatter {
   /** True when amounts are hidden — for the few places that need to branch on more than a string. */
   readonly hidden: boolean
-  /** A monetary amount: masked, or formatted for the current locale. */
-  amount(value: number, currency?: string): string
+  /**
+   * A monetary amount: masked, or formatted for the current locale.
+   *
+   * @param maximumFractionDigits fixed precision, e.g. 0 for whole units where cents would not fit;
+   *                              omitted, the currency's own precision
+   */
+  amount(value: number, currency?: string, opts?: { maximumFractionDigits?: number }): string
   /**
    * A holding's quantity. Masked with the amounts: a quote is public, so quantity times price
    * reconstitutes the line, and a position anyone can price is not hidden by hiding its total.
@@ -47,14 +52,22 @@ export interface MoneyFormatter {
  * The public path is {@link MoneyFormatter} via `useMoney()`, so that hiding amounts cannot be
  * bypassed by reaching for the raw formatter. The one audited exception is exported below.
  */
-function formatCurrencyIntl(value: number, currency = 'EUR', locale = getLocale()): string {
+function formatCurrencyIntl(
+  value: number,
+  currency = 'EUR',
+  locale = getLocale(),
+  maximumFractionDigits?: number,
+): string {
   const safeLocale = normalizeIntlLocale(locale)
+  const precision = maximumFractionDigits == null
+    ? {}
+    : { minimumFractionDigits: 0, maximumFractionDigits }
   try {
-    return new Intl.NumberFormat(safeLocale, { style: 'currency', currency }).format(value)
+    return new Intl.NumberFormat(safeLocale, { style: 'currency', currency, ...precision }).format(value)
   } catch {
     // An unknown/invalid ISO 4217 code makes Intl.NumberFormat throw a RangeError.
     // Degrade to a plain decimal + the raw code instead of crashing the whole app (issue #9).
-    const num = new Intl.NumberFormat(safeLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
+    const num = new Intl.NumberFormat(safeLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2, ...precision }).format(value)
     return `${num} ${currency}`
   }
 }
@@ -113,10 +126,10 @@ function maskAmount(value: number, currency: string, locale: string): string {
 export function makeMoneyFormatter({ hidden, locale }: { hidden: boolean; locale: string }): MoneyFormatter {
   return {
     hidden,
-    amount(value: number, currency = 'EUR') {
+    amount(value: number, currency = 'EUR', opts: { maximumFractionDigits?: number } = {}) {
       return hidden
         ? maskAmount(value, currency, locale)
-        : formatCurrencyIntl(value, currency, locale)
+        : formatCurrencyIntl(value, currency, locale, opts.maximumFractionDigits)
     },
     compact(value: number, opts: { currency?: string; maximumFractionDigits?: number } = {}) {
       const currency = opts.currency ?? 'EUR'
