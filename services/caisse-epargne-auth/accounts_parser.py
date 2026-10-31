@@ -39,7 +39,7 @@ import calendar
 import math
 import re
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal, DecimalException
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Optional, Union
 
 INVALID_SYNTHESIS = "INVALID_SYNTHESIS"
@@ -530,7 +530,8 @@ def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decim
     try:
         annuity = _annuity(borrowed, rate, months).quantize(_CENT, rounding=ROUND_HALF_UP)
         insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
-    except DecimalException:
+    except ArithmeticError:
+        # Every decimal signal (InvalidOperation, DivisionByZero, ...) is an ArithmeticError.
         raise ParseError(INVALID_LOAN_DETAIL, "loan: figures outside the decimal precision") from None
     return insurance if insurance >= 0 else None
 
