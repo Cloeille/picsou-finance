@@ -689,6 +689,8 @@ jobs:
             --set postgresql.enabled=false --set externalDatabase.host=db \
             --set secrets.existingSecret=picsou --set app.enableBanking.existingSecret=eb \
             --set 'networkPolicy.appIngressFrom[0].podSelector.matchLabels.app=ingress' > /dev/null
+      - name: Test the sidecar comparison script
+        run: python3 -m unittest discover -s .github/tests -p 'test_helm_chart_sync.py' -v
       - name: Compare the chart's sidecars with the Compose file
         run: |
           status=0
