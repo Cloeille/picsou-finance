@@ -58,8 +58,7 @@
     "analysis": "Analyse",
     "analysis.desc": "Répartition & diversification",
     "hideAmounts": "Masquer les montants",
-    "showAmounts": "Afficher les montants",
-    "switchLanguage": "Changer la langue"
+    "showAmounts": "Afficher les montants"
   },
   "auth": {
     "login": "Connexion",

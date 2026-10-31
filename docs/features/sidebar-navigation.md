@@ -45,7 +45,7 @@ bottom account row. `FAMILY_NAV_ITEM` is the same entry the sidebar renders afte
 The FR/EN `LanguageToggle` left the bar when Family joined (2026-10-31, #272). Seven 40 px items
 plus the 79 px toggle need 383 px, more than the 358 px a 390 px screen leaves inside the bar, so
 flexbox squeezed every icon to 36 px (32 px at 360 px wide). Settings already offers all four
-languages; the toggle is still used by the setup wizard.
+languages, and the setup wizard has its own picker, so the component was deleted.
 
 `AppLayout` reserves the bar's footprint on `<main>`: `pb-[calc(5rem+env(safe-area-inset-bottom))]`
 (`size-10` items + `py-3` + `bottom-4` = 80 px, plus the same safe-area inset as the bar's spacer),
