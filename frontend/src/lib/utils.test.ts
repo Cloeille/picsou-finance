@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   ageAt,
   cn,
+  deriveMonogram,
   formatDate,
+  formatLocalDate,
   formatPercent,
   freshnessLevel,
   isOAuthAuthorizeRedirect,
@@ -78,6 +80,20 @@ describe('localeFromLanguage', () => {
     // so unresolvable tags map to fr-FR — not en-US.
     expect(localeFromLanguage(undefined)).toBe('fr-FR')
     expect(localeFromLanguage('it')).toBe('fr-FR')
+  })
+})
+
+describe('formatLocalDate', () => {
+  it('writes the first of the month as an ordinal in French', () => {
+    expect(formatLocalDate('2026-10-01', 'fr-FR')).toBe('1er octobre 2026')
+  })
+
+  it('drops the leading zero on other days', () => {
+    expect(formatLocalDate('2026-09-05', 'fr-FR')).toBe('5 septembre 2026')
+  })
+
+  it('keeps other languages on their own convention', () => {
+    expect(formatLocalDate('2026-10-01', 'en-US')).toBe('October 1, 2026')
   })
 })
 
@@ -251,5 +267,66 @@ describe('ageAt', () => {
     // than four is -5.
     expect(ageAt('2030-01-01', '2026-01-01')).toBe(-4)
     expect(ageAt('2030-06-01', '2026-01-01')).toBe(-5)
+  })
+})
+
+describe('deriveMonogram', () => {
+  const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+
+  it('uses the first letter of the first two words, uppercased', () => {
+    expect(deriveMonogram('credit agricole')).toBe('CA')
+  })
+
+  it('uses the first two characters of a single word, uppercased', () => {
+    expect(deriveMonogram('Carrefour')).toBe('CA')
+  })
+
+  it.each([null, undefined, '', '   '])('falls back to a neutral glyph for %j', (label) => {
+    expect(deriveMonogram(label)).toBe('•')
+  })
+
+  it('keeps a leading emoji whole in a multi-word label', () => {
+    expect(deriveMonogram('🚀 Rocket')).toBe('🚀R')
+  })
+
+  it('keeps a leading emoji whole in a single-word label', () => {
+    expect(deriveMonogram('🚀Rocket')).toBe('🚀R')
+  })
+
+  it('keeps a ZWJ emoji sequence as one character', () => {
+    expect(deriveMonogram('👩\u200D👩\u200D👧 Fund')).toBe('👩\u200D👩\u200D👧F')
+  })
+
+  it('keeps both regional indicators of a flag together', () => {
+    expect(deriveMonogram('🇫🇷 Bourse')).toBe('🇫🇷B')
+  })
+
+  it('keeps a combining accent attached to its base letter', () => {
+    expect(deriveMonogram('e\u0301cole')).toBe('E\u0301C')
+  })
+
+  it.each(['🚀 Rocket', '🚀Rocket', '🍕🍔🍟', '👩\u200D👩\u200D👧 Fund', '🇫🇷 Bourse'])(
+    'never emits a lone surrogate for %s',
+    (label) => {
+      expect(deriveMonogram(label)).not.toMatch(LONE_SURROGATE)
+    },
+  )
+
+  it('stays at two characters when uppercasing expands one', () => {
+    expect(deriveMonogram('ß Bank')).toBe('SB')
+    expect(deriveMonogram('ßx')).toBe('SS')
+  })
+
+  it('never splits a surrogate pair even when Intl.Segmenter is missing', async () => {
+    const savedSegmenter = Intl.Segmenter
+    try {
+      Object.defineProperty(Intl, 'Segmenter', { value: undefined, configurable: true })
+      vi.resetModules()
+      const { firstGraphemes } = await import('./utils')
+      expect(firstGraphemes('🚀Rocket', 2)).toBe('🚀R')
+    } finally {
+      Object.defineProperty(Intl, 'Segmenter', { value: savedSegmenter, configurable: true })
+      vi.resetModules()
+    }
   })
 })

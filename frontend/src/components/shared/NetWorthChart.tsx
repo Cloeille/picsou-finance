@@ -5,6 +5,7 @@ import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
 import { formatDate, localeFromLanguage } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
+import { yAxisWidth } from '@/lib/chart-axis'
 import { EmptyChartState } from '@/components/shared/EmptyChartState'
 import type { IntradayPoint } from '@/features/dashboard/api'
 
@@ -314,6 +315,11 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
     if (maxVal >= 100) return (v: number) => v.toFixed(0)
     return (v: number) => v.toFixed(2)
   }, [filteredData])
+  const yTick = money.tick(yTickFormatter)
+  const yWidth = useMemo(() => yAxisWidth(
+    filteredData.flatMap(d => [d.total, showInvested ? d.invested : null, d.target, d.projection].filter(v => typeof v === 'number')),
+    yTick,
+  ), [filteredData, showInvested, yTick])
 
   const chartConfig = useMemo(() => ({
     total: {
@@ -402,8 +408,8 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
           tickLine={false}
           axisLine={false}
           tickMargin={8}
-          tickFormatter={money.tick(yTickFormatter)}
-          width={45}
+          tickFormatter={yTick}
+          width={yWidth}
           tickCount={5}
         />
         <ChartTooltip content={<NetWorthTooltip labels={labels} is24H={is24H} showGainLoss={showInvested} />} />

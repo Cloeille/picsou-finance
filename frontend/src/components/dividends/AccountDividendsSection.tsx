@@ -162,6 +162,7 @@ function DividendCard({
             logoUrl={holding?.logoUrl}
             logoUrlDark={holding?.logoUrlDark}
             ticker={row.ticker}
+            name={row.name}
             className="size-8"
           />
         )}

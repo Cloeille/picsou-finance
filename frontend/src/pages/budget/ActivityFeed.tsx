@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Sparkles, TrendingUp, Undo2 } from 'lucide-react'
+import { Check, Sparkles, TrendingUp, Undo2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { MerchantAvatar } from '@/components/shared/MerchantAvatar'
@@ -49,9 +49,9 @@ function ActivityRow({ entry }: { entry: RecurringActivity }) {
         </span>
       )}
 
-      <Button size="sm" variant="ghost" className="ml-auto shrink-0" disabled={undo.isPending}
+      <Button size="sm" variant="ghost" className="ml-auto w-28 shrink-0" disabled={undo.isPending}
         onClick={() => undo.mutate(entry.seriesId)}>
-        <Undo2 className="size-4" />
+        {isPriceChange ? <Check className="size-4" /> : <Undo2 className="size-4" />}
         {isPriceChange ? t('budget.recurring.activity.acknowledge') : t('budget.recurring.undo')}
       </Button>
     </div>
