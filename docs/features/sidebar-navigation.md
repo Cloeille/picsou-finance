@@ -4,7 +4,7 @@
 
 ## Context
 
-Navigation adapts to screen size: a vertical sidebar on desktop (>=768px) and a horizontal bottom navbar on mobile (<768px). Desktop shows the primary app navigation, including Family, and exposes settings through the bottom account area. Admin users also get a visible profile switcher there so a managed-member override can never stay hidden. Mobile keeps the compact bottom bar — five items since Analysis joined — and active state logic.
+Navigation adapts to screen size: a vertical sidebar on desktop (>=768px) and a horizontal bottom navbar on mobile (<768px). Desktop shows the primary app navigation, including Family, and exposes settings through the bottom account area. Admin users also get a visible profile switcher there so a managed-member override can never stay hidden. Mobile keeps the compact bottom bar, with the same routes as the sidebar plus Settings, and the same active state logic.
 
 ## How it works
 
@@ -35,25 +35,35 @@ The switcher loads family members through `useFamilyMembers({ enabled: canSwitch
 
 ### Mobile: `MobileBottomNav` (hidden on desktop via `md:hidden`)
 
-A fixed bottom bar with five evenly spaced nav items:
+A fixed bottom bar with seven evenly spaced nav items:
 
 ```text
-[Dashboard] [Accounts] [Analysis] [Goals] [Settings]
+[Dashboard] [Accounts] [Analysis] [Goals] [Budget] [Family] [Settings]
 ```
 
 It used to centre the Picsou logo between two pairs of items and keep its **own** hardcoded copy
 of the route list. Adding Analysis (2026-08-13) left no honest way to keep that symmetry, and a
 private copy was one more place to forget a route, so both went: the bar now maps
-`[...NAV_ITEMS, CLASSIC_SETTINGS_NAV_ITEM]` from the shared registry. Settings stays in the list
-because mobile has no other way to reach it — the desktop sidebar uses its bottom account row.
+`[...NAV_ITEMS, FAMILY_NAV_ITEM, CLASSIC_SETTINGS_NAV_ITEM]` from the shared registry. Settings
+stays in the list because mobile has no other way to reach it — the desktop sidebar uses its
+bottom account row. `FAMILY_NAV_ITEM` is the same entry the sidebar renders after its nav items.
 
-The bar's height is unchanged (`size-10` items + `py-3` + `bottom-4` = 80 px), so `AppLayout`'s
-`pb-20` still clears it. `frontend/src/assets/picsou_logo_white.svg` is now unused.
+The FR/EN `LanguageToggle` left the bar when Family joined (2026-10-31, #272). Seven 40 px items
+plus the 79 px toggle need 383 px, more than the 358 px a 390 px screen leaves inside the bar, so
+flexbox squeezed every icon to 36 px (32 px at 360 px wide). Settings already offers all four
+languages, and the setup wizard has its own picker, so the component was deleted.
+
+`AppLayout` reserves the bar's footprint on `<main>`: `pb-[calc(5rem+env(safe-area-inset-bottom))]`
+(`size-10` items + `py-3` + `bottom-4` = 80 px, plus the same safe-area inset as the bar's spacer),
+reset by `md:pb-0`. The scroll container inside it has `p-4` on mobile, so page content lines up
+with the bar's `inset-x-4` and the last card ends 16 px above it; desktop keeps `md:px-1 md:pt-0
+md:pb-1`. `frontend/e2e/mobile-layout.spec.ts` checks both at 390×844, once without a safe
+area and once with a 34 px bottom inset set through Chromium's `Emulation.setSafeAreaInsetsOverride`
+(Playwright's viewport cannot set one).
 
 - Same icon styling as the sidebar: `size-10 rounded-lg bg-muted text-muted-foreground`
 - Active state: `ring-1 ring-border` + foreground icon color
 - Safe area padding for iOS notch: `env(safe-area-inset-bottom)`
-- `AppLayout` adds `pb-20 md:pb-0` on main content to avoid overlap
 
 ### Active state (shared pattern)
 
@@ -84,7 +94,8 @@ Active nav items keep Lucide icons stroke-only. The item gets `ring-1 ring-borde
 - **Lucide icons are stroke icons**: do not pass `fill="currentColor"` to sidebar or bottom-nav icons. It fills the internal SVG geometry and makes active icons look like broken blobs.
 - **File encoding**: Editing `AppSidebar.tsx` with the Edit tool introduced invisible characters that broke Babel parsing. If the file breaks after edits, rewrite it entirely with the Write tool.
 - **`ItemMedia` import**: The component is imported even though the user dropdown no longer uses it — it's still used by `NavItem`. Don't remove the import.
-- **Mobile bottom nav padding**: `AppLayout` adds `pb-20` on mobile to prevent content from being hidden behind the fixed bottom nav. If the bottom nav height changes, update this value.
+- **Mobile bottom nav padding**: `AppLayout`'s `<main>` reserves `5rem` plus the safe-area inset on mobile so content never sits behind the fixed bottom nav. If the bottom nav height changes, update this value; `e2e/mobile-layout.spec.ts` fails when they drift, including when the
+  safe-area term is dropped from `<main>` or from the bar's spacer.
 - **Account menu scope**: the sidebar dropdown carries profile scope (admins), Sync, Administration (admins), and Sign out. Language and account controls stay in Settings. Add new entries to `AccountMenuFooterItems` so both sidebar styles get them.
 - **Admin-only members query**: keep `useFamilyMembers({ enabled: isAdmin })` on the sidebar. Calling `/family/members` for non-admins causes a 403 redirect.
 - **No duplicate desktop Settings item**: desktop settings access is the bottom-pinned account row. Do not add `/settings` back to `NAV_ITEMS`, or the sidebar will show two entries for the same page.

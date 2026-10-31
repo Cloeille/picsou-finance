@@ -1,4 +1,4 @@
-import { LayoutDashboard, Wallet, Pyramid, Target, PieChart, Settings } from 'lucide-react'
+import { LayoutDashboard, Wallet, Pyramid, Target, PieChart, Settings, Users } from 'lucide-react'
 
 export const NAV_ITEMS = [
   { path: '/', icon: LayoutDashboard, labelKey: 'nav.dashboard', descKey: 'nav.dashboard.desc' },
@@ -7,6 +7,13 @@ export const NAV_ITEMS = [
   { path: '/goals', icon: Target, labelKey: 'nav.goals', descKey: 'nav.goals.desc' },
   { path: '/budget', icon: PieChart, labelKey: 'nav.budget', descKey: 'nav.budget.desc' },
 ] as const
+
+export const FAMILY_NAV_ITEM = {
+  path: '/family',
+  icon: Users,
+  labelKey: 'nav.family',
+  descKey: 'nav.family.desc',
+} as const
 
 // The "classic" sidebar style predates the /budget and /family additions and
 // used to carry Settings as its own nav item (moved into the profile menu

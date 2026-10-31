@@ -141,7 +141,7 @@ export function ProjectionSection() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4">
+      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <CardTitle>{t('analysis.projection.title')}</CardTitle>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex gap-1">
@@ -150,6 +150,7 @@ export function ProjectionSection() {
                 key={key}
                 variant={view === key ? 'default' : 'outline'}
                 size="sm"
+                className="px-4 sm:px-8"
                 aria-pressed={view === key}
                 onClick={() => setView(key)}
               >
@@ -163,6 +164,7 @@ export function ProjectionSection() {
               key={horizon}
               variant={horizon === years ? 'default' : 'outline'}
               size="sm"
+              className="px-4 sm:px-8"
               onClick={() => setYears(horizon)}
             >
               {t('analysis.projection.years', { count: horizon })}

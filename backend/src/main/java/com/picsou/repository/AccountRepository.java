@@ -24,6 +24,7 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
      */
     List<Account> findByIdInAndMemberId(List<Long> ids, Long memberId);
     Optional<Account> findByExternalAccountIdAndMemberId(String externalAccountId, Long memberId);
+    List<Account> findAllByMemberIdAndProvider(Long memberId, String provider);
 
     /**
      * Account-level tickers of live accounts of one type, for the hourly price warm-up — see
@@ -63,6 +64,22 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
         nativeQuery = true)
     boolean existsSoftDeletedByExternalAccountIdAndMemberId(
         @Param("externalId") String externalId,
+        @Param("memberId") Long memberId
+    );
+
+    /**
+     * {@link #existsSoftDeletedByExternalAccountIdAndMemberId} for an id that may
+     * have belonged to another account: a soft-deleted account counts only if it
+     * also carries {@code name}.
+     */
+    @Query(value =
+        "SELECT EXISTS(SELECT 1 FROM account " +
+        "  WHERE external_account_id IN (:externalIds) AND name = :name AND member_id = :memberId " +
+        "  AND deleted_at IS NOT NULL)",
+        nativeQuery = true)
+    boolean existsSoftDeletedByExternalAccountIdInAndNameAndMemberId(
+        @Param("externalIds") Collection<String> externalIds,
+        @Param("name") String name,
         @Param("memberId") Long memberId
     );
 

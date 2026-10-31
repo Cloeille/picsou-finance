@@ -19,7 +19,7 @@ Facts deliberately NOT guessed (the fixtures and findings do not settle them):
 * the unit of `fillingRatio` (21.8 in the fixture): passed through untouched;
 * the meaning of contract `status` (`2 Actif`): contracts are not filtered on it;
 * which product families exist beyond those observed (`1`, `3/01` Livret A,
-  `3/28` LDDS, `4/05` PER, `6/12` loan): they are skipped (with their cards)
+  `3/28` LDDS, `4/05` PER, `6/12` personal loan, `6/13` home loan): they are skipped (with their cards)
   and reported in `build_import(...)["unsupported"]` by id and family code
   only, never mapped to a guessed kind, so a PEA or an insurance contract
   cannot block the sync of the supported accounts. PER, loan and insurance
@@ -35,6 +35,7 @@ Facts deliberately NOT guessed (the fixtures and findings do not settle them):
   (wrong account) rather than mis-filing rows. To confirm on the next real run.
 """
 
+import calendar
 import math
 import re
 from datetime import date
@@ -59,7 +60,11 @@ _KINDS_BY_FAMILY = {
     (FAMILY_SAVINGS_AVAILABLE, "28"): "LDDS",
     ("4", "05"): "PER",
     ("6", "12"): "LOAN",
+    ("6", "13"): "LOAN",
 }
+# Which detail a LOAN reads: the personal-loan app or the home-loan app
+# (observed live 2026-10-25, `6/13` "Crédit immobilier").
+LOAN_PRODUCTS = {("6", "12"): "PERSONAL", ("6", "13"): "HOME"}
 # Kinds with PFM transactions, keyed by `contractPfmId`. PER and loan contracts
 # carry a null `contractPfmId` and are keyed by `contract:<contractId.id>`.
 PFM_KINDS = frozenset({"CURRENT_ACCOUNT", "LIVRET_A", "LDDS"})
@@ -257,7 +262,17 @@ def _contract_account(item: dict, where: str) -> tuple:
         # Routing uses the contract's actual entity, not an assumed login-query field.
         contract_id = identification.get("contractId")
         account["perEntityCode"] = contract_id.get("entityCode") if isinstance(contract_id, dict) else None
+    if kind == "LOAN":
+        account["loanProduct"] = LOAN_PRODUCTS[_family_pair(identity)]
+        # The home-loan API names the loan `<entityCode>-<contractId.id>`.
+        contract_id = identification.get("contractId")
+        account["loanEntityCode"] = contract_id.get("entityCode") if isinstance(contract_id, dict) else None
     return account, None
+
+
+def _family_pair(identity: dict) -> tuple:
+    """`(productFamilyPFM.code, subProductFamilyPFM.code)`, already checked by `_contract_kind`."""
+    return identity["productFamilyPFM"]["code"], identity["subProductFamilyPFM"]["code"]
 
 
 def _card_account(card: Any, parent: dict, where: str) -> Optional[dict]:
@@ -499,6 +514,28 @@ def _annuity(borrowed: Decimal, rate: Decimal, months: int) -> Decimal:
     return borrowed * monthly / (1 - (1 + monthly) ** -months)
 
 
+def _insurance(borrowed: Decimal, rate: Decimal, months: int, installment: Decimal) -> Optional[Decimal]:
+    """Monthly borrower insurance, derived rather than read, or None below the annuity.
+
+    The bank's installment exceeds the annuity at the nominal rate because of the
+    borrower insurance (types D and I seen live on a personal loan). Picsou's
+    amortisation schedule takes the insurance back out of the installment, so it is
+    sent apart. A home loan's insurance is often taken elsewhere: the installment then
+    matches the annuity to the cent and 0.00 is sent. Below the annuity: no figure.
+    Figures the 28-digit decimal context cannot carry refuse this loan's detail
+    instead of failing the import: an amount of 10^26 or more cannot be rounded to
+    the cent, and a rate around 1e-30 % rounds `1 + monthly` to 1, so the annuity
+    divides by zero.
+    """
+    try:
+        annuity = _annuity(borrowed, rate, months).quantize(_CENT, rounding=ROUND_HALF_UP)
+        insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
+    except ArithmeticError:
+        # Every decimal signal (InvalidOperation, DivisionByZero, ...) is an ArithmeticError.
+        raise ParseError(INVALID_LOAN_DETAIL, "loan: figures outside the decimal precision") from None
+    return insurance if insurance >= 0 else None
+
+
 def parse_loan_detail(payload: Any) -> dict:
     """`personalLoanPrdSynthesisView` -> the `loan` block of a LOAN account.
 
@@ -523,23 +560,87 @@ def parse_loan_detail(payload: Any) -> dict:
         folder.get("nextMonthlyPaymentAmount"), "loan.folder.nextMonthlyPaymentAmount"
     )
 
-    # Derived, not read: the bank's installment exceeds the annuity at the
-    # nominal rate because of the borrower insurance (types D and I seen live).
-    # Picsou's amortisation schedule takes the insurance back out of the
-    # installment, so it is sent apart. Below the annuity: no insurance figure.
-    annuity = _annuity(borrowed, rate, duration).quantize(_CENT, rounding=ROUND_HALF_UP)
-    insurance = (installment - annuity).quantize(_CENT, rounding=ROUND_HALF_UP)
-
     return {
         "borrowedAmount": borrowed,
         "interestRate": rate,
         "monthlyPayment": installment,
-        "insuranceMonthly": insurance if insurance >= 0 else None,
+        "insuranceMonthly": _insurance(borrowed, rate, duration, installment),
         "signatureDate": _fr_date(offer.get("signatureDate"), "loan.offer.signatureDate"),
         "firstDueDate": _fr_date(offer.get("firstDueDate"), "loan.offer.firstDueDate"),
         "lastDueDate": _fr_date(folder.get("lastDueDate"), "loan.folder.lastDueDate"),
         "durationMonths": duration,
         "linkedIban": _text(linked.get("iban"), INVALID_LOAN_DETAIL, "loan.linkedAccount.iban"),
+    }
+
+
+# ─── Home-loan detail ───────────────────────────────────────────────────────
+#
+# `GET /bapi/loan/v1/loans/{entityCode}-{contractId.id}` on the BPCE host,
+# observed live 2026-10-25 for a fixed-rate home loan. Dates are ISO
+# (`YYYY-MM-DD`), `nextDuedateRate` is the rate in percent and `duration` the
+# number of monthly installments. No first due date is given: it is the last
+# one minus `duration - 1` months. The debit account comes without its IBAN.
+
+
+def _add_months(day: date, months: int) -> date:
+    year, month = divmod(day.year * 12 + day.month - 1 + months, 12)
+    return date(year, month + 1, min(day.day, calendar.monthrange(year, month + 1)[1]))
+
+
+def _eur_amount(value: Any, where: str) -> Decimal:
+    """A positive `{value, currencyCode}` in euros: the loan account and its Debt are in EUR."""
+    amount = _positive_amount(value, where)
+    if value.get("currencyCode") != "EUR":
+        raise ParseError(INVALID_LOAN_DETAIL, f"{where}.currencyCode: expected EUR")
+    return amount
+
+
+def parse_home_loan_detail(payload: Any) -> dict:
+    """`loan/v1/loans` -> the `loan` block of a LOAN account, same shape as a personal loan.
+
+    Any missing or malformed field raises `ParseError`.
+    """
+    root = _object(payload, INVALID_LOAN_DETAIL, "loan")
+    loan = _object(root.get("loan"), INVALID_LOAN_DETAIL, "loan.loan")
+    contract = _object(loan.get("contractCharacteristic"), INVALID_LOAN_DETAIL, "loan.contractCharacteristic")
+    money = _object(loan.get("financialInformation"), INVALID_LOAN_DETAIL, "loan.financialInformation")
+
+    borrowed = _eur_amount(money.get("amountBorrowed"), "loan.financialInformation.amountBorrowed")
+    duration = money.get("duration")
+    if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
+        raise ParseError(INVALID_LOAN_DETAIL, "loan.financialInformation.duration: expected a positive integer")
+    percent = _decimal(money.get("nextDuedateRate"), INVALID_LOAN_DETAIL, "loan.financialInformation.nextDuedateRate")
+    rate = percent / 100
+    if not 0 <= rate <= 1:
+        raise ParseError(INVALID_LOAN_DETAIL, "loan.financialInformation.nextDuedateRate: expected a rate between 0 and 100 %")
+    installment = _eur_amount(money.get("nextDuedateAmount"), "loan.financialInformation.nextDuedateAmount")
+    last_due = _iso_date(money.get("lastDuedate"), INVALID_LOAN_DETAIL, "loan.financialInformation.lastDuedate")
+    signature = _iso_date(
+        contract.get("subscriptionDate"), INVALID_LOAN_DETAIL, "loan.contractCharacteristic.subscriptionDate"
+    )
+    # A duration reaching before year 1 raises ValueError; one too large for a C long
+    # (10^30) raises OverflowError. Either refuses this loan only.
+    try:
+        first_due = _add_months(last_due, -(duration - 1))
+    except (ValueError, OverflowError):
+        raise ParseError(
+            INVALID_LOAN_DETAIL, "loan.financialInformation.duration: first due date out of range"
+        ) from None
+    if first_due < signature:
+        raise ParseError(
+            INVALID_LOAN_DETAIL, "loan.financialInformation: first due date before the subscription date"
+        )
+
+    return {
+        "borrowedAmount": borrowed,
+        "interestRate": rate,
+        "monthlyPayment": installment,
+        "insuranceMonthly": _insurance(borrowed, rate, duration, installment),
+        "signatureDate": signature,
+        "firstDueDate": first_due,
+        "lastDueDate": last_due,
+        "durationMonths": duration,
+        "linkedIban": None,
     }
 
 

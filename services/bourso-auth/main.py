@@ -14,7 +14,7 @@ Auth flow:
   POST /complete {processId}
     → holds open while the user approves in the BoursoBank app → {sessionState}
   POST /accounts {sessionState}
-    → [{externalId, name, type, balanceEur, cashBalance, positions[], snapshotComplete}]
+    → [{externalId, name, type, balanceEur, cashBalance, positions[], valuationLineCount, snapshotComplete}]
 
 Only the session cookies are returned to Java, which encrypts them before
 storage. Credentials are held in memory for the length of one request and are
@@ -54,6 +54,7 @@ from accounts_parser import (
     guard_symbol_collisions,
     parse_iban_page,
     parse_dashboard,
+    parse_life_insurance,
     parse_operations,
     parse_trading_summary,
 )
@@ -90,6 +91,13 @@ APP_VALIDATION_TIMEOUT_SECONDS = 120
 APP_VALIDATION_POLL_SECONDS = 2.0
 REQUEST_TIMEOUT_SECONDS = 30.0
 MAX_MOVEMENT_PAGES = 20
+# The optional history reads (IBAN and movements of every current account and
+# livret) may only use what is left of this budget, counted from the start of
+# the accounts read. It leaves 30 s of margin under the backend's 90 s /accounts
+# timeout, which drops the whole answer. Balances and holdings are read first,
+# so they are never what gets cut: a slow history page must never cost a
+# balance already read.
+ACCOUNTS_HISTORY_DEADLINE_SECONDS = 60.0
 # Every pending second factor pins an httpx client and its cookie jar. Cheap
 # next to a browser, but the backend's per-IP throttle does not bound this
 # service in aggregate.
@@ -241,6 +249,9 @@ class AccountPayload(BaseModel):
     balanceEur: Decimal
     cashBalance: Decimal | None = None
     positions: list[PositionPayload]
+    # Assurance vie only: the supports-table rows the valuation was reconciled
+    # against, euro-fund rows included, which the backend needs to redo the check.
+    valuationLineCount: int | None = Field(default=None, ge=0)
     iban: str | None = None
     transactions: list[dict[str, Any]] = Field(default_factory=list)
     transactionWarning: Literal["TRANSACTIONS_UNAVAILABLE", "TRANSACTIONS_INCOMPLETE"] | None = None
@@ -608,6 +619,27 @@ async def _fetch_trading_account(
     return parse_trading_summary(payload, account_id)
 
 
+async def _fetch_life_insurance(client: httpx.AsyncClient, account_href: str) -> dict[str, Any]:
+    """Read an assurance-vie contract's supports from its positions page.
+
+    Unlike a PEA, a contract has no trading-board summary; its positions page
+    is server-rendered and carries the valuation and every support.
+    """
+    account_url = _same_origin_url(account_href, BASE_URL)
+    positions_url = _same_origin_url(urljoin(account_url.rstrip("/") + "/", "positions"), account_url)
+    response = await client.get(positions_url, follow_redirects=False)
+    if response.status_code in (401, 403) or (
+        response.is_redirect and LOGIN_PATH in response.headers.get("location", "")
+    ):
+        raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+    if response.status_code != 200:
+        log.warning("BoursoBank assurance-vie page failed (HTTP %s)", response.status_code)
+        if response.status_code == 429 or response.status_code >= 500:
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+    return parse_life_insurance(response.text)
+
+
 def redirects_to_identity_selector(response: httpx.Response) -> bool:
     if not response.is_redirect:
         return False
@@ -652,7 +684,7 @@ def _same_origin_url(value: str, base: str) -> str:
 async def _fetch_operations(
     client: httpx.AsyncClient, account_href: str, *, today: date | None = None
 ) -> tuple[list[dict[str, Any]], bool]:
-    """Fetch at most 20 pages of booked current-account/LEP movements."""
+    """Fetch at most 20 pages of booked current-account or livret movements."""
     today = today or date.today()
     from_date = today - timedelta(days=90)
     account_url = _same_origin_url(account_href, BASE_URL)
@@ -700,7 +732,27 @@ async def _fetch_iban(client: httpx.AsyncClient, account_href: str) -> str | Non
     return parse_iban_page(response.text)
 
 
+async def _read_history(client: httpx.AsyncClient, entry: dict[str, Any], href: str) -> None:
+    try:
+        entry["iban"] = await _fetch_iban(client, href)
+    except (httpx.HTTPError, ValueError):
+        # IBAN is optional matching metadata, not a balance dependency.
+        pass
+    try:
+        entry["transactions"], truncated = await _fetch_operations(client, href)
+        if truncated:
+            entry["transactionWarning"] = "TRANSACTIONS_INCOMPLETE"
+            log.warning("BoursoBank transaction history: TRANSACTIONS_INCOMPLETE")
+    except (httpx.HTTPError, ValueError, AccountsFormatError):
+        # Balances remain useful, but never present a failed history read
+        # as a complete transaction import or expose upstream content.
+        entry["transactionWarning"] = "TRANSACTIONS_UNAVAILABLE"
+        log.warning("BoursoBank transaction history: TRANSACTIONS_UNAVAILABLE")
+
+
 async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + ACCOUNTS_HISTORY_DEADLINE_SECONDS
     home = await _home(client)
     if _LOGGED_IN_MARKER not in home:
         raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
@@ -719,6 +771,7 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
         )
 
     payloads: list[dict[str, Any]] = []
+    history_pending: list[tuple[dict[str, Any], str]] = []
     for account in accounts:
         entry: dict[str, Any] = {
             "externalId": f"bourso_{account['id']}",
@@ -732,7 +785,14 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
             "transactionWarning": None,
             "snapshotComplete": True,
         }
-        if account["section"] == "trading":
+        if account["type"] == "ASSURANCE_VIE":
+            contract = await _fetch_life_insurance(client, account["href"])
+            entry["balanceEur"] = contract["totalEur"]
+            entry["cashBalance"] = contract["cashEur"]
+            entry["positions"] = contract["positions"]
+            entry["valuationLineCount"] = contract["valuationLineCount"]
+            guard_symbol_collisions(entry["positions"])
+        elif account["section"] == "trading":
             summary = await _fetch_trading_account(client, api_url, user_hash, account["id"])
             # The trading board is authoritative over the dashboard tile: it is
             # the figure the two reconciliations above were run against.
@@ -740,23 +800,34 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
             entry["cashBalance"] = summary["cashEur"]
             entry["positions"] = summary["positions"]
             guard_symbol_collisions(entry["positions"])
-        elif account["type"] in {"CHECKING", "LEP"}:
-            try:
-                entry["iban"] = await _fetch_iban(client, account["href"])
-            except (httpx.HTTPError, ValueError):
-                # IBAN is optional matching metadata, not a balance dependency.
-                pass
-            try:
-                entry["transactions"], truncated = await _fetch_operations(client, account["href"])
-                if truncated:
-                    entry["transactionWarning"] = "TRANSACTIONS_INCOMPLETE"
-                    log.warning("BoursoBank transaction history: TRANSACTIONS_INCOMPLETE")
-            except (httpx.HTTPError, ValueError, AccountsFormatError):
-                # Balances remain useful, but never present a failed history read
-                # as a complete transaction import or expose upstream content.
-                entry["transactionWarning"] = "TRANSACTIONS_UNAVAILABLE"
-                log.warning("BoursoBank transaction history: TRANSACTIONS_UNAVAILABLE")
+        else:
+            # Current accounts and every livret share the card's /mouvements
+            # history and /rib page; keying this on the section rather than a
+            # list of types keeps a new passbook kind from silently losing them.
+            history_pending.append((entry, account["href"]))
         payloads.append(entry)
+
+    # Second pass, once every balance and holding is in hand: history is the
+    # optional part, so it alone runs against the deadline set when the accounts
+    # read began, however long the first pass took. Sequential on purpose, the
+    # requests share one session and BoursoBank sees one browser.
+    unread = 0
+    for entry, href in history_pending:
+        # An account past the deadline gets no upstream request at all.
+        if loop.time() < deadline:
+            try:
+                async with asyncio.timeout_at(deadline):
+                    await _read_history(client, entry, href)
+                continue
+            except TimeoutError:
+                pass
+        entry["transactionWarning"] = "TRANSACTIONS_UNAVAILABLE"
+        unread += 1
+    if unread:
+        log.warning(
+            "BoursoBank transaction history: deadline reached, %d account(s) without history",
+            unread,
+        )
 
     unresolved = sum(
         1 for entry in payloads for position in entry["positions"] if not position["isin"]
