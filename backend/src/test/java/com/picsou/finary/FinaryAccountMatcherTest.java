@@ -27,6 +27,22 @@ class FinaryAccountMatcherTest {
     }
 
     @Test
+    void findsAnXlsxIdByItsSheetName_whoseApiCategoryIsSpelledDifferently() {
+        // The xlsx import keeps the sheet name, "Real Estate", where the API says "real_estates".
+        Account flat = account(3L, "Rental", AccountType.REAL_ESTATE, "finary_Real Estate_paris_flat");
+
+        Optional<FinaryAccountMatcher.Suggestion> hit = FinaryAccountMatcher.suggestAll(
+            List.of(new FinaryAccountMatcher.FinaryRow("981", "Paris flat", "real_estates", "paris_flat")),
+            List.of(flat)
+        ).get(0);
+
+        assertThat(hit).hasValueSatisfying(s -> {
+            assertThat(s.account().getId()).isEqualTo(3L);
+            assertThat(s.reason()).isEqualTo("legacySlug");
+        });
+    }
+
+    @Test
     void matchesTrimmedNameAndCompatibleType() {
         Account lbp = account(10L, "MR CHERRIER CHRISTOPHE", AccountType.CHECKING, null);
         Account pea = account(11L, "PEA banque Postale ", AccountType.PEA, null);

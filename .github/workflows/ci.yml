@@ -355,6 +355,26 @@ jobs:
           picsou-tr-auth:test
           -m unittest discover -v
 
+  revolut-auth-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the Revolut sidecar image
+        run: docker build --tag picsou-revolut-auth:test services/revolut-auth
+      # The async tests need pytest-asyncio, a test-only dependency the image does not ship.
+      - name: Run sidecar tests in the image
+        run: >-
+          docker run --rm
+          --entrypoint sh
+          --env PYTHONDONTWRITEBYTECODE=1
+          --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/revolut-auth/tests:/app/tests:ro"
+          picsou-revolut-auth:test
+          -c "python -m pip install --user --no-cache-dir --no-warn-script-location pytest==8.4.2 pytest-asyncio==1.2.0
+          && python -m pytest -p no:cacheprovider -p no:logging --asyncio-mode=auto -v tests"
+
   compose-sidecar-build:
     # The Compose wiring (build-only bases, `additional_contexts: service:`)
     # as users run it, not only as YAML assertions.
@@ -443,6 +463,7 @@ jobs:
       - amex-auth-sidecar
       - degiro-auth-sidecar
       - tr-auth-sidecar
+      - revolut-auth-sidecar
       - compose-sidecar-build
       - workflow-inventory
     if: github.event_name == 'push'

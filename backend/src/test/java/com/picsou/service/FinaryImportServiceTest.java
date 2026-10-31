@@ -1,9 +1,12 @@
 package com.picsou.service;
 
 import com.picsou.dto.FinaryAccountMapping;
+import com.picsou.dto.FinaryAccountPreview;
 import com.picsou.dto.FinaryImportRequest;
 import com.picsou.dto.FinaryMappingAction;
 import com.picsou.dto.FinaryPreviewResponse;
+import com.picsou.dto.NewAccountDetails;
+import com.picsou.finary.FinaryAccountMatcher;
 import com.picsou.finary.FinaryPersistenceHelper;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
@@ -17,6 +20,7 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -83,6 +87,35 @@ class FinaryImportServiceTest {
         verify(accountRepository, never()).findByIdAndMemberId(any(), any());
         verify(accountRepository, never()).save(any());
         verify(persistenceHelper, never()).importTransactions(any(), any(), any());
+    }
+
+    @Test
+    void anAccountCreatedByTheXlsxImport_isFoundByTheApiSyncThroughItsSlug() throws Exception {
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of());
+        when(familyMemberRepository.findById(1L)).thenReturn(Optional.of(FamilyMember.builder().id(1L).build()));
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> {
+            Account saved = inv.getArgument(0);
+            saved.setId(7L);
+            return saved;
+        });
+        FinaryPreviewResponse preview = service.preview(xlsxWithCheckings("Checking"), 1L);
+        FinaryAccountPreview row = preview.accounts().get(0);
+        List<FinaryAccountMapping> create = List.of(new FinaryAccountMapping(
+            row.finaryId(), row.finaryName(), row.finaryCategory(), FinaryMappingAction.CREATE_NEW, null,
+            new NewAccountDetails("Household", AccountType.CHECKING, "Bank", "EUR", null)));
+        service.executeImport(new FinaryImportRequest(create, preview.fileToken()), 1L);
+        ArgumentCaptor<Account> created = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository).save(created.capture());
+
+        // The same account seen by the API: a numeric id, its category as a URL segment.
+        List<Optional<FinaryAccountMatcher.Suggestion>> hits = FinaryAccountMatcher.suggestAll(
+            List.of(new FinaryAccountMatcher.FinaryRow("4242", "Checking", "checkings", "checking")),
+            List.of(created.getValue()));
+
+        assertThat(hits.get(0)).hasValueSatisfying(hit -> {
+            assertThat(hit.account().getId()).isEqualTo(7L);
+            assertThat(hit.reason()).isEqualTo("legacySlug");
+        });
     }
 
     private static MockMultipartFile xlsxWithCheckings(String... names) throws Exception {

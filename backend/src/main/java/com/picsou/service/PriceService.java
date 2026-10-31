@@ -553,4 +553,15 @@ public class PriceService {
         String upper = ticker.toUpperCase(Locale.ROOT);
         return priceProvider.getIntradayPricesEur(upper, from, to);
     }
+
+    /**
+     * {@link #getIntradayPricesEur} for a ticker known to be crypto: a coin CoinGecko does not map
+     * gets no series rather than the hourly closes of the stock sharing its symbol.
+     */
+    public Map<LocalDateTime, BigDecimal> getCryptoIntradayPricesEur(String ticker, LocalDateTime from, LocalDateTime to) {
+        if (ticker == null || !priceProvider.supportsCrypto(ticker.toUpperCase(Locale.ROOT))) {
+            return Map.of();
+        }
+        return getIntradayPricesEur(ticker, from, to);
+    }
 }

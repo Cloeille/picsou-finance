@@ -295,7 +295,10 @@ public class HistoryService {
         LocalDateTime from = now.minusHours(24);
 
         // Collect all tickers and group holdings
-        record HoldingData(String ticker, BigDecimal quantity, BigDecimal avgBuyEur, BigDecimal providerValueEur) {}
+        // A crypto account's ticker is a coin, never the stock trading under the same symbol, so
+        // the two get separate series, as quotesFor keeps them apart for the daily chart.
+        record Series(String ticker, boolean crypto) {}
+        record HoldingData(Series series, BigDecimal quantity, BigDecimal providerValueEur) {}
 
         Map<Long, List<HoldingData>> accountHoldings = new HashMap<>();
         Map<Long, BigDecimal> accountHoldingsInvested = new HashMap<>();
@@ -304,7 +307,7 @@ public class HistoryService {
         Map<Long, NavigableMap<LocalDate, BalanceSnapshot>> caisseEpargnePerSnapshots = new HashMap<>();
         Map<Long, BigDecimal> caisseEpargnePerLiveBalance = new HashMap<>();
         Map<Long, BigDecimal> caisseEpargnePerLiveInvested = new HashMap<>();
-        Set<String> allTickers = new HashSet<>();
+        Set<Series> allSeries = new HashSet<>();
         Set<Long> loanIds = new HashSet<>();
         Set<Long> liabilityIds = new HashSet<>();
         Set<Long> caisseEpargnePerIds = new HashSet<>();
@@ -359,20 +362,22 @@ public class HistoryService {
                 List<HoldingData> holdingDataList = new ArrayList<>();
                 BigDecimal invested = BigDecimal.ZERO;
                 boolean anyCostUnknown = false;
+                boolean crypto = account.getType() == AccountType.CRYPTO;
 
                 for (AccountHolding h : holdings) {
                     BigDecimal qty = h.getQuantity();
-                    BigDecimal avgBuy = h.getAverageBuyIn() != null ? h.getAverageBuyIn() : BigDecimal.ZERO;
-                    BigDecimal avgBuyEur = priceService.toEur(avgBuy, account.getCurrency(), null);
-                    String ticker = h.getTicker() != null ? h.getTicker().toUpperCase() : null;
-                    holdingDataList.add(new HoldingData(ticker, qty, avgBuyEur, h.getProviderValueEur()));
+                    // Already EUR whatever the account currency, as valuation() reads it: a Finary
+                    // wallet back in USD keeps the EUR averages its earlier import stored.
+                    BigDecimal avgBuyEur = h.getAverageBuyIn() != null ? h.getAverageBuyIn() : BigDecimal.ZERO;
+                    Series series = h.getTicker() != null ? new Series(h.getTicker().toUpperCase(), crypto) : null;
+                    holdingDataList.add(new HoldingData(series, qty, h.getProviderValueEur()));
                     // The provider's own EUR cost first, as valuation() takes it for the daily
                     // chart: a Finary line without a buying value has no average buy-in, and
                     // charging it zero printed its whole value as an intraday gain.
                     BigDecimal providerCost = AccountService.providerCostBasisEur(h);
                     if (providerCost == null && h.getAverageBuyIn() == null) anyCostUnknown = true;
                     invested = invested.add(providerCost != null ? providerCost : qty.multiply(avgBuyEur));
-                    if (ticker != null) allTickers.add(ticker);
+                    if (series != null) allSeries.add(series);
                 }
 
                 // The cash pocket sits in the envelope next to the positions and is worth exactly
@@ -395,15 +400,17 @@ public class HistoryService {
         // expected upstream failures and return an empty map, so anything thrown here is a bug
         // -- but letting it escape would 500 the whole intraday chart over one bad ticker.
         // Log it loudly, drop that ticker's series, and still render the rest.
-        Map<String, NavigableMap<LocalDateTime, BigDecimal>> intradayPricesByTicker = new HashMap<>();
-        for (String ticker : allTickers) {
+        Map<Series, NavigableMap<LocalDateTime, BigDecimal>> intradayPricesBySeries = new HashMap<>();
+        for (Series series : allSeries) {
             try {
-                Map<LocalDateTime, BigDecimal> prices = priceService.getIntradayPricesEur(ticker, from, now);
+                Map<LocalDateTime, BigDecimal> prices = series.crypto()
+                    ? priceService.getCryptoIntradayPricesEur(series.ticker(), from, now)
+                    : priceService.getIntradayPricesEur(series.ticker(), from, now);
                 if (!prices.isEmpty()) {
-                    intradayPricesByTicker.put(ticker, new TreeMap<>(prices));
+                    intradayPricesBySeries.put(series, new TreeMap<>(prices));
                 }
             } catch (Exception ex) {
-                log.error("Intraday price fetch failed for {} -- omitting it from the chart", ticker, ex);
+                log.error("Intraday price fetch failed for {} -- omitting it from the chart", series.ticker(), ex);
             }
         }
 
@@ -472,7 +479,7 @@ public class HistoryService {
                     BigDecimal marketValue = BigDecimal.ZERO;
                     for (HoldingData hd : holdings) {
                         NavigableMap<LocalDateTime, BigDecimal> priceMap =
-                            hd.ticker == null ? null : intradayPricesByTicker.get(hd.ticker);
+                            hd.series == null ? null : intradayPricesBySeries.get(hd.series);
                         var entry = priceMap == null ? null : priceMap.floorEntry(ts);
                         if (entry != null) {
                             marketValue = marketValue.add(hd.quantity.multiply(entry.getValue()));
@@ -505,7 +512,7 @@ public class HistoryService {
         }
 
         log.info("buildIntradayHistory: {} hourly points, {} accounts, {} tickers",
-            result.size(), accounts.size(), allTickers.size());
+            result.size(), accounts.size(), allSeries.size());
 
         return result;
     }

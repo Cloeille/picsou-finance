@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -19,6 +20,13 @@ import java.util.Set;
  * the name tier never offers an account another connector owns.
  */
 public final class FinaryAccountMatcher {
+
+    /** The xlsx import keeps the sheet name in its ids ({@code finary_Real Estate_<slug>}). */
+    private static final Map<String, String> XLSX_SHEET_BY_API_CATEGORY = Map.of(
+        "checkings", "Checkings", "savings", "Savings", "investments", "Investments",
+        "real_estates", "Real Estate", "cryptos", "Cryptos", "fonds_euro", "Fonds Euro",
+        "commodities", "Commodities", "credits", "Credits", "other_assets", "Other Assets",
+        "startups", "Startups");
 
     private FinaryAccountMatcher() {}
 
@@ -71,8 +79,9 @@ public final class FinaryAccountMatcher {
         }
 
         if (row.slug() != null && !row.slug().isBlank()) {
+            String xlsxCategory = XLSX_SHEET_BY_API_CATEGORY.getOrDefault(row.category(), row.category());
             Optional<Suggestion> bySlug = byExternalId(
-                externalId(row.category(), row.slug()), existing, claimed, "legacySlug");
+                externalId(xlsxCategory, row.slug()), existing, claimed, "legacySlug");
             if (bySlug.isPresent()) {
                 return bySlug;
             }
