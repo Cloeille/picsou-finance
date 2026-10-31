@@ -5,33 +5,28 @@ from urllib.parse import urlsplit
 
 _VISIBLE_RECT = """
 frame => {
-    const box = frame.getBoundingClientRect();
-    if (frame.clientWidth <= 1 || frame.clientHeight <= 1 ||
-        box.width <= 1 || box.height <= 1) return null;
-    let left = box.left, top = box.top, right = box.right, bottom = box.bottom;
+    if (frame.clientWidth <= 1 || frame.clientHeight <= 1) return null;
     for (let el = frame; el; el = el.parentElement) {
         const style = getComputedStyle(el);
         if (style.display === 'none' || style.visibility === 'hidden' ||
             style.visibility === 'collapse' || Number(style.opacity) === 0) return null;
-        if (el !== frame) {
-            const clip = el.getBoundingClientRect();
-            if (style.overflowX !== 'visible') {
-                left = Math.max(left, clip.left);
-                right = Math.min(right, clip.right);
-            }
-            if (style.overflowY !== 'visible') {
-                top = Math.max(top, clip.top);
-                bottom = Math.min(bottom, clip.bottom);
-            }
-        }
     }
-    left = Math.max(left, 0);
-    top = Math.max(top, 0);
-    right = Math.min(right, window.innerWidth);
-    bottom = Math.min(bottom, window.innerHeight);
-    if (right - left <= 1 || bottom - top <= 1) return null;
-    return [(left - box.left) / box.width, (top - box.top) / box.height,
-            (right - box.left) / box.width, (bottom - box.top) / box.height];
+    // The browser clips transformed padding boxes along the containing-block chain.
+    return new Promise(resolve => {
+        const observer = new IntersectionObserver(([entry]) => {
+            observer.disconnect();
+            const box = entry.boundingClientRect;
+            const clip = entry.intersectionRect;
+            if (box.width <= 1 || box.height <= 1 ||
+                clip.width <= 1 || clip.height <= 1) {
+                resolve(null);
+                return;
+            }
+            resolve([(clip.left - box.left) / box.width, (clip.top - box.top) / box.height,
+                     (clip.right - box.left) / box.width, (clip.bottom - box.top) / box.height]);
+        });
+        observer.observe(frame);
+    });
 }
 """
 

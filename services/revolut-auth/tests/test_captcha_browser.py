@@ -62,6 +62,42 @@ async def test_hidden_ancestor(page, style):
     assert not await captcha.visible(page)
 
 
+@pytest.mark.parametrize(("position", "wrapper_style", "expected"), [
+    ("fixed", "", True),
+    ("absolute", "", True),
+    ("fixed", "position:relative", True),
+    ("absolute", "position:relative", False),
+    ("fixed", "transform:translate(20px, 20px)", False),
+    ("absolute", "transform:translate(20px, 20px)", False),
+])
+async def test_positioned_challenge_uses_containing_block_clips(
+        page, position, wrapper_style, expected):
+    await page.set_content(
+        f'<div style="width:0;height:0;overflow:hidden;{wrapper_style}">'
+        '<iframe src="https://hcaptcha.com/challenge" '
+        f'style="border:0;width:400px;height:300px;position:{position};top:20px;left:20px">'
+        '</iframe></div>')
+    assert await captcha.visible(page) is expected
+
+
+@pytest.mark.parametrize("transform", ["none", "scale(2)", "rotate(15deg)"])
+@pytest.mark.parametrize(("dimension", "padding", "expected"), [
+    ("height", "0", False),
+    ("width", "0", False),
+    ("height", "0 0 10px", True),
+    ("width", "0 10px 0 0", True),
+])
+async def test_overflow_clips_at_transformed_padding_box(
+        page, transform, dimension, padding, expected):
+    await page.set_content(
+        f'<div style="width:400px;height:300px;{dimension}:0;padding:{padding};'
+        'overflow:hidden;border:2px solid transparent;margin:100px;'
+        f'transform-origin:top left;transform:{transform}">'
+        '<iframe src="https://hcaptcha.com/challenge" '
+        'style="border:0;width:400px;height:300px"></iframe></div>')
+    assert await captcha.visible(page) is expected
+
+
 async def test_nested_challenge(page):
     await page.set_content("""<iframe style="width:600px;height:400px" srcdoc='
         <iframe src="https://hcaptcha.com/challenge" style="width:400px;height:300px"></iframe>
