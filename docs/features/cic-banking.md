@@ -44,11 +44,14 @@ balance.
   can contain holder names and balances that must not reach sidecar logs. Balance
   detection collects element class tokens, balance-element text, and text with and without
   titles in one HTML parse per fragment. Unknown rows also fail on visible French decimal
-  amounts (a comma and two decimal digits) or text containing `euro` outside the title,
+  amounts (a comma and two decimal digits) or a numeric amount followed by the whole currency
+  word `euro` or `euros` (case-insensitive) outside the title,
   even without a currency symbol or balance class. Other plain-text money requires an uppercase ISO currency code
   (except `EUR`, which remains case-insensitive) or a `€`, `$`, or `£` symbol on either side of the amount,
   including whole-number amounts. Numeric runs are tokenized once so long text without a
   currency does not trigger quadratic regex retries.
+  Balance-free offer text such as "Découvrez nos offres en Europe" or "Montants en euros"
+  remains skippable; `1 EURO` and `1 234,56 euros` still fail closed.
   Outside supported contract tables, an alphabetic currency prefix requires decimal punctuation
   or at least four digits in the amount. Uppercase prose such as `TOP 3`, `ALL 4 YOU`, or `SOS 112`
   therefore preserves the accounts in layout tables, unknown-category captions, and offer subtitles.

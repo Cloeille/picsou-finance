@@ -703,6 +703,31 @@ class PageTest(unittest.TestCase):
                         f'<td{attributes}>{amount}</td>'
                     )
 
+    def test_balance_free_euro_offer_text_is_skipped(self):
+        for text in ("Découvrez nos offres en Europe", "Montants en euros",
+                     "1 offre en Europe", "1 eurozone", "1 eurosceptique"):
+            for category in (None, "Autres offres"):
+                caption = "" if category is None else (
+                    f"<caption>Liste des comptes liés à la catégorie : {category}</caption>"
+                )
+                table = ('<table class="ei_comptescontrats">' + caption + '<tr><td>'
+                         '<span class="ei_sdsf_title">Vos contrats et nos offres</span>'
+                         f'<span>{text}</span></td><td class="ei_sdsf_solde"></td>'
+                         '</tr></table>')
+                page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+                with self.subTest(text=text, category=category):
+                    accounts, skipped = parse_accounts(page)
+                    self.assertEqual(accounts, parse_accounts(ACCOUNTS_PAGE)[0])
+                    self.assertEqual(skipped, ["autres contrats liés", category.lower() if category else "unnamed"])
+
+    def test_whole_euro_currency_words_after_amounts_fail(self):
+        for amount in ("1 EURO", "1 234,56 euros", "1 euro", "1 EUROS", "1\u202feuro"):
+            with self.subTest(amount=amount):
+                self.assert_unknown_row_fails(
+                    '<td><span class="ei_sdsf_title">Vos contrats et nos offres</span>'
+                    f'<span>{amount}</span></td><td class="ei_sdsf_solde"></td>'
+                )
+
     def test_unknown_table_captions_and_offer_subtitles_allow_uppercase_prose(self):
         for text in ("TOP 3", "ALL 4 YOU", "SOS 112"):
             for category in (f"Offres {text}", "Autres"):

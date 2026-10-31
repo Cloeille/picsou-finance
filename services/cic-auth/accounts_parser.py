@@ -72,6 +72,7 @@ _BALANCE_RE = re.compile(
     r"(?:(?P<prefix>\b(?:[A-Z]{3}|(?i:EUR))\b|[€$£])\s*+[+-]?\s*+)?"
     r"(?P<number>\d[\d\s.,]*+)(?P<suffix>(?:[A-Z]{3}|(?i:EUR))\b|[€$£])?",
 )
+_EURO_WORD_RE = re.compile(r"\beuros?\b", re.IGNORECASE)
 
 # Ordered: the first match wins, so the specific products come before the
 # generic "livret".
@@ -300,8 +301,9 @@ def _has_balance(fragment: str) -> bool:
     # Unknown rows may expose a balance without a currency or class marker.
     # Reuse numeric runs to avoid retrying a decimal regex at every digit.
     return (_balance_data(parser, contract=False)
-            or "euro" in outside_title.lower()
             or any(re.search(r",\d{2}\b", match.group("number"))
+                   # Currency words must follow an amount, not just occur in prose.
+                   or _EURO_WORD_RE.match(outside_title, match.end())
                    for match in _BALANCE_RE.finditer(outside_title)))
 
 
