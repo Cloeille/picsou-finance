@@ -297,6 +297,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sidecars share their plumbing.** The bank sidecars' key check, health endpoint, request
+  log, log sanitising and pending-login store now live once, in `services/base/picsou_sidecar`,
+  and CIC and Crédit Mutuel share one login client. Behaviour is unchanged, with three
+  alignments: AMEX answers a wrong sidecar key with `{"detail": "UNAUTHORIZED"}` like the
+  others, every sidecar escapes control characters in its whole log line, and Crédit Mutuel
+  withdraws the phone confirmation when the bank answers an unknown state, as CIC did. Code
+  no production path used goes (AMEX self-check, Fortuneo legacy parsers, unused helpers).
+
 - **Pull requests go green sooner.** CI runs only the jobs a pull request's changed paths can
   affect, a new push cancels the stale run, and the demo Playwright suite runs once instead of
   twice. Pushes to `main` and tags still run every job, and a new `ci-ok` check fails when a

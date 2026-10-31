@@ -137,7 +137,10 @@ cannot read the app's `/data/.secrets/` volume.
   route except the exact `/health` path, including `/docs` and
   `/openapi.json`, requires the header. A constant-time comparison
   (`secrets.compare_digest`) runs in an HTTP middleware, before routing, body
-  parsing or any upstream work.
+  parsing or any upstream work. That middleware lives once, in the shared
+  `services/base/picsou_sidecar` package, and every sidecar's
+  `test_sidecar_auth.py` runs the same contract (`picsou_sidecar.contract`)
+  against its own app.
 - A missing or wrong key returns HTTP 401 `{"detail": "UNAUTHORIZED"}` with
   `WWW-Authenticate: Picsou-Sidecar-Key`. The backend matches on that challenge
   and raises `SidecarAuthenticationException` (`SIDECAR_UNAUTHORIZED`), so a key

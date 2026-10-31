@@ -71,7 +71,7 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 - `AmexSyncServiceTest`, `AmexAdapterTest`, `AmexControllerTest`
 - `RecurringSeriesServiceTest`, `HistoryServiceTest`, `AccountServiceTest` (card sign)
 - `TransactionsList.test.tsx` (header actions), `AccountForm.test.tsx` and `MonthEndBalanceModal.test.tsx` (card amount owed), `features/accounts/hooks.test.tsx` (debts out of the cash line), `money-axis.test.tsx` (chart axis masking)
-- Sidecar `python /app/main.py` self-check inside the built container
+- `test_parsers.py` and `test_sidecar_auth.py` inside the built container
 
 ## Links
 

@@ -82,6 +82,7 @@
 | 2026-10-21 | [Sidecars build on two shared base images](./decisions/2026-10-21-shared-sidecar-base-image.md) | Active |
 | 2026-10-27 | [Spring AI 1.1 for the MCP SSE keep-alive](./decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md) | Active |
 | 2026-10-31 | [Trusted proxy client addresses](./decisions/2026-10-31-trusted-proxy-client-address.md) | Active |
+| 2026-11-01 | [Sidecars share one Python package for their plumbing](./decisions/2026-11-01-shared-sidecar-package.md) | Active |
 
 ## Feature notes
 
