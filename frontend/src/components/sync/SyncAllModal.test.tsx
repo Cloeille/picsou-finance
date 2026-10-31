@@ -465,6 +465,25 @@ describe('SyncAllModal session providers', () => {
     expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
   })
 
+  /** The backend refuses a dead CE session (`SESSION_EXPIRED`), so the batch must skip the row. */
+  it("leaves an expired Caisse d'Epargne row out of \"Sync all\"", async () => {
+    amundiStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'IDLE' }
+    accountsFixture = [AMUNDI_ACCOUNT, CAISSE_EPARGNE_ACCOUNT]
+    apiPost.mockResolvedValue({ data: amundiStatus })
+    const onOpenChange = vi.fn()
+    renderModal(onOpenChange)
+
+    await screen.findByText("Caisse d'Epargne")
+    const button = screen.getByRole('button', { name: /sync\.all\.syncAll/ })
+    await waitFor(() => expect(button).toBeEnabled())
+    fireEvent.click(button)
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amundi/sync'))
+    expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
+    expect(navigate).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+  })
+
   it('reports a failed American Express run on a live session', async () => {
     amexStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'FAILED', lastSyncError: 'INTERNAL_ERROR' }
     renderModal()

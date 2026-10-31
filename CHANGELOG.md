@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [feature note](docs/features/admin-instance-status.md).
 - **Caisse d'Epargne in *Sync all*.** The dashboard's *Sync all* modal lists Caisse d'Epargne
   like the other session connectors: a live session syncs in place, an expired one opens the
-  Caisse d'Epargne tab, where the keypad and Sécur'Pass login run.
+  Caisse d'Epargne tab, where the keypad and Sécur'Pass login run, and *Sync all* skips it.
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per
