@@ -93,7 +93,7 @@ function LoanProgress({ liability }: { liability: DashboardLiability }) {
     <div className="flex items-center gap-2">
       <Progress
         value={percentPaid}
-        className="h-1.5 flex-1 [&_[data-slot=progress-indicator]]:bg-primary/60"
+        className="h-1.5 flex-1 [&_[data-slot=progress-indicator]]:bg-primary/60 dark:[&_[data-slot=progress-indicator]]:bg-primary/75"
       />
       <span className="shrink-0 text-xs text-muted-foreground">
         {Math.round(percentPaid)}%

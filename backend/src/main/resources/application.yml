@@ -44,9 +44,9 @@ spring:
       max-file-size: 10MB
       max-request-size: 10MB
 
-  # Embedded MCP server (Model Context Protocol). Transport is HTTP+SSE — the only transport
-  # Spring AI 1.0.3 / MCP SDK 0.10.0 ship (there is no Streamable HTTP on this version). Both
-  # the SSE stream (GET /mcp) and the message channel (POST /mcp/message) live under /mcp/** so
+  # Embedded MCP server (Model Context Protocol). Transport is HTTP+SSE, pinned with
+  # `protocol: SSE`: existing clients (Claude Code, `mcp-remote`) are configured for SSE. Both the SSE
+  # stream (GET /mcp) and the message channel (POST /mcp/message) live under /mcp/** so
   # AccessKeyAuthFilter gates them and a `psk_` key can never reach /api/** (security Property A).
   ai:
     mcp:
@@ -65,6 +65,11 @@ spring:
         sse-endpoint: /mcp
         sse-message-endpoint: /mcp/message
         request-timeout: 30s
+        protocol: SSE
+        # The server pings every open SSE session at this interval. Without it the stream stays
+        # silent between two replies, and clients drop it as idle: Bun's fetch (Claude Code) after
+        # ~6 min, the Python MCP SDK's SSE client after 300 s. The next call then times out.
+        keep-alive-interval: ${MCP_KEEP_ALIVE_INTERVAL:60s}
         capabilities:
           tool: true
           resource: false
@@ -201,6 +206,8 @@ app:
     url: ${DEGIRO_AUTH_URL:http://degiro-auth:8001}
   amundi-auth:
     url: ${AMUNDI_AUTH_URL:http://amundi-auth:8001}
+  cmes-auth:
+    url: ${CMES_AUTH_URL:http://cmes-auth:8001}
   amex-auth:
     url: ${AMEX_AUTH_URL:http://amex-auth:8001}
   fortuneo-auth:

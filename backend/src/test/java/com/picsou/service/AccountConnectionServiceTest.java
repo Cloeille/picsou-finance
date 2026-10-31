@@ -46,6 +46,7 @@ class AccountConnectionServiceTest {
     @Mock WalletSyncService walletSyncService;
     @Mock CryptoExchangeSyncService cryptoExchangeSyncService;
     @Mock AmundiSyncService amundiSyncService;
+    @Mock CmesSyncService cmesSyncService;
     @Mock TradeRepublicSyncService tradeRepublicSyncService;
     @Mock BourseDirectSyncService bourseDirectSyncService;
     @Mock BoursoSyncService boursoSyncService;
@@ -57,7 +58,7 @@ class AccountConnectionServiceTest {
     private AccountConnectionService service() {
         return new AccountConnectionService(
             accountRepository, accountService, walletRepository, exchangeSessionRepository,
-            requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService,
+            requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService, cmesSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
             fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService);
     }
@@ -207,6 +208,31 @@ class AccountConnectionServiceTest {
         assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
         verify(accountService).delete(10L, MEMBER_ID);
         verify(amundiSyncService).clearSession(MEMBER_ID);
+    }
+
+    /** A saver often holds a PEE and a PERCO on one Épargne Salariale login. */
+    @Test
+    void keepsTheCmesSessionWhileAnotherPlanRemains() {
+        given(account(10L, "cmes_12345_plan-d-pargne-groupe-0123456789abcdef"),
+            account(11L, "cmes_12345_plan-d-pargne-retraite-fedcba9876543210"));
+
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
+
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(cmesSyncService, never()).clearSession(anyLong());
+    }
+
+    @Test
+    void clearsTheCmesSessionAndItsCredentialsWithItsLastPlan() {
+        given(account(10L, "cmes_12345_plan-d-pargne-groupe-0123456789abcdef"));
+        when(cmesSyncService.clearSession(MEMBER_ID)).thenReturn(true);
+
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
+
+        assertThat(impact).isEqualTo(
+            new AccountConnectionService.DeletionImpact(true, "Crédit Mutuel / CIC Épargne Salariale"));
+        verify(accountService).delete(10L, MEMBER_ID);
+        verify(cmesSyncService).clearSession(MEMBER_ID);
     }
 
     @Test

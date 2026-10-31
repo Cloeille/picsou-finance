@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Users, Settings } from 'lucide-react'
+import { ChevronDown, Eye, Settings, Users } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -10,44 +10,50 @@ import {
 import { useAppStore, type SidebarStyle } from '@/stores/app-store'
 import { cn } from '@/lib/utils'
 import picsouLogo from '@/assets/horizontal-white-picsou.svg'
-import { NAV_ITEMS } from './sidebar-nav-items'
+import { NAV_ITEMS, CLASSIC_SETTINGS_NAV_ITEM } from './sidebar-nav-items'
 
 const OPTIONS: { value: SidebarStyle; labelKey: string }[] = [
   { value: 'current', labelKey: 'settings.sidebarStyleCurrent' },
   { value: 'classic', labelKey: 'settings.sidebarStyleClassic' },
 ]
 
-// Derived from AppSidebar's real NAV_ITEMS so the miniature can't drift out of
-// sync with the actual sidebar. The Family item isn't in NAV_ITEMS (it's
-// rendered separately in AppSidebar), so its icon (Users) is appended by hand.
-const PREVIEW_NAV_ICONS = [...NAV_ITEMS.map((item) => item.icon), Users]
-
+// A sketch of AppSidebar for each style: same nav list (derived from NAV_ITEMS,
+// plus the Family item AppSidebar renders by hand), same card height (full vs
+// h-fit) and same member row placement, so the choice shows what it changes.
 function SidebarPreview({ variant }: { variant: SidebarStyle }) {
   const isClassic = variant === 'classic'
-  const navIcons = isClassic ? [...PREVIEW_NAV_ICONS, Settings] : PREVIEW_NAV_ICONS
+  const navIcons = [...(isClassic ? [...NAV_ITEMS, CLASSIC_SETTINGS_NAV_ITEM] : NAV_ITEMS).map((item) => item.icon), Users]
 
   return (
-    <div className="flex h-44 w-full gap-1.5 rounded-lg bg-muted/40 p-2" aria-hidden="true">
-      <div className={cn('flex flex-col rounded-md bg-background p-1.5', isClassic ? 'w-[46%] items-center' : 'w-1/2')}>
-        <img
-          src={picsouLogo}
-          alt=""
-          className={cn('h-2 w-auto opacity-70 brightness-0 dark:invert', isClassic ? 'mb-2' : 'mb-1.5 self-start')}
-        />
-        <div className="flex w-full flex-col gap-1">
+    <div className="flex h-48 w-full gap-1.5 rounded-lg bg-muted/40 p-2" aria-hidden="true">
+      <div
+        data-slot="preview-sidebar"
+        className={cn('flex w-1/2 flex-col rounded-md bg-background p-1.5', isClassic ? 'h-fit' : 'h-full')}
+      >
+        <div className={cn('flex items-center justify-between', isClassic ? 'mb-3' : 'mb-2')}>
+          <img src={picsouLogo} alt="" className="h-2 w-auto opacity-70 brightness-0 dark:invert" />
+          <Eye className="size-2 shrink-0 text-muted-foreground" />
+        </div>
+        <div className="flex flex-col gap-0.5">
           {navIcons.map((Icon, i) => (
             <div
               key={i}
-              className={cn('flex items-center gap-1 rounded-sm px-1 py-0.5', i === 0 && 'bg-muted')}
+              className={cn('flex items-center gap-1 rounded-sm px-0.5 py-px', i === 0 && 'bg-muted ring-1 ring-border')}
             >
-              <Icon className="size-2.5 shrink-0 text-muted-foreground" />
-              <div className="h-1 flex-1 rounded-full bg-muted" />
+              <div className="flex size-3 shrink-0 items-center justify-center rounded-[3px] bg-muted">
+                <Icon className="size-2 text-muted-foreground" />
+              </div>
+              <div className="flex flex-1 flex-col gap-0.5">
+                <div className="h-1 w-3/5 rounded-full bg-foreground/20" />
+                <div className="h-0.5 w-full rounded-full bg-foreground/10" />
+              </div>
             </div>
           ))}
         </div>
-        <div className="mt-auto flex w-full items-center gap-1 pt-1.5">
-          <div className="size-3 shrink-0 rounded-full bg-primary/40" />
-          {!isClassic && <div className="h-1 flex-1 rounded-full bg-muted" />}
+        <div className={cn('flex items-center gap-0.5 px-0.5', isClassic ? 'mt-1.5' : 'mt-auto')}>
+          <div className="size-3 shrink-0 rounded-full bg-foreground/15" />
+          <div className="ml-0.5 h-1 min-w-3 flex-1 rounded-full bg-foreground/20" />
+          <ChevronDown className="size-2 shrink-0 text-muted-foreground" />
           {!isClassic && <Settings className="size-2.5 shrink-0 text-muted-foreground" />}
         </div>
       </div>

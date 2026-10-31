@@ -1,6 +1,6 @@
 # Feature: Navigation (Sidebar + Mobile Bottom Nav)
 
-> Last updated: 2026-10-04
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -20,6 +20,12 @@ The menu opens **above** the trigger in the default style (`side="top"`), becaus
 `/sync` has no other permanent entry point. The dashboard `SyncAllModal` links to `/sync?tab=…` only for providers whose flow lives in the dedicated tab: a provider that needs re-authentication, Revolut, and Finary. Those links are contextual, not a general entry point. Mobile has no profile menu, so on mobile `/sync` stays effectively unreachable unless the user syncs one of those providers or types the URL.
 
 Desktop navigation opens with the horizontal Picsou brand logo (`horizontal-white-picsou.svg`, `brightness-0 dark:invert` so the single white SVG renders black in light theme and white in dark), then the route list. The logo sits at the top of the `<nav>`, aligned on the items' `px-4` gutter with `self-start` so it doesn't stretch in the flex column.
+
+Nav item subtitles (`ItemDescription`) use `line-clamp-2`. The classic card is `w-60`, too narrow for "Répartition & diversification" (fr) or "Aufteilung & Diversifikation" (de) on one line, so those wrap to a second line instead of ending in an ellipsis. At 1440×900 the classic card grows from 767 px to 777 px and still fits its `max-h`.
+
+### Sidebar style prompt
+
+`SidebarStylePromptModal` asks once which style to use and draws one miniature per style (`SidebarPreview`). Each miniature sketches its `AppSidebar` variant. Both show the logo on the left with the privacy eye on the right, and two-line nav rows built from `NAV_ITEMS` plus Family. The current sketch is a full-height column (`h-full`) whose member row (avatar, name, chevron, settings gear) is pinned to the bottom with `mt-auto`. The classic sketch is an `h-fit` card. It lists Settings between the routes and Family, and it ends on the member row (avatar, name, chevron, no gear) right under the list. When you change either variant in `AppSidebar`, update the sketch too. `SidebarStylePromptModal.test.tsx` pins this structure.
 
 ### Admin profile switching
 
@@ -88,7 +94,8 @@ Active nav items keep Lucide icons stroke-only. The item gets `ring-1 ring-borde
 ## Tests
 
 - `frontend/src/components/layout/AppSidebar.test.tsx` covers the admin switcher, query disabling for non-admins, managed-profile filtering, Query invalidation on profile switch, and, for both sidebar styles, the Sync entry (navigates to `/sync`, `aria-current` on that route) and the menu's opening side.
-- Sidebar is also covered by E2E via Playwright (`bun run test:e2e`).
+- `frontend/src/components/layout/SidebarStylePromptModal.test.tsx` pins each style miniature to its variant: card height, member row placement, gear, Settings position, logo and privacy toggle, two-line rows.
+- Sidebar is also covered by E2E via Playwright (`bun run test:e2e`). `navigation.spec.ts` checks at 1440×900 that no nav subtitle is clipped in either style, in fr, en, de and es.
 
 ## Links
 

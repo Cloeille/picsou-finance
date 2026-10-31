@@ -79,6 +79,8 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: caisseEpargneStatus })
       case '/corum/status':
         return Promise.resolve({ data: corumStatus })
+      case '/cmes/status':
+        return Promise.resolve({ data: cmesStatus })
       case '/sofidy/status':
         return Promise.resolve({ data: sofidyStatus })
       case '/accounts':
@@ -122,6 +124,7 @@ let amexStatus: Record<string, unknown>
 let caisseEpargneStatus: Record<string, unknown>
 let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
+let cmesStatus: Record<string, unknown>
 
 const AMUNDI_INACTIVE = {
   isActive: false, syncStatus: 'IDLE', lastSyncError: null,
@@ -154,6 +157,15 @@ const CAISSE_EPARGNE_ACCOUNT = {
   provider: "Caisse d'Epargne",
 }
 
+/** An account created by the Crédit Mutuel / CIC Épargne Salariale sidecar (`CmesSyncService.PROVIDER`). */
+const CMES_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 6,
+  name: 'PEG — EURO-INFORMATION',
+  type: 'EMPLOYEE_SAVINGS',
+  provider: 'Crédit Mutuel Épargne Salariale',
+}
+
 /** A SCPI account linked to no provider fund; tests set `provider` and the fund codes. */
 const SCPI_ACCOUNT = {
   ...TR_ACCOUNT,
@@ -172,6 +184,7 @@ function resetFixtures() {
   caisseEpargneStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0 }
   corumStatus = AMUNDI_INACTIVE
   sofidyStatus = AMUNDI_INACTIVE
+  cmesStatus = AMUNDI_INACTIVE
   accountsFixture = [TR_ACCOUNT]
   revolutStatus = REVOLUT_NOT_REMEMBERED
   revolutProgress = REVOLUT_DONE
@@ -482,6 +495,62 @@ describe('SyncAllModal session providers', () => {
     expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
     expect(navigate).not.toHaveBeenCalled()
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
+  })
+
+  it('lists and syncs a live Crédit Mutuel / CIC Épargne Salariale session', async () => {
+    cmesStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: cmesStatus })
+    renderModal()
+
+    const row = (await screen.findByText('Crédit Mutuel / CIC Épargne Salariale')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/cmes/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('includes a live Crédit Mutuel / CIC Épargne Salariale session in "Sync all"', async () => {
+    cmesStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    amundiStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: cmesStatus })
+    renderModal()
+
+    await screen.findByText('Crédit Mutuel / CIC Épargne Salariale')
+    await screen.findByText('Amundi')
+    const syncAll = screen.getByRole('button', { name: /sync\.all\.syncAll/ })
+    await waitFor(() => expect(syncAll).toBeEnabled())
+    fireEvent.click(syncAll)
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/cmes/sync'))
+    expect(apiPost).toHaveBeenCalledWith('/amundi/sync')
+  })
+
+  /** A first sync that expired before importing anything leaves a session but no account. */
+  it('keeps an expired Crédit Mutuel / CIC Épargne Salariale session that has no account yet', async () => {
+    cmesStatus = { ...AMUNDI_INACTIVE, syncStatus: 'FAILED', lastSyncError: 'SESSION_EXPIRED' }
+    renderModal()
+
+    const row = (await screen.findByText('Crédit Mutuel / CIC Épargne Salariale')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cmes'))
+    expect(apiPost).not.toHaveBeenCalledWith('/cmes/sync')
+  })
+
+  it('hides Crédit Mutuel / CIC Épargne Salariale with no session and no account', async () => {
+    renderModal()
+
+    expect(await screen.findByText('Trade Republic')).toBeInTheDocument()
+    expect(screen.queryByText('Crédit Mutuel / CIC Épargne Salariale')).not.toBeInTheDocument()
+  })
+
+  /** Its login can need a code by SMS or a confirmation in the app, which only its tab can take. */
+  it('keeps an expired Crédit Mutuel / CIC Épargne Salariale row with its accounts and routes to its tab', async () => {
+    accountsFixture = [TR_ACCOUNT, CMES_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('Crédit Mutuel / CIC Épargne Salariale')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cmes'))
+    expect(apiPost).not.toHaveBeenCalledWith('/cmes/sync')
   })
 
   it('reports a failed American Express run on a live session', async () => {
