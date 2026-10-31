@@ -14,6 +14,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -27,6 +30,12 @@ class EnableBankingBankConnectorTest {
 
     private EnableBankingBankConnector connector() {
         return new EnableBankingBankConnector(configProvider, "https://api.enablebanking.test");
+    }
+
+    private EnableBankingBankConnector balanceConnector() {
+        EnableBankingBankConnector underTest = spy(connector());
+        doReturn(null).when(underTest).fetchAccountDetails(anyString());
+        return underTest;
     }
 
     // ─── Config-validation tests ──────────────────────────────────────────────
@@ -62,7 +71,7 @@ class EnableBankingBankConnectorTest {
      */
     @Test
     void fetchBalances_oneAccountFails_otherAccountsStillReturned() {
-        EnableBankingBankConnector underTest = spy(connector());
+        EnableBankingBankConnector underTest = balanceConnector();
         String sessionId = "sess-xyz";
 
         // Session returns two account uids
@@ -71,12 +80,12 @@ class EnableBankingBankConnectorTest {
 
         // uid-bad: the 404 after a uid rotation, as mapToSyncException surfaces it
         doThrow(new SyncException("Failed to fetch account balances: 404 Not Found"))
-            .when(underTest).fetchAccountData("uid-bad");
+            .when(underTest).fetchAccountData(eq("uid-bad"), any(), any());
 
         // uid-good: returns valid data
         BankConnectorPort.AccountData goodData = new BankConnectorPort.AccountData(
             "uid-good", "Compte Courant", "FR7630006000011234567890189", "EUR", BigDecimal.valueOf(1234.56));
-        doReturn(goodData).when(underTest).fetchAccountData("uid-good");
+        doReturn(goodData).when(underTest).fetchAccountData(eq("uid-good"), any(), any());
 
         List<BankConnectorPort.AccountData> result = underTest.fetchBalances(sessionId);
 
@@ -87,36 +96,36 @@ class EnableBankingBankConnectorTest {
 
     @Test
     void fetchBalances_everyAccountFails_rethrowsTheFirstFailureInsteadOfAnEmptyList() {
-        EnableBankingBankConnector underTest = spy(connector());
+        EnableBankingBankConnector underTest = balanceConnector();
         doReturn(List.of("uid-1", "uid-2")).when(underTest).fetchSessionAccountsWithRetry("sess-down");
         SyncException consentExpired = new SyncException("Consent expired", null, "CONSENT_EXPIRED");
-        doThrow(consentExpired).when(underTest).fetchAccountData("uid-1");
-        doThrow(new SyncException("503 Service Unavailable")).when(underTest).fetchAccountData("uid-2");
+        doThrow(consentExpired).when(underTest).fetchAccountData(eq("uid-1"), any(), any());
+        doThrow(new SyncException("503 Service Unavailable")).when(underTest).fetchAccountData(eq("uid-2"), any(), any());
 
         assertThatThrownBy(() -> underTest.fetchBalances("sess-down")).isSameAs(consentExpired);
     }
 
     @Test
     void fetchBalances_malformedBalanceAmount_skipsThatAccount() {
-        EnableBankingBankConnector underTest = spy(connector());
+        EnableBankingBankConnector underTest = balanceConnector();
         doReturn(List.of("uid-bad", "uid-good")).when(underTest).fetchSessionAccountsWithRetry("sess-nfe");
         doThrow(new NumberFormatException("Character n is neither a decimal digit number"))
-            .when(underTest).fetchAccountData("uid-bad");
+            .when(underTest).fetchAccountData(eq("uid-bad"), any(), any());
         BankConnectorPort.AccountData goodData = new BankConnectorPort.AccountData(
             "uid-good", "Livret A", null, "EUR", BigDecimal.valueOf(500));
-        doReturn(goodData).when(underTest).fetchAccountData("uid-good");
+        doReturn(goodData).when(underTest).fetchAccountData(eq("uid-good"), any(), any());
 
         assertThat(underTest.fetchBalances("sess-nfe")).containsExactly(goodData);
     }
 
     @Test
     void fetchBalances_unexpectedFailure_propagatesEvenWhenAnotherAccountSucceeds() {
-        EnableBankingBankConnector underTest = spy(connector());
+        EnableBankingBankConnector underTest = balanceConnector();
         doReturn(List.of("uid-good", "uid-bug")).when(underTest).fetchSessionAccountsWithRetry("sess-bug");
         doReturn(new BankConnectorPort.AccountData("uid-good", "Livret A", null, "EUR", BigDecimal.valueOf(500)))
-            .when(underTest).fetchAccountData("uid-good");
+            .when(underTest).fetchAccountData(eq("uid-good"), any(), any());
         IllegalStateException bug = new IllegalStateException("unexpected");
-        doThrow(bug).when(underTest).fetchAccountData("uid-bug");
+        doThrow(bug).when(underTest).fetchAccountData(eq("uid-bug"), any(), any());
 
         assertThatThrownBy(() -> underTest.fetchBalances("sess-bug")).isSameAs(bug);
     }
@@ -126,7 +135,7 @@ class EnableBankingBankConnectorTest {
      */
     @Test
     void fetchBalances_allAccountsSucceed_allReturned() {
-        EnableBankingBankConnector underTest = spy(connector());
+        EnableBankingBankConnector underTest = balanceConnector();
         String sessionId = "sess-ok";
 
         doReturn(List.of("uid-1", "uid-2")).when(underTest).fetchSessionAccountsWithRetry(sessionId);
@@ -135,8 +144,8 @@ class EnableBankingBankConnectorTest {
             "uid-1", "Livret A", "FR1234", "EUR", BigDecimal.valueOf(500));
         BankConnectorPort.AccountData d2 = new BankConnectorPort.AccountData(
             "uid-2", "Compte Courant", null, "EUR", BigDecimal.valueOf(1000));
-        doReturn(d1).when(underTest).fetchAccountData("uid-1");
-        doReturn(d2).when(underTest).fetchAccountData("uid-2");
+        doReturn(d1).when(underTest).fetchAccountData(eq("uid-1"), any(), any());
+        doReturn(d2).when(underTest).fetchAccountData(eq("uid-2"), any(), any());
 
         List<BankConnectorPort.AccountData> result = underTest.fetchBalances(sessionId);
 
@@ -169,7 +178,7 @@ class EnableBankingBankConnectorTest {
      */
     @Test
     void fetchBalances_nullCurrencyFromAccountData_cleansUpToEur() {
-        EnableBankingBankConnector underTest = spy(connector());
+        EnableBankingBankConnector underTest = balanceConnector();
         String sessionId = "sess-bourso";
 
         doReturn(List.of("uid-bourso")).when(underTest).fetchSessionAccountsWithRetry(sessionId);
@@ -177,7 +186,7 @@ class EnableBankingBankConnectorTest {
         // Simulate fetchAccountData returning null currency (what would happen if EB omits it)
         BankConnectorPort.AccountData dataWithNullCurrency = new BankConnectorPort.AccountData(
             "uid-bourso", "Compte Boursorama", "FR76300...", null /* null currency */, BigDecimal.valueOf(2000));
-        doReturn(dataWithNullCurrency).when(underTest).fetchAccountData("uid-bourso");
+        doReturn(dataWithNullCurrency).when(underTest).fetchAccountData(eq("uid-bourso"), any(), any());
 
         List<BankConnectorPort.AccountData> result = underTest.fetchBalances(sessionId);
 

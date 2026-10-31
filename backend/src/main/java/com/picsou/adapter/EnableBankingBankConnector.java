@@ -28,6 +28,7 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -192,9 +193,25 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         List<String> accounts = fetchSessionAccountsWithRetry(sessionId);
         List<AccountData> fetched = new ArrayList<>(accounts.size());
         RuntimeException firstFailure = null;
+        Map<String, AccountDetailsResponse> detailsByAccount = new LinkedHashMap<>();
+        Map<String, Integer> labelClaims = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        // A uid's balances may include its siblings. Collect every description before selection.
         for (String accountId : accounts) {
             try {
-                fetched.add(fetchAccountData(accountId));
+                AccountDetailsResponse details = fetchAccountDetails(accountId);
+                detailsByAccount.put(accountId, details);
+                String label = details != null ? firstNonBlank(details.details()) : null;
+                if (label != null) labelClaims.merge(label, 1, Integer::sum);
+            } catch (SyncException ex) {
+                log.warn("Failed to fetch account details {} from Enable Banking; skipping it for this sync",
+                    LogSanitizer.fingerprint(accountId), ex);
+                if (firstFailure == null) firstFailure = ex;
+            }
+        }
+        for (var entry : detailsByAccount.entrySet()) {
+            String accountId = entry.getKey();
+            try {
+                fetched.add(fetchAccountData(accountId, entry.getValue(), labelClaims));
             } catch (SyncException | NumberFormatException ex) {
                 // An account uid can rotate independently after a successful session link,
                 // and one ASPSP may send a malformed balance amount. Keep the remaining accounts
@@ -204,8 +221,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
                 if (firstFailure == null) firstFailure = ex;
             }
         }
-        // Every account failing is a bank- or consent-level failure (5xx, 429, expired consent),
-        // not a stale uid: an empty list would read as "accounts still linking" upstream.
+        // An empty list means "accounts still linking" upstream, so report a failure
+        // when a populated session has no usable accounts.
         if (fetched.isEmpty() && firstFailure != null) {
             throw firstFailure;
         }
@@ -621,7 +638,19 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         }
     }
 
-    AccountData fetchAccountData(String accountId) {
+    AccountDetailsResponse fetchAccountDetails(String accountId) {
+        return mapToSyncException(
+            webClient.get()
+                .uri("/accounts/{id}/details", accountId)
+                .header("Authorization", "Bearer " + buildJwt())
+                .retrieve()
+                .bodyToMono(AccountDetailsResponse.class)
+                .timeout(TIMEOUT),
+            "Failed to fetch account details")
+            .block();
+    }
+
+    AccountData fetchAccountData(String accountId, AccountDetailsResponse details, Map<String, Integer> labelClaims) {
         BalancesResponse balances = mapToSyncException(
             webClient.get()
                 .uri("/accounts/{id}/balances", accountId)
@@ -632,22 +661,12 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             "Failed to fetch account balances")
             .block();
 
-        AccountDetailsResponse details = mapToSyncException(
-            webClient.get()
-                .uri("/accounts/{id}/details", accountId)
-                .header("Authorization", "Bearer " + buildJwt())
-                .retrieve()
-                .bodyToMono(AccountDetailsResponse.class)
-                .timeout(TIMEOUT),
-            "Failed to fetch account details")
-            .block();
-
         // Keep per-account visibility at INFO (operators need it to diagnose Enable
         // Banking's async linking), but log only the balance count — never the full
         // balances object, which carries the account's amounts (financial PII).
         log.info("Fetched {} balances for account {}",
             balances != null && balances.balances() != null ? balances.balances().size() : 0, accountId);
-        var selected = selectBalance(balances, details != null ? details.details() : null);
+        var selected = selectBalance(balances, details != null ? details.details() : null, labelClaims);
         BigDecimal balance = new BigDecimal(selected.balanceAmount().amount().trim());
         String currency = firstNonBlank(selected.balanceAmount().currency(),
             details != null ? details.currency() : null, "EUR");
@@ -659,7 +678,8 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         return new AccountData(accountId, truncate(name, MAX_ACCOUNT_NAME_LENGTH), iban, currency, balance);
     }
 
-    private static BalancesResponse.BalanceItem selectBalance(BalancesResponse response, String accountLabel) {
+    private static BalancesResponse.BalanceItem selectBalance(BalancesResponse response, String accountLabel,
+                                                             Map<String, Integer> labelClaims) {
         if (response == null || response.balances() == null || response.balances().isEmpty()) {
             throw new SyncException("Enable Banking returned no account balances");
         }
@@ -667,12 +687,19 @@ public class EnableBankingBankConnector implements BankConnectorPort {
         if (candidates.stream().anyMatch(item -> item == null)) {
             throw new SyncException("Enable Banking returned an invalid account balance");
         }
-        if (accountLabel != null && !accountLabel.isBlank()) {
-            var matching = candidates.stream()
-                .filter(item -> item.name() != null && accountLabel.trim().equalsIgnoreCase(item.name().trim()))
+        var matching = candidates.stream()
+            .filter(item -> accountLabel != null && item.name() != null
+                && accountLabel.trim().equalsIgnoreCase(item.name().trim()))
+            .toList();
+        if (accountLabel != null && labelClaims.getOrDefault(accountLabel.trim(), 0) == 1 && !matching.isEmpty()) {
+            candidates = matching;
+        } else {
+            candidates = candidates.stream()
+                .filter(item -> !labelClaims.containsKey(nullToEmpty(item.name()).trim()))
                 .toList();
-            // Some ASPSPs return an organization-wide list. Scope it before ranking types.
-            if (!matching.isEmpty()) candidates = matching;
+        }
+        if (candidates.isEmpty()) {
+            throw new SyncException("Enable Banking returned no unclaimed account balances");
         }
         String balanceLabel = nullToEmpty(candidates.getFirst().name()).trim();
         if (candidates.stream().anyMatch(item -> !balanceLabel.equalsIgnoreCase(nullToEmpty(item.name()).trim()))) {

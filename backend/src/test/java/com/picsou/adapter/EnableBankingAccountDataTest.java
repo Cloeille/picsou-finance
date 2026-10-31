@@ -319,6 +319,62 @@ class EnableBankingAccountDataTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"details\":null}", "{\"details\":\"  \"}", "{\"details\":\"Unmatched wallet\"}"})
+    void fetchBalances_unmatchedAccountWithOnlySiblingBalances_skipsThatAccount(String details) {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-unmatched\",\"uid-operations\"]}");
+        responses.put("/accounts/uid-unmatched/details", details);
+        responses.put("/accounts/uid-operations/details", "{\"details\":\" Operations wallet \"}");
+        String balances = """
+            {"balances": [
+              {"name": "OPERATIONS WALLET", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "100"}},
+              {"name": "Operations wallet", "balance_type": "ITAV",
+               "balance_amount": {"currency": "EUR", "amount": "90"}}
+            ]}
+            """;
+        responses.put("/accounts/uid-unmatched/balances", balances);
+        responses.put("/accounts/uid-operations/balances", balances);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.externalId()).isEqualTo("uid-operations");
+            assertThat(account.balance()).isEqualByComparingTo("100");
+        });
+    }
+
+    @Test
+    void fetchBalances_duplicateSessionDescriptions_skipTheirBalancesAndKeepUniquelyLabelledAccount() {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-shared-a\",\"uid-reserve\",\"uid-shared-b\"]}");
+        responses.put("/accounts/uid-shared-a/details", """
+            {"details":"Shared wallet", "account_id":{"iban":"FR00SYNTHETICSHAREDA"}}
+            """);
+        responses.put("/accounts/uid-shared-b/details", """
+            {"details":" SHARED WALLET ", "account_id":{"iban":"FR00SYNTHETICSHAREDB"}}
+            """);
+        responses.put("/accounts/uid-reserve/details", """
+            {"details":"Reserve wallet", "account_id":{"iban":"FR00SYNTHETICRESERVE"}}
+            """);
+        String balances = """
+            {"balances": [
+              {"name": "Shared wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "100"}},
+              {"name": "Shared wallet", "balance_type": "ITAV",
+               "balance_amount": {"currency": "EUR", "amount": "200"}},
+              {"name": "Reserve wallet", "balance_type": "XPCD",
+               "balance_amount": {"currency": "EUR", "amount": "41.75"}}
+            ]}
+            """;
+        responses.put("/accounts/uid-shared-a/balances", balances);
+        responses.put("/accounts/uid-shared-b/balances", balances);
+        responses.put("/accounts/uid-reserve/balances", balances);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.externalId()).isEqualTo("uid-reserve");
+            assertThat(account.iban()).isEqualTo("FR00SYNTHETICRESERVE");
+            assertThat(account.balance()).isEqualByComparingTo("41.75");
+        });
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {
         "{}",
         "{\"balances\":[]}",
@@ -348,10 +404,11 @@ class EnableBankingAccountDataTest {
         assertThatThrownBy(() -> connector.fetchBalances("session")).isInstanceOf(NumberFormatException.class);
     }
 
-    @Test
-    void fetchBalances_oneAmbiguousAccount_keepsTheOtherAccountSyncable() {
-        responses.put("/sessions/session", "{\"accounts\":[\"uid-ambiguous\",\"uid-operations\"]}");
-        responses.put("/accounts/uid-ambiguous/details", "{}");
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"details\":null}", "{\"details\":\"  \"}", "{\"details\":\"Unmatched wallet\"}"})
+    void fetchBalances_unmatchedAccount_usesOnlyBalancesUnclaimedBySessionSiblings(String details) {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-unmatched\",\"uid-operations\"]}");
+        responses.put("/accounts/uid-unmatched/details", details);
         responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations wallet\"}");
         String balances = """
             {"balances": [
@@ -361,8 +418,69 @@ class EnableBankingAccountDataTest {
                "balance_amount": {"currency": "EUR", "amount": "903.20"}}
             ]}
             """;
+        responses.put("/accounts/uid-unmatched/balances", balances);
+        responses.put("/accounts/uid-operations/balances", balances);
+
+        var accounts = connector.fetchBalances("session");
+
+        assertThat(accounts).extracting(AccountData::externalId).containsExactly("uid-unmatched", "uid-operations");
+        assertThat(accounts.get(0).balance()).isEqualByComparingTo("41.75");
+        assertThat(accounts.get(1).balance()).isEqualByComparingTo("903.20");
+    }
+
+    @Test
+    void fetchBalances_oneAmbiguousAccount_keepsTheOtherAccountSyncable() {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-ambiguous\",\"uid-operations\"]}");
+        responses.put("/accounts/uid-ambiguous/details", "{}");
+        responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations wallet\"}");
+        String balances = """
+            {"balances": [
+              {"name": "Reserve wallet", "balance_type": "CLBD",
+               "balance_amount": {"currency": "EUR", "amount": "41.75"}},
+              {"name": "Unclaimed wallet", "balance_type": "ITAV",
+               "balance_amount": {"currency": "EUR", "amount": "60"}},
+              {"name": "Operations wallet", "balance_type": "XPCD",
+               "balance_amount": {"currency": "EUR", "amount": "903.20"}}
+            ]}
+            """;
         responses.put("/accounts/uid-ambiguous/balances", balances);
         responses.put("/accounts/uid-operations/balances", balances);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.externalId()).isEqualTo("uid-operations");
+            assertThat(account.balance()).isEqualByComparingTo("903.20");
+        });
+    }
+
+    @Test
+    void fetchBalances_siblingBalanceRequestFails_stillExcludesItsLabelFromFallback() {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-unmatched\",\"uid-operations\",\"uid-reserve\"]}");
+        responses.put("/accounts/uid-unmatched/details", "{}");
+        responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations wallet\"}");
+        responses.put("/accounts/uid-reserve/details", "{\"details\":\"Reserve wallet\"}");
+        responses.put("/accounts/uid-unmatched/balances", """
+            {"balances": [{"name":"Operations wallet", "balance_type":"CLBD",
+              "balance_amount":{"currency":"EUR", "amount":"100"}}]}
+            """);
+        responses.put("/accounts/uid-reserve/balances", """
+            {"balances": [{"name":"Reserve wallet", "balance_type":"CLBD",
+              "balance_amount":{"currency":"EUR", "amount":"41.75"}}]}
+            """);
+
+        assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
+            assertThat(account.externalId()).isEqualTo("uid-reserve");
+            assertThat(account.balance()).isEqualByComparingTo("41.75");
+        });
+    }
+
+    @Test
+    void fetchBalances_oneDetailsRequestFails_keepsTheOtherAccountSyncable() {
+        responses.put("/sessions/session", "{\"accounts\":[\"uid-missing\",\"uid-operations\"]}");
+        responses.put("/accounts/uid-operations/details", "{\"details\":\"Operations wallet\"}");
+        responses.put("/accounts/uid-operations/balances", """
+            {"balances": [{"name":"Operations wallet", "balance_type":"CLBD",
+              "balance_amount":{"currency":"EUR", "amount":"903.20"}}]}
+            """);
 
         assertThat(connector.fetchBalances("session")).singleElement().satisfies(account -> {
             assertThat(account.externalId()).isEqualTo("uid-operations");

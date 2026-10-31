@@ -87,10 +87,12 @@ generic `Account` label can be renamed in the account form. Balances and IBANs r
 through the usual upsert path, including currency-aware IBAN matching after a uid rotation.
 
 Some ASPSPs, including the Qonto response shape reported in issue #317, return the
-organization's balances for every account uid. When balance names match the account's
-`details` field, the adapter restricts selection to those entries first. It trims
-whitespace and compares names without case sensitivity. Holder and product names are
-not matching keys because several accounts can share them.
+organization's balances for every account uid. The adapter fetches each session account's
+details once before selecting balances. It trims descriptions and counts them without
+case sensitivity. When a balance name matches an account's unique `details` description,
+the adapter restricts selection to those entries first. A description shared by several
+session accounts cannot establish ownership, even when their IBANs differ. Holder and
+product names are not matching keys because several accounts can share them.
 
 Within that set, the adapter prefers the following
 [ISO balance types](https://enablebanking.com/docs/api/reference/#balancestatus) in order:
@@ -101,14 +103,19 @@ Within that set, the adapter prefers the following
 4. `ITAV`, interim available.
 5. `CLAV`, closing available.
 
-Other or missing types have lower priority. When no balance name matches, type-based
-selection is allowed only for a single entry or a list whose labels are all the same
-after trimming and case normalization. Null and blank labels form one unnamed group.
+Other or missing types have lower priority. When the description is missing, shared, or
+matches no balance, fallback first excludes entries claimed by any session description.
+This includes entries with a shared description and claims from accounts whose balance
+request fails. If no entry remains, that account fails with a `SyncException`.
+Type-based selection then requires a single entry or remaining labels that are all the
+same after trimming and case normalization. Null and blank labels form one unnamed group.
 This preserves generic-label fallback, such as repeated `Booked balance` labels, and
 wholly unnamed responses. Distinct labels require a positive account-description match
 before type ranking. This also rejects differently labeled generic balances when the
 response cannot be distinguished from a shared list. A unique best type does not prove
 that the balance belongs to the requested account.
+With only one linked uid, no sibling descriptions are available to identify another
+account's entries in an organization-wide list.
 Several entries at the best priority are ambiguous and cause a `SyncException`, even
 when their names match. The adapter never adds balances together or chooses an arbitrary
 entry from a tie. An absent balance, null entry, or missing selected amount also fails
@@ -122,8 +129,10 @@ the account-details currency, then `EUR`.
 `EnableBankingAccountDataTest` serves synthetic responses over loopback HTTP and calls
 `fetchBalances` through the production WebClient and JSON decoder. It covers shared
 balance lists, flat details, type priorities, ordinary single-account responses,
-unmatched lists with different balance types, oversized display names, full-description
-matching before truncation, ambiguous or missing data, and per-account failure isolation.
+unmatched lists with different balance types, missing or unmatched descriptions with only
+sibling-claimed balances, unclaimed fallback, duplicate session descriptions with different
+balance types, oversized display names, full-description matching before truncation,
+ambiguous or missing data, and per-account failure isolation for details and balance requests.
 
 `SyncServiceCurrencyMatchTest` persists accounts and snapshots through real repositories
 against an isolated H2 database. Synthetic EUR and GBP accounts sharing one IBAN stay
