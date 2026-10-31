@@ -66,7 +66,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its password. Unreadable account rows and unrecognized tables containing balances fail the
   whole import. Contract links without balances are skipped in unnamed or unsupported tables.
   Unknown-category errors name the category and product. Plain-text balances, including dollar
-  and pound symbols, and account data outside recognized tables cannot be silently dropped.
+  and pound symbols, and account data in unrecognized table or row blocks cannot be silently dropped.
+  Summary totals, promotions, and grey-text elements outside tables or rows are ignored.
+  Complete document and table endings and unique account-row fields remain required; category
+  reporting distinguishes missing tables from present empty ones before a snapshot is certified.
   Symbol-first amounts require cents. Script and style bodies are excluded before table and
   marker detection, so JavaScript replacement strings, class references, and CSS selectors do not
   block imports. Alphabetic currency tokens are checked against ISO 4217 codes, so footer text

@@ -22,7 +22,8 @@ balance.
 - **Accounts**: `/fr/banque/comptes-et-contrats.html`, one `table.ei_comptescontrats` per category,
   captioned "Liste des comptes liés à la catégorie : …". "Comptes courants" rows are `CHECKING`;
   "Livrets et comptes d'épargne" rows are typed from their label (Livret A, LDDS, LEP, Livret Jeune,
-  PEL, CEL, else `SAVINGS`). Category names accept straight and typographic apostrophes. Tables
+  PEL, CEL, else `SAVINGS`). Product labels ignore accents and typographic apostrophes. Category
+  names accept straight and typographic apostrophes. Tables
   outside these categories are skipped only when their rows contain no balance data. A product
   title alone, such as "Vos contrats et nos offres", can be a contract link without a balance.
   An unnamed or unrecognized table with a balance fails the whole page. Its error names the
@@ -36,14 +37,25 @@ balance.
   Script and style bodies are removed before table discovery and marker detection. JavaScript
   replacement strings such as `"$1"`, `"$1$2"`, and `"$1 $2"`, CSS selectors, and markup inside these
   bodies cannot be mistaken for accounts or balances. Account titles, account numbers, and balances
-  are detected outside contract tables through parsed element class tokens. Marker names in text,
-  unrelated attributes, partial class names, or comments do not count as element classes.
+  are detected in leftover `<table>` or `<tr>` blocks through parsed element class tokens. Marker
+  names in text, unrelated attributes, partial class names, or comments do not count as element classes.
   Plain-text balances are read from parsed HTML text nodes, excluding comments, attribute values,
   and script and style bodies. A `>` inside a quoted attribute cannot expose a hidden amount as text.
-  Visible balances and actual account markers outside recognized contract tables still fail the page.
-  Supported categories still require each account row's title, number, and readable euro balance,
-  including when only a title remains. Header and action rows without account or balance markers
-  are skipped. External id `cic_<account number digits>`.
+  Visible balances and actual account markers in those leftover table or row blocks still fail
+  the page. Summary amounts, promotions, and grey-text (`doux`) elements outside tables or rows
+  are ignored, as are unrelated tables without account data.
+  Before certifying `snapshotComplete`, the page must end with an explicit `</html>` tag and
+  every recognized contract table must have a closing tag, even an empty one. Account data
+  outside a complete row within a contract table also fails with `UPSTREAM_FORMAT_CHANGED`.
+  Cuts between tables, inside table openings, or within account rows cannot certify a partial
+  snapshot. Supported categories require exactly one title, number, and readable euro balance
+  per account row, including when only a title remains. A missing row end cannot merge two accounts
+  into one. Header and action rows without account or balance markers
+  are skipped. A complete checking-only page remains valid.
+  `/accounts/listing` returns the accounts and `categoriesRead` (`CHECKING` / `SAVINGS`),
+  distinguishing a present empty table from a missing category. This evidence is returned only
+  after parsing succeeds. `/accounts` keeps its existing bare-list response for older backends.
+  External id `cic_<account number digits>`.
 - **Backend**: `CicSyncService`, shaped like `CmesSyncService` (stored credentials, re-login with the
   previous session, daily source `cic`), balance-only accounts with `upsertSnapshot`. Migration
   V121 `cic_session`. `/api/cic/*`, `/api/cic/auth/complete` given 180 s in nginx.
@@ -95,3 +107,13 @@ reconnecting now and then is enough.
 
 The current account also comes from Enable Banking when that connection exists: hide one of the
 two in Settings → Accounts.
+
+## Regression coverage
+
+- `services/cic-auth/test_accounts_parser.py` retains the contract-link, currency, class-token,
+  and hidden-markup cases alongside the restored completeness checks. It rejects truncated
+  documents and tables, orphan or unparsed account rows, and merged account rows. Totals,
+  promotional amounts, and legal text outside tables or rows preserve all parsed accounts.
+- `services/cic-auth/test_main.py` checks that incomplete and renamed tables return HTTP 502
+  before a snapshot or category evidence is certified. Complete checking-only pages remain
+  valid, and listing responses distinguish missing savings tables from empty ones.
