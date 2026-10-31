@@ -23,6 +23,9 @@ spec:
     metadata:
       labels:
         {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "migrate") | nindent 8 }}
+        {{- with .Values.app.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
@@ -38,6 +41,8 @@ spec:
           args:
             - |
               set -e
+              # Match the image entrypoint, which this CLI invocation bypasses.
+              export SPRING_DATASOURCE_PASSWORD="${SPRING_DATASOURCE_PASSWORD:-$POSTGRES_PASSWORD}"
               for op in migrate verify; do
                 java -XX:MaxRAMPercentage=75.0 -Dloader.main=com.picsou.migration.ReleaseMigrationCli \
                   -cp /app/app.jar org.springframework.boot.loader.launch.PropertiesLauncher "$op"
@@ -45,27 +50,34 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
           env:
-            - name: SPRING_DATASOURCE_URL
-              value: {{ include "picsou.database.jdbcUrl" . | quote }}
-            - name: SPRING_DATASOURCE_USERNAME
-              value: {{ include "picsou.database.username" . | quote }}
-            # Read directly by the CLI: the image entrypoint, which maps
-            # POSTGRES_PASSWORD, does not run here.
-            - name: SPRING_DATASOURCE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "picsou.database.passwordSecret" . }}
-                  key: {{ include "picsou.database.passwordKey" . }}
+            {{- include "picsou.database.env" . | nindent 12 }}
+            {{- include "picsou.app.userEnv" . | nindent 12 }}
+          {{- with .Values.app.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.app.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.migrationJob.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+      {{- with .Values.app.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.app.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.app.tolerations }}
       tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.affinity }}
+      affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
 {{- end }}

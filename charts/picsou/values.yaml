@@ -61,7 +61,7 @@ app:
   # never two versions side by side.
   replicaCount: 1
 
-  # Plain environment variables for the app. Values are rendered as strings.
+  # Plain environment variables for the app and migration Job. Values render as strings.
   # Settings stored by the setup wizard (redirect URI, allowed origins, secure
   # cookies) take precedence over these once setup has completed — change them
   # in Admin afterwards.
@@ -141,8 +141,17 @@ app:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  # Also mounted by the migration Job, e.g. database CA certificates.
   extraVolumes: []
   extraVolumeMounts: []
+
+# helm test uses wget; override the repository for clusters with registry mirrors.
+# Pull credentials and scheduling constraints come from global/app settings.
+tests:
+  image:
+    repository: busybox
+    tag: "1.37"
+    pullPolicy: ""
 
 # ── Release migrations ─────────────────────────────────────────────────────
 #

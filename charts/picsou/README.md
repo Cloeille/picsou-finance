@@ -199,6 +199,18 @@ verifies the schema (`ReleaseMigrationCli`, the tool `docker/deploy.sh` uses).
 If either step fails the upgrade stops and the running app is left untouched.
 The app also migrates on startup, as defence in depth.
 
+The Job inherits `app.env`, `app.extraEnv`, `app.envFrom`, `app.extraVolumes`,
+`app.extraVolumeMounts`, `app.podLabels`, `app.nodeSelector`, `app.tolerations`
+and `app.affinity`. Use the extra mounts for database CA certificates referenced
+by `externalDatabase.jdbcParams`. It keeps its own `migrate` component label
+and does not mount the app's `/data` volume, which may still be in use.
+Datasource defaults and explicit overrides are shared with the app. The CLI uses
+`SPRING_DATASOURCE_PASSWORD` when nonempty, otherwise `POSTGRES_PASSWORD`, just
+like the image entrypoint. Kubernetes gives explicit `env` entries precedence over
+`envFrom`; use `app.env` or `app.extraEnv` to override generated datasource values.
+Secrets, ConfigMaps and volumes needed by the hook must already exist before the
+upgrade: a pre-upgrade hook runs before Helm updates ordinary release resources.
+
 Allow the hook to finish before Helm times out (Helm defaults to only five minutes):
 
 ```bash
@@ -267,9 +279,12 @@ charts/picsou/sync-sidecars.sh --apply   # add standard sidecars, disable stale 
 A sidecar is standard when its Compose service has only an image, a build, a
 restart policy and `APP_SIDECAR_API_KEY`: the generic template covers it. One
 with volumes, networks, `init` or more variables needs a chart change by hand.
-Known entries also report these settings for manual review in both modes. The
-script does not prove that Kubernetes equivalents reproduce custom Compose
-settings, so even settings already supported by the chart remain visible.
+For existing chart entries, the script acknowledges only the supported key/sidecar
+pairs: Revolut `volumes` (profiles PVC), Fortuneo `networks` (NetworkPolicies),
+and Amex `init` (shared process namespace). Other keys and extra environment
+variables still warn in both modes. Missing custom sidecars still require manual
+integration. This key allowlist does not detect changes within acknowledged values;
+review those when changing Compose storage, isolation or process handling.
 
 CI runs it in both directions. On a pull request, the `helm-chart` job reports
 differences as warnings and never fails because of them. The repository inventory
@@ -294,6 +309,14 @@ the PostgreSQL pod as shown under Upgrades; separate backup pods are blocked.
 
 They only take effect with a CNI that enforces NetworkPolicies (Cilium, Calico,
 …). Flannel, the Talos default, accepts them and enforces nothing.
+
+## Health test
+
+`helm test` checks `/actuator/health` through the app Service using wget.
+Set `tests.image.repository`, `tests.image.tag` and `tests.image.pullPolicy`
+to use a registry mirror with a wget-compatible image (default `busybox:1.37`).
+The test pod uses `global.imagePullSecrets` and the app's `nodeSelector`,
+`tolerations` and `affinity`; its pull policy defaults to `global.imagePullPolicy`.
 
 ## Known limitations
 

@@ -10,9 +10,14 @@ metadata:
 spec:
   restartPolicy: Never
   automountServiceAccountToken: false
+  {{- with .Values.global.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   containers:
     - name: health
-      image: busybox:1.37
+      image: {{ include "picsou.image" (dict "ctx" $ "image" .Values.tests.image) }}
+      imagePullPolicy: {{ include "picsou.pullPolicy" (dict "ctx" $ "image" .Values.tests.image) }}
       command:
         - wget
         - -q
@@ -25,3 +30,15 @@ spec:
         capabilities:
           drop:
             - ALL
+  {{- with .Values.app.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.app.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.app.affinity }}
+  affinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}

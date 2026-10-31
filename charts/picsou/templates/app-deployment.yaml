@@ -52,16 +52,7 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
-            - name: SPRING_DATASOURCE_URL
-              value: {{ include "picsou.database.jdbcUrl" . | quote }}
-            - name: SPRING_DATASOURCE_USERNAME
-              value: {{ include "picsou.database.username" . | quote }}
-            # The entrypoint forwards POSTGRES_PASSWORD to SPRING_DATASOURCE_PASSWORD.
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "picsou.database.passwordSecret" . }}
-                  key: {{ include "picsou.database.passwordKey" . }}
+            {{- include "picsou.database.env" . | nindent 12 }}
             - name: APP_SIDECAR_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -91,13 +82,7 @@ spec:
             - name: ENABLEBANKING_PRIVATE_KEY_PATH
               value: /run/secrets/enablebanking/{{ $.Values.app.enableBanking.key }}
             {{- end }}
-            {{- range $k, $v := .Values.app.env }}
-            - name: {{ $k }}
-              value: {{ toString $v | quote }}
-            {{- end }}
-            {{- with .Values.app.extraEnv }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
+            {{- include "picsou.app.userEnv" . | nindent 12 }}
           {{- with .Values.app.envFrom }}
           envFrom:
             {{- toYaml . | nindent 12 }}

@@ -127,6 +127,20 @@ helm upgrade
   into the corresponding Secret keys, or leave those keys absent with persistent `/data`.
   Never generate replacement keys: environment values override the files and lose access to
   existing encrypted credentials.
+- **Migration database context matches the app.** Shared helpers render datasource defaults
+  and `app.env`/`app.extraEnv` overrides; explicit overrides replace defaults by name.
+  The Job also inherits `app.envFrom`, extra volumes/mounts (including database CA files),
+  pod labels and node selector, tolerations and affinity. It keeps its `migrate` component
+  label and does not attach the app's `/data` PVC. The CLI password falls back from
+  `SPRING_DATASOURCE_PASSWORD` to `POSTGRES_PASSWORD`, as the app entrypoint does.
+  Explicit env entries take precedence over `envFrom`, so generated datasource values
+  must be overridden through `app.env` or `app.extraEnv`. Hook dependencies must exist
+  before the upgrade, before Helm applies ordinary resources.
+- **Health tests support private registries and scheduling.** `tests.image` configures the
+  wget-compatible image (default `busybox:1.37`); pull policy falls back to the global
+  policy. The pod inherits global pull secrets and app node selector, tolerations and affinity.
+- **Numeric inline secrets are stringified before encoding.** Numeric `--set` values render
+  successfully for all four secret keys; use `--set-string` to preserve leading zeros.
 - **The migration Job does not back up or rehearse.** `docker/deploy.sh` restores a backup into a
   clone first; on Kubernetes, backups belong to the storage or database operator. For bundled
   PostgreSQL, use `kubectl exec` into its pod to run `pg_dump` (command in the chart README);
@@ -151,9 +165,10 @@ helm upgrade
   otherwise send a number, which the API server rejects.
 - **A sidecar that is not standard** (volumes, networks, `init`, extra variables) is left out of
   the published chart until `values.yaml` and the templates support it; `sync-sidecars.sh --check`
-  lists it. Known entries also report all nonstandard settings for manual review, in both
-  `--check` and `--apply`. The script does not infer equivalence between custom Compose and
-  Kubernetes settings, so supported custom settings remain visible as well.
+  lists it. For existing entries, the script acknowledges only Revolut `volumes` (profiles
+  PVC), Fortuneo `networks` (NetworkPolicies) and Amex `init` (shared process namespace).
+  Other keys and extra variables still warn in both modes. Changes inside acknowledged
+  values require manual review; this is a key allowlist, not a semantic comparison.
 - **A checkout of the repository describes main** (`appVersion: nightly`, `version: 0.0.0-main`);
   only published charts carry a release version.
 
@@ -166,7 +181,8 @@ helm upgrade
   sidecars; `--apply` adds only standard
   sidecars, disables stale ones and keeps unrelated values byte for byte; a second `--apply`
   is a no-op; port and URL-variable mismatches fail `--apply`, including for custom sidecars;
-  `--github` warns about everything but added sidecars
+  `--github` warns about unacknowledged differences but not added sidecars; the current
+  supported inventory emits no warnings
 - `sync-sidecars.sh` on modified Compose files: new standard sidecar (added by `--apply`, values
   otherwise unchanged byte for byte), sidecar with a volume and extra variable (reported, not
   added), sidecar without an app URL, removed sidecar, changed port; idempotent second `--apply`
@@ -175,6 +191,8 @@ helm upgrade
   secrets, Ingress, HTTPRoute and disabled sidecars, validated with `kubeconform -strict`
 - `charts/picsou/tests/test_review_regressions.py` packages the chart and verifies that the
   rendered package retains the `test-health` hook while excluding local Python tests.
+  It also checks database TLS mounts, environment overrides and password fallback, migration
+  scheduling and labels, numeric inline secrets, and health-test images and scheduling.
 - Manual cluster check: `helm test` runs the `test-health` pod, which calls `/actuator/health`
   through the app Service. This requires a running release and is not run by the render tests.
 - Validated on 2026-10-31 on a Talos cluster (Kubernetes 1.37, Trident NFS, Traefik, cert-manager

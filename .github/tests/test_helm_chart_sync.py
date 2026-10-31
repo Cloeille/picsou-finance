@@ -101,6 +101,29 @@ class SyncSidecarsTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 self.test_repository_inventory_check_succeeds()
 
+    def test_supported_repository_customizations_do_not_warn(self):
+        result = self.run_script("--check", "--github",
+                                 compose=ROOT / "docker/docker-compose.yml", values=VALUES)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("::warning", result.stdout)
+
+    def test_acknowledgements_apply_only_to_known_keys_on_known_sidecars(self):
+        compose = (ROOT / "docker/docker-compose.yml").read_text()
+        for name, setting in (("revolut-auth", "    init: true\n"),
+                              ("fortuneo-auth", "    volumes: [cache:/cache]\n"),
+                              ("amex-auth", "    environment:\n      EXTRA_MODE: synthetic\n")):
+            with self.subTest(name=name):
+                if "environment" in setting:
+                    start = compose.index(f"  {name}:\n")
+                    env = compose.index("    environment:\n", start) + len("    environment:\n")
+                    changed = compose[:env] + "      EXTRA_MODE: synthetic\n" + compose[env:]
+                else:
+                    changed = compose.replace(f"  {name}:\n", f"  {name}:\n" + setting)
+                self.compose.write_text(changed)
+                result = self.run_script("--check", "--github", values=VALUES)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn(f"::warning title=Helm chart: {name}::", result.stdout)
+
     def test_check_reports_each_kind_of_difference(self):
         code, found = self.findings("--check")
         self.assertEqual(code, 2)

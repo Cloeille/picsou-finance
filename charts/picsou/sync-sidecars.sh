@@ -115,8 +115,16 @@ for name in $compose_sidecars; do
       publish_error=true
       add_finding "$name" mismatch "Compose: $url_env on port $port, chart: $chart_env on port $chart_port"
     fi
-    # Kubernetes equivalents of custom Compose settings cannot be inferred from
-    # port/URL wiring. Keep them visible for manual review, even for known entries.
+    # Only acknowledge keys whose Kubernetes equivalents are already implemented.
+    # Scope to existing chart entries: a missing custom sidecar still needs review.
+    acknowledged=""
+    case "$name" in
+      revolut-auth) acknowledged="volumes" ;; # profiles PVC in sidecars.yaml
+      fortuneo-auth) acknowledged="networks" ;; # isolation in networkpolicy.yaml
+      amex-auth) acknowledged="init" ;; # shareProcessNamespace in values.yaml
+    esac
+    extra_keys=$(printf '%s\n' "$extra_keys" | awk -v known="$acknowledged" '
+      { for (i = 1; i <= NF; i++) if ($i != known) printf "%s ", $i }')
     if [ -n "$extra_keys$extra_env" ]; then
       detail="review custom chart settings:"
       [ -n "$extra_keys" ] && detail="$detail keys ${extra_keys% }"

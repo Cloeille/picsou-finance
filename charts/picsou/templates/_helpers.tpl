@@ -132,3 +132,37 @@ not the rendered Secret: generated values are random on first render.
 {{- define "picsou.secretChecksum" -}}
 checksum/secret: {{ .Values.secrets | toYaml | sha256sum }}
 {{- end }}
+
+{{/* Shared datasource defaults. Explicit user entries replace defaults by name. */}}
+{{- define "picsou.database.env" -}}
+{{- $overrides := deepCopy (.Values.app.env | default dict) }}
+{{- range .Values.app.extraEnv }}
+{{- $_ := set $overrides .name true }}
+{{- end }}
+{{- if not (hasKey $overrides "SPRING_DATASOURCE_URL") }}
+- name: SPRING_DATASOURCE_URL
+  value: {{ include "picsou.database.jdbcUrl" . | quote }}
+{{- end }}
+{{- if not (hasKey $overrides "SPRING_DATASOURCE_USERNAME") }}
+- name: SPRING_DATASOURCE_USERNAME
+  value: {{ include "picsou.database.username" . | quote }}
+{{- end }}
+{{- if not (hasKey $overrides "POSTGRES_PASSWORD") }}
+- name: POSTGRES_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "picsou.database.passwordSecret" . }}
+      key: {{ include "picsou.database.passwordKey" . }}
+{{- end }}
+{{- end }}
+
+{{/* Keep operator environment overrides identical in the app and migration CLI. */}}
+{{- define "picsou.app.userEnv" -}}
+{{- range $k, $v := .Values.app.env }}
+- name: {{ $k }}
+  value: {{ toString $v | quote }}
+{{- end }}
+{{- with .Values.app.extraEnv }}
+{{- toYaml . | nindent 0 }}
+{{- end }}
+{{- end }}
