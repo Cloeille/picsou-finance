@@ -860,6 +860,11 @@ _LI_DIGEST_LENGTH = 8
 _LI_LABEL_PREFIX = _LI_MAX_FALLBACK_SYMBOL - _LI_DIGEST_LENGTH - 1
 
 
+def _java_length(text: str) -> int:
+    """Length in UTF-16 code units, as Java's String.length() counts it."""
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
+
+
 def _li_symbol(quote_symbol: str | None, isin: str | None, label: str) -> str:
     """Pick the ticker of an assurance-vie support, never longer than the backend accepts.
 
@@ -874,15 +879,24 @@ def _li_symbol(quote_symbol: str | None, isin: str | None, label: str) -> str:
     guard_symbol_collisions refuses them instead of merging two holdings into one.
 
     A quote-link symbol longer than the limit is dropped, as the backend would reject it.
+    Lengths are counted in UTF-16 units, as the backend's `String.length()` does, so a
+    label with characters outside the BMP (emoji) cannot slip past the limit. `label` must
+    be the whole label, not the 200-character display cut: the digest has to tell apart
+    two labels that only differ after that cut.
     """
-    if quote_symbol and len(quote_symbol) <= _LI_MAX_FALLBACK_SYMBOL:
+    if quote_symbol and _java_length(quote_symbol) <= _LI_MAX_FALLBACK_SYMBOL:
         return quote_symbol
     if isin:
         return isin
-    if len(label) <= _LI_MAX_FALLBACK_SYMBOL:
+    if _java_length(label) <= _LI_MAX_FALLBACK_SYMBOL:
         return label.rstrip()
-    digest = hashlib.sha256(label.encode()).hexdigest()[:_LI_DIGEST_LENGTH]
-    return f"{label[:_LI_LABEL_PREFIX].rstrip()}-{digest}"
+    prefix = ""
+    for char in label:
+        if _java_length(prefix + char) > _LI_LABEL_PREFIX:
+            break
+        prefix += char
+    digest = hashlib.sha256(label.encode("utf-8", "surrogatepass")).hexdigest()[:_LI_DIGEST_LENGTH]
+    return f"{prefix.rstrip()}-{digest}"
 
 
 def _li_amount(cell: str, field: str, *, required: bool = True) -> Decimal | None:
@@ -922,7 +936,9 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
         if len(cells) < 7:
             raise AccountsFormatError(FORMAT_CHANGED, f"Assurance-vie line has {len(cells)} cells, expected 8")
         label_match = _LI_LABEL_RE.search(cells[0])
-        label = text_value(label_match.group("label"), 200) if label_match else text_value(cells[0], 200)
+        label_source = label_match.group("label") if label_match else cells[0]
+        # The ticker is derived from the whole label; only the displayed one is cut.
+        full_label = text_value(label_source, len(label_source))
         mention = _LI_MENTION_RE.search(cells[0])
         isin = text_value(mention.group("mention"), 20) if mention else None
         if isin and not _LI_ISIN_RE.match(isin):
@@ -930,8 +946,9 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
         symbol = _LI_SYMBOL_RE.search(cells[0])
         value = _li_amount(cells[5], "amount")
         quantity = _li_amount(cells[2], "quantity", required=False)
-        if not label:
+        if not full_label:
             raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no label")
+        label = full_label[:200]
         if quantity is None or quantity == 0:
             # The euro fund is shown either with no units or with "0,0000": it
             # is a balance, not units of a fund.
@@ -942,7 +959,7 @@ def parse_life_insurance(html: str) -> dict[str, Any]:
                 raise AccountsFormatError(FORMAT_CHANGED, "Assurance-vie line has no units and is not a euro fund")
         positions.append({
             "isin": isin,
-            "symbol": _li_symbol(symbol.group("symbol") if symbol else None, isin, label),
+            "symbol": _li_symbol(symbol.group("symbol") if symbol else None, isin, full_label),
             "label": label,
             "quantity": quantity,
             "buyingPriceEur": _li_amount(cells[3], "buying price", required=False),

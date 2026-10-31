@@ -571,7 +571,9 @@ tolerance of the other envelopes is deliberately not used: it scales with the va
 support missing from a large contract would pass inside it. A position's ticker is, in order: the
 quote-link symbol (dropped if over 30 characters, the backend's ticker limit), the ISIN, the label
 when it fits in 30 characters, else the first 21 characters of the label, a dash and the first 8
-hex digits of the SHA-256 of the full label. The digest depends on the label alone, never on the
+hex digits of the SHA-256 of the full label (lengths counted in UTF-16 units, like the backend's
+`String.length()`, and the digest taken on the whole label, not on its 200-character display cut).
+The digest depends on the label alone, never on the
 position in the list, so the ticker is the same at every sync (the backend keys holdings by ticker)
 and two labels sharing only a prefix stay apart. Two identical labels are still refused by
 `guard_symbol_collisions`.

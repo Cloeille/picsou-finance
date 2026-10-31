@@ -162,6 +162,34 @@ class LifeInsurancePageTest(unittest.TestCase):
 
         self.assertEqual(position["symbol"], "Support sans code")
 
+    def test_the_ticker_limit_is_counted_in_utf16_units_like_the_backend(self):
+        label = "\U0001F4C8" * 16  # 16 code points, 32 UTF-16 units
+        rows = (
+            life_insurance_row(label, None, None, "10,0000", "50,00 €", "60,00 €", "600,00 €", "100,00 €")
+        )
+
+        position, = parse_life_insurance(life_insurance_page(rows, valuation="600,00 €"))["positions"]
+
+        self.assertLessEqual(len(position["symbol"].encode("utf-16-le")) // 2, 30)
+        self.assertNotEqual(position["symbol"], label)
+
+    def test_labels_that_only_differ_after_the_200_character_display_cut_get_distinct_tickers(self):
+        prefix = "Support en unités de compte " * 8
+        rows = (
+            life_insurance_row(prefix + "première variante", None, None,
+                               "10,0000", "50,00 €", "60,00 €", "600,00 €", "100,00 €")
+            + life_insurance_row(prefix + "seconde variante", None, None,
+                                 "10,0000", "50,00 €", "60,00 €", "600,00 €", "100,00 €")
+        )
+
+        contract = parse_life_insurance(life_insurance_page(rows, valuation="1 200,00 €"))
+
+        first, second = contract["positions"]
+        self.assertEqual(first["label"], second["label"])
+        self.assertLessEqual(len(first["label"]), 200)
+        self.assertNotEqual(first["symbol"], second["symbol"])
+        guard_symbol_collisions(contract["positions"])
+
     def test_a_missing_support_on_a_large_contract_is_not_hidden_by_a_relative_tolerance(self):
         rows = (
             life_insurance_row("iShares MSCI World SRI UCITS ETF", "IE00BYX2JD69", "1rASUSW",
