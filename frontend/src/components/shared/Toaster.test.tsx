@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, render, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
 import { Toaster } from '@/components/shared/Toaster'
@@ -23,6 +23,7 @@ async function renderToaster() {
   act(() => { toast('Theme notification', { duration: Infinity }) })
   await waitFor(() => {
     expect(container.querySelector('[data-sonner-toaster]')).toBeInTheDocument()
+    expect(within(container).getByText('Theme notification')).toBeInTheDocument()
   })
   return container.querySelector('[data-sonner-toaster]')
 }
