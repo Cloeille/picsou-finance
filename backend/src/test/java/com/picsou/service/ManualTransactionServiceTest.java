@@ -17,6 +17,8 @@ import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -98,6 +100,104 @@ class ManualTransactionServiceTest {
             .currency("EUR")
             .currentBalance(BigDecimal.ZERO)
             .build();
+    }
+
+    /** A valued account worth 1000 EUR: a SCPI at its withdrawal price, a property estimate... */
+    private Account valuedAccount(AccountType type) {
+        return Account.builder()
+            .id(4L)
+            .name("Valued")
+            .type(type)
+            .currency("EUR")
+            .currentBalance(new BigDecimal("1000"))
+            .isManual(true)
+            .build();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = AccountType.class, names = {"SCPI", "REAL_ESTATE", "EMPLOYEE_SAVINGS"})
+    void addTransaction_valuedAccount_keepsItsValueAndSnapshots(AccountType type) {
+        Account account = valuedAccount(type);
+        TransactionRequest req = new TransactionRequest(
+            LocalDate.of(2026, 10, 31),
+            "Dividend",
+            new BigDecimal("6.67"),
+            TransactionType.DIVIDEND,
+            null, null, null, null, "EUR"
+        );
+
+        when(accountRepository.findByIdAndMemberId(4L, 10L)).thenReturn(Optional.of(account));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TransactionResponse result = manualTransactionService.addTransaction(4L, 10L, req);
+
+        // The dividend is recorded...
+        assertThat(result.amount()).isEqualByComparingTo("6.67");
+        // ...but the balance stays the valuation, not the sum of the transactions.
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("1000");
+        verify(transactionRepository, never()).sumAmountByAccountId(any());
+        verify(accountRepository, never()).save(any());
+        verify(finaryPersistenceHelper, never()).reconstructSnapshotsFromDb(any());
+        verify(holdingComputeService, never()).recomputeHoldings(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = AccountType.class, names = {"SCPI", "REAL_ESTATE", "EMPLOYEE_SAVINGS"})
+    void updateTransaction_valuedAccount_keepsItsValue(AccountType type) {
+        Account account = valuedAccount(type);
+        Transaction dividend = Transaction.builder()
+            .id(8L)
+            .account(account)
+            .date(LocalDate.of(2026, 10, 31))
+            .description("Dividend")
+            .amount(new BigDecimal("6.67"))
+            .isManual(true)
+            .nativeCurrency("EUR")
+            .build();
+        TransactionRequest req = new TransactionRequest(
+            LocalDate.of(2026, 10, 31),
+            "Dividend, corrected",
+            new BigDecimal("6.70"),
+            TransactionType.DIVIDEND,
+            null, null, null, null, "EUR"
+        );
+
+        when(accountRepository.findByIdAndMemberId(4L, 10L)).thenReturn(Optional.of(account));
+        when(transactionRepository.findByIdAndAccountId(8L, 4L)).thenReturn(Optional.of(dividend));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TransactionResponse result = manualTransactionService.updateTransaction(4L, 8L, 10L, req);
+
+        assertThat(result.amount()).isEqualByComparingTo("6.70");
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("1000");
+        verify(transactionRepository, never()).sumAmountByAccountId(any());
+        verify(finaryPersistenceHelper, never()).reconstructSnapshotsFromDb(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = AccountType.class, names = {"SCPI", "REAL_ESTATE", "EMPLOYEE_SAVINGS"})
+    void deleteTransaction_valuedAccount_keepsItsValue(AccountType type) {
+        Account account = valuedAccount(type);
+        Transaction dividend = Transaction.builder()
+            .id(8L)
+            .account(account)
+            .date(LocalDate.of(2026, 10, 31))
+            .description("Dividend")
+            .amount(new BigDecimal("6.67"))
+            .isManual(true)
+            .nativeCurrency("EUR")
+            .build();
+
+        when(accountRepository.findByIdAndMemberId(4L, 10L)).thenReturn(Optional.of(account));
+        when(transactionRepository.findByIdAndAccountId(8L, 4L)).thenReturn(Optional.of(dividend));
+
+        manualTransactionService.deleteTransaction(4L, 8L, 10L);
+
+        // Removing the last transaction must not zero the account.
+        verify(transactionRepository).delete(dividend);
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("1000");
+        verify(transactionRepository, never()).sumAmountByAccountId(any());
+        verify(finaryPersistenceHelper, never()).reconstructSnapshotsFromDb(any());
     }
 
     @Test

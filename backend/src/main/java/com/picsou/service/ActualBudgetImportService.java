@@ -97,10 +97,6 @@ public class ActualBudgetImportService {
      */
     private static final int LARGE_DELETION_ROWS = 200;
     private static final int LARGE_DELETION_PERCENT = 20;
-    /** Actual holds cash ledgers; holding-based accounts derive their value from positions instead. */
-    private static final Set<AccountType> NON_LEDGER_TYPES = Set.of(AccountType.PEA, AccountType.COMPTE_TITRES,
-            AccountType.CRYPTO, AccountType.ASSURANCE_VIE, AccountType.PER, AccountType.EMPLOYEE_SAVINGS,
-            AccountType.REAL_ESTATE, AccountType.SCPI);
 
     record CachedPreview(Long memberId, ParsedActualBudget budget, Instant createdAt) { }
 
@@ -376,7 +372,8 @@ public class ActualBudgetImportService {
     }
 
     private static void requireLedger(AccountType type, String accountCurrency, String currency) {
-        if (type == null || NON_LEDGER_TYPES.contains(type)) {
+        // Actual holds cash ledgers; see AccountType#isLedger for the accounts that are valued instead.
+        if (type == null || !type.isLedger()) {
             throw bad("Investment and property accounts cannot receive Actual Budget transactions");
         }
         // Picsou stores a loan as the positive amount owed and negates it in totals; Actual's

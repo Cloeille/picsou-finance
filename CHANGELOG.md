@@ -292,6 +292,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A transaction no longer overwrites a valued account.** Adding, editing or deleting a
+  transaction by hand on a SCPI, a property or an employee-savings plan, a dividend for
+  instance, replaced its value with the sum of its transactions, and deleting the last one left
+  it at zero. The transaction is still recorded, but the balance keeps its valuation. The
+  HomeBank import now refuses these accounts, and a PER, as targets, like the Actual Budget
+  import already did. Both importers and the manual ledger share one definition,
+  `AccountType.isLedger()`.
+
 - **Caisse d'Epargne loan insurance rounding.** Personal and home loans now
   retain the correct cent-rounded insurance at exact half-cent annuity boundaries
   and extremely small positive nominal rates. Directed Decimal bounds certify
