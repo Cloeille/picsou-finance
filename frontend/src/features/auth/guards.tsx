@@ -10,7 +10,9 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   const login = useAuthStore(s => s.login)
   const demoMode = useAppStore(s => s.demoMode)
 
-  const probe = useSessionProbe(!demoMode && !isAuthenticated)
+  // Demo mode probes too: its adapter answers /auth/refresh with the demo user, which is how
+  // pages reading the signed-in user (Settings, RequireAdmin) get one.
+  const probe = useSessionProbe(!isAuthenticated)
 
   useEffect(() => {
     if (probe.isSuccess) login(probe.data)

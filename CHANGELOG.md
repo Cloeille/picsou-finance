@@ -220,6 +220,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The demo no longer looks broken.** Every page now gets an answer from the demo build:
+  holdings on every account, prices, connected apps, the status of each provider, the budget's
+  transactions and the fourth goal no longer leave a card loading forever or a table empty. Its
+  figures agree from page to page: the dashboard's net worth and portfolio performance match the
+  Accounts total, the family view shows the same accounts, and the car loan and the house's
+  mortgage are real accounts under French names. Goal calendars no longer change on every
+  reload, and a goal's badge matches its calendar. Dates follow today, so the card's next debit
+  and the goal deadlines are ahead of you, and the budget opens on the current month instead of
+  the previous one in France. Settings shows the demo user's name (#277).
+- **Monthly payments read "/mois" in French.** The debts card printed a hard-coded English
+  "/mo" after each payment, and the dashboard said "1 autres objectifs" when one goal was left
+  off the summary (#277).
 - **American Express no longer stores a second copy of a charge AMEX re-describes.** A
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
   `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its

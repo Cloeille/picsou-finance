@@ -2,67 +2,58 @@ import type { DashboardData } from '@/types/api'
 import { LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { mockAccounts } from './accounts'
 import { mockGoals } from './goals'
+import { netWorthHistory } from './history'
 
-function generateNetWorthHistory(): { date: string; total: number; invested: number; pnl: number }[] {
-  const baseValues = [32000, 33500, 34200, 35100, 34800, 36400, 37200, 38100, 39500, 40200, 41000, 41862]
-  const investedValues = [30000, 31500, 32000, 32800, 32800, 34000, 34500, 35000, 36000, 36500, 37000, 37500]
-  const now = new Date()
-  const months: { date: string; total: number; invested: number; pnl: number }[] = []
+// Derived from the accounts with DashboardService's rule, so the dashboard and the Accounts page
+// report one net worth: pockets are skipped (their wallet already counts them), and a liability
+// is the positive amount owed.
+const topLevel = mockAccounts.filter(a => a.parentAccountId == null)
+const assets = topLevel.filter(a => !LIABILITY_ACCOUNT_TYPES.includes(a.type))
+const liabilities = topLevel.filter(a => LIABILITY_ACCOUNT_TYPES.includes(a.type))
 
-  for (let i = 11; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const total = baseValues[11 - i]
-    const invested = investedValues[11 - i]
-    months.push({
-      date: d.toISOString().split('T')[0],
-      total,
-      invested,
-      pnl: total - invested,
-    })
-  }
-
-  return months
-}
+const round2 = (n: number) => Math.round(n * 100) / 100
+const totalAssets = round2(assets.reduce((sum, a) => sum + a.currentBalanceEur, 0))
+const totalLiabilities = round2(liabilities.reduce((sum, a) => sum + Math.abs(a.currentBalanceEur), 0))
 
 export const mockDashboard: DashboardData = {
-  totalNetWorth: 41862.35,
-  totalLiabilities: 9784.6,
-  totalMonthlyPayment: 250,
-  netWorthHistory: generateNetWorthHistory(),
-  distribution: mockAccounts.filter(a => !LIABILITY_ACCOUNT_TYPES.includes(a.type)).map(a => ({
+  totalNetWorth: round2(totalAssets - totalLiabilities),
+  totalLiabilities,
+  totalMonthlyPayment: liabilities.reduce((sum, a) => sum + (a.debt?.monthlyPayment ?? 0), 0),
+  netWorthHistory: netWorthHistory(topLevel.map(a => a.id), 12, false),
+  distribution: assets.map(a => ({
     accountId: a.id,
     name: a.name,
     color: a.color,
     balanceEur: a.currentBalanceEur,
-    percentage: Math.round((a.currentBalanceEur / 41862.35) * 1000) / 10,
+    percentage: Math.round((a.currentBalanceEur / totalAssets) * 1000) / 10,
     accountType: a.type,
     hasHoldings: ['PEA', 'COMPTE_TITRES', 'CRYPTO'].includes(a.type),
   })),
   // A configured loan and the demo card, so demo mode exercises both liability rows
   // (issues #18, #197). Optional fields are omitted, as the backend does for nulls.
-  liabilities: [
-    {
-      accountId: 100,
-      name: 'Car loan',
-      color: '#ef4444',
-      balanceEur: 8500,
-      percentage: 86.87,
-      accountType: 'LOAN',
+  liabilities: liabilities.map(a => {
+    const owed = Math.abs(a.currentBalanceEur)
+    const row = {
+      accountId: a.id,
+      name: a.name,
+      color: a.color,
+      balanceEur: owed,
+      percentage: round2((owed / totalLiabilities) * 100),
+      accountType: a.type,
       hasHoldings: false,
-      monthlyPayment: 250,
-      percentPaid: 55,
-    },
-    {
-      accountId: 12,
-      name: 'Carte Air France KLM',
-      color: '#2e77bc',
-      balanceEur: 1284.6,
-      percentage: 13.13,
-      accountType: 'CREDIT_CARD',
-      hasHoldings: false,
-      paymentDueAmountEur: 912.4,
-      paymentDueDate: '2025-04-05',
-    },
-  ],
+    }
+    if (a.debt) {
+      return {
+        ...row,
+        monthlyPayment: a.debt.monthlyPayment ?? undefined,
+        percentPaid: Math.round(((a.debt.borrowedAmount - owed) / a.debt.borrowedAmount) * 100),
+      }
+    }
+    return {
+      ...row,
+      paymentDueAmountEur: a.paymentDueAmount ?? undefined,
+      paymentDueDate: a.paymentDueDate ?? undefined,
+    }
+  }),
   goalSummaries: mockGoals,
 }

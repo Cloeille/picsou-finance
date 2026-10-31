@@ -20,14 +20,11 @@ import type {
   Transaction,
   UncategorizedTransaction,
 } from '@/types/api'
+import { isoDate } from './dates'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 // Demo data is generated relative to "today" so the Budget section always looks
 // alive. The payday cycle is the calendar month here (cycleStartDay = 1).
-
-function iso(d: Date): string {
-  return d.toISOString().split('T')[0]
-}
 
 const NOW = new Date()
 const CYCLE_START = new Date(NOW.getFullYear(), NOW.getMonth(), 1)
@@ -36,7 +33,7 @@ const CYCLE_END = new Date(NOW.getFullYear(), NOW.getMonth() + 1, 0)
 function daysFromNow(n: number): string {
   const d = new Date(NOW)
   d.setDate(d.getDate() + n)
-  return iso(d)
+  return isoDate(d)
 }
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -123,8 +120,8 @@ function envelope(id: number, cat: Category, limit: number, spent: number, rollu
     percent,
     overBudget: spent > limit,
     rollup,
-    cycleStart: iso(CYCLE_START),
-    cycleEnd: iso(CYCLE_END),
+    cycleStart: isoDate(CYCLE_START),
+    cycleEnd: isoDate(CYCLE_END),
   }
 }
 
@@ -145,8 +142,8 @@ export const mockBudgetSettings: BudgetSettings = {
   aiCategorizationEnabled: true,
   aiMode: 'AUTO_HIGH_CONFIDENCE',
   aiConfidenceThreshold: 75,
-  currentCycleStart: iso(CYCLE_START),
-  currentCycleEnd: iso(CYCLE_END),
+  currentCycleStart: isoDate(CYCLE_START),
+  currentCycleEnd: isoDate(CYCLE_END),
 }
 
 // ── Cashflow ──────────────────────────────────────────────────────────────────
@@ -164,15 +161,15 @@ export function mockCashflow(period: CashflowPeriod): CashflowResponse {
       income += inc
       expense += exp
       series.push({
-        start: iso(new Date(NOW.getFullYear(), m, 1)),
-        end: iso(new Date(NOW.getFullYear(), m + 1, 0)),
+        start: isoDate(new Date(NOW.getFullYear(), m, 1)),
+        end: isoDate(new Date(NOW.getFullYear(), m + 1, 0)),
         label: MONTH_LABELS[m],
         income: inc,
         expense: exp,
         net: inc - exp,
       })
     }
-    return { period, from: iso(new Date(NOW.getFullYear(), 0, 1)), to: iso(NOW), income, expense, net: income - expense, series }
+    return { period, from: isoDate(new Date(NOW.getFullYear(), 0, 1)), to: isoDate(NOW), income, expense, net: income - expense, series }
   }
 
   // CYCLE — four weekly buckets within the current month.
@@ -187,11 +184,11 @@ export function mockCashflow(period: CashflowPeriod): CashflowResponse {
     s.setDate(1 + i * 7)
     const e = new Date(CYCLE_START)
     e.setDate(Math.min(7 + i * 7, CYCLE_END.getDate()))
-    return { start: iso(s), end: iso(e), label: w.label, income: w.income, expense: w.expense, net: w.income - w.expense }
+    return { start: isoDate(s), end: isoDate(e), label: w.label, income: w.income, expense: w.expense, net: w.income - w.expense }
   })
   const income = weekly.reduce((a, w) => a + w.income, 0)
   const expense = weekly.reduce((a, w) => a + w.expense, 0)
-  return { period, from: iso(CYCLE_START), to: iso(CYCLE_END), income, expense, net: income - expense, series }
+  return { period, from: isoDate(CYCLE_START), to: isoDate(CYCLE_END), income, expense, net: income - expense, series }
 }
 
 // ── Allocation ────────────────────────────────────────────────────────────────
@@ -213,8 +210,8 @@ export function mockAllocation(period: CashflowPeriod): AllocationResponse {
   const totalContributions = contributions.reduce((a, c) => a + c.amount, 0)
   return {
     period,
-    from: period === 'YTD' ? iso(new Date(NOW.getFullYear(), 0, 1)) : iso(CYCLE_START),
-    to: iso(period === 'YTD' ? NOW : CYCLE_END),
+    from: period === 'YTD' ? isoDate(new Date(NOW.getFullYear(), 0, 1)) : isoDate(CYCLE_START),
+    to: isoDate(period === 'YTD' ? NOW : CYCLE_END),
     totalStock,
     stock,
     totalContributions,
@@ -261,7 +258,7 @@ export function mockCalendar(horizonDays: number): RecurringOccurrence[] {
         label: s.label,
         counterparty: s.counterparty,
         expectedAmount: s.expectedAmount,
-        dueDate: iso(due),
+        dueDate: isoDate(due),
         categoryId: s.categoryId,
         categoryName: s.categoryName,
         categoryColor: s.categoryColor,
@@ -331,8 +328,8 @@ const TX_COUNT_BY_CATEGORY: Record<number, number> = {
 
 function periodRange(period: CashflowPeriod): { from: string; to: string } {
   return period === 'YTD'
-    ? { from: iso(new Date(NOW.getFullYear(), 0, 1)), to: iso(NOW) }
-    : { from: iso(CYCLE_START), to: iso(CYCLE_END) }
+    ? { from: isoDate(new Date(NOW.getFullYear(), 0, 1)), to: isoDate(NOW) }
+    : { from: isoDate(CYCLE_START), to: isoDate(CYCLE_END) }
 }
 
 export function mockFlow(period: CashflowPeriod): CashflowFlowResponse {

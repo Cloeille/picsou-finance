@@ -58,7 +58,7 @@ describe('LiabilitiesCard', () => {
       />
     )
     expect(document.querySelector('[role="progressbar"]')).not.toBeNull()
-    expect(container).toHaveTextContent('32% · 1050/mo')
+    expect(container).toHaveTextContent('32% · 1050dashboard.perMonthSuffix')
   })
 
   it('shows hint icon when loan has no parameters', () => {

@@ -34,7 +34,7 @@ export function LiabilitiesCard({ liabilities, totalMonthlyPayment }: Props) {
             <span>
               {t('dashboard.monthlyPayment')}:{' '}
               <span className="font-medium text-foreground">
-                <CurrencyDisplay value={totalMonthlyPayment} />/mo
+                <CurrencyDisplay value={totalMonthlyPayment} />{t('dashboard.perMonthSuffix')}
               </span>
             </span>
           )}
@@ -98,7 +98,7 @@ function LoanProgress({ liability }: { liability: DashboardLiability }) {
       <span className="shrink-0 text-xs text-muted-foreground">
         {Math.round(percentPaid)}%
         {monthlyPayment != null && (
-          <> · <CurrencyDisplay value={monthlyPayment} />/mo</>
+          <> · <CurrencyDisplay value={monthlyPayment} />{t('dashboard.perMonthSuffix')}</>
         )}
       </span>
     </div>
