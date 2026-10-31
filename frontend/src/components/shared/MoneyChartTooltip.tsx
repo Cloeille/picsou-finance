@@ -14,7 +14,7 @@ type TooltipProps = React.ComponentProps<typeof ChartTooltipContent>
  * reproduced here.
  *
  * The config has to come in as a prop: `useChart()` is not exported and `ui/chart.tsx` is vendored
- * shadcn, marked do-not-edit. Both call sites build their config anyway, so they pass it.
+ * shadcn, marked do-not-edit. Every call site builds its config anyway, so it passes it.
  */
 export function MoneyChartTooltip({
   config,

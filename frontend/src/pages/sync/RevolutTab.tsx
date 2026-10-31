@@ -119,7 +119,7 @@ export function RevolutTab() {
             )}
             {status?.lastSyncedAt && (
               <span className="text-sm text-muted-foreground">
-                {t('sync.revolut.lastSync')}: {formatDateTime(status.lastSyncedAt)}
+                {t('common.labelColon', { label: t('sync.revolut.lastSync') })} {formatDateTime(status.lastSyncedAt)}
               </span>
             )}
           </div>

@@ -97,7 +97,7 @@ vi.mock('@/components/shared/EmptyChartState', () => ({ EmptyChartState: () => n
 vi.mock('@/hooks/use-money', () => ({
   useMoney: () => ({
     amount: (value: number) => String(value),
-    tick: (formatter: (value: number) => string) => formatter,
+    tick: (value: number) => String(value),
   }),
 }))
 vi.mock('react-i18next', () => ({

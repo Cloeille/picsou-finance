@@ -114,7 +114,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
             <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border bg-muted/40 p-2 text-sm">
               {result.errors.map((e, i) => (
                 <li key={i} className="text-muted-foreground">
-                  {t('import.rowLabel', { row: e.rowNumber })}: {e.message}
+                  {t('common.labelColon', { label: t('import.rowLabel', { row: e.rowNumber }) })} {e.message}
                 </li>
               ))}
             </ul>

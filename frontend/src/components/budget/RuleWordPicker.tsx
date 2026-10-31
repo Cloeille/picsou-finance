@@ -200,7 +200,7 @@ export function RuleWordPicker({
       {/* Pattern preview */}
       {pattern && (
         <p className="text-xs text-muted-foreground">
-          {t('budget.rule.pattern')}:{' '}
+          {t('common.labelColon', { label: t('budget.rule.pattern') })}{' '}
           <code className="font-mono">{pattern}</code>
         </p>
       )}

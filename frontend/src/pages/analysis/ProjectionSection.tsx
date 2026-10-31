@@ -12,8 +12,9 @@ import {
 } from '@/components/ui/chart'
 import { useProjection, useProjectionDateLabel } from '@/features/analysis/hooks'
 import { useMoney } from '@/hooks/use-money'
+import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
-import { cn } from '@/lib/utils'
+import { cn, formatPercent } from '@/lib/utils'
 import type { ProjectionScenario } from '@/types/api'
 
 const HORIZONS = [10, 20, 30] as const
@@ -70,7 +71,7 @@ export function ProjectionSection() {
         // The rate comes from the payload, never restated here: a label that disagrees with the
         // curve that produced it is worse than no label.
         label: t(`analysis.projection.scenarios.${s.key}`, {
-          value: s.annualPercent.toFixed(1),
+          value: formatPercent(s.annualPercent),
         }),
         color: SCENARIO_COLORS[s.key],
       },
@@ -121,7 +122,7 @@ export function ProjectionSection() {
       ...(projection.data?.scenarios ?? []).map((scenario) => ({
         key: scenario.key,
         label: t(`analysis.projection.scenarios.${scenario.key}`, {
-          value: scenario.annualPercent.toFixed(1),
+          value: formatPercent(scenario.annualPercent),
         }),
         color: SCENARIO_COLORS[scenario.key],
       })),
@@ -220,10 +221,9 @@ export function ProjectionSection() {
                 <YAxis
                   tickLine={false}
                   axisLine={false}
-                  width={70}
+                  width={MONEY_AXIS_WIDTH}
                   domain={[0, yMax]}
-                  // Ticks over decades run to seven figures; the full currency format would not fit.
-                  tickFormatter={(value: number) => money.compact(value, { maximumFractionDigits: 1 })}
+                  tickFormatter={money.tick}
                 />
                 <ChartTooltip
                   content={
