@@ -19,7 +19,7 @@ import fetcher
 import main
 import replay
 from accounts_parser import ParseError, parse_home_loan_detail
-from test_fetcher import FIXTURES, LOAN_ID, SECRET_TOKEN, TODAY, FakeCE, loan_token_provider
+from test_fetcher import ALL_IDS, FIXTURES, LOAN_ID, SECRET_TOKEN, TODAY, FakeCE, loan_token_provider
 
 HOME_TOKEN = "home-loan-access-token-secret-HHHH"
 HOME_HOST = "www.rs-ext-bad-me.bpce.fr"
@@ -116,8 +116,18 @@ class HomeLoanDetailTest(unittest.TestCase):
             parse_home_loan_detail(d)
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
+    def test_a_duration_of_fifty_years_is_accepted(self):
+        d = detail()
+        d["loan"]["contractCharacteristic"]["subscriptionDate"] = "1990-01-01"
+        d["loan"]["financialInformation"]["duration"] = 600
+
+        loan = parse_home_loan_detail(d)
+        self.assertEqual(loan["durationMonths"], 600)
+        self.assertEqual(loan["firstDueDate"], date(1992, 7, 5))
+
     def test_a_duration_above_fifty_years_is_refused(self):
         d = detail()
+        d["loan"]["contractCharacteristic"]["subscriptionDate"] = "1990-01-01"
         d["loan"]["financialInformation"]["duration"] = 601
 
         with self.assertRaises(ParseError) as caught:
@@ -165,13 +175,15 @@ class HomeLoanDetailTest(unittest.TestCase):
 
     def test_a_duration_reaching_before_year_one_is_refused(self):
         d = detail()
-        d["loan"]["financialInformation"]["duration"] = 30000
+        d["loan"]["contractCharacteristic"]["subscriptionDate"] = "0001-01-01"
+        d["loan"]["financialInformation"]["lastDuedate"] = "0040-06-05"
+        d["loan"]["financialInformation"]["duration"] = 600
 
         with self.assertRaises(ParseError) as caught:
             parse_home_loan_detail(d)
         self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
-    def test_a_duration_too_large_for_a_date_is_refused(self):
+    def test_an_extremely_large_duration_is_refused(self):
         d = detail()
         d["loan"]["financialInformation"]["duration"] = 10**30
 
@@ -300,26 +312,34 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(LOAN_ID, [a["externalId"] for a in result["accounts"]])
         self.assertTrue(result["accounts"])
 
-    async def test_an_oversized_duration_leaves_only_the_loan_unavailable(self):
-        oversized = detail()
-        oversized["loan"]["financialInformation"]["duration"] = 10**30
+    async def test_an_invalid_duration_leaves_only_the_loan_unavailable(self):
+        for duration, last_due, subscription in (
+            (10**30, "2042-06-05", "1990-01-01"),
+            (600, "0040-06-05", "0001-01-01"),
+        ):
+            with self.subTest(duration=duration):
+                invalid = detail()
+                invalid["loan"]["contractCharacteristic"]["subscriptionDate"] = subscription
+                invalid["loan"]["financialInformation"]["lastDuedate"] = last_due
+                invalid["loan"]["financialInformation"]["duration"] = duration
 
-        def answer(request: httpx.Request) -> httpx.Response:
-            if request.url.host == HOME_HOST:
-                return httpx.Response(200, json=oversized)
-            return self.ce.handle(request)
+                def answer(request: httpx.Request) -> httpx.Response:
+                    if request.url.host == HOME_HOST:
+                        return httpx.Response(200, json=invalid)
+                    return self.ce.handle(request)
 
-        result = await fetcher.fetch_import(
-            SECRET_TOKEN, transport=httpx.MockTransport(answer), today=TODAY,
-            loan_token=loan_token_provider([]), home_loan_token=self.home_token([]),
-        )
+                result = await fetcher.fetch_import(
+                    SECRET_TOKEN, transport=httpx.MockTransport(answer), today=TODAY,
+                    loan_token=loan_token_provider([]), home_loan_token=self.home_token([]),
+                )
 
-        self.assertEqual(
-            [(u["externalId"], u["code"]) for u in result["unavailable"]],
-            [(LOAN_ID, accounts_parser.INVALID_LOAN_DETAIL)],
-        )
-        self.assertNotIn(LOAN_ID, [a["externalId"] for a in result["accounts"]])
-        self.assertTrue(result["accounts"])
+                self.assertEqual(
+                    [(u["externalId"], u["code"]) for u in result["unavailable"]],
+                    [(LOAN_ID, accounts_parser.INVALID_LOAN_DETAIL)],
+                )
+                self.assertEqual(
+                    {a["externalId"] for a in result["accounts"]}, ALL_IDS - {LOAN_ID},
+                )
 
     async def test_a_home_loan_token_refused_as_expired_leaves_only_the_loan_unavailable(self):
         result = await self.fetch(

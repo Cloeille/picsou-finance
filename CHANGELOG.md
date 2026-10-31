@@ -15,7 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A property you linked the mortgage to stays linked when the loan syncs again. A loan due on
   the 31st keeps that due day in its schedule, even after a shorter month, and a detail with
   figures out of range, or amounts too large to store, leaves only that loan's details aside
-  instead of failing the import.
+  instead of failing the import. Personal and home loans accept up to 600 monthly
+  installments (50 years); longer durations are refused before calculating insurance,
+  so they cannot block the other accounts' import.
 
 - **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
   Picsou matches it to the dividend history it already holds, marks it as a dividend and files
